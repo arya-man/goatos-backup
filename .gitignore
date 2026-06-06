@@ -1,0 +1,42 @@
+# secrets
+*.env
+*.env.*
+**/service-account*.json
+**/service-account-key.json
+**/google-services.json
+**/GoogleService-Info.plist
+**/*-key.json
+
+# real data / PII / exports
+*.xlsx
+*.xls
+*.csv
+source-material/
+
+# generated / dependency noise
+node_modules/
+.next/
+dist/
+build/
+.turbo/
+coverage/
+
+# logs / local
+firebase-debug.log
+*.log
+.DS_Store
+
+# media and generated heavy artifacts
+*.mp4
+*.mov
+*.avi
+*.zip
+*.apk
+*.aab
+*.ipa
+*.parquet
+*.duckdb
+
+# local agent/render scratch
+.codex-goatos-render/
+.code-review-graph/

@@ -1,0 +1,390 @@
+# Goat OS Product Feature Phases
+
+This is the product rollout in plain Goat OS language.
+
+Engineering rails like repo setup, contracts, CI, dev/stg/prod, analytics, and
+load testing run underneath every phase. They are not the product. The product
+is the goat operating system described here.
+
+For the mapping from older planning docs and `goatos-categories.md` into these
+phases, read `context/product/goat-os-coverage-map.md`.
+
+## Workforce Operations Is Cross-Cutting
+
+This is not payroll HRMS. Goat OS needs an operations workforce engine from the
+first real workflow.
+
+It answers:
+
+```text
+Who is responsible for this goat/work today?
+Which team is on shift?
+Who is the park head/supervisor?
+Who verifies the proof?
+If the assigned operator is absent, who backfills?
+If work is overdue, who gets escalated?
+What proof shows the work was actually done?
+```
+
+This starts in Phase 2 for vaccination and becomes a full module in Phase 4.
+The same engine later assigns feeding, health follow-ups, weighing, movement,
+breeding checks, device inspections, and verification work.
+
+Backfill is not "give it to anybody." Goat OS must pick a backup by skill,
+park/shed scope, current load, and task risk. The new assignee and park head
+must both be notified. If no qualified backup exists, the task escalates to
+the park head instead of disappearing.
+
+## Phase 1: Goat Passport And Herd Registry
+
+Build the identity layer for every goat.
+
+What users get:
+
+- Every goat has one permanent Goat OS passport.
+- Old tag, RFID, visual ID, breed, age, sex, status, farm, shed, cohort, and
+  current lifecycle state are visible in one place.
+- Existing Sheet/XLSX goat records are imported.
+- Duplicate/missing/dirty tag cases go to reconciliation instead of silently
+  becoming wrong truth.
+- Admin can search a goat and see its basic timeline.
+
+Layman version:
+
+```text
+First we create the Aadhaar/passport system for goats.
+No task, vaccine, sale, breeding, or genetics data is reliable until the goat
+identity is reliable.
+```
+
+Two-dev split:
+
+```text
+Dev A builds the goat identity database, import logic, duplicate detection,
+reconciliation rules, and passport APIs.
+
+Dev B builds the admin search/profile screens, goat timeline UI, dirty-data
+review screen, and mobile goat lookup/scan UI.
+```
+
+## Phase 2: SOP Tasks And Vaccination
+
+Build the first real field workflow.
+
+What users get:
+
+- Admin creates vaccination SOP/schedule.
+- System generates due vaccination tasks.
+- Workforce/roster assigns vaccination work to operators for the week.
+- If an operator is absent, the task backfills to a qualified backup by
+  vaccinator skill, park/shed scope, and current load.
+- Backfill notifies the new assignee and park head; if no eligible backup
+  exists, it escalates instead of silently dropping the work.
+- Park head can see incomplete/overdue vaccination work by operator/team/shed.
+- Operator sees assigned tasks on Android.
+- Operator scans/selects goat, fills the form, uploads photo/video proof.
+- Park head verifies on ground.
+- Central verifier verifies proof video/photo.
+- Approved vaccination becomes canonical goat history.
+- Missed/pending tasks move forward with reason.
+
+Layman version:
+
+```text
+This replaces Slack vaccination forms with a real Goat OS task loop:
+assign -> execute -> proof -> verify -> close.
+```
+
+Two-dev split:
+
+```text
+Dev A builds SOP config, task generation, assignment, vaccination submit API,
+proof media APIs, idempotency, and verification records.
+
+Dev B builds the admin SOP/task screens, Android task list, vaccination form
+runner, camera proof capture, offline retry states, and verifier queue UI.
+```
+
+## Phase 3: Health, Treatment, Death, And Verification
+
+Build the health incident system.
+
+What users get:
+
+- Sick goat reporting.
+- Treatment records.
+- Medicine dosage and withdrawal tracking.
+- Recovery follow-ups.
+- Death/abortion records.
+- Mortality views by breed, farm, shed, age group, source batch.
+- Verification queue for high-risk events.
+
+Layman version:
+
+```text
+Anything bad happening to a goat is recorded with proof, treatment, follow-up,
+and accountability.
+```
+
+Two-dev split:
+
+```text
+Dev A builds health/treatment/death event tables, medicine/withdrawal rules,
+follow-up task generation, verification gates, and health APIs.
+
+Dev B builds sick-goat reporting forms, treatment follow-up screens, death/
+abortion proof flows, verifier review screens, and mortality dashboard views.
+```
+
+## Phase 4: Workforce, Park Operations, And Daily Control
+
+Build the operating layer for people managing goats. This is Goat OS workforce
+ops, not payroll HRMS.
+
+What users get:
+
+- Park -> head/supervisor -> team -> operator structure.
+- Role mapping: operator, feeder, vaccinator, vet, verifier, park head, admin.
+- Weekly roster and daily shift schedule.
+- Team ownership by park, shed, cohort, task type, or campaign.
+- Absence marking and automatic fallback/backfill.
+- Backfill selection by skill match, park/shed scope, current load, and task risk.
+- Notifications to the new assignee and park head when ownership changes.
+- No-eligible-backup escalation to park head instead of silent reassignment.
+- Overdue escalation based on due time even when absence was never marked.
+- Backup owner rules for each duty: feeding, vaccination, health follow-up, weighing, movement, breeding check, verification.
+- Task queues by operator, team, park head, vet, verifier.
+- Handovers when work shifts from one operator/team to another.
+- Escalations for overdue tasks by SLA and risk.
+- Operator entry log.
+- Completion, rejection, rework, and missed-task history.
+- Park-level work completion dashboard.
+
+Layman version:
+
+```text
+This tells who is responsible for which goats, who is on duty today, who covers
+if someone is absent, and which goat-care work is still pending.
+```
+
+Two-dev split:
+
+```text
+Dev A builds workforce tables, role/scope rules, roster, shifts, absence,
+skill/scope/load-aware fallback/backfill, task assignment, handover,
+notifications, no-backup escalation, and audit history.
+
+Dev B builds roster management screens, operator workload views, park-head task
+queues, absence/backfill screens, overdue/escalation views, and operator entry logs.
+```
+
+## Phase 5: Growth, Feed, Weight, And Movement
+
+Build day-to-day goat performance tracking.
+
+What users get:
+
+- Live weight history.
+- ADG/growth trend.
+- Body condition.
+- Feed plans, feed consumption, and feeding task assignment.
+- Feed conversion.
+- Daily feeding completion by operator/team/shed.
+- Shed/park movements and shifting history.
+- Overdue stage alerts like K1/K2/K3.
+
+Layman version:
+
+```text
+We start tracking whether goats are growing properly, eating properly, and
+moving through the right stages at the right time.
+```
+
+Two-dev split:
+
+```text
+Dev A builds growth/feed/movement event models, feeding task generation,
+stage rules, feed-stock linkage, device weight ingestion, and performance calculations.
+
+Dev B builds Android weight/feed/movement forms, feeding task completion UI,
+stage-overdue views, growth charts, feed dashboards, and shed/park movement UI.
+```
+
+## Phase 6: Breeding, Pregnancy, Kidding, And Genetics
+
+Build the genetics engine around family history and outcomes.
+
+What users get:
+
+- Parent stock records.
+- Mating records.
+- Pregnancy detection records.
+- Ultrasound proof/observations.
+- Delivery/kidding records.
+- Kid survival tracking.
+- Pedigree and family tree.
+- Imported embryo/semen line tracking.
+- Breeder performance score.
+- Inbreeding risk flags.
+
+Layman version:
+
+```text
+This is where Goat OS becomes serious: which bloodline produces strong kids,
+which mothers perform, which imported embryo lines are worth scaling.
+```
+
+Two-dev split:
+
+```text
+Dev A builds breeding, pregnancy, kidding, pedigree, embryo/semen line records,
+genetics scoring inputs, and inbreeding/performance rules.
+
+Dev B builds breeding forms, pregnancy/ultrasound capture screens, family-tree
+views, genetics dashboards, and breeder performance screens.
+```
+
+## Phase 7: Procurement, Inventory, And Cost
+
+Build purchase and stock control.
+
+What users get:
+
+- Goat purchase/load records.
+- Vendor/source history.
+- Landing cost per kg.
+- Feed stock.
+- Medicine/vaccine stock.
+- Batch/expiry tracking.
+- Procurement-to-herd intake reconciliation.
+
+Layman version:
+
+```text
+This tracks what came into the system, from where, at what cost, and whether it
+became real goats or usable stock.
+```
+
+Two-dev split:
+
+```text
+Dev A builds procurement, vendor/source records, intake reconciliation,
+inventory, batch/expiry, and landing-cost calculations.
+
+Dev B builds purchase/load entry screens, inventory screens, import/reconcile
+screens, cost dashboards, and stock warning views.
+```
+
+## Phase 8: Sales, Allocation, Meat Yield, And Exit
+
+Build the commerce-facing operational handoff.
+
+What users get:
+
+- Sellable goat readiness.
+- Sale/blocking policy.
+- Allocation of goat to buyer/order/occasion.
+- Dispatch/exit proof.
+- Slaughter/meat-yield feedback where applicable.
+- Meat yield data flows back to genetics performance.
+
+Layman version:
+
+```text
+When a goat leaves the farm, the system knows why, to whom, with what proof,
+and what the real output was.
+```
+
+Two-dev split:
+
+```text
+Dev A builds sellable/readiness policy, allocation APIs, exit events,
+dispatch/slaughter proof records, and meat-yield feedback into genetics.
+
+Dev B builds allocation/dispatch screens, sale-blocked reason UI, proof upload
+flows, meat-yield entry screens, and buyer/investor-safe views.
+```
+
+## Phase 9: Devices, R&D, And AI Assistance
+
+Connect hardware and AI as observations, not truth.
+
+What users get:
+
+- RFID/QR scanning.
+- Weighing scale integrations.
+- Camera booth/photo observations.
+- Ultrasound device records.
+- Collar/sensor pilots where useful.
+- AI face/identity suggestion.
+- AI proof pre-check.
+- AI age/weight/pregnancy/disease/gait/genetics models.
+- Human review gate before risky changes become truth.
+
+Layman version:
+
+```text
+Devices and AI help operators move faster, but Goat OS still validates and
+decides what becomes official goat truth.
+```
+
+Two-dev split:
+
+```text
+Dev A builds device gateway contracts, observation models, AI proposal records,
+review gates, model/version tracking, and telemetry ingestion.
+
+Dev B builds device status screens, scan/camera/scale mobile adapters,
+AI-suggestion review UI, and R&D experiment dashboards.
+```
+
+## Phase 10: Command Center, Analytics, And AI Analyst
+
+Build the control room.
+
+What users get:
+
+- CEO/admin dashboards.
+- Investor-safe dashboards.
+- Park health view.
+- Vaccination compliance.
+- Mortality analysis.
+- Feed/cost analysis.
+- Genetics performance.
+- Verification backlog.
+- Operator performance.
+- AI analyst over governed metrics only.
+
+Layman version:
+
+```text
+This is the brain/dashboard layer: what is happening, what is risky, what is
+profitable, and where action is needed.
+```
+
+Two-dev split:
+
+```text
+Dev A builds analytics event export, Cube metric definitions, BigQuery/Tinybird
+pipelines, AI analyst guardrails, and observability/alerting.
+
+Dev B rewires dashboards to analytics APIs, builds role-aware CEO/admin/investor
+views, AI analyst UI, and operational alert views.
+```
+
+## First Product Finish Line
+
+The first real Goat OS feature loop is:
+
+```text
+goat passport exists
+-> vaccination SOP creates task
+-> operator does it on Android
+-> proof is uploaded
+-> verifier approves
+-> goat passport/timeline updates
+-> dashboard shows compliance
+```
+
+After that loop works, the same engine expands to health, breeding, feed,
+growth, sales, genetics, devices, and analytics.

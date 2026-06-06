@@ -1,0 +1,5 @@
+{
+  "task": "repo-scaffold",
+  "allowed_paths": ["*"],
+  "notes": "Orchestrator should narrow this per task. Agents may read the whole tree, but writes should stay in declared scope."
+}
