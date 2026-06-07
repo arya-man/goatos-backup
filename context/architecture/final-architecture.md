@@ -140,6 +140,27 @@ Postgres stores metadata, proof reference, hash, status, and audit link.
 Raw videos expire by lifecycle/retention policy after verification/legal window.
 ```
 
+Proof and verification rules:
+
+```text
+Proof capture is a platform capability, not a per-module uploader.
+Each module declares proof policy: media type, subject, verifier, retention, and rework rules.
+Proof may attach to a goat, task, batch, load, attendance record, crop action, or exit event.
+Verification records preserve requested_by, verifier, decision, reason, media refs, and audit link.
+Rejected proof creates rework/correction; it does not silently overwrite completed work.
+```
+
+Feed supply and crop/fodder boundary:
+
+```text
+Feed availability and feed cost affect goat growth, health, and economics.
+If crop/fodder farming is inside Goat OS, model farmers, crop seasons, sowing,
+daily crop tasks, harvest, expenditure, and inventory handoff.
+If crop/fodder farming stays outside Goat OS, integrate through a clean feed
+inventory and cost intake boundary.
+Dashboards must not depend on hidden Slack/App Script crop calculations.
+```
+
 Analytics rules:
 
 ```text
@@ -148,6 +169,8 @@ Dashboards use analytics APIs/Cube/governed marts, not raw table scans.
 BigQuery tables are partitioned/clustered and guarded by max-bytes/quota rules.
 Tinybird serves hot telemetry/live views only; long-term history goes to BigQuery/GCS.
 Official metrics have one definition in Cube.
+Unit economics are governed metrics: landing cost, feed cost, medicine/treatment
+cost, mortality loss, realized margin, and cost per goat/kg/load/source.
 ```
 
 Observability rules:

@@ -35,6 +35,29 @@ park/shed scope, current load, and task risk. The new assignee and park head
 must both be notified. If no qualified backup exists, the task escalates to
 the park head instead of disappearing.
 
+## Proof, Media, And Verification Are Cross-Cutting
+
+Slack automation and the procurement mobile app already use photo/video proof in
+many places: feed, health, shifting, procurement, death, attendance, and
+verification. Goat OS should not rebuild proof upload separately for every
+module.
+
+The shared proof engine answers:
+
+```text
+What media is required for this action?
+Who must verify it?
+Is the proof attached to one goat, a batch, a task, or a load?
+Can AI pre-check it?
+When can raw video expire?
+What audit trail proves the work was accepted, rejected, or reworked?
+```
+
+Phase 2 uses this engine for vaccination proof. Phase 3 uses it for health,
+treatment, death, and abortion. Phase 4 uses it for attendance and operator
+entry logs. Phase 7 uses it for procurement load, transit, and arrival proof.
+Phase 8 uses it for dispatch/exit proof.
+
 ## Phase 1: Goat Passport And Herd Registry
 
 Build the identity layer for every goat.
@@ -164,7 +187,7 @@ What users get:
 - Task queues by operator, team, park head, vet, verifier.
 - Handovers when work shifts from one operator/team to another.
 - Escalations for overdue tasks by SLA and risk.
-- Operator entry log.
+- Operator entry log and attendance/check-in proof where required.
 - Completion, rejection, rework, and missed-task history.
 - Park-level work completion dashboard.
 - Current operating roles supported: vertical head, assistant manager, health
@@ -199,6 +222,7 @@ What users get:
 - Body condition.
 - Feed plans, feed consumption, and feeding task assignment.
 - Feed conversion.
+- Feed supply linkage to inventory, procurement, and crop/fodder outputs.
 - Daily feeding completion by operator/team/shed.
 - Shed/park movements and shifting history.
 - Shifting request/direction authorization flow.
@@ -225,6 +249,48 @@ and performance calculations.
 
 Dev B builds Android weight/feed/movement forms, feeding task completion UI,
 stage-overdue views, growth charts, feed dashboards, and shed/park movement UI.
+```
+
+## Phase 5B: Crop, Fodder, Farmer Network, And Feed Supply
+
+Build the crop/fodder operating layer if Goat OS owns feed production and farmer
+coordination. Legacy Slack automation already has farmer onboarding, crop
+planning, sowing, daily crop tasks, harvest capture, and crop expenditure. This
+must not be invisible just because the first goat loop is vaccination.
+
+What users get:
+
+- Farmer/source records for crop and fodder production.
+- Crop season planning.
+- Seed/sowing records.
+- Daily crop/fodder tasks and proof.
+- Crop status, harvest, wastage, and expenditure.
+- Feed-stock handoff into inventory.
+- Cost linkage from crop/fodder production into feed cost and goat economics.
+
+In short:
+
+```text
+If the farm grows or coordinates fodder/feed through farmers, Goat OS tracks
+that supply chain instead of treating feed as magic stock appearing in inventory.
+```
+
+Boundary rule:
+
+```text
+If crop/fodder farming stays outside Goat OS, keep a clear integration boundary:
+external crop system -> feed inventory intake -> feed cost metrics.
+Do not let dashboards depend on hidden Slack/App Script crop data forever.
+```
+
+Two-dev split:
+
+```text
+Dev A builds crop/farmer/source records, crop task/event models, harvest and
+expenditure capture, and inventory handoff.
+
+Dev B builds farmer/crop admin screens, crop task/proof screens, harvest entry,
+and feed-supply dashboard views.
 ```
 
 ## Phase 6: Breeding, Pregnancy, Kidding, And Genetics
@@ -278,7 +344,14 @@ What users get:
   dispatch to main parks.
 - Advance-paid / shared-pending ownership state until settlement/intake evidence
   makes ownership clear.
+- Transport/transit plan, handoff proof, and route/event history.
+- Arrival gate at core farm: count, identity, health, weight, media proof, and
+  discrepancy review before goats become clean herd records.
+- Holding-farm warmup and arrival/warmup state.
+- Intake quarantine/health SOP where required.
 - Landing cost per kg.
+- Load-level economics: purchase, transport, holding, mortality/shrinkage,
+  intake discrepancy, and realized cost per accepted goat/kg.
 - Feed stock.
 - Medicine/vaccine stock.
 - Batch/expiry tracking.
@@ -295,10 +368,11 @@ Two-dev split:
 
 ```text
 Dev A builds procurement, vendor/source/holding-farm records, advance/payment
-state, intake reconciliation, inventory, batch/expiry, and landing-cost calculations.
+state, transit/arrival gates, discrepancy review, intake reconciliation,
+inventory, batch/expiry, and landing-cost calculations.
 
 Dev B builds purchase/load entry screens, inventory screens, import/reconcile
-screens, cost dashboards, and stock warning views.
+screens, transit/arrival proof screens, cost dashboards, and stock warning views.
 ```
 
 ## Phase 8: Sales, Allocation, Meat Yield, And Exit
@@ -379,6 +453,8 @@ What users get:
 - Vaccination compliance.
 - Mortality analysis.
 - Feed/cost analysis.
+- Unit economics: landing cost, feed cost, health/treatment cost, mortality
+  loss, realized margin, and cost per kg/goat/load/source.
 - Genetics performance.
 - Verification backlog.
 - Operator performance.

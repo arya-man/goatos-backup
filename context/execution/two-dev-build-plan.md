@@ -370,7 +370,7 @@ Developer A:
 ```text
 implement workforce tables: worker, role, team, park/shed scope, supervisor/park-head links
 implement shift templates and daily shift instances
-implement attendance/absence records
+implement attendance/absence records with optional photo/video proof policy
 implement fallback/backfill rules by park/team/task_type/shed/cohort
 select backup by skill match, scope match, current load, and task risk
 notify assignee and park head on backfill
@@ -387,7 +387,7 @@ Developer B:
 ```text
 build roster management screens
 build shift calendar/list views
-build absence marking and backfill UI
+build attendance/check-in, absence marking, and backfill UI
 build operator workload view
 build park-head control view by team/shed/task type
 build overdue/escalation views
@@ -452,6 +452,8 @@ Tinybird hot telemetry path
 GCS raw archive path
 dbt transforms/tests
 Cube metrics
+unit-economics metrics: landing cost, feed cost, health/treatment cost,
+mortality loss, realized margin, cost per goat/kg/load/source
 observability on outbox/PubSub/BQ/Tinybird lag
 ```
 

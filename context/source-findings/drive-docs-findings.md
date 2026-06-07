@@ -287,6 +287,89 @@ inter-city movement prefers bus parcel where routes exist, else courier
 park-to-city and city-to-park handoffs depend on local pickup points and heads
 ```
 
+The legacy procurement app and dashboards also show that procurement is more
+than "create a goat row." It includes load creation, role-gated load management,
+video upload/offline queue behavior, purchase cost, transport cost, landing
+cost per kg, source/vendor comparison, and load-level sale comparison.
+
+Goat OS implication:
+
+```text
+procurement load -> holding farm/source context -> transit/handoff proof
+-> arrival gate -> discrepancy review -> accepted herd intake
+-> inventory/cost/analytics
+```
+
+Do not skip the arrival gate. A purchased load should not become clean canonical
+herd truth until count, identity, health, weight, media proof, and source/cost
+evidence are reconciled.
+
+### Crop / Fodder / Farmer Network
+
+Legacy code contains a crop/fodder workflow family, not just goat-care forms.
+
+Evidence:
+
+```text
+slack-automation-scripts/farmer_crops_automation.js
+  farmer lookup and onboarding
+  crop and seed details
+  sowing records
+  daily farmer/crop tasks
+  crop status updates
+  harvest fields
+  crop expenditure
+  proof/action workflow patterns
+
+dashboard and vgoats-dashboard
+  crop season / feed season data
+  feed dashboards that depend on season/cost context
+```
+
+Goat OS implication:
+
+```text
+If Goat OS owns feed production or farmer coordination, add a crop/fodder module.
+If crop/fodder stays outside Goat OS, define an explicit integration boundary
+that feeds inventory and cost metrics.
+```
+
+This is not part of the first vaccination loop, but it is real scope for a full
+farm operating system because feed availability and feed cost drive goat growth,
+mortality, and unit economics.
+
+### Cross-Cutting Proof / Verification
+
+Legacy workflows repeatedly use proof media:
+
+```text
+procurement_app
+  mobile video recorder and upload queue
+
+feed_automation.js
+  feed proof videos, transport proof, discrepancy handling
+
+health_manager_attendance.js
+  attendance/check-in media and assignment evidence
+
+farmer_crops_automation.js
+  crop/farmer action proof
+
+procurement_db.js
+  procurement response thread and video proof write-back
+
+video_verification_system.js
+  feed/video verification, stock/packing checks, rejection lists
+```
+
+Goat OS implication:
+
+```text
+Build proof capture, media metadata, verification routing, rejection/rework,
+retention, and audit once as a platform capability.
+Each module configures the proof policy; no module owns a one-off uploader.
+```
+
 ## Build Implications
 
 ```text
@@ -308,15 +391,25 @@ Phase 5:
   movement/shifting and feed are tightly linked; shifting due rules exist because
   feed packing depends on the next day's shed counts.
 
+Phase 5B:
+  crop/fodder/farmer workflows are real legacy scope. Either build them as a
+  module or define a clean external integration into feed inventory and feed cost.
+
 Phase 6:
   birth/kidding is a real workflow with sequential proof-gated actions and
   colostrum scheduling.
 
 Phase 7:
-  procurement should model holding farms, vendor/source, advance-paid shared
-  ownership state, intake health SOP, and landing cost.
+  procurement should model holding farms, vendor/source, advance-paid/shared
+  ownership state, transit/handoff proof, arrival gate, discrepancy review,
+  intake health SOP, and landing cost.
 
 Phase 8:
   sale/allocation blocking should use health, quarantine, milk-drinking kid
   stage, and later medication withdrawal rules.
+
+Phase 10:
+  analytics should include unit economics as governed metrics: landing cost,
+  feed cost, health/treatment cost, mortality loss, realized margin, and cost
+  per goat/kg/load/source. Do not leave these as per-dashboard formulas.
 ```
