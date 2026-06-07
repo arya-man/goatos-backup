@@ -725,7 +725,7 @@ Admin sees:
   missing-identifier queue
 ```
 
-## Phase 1 Business Decisions Required Before Build
+## Phase 1 Decision Gate Before Migrations
 
 These decisions shape schema, import policy, and review rules. Contracts and
 read-only discovery can start immediately. Migrations, import seeds, identifier
@@ -737,7 +737,7 @@ and propose options, but it must not choose defaults on its own. If any required
 decision is unknown, stop and ask before writing migrations or canonical import
 logic.
 
-Before asking business owner to answer from memory, the implementation agent must run a
+Before asking a human owner to answer from memory, the implementation agent must run a
 read-only legacy discovery pass over the current artifacts:
 
 ```text
@@ -758,7 +758,7 @@ SOP/form inventory found in Slack/App Script
 open policy decisions that cannot be derived from artifacts
 ```
 
-business owner confirms or corrects the proposal. Raw private goat data and PII stay out
+A human owner confirms or corrects the proposal. Raw private goat data and PII stay out
 of git; committed proposal docs may include aggregate counts, source paths,
 column names, and anonymized examples only.
 
@@ -797,6 +797,9 @@ merge approval authority
 
 first migration source
   file/source name, owner, date, and column dictionary
+
+first migration scope
+  RFID-linked registry only | include event-log/tagless population as temporary identities
 ```
 
 Pre-migration lock list:
@@ -811,13 +814,14 @@ temporary identity minimum evidence
 source stable-key recipe
 source hash/diff recipe
 first import policy version
+first import scope
 ```
 
 ## Review Questions
 
 These need business confirmation before migrations/import logic. The discovery
-proposal should be reviewed first so business owner is confirming evidence-backed options,
-not answering from memory.
+proposal should be reviewed first so the human owner is confirming
+evidence-backed options, not answering from memory.
 
 ```text
 Which field is currently treated as the primary old tag?

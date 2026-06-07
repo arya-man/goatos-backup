@@ -2,18 +2,18 @@
 
 Read first:
 
-- `<mesha-workspace>/goatos/context/README.md`
-- `<mesha-workspace>/goatos/SKILLS.md`
-- `<mesha-workspace>/goatos/.agents/skills/goatos-build/SKILL.md`
-- `<mesha-workspace>/goatos/context/architecture/final-architecture.md`
-- `<mesha-workspace>/goatos/context/frontend/final-frontend-mobile-backend-architecture.md`
-- `<mesha-workspace>/goatos/context/forms/final-forms-sop-engine.md`
-- `<mesha-workspace>/goatos/context/analytics/final-analytics-infra.md`
-- `<mesha-workspace>/goatos/context/agents/ai-agent-context-and-protocols.md`
+- `context/README.md`
+- `SKILLS.md`
+- `.agents/skills/goatos-build/SKILL.md`
+- `context/architecture/final-architecture.md`
+- `context/frontend/final-frontend-mobile-backend-architecture.md`
+- `context/forms/final-forms-sop-engine.md`
+- `context/analytics/final-analytics-infra.md`
+- `context/agents/ai-agent-context-and-protocols.md`
 
 Ignore unless explicitly asked for historical archaeology:
 
-- `<mesha-workspace>/goatos/docs/archive/planning-history/`
+- `docs/archive/planning-history/`
 
 Purpose:
 
@@ -30,8 +30,8 @@ Current repos:
 
 Do:
 
-- Keep architecture facts in `<mesha-workspace>/goatos/context`.
-- Use `<mesha-workspace>/goatos/.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
+- Keep architecture facts in `context/`.
+- Use `.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.
 - Use JSON Schema for form DSL and event payload contracts.

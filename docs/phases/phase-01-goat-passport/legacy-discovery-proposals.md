@@ -1,6 +1,6 @@
 # Phase 1 Legacy Discovery Proposals
 
-Status: derived proposal for business owner review.
+Status: derived proposal for business-owner review.
 
 This file is the read-only discovery output for Phase 1. It does not contain
 raw goat rows, raw Slack payloads, tokens, media URLs, or private sheet data.
@@ -11,7 +11,7 @@ that still need human approval before migrations/import logic.
 
 We can start Phase 1 contract work now. We should not write final database
 migrations, import seeds, identifier policies, or canonical import logic until
-business owner confirms the few business decisions at the end of this file.
+the business owner confirms the few policy decisions at the end of this file.
 
 The legacy data is not one clean goat table:
 
@@ -89,6 +89,14 @@ Rows in duplicate Goat IDs:   11,195
 Conclusion: `Goat ID` in this sheet is not safe as global `goat_id`. Treat it
 as a legacy identifier/source value with scope and evidence.
 
+Additional cross-farm evidence:
+
+```text
+DB Goat ID values spanning more than one farm: 583
+```
+
+Conclusion: legacy numeric goat/tag values must not be globally unique.
+
 ### `private herd workbook` ` RFID DB`
 
 Purpose observed: best RFID/old-tag mapping source found so far.
@@ -123,9 +131,18 @@ Rows in duplicate RFID values:   4
 ```
 
 Conclusion: RFID should be globally unique as a policy, but the current data
-already has conflicts. Conflicts must go to review, not silent linking.
+already has conflicts. One duplicate is a full RFID-looking value; another is
+a short value in the RFID field and should be handled by format validation.
+Conflicts must go to review, not silent linking.
 
-Old tags are not proven globally unique. They must be scoped.
+Old tags are not globally unique. Normalized old tags appear in both CBE and
+CPT.
+
+```text
+Old Tag ID values spanning more than one farm in RFID DB: 54
+```
+
+They must be farm-scoped.
 
 ### Dashboard CSVs
 
@@ -215,7 +232,7 @@ Reason: legacy `Goat ID` and `Old Tag ID` are not clean unique primary keys.
 Proposal: keep `display_id` separate from immutable `goat_id`. Generate it
 server-side after the first import policy is approved.
 
-Still needs business owner approval:
+Still needs business approval:
 
 ```text
 display_id format:
@@ -230,6 +247,7 @@ Proposal:
 active RFID scope: global
 auto-link: only if no conflict exists
 conflict: any duplicate active RFID opens RFID conflict review
+format validation: reject or review non-RFID-looking values stored in the RFID field
 ```
 
 Reason: RFID should behave globally unique in the future, but current data has
@@ -240,18 +258,27 @@ a small number of duplicate RFID values.
 Proposal:
 
 ```text
-old tag scope: source_system + farm
+old tag scope: farm
 auto-link: only within the approved scope and only when supporting evidence agrees
 conflict: duplicate old tag in same scope goes to review
 unknown scope: review, never silently global
 ```
 
-Reason: old tags have many duplicates and are not proven globally unique.
+Reason: old tags are proven to repeat across farms. Global old-tag uniqueness
+would merge real goats incorrectly.
+
+Source-system and load/source should stay as evidence columns, but they should
+not replace farm as the first identity scope unless business rules later prove
+farm is too broad.
 
 ## Lifecycle / Status / Cohort Proposal
 
 Current values blend lifecycle, breeding status, growth class, health overlay,
-and operating cohort. Do not force all of them into one `lifecycle_status`.
+sex-specific fattening class, and operating cohort. `Shed Tag` / `Dst Shed Tag`
+is not an identifier field. Do not import `Shed Tag` as `old_tag` or any goat
+identity value.
+
+Do not force all of these values into one `lifecycle_status`.
 
 Observed high-volume labels include:
 
@@ -280,12 +307,20 @@ health_overlay
 Reason: dashboard/status labels are operationally useful, but they are not one
 clean lifecycle enum.
 
-Still needs business owner/ops approval:
+Still needs business/ops approval:
 
 ```text
 whether K0/K1/K2/K3/F2/M0/F0 are official growth classes, shed tags, or both
 official canonical labels for UI/reporting
 which labels are allowed to block sale or trigger SOPs
+```
+
+Normalizer rule for identifiers:
+
+```text
+strip numeric .0 suffixes
+collapse No Tag / No tag / none / blank into missing_identifier
+do not treat missing_identifier as a shared goat identity
 ```
 
 ## Owning Farm / Location Proposal
@@ -319,9 +354,10 @@ location precedence for first import:
   dashboard CSV only for aggregate reconciliation
 ```
 
-Still needs business owner approval:
+Still needs business approval:
 
 ```text
+is Origin Farm the stable owning farm, the source/vendor farm, or both by case?
 is Holding Farm an owning farm, a procurement staging bucket, or vendor/source context?
 for conflicts, should RFID DB current shed outrank latest DB event current shed?
 ```
@@ -413,7 +449,8 @@ hardcoded procurement-only roles
 
 ## Decisions That Are Evidence-Backed Enough To Propose
 
-These should be approved/corrected by business owner, not rediscovered from scratch:
+These should be approved/corrected by the business owner, not rediscovered from
+scratch:
 
 ```text
 1. DB Goat ID is not globally unique canonical identity.
@@ -422,8 +459,10 @@ These should be approved/corrected by business owner, not rediscovered from scra
 2. RFID should be globally unique going forward.
    Proposal: conflicts open review; no silent overwrite.
 
-3. Old tags are not globally unique enough.
-   Proposal: scope by source_system + farm initially.
+3. Old tags are farm-scoped, not globally unique.
+   Evidence: 54 normalized Old Tag IDs span CBE and CPT in RFID DB;
+   583 DB Goat ID values span more than one farm.
+   Proposal: scope old_tag by farm.
 
 4. Dashboard CSV is reporting output, not canonical import source.
    Proposal: use for reconciliation only.
@@ -435,7 +474,7 @@ These should be approved/corrected by business owner, not rediscovered from scra
    Proposal: use it as first identity mapping sample, then reconcile against DB + dashboards.
 ```
 
-## Decisions Still Needed From business owner
+## Decisions Still Needed From Business Owner
 
 These cannot be safely derived from the files alone:
 
@@ -448,11 +487,12 @@ These cannot be safely derived from the files alone:
    Choose the human-readable format operators/admins will see.
 
 3. Old tag scope
-   Approve proposal: source_system + farm.
+   Approve proposal: farm.
    If old tag reuse happens by load/vendor instead, say that now.
 
-4. Holding Farm / HF meaning
-   Is it an owning farm, procurement staging, vendor/source context, or all of these by case?
+4. Origin Farm and Holding Farm / HF meaning
+   Is Origin Farm the stable owner, source/vendor origin, or both by case?
+   Is Holding Farm an owning farm, procurement staging, vendor/source context, or all of these by case?
 
 5. Merge approval authority
    Proposal: central admin can approve merges; park head can request/recommend.
@@ -466,6 +506,10 @@ These cannot be safely derived from the files alone:
 
 8. Status model
    Approve keeping lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
+
+9. First-import scope
+   Seed only the RFID DB goats first, or also mint temporary identities from
+   the larger DB event population in the first import?
 ```
 
 ## Phase 1 Start Decision
@@ -474,7 +518,7 @@ These cannot be safely derived from the files alone:
 Contracts can start now.
 
 Migrations, import seeds, identifier policies, and canonical import logic should
-wait until business owner confirms the decision list above.
+wait until the business owner confirms the decision list above.
 ```
 
 This is not a blocker to Phase 1. It is the first Phase 1 step before the build

@@ -1927,7 +1927,7 @@ do not commit raw XLSX rows, raw Slack payloads, PII, tokens, or media URLs
 commit only derived proposals, aggregate counts, source paths, column names,
 anonymized examples, and confidence notes if a proposal doc is created
 state dataset coverage; never claim global uniqueness from a partial snapshot
-agent may propose, business owner must confirm before migrations/seeds/import logic
+agent may propose, a human owner must confirm before migrations/seeds/import logic
 ```
 
 ```text
@@ -1941,6 +1941,7 @@ temporary identity minimum: source row/load + owning farm/staging farm + current
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import
+first_import_scope: RFID-linked registry only, or RFID registry plus event-log/tagless temporary identities
 ```
 
 ## Implementation Order
