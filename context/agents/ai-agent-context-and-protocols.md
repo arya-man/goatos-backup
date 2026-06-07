@@ -91,7 +91,10 @@ occurred_at
 recorded_at
 idempotency_key
 actor
-farm_scope
+subject_type
+subject_id
+visibility_scope
+evidence_refs[]
 payload
 schema_ref
 trace_id

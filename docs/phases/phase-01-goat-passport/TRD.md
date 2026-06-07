@@ -380,6 +380,10 @@ goat_id never changes
 display_id is human-facing only; default format is G-000001 style global numeric code
 display_id is server-generated, immutable, searchable, and separate from goat_id
 display_id must not encode current farm/location because goats can move
+display_id comes from a transactional DB sequence/allocator, never count(*) or max(display_id)+1
+display_id gaps are allowed; never recycle a display_id
+idempotent replay of the same source mutation returns the same goat_id/display_id
+display_id allocation must be safe under parallel import workers and chunked imports
 tenant_id is the isolation/RLS scope and does not change during normal movement
 custodian_party_id is the current operationally responsible party, not economic ownership
 farm_id/park_id/shed_id/cohort_id are current placement caches for fast scoped reads
@@ -498,6 +502,10 @@ Visual tags are not globally unique by default. If the business later confirms a
 visual tag uniqueness rule, it must be added as an explicit identifier policy,
 not inferred from the generic identifier table.
 
+RFID values must pass the configured format validator before they occupy global
+RFID uniqueness. Invalid or suspicious values route to review/reject according
+to `invalid_value_action`; they must not silently block a real future RFID.
+
 ### `identifier_policies`
 
 Versioned rules for each identifier type. Import, admin APIs, and mobile lookup
@@ -513,7 +521,10 @@ active_uniqueness text not null
 auto_link_allowed boolean not null
 primary_allowed boolean not null
 unknown_scope_action text not null
+missing_or_conflicting_scope_action text not null
 normalizer_version text not null
+format_validator_version text null
+invalid_value_action text not null
 created_at timestamptz not null
 approved_by uuid null
 ```
@@ -523,7 +534,9 @@ Constraints:
 ```text
 primary key(policy_version, identifier_type)
 unknown_scope_action in ('review', 'reject')
+missing_or_conflicting_scope_action in ('review', 'reject')
 active_uniqueness in ('global', 'scoped', 'non_unique')
+invalid_value_action in ('review', 'reject')
 ```
 
 Phase 1 defaults:
@@ -533,20 +546,36 @@ rfid:
   active_uniqueness = global
   default_scope_type = global
   auto_link_allowed = true only for trusted device/admin paths
+  unknown_scope_action = review
+  missing_or_conflicting_scope_action = review
+  format_validator_version = rfid_v1
+  invalid_value_action = review
 
 old_tag:
   active_uniqueness = scoped
-  default_scope_type = unknown until business locks farm/park/load/source rule
+  default_scope_type = farm
+  scope_required = true
   unknown_scope_action = review
+  missing_or_conflicting_scope_action = review
+  format_validator_version = none
+  invalid_value_action = review
 
 visual_tag:
   active_uniqueness = non_unique unless business locks a stricter rule
   auto_link_allowed = false by default
+  unknown_scope_action = review
+  missing_or_conflicting_scope_action = review
+  format_validator_version = none
+  invalid_value_action = review
 
 sheet_row_id:
   active_uniqueness = scoped
   default_scope_type = source_system
   auto_link_allowed = false unless paired with a stable source-key policy
+  unknown_scope_action = review
+  missing_or_conflicting_scope_action = review
+  format_validator_version = none
+  invalid_value_action = review
 ```
 
 Policy lifecycle:
@@ -1760,7 +1789,16 @@ recorded_at
 producer
 idempotency_key
 actor
-farm_scope
+subject_type
+subject_id
+visibility_scope:
+  tenant_id
+  custodian_party_id null
+  farm_id null
+  park_id null
+  shed_id null
+  cohort_id null
+evidence_refs[]
 payload
 trace_id
 ```
@@ -2010,6 +2048,7 @@ Unit tests:
 
 ```text
 identifier normalization
+identifier format validation
 identifier policy lookup/enforcement
 import policy immutability and source-key recipe validation
 match scoring
@@ -2033,6 +2072,7 @@ Integration tests:
 import clean row -> goat + identifiers + event
 duplicate old tag -> conflict
 RFID already linked -> conflict
+invalid RFID format -> review/reject before occupying global RFID uniqueness
 approve candidate -> identifier link / merge path
 reject candidate -> no canonical mutation
 same source row in a new import run -> no duplicate goat/event
@@ -2094,9 +2134,11 @@ dashboard count endpoint under load
 RBAC-filtered search under load
 ```
 
-## Migration Inputs Needed
+## Inputs Needed Before Migrations And Canonical Import Logic
 
-Before implementation:
+Contracts can start now using the locked Phase 1 shape. The items below block
+Postgres migrations, import seeds, identifier/import policy seeds, and canonical
+import logic only.
 
 ```text
 sample XLSX/Sheet export
@@ -2147,9 +2189,11 @@ Required proposal outputs:
 
 ```text
 old_tag uniqueness:
-  group normalized old tags by source, farm, load/source if present, and count
+  farm-scoped uniqueness is locked for Phase 1. Group normalized old tags by
+  source, farm, load/source if present, and count
   distinct candidate goats/rows. Show duplicate examples as anonymized source
-  refs, not raw private rows.
+  refs, not raw private rows. Identify which source column should populate the
+  farm scope, and route missing/conflicting farm values to review.
 
 status vocabulary:
   extract distinct statuses from XLSX/CSVs/dashboard display code. Propose
@@ -2196,7 +2240,9 @@ tenant/party/custody mapping: each canonical goat row must map to a tenant,
 owner_party_id, and custodian_party_id; source rows that cannot be safely
 mapped remain in staging/review
 geo/location mapping: locations include country, state_region, district, pincode, lat, lng, timezone where known
-old_tag scope policy: one of global | farm | park | purchase_load | source_system | unknown-to-review
+old_tag scope policy: locked farm-scoped for Phase 1; ops input is only which
+source column populates farm scope and how missing/conflicting farm values route
+to review
 identifier policies per type: uniqueness scope, auto-link allowed?, primary allowed?
 identifier_policy_version: immutable once first import/mutation uses it
 temporary identity minimum: field-created temp requires photo/proof; import-created temp requires source row evidence; both require current/unknown location and review state
@@ -2232,7 +2278,8 @@ first_import_scope: RFID-linked registry only, or RFID registry plus event-log/t
 ```text
 Should location hierarchy be imported before goats or created during import?
 What is the first approved source file for migration testing?
-Can custodian_party_id differ from current physical farm/location, and who can see the goat if that happens?
+Locked: custodian_party_id may differ from current physical farm/location.
+Open ops/policy question: when custody and placement differ, which roles/scopes can view or mutate the goat?
 What default geo values should be used for CBE, CPT, and Holding Farm rows when source files omit pincode/coordinates?
 ```
 

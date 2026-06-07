@@ -297,10 +297,10 @@ lifecycle_status
 reproductive_status
   pregnant, non_pregnant, mother, milking, buck, warmup, unknown
 
-growth_class / cohort_tag
+growth_cohort_tag
   K0, K1, K2, K3, M0, F0, F2-Male, F2-Female, unknown
 
-health_overlay
+health_status
   ICU, ICU-Kid, ICU-Non-Pregnant, quarantine, none/unknown
 ```
 
