@@ -324,7 +324,8 @@ Still needs business/ops approval:
 ```text
 official canonical labels for UI/reporting
 whether F0 is still used and what it means
-which labels are allowed to block sale or trigger SOPs
+which labels block sale/allocation
+which non-health status/stage changes should create tasks
 ```
 
 Normalizer rule for identifiers:
@@ -430,6 +431,46 @@ farmer_crops_automation.js / farming_unified_val_town.ts
 
 history_Automation.js
   goat history PDF/report generation from BigQuery and Slack
+```
+
+Health follow-up behavior already found in legacy:
+
+```text
+health_db_automation.js uses these sheets:
+  DB, Diagnosis Form, Problem, Follow Up, Adults SOP, Kids SOP
+
+diagnosis/health forms:
+  abnormal symptoms create a Diagnosis Report and request video in Slack
+  goat_status is captured/displayed, but it is not the main task trigger
+  for female goats, mother/pregnant/lactating status controls lactation fields
+
+problem creation:
+  diagnosis or abnormal follow-up creates a Problem row
+  problem is marked Open and linked to goat_id, diagnosis/follow-up evidence,
+  farm, age group, assignee, due date, and Slack message
+
+treatment/follow-up schedule:
+  Adults SOP / Kids SOP drive the plan by disease, adult/kid age group,
+  day number, and session such as Morning/Afternoon/Evening
+  generated rows include treatment/action/medicine/follow-up style work
+
+follow-up completion:
+  when a follow-up form is submitted for the goat/date, matching Scheduled
+  Follow Up rows are marked Completed
+
+problem extension:
+  unresolved/extended open problems can create a later extension problem
+  rather than silently disappearing
+```
+
+Meaning for Goat OS:
+
+```text
+health diagnosis follow-up rules are legacy-derived enough for later Health/SOP phases
+we do not need ops to explain the basic health follow-up engine again
+the remaining ops question is different:
+  which non-health status/stage labels should create routine tasks
+  outside diagnosis/treatment, such as K-stage, M0, Warmup, or fattening follow-ups
 ```
 
 Implication for Goat OS:
@@ -597,8 +638,16 @@ Important for this discovery:
    Mother, Milking, Buck, F2-Male, F2-Female, ICU, ICU-Non-Pregnant,
    Quarantine kids, and others.
    Known from ops: K0/K1/K2/K3/M0/F2/Warmup meanings are captured above.
-   Need ops meaning: which labels are official, which block sale/allocation,
-   and which trigger SOP follow-up?
+   Known from legacy code: health diagnosis/follow-up tasks are driven by
+   Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. They are
+   disease, age-group, day, and session based. They are not primarily driven
+   by status labels like K0/K1/K2/Pregnant.
+   Need ops meaning:
+     which labels are official reporting labels versus old/dirty labels
+     which labels block sale/allocation
+     which non-health status/stage changes should automatically create routine tasks
+       for example K-stage movement, M0 mother checks, Warmup checks, or fattening follow-ups
+     whether F0 is still used and what it means
 
 2. Geo details
    Current legacy state: CBE is Coimbatore and CPT is Channapatna. HF values are

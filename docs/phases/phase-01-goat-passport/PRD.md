@@ -793,7 +793,9 @@ tenant / party / custody / location
 
 status structure
   lifecycle, reproductive status, growth/cohort tag, and health status are separate axes
-  label semantics for sale-blocking and SOP-trigger rules still need ops confirmation
+  health diagnosis follow-up rules are legacy-derived from Slack/App Script
+  label semantics for sale-blocking and non-health status/stage task triggers
+  still need ops confirmation
 
 merge approval authority
   central admin approves and assigns approval roles; farm admin can approve only when granted
@@ -933,7 +935,9 @@ Current legacy state: labels include `K0/K1/K2/K3`, `Pregnant`, `Non-Pregnant`, 
 
 Known from ops: K0/K1/K2/K3/M0/F2/Warmup meanings are captured in the glossary.
 
-Need ops meaning: which labels are official for reporting, which labels block sale/allocation, and which labels should trigger SOP follow-up?
+Known from legacy code: health diagnosis and follow-up tasks are driven by Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. That flow is disease, adult/kid age group, day, and session based. It is not mainly driven by status labels like K0/K1/K2/Pregnant.
+
+Need ops meaning: which labels are official for reporting, which labels block sale/allocation, and which non-health status/stage changes should automatically create routine tasks such as K-stage movement, M0 mother checks, Warmup checks, or fattening follow-ups?
 
 **Geo details**
 

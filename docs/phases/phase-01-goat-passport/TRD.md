@@ -2220,8 +2220,10 @@ status vocabulary:
   extract distinct statuses from XLSX/CSVs/dashboard display code. Propose
   mapping into separate lifecycle_status, reproductive_status, growth_cohort_tag,
   and health_status axes. Flag official labels, sale-blocking labels, and
-  SOP-trigger labels for ops confirmation. Known K0/K1/K2/K3/M0/F2/Warmup
-  meanings live in context/product/glossary.md.
+  non-health status/stage task triggers for ops confirmation. Health diagnosis
+  follow-up behavior is legacy-derived from Diagnosis Form, Problem, Follow Up,
+  Adults SOP, and Kids SOP. Known K0/K1/K2/K3/M0/F2/Warmup meanings live in
+  context/product/glossary.md.
 
 tenant/party/custody/location mapping:
   identify columns/code paths for farm, park, shed, shed_tag, load, source, CBE,
@@ -2243,8 +2245,9 @@ SOP/form inventory:
 
 policy-only decisions:
   list decisions not derivable from data, such as first-import scope,
-  sale/allocation blocking labels, SOP-trigger labels, official geo details,
-  and whether HF partners become external party/location records in Phase 1.
+  sale/allocation blocking labels, non-health status/stage task triggers,
+  official geo details, and whether HF partners become external party/location
+  records in Phase 1.
 ```
 
 Discovery output rules:
@@ -2271,7 +2274,7 @@ identifier policies per type: uniqueness scope, auto-link allowed?, primary allo
 identifier_policy_version: immutable once first import/mutation uses it
 temporary identity minimum: field-created temp requires photo/proof; import-created temp requires source row evidence; both require current/unknown location and review state
 status structure: lifecycle_status, reproductive_status, growth_cohort_tag, and health_status are separate axes
-status semantics: official labels, sale-blocking labels, and SOP-trigger labels require ops confirmation
+status semantics: official labels, sale-blocking labels, and non-health status/stage task triggers require ops confirmation
 site-code meanings: CBE = Coimbatore, CPT = Channapatna, HF = Holding Farm, Origin Farm = source/origin evidence
 location conflict rule: RFID DB and latest DB event should match; disagreements route to reconciliation/review
 source_row_key recipe: stable source ID, never spreadsheet row position
