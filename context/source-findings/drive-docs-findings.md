@@ -1,22 +1,22 @@
 # Drive Source Findings
 
-Derived from the private Drive/export source material under private source material
-and private source material. This document is the committed source summary.
-Do not commit the raw Drive files or raw contact details; keep them as private
-source material.
+Derived from private Drive/export source material reviewed locally. This
+document records only sanitized findings needed for Goat OS planning. Do not
+commit raw Drive files, raw chat exports, screenshots, contact details, media
+URLs, or machine-local paths.
 
-## Source Files Reviewed
+## Source Material Reviewed
 
 ```text
-General/Goat Passport Q&A.docx
-General/Goats and Parks.docx
-General/Goat Health Symptoms.docx
-General/Slack Modules Training.pdf
-General/Buying and Transporting.docx
-Slack/Health Reports.docx
-Slack/Birth Reports.docx
-Slack/Shifting Reports.docx
-Slack/Death Reports.docx
+Goat Passport Q&A
+Goats and Parks
+Goat Health Symptoms
+Slack Modules Training
+Buying and Transporting
+Health Reports
+Birth Reports
+Shifting Reports
+Death Reports
 ```
 
 ## Phase 1 Goat Passport Answers

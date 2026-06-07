@@ -36,6 +36,11 @@ firebase-debug.log
 *.ipa
 *.parquet
 *.duckdb
+screenshots/
+Screenshots/
+**/Screenshot *.png
+**/Screenshot *.jpg
+**/Screenshot *.jpeg
 
 # local agent/render scratch
 .codex-goatos-render/
