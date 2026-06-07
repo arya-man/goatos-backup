@@ -323,7 +323,7 @@ collapse No Tag / No tag / none / blank into missing_identifier
 do not treat missing_identifier as a shared goat identity
 ```
 
-## Owning Farm / Location Proposal
+## Ownership / Custody / Location Proposal
 
 Observed farm values:
 
