@@ -397,6 +397,7 @@ do not mash compound legacy labels into lifecycle_status
 compound labels are decomposed:
   F2-Male -> growth_cohort_tag=F2 and sex=male
   F2-Female -> growth_cohort_tag=F2 and sex=female
+  M0 -> reproductive_status=mother and management_stage=m0_post_delivery
   ICU-Non-Pregnant -> health_status=icu and reproductive_status=non_pregnant
   ICU-Kid -> health_status=icu and growth/age axis remains kid-stage when known
 identity_state: clean | needs_review | disputed | merged | inactive
@@ -433,6 +434,7 @@ axis=growth_cohort, status_code=K2, display_name="K2 - Milk + solid-feed trainin
 axis=growth_cohort, status_code=K3, display_name="K3 - Weaning", short_label="K3"
 axis=growth_cohort, status_code=F2, display_name="F2 - Fattening", short_label="F2"
 axis=management, status_code=warmup, display_name="Warmup - Adaptation", short_label="Warmup"
+axis=management, status_code=m0_post_delivery, display_name="M0 - Post-delivery mother", short_label="M0"
 axis=reproductive, status_code=pregnant, display_name="Pregnant", short_label="Pregnant"
 axis=reproductive, status_code=non_pregnant, display_name="Non-pregnant", short_label="Non-pregnant"
 axis=reproductive, status_code=mother, display_name="Mother", short_label="Mother"

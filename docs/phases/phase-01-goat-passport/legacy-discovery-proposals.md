@@ -319,6 +319,7 @@ F2-Female maps to growth_cohort_tag=F2 and sex=female
 ICU-Non-Pregnant maps to health_status=ICU and reproductive_status=non_pregnant
 ICU-Kid maps to health_status=ICU plus the known kid/growth stage when available
 Warmup maps to management_stage=warmup
+M0 maps to reproductive_status=mother and management_stage=m0_post_delivery
 UI should show friendly display labels such as "K0 - Newborn" or "F2 - Fattening"
 and may show the short legacy code as a chip
 unknown labels stay as raw_label in review until mapped
@@ -332,7 +333,8 @@ K1: bottle-milk training
 K2: milk plus solid-feed training, roughly two months
 K3: weaning to solid feed
 M0: mother post-delivery, typically around one month
-F2-Male / F2-Female: post-weaning fattening groups separated by sex
+F2-Male / F2-Female: F2 fattening group separated by sex; F2 is the stage,
+Male/Female is the sex split
 Warmup: adaptation period, either at source before travel or destination after arrival
 ```
 

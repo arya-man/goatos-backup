@@ -903,7 +903,9 @@ The familiar legacy code remains visible/searchable as the short label. Compound
 legacy labels are split before storage, for example `F2-Male` becomes
 `growth_cohort_tag=F2` plus `sex=male`, and `ICU-Non-Pregnant` becomes
 `health_status=ICU` plus `reproductive_status=non_pregnant`. `Warmup` becomes
-`management_stage=warmup`, not reproductive status.
+`management_stage=warmup`, not reproductive status. `M0` becomes
+`reproductive_status=mother` plus `management_stage=m0_post_delivery`, not a
+growth or genetics category.
 
 Genetics/R&D answer: genetics should use structured fields such as breed, sex,
 age/date of birth, growth cohort, management stage, health history,
@@ -935,7 +937,7 @@ Locked answer: if RFID DB shed and latest DB event shed disagree, treat it as a 
 
 Meaning: labels like K0/K1/K2/K3/M0/F2 are operational stages, not goat identity tags.
 
-Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2 is milk plus solid-feed training for roughly two months; K3 is weaning to solid feed; M0 is mother post-delivery for around a month; F2-Male/F2-Female are post-weaning fattening groups separated by sex. Warmup can happen at source before travel and at destination after arrival.
+Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2 is milk plus solid-feed training for roughly two months; K3 is weaning to solid feed; M0 is mother post-delivery for around a month; F2-Male/F2-Female are post-weaning fattening groups separated by sex. F2 is the fattening stage; Male/Female is just the sex split inside that stage. Warmup can happen at source before travel and at destination after arrival.
 
 ### Future Ops Inputs Not Blocking Phase 1
 

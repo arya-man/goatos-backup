@@ -141,6 +141,18 @@ Weaning stage where milk is gradually stopped and the kid is moved to solid feed
 Mother-goat post-delivery stage. The mother stays in this stage for some time,
 typically around one month after giving birth.
 
+Canonical mapping:
+
+```text
+reproductive_status = mother
+management_stage = m0_post_delivery
+short label = M0
+display name = M0 - Post-delivery mother
+```
+
+M0 is not a growth cohort and not a genetics category by itself. It is a
+post-delivery management stage for a mother.
+
 ### F2-Male / F2-Female
 
 Fattening groups after K3/weaning, separated by sex. The goal is strong feed
