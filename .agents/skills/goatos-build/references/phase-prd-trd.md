@@ -47,7 +47,9 @@ custody has temporal history; operator task assignment is not custody.
 status is decomposed into lifecycle/reproductive/growth/management/health + sex.
 F2-Male/F2-Female maps to growth_cohort=F2 only; sex comes from Gender source.
 breed strings normalize to breed_id reference rows/aliases before counters.
-merges use redirect/survivor resolution, evidence, and review gates.
+merges set `merged_into_goat_id`; lookups redirect to the survivor; P8 booking,
+allocation, and replacement resolve to the survivor before availability and
+no-double-promise checks.
 events/audit/history are partition-aware; idempotency is explicit.
 Phase 1 stores policy inputs but does not execute customer/festival eligibility.
 ```

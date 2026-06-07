@@ -28,8 +28,12 @@ Rules:
 - Status is decomposed into lifecycle, reproductive, growth_cohort,
   management_stage, health, plus sex. Legacy compound labels are raw evidence,
   not the canonical model.
-- Identity merge is redirect-based: writes resolve through the live survivor
-  goat_id; risky merges require review, evidence, and audit.
+- Identity merge is redirect-based: merged goats keep `merged_into_goat_id`
+  pointing at the live survivor goat. Lookup APIs may return redirect warnings;
+  normal writes to merged goats fail except admin correction/unmerge. Later
+  booking, allocation, and replacement flows must resolve the supplied goat
+  through `merged_into_goat_id` before availability/uniqueness checks and enforce
+  no-double-promise against the survivor `goat_id`.
 - Million-goat scale is a hard design rule: chunk by park/shed/cohort/date,
   never full-herd scan in an API, use idempotency, bounded workers/goroutines,
   and indexed/partition-aware tables.
