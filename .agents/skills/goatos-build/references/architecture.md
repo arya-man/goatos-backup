@@ -9,12 +9,18 @@ Canonical docs:
 - `context/agents/ai-agent-context-and-protocols.md`
 - `context/execution/next-contracts.md`
 - `context/product/glossary.md`
+- `docs/decisions/go-backend-stack.md`
 - `docs/phases/phase-01-goat-passport/PRD.md`
 - `docs/phases/phase-01-goat-passport/TRD.md`
 
 Rules:
 
 - Backend is a Go modular monolith with strict internal module boundaries.
+- Backend implementation stack is locked in `docs/decisions/go-backend-stack.md`:
+  use net/http or chi for HTTP adapters, pgx + sqlc-style typed SQL for
+  Postgres adapters, goose-style plain SQL migrations, and explicit constructor
+  wiring. Do not add Gin, GORM/ORM, runtime DI containers, direct client gRPC,
+  or protobuf in Phase 1 without a new ADR.
 - Modules own tables and expose defined interfaces.
 - Cross-context propagation uses contracts, outbox, Pub/Sub, and APIs.
 - Phase 1 identity foundation uses tenants for isolation, global parties for
