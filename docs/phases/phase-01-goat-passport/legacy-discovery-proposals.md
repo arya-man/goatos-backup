@@ -229,14 +229,14 @@ Reason: legacy `Goat ID` and `Old Tag ID` are not clean unique primary keys.
 
 ### Display ID
 
-Proposal: keep `display_id` separate from immutable `goat_id`. Generate it
-server-side after the first import policy is approved.
-
-Still needs business approval:
+Locked answer: keep `display_id` separate from immutable `goat_id`. Generate it
+server-side as a global, easy-to-search code.
 
 ```text
 display_id format:
-  example options: GOAT-000001, CBE-000001, CPT-000001, or another business format
+  default G-000001 style global code
+  never encode current farm/location because goats can move
+  RFID, old tag, QR, visual tag, shed, and breed remain searchable aliases
 ```
 
 ### RFID Policy
@@ -476,10 +476,11 @@ scratch:
    Proposal: use it as first identity mapping sample, then reconcile against DB + dashboards.
 ```
 
-## Decisions Still Needed From Business Owner
+## Locked Answers And Remaining Ops Clarifications
 
-These are the remaining confirmations after discovery. They decide how old
-Sheets/dashboard meanings become clean Goat OS truth.
+These decisions decide how old Sheets/dashboard meanings become clean Goat OS
+truth. Some answers are now locked; the remaining items need operational meaning
+from the current farm process.
 
 ### Terms Used Below
 
@@ -495,60 +496,74 @@ Important for this discovery:
 - `HF` / `Holding Farm` is a legacy holding/procurement/source label. It must not become ownership or custody truth without an approved mapping.
 - `source row`, `load`, `tenant`, `party`, `owner`, `custodian`, `staging`, `current location`, `display ID`, and `merge` are defined in the glossary.
 
-### Old Data Mapping
+### Locked Answers
 
 ```text
-1. First identity migration source
+1. Display ID
+   Locked answer: use an easy global human code, defaulting to G-000001 style.
+   It must not include farm/location because goats can move.
+
+2. First identity migration source
    Meaning: RFID DB is the cleanest goat registry; DB/dashboard files are history or derived views.
-   Proposal: approve RFID DB first, then DB/dashboard reconciliation.
+   Locked answer: use RFID DB first, then DB/dashboard reconciliation.
 
-2. Old tag scope
+3. Old tag scope
    Meaning: old tag numbers repeat across farms in the discovered data.
-   Proposal: approve old tags as farm-scoped, unless reuse actually happens by load/vendor.
+   Locked answer: old tags are farm-scoped, not globally unique.
 
-3. Origin Farm and Holding Farm / HF meaning
-   Meaning: these legacy labels may mean source/vendor, owner, custodian, procurement staging, or old-process context.
-   Decision: choose the meaning, or mark each as case-by-case source context.
+4. Owner / custodian / location separation
+   Meaning: this is about the goat, not where a person lives.
+   Locked answer: owner, custodian, and physical goat location are separate concepts.
 
-4. Current location precedence
-   Meaning: RFID DB and latest DB event can disagree on current shed/location.
-   Decision: choose which wins for first import, or send disagreements to review.
+5. Merge approval
+   Meaning: merge mistakes corrupt identity history.
+   Locked answer: central admin can approve and assign approval roles. Farm admins
+   can approve only if granted role/scope. Park heads/operators can request or
+   recommend. Mass merge approval needs preview, evidence sampling, and dry-run.
 
-5. First-import scope
-   Meaning: importing only RFID DB is cleaner; including tagless event rows creates more temporary goats.
-   Decision: RFID DB only first, or RFID DB plus larger DB event/tagless population.
+6. Temporary goat
+   Meaning: temporary goats are for before tag/RFID, or when tags are missing/lost/dirty.
+   Locked answer: temporary goats remain needs_review until linked to stronger evidence.
+
+7. Status structure
+   Meaning: legacy status strings mix multiple meanings.
+   Locked answer: separate lifecycle, reproductive status, growth/cohort tag, and health status.
 ```
 
-### Goat OS Policy
+### Still Need Ops Meaning
 
 ```text
-6. Display ID format
-   Meaning: goat_id is internal; display_id is the visible goat number/code.
-   Decision: choose the human-readable format operators/admins will see.
+1. Origin Farm
+   Current legacy state: RFID DB has Origin Farm values such as BLR, CBE, CJB, CPT, and Gokul.
+   Need ops meaning: source/vendor origin, original physical farm, owner, custodian, or old context?
 
-7. Owner / custodian / location separation
-   Meaning: one party may own the goat, another may be responsible for it, and the goat may sit elsewhere.
-   Decision: confirm this is allowed and define visibility when they differ.
+2. Holding Farm / HF
+   Current legacy state: DB has HF - Rajasthan Farms, HF - Gokul Agronomics,
+   HF - Goat World, and HF - Bhopal Agro.
+   Need ops meaning: procurement staging, vendor/source, physical holding place,
+   custodian, owner, or case-by-case?
 
-8. Merge approval authority
-   Meaning: merge mistakes corrupt identity history.
-   Proposal: central admin can approve merges; park head can request/recommend.
+3. Current location conflict
+   Current legacy state: RFID DB has Shed/Shed Tag; DB event log has latest Dst Shed/Dst Shed Tag.
+   Need ops meaning: which source wins first import, or should disagreement go to review?
 
-9. Temporary goat minimum evidence
-   Meaning: tagless goats need enough proof to avoid fake/duplicate identities.
-   Proposal: require the old source row or load, tenant, owner/custodian or staging bucket,
-   current or unknown location, who created it, why it was created, and photo/proof if available.
+4. First-import scope
+   Current legacy state: RFID DB has 1,349 cleaner goat rows; DB has many event rows and no-tag values.
+   Need ops meaning: RFID DB only first, or RFID DB plus tagless/event temporary goats?
 
-10. Status model
-   Meaning: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
-   Proposal: keep lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
-   Decision: confirm official labels, sale-blocking labels, and SOP-trigger labels.
+5. Status label semantics
+   Current legacy state: labels include K0/K1/K2/K3, Pregnant, Non-Pregnant,
+   Mother, Milking, Buck, F2-Male, F2-Female, ICU, ICU-Non-Pregnant,
+   Quarantine kids, and others.
+   Need ops meaning: which labels are official, which block sale/allocation,
+   and which trigger SOP follow-up?
 
-11. CBE / CPT / HF site-code mapping and geo details
-   Meaning: CBE, CPT, and Holding Farm/HF may represent physical locations,
-   custodian parties, vendor/source context, procurement staging, or more than one.
-   Decision: confirm what each code means in Goat OS, then approve official
-   full name, address, district, pincode, coordinates, and timezone where applicable.
+6. CBE / CPT / HF site-code mapping and geo details
+   Current legacy state: CBE and CPT look like core farm/site codes. HF looks
+   like holding/procurement/source context, but this is not confirmed.
+   Need ops meaning: for each code, confirm whether it is a physical location,
+   custodian party, owner/source context, procurement staging bucket, or case-by-case.
+   Then provide official name, address, district, pincode, coordinates, and timezone where applicable.
 ```
 
 ## Phase 1 Start Decision

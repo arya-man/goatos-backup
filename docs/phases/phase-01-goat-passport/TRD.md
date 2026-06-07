@@ -106,6 +106,47 @@ replacing Firebase/Auth0, BigQuery/Tinybird, GCS/S3, or device vendors must not
 rewrite identity business logic
 ```
 
+### Mutation, Audit, Reversal, And Cache Rules
+
+Phase 1 is not a disposable import script. Every command must be designed for
+large herds, operator mistakes, network retries, and later genetics/R&D use.
+
+Mutation rules:
+
+```text
+all create/update/merge/link/void actions go through command services, not direct table writes from handlers
+each command validates permissions, idempotency, current row_version, and domain invariants before mutation
+canonical mutation, identity_decision when applicable, typed event, audit_log, outbox row, and idempotency record commit in one transaction
+no destructive hard delete for goat identity data; use inactive/voided/retired/merged states with audit trail
+```
+
+Reversal rules:
+
+```text
+wrong action is corrected by a new decision/event, not by editing history away
+merge reversal uses unmerge/correction flow and keeps the original merge decision visible
+wrong temporary goat creation uses void/merge/unmerge correction depending on evidence
+identifier mistakes retire/dispute/reassign identifiers with decision records
+admin UI must show before/after evidence for any risky correction
+```
+
+Cache/projection rules:
+
+```text
+goats table keeps current placement/status caches for fast lookup
+goat_identity_counters keeps scoped counts so dashboards do not scan full herd tables
+cache/projection rows are rebuildable from canonical goats + events + decisions
+import jobs rebuild projections in chunks; steady-state writes update hot projections incrementally
+API responses include freshness where projections can lag
+stale/rebuilding projections never cause dashboards to query raw full-herd tables
+```
+
+Scale rule:
+
+```text
+design for 100k to 1M goats from the first implementation: scoped indexes, pagination, idempotency, outbox, counters, partitioned event/audit tables, chunked imports, and load tests are mandatory
+```
+
 ### API And Protocol Decision
 
 For Phase 1 product clients:
@@ -314,6 +355,9 @@ sex text null
 approx_dob date null
 age_band text null
 lifecycle_status text not null
+reproductive_status text null
+growth_cohort_tag text null
+health_status text null
 identity_state text not null
 custodian_party_id uuid not null references parties(party_id)
 current_location_id uuid null
@@ -333,11 +377,17 @@ Rules:
 
 ```text
 goat_id never changes
-display_id is human-facing only; format is a business decision but the column exists
+display_id is human-facing only; default format is G-000001 style global numeric code
+display_id is server-generated, immutable, searchable, and separate from goat_id
+display_id must not encode current farm/location because goats can move
 tenant_id is the isolation/RLS scope and does not change during normal movement
 custodian_party_id is the current operationally responsible party, not economic ownership
 farm_id/park_id/shed_id/cohort_id are current placement caches for fast scoped reads
-lifecycle_status is controlled vocabulary
+lifecycle_status is the alive/dead/sold/merged/inactive axis only
+reproductive_status is the pregnancy/mother/buck/milking axis
+growth_cohort_tag is the K0/K1/K2/K3/F1/F2/M0-style cohort axis
+health_status is the healthy/sick/ICU/quarantine/under-treatment axis
+do not mash compound legacy labels into lifecycle_status
 identity_state: clean | needs_review | disputed | merged | inactive
 merged goats set merged_into_goat_id and reject normal future writes
 row_version supports optimistic concurrency for admin edits
@@ -350,6 +400,9 @@ Indexes:
 (lifecycle_status)
 (tenant_id, lifecycle_status)
 (tenant_id, custodian_party_id, lifecycle_status)
+(tenant_id, reproductive_status)
+(tenant_id, growth_cohort_tag)
+(tenant_id, health_status)
 (current_location_id, lifecycle_status)
 (farm_id, lifecycle_status)
 (park_id, lifecycle_status)
@@ -517,6 +570,16 @@ status = active
 That temporary identifier keeps the goat findable, but it does not make the
 identity clean. The goat stays `identity_state = needs_review` until stronger
 evidence is attached.
+
+Temporary goat rule:
+
+```text
+temporary goats are allowed before a real tag/RFID is attached, or when a tag is missing, lost, dirty, or unreadable
+temporary goat creation requires old source row or load when available, current/unknown location, created_by, reason, and proof/photo if available
+temporary goats are never auto-clean; they remain needs_review until linked to stronger evidence
+linking a temporary goat to RFID/old tag/visual tag writes identity_decision + audit_log + event + outbox
+wrong temporary goat creation is corrected by void/merge/unmerge decision flows, never by hard delete
+```
 
 ### `locations`
 
@@ -902,8 +965,20 @@ attach_identifier
 retire_identifier
 mark_identifier_disputed
 merge_goats
+batch_merge_goats
 reject_match
 request_field_verification
+```
+
+Approval authority:
+
+```text
+central admin can approve identity merges and assign which roles are allowed to approve specific decision types
+farm admin can approve merge/correction decisions only when central admin grants that role and scope
+park head or operator can request/recommend corrections, but cannot mutate canonical identity directly unless granted an approval role
+mass approval is allowed only as a configured admin workflow after validation preview, evidence sampling, and dry-run results
+batch merge approval creates one batch decision plus individual child decision records for every affected goat pair
+high-risk identity merges must never be silently auto-approved by AI/import logic
 ```
 
 ### `goat_merge_links`
@@ -1165,6 +1240,9 @@ park_id uuid null
 shed_id uuid null
 cohort_id uuid null
 lifecycle_status text null
+reproductive_status text null
+growth_cohort_tag text null
+health_status text null
 identity_state text null
 breed_id uuid null
 sex text null
@@ -1197,6 +1275,9 @@ custodian_identity: tenant_id + custodian_party_id + identity_state
 park_lifecycle: tenant_id + park_id + lifecycle_status
 shed_lifecycle: tenant_id + park_id + shed_id + lifecycle_status
 breed_sex_lifecycle: tenant_id + breed_id + sex + lifecycle_status
+health_status: tenant_id + health_status
+growth_cohort: tenant_id + growth_cohort_tag
+reproductive_status: tenant_id + reproductive_status
 ```
 
 Do not materialize arbitrary combinations of all nullable dimensions. New grains
@@ -1304,7 +1385,7 @@ old tag exact active match    strong
 sheet/source row match        strong within same source
 purchase/load/source          supporting
 farm/park/shed/cohort         supporting
-breed/sex/status              supporting
+breed/sex/status axes         supporting
 age/DOB range                 supporting
 mother/father references      supporting
 photo/FaceID                  proposal only
@@ -1338,7 +1419,7 @@ Auto-link only when all are true:
 ```text
 one unique active match
 no active conflict for that identifier
-no material breed/sex/status mismatch
+no material breed/sex/status-axis mismatch
 location mismatch is allowed only if movement history supports it
 import policy allows this identifier type to auto-link
 identifier uniqueness scope is known
@@ -1354,7 +1435,7 @@ same active RFID appears on more than one goat
 same active old tag appears on more than one goat inside the same confirmed uniqueness scope
 row has no usable identifier
 candidate score is below auto-link threshold
-breed/sex/status conflict is material
+breed/sex/status-axis conflict is material
 source row appears already linked to different goat
 identifier scope is unknown and match would otherwise mutate canonical identity
 ```
@@ -1525,7 +1606,7 @@ out-of-scope matches are treated as not visible for operator/mobile response sha
 ### Dashboard/Analytics APIs
 
 ```text
-GET /analytics/identity/counts?grain=&tenant_id=&custodian_party_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&identity_state=&breed_id=&sex=
+GET /analytics/identity/counts?grain=&tenant_id=&custodian_party_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&reproductive_status=&growth_cohort_tag=&health_status=&identity_state=&breed_id=&sex=
 ```
 
 Count endpoint rules:
@@ -1551,6 +1632,9 @@ breed
 sex
 age_band
 lifecycle_status
+reproductive_status
+growth_cohort_tag
+health_status
 identity_state
 location_path
 warnings[]
@@ -1835,6 +1919,9 @@ goat_identifiers(goat_id, identifier_type) where is_primary_for_goat = true and 
 identifier_policies(policy_version, identifier_type)
 goats(tenant_id, lifecycle_status)
 goats(tenant_id, custodian_party_id, lifecycle_status)
+goats(tenant_id, reproductive_status)
+goats(tenant_id, growth_cohort_tag)
+goats(tenant_id, health_status)
 goats(farm_id, lifecycle_status)
 goats(park_id, lifecycle_status)
 goats(shed_id, lifecycle_status)
@@ -1853,6 +1940,9 @@ goat_custody_history(tenant_id, goat_id, valid_from, valid_to)
 goat_custody_history(custodian_party_id, valid_from, valid_to)
 goat_identity_counters(tenant_id, custodian_party_id, farm_id, park_id, shed_id, lifecycle_status)
 goat_identity_counters(tenant_id, breed_id, sex, lifecycle_status)
+goat_identity_counters(tenant_id, health_status)
+goat_identity_counters(tenant_id, growth_cohort_tag)
+goat_identity_counters(tenant_id, reproductive_status)
 user_scope_grants(user_id, role, scope_type, scope_id, status)
 audit_log(resource_type, resource_id, created_at)
 idempotency_keys(expires_at)
@@ -1954,7 +2044,7 @@ lookup merged goat -> redirects to survivor
 out-of-scope lookup -> no goat/source/conflict detail leakage
 operator correction request -> review queue, no direct identity mutation
 duplicate insert race -> conflict response, no crashed import chunk
-status/location change -> current cache and counters update consistently
+status-axis/location change -> current cache and counters update consistently
 import completion -> counters rebuild without hot-row contention
 count endpoint while rebuild is running -> returns projection freshness, no raw fallback
 scoped identifier resolve without scope -> multiple_matches / needs_review, no blind pick
@@ -2058,10 +2148,11 @@ old_tag uniqueness:
   distinct candidate goats/rows. Show duplicate examples as anonymized source
   refs, not raw private rows.
 
-lifecycle/status vocabulary:
+status vocabulary:
   extract distinct statuses from XLSX/CSVs/dashboard display code. Propose
-  canonical lifecycle_status mapping and flag labels that look like breed/growth
-  class instead of lifecycle.
+  mapping into separate lifecycle_status, reproductive_status, growth_cohort_tag,
+  and health_status axes. Flag official labels, sale-blocking labels, and
+  SOP-trigger labels for ops confirmation.
 
 tenant/party/custody/location mapping:
   identify columns/code paths for farm, park, shed, shed_tag, load, source, CBE,
@@ -2097,7 +2188,7 @@ agent may propose, a human owner must confirm before migrations/seeds/import log
 
 ```text
 goat_id format: UUID v7 unless explicitly rejected
-display_id generator: server-generated, unique, not manually typed; prefix/format can change before first migration only
+display_id generator: server-generated G-000001 style global code; unique, readable, searchable, not manually typed
 tenant/party/custody mapping: each canonical goat row must map to a tenant,
 owner_party_id, and custodian_party_id; source rows that cannot be safely
 mapped remain in staging/review
@@ -2105,7 +2196,9 @@ geo/location mapping: locations include country, state_region, district, pincode
 old_tag scope policy: one of global | farm | park | purchase_load | source_system | unknown-to-review
 identifier policies per type: uniqueness scope, auto-link allowed?, primary allowed?
 identifier_policy_version: immutable once first import/mutation uses it
-temporary identity minimum: old source row or load, tenant, owner/custodian party or staging party, current/unknown location, created_by, and reason
+temporary identity minimum: old source row or load when available, current/unknown location, created_by, reason, and proof/photo if available
+status structure: lifecycle_status, reproductive_status, growth_cohort_tag, and health_status are separate axes
+status semantics: official labels, sale-blocking labels, and SOP-trigger labels require ops confirmation
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import
