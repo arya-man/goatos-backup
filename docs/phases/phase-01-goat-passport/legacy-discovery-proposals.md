@@ -542,10 +542,13 @@ Important for this discovery:
 10. Status model
    Meaning: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
    Proposal: keep lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
+   Decision: confirm official labels, sale-blocking labels, and SOP-trigger labels.
 
-11. Geo defaults
-   Meaning: some locations do not have pincode/coordinates in source files.
-   Decision: approve default geo/timezone values for CBE, CPT, and Holding Farm rows.
+11. CBE / CPT / HF site-code mapping and geo details
+   Meaning: CBE, CPT, and Holding Farm/HF may represent physical locations,
+   custodian parties, vendor/source context, procurement staging, or more than one.
+   Decision: confirm what each code means in Goat OS, then approve official
+   full name, address, district, pincode, coordinates, and timezone where applicable.
 ```
 
 ## Phase 1 Start Decision

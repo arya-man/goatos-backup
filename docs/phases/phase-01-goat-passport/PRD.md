@@ -900,9 +900,10 @@ Decision needed: approve that a temporary/tagless goat can be created only when 
 Meaning: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
 
 Decision needed: approve separating lifecycle, reproductive status, growth/cohort tag, and health overlay.
+Also confirm which labels are official, which labels block sale, and which labels should trigger SOP follow-up.
 
-**Geo defaults**
+**CBE / CPT / HF site-code mapping and geo details**
 
-Meaning: CBE, CPT, and Holding Farm rows may not have pincode/coordinates.
+Meaning: CBE, CPT, and Holding Farm/HF are old site/source labels. Each one may represent a physical location, a custodian party, a vendor/source context, procurement staging, or more than one of these. Geo details are only one part of that mapping.
 
-Decision needed: approve default geo/timezone values for those locations.
+Decision needed: confirm what each code means in Goat OS, then approve official full name, address, district, pincode, coordinates, and timezone where applicable.
