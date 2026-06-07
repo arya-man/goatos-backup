@@ -49,7 +49,7 @@ What users get:
   becoming wrong truth.
 - Admin can search a goat and see its basic timeline.
 
-Plain English:
+In short:
 
 ```text
 First we create the Aadhaar/passport system for goats.
@@ -88,7 +88,7 @@ What users get:
 - Approved vaccination becomes canonical goat history.
 - Missed/pending tasks move forward with reason.
 
-Plain English:
+In short:
 
 ```text
 This replaces Slack vaccination forms with a real Goat OS task loop:
@@ -119,7 +119,7 @@ What users get:
 - Mortality views by breed, farm, shed, age group, source batch.
 - Verification queue for high-risk events.
 
-Plain English:
+In short:
 
 ```text
 Anything bad happening to a goat is recorded with proof, treatment, follow-up,
@@ -160,7 +160,7 @@ What users get:
 - Completion, rejection, rework, and missed-task history.
 - Park-level work completion dashboard.
 
-Plain English:
+In short:
 
 ```text
 This tells who is responsible for which goats, who is on duty today, who covers
@@ -193,7 +193,7 @@ What users get:
 - Shed/park movements and shifting history.
 - Overdue stage alerts like K1/K2/K3.
 
-Plain English:
+In short:
 
 ```text
 We start tracking whether goats are growing properly, eating properly, and
@@ -227,7 +227,7 @@ What users get:
 - Breeder performance score.
 - Inbreeding risk flags.
 
-Plain English:
+In short:
 
 ```text
 This is where Goat OS becomes serious: which bloodline produces strong kids,
@@ -258,7 +258,7 @@ What users get:
 - Batch/expiry tracking.
 - Procurement-to-herd intake reconciliation.
 
-Plain English:
+In short:
 
 ```text
 This tracks what came into the system, from where, at what cost, and whether it
@@ -288,7 +288,7 @@ What users get:
 - Slaughter/meat-yield feedback where applicable.
 - Meat yield data flows back to genetics performance.
 
-Plain English:
+In short:
 
 ```text
 When a goat leaves the farm, the system knows why, to whom, with what proof,
@@ -321,7 +321,7 @@ What users get:
 - AI age/weight/pregnancy/disease/gait/genetics models.
 - Human review gate before risky changes become truth.
 
-Plain English:
+In short:
 
 ```text
 Devices and AI help operators move faster, but Goat OS still validates and
@@ -355,7 +355,7 @@ What users get:
 - Operator performance.
 - AI analyst over governed metrics only.
 
-Plain English:
+In short:
 
 ```text
 This is the brain/dashboard layer: what is happening, what is risky, what is

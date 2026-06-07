@@ -2,7 +2,7 @@
 
 Status: draft for review.
 
-## Plain-English Summary
+## Summary
 
 Phase 1 gives every goat a trusted Goat OS passport.
 

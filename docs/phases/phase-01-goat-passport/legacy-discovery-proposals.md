@@ -7,7 +7,7 @@ raw goat rows, raw Slack payloads, tokens, media URLs, or private sheet data.
 It only records aggregate counts, source paths, column names, and decisions
 that still need human approval before migrations/import logic.
 
-## Plain-English Summary
+## Summary
 
 We can start Phase 1 contract work now. We should not write final database
 migrations, import seeds, identifier policies, or canonical import logic until

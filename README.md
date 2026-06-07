@@ -4,7 +4,7 @@ Goat OS is the operating system for goat identity, SOP work, vaccination,
 health, breeding, genetics, workforce operations, proof verification, devices,
 analytics, and controlled AI assistance.
 
-Plain English:
+In short:
 
 ```text
 Every goat gets a passport.
