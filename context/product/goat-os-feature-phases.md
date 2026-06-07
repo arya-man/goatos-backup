@@ -49,7 +49,7 @@ What users get:
   becoming wrong truth.
 - Admin can search a goat and see its basic timeline.
 
-Layman version:
+Plain English:
 
 ```text
 First we create the Aadhaar/passport system for goats.
@@ -88,7 +88,7 @@ What users get:
 - Approved vaccination becomes canonical goat history.
 - Missed/pending tasks move forward with reason.
 
-Layman version:
+Plain English:
 
 ```text
 This replaces Slack vaccination forms with a real Goat OS task loop:
@@ -119,7 +119,7 @@ What users get:
 - Mortality views by breed, farm, shed, age group, source batch.
 - Verification queue for high-risk events.
 
-Layman version:
+Plain English:
 
 ```text
 Anything bad happening to a goat is recorded with proof, treatment, follow-up,
@@ -160,7 +160,7 @@ What users get:
 - Completion, rejection, rework, and missed-task history.
 - Park-level work completion dashboard.
 
-Layman version:
+Plain English:
 
 ```text
 This tells who is responsible for which goats, who is on duty today, who covers
@@ -193,7 +193,7 @@ What users get:
 - Shed/park movements and shifting history.
 - Overdue stage alerts like K1/K2/K3.
 
-Layman version:
+Plain English:
 
 ```text
 We start tracking whether goats are growing properly, eating properly, and
@@ -227,7 +227,7 @@ What users get:
 - Breeder performance score.
 - Inbreeding risk flags.
 
-Layman version:
+Plain English:
 
 ```text
 This is where Goat OS becomes serious: which bloodline produces strong kids,
@@ -258,7 +258,7 @@ What users get:
 - Batch/expiry tracking.
 - Procurement-to-herd intake reconciliation.
 
-Layman version:
+Plain English:
 
 ```text
 This tracks what came into the system, from where, at what cost, and whether it
@@ -288,7 +288,7 @@ What users get:
 - Slaughter/meat-yield feedback where applicable.
 - Meat yield data flows back to genetics performance.
 
-Layman version:
+Plain English:
 
 ```text
 When a goat leaves the farm, the system knows why, to whom, with what proof,
@@ -321,7 +321,7 @@ What users get:
 - AI age/weight/pregnancy/disease/gait/genetics models.
 - Human review gate before risky changes become truth.
 
-Layman version:
+Plain English:
 
 ```text
 Devices and AI help operators move faster, but Goat OS still validates and
@@ -355,7 +355,7 @@ What users get:
 - Operator performance.
 - AI analyst over governed metrics only.
 
-Layman version:
+Plain English:
 
 ```text
 This is the brain/dashboard layer: what is happening, what is risky, what is

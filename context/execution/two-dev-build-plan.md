@@ -234,7 +234,7 @@ Developer B:
 create generated TS client workflow
 create dashboard analytics-client wrapper
 create mobile api-client wrapper
-create mock API fixtures for dashboard/mobile
+create contract-backed local test API fixtures for dashboard/mobile
 extract reusable chart/UI components
 create mobile task-first navigation skeleton
 ```
@@ -244,8 +244,8 @@ Exit criteria:
 ```text
 contracts generate TS clients
 Go server compiles
-dashboard can call mock analytics API
-mobile can call mock app API
+dashboard can call local contract-backed analytics API fixture
+mobile can call local contract-backed app API fixture
 first DB migrations apply locally
 real XLSX sample exposes identity/tag edge cases
 dirty rows have a quarantine path

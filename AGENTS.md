@@ -3,6 +3,8 @@
 Read first:
 
 - `<mesha-workspace>/goatos/context/README.md`
+- `<mesha-workspace>/goatos/SKILLS.md`
+- `<mesha-workspace>/goatos/.agents/skills/goatos-build/SKILL.md`
 - `<mesha-workspace>/goatos/context/architecture/final-architecture.md`
 - `<mesha-workspace>/goatos/context/frontend/final-frontend-mobile-backend-architecture.md`
 - `<mesha-workspace>/goatos/context/forms/final-forms-sop-engine.md`
@@ -29,7 +31,7 @@ Current repos:
 Do:
 
 - Keep architecture facts in `<mesha-workspace>/goatos/context`.
-- Use `<mesha-workspace>/goatos/context/agents/skills/goatos-build/SKILL.md` as the agent reference map.
+- Use `<mesha-workspace>/goatos/.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.
 - Use JSON Schema for form DSL and event payload contracts.
@@ -52,4 +54,6 @@ Do not:
 Validation expectation:
 
 - Run the narrowest relevant typecheck/build/test command for changed code.
+- At phase closeout, compare code/contracts/migrations/tests against PRD/TRD and
+  update context/skills/agent references if implementation changed the truth.
 - For docs-only edits, run greps for stale terms when the user has explicitly banned wording.

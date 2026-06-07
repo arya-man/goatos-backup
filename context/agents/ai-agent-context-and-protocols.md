@@ -240,7 +240,7 @@ reference table, plus topic-specific `references/*.md` files. The skill is a
 navigation layer, not a second architecture source.
 
 ```text
-context/agents/skills/goatos-build/
+.agents/skills/goatos-build/
   SKILL.md
   references/
     repo-structure.md
@@ -254,22 +254,23 @@ context/agents/skills/goatos-build/
     security-ops.md
 ```
 
-When `goatos/` is scaffolded, this canonical skill bundle should be copied or
-generated into both agent surfaces:
+The committed source skill lives under `.agents`. Claude reaches the same source
+through the `.claude` symlink.
 
 ```text
-goatos/.claude/skills/goatos-build/
-  SKILL.md
-  references/*.md
-
 goatos/.agents/skills/goatos-build/
   SKILL.md
   references/*.md
+
+goatos/.claude/skills/goatos-build -> ../../.agents/skills/goatos-build
 ```
 
 `SKILL.md` is the single place an agent sees all available references and their
 "load when" triggers. Each `references/*.md` file is a scoped pointer/playbook
 for one topic and links back to canonical `context/` docs.
+
+Do not keep a second Goat OS build-skill source under `context/agents/skills/`.
+That folder may contain a README, but the active skill source is `.agents`.
 
 Do not fork into separate skills such as `goatos-analytics` or `goatos-forms`
 unless the trigger surface becomes truly independent. Goat OS is one product;

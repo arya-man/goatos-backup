@@ -19,6 +19,9 @@ searches. That folder is historical only.
 Goat OS product feature phases
   context/product/goat-os-feature-phases.md
 
+Detailed phase PRD/TRD docs
+  docs/phases/
+
 Goat OS coverage checklist (frozen migration audit, not living architecture)
   context/product/goat-os-coverage-map.md
 
@@ -38,7 +41,7 @@ AI agent context and API protocol decisions
   context/agents/ai-agent-context-and-protocols.md
 
 Goat OS agent skill bundle and reference map
-  context/agents/skills/goatos-build/SKILL.md
+  .agents/skills/goatos-build/SKILL.md
 
 Environment, load testing, and doc hygiene
   context/execution/env-load-test-and-doc-hygiene.md

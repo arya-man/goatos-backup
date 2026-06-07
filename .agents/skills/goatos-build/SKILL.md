@@ -30,20 +30,13 @@ Then load only the references needed for the task from the table below.
 | `references/frontend-mobile.md` | Reusing existing dashboard/mobile UI, changing admin-web/operator-mobile, role-aware dashboard, RBAC UI visibility, or app data adapters |
 | `references/analytics-infra.md` | Analytics, BI, AI analyst, BigQuery, Tinybird, Cube, dbt, Metabase, telemetry, cost guardrails, or dashboard metric source |
 | `references/execution-plan.md` | Splitting work across two developers/agents, delivery phases, dev/stg/prod setup, load testing, SLOs, or migration spike |
+| `references/phase-prd-trd.md` | Starting or reviewing a phase PRD/TRD, checking phase scope, or ensuring phase docs update agent references before code |
 | `references/existing-repos.md` | Inspecting or migrating from `dashboard`, `vgoats-dashboard`, `procurement_app`, `slack-automation-scripts`, or `website` reference repos |
 | `references/security-ops.md` | Dashboard gating, Slack token rotation, secrets, IAM tiers, prod read-only agent access, or auth/RBAC concerns |
 
 ## Reference Doc Convention
 
-Use one skill with many references.
-
-```text
-context/agents/skills/goatos-build/
-  SKILL.md
-  references/<topic>.md
-```
-
-When `goatos/` is created, the committed source skill lives here:
+Use one skill with many references. The committed source skill lives here:
 
 ```text
 goatos/.agents/skills/goatos-build/
@@ -68,6 +61,10 @@ one product; this skill is the navigation layer.
 - Read wide, write narrow.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
+- Before coding a phase, read its PRD/TRD and update skill references if the
+  phase adds a permanent rule/module/tool/workflow.
+- After coding a phase, run the PRD/TRD/context/skill closeout sync so docs
+  describe what was actually built.
 - Keep AI as proposer/triage, never canonical authority.
 - Preserve module boundaries in the Go modular monolith.
 - Keep frontend/mobile behind app APIs and generated clients.

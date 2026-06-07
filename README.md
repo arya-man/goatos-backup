@@ -4,7 +4,7 @@ Goat OS is the operating system for goat identity, SOP work, vaccination,
 health, breeding, genetics, workforce operations, proof verification, devices,
 analytics, and controlled AI assistance.
 
-Layman version:
+Plain English:
 
 ```text
 Every goat gets a passport.
@@ -18,6 +18,7 @@ Dashboards show the truth without reading Sheets or Slack.
 ## Where To Start
 
 - Product phases: `context/product/goat-os-feature-phases.md`
+- Phase PRD/TRD drafts: `docs/phases/`
 - Two-developer build plan: `context/execution/two-dev-build-plan.md`
 - Final architecture: `context/architecture/final-architecture.md`
 - Forms/SOP engine: `context/forms/final-forms-sop-engine.md`

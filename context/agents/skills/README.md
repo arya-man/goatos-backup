@@ -5,12 +5,16 @@ This folder holds canonical source for Goat OS agent skills.
 Rule: skill bundles route agents to the right context and playbooks. They do not
 replace `context/` as the source of architecture truth.
 
-When `goatos/` is scaffolded, these bundles should be copied or generated into:
+The active repo skill source is now:
 
 ```text
-goatos/.claude/skills/
 goatos/.agents/skills/
 ```
 
-Both generated copies must stay identical, or CI should fail.
+Claude discovers the same skill through:
 
+```text
+goatos/.claude/skills/goatos-build -> ../../.agents/skills/goatos-build
+```
+
+Do not hand-maintain duplicate skill copies.

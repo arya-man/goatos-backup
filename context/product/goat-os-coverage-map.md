@@ -29,7 +29,7 @@ docs/archive/planning-history/existing-repos-deep-audit.md
 | Old topic | Current home |
 | --- | --- |
 | Goat passport, identity, old tags, RFID, duplicates | `context/product/goat-os-feature-phases.md` Phase 1; `context/architecture/final-architecture.md` |
-| Ledger/event envelope/timeline | `context/architecture/final-architecture.md`; `context/execution/next-contracts.md`; `context/agents/skills/goatos-build/references/contracts-events.md` |
+| Ledger/event envelope/timeline | `context/architecture/final-architecture.md`; `context/execution/next-contracts.md`; `.agents/skills/goatos-build/references/contracts-events.md` |
 | Locations, farms, parks, sheds, cohorts | Product Phase 1; architecture module rules |
 | SOP/config engine | Product Phase 2; `context/forms/final-forms-sop-engine.md` |
 | Task engine, carry-forward, assignment | Product Phase 2 and Phase 4; `context/forms/final-forms-sop-engine.md` |
@@ -58,10 +58,10 @@ docs/archive/planning-history/existing-repos-deep-audit.md
 | Ownership/payments/settlements/support | Product Phase 8 high level; detailed commerce context remains future scope |
 | Auth/permissions/RBAC/realms | `context/architecture/final-architecture.md`; frontend architecture; agent/context protocol |
 | Audit/notifications/Slack outbound/Slack ingest bridge | Architecture; frontend Slack automation section; execution plan migration bridge |
-| Context layer/agent layer/skills | `context/agents/ai-agent-context-and-protocols.md`; `context/agents/skills/goatos-build/SKILL.md` |
+| Context layer/agent layer/skills | `context/agents/ai-agent-context-and-protocols.md`; `.agents/skills/goatos-build/SKILL.md` |
 | Dev/stg/prod, IAM, CI/CD, load tests | `context/execution/env-load-test-and-doc-hygiene.md`; `context/execution/two-dev-build-plan.md` |
 | Pluggable ports/adapters | `context/architecture/final-architecture.md`; frontend architecture; archived pluggable doc |
-| Existing dashboard/mobile/slack repo audit | `context/frontend/final-frontend-mobile-backend-architecture.md`; `context/agents/skills/goatos-build/references/existing-repos.md`; archived repo audits |
+| Existing dashboard/mobile/slack repo audit | `context/frontend/final-frontend-mobile-backend-architecture.md`; `.agents/skills/goatos-build/references/existing-repos.md`; archived repo audits |
 
 ## Items Intentionally Not First Product Loop
 

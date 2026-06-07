@@ -369,8 +369,7 @@ docs/
 ## Agent Skill Bundle Rule
 
 `.agents/skills/goatos-build/` is the canonical source for the committed Goat OS
-agent skill bundle inside the build repo. It is seeded from
-`context/agents/skills/goatos-build/`.
+agent skill bundle inside the build repo.
 
 `.claude/skills/goatos-build` is a symlink or generated copy pointing to the
 same skill. Do not hand-maintain two skill copies.
