@@ -575,8 +575,11 @@ Temporary goat rule:
 
 ```text
 temporary goats are allowed before a real tag/RFID is attached, or when a tag is missing, lost, dirty, or unreadable
-temporary goat creation requires old source row or load when available, current/unknown location, created_by, reason, and proof/photo if available
+field-created temporary goat requires current/unknown location, created_by, reason, and photo/proof as the visual dedupe anchor
+import-created temporary goat requires source_system, source_dataset, source_record_id/source_row_key, current/unknown location, and import_run_id
+do not use one blank/missing identifier as shared identity for multiple temporary goats
 temporary goats are never auto-clean; they remain needs_review until linked to stronger evidence
+temporary goats with no durable tag/RFID/approved visual link after the configured staleness window escalate to review
 linking a temporary goat to RFID/old tag/visual tag writes identity_decision + audit_log + event + outbox
 wrong temporary goat creation is corrected by void/merge/unmerge decision flows, never by hard delete
 ```
@@ -2196,7 +2199,7 @@ geo/location mapping: locations include country, state_region, district, pincode
 old_tag scope policy: one of global | farm | park | purchase_load | source_system | unknown-to-review
 identifier policies per type: uniqueness scope, auto-link allowed?, primary allowed?
 identifier_policy_version: immutable once first import/mutation uses it
-temporary identity minimum: old source row or load when available, current/unknown location, created_by, reason, and proof/photo if available
+temporary identity minimum: field-created temp requires photo/proof; import-created temp requires source row evidence; both require current/unknown location and review state
 status structure: lifecycle_status, reproductive_status, growth_cohort_tag, and health_status are separate axes
 status semantics: official labels, sale-blocking labels, and SOP-trigger labels require ops confirmation
 source_row_key recipe: stable source ID, never spreadsheet row position

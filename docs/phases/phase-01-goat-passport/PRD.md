@@ -877,7 +877,7 @@ Locked answer: central admin can approve identity merges and can configure which
 
 Meaning: this is for goats before proper tag/RFID, or when the tag is missing/lost/dirty/unreadable.
 
-Locked answer: temporary goats are allowed, but they stay in review until linked to stronger evidence. They require old source row/load when available, current/unknown location, who created it, why, and photo/proof if available.
+Locked answer: temporary goats are allowed, but they stay in review until linked to stronger evidence. If an operator creates one in the field, photo/proof is required because it is the only dedupe anchor. If import creates one from old data, source row evidence is required. Temporary goats that do not get a durable tag/RFID/approved visual link inside the configured staleness window escalate to review.
 
 **Status structure**
 

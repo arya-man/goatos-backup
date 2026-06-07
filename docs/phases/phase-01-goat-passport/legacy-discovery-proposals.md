@@ -523,7 +523,10 @@ Important for this discovery:
 
 6. Temporary goat
    Meaning: temporary goats are for before tag/RFID, or when tags are missing/lost/dirty.
-   Locked answer: temporary goats remain needs_review until linked to stronger evidence.
+   Locked answer: field-created temporary goats require photo/proof; import-created
+   temporary goats require source row evidence. All temporary goats remain
+   needs_review until linked to stronger evidence, and stale unresolved temp
+   goats escalate to review.
 
 7. Status structure
    Meaning: legacy status strings mix multiple meanings.
