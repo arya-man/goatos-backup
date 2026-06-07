@@ -1804,8 +1804,24 @@ trace_id
 ```
 
 These names intentionally match the platform outbox relay contract in
-`context/analytics/final-analytics-infra.md`. OpenAPI/JSON Schema may expose
-aliases such as subject_id only if generated from the same canonical envelope.
+`context/analytics/final-analytics-infra.md`. `aggregate_type` and
+`aggregate_id` identify the stream owner used for ordering, replay, and outbox
+indexing. `subject_type` and `subject_id` identify the specific thing the event
+is about when it differs from the stream owner. Example:
+
+```text
+goat.identifier.added
+  aggregate = goat
+  subject = identifier
+
+goat.identity.merge_approved
+  aggregate = survivor goat
+  subject = merged goat
+```
+
+If subject is the same thing as aggregate, subject fields may repeat the
+aggregate values. They are not ad-hoc API aliases; they are canonical envelope
+fields and must be generated from the same JSON Schema.
 
 Outbox payload rule:
 
