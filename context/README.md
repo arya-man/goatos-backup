@@ -73,6 +73,7 @@ human explicitly asks for historical comparison.
 ```text
 context/product/
   CEO language, workflows, glossary
+  start with context/product/glossary.md for business terms and legacy codes
 
 context/architecture/
   contexts, wires, ports, deploy model, infra decisions

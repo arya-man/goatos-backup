@@ -483,16 +483,17 @@ Sheets/dashboard meanings become clean Goat OS truth.
 
 ### Terms Used Below
 
-- **Source row:** one exact row from the old Excel/CSV/Slack export. Goat OS keeps this as evidence for where the imported fact came from.
-- **Load:** a batch/group of goats that came together, usually through purchase, transport, or shifting.
-- **Tenant:** the top-level Goat OS data boundary. Today this is Mesha.
-- **Party:** a person, company, farm operator, vendor, lender, investor pool, or system account that Goat OS can refer to.
-- **Owner:** the party that owns the goat's economic value. Today this is Mesha for imported goats.
-- **Custodian:** the party responsible for taking care of the goat operationally. Today this is Mesha unless source data proves otherwise.
-- **Staging party/location:** a safe temporary bucket for messy rows when Goat OS cannot yet prove the real owner, custodian, or location.
-- **Current location:** where the goat physically is now: farm, park, shed, or cohort.
-- **Display ID:** the human-visible goat code. It is different from the internal immutable `goat_id`.
-- **Merge:** combining two goat records when they are proven to be the same real goat.
+Canonical term definitions live in:
+
+```text
+context/product/glossary.md
+```
+
+Important for this discovery:
+
+- `CBE` and `CPT` are legacy farm/site codes found in current data. Their official full names and geo details are still pending confirmation.
+- `HF` / `Holding Farm` is a legacy holding/procurement/source label. It must not become ownership or custody truth without an approved mapping.
+- `source row`, `load`, `tenant`, `party`, `owner`, `custodian`, `staging`, `current location`, `display ID`, and `merge` are defined in the glossary.
 
 ### Old Data Mapping
 
