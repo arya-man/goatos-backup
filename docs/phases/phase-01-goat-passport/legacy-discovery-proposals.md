@@ -340,8 +340,10 @@ HF - Bhopal Agro
 Proposal:
 
 ```text
-owning_farm_id:
-  CBE and CPT map to core farm owners
+tenant / owner / custodian:
+  seed one Mesha tenant
+  seed Mesha as the first org party
+  imported goats default to Mesha owner_party_id and custodian_party_id unless source evidence says otherwise
   Holding Farm / HF rows map to staging/procurement source context until approved
 
 current_location:
@@ -357,8 +359,8 @@ location precedence for first import:
 Still needs business approval:
 
 ```text
-is Origin Farm the stable owning farm, the source/vendor farm, or both by case?
-is Holding Farm an owning farm, a procurement staging bucket, or vendor/source context?
+is Origin Farm a source/vendor origin, a custodian party, an owner party, or context only?
+is Holding Farm an owning party, custodian party, procurement staging bucket, vendor/source context, or all of these by case?
 for conflicts, should RFID DB current shed outrank latest DB event current shed?
 ```
 
@@ -491,15 +493,15 @@ These cannot be safely derived from the files alone:
    If old tag reuse happens by load/vendor instead, say that now.
 
 4. Origin Farm and Holding Farm / HF meaning
-   Is Origin Farm the stable owner, source/vendor origin, or both by case?
-   Is Holding Farm an owning farm, procurement staging, vendor/source context, or all of these by case?
+   Is Origin Farm source/vendor origin, owner party, custodian party, or context only?
+   Is Holding Farm owner party, custodian party, procurement staging, vendor/source context, or all of these by case?
 
 5. Merge approval authority
    Proposal: central admin can approve merges; park head can request/recommend.
 
 6. Temporary goat minimum evidence
-   Proposal: source row/load + owning/staging farm + location/unknown location
-   + created_by + reason + photo/proof if available.
+   Proposal: source row/load + tenant + owner/custodian/staging party
+   + current/unknown location + created_by + reason + photo/proof if available.
 
 7. Current location precedence
    Approve which wins when RFID DB and latest DB event disagree.

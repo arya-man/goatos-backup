@@ -752,7 +752,7 @@ The output should be an evidence-backed proposal, not a silent default:
 ```text
 old-tag uniqueness evidence + proposed scope
 lifecycle/status vocabulary + proposed canonical mapping
-owning farm/location mapping proposal
+tenant/party/custody/location mapping proposal
 first migration source candidates with row counts/freshness
 SOP/form inventory found in Slack/App Script
 open policy decisions that cannot be derived from artifacts
@@ -784,10 +784,11 @@ minimum location for import
   farm | park | shed | cohort
   unknown values map to explicit unknown locations, not empty strings
 
-owning farm
-  every goat needs a stable owning farm/scope for permissions and reporting
-  this is separate from current shed/park location because goats can move
-  first migration must map each row to a real owning farm or staging-only unknown farm
+tenant / party / custody / location
+  every goat needs a tenant for isolation, an owner party for economic ownership,
+  a custodian party for operational responsibility, and a current location
+  this is separate from daily task assignment because operators can change without custody changing
+  first migration must map each canonical goat to approved parties or leave the row in staging/review
 
 official lifecycle statuses
   approved list and mapping from current Sheet values
@@ -807,7 +808,7 @@ Pre-migration lock list:
 ```text
 goat_id format
 display_id generator
-owning_farm mapping
+tenant/party/custody mapping
 old-tag scope policy
 identifier policy per type
 temporary identity minimum evidence
@@ -819,18 +820,26 @@ first import scope
 
 ## Review Questions
 
-These need business confirmation before migrations/import logic. The discovery
-proposal should be reviewed first so the human owner is confirming
-evidence-backed options, not answering from memory.
+These need business confirmation before migrations/import logic. Discovery has
+already converted the data-grounded items into proposals, so the business owner
+is confirming a short list instead of researching from memory.
 
 ```text
-Which field is currently treated as the primary old tag?
-Can old tags repeat across farms/loads, or only globally?
-Which old-tag scope is correct today: global, farm, park, load, or source?
-Which lifecycle statuses are official today?
-Which location levels are mandatory: farm, park, shed, cohort?
-Can a goat be owned by one farm and physically placed in another?
-Who is allowed to approve identity merges?
-Which current data extract is the first migration sample?
-What should happen when a goat has no tag but is visible/known in a shed?
+Approve old-tag scope = farm-scoped?
+Approve first migration source = RFID DB first, then DB/dashboard reconciliation?
+Choose display_id format operators/admins will see.
+Confirm whether Origin Farm / Holding Farm / HF mean owner party, custodian party,
+source/vendor context, procurement staging, or case-by-case source context.
+Confirm whether owner_party_id, custodian_party_id, and current physical location
+can differ, and what visibility policy applies when they do.
+Approve merge authority: central admin only, or park head request plus central approval?
+Approve temporary goat minimum evidence:
+source row/load + tenant + owner/custodian/staging party + current/unknown location
++ created_by + reason + photo/proof if available.
+Approve status model:
+keep lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
+Approve current-location precedence when RFID DB and latest DB event disagree.
+Approve geo defaults for CBE, CPT, and Holding Farm rows when source omits pincode/coordinates.
+Choose first-import scope:
+RFID DB goats only, or also mint temporary identities from the larger DB event population.
 ```

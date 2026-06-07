@@ -222,12 +222,90 @@ replay, duplicate submits, and dashboard projection reads
 
 ## Data Model
 
+### `tenants`
+
+Isolation boundary for row-level security and future data residency. This is
+not the same thing as an organization/vendor/franchisee.
+
+```text
+tenant_id uuid primary key
+name text not null
+status text not null
+created_at timestamptz not null
+updated_at timestamptz not null
+```
+
+Rules:
+
+```text
+seed one tenant for current Mesha operations
+tenant_id is copied onto tenant-owned rows so RLS can filter without fragile joins
+parties and orgs are global actors and do not carry tenant_id
+future party visibility within a tenant uses membership/access tables, not tenant_id on parties
+```
+
+### `parties`
+
+Global actor spine for anyone that can own, custody, sell, lend, operate, or be
+referenced as a counterparty. This keeps ownership/custody extensible without
+polymorphic foreign keys.
+
+```text
+party_id uuid primary key
+party_type text not null
+display_name text not null
+status text not null
+created_at timestamptz not null
+updated_at timestamptz not null
+```
+
+Allowed initial party types:
+
+```text
+org
+person
+token_pool
+system
+```
+
+### `orgs`
+
+Organization subtype of `parties`. Shared primary key: the org id is the party
+id. Do not create a second `org_id`.
+
+```text
+party_id uuid primary key references parties(party_id)
+org_type text not null
+legal_name text null
+status text not null
+created_at timestamptz not null
+updated_at timestamptz not null
+```
+
+Initial org types:
+
+```text
+mesha
+farm_operator
+vendor
+franchisee
+lender
+partner
+```
+
+Seed:
+
+```text
+one Mesha party with party_type = org and org_type = mesha
+```
+
 ### `goats`
 
 Canonical goat record.
 
 ```text
 goat_id uuid primary key
+tenant_id uuid not null references tenants(tenant_id)
 display_id text unique not null
 species text not null default 'goat'
 breed text null
@@ -237,7 +315,7 @@ approx_dob date null
 age_band text null
 lifecycle_status text not null
 identity_state text not null
-owning_farm_id uuid not null
+custodian_party_id uuid not null references parties(party_id)
 current_location_id uuid null
 farm_id uuid null
 park_id uuid null
@@ -256,19 +334,22 @@ Rules:
 ```text
 goat_id never changes
 display_id is human-facing only; format is a business decision but the column exists
-owning_farm_id is the stable RBAC/tenant scope and does not change during normal movement
+tenant_id is the isolation/RLS scope and does not change during normal movement
+custodian_party_id is the current operationally responsible party, not economic ownership
 farm_id/park_id/shed_id/cohort_id are current placement caches for fast scoped reads
 lifecycle_status is controlled vocabulary
 identity_state: clean | needs_review | disputed | merged | inactive
 merged goats set merged_into_goat_id and reject normal future writes
 row_version supports optimistic concurrency for admin edits
+daily task assignment stays in workforce/tasks and must not be modeled as custody
 ```
 
 Indexes:
 
 ```text
 (lifecycle_status)
-(owning_farm_id, lifecycle_status)
+(tenant_id, lifecycle_status)
+(tenant_id, custodian_party_id, lifecycle_status)
 (current_location_id, lifecycle_status)
 (farm_id, lifecycle_status)
 (park_id, lifecycle_status)
@@ -443,9 +524,17 @@ Location hierarchy.
 
 ```text
 location_id uuid primary key
+tenant_id uuid not null references tenants(tenant_id)
 location_type text not null
 name text not null
 parent_location_id uuid null references locations(location_id)
+country text not null default 'IN'
+state_region text null
+district text null
+pincode text null
+lat numeric null
+lng numeric null
+timezone text not null default 'Asia/Kolkata'
 status text not null
 created_at timestamptz not null
 ```
@@ -454,7 +543,7 @@ Minimum bootstrap locations:
 
 ```text
 one explicit unknown farm/scope exists for staging only
-real migration into canonical goats requires owning_farm_id resolution
+real migration into canonical goats requires tenant_id and custodian_party_id resolution
 unknown current location is allowed as a location record, not an empty/null string
 ```
 
@@ -489,7 +578,66 @@ Location source-of-truth:
 goat_location_history is the audited movement log
 goats.current_location_id and farm/park/shed/cohort columns are current-state caches
 movement/import/location changes update history and current-state cache in the same transaction
-owning_farm_id is stable RBAC scope and is not automatically changed by movement
+location movement does not automatically change tenant_id or custodian_party_id
+custody changes are captured separately in goat_custody_history
+```
+
+### `goat_ownership`
+
+Temporal economic ownership ledger. This is a foundation seam only; it does not
+build token, investor, lending, franchise, or billing workflows in Phase 1.
+
+```text
+ownership_id uuid primary key
+tenant_id uuid not null references tenants(tenant_id)
+goat_id uuid not null references goats(goat_id)
+owner_party_id uuid not null references parties(party_id)
+share_bps int not null
+valid_from timestamptz not null
+valid_to timestamptz null
+status text not null
+decision_id uuid null
+created_at timestamptz not null
+created_by uuid null
+```
+
+Rules:
+
+```text
+seed every imported goat with Mesha owner_party_id at share_bps = 10000
+active ownership shares for a goat must sum to 10000 basis points
+enforce active-share total in service transaction and DB trigger/reconciliation guard
+overlapping validity windows for the same owner/goat require explicit decision
+ownership is economic truth; it does not imply daily task responsibility
+```
+
+### `goat_custody_history`
+
+Temporal operational responsibility ledger. Current custody is cached on
+`goats.custodian_party_id` for fast reads.
+
+```text
+custody_history_id uuid primary key
+tenant_id uuid not null references tenants(tenant_id)
+goat_id uuid not null references goats(goat_id)
+custodian_party_id uuid not null references parties(party_id)
+from_location_id uuid null references locations(location_id)
+to_location_id uuid null references locations(location_id)
+valid_from timestamptz not null
+valid_to timestamptz null
+decision_id uuid null
+reason text null
+created_at timestamptz not null
+created_by uuid null
+```
+
+Rules:
+
+```text
+seed every imported goat with Mesha custodian_party_id unless source evidence says otherwise
+custody can change without ownership changing
+location can change without custody changing
+operator task assignment is not custody; it stays in workforce/tasks
 ```
 
 ### `legacy_import_policies`
@@ -1001,7 +1149,8 @@ or 1M later.
 ```text
 counter_id uuid primary key
 counter_grain text not null
-owning_farm_id uuid not null
+tenant_id uuid not null
+custodian_party_id uuid null
 farm_id uuid null
 park_id uuid null
 shed_id uuid null
@@ -1033,11 +1182,12 @@ if counters are stale/rebuilding, dashboards show freshness state and still must
 Materialized grains:
 
 ```text
-owning_farm_lifecycle: owning_farm_id + lifecycle_status
-owning_farm_identity: owning_farm_id + identity_state
-park_lifecycle: owning_farm_id + park_id + lifecycle_status
-shed_lifecycle: owning_farm_id + park_id + shed_id + lifecycle_status
-breed_sex_lifecycle: owning_farm_id + breed_id + sex + lifecycle_status
+tenant_lifecycle: tenant_id + lifecycle_status
+custodian_lifecycle: tenant_id + custodian_party_id + lifecycle_status
+custodian_identity: tenant_id + custodian_party_id + identity_state
+park_lifecycle: tenant_id + park_id + lifecycle_status
+shed_lifecycle: tenant_id + park_id + shed_id + lifecycle_status
+breed_sex_lifecycle: tenant_id + breed_id + sex + lifecycle_status
 ```
 
 Do not materialize arbitrary combinations of all nullable dimensions. New grains
@@ -1107,9 +1257,10 @@ created_at timestamptz not null
 Rules:
 
 ```text
-farm-scoped reads filter by owning_farm_id
+tenant-scoped reads filter by tenant_id
+custody-scoped reads filter by custodian_party_id
 park/shed/cohort reads filter by current placement cache
-cross-farm placement, if allowed, must grant visibility by both ownership and placement policy
+cross-custody or cross-location placement, if allowed, must grant visibility by both custody and placement policy
 search and identifier resolve apply scope filters before response shaping
 out-of-scope matches are not returned as goat summaries, source records, conflict details, or proof refs
 exact goat_id reads outside scope return a generic not_found_or_not_allowed error envelope
@@ -1365,7 +1516,7 @@ out-of-scope matches are treated as not visible for operator/mobile response sha
 ### Dashboard/Analytics APIs
 
 ```text
-GET /analytics/identity/counts?grain=&owning_farm_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&identity_state=&breed_id=&sex=
+GET /analytics/identity/counts?grain=&tenant_id=&custodian_party_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&identity_state=&breed_id=&sex=
 ```
 
 Count endpoint rules:
@@ -1673,7 +1824,8 @@ goat_identifiers(normalized_value) where identifier_type = 'rfid' and status = '
 goat_identifiers(normalized_value) where identifier_type = 'visual_tag' and status = 'active'
 goat_identifiers(goat_id, identifier_type) where is_primary_for_goat = true and status = 'active'
 identifier_policies(policy_version, identifier_type)
-goats(owning_farm_id, lifecycle_status)
+goats(tenant_id, lifecycle_status)
+goats(tenant_id, custodian_party_id, lifecycle_status)
 goats(farm_id, lifecycle_status)
 goats(park_id, lifecycle_status)
 goats(shed_id, lifecycle_status)
@@ -1686,8 +1838,12 @@ legacy_import_rows(import_run_id, processing_state, row_number)
 legacy_import_rows(source_row_key, source_row_version_hash)
 goat_identity_events(goat_id, occurred_at desc)
 identity_correction_requests(state, park_id, created_at)
-goat_identity_counters(owning_farm_id, farm_id, park_id, shed_id, lifecycle_status)
-goat_identity_counters(owning_farm_id, breed_id, sex, lifecycle_status)
+goat_ownership(tenant_id, goat_id, status, valid_from, valid_to)
+goat_ownership(owner_party_id, status)
+goat_custody_history(tenant_id, goat_id, valid_from, valid_to)
+goat_custody_history(custodian_party_id, valid_from, valid_to)
+goat_identity_counters(tenant_id, custodian_party_id, farm_id, park_id, shed_id, lifecycle_status)
+goat_identity_counters(tenant_id, breed_id, sex, lifecycle_status)
 user_scope_grants(user_id, role, scope_type, scope_id, status)
 audit_log(resource_type, resource_id, created_at)
 idempotency_keys(expires_at)
@@ -1898,10 +2054,10 @@ lifecycle/status vocabulary:
   canonical lifecycle_status mapping and flag labels that look like breed/growth
   class instead of lifecycle.
 
-owning_farm/location mapping:
+tenant/party/custody/location mapping:
   identify columns/code paths for farm, park, shed, shed_tag, load, source, CBE,
-  CPT, holdings, and unknown locations. Propose owning_farm_id mapping strategy
-  and unknown-location handling.
+  CPT, holdings, and unknown locations. Propose tenant, owner_party,
+  custodian_party, current_location, and unknown-location handling.
 
 first migration source:
   list candidate sources, sheet/tab/file name, row counts, column dictionary,
@@ -1933,11 +2089,14 @@ agent may propose, a human owner must confirm before migrations/seeds/import log
 ```text
 goat_id format: UUID v7 unless explicitly rejected
 display_id generator: server-generated, unique, not manually typed; prefix/format can change before first migration only
-owning_farm_id mapping: each source row must map to a real owning farm or explicit staging-only unknown farm
+tenant/party/custody mapping: each canonical goat row must map to a tenant,
+owner_party_id, and custodian_party_id; source rows that cannot be safely
+mapped remain in staging/review
+geo/location mapping: locations include country, state_region, district, pincode, lat, lng, timezone where known
 old_tag scope policy: one of global | farm | park | purchase_load | source_system | unknown-to-review
 identifier policies per type: uniqueness scope, auto-link allowed?, primary allowed?
 identifier_policy_version: immutable once first import/mutation uses it
-temporary identity minimum: source row/load + owning farm/staging farm + current/unknown location + created_by + reason
+temporary identity minimum: source row/load + tenant + owner/custodian party or staging party + current/unknown location + created_by + reason
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import
@@ -1968,7 +2127,8 @@ first_import_scope: RFID-linked registry only, or RFID registry plus event-log/t
 ```text
 Should location hierarchy be imported before goats or created during import?
 What is the first approved source file for migration testing?
-Can goats be placed in a different farm than owning_farm_id, and who can see them if that happens?
+Can custodian_party_id differ from current physical farm/location, and who can see the goat if that happens?
+What default geo values should be used for CBE, CPT, and Holding Farm rows when source files omit pincode/coordinates?
 ```
 
 ## Phase 1 Exit Criteria
