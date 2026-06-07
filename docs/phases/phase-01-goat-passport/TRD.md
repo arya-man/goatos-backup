@@ -701,7 +701,8 @@ created_by uuid null
 Rules:
 
 ```text
-seed every imported goat with Mesha owner_party_id at share_bps = 10000
+seed RFID DB first-import goats with Mesha owner_party_id at share_bps = 10000
+do not apply the Mesha owner default to later partner-held/HF rows unless source evidence proves Mesha ownership
 share_bps is integer basis points where 10000 = 100%; never use floating shares
 active ownership means status = active and valid_to is null
 active ownership shares for a goat must sum to 10000 basis points
@@ -775,6 +776,10 @@ source_key_recipe must not use spreadsheet row number, sorted position, or expor
 hash_recipe must exclude export-volatile fields such as exported_at, formatting, row_number, and formula timestamps
 field_diff_policy routes each changed field to auto_apply, review, ignore, or reject
 dry-run and committed import use the same policy_version so reconciliation results are reproducible
+first Phase 1 import scope is RFID DB only; tagless/event-log temporary identities are a later import pass
+HF in Origin Farm/source columns means provenance/source reference only; it does not set current custody or ownership
+HF in current Farm/location columns means goat is currently held at an external holding location; set temporary custodian/location evidence where supported and route ownership to review
+partner-held rows must not silently seed Mesha owner_party_id @10000 unless source evidence proves Mesha ownership
 ```
 
 ### `legacy_import_runs`
@@ -2272,7 +2277,7 @@ location conflict rule: RFID DB and latest DB event should match; disagreements 
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import
-first_import_scope: RFID-linked registry only, or RFID registry plus event-log/tagless temporary identities
+first_import_scope: RFID DB only for the first import; event-log/tagless temporary identities are a later import pass
 ```
 
 ## Implementation Order

@@ -531,6 +531,8 @@ Important for this discovery:
 2. First identity migration source
    Meaning: RFID DB is the cleanest goat registry; DB/dashboard files are history or derived views.
    Locked answer: use RFID DB first, then DB/dashboard reconciliation.
+   First import scope: RFID DB only. Tagless/event rows come in a later pass as
+   temporary/review identities.
 
 3. Old tag scope
    Meaning: old tag numbers repeat across farms in the discovered data.
@@ -562,6 +564,9 @@ Important for this discovery:
    Locked answer: CBE is Coimbatore farm/location. CPT is Channapatna farm/location.
    HF means Holding Farm: external agent/partner holding places used for procurement
    and warm-up before travel or intake.
+   Modeling answer: create minimal external party records for known HF partners in
+   Phase 1. Create physical location records only where the source indicates a
+   real holding location. Do not assume goat ownership from the HF label.
 
 9. Origin Farm
    Meaning: RFID DB has Origin Farm values such as BLR, CBE, CJB, CPT, and Gokul.
@@ -587,11 +592,7 @@ Important for this discovery:
 ### Still Need Ops Meaning
 
 ```text
-1. First-import scope
-   Current legacy state: RFID DB has 1,349 cleaner goat rows; DB has many event rows and no-tag values.
-   Need ops meaning: RFID DB only first, or RFID DB plus tagless/event temporary goats?
-
-2. Status label semantics
+1. Status label semantics
    Current legacy state: labels include K0/K1/K2/K3, Pregnant, Non-Pregnant,
    Mother, Milking, Buck, F2-Male, F2-Female, ICU, ICU-Non-Pregnant,
    Quarantine kids, and others.
@@ -599,17 +600,11 @@ Important for this discovery:
    Need ops meaning: which labels are official, which block sale/allocation,
    and which trigger SOP follow-up?
 
-3. Geo details
+2. Geo details
    Current legacy state: CBE is Coimbatore and CPT is Channapatna. HF values are
    external holding/source places.
    Need ops meaning: official address, district, pincode, coordinates, and timezone
    for CBE/CPT and any HF location that should become a physical location.
-
-4. HF partner modeling
-   Current legacy state: HF values are agent/partner company/source names and
-   their places are not Mesha-owned core farms.
-   Need ops meaning: should Phase 1 create separate external party/location
-   records for each HF partner, or keep them as source context first and promote later?
 ```
 
 ## Phase 1 Start Decision

@@ -67,8 +67,12 @@ Build rule:
 
 - Treat HF as procurement/source/holding context by default.
 - Do not treat HF/Holding Farm as final goat ownership truth automatically.
+- Create minimal external party records for known HF partners during Phase 1 so
+  imports reference entities, not free-text names.
 - If a row says the goat is physically at an HF location, capture it as
   holding-location evidence and route unclear owner/custodian meaning to review.
+- If HF appears in an Origin Farm/source column, store it as provenance only; do
+  not use it to set current custody or ownership.
 
 ### Origin Farm
 

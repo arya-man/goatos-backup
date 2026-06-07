@@ -803,7 +803,7 @@ first migration source
   file/source name, owner, date, and column dictionary
 
 first migration scope
-  RFID-linked registry only | include event-log/tagless population as temporary identities
+  locked RFID DB only for first import; event-log/tagless temporary identities come in a later pass
 ```
 
 Pre-migration lock list:
@@ -862,6 +862,14 @@ Meaning: RFID DB looks like the clean goat registry; DB/dashboard files look lik
 
 Locked answer: use RFID DB first for the identity seed, then reconcile DB/dashboard data.
 
+**First import scope**
+
+Meaning: RFID DB is the cleanest low-risk identity slice. DB/tagless/event rows
+are dirtier and need temporary identity/review handling.
+
+Locked answer: first import seeds RFID DB only. Tagless/event rows come in a
+later import pass as temporary/review identities.
+
 **Owner, custodian, and location separation**
 
 Meaning: this is about the goat, not where a person lives. One party can own the goat's value, another party can be responsible for caring for it, and the goat can physically sit in a farm/park/shed.
@@ -892,6 +900,15 @@ Meaning: CBE/CPT/HF were unclear labels in Sheets and dashboards.
 
 Locked answer: CBE is Coimbatore farm/location. CPT is Channapatna farm/location. HF means Holding Farm, an external agent/partner holding place used during procurement/warm-up. Origin Farm is source/origin evidence, not current location by itself.
 
+**HF partner modeling**
+
+Meaning: HF partners are real external partner/source names, but the audio does
+not prove final goat ownership for every HF row.
+
+Locked answer: create minimal external party records for known HF partners in
+Phase 1. Create location records only where source evidence indicates a physical
+holding place. Do not assume ownership from the HF label.
+
 **Current location conflict**
 
 Meaning: RFID DB and latest DB event should ideally agree on current shed/location.
@@ -909,12 +926,6 @@ Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2 is m
 These are not technical architecture questions. They are places where current
 legacy data uses business words/codes that only operations can correctly
 interpret.
-
-**First import scope**
-
-Current legacy state: RFID DB has 1,349 cleaner goat rows. DB has many event rows, duplicate/no-tag values, and history.
-
-Need ops meaning: should first import seed only RFID DB goats, or also create temporary goats from tagless/event rows?
 
 **Status label semantics**
 
