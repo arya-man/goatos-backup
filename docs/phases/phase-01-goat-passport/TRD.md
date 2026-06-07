@@ -434,7 +434,7 @@ Initial examples:
 ```text
 axis=growth_cohort, status_code=K0, display_name="K0 - Newborn", short_label="K0"
 axis=growth_cohort, status_code=K1, display_name="K1 - Bottle milk training", short_label="K1"
-axis=growth_cohort, status_code=K2, display_name="K2 - Milk + solid-feed training", short_label="K2"
+axis=growth_cohort, status_code=K2, display_name="K2 - Milk drinking", short_label="K2"
 axis=growth_cohort, status_code=K3, display_name="K3 - Weaning", short_label="K3"
 axis=growth_cohort, status_code=F2, display_name="F2 - Fattening", short_label="F2"
 axis=management, status_code=warmup, display_name="Warmup - Adaptation", short_label="Warmup"
@@ -504,6 +504,7 @@ the F2 label override the source Gender value
 if source Gender is blank/unknown and the only sex clue is F2-Male/F2-Female,
 leave sex needs-review; do not infer sex from the F2 suffix
 legacy raw label Fattening maps to growth_cohort_tag=F2
+F0 is not an active stage; preserve as raw evidence and route to mapping review if encountered
 sale/allocation blocking and routine task triggers are not stored here; they
 belong to later status_rule_policies in sales/SOP phases
 ```
@@ -887,10 +888,14 @@ source_key_recipe must not use spreadsheet row number, sorted position, or expor
 hash_recipe must exclude export-volatile fields such as exported_at, formatting, row_number, and formula timestamps
 field_diff_policy routes each changed field to auto_apply, review, ignore, or reject
 dry-run and committed import use the same policy_version so reconciliation results are reproducible
-first Phase 1 import scope is RFID DB only; tagless/event-log temporary identities are a later import pass
+first Phase 1 import scope is RFID DB only; tagless/event-log temporary identities are a later import pass after more animals receive RFID tags
 F2-Male/F2-Female mappings must not set sex; sex comes from source Gender evidence
 blank/unknown Gender plus an F2 sex suffix creates a sex_needs_review item
 F2 label and source Gender disagreement creates a sex_status_conflict review item
+old tag uniqueness scope is normalized old_tag_number + normalized park_code, not old_tag_number alone
+historic park aliases normalize CJB -> CBE and BLR -> CPT while preserving source evidence
+RFID DB shed disagreement with latest DB event uses latest DB event as current placement, preserves RFID shed evidence, and creates a reconciliation note
+HF partner-held goats can be shared/pending ownership when only advance payment is confirmed; do not seed full owner ledger without stronger evidence
 HF in Origin Farm/source columns means provenance/source reference only; it does not set current custody or ownership
 HF in current Farm/location columns means goat is currently held at an external holding location; set temporary custodian/location evidence where supported and route ownership to review
 partner-held rows must not silently seed Mesha owner_party_id @10000 unless source evidence proves Mesha ownership
@@ -2330,27 +2335,33 @@ Required proposal outputs:
 
 ```text
 old_tag uniqueness:
-  farm-scoped uniqueness is locked for Phase 1. Group normalized old tags by
-  source, farm, load/source if present, and count
+  park-scoped uniqueness is locked for Phase 1: old_tag_number + normalized
+  park_code. Group normalized old tags by source, park, historic park alias,
+  load/source if present, and count
   distinct candidate goats/rows. Show duplicate examples as anonymized source
   refs, not raw private rows. Identify which source column should populate the
-  farm scope, and route missing/conflicting farm values to review.
+  park scope, normalize CJB -> CBE and BLR -> CPT, preserve source aliases as
+  evidence, and route missing/conflicting park values to review.
 
 status vocabulary:
   extract distinct statuses from XLSX/CSVs/dashboard display code. Propose
   mapping into separate lifecycle_status, reproductive_status, growth_cohort_tag,
-  management_stage, and health_status axes. Flag official labels, sale-blocking
-  labels, and non-health status/stage task triggers for ops confirmation.
+  management_stage, and health_status axes. Seed confirmed labels from Drive
+  source docs: K0, K1, K2, K3, F2, Warmup, M0, ICU, Quarantine, Pregnant,
+  Non Pregnant, Mother, Mother Milking Waiting, Milking Warmup, Milking, Buck,
+  Flushing, and Breeding. F0 is not active and should remain reviewable if found.
   Health diagnosis follow-up behavior is legacy-derived from Diagnosis Form,
   Problem, Follow Up, Adults SOP, and Kids SOP. Known K0/K1/K2/K3/M0/F2/Warmup
   meanings live in context/product/glossary.md.
 
 tenant/party/custody/location mapping:
   identify columns/code paths for farm, park, shed, shed_tag, load, source, CBE,
-  CPT, holdings, and unknown locations. Propose tenant, owner_party,
+  CPT, historic aliases CJB/BLR, holdings, and unknown locations. Propose tenant, owner_party,
   custodian_party, current_location, and unknown-location handling. CBE is
   Coimbatore, CPT is Channapatna, HF is Holding Farm, and Origin Farm is
-  source/origin evidence.
+  source/origin evidence. If only advance-paid HF holding is known, set
+  ownership to shared/pending review instead of asserting full Mesha or partner
+  ownership.
 
 first migration source:
   list candidate sources, sheet/tab/file name, row counts, column dictionary,
@@ -2366,7 +2377,11 @@ SOP/form inventory:
 policy-only decisions:
   record future policy decisions not required for Phase 1 import, such as
   sale/allocation blocking labels, non-health status/stage task triggers, and
-  official geo details. First import scope is locked to RFID DB first. HF
+  official geo details. Seed known rules from Drive source docs: ICU/serious
+  illness, Quarantine/viral disease, milk-drinking kids up to K3, and future
+  medication withdrawal periods restrict sale/allocation; K/F kids weigh every
+  Monday; adults weigh monthly on the 15th; vaccinations run by schedule; feed
+  changes are experiment-driven. First import scope is locked to RFID DB first. HF
   partner handling is locked to minimal external party records plus physical
   location records only when source evidence supports them.
 ```
@@ -2389,16 +2404,16 @@ tenant/party/custody mapping: each canonical goat row must map to a tenant,
 owner_party_id, and custodian_party_id; source rows that cannot be safely
 mapped remain in staging/review
 geo/location mapping: locations include country, state_region, district, pincode, lat, lng, timezone where known
-old_tag scope policy: locked farm-scoped for Phase 1; ops input is only which
-source column populates farm scope and how missing/conflicting farm values route
-to review
+old_tag scope policy: locked as old_tag_number + normalized park_code for Phase 1;
+historic aliases CJB -> CBE and BLR -> CPT normalize while preserving source
+evidence; missing/conflicting park values route to review
 identifier policies per type: uniqueness scope, auto-link allowed?, primary allowed?
 identifier_policy_version: immutable once first import/mutation uses it
 temporary identity minimum: field-created temp requires photo/proof; import-created temp requires source row evidence; both require current/unknown location and review state
 status structure: lifecycle_status, reproductive_status, growth_cohort_tag, management_stage, and health_status are separate axes
-status semantics: Phase 1 stores raw labels and known axis mappings; sale-blocking labels and non-health status/stage task triggers are later policy inputs, not Phase 1 migration blockers
-site-code meanings: CBE = Coimbatore, CPT = Channapatna, HF = Holding Farm, Origin Farm = source/origin evidence
-location conflict rule: RFID DB and latest DB event should match; disagreements route to reconciliation/review
+status semantics: Phase 1 stores raw labels and known axis mappings; Drive source docs seed sale-blocking and routine-task policy inputs, but Phase 1 does not execute those policies
+site-code meanings: CBE = Coimbatore, CJB = historic CBE alias, CPT = Channapatna, BLR = historic CPT alias, HF = Holding Farm, Origin Farm = source/origin evidence
+location conflict rule: latest DB event is the current placement source when RFID DB shed is stale; preserve both pieces of evidence and route disagreement to reconciliation/review
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import
@@ -2411,6 +2426,7 @@ first_import_scope: RFID DB only for the first import; event-log/tagless tempora
 1. OpenAPI + JSON Schema contracts for identity/passport/conflict/decision.
 2. Run/read the legacy discovery proposal before schema defaults:
    docs/phases/phase-01-goat-passport/legacy-discovery-proposals.md
+   context/source-findings/drive-docs-findings.md
 3. Confirm pre-migration locked decisions; stop for human answers if any are unknown.
 4. Postgres migrations for identity/location/import/reconciliation/policy/outbox tables.
 5. Identifier and import policy seeds for first migration sample.
@@ -2428,11 +2444,10 @@ first_import_scope: RFID DB only for the first import; event-log/tagless tempora
 
 ```text
 Should location hierarchy be imported before goats or created during import?
-What is the first approved source file for migration testing?
+What exact RFID DB export file/date is the first migration test fixture?
 Locked: custodian_party_id may differ from current physical farm/location.
 Open ops/policy question: when custody and placement differ, which roles/scopes can view or mutate the goat?
-What default geo values should be used for CBE, CPT, and Holding Farm rows when source files omit pincode/coordinates?
-Should HF partners become external party/location records in Phase 1, or remain source context until later?
+What exact geo values should be filled for CBE, CPT, and Holding Farm rows when source files omit pincode/coordinates? City/state can seed first; exact address/GPS is nullable.
 ```
 
 ## Phase 1 Exit Criteria

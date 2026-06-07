@@ -25,6 +25,9 @@ Detailed phase PRD/TRD docs
 Goat OS coverage checklist (frozen migration audit, not living architecture)
   context/product/goat-os-coverage-map.md
 
+Drive source findings from General/Slack docs
+  context/source-findings/drive-docs-findings.md
+
 Final architecture
   context/architecture/final-architecture.md
 
@@ -74,6 +77,9 @@ human explicitly asks for historical comparison.
 context/product/
   CEO language, workflows, glossary
   start with context/product/glossary.md for business terms and legacy codes
+
+context/source-findings/
+  derived findings from private/source docs; never raw PII or contacts
 
 context/architecture/
   contexts, wires, ports, deploy model, infra decisions

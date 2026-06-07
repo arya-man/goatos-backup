@@ -87,6 +87,8 @@ What users get:
 - Central verifier verifies proof video/photo.
 - Approved vaccination becomes canonical goat history.
 - Missed/pending tasks move forward with reason.
+- Task views preserve the current Slack mental model: "assigned to me", due
+  today, open, completed, and verifier correction/rework.
 
 In short:
 
@@ -112,10 +114,14 @@ Build the health incident system.
 What users get:
 
 - Sick goat reporting.
-- Treatment records.
+- Diagnosis form with symptom fields and proof video.
+- Disease selection by health head/park head/central team before diagnosis closes.
+- One open problem per diagnosed disease per goat.
+- Treatment records and daily treatment sessions.
 - Medicine dosage and withdrawal tracking.
 - Recovery follow-ups.
 - Death/abortion records.
+- ICU/Quarantine follow-up and shifting-out workflow once no open problem remains.
 - Mortality views by breed, farm, shed, age group, source batch.
 - Verification queue for high-risk events.
 
@@ -129,11 +135,13 @@ and accountability.
 Two-dev split:
 
 ```text
-Dev A builds health/treatment/death event tables, medicine/withdrawal rules,
-follow-up task generation, verification gates, and health APIs.
+Dev A builds diagnosis/problem/treatment/death event tables, disease mapper
+integration seams, medicine/withdrawal rules, treatment-session task generation,
+close/extend problem rules, verification gates, and health APIs.
 
 Dev B builds sick-goat reporting forms, treatment follow-up screens, death/
-abortion proof flows, verifier review screens, and mortality dashboard views.
+abortion proof flows, health symptom form UI, verifier review screens, and
+mortality dashboard views.
 ```
 
 ## Phase 4: Workforce, Park Operations, And Daily Control
@@ -159,6 +167,8 @@ What users get:
 - Operator entry log.
 - Completion, rejection, rework, and missed-task history.
 - Park-level work completion dashboard.
+- Current operating roles supported: vertical head, assistant manager, health
+  manager, farm/park head, central team, feed packer, feed distributor, verifier.
 
 In short:
 
@@ -191,7 +201,13 @@ What users get:
 - Feed conversion.
 - Daily feeding completion by operator/team/shed.
 - Shed/park movements and shifting history.
+- Shifting request/direction authorization flow.
+- Shifting due rules: high priority same day; low priority tomorrow 9 AM if
+  raised before 1:30 PM, day-after-tomorrow 9 AM if raised after 1:30 PM.
 - Overdue stage alerts like K1/K2/K3.
+- Weighing rhythms: K/F kids every Monday; adults monthly, currently 15th.
+- Feed rhythm: 8:30 AM directions, 9 AM morning feed, 2 PM revisions, 3 PM
+  next-day feed staging.
 
 In short:
 
@@ -203,8 +219,9 @@ moving through the right stages at the right time.
 Two-dev split:
 
 ```text
-Dev A builds growth/feed/movement event models, feeding task generation,
-stage rules, feed-stock linkage, device weight ingestion, and performance calculations.
+Dev A builds growth/feed/movement event models, shifting authorization/due rules,
+feeding task generation, stage rules, feed-stock linkage, device weight ingestion,
+and performance calculations.
 
 Dev B builds Android weight/feed/movement forms, feeding task completion UI,
 stage-overdue views, growth charts, feed dashboards, and shed/park movement UI.
@@ -221,6 +238,10 @@ What users get:
 - Pregnancy detection records.
 - Ultrasound proof/observations.
 - Delivery/kidding records.
+- Birth/abortion form capture.
+- Sequential mother/kid birth actions with answer/video proof before next action.
+- Colostrum schedule and proof flow.
+- Next-morning K1/mother shifting directions.
 - Kid survival tracking.
 - Pedigree and family tree.
 - Imported embryo/semen line tracking.
@@ -237,11 +258,12 @@ which mothers perform, which imported embryo lines are worth scaling.
 Two-dev split:
 
 ```text
-Dev A builds breeding, pregnancy, kidding, pedigree, embryo/semen line records,
-genetics scoring inputs, and inbreeding/performance rules.
+Dev A builds breeding, pregnancy, kidding, birth-action, colostrum, pedigree,
+embryo/semen line records, genetics scoring inputs, and inbreeding/performance rules.
 
-Dev B builds breeding forms, pregnancy/ultrasound capture screens, family-tree
-views, genetics dashboards, and breeder performance screens.
+Dev B builds breeding forms, pregnancy/ultrasound capture screens, birth/kid
+action screens, colostrum task screens, family-tree views, genetics dashboards,
+and breeder performance screens.
 ```
 
 ## Phase 7: Procurement, Inventory, And Cost
@@ -252,6 +274,10 @@ What users get:
 
 - Goat purchase/load records.
 - Vendor/source history.
+- Holding farm records for partner/source farms used between procurement and
+  dispatch to main parks.
+- Advance-paid / shared-pending ownership state until settlement/intake evidence
+  makes ownership clear.
 - Landing cost per kg.
 - Feed stock.
 - Medicine/vaccine stock.
@@ -268,8 +294,8 @@ became real goats or usable stock.
 Two-dev split:
 
 ```text
-Dev A builds procurement, vendor/source records, intake reconciliation,
-inventory, batch/expiry, and landing-cost calculations.
+Dev A builds procurement, vendor/source/holding-farm records, advance/payment
+state, intake reconciliation, inventory, batch/expiry, and landing-cost calculations.
 
 Dev B builds purchase/load entry screens, inventory screens, import/reconcile
 screens, cost dashboards, and stock warning views.
@@ -283,6 +309,9 @@ What users get:
 
 - Sellable goat readiness.
 - Sale/blocking policy.
+- Initial sale blockers from current operating docs: ICU/serious illness,
+  Quarantine/viral disease, milk-drinking kids up to K3, and medication
+  withdrawal periods once medicine tracking is live.
 - Allocation of goat to buyer/order/occasion.
 - Dispatch/exit proof.
 - Slaughter/meat-yield feedback where applicable.

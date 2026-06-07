@@ -142,7 +142,7 @@ CPT.
 Old Tag ID values spanning more than one farm in RFID DB: 54
 ```
 
-They must be farm-scoped.
+They must be scoped by normalized park code, not by tag number alone.
 
 ### Dashboard CSVs
 
@@ -258,18 +258,16 @@ a small number of duplicate RFID values.
 Proposal:
 
 ```text
-old tag scope: farm
+old tag scope: old_tag_number + normalized park_code
 auto-link: only within the approved scope and only when supporting evidence agrees
 conflict: duplicate old tag in same scope goes to review
 unknown scope: review, never silently global
+historic aliases: CJB -> CBE, BLR -> CPT; preserve original source code as evidence
 ```
 
-Reason: old tags are proven to repeat across farms. Global old-tag uniqueness
-would merge real goats incorrectly.
-
-Source-system and load/source should stay as evidence columns, but they should
-not replace farm as the first identity scope unless business rules later prove
-farm is too broad.
+Reason: ops confirmed old tags were effectively `Number + Park`. `826 CBE` and
+`826 CPT` can be two different goats, while `826 CBE` cannot occur twice for two
+different goats. Global old-tag uniqueness would merge real goats incorrectly.
 
 ## Lifecycle / Status / Cohort Proposal
 
@@ -298,7 +296,7 @@ reproductive_status
   pregnant, non_pregnant, mother, milking, buck, unknown
 
 growth_cohort_tag
-  K0, K1, K2, K3, F0, F2, unknown
+  K0, K1, K2, K3, F2, unknown
 
 management_stage
   warmup, unknown
@@ -317,6 +315,7 @@ legacy labels remain searchable, but canonical status fields are structured
 F2-Male maps to growth_cohort_tag=F2 only; sex comes from the source Gender column
 F2-Female maps to growth_cohort_tag=F2 only; sex comes from the source Gender column
 Fattening maps to growth_cohort_tag=F2
+F0 is not used; if found, preserve raw label and route to mapping review
 if F2-Male/F2-Female disagrees with the source Gender column, preserve both values and route to review
 if Gender is blank/unknown and only the F2 label implies sex, keep sex needs-review
 ICU-Non-Pregnant maps to health_status=ICU and reproductive_status=non_pregnant
@@ -331,23 +330,23 @@ unknown labels stay as raw_label in review until mapped
 Ops-confirmed label meanings:
 
 ```text
-K0: newborn stage, usually first 1-2 days
-K1: bottle-milk training
-K2: milk plus solid-feed training, roughly two months
+K0: newborn stage with mother, maximum about one day
+K1: milk training after separation from mother, maximum about seven days
+K2: milk drinking after training, about 42 days / six weeks
 K3: weaning to solid feed
-M0: mother post-delivery, typically around one month
+M0: mother post-delivery / mother shed stage
 F2-Male / F2-Female: F2 fattening group labels; F2 is the stage, while
 Male/Female is a legacy grouping suffix and not authoritative sex evidence
-Warmup: adaptation period, either at source before travel or destination after arrival
+Warmup: 2-8 week source holding period before dispatch, plus about 14-day park
+transition diet after arrival
 ```
 
-Still needs business/ops approval:
+Later policy/data enrichment, not Phase 1 blockers:
 
 ```text
 official canonical labels for UI/reporting
-whether F0 is still used and what it means
-which labels block sale/allocation
-which non-health status/stage changes should create tasks
+sale/allocation rules are seeded from Drive docs but become configurable later policies
+non-health status/stage changes that create routine tasks become configurable later SOP policies
 ```
 
 Normalizer rule for identifiers:
@@ -377,7 +376,8 @@ Ops-confirmed meanings:
 ```text
 CBE: Coimbatore farm/location code
 CPT: Channapatna farm/location code
-HF: Holding Farm, external agent/partner holding place used after purchase and before travel or intake
+Historic aliases: CJB -> CBE, BLR -> CPT
+HF: Holding Farm, external vendor/source site used 2-8 weeks after purchase and before dispatch to core parks
 Origin Farm: where the goat was purchased from, born, or originally sourced
 ```
 
@@ -387,9 +387,10 @@ Proposal:
 tenant / owner / custodian:
   seed one Mesha tenant
   seed Mesha as the first org party
-  imported goats default to Mesha owner_party_id and custodian_party_id unless source evidence says otherwise
-  Holding Farm / HF rows map to procurement/source/holding context first; do not
-  treat them as goat ownership truth automatically
+  RFID-first goats in CBE/CPT can seed Mesha ownership/custody when source evidence agrees
+  Holding Farm / HF rows map to procurement/source/holding context first
+  advance-paid but not fully-paid partner-held goats are shared/pending ownership review
+  do not treat HF labels as full owner/custodian truth automatically
 
 current_location:
   Farm + Shed + Shed Tag when available
@@ -399,16 +400,17 @@ location precedence for first import:
   RFID DB Shed/Shed Tag for RFID-linked goats
   latest DB event Dst Shed/Dst Shed Tag for event-derived current position
   dashboard CSV only for aggregate reconciliation
-  if RFID DB and latest DB event disagree for the same goat, route to
-  reconciliation/review because ops says they should match
+  if RFID DB and latest DB event disagree for the same goat, latest DB event is
+  current placement because RFID shed can be stale; preserve both pieces of
+  evidence and create reconciliation/review
 ```
 
-Still needs business approval:
+Later data enrichment, not Phase 1 blockers:
 
 ```text
 official addresses/geo details for CBE and CPT
-which HF partners should become external party/location records in Phase 1 versus source context only
 official addresses/geo details for any HF partner represented as a physical holding location
+future same-city parks must receive distinct codes/location rows
 ```
 
 ## SOP / Workflow Inventory From Slack and Mobile
@@ -490,9 +492,13 @@ Meaning for Goat OS:
 ```text
 health diagnosis follow-up rules are legacy-derived enough for later Health/SOP phases
 we do not need ops to explain the basic health follow-up engine again
-the remaining ops question is different:
-  which non-health status/stage labels should create routine tasks
-  outside diagnosis/treatment, such as K-stage, M0, Warmup, or fattening follow-ups
+Drive source docs also seed routine work:
+  K/F kids weigh every Monday
+  adult goats weigh monthly on the 15th
+  vaccinations run by schedule
+  feed changes are experiment-driven configuration
+remaining later work is converting these into configurable SOP/status policies,
+not rediscovering the current practice from scratch
 ```
 
 Implication for Goat OS:
@@ -548,10 +554,10 @@ scratch:
 2. RFID should be globally unique going forward.
    Proposal: conflicts open review; no silent overwrite.
 
-3. Old tags are farm-scoped, not globally unique.
-   Evidence: 54 normalized Old Tag IDs span CBE and CPT in RFID DB;
-   583 DB Goat ID values span more than one farm.
-   Proposal: scope old_tag by farm.
+3. Old tags are park-scoped, not globally unique by number alone.
+   Evidence: Drive Q&A confirms old tags were Number + Park; source discovery
+   also found repeated numbers across CBE/CPT.
+   Proposal: scope old_tag by normalized park code and preserve historic alias evidence.
 
 4. Dashboard CSV is reporting output, not canonical import source.
    Proposal: use for reconciliation only.
@@ -579,8 +585,8 @@ context/product/glossary.md
 
 Important for this discovery:
 
-- `CBE` is the Coimbatore farm/location code. `CPT` is the Channapatna farm/location code. Official addresses and geo details are still pending.
-- `HF` / `Holding Farm` means an external agent/partner holding place used after purchase and before transport or farm intake. It must not become goat ownership truth without an approved mapping.
+- `CBE` is the Coimbatore farm/location code; `CJB` is its older code in source data. `CPT` is the Channapatna farm/location code; `BLR` is its older code in source data. Official addresses and geo details can be backfilled later.
+- `HF` / `Holding Farm` means an external vendor/source holding place used after purchase and before dispatch to core parks. Advance-paid partner-held goats can be shared/pending ownership until fully settled.
 - `Origin Farm` means where the goat was purchased from, born, or originally sourced.
 - `source row`, `load`, `tenant`, `party`, `owner`, `custodian`, `staging`, `current location`, `display ID`, and `merge` are defined in the glossary.
 
@@ -598,8 +604,9 @@ Important for this discovery:
    temporary/review identities.
 
 3. Old tag scope
-   Meaning: old tag numbers repeat across farms in the discovered data.
-   Locked answer: old tags are farm-scoped, not globally unique.
+   Meaning: old tag numbers repeat across parks and historic code aliases.
+   Locked answer: old tags are scoped by old_tag_number + normalized park_code,
+   not globally unique by number alone.
 
 4. Owner / custodian / location separation
    Meaning: this is about the goat, not where a person lives.
@@ -625,11 +632,12 @@ Important for this discovery:
 8. CBE / CPT / HF meanings
    Meaning: current data uses short site/source codes.
    Locked answer: CBE is Coimbatore farm/location. CPT is Channapatna farm/location.
-   HF means Holding Farm: external agent/partner holding places used for procurement
-   and warm-up before travel or intake.
+   HF means Holding Farm: external vendor/source holding places used 2-8 weeks
+   after procurement and before dispatch to main parks.
    Modeling answer: create minimal external party records for known HF partners in
    Phase 1. Create physical location records only where the source indicates a
-   real holding location. Do not assume goat ownership from the HF label.
+   real holding location. Do not assume full goat ownership from the HF label;
+   advance-paid partner-held goats stay shared/pending review.
 
 9. Origin Farm
    Meaning: RFID DB has Origin Farm values such as BLR, CBE, CJB, CPT, and Gokul.
@@ -639,18 +647,17 @@ Important for this discovery:
 
 10. Current location conflict
    Meaning: RFID DB has Shed/Shed Tag; DB event log has latest Dst Shed/Dst Shed Tag.
-   Locked answer: they should match. If they differ, treat the row as a data
-   discrepancy and send it to reconciliation/review instead of blindly trusting
-   either source.
+   Locked answer: latest DB event is the current placement signal because RFID
+   DB shed can be stale. Preserve both values and create reconciliation/review.
 
 11. K-stage, M0, F2, and Warmup meanings
    Meaning: these are operating stages, not identity tags.
-   Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2
-   is milk plus solid-feed training for roughly two months; K3 is weaning to
-   solid feed; M0 is mother post-delivery, typically around a month; F2-Male and
-   F2-Female are post-weaning fattening group labels; F2 is the stage and
-   source Gender remains the sex evidence. Warmup can be source-side before
-   travel or destination-side after arrival.
+   Locked answer: K0 is newborn with mother, max about one day; K1 is milk
+   training, max about seven days; K2 is milk drinking, about 42 days / six
+   weeks; K3 is weaning to solid feed; M0 is mother post-delivery / mother shed;
+   F2-Male and F2-Female are post-weaning fattening group labels; F2 is the
+   stage and source Gender remains sex evidence. F0 is not used. Warmup can be
+   source holding before dispatch and a park transition diet after arrival.
 ```
 
 ### Future Ops Inputs Not Blocking Phase 1
@@ -660,7 +667,11 @@ Important for this discovery:
    Current legacy state: labels include K0/K1/K2/K3, Pregnant, Non-Pregnant,
    Mother, Milking, Buck, F2-Male, F2-Female, ICU, ICU-Non-Pregnant,
    Quarantine kids, and others.
-   Known from ops: K0/K1/K2/K3/M0/F2/Warmup meanings are captured above.
+   Known from Drive source docs: K0/K1/K2/K3/M0/F2/Warmup meanings are captured
+   above. ICU/serious illness, Quarantine/viral disease, medication withdrawal
+   periods, and milk-drinking kids up to K3 are sale/allocation blockers.
+   K/F kids weigh every Monday; adult goats weigh monthly on the 15th; all goats
+   receive vaccinations by schedule; feed changes are experiment-driven.
    Known from legacy code: health diagnosis/follow-up tasks are driven by
    Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. They are
    disease, age-group, day, and session based. They are not primarily driven
@@ -669,17 +680,17 @@ Important for this discovery:
      store the raw legacy label
      map known labels into lifecycle/reproductive/growth/management/health axes
      keep unknown or dirty labels reviewable
-     do not hardcode sale-blocking or task-trigger behavior
+     do not hardcode sale-blocking or task-trigger behavior in Phase 1
    Needed for later policy phases:
      which labels are official reporting labels versus old/dirty labels
-     which labels block sale/allocation
-     which non-health status/stage changes should automatically create routine tasks
-       for example K-stage movement, M0 mother checks, Warmup checks, or fattening follow-ups
-     whether F0 is still used and what it means
+     convert known sale blockers, weighing rhythms, vaccination schedules,
+       medicine withdrawal, feed experiments, and any future stage-triggered work
+       into configurable status_rule_policies / SOP rules
 
 2. Geo details
    Current legacy state: CBE is Coimbatore and CPT is Channapatna. HF values are
-   external holding/source places.
+   external holding/source places. Known current sites are one physical site each
+   for now; future same-city parks need distinct codes/location rows.
    Phase 1 handling:
      create location rows with known code/city/state
      keep exact address, pincode, and coordinates nullable

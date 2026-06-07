@@ -12,6 +12,7 @@ Known meaning:
 
 - Ops-confirmed farm/site code for the Coimbatore farm/location.
 - The code follows the railway/location-code convention used internally.
+- Older source data can use `CJB` for the same Coimbatore park.
 - Found in current Sheets, dashboard filters, and Phase 1 discovery.
 - Treated as one of the core Goat OS operating locations in current data.
 
@@ -31,6 +32,7 @@ Known meaning:
 
 - Ops-confirmed farm/site code for the Channapatna farm/location.
 - The code follows the railway/location-code convention used internally.
+- Older source data can use `BLR` for the same Channapatna park.
 - Found in current Sheets, dashboard filters, and Phase 1 discovery.
 - Treated as one of the core Goat OS operating locations in current data.
 
@@ -50,9 +52,11 @@ Known meaning:
 
 - `HF` means `Holding Farm`.
 - Legacy label found as `Holding Farm` and `HF - <name>` in current source data.
-- Holding farms are external agent/partner places used after purchase and before
-  transport or farm intake.
-- They are used for source-side warm-up, usually before a long journey.
+- Holding farms are facilities at the source where goats are kept after
+  procurement and before dispatch to main parks.
+- Confirmed holding period is roughly 2 to 8 weeks post procurement.
+- They are used for initial selection, tagging, health SOP, and source-side
+  holding before a long journey.
 - Examples such as `HF - Rajasthan Farms`, `HF - Gokul Agronomics`,
   `HF - Goat World`, and `HF - Bhopal Agro` are agent/partner company or
   source names, not Mesha-owned core farms.
@@ -60,13 +64,14 @@ Known meaning:
 Pending confirmation:
 
 - Official geo details for each holding farm if it should be represented as a physical location.
-- Whether each named HF partner should be modeled as a separate external party
-  during Phase 1 import, or kept as source context first and promoted later.
 
 Build rule:
 
 - Treat HF as procurement/source/holding context by default.
 - Do not treat HF/Holding Farm as final goat ownership truth automatically.
+- When Mesha has paid an advance but not the full amount, ownership is
+  business-wise shared/pending and should stay reviewable until source evidence
+  confirms the owner ledger row.
 - Create minimal external party records for known HF partners during Phase 1 so
   imports reference entities, not free-text names.
 - If a row says the goat is physically at an HF location, capture it as
@@ -103,6 +108,30 @@ Build rule:
 - Import-created temporary goats require source-row evidence and stay in review
   until stronger identity is attached.
 
+### Old Tag
+
+Legacy ear tag number used before RFID became the stable identifier. The old tag
+number alone is not unique. The confirmed legacy uniqueness scope is:
+
+```text
+old_tag_number + park_code
+```
+
+Examples:
+
+```text
+826 CBE and 826 CPT can be two different goats.
+435 CBE and 435 CPT can both be present in Coimbatore after historic movement.
+435 CBE cannot occur twice for two different goats.
+```
+
+Build rule:
+
+- Never merge by old tag number alone.
+- Normalize historic park aliases (`CJB -> CBE`, `BLR -> CPT`) while preserving
+  the original source code as evidence.
+- Duplicate old tag inside the same normalized park scope goes to review.
+
 ## Status And Cohort Labels
 
 Goat OS keeps three separate ideas:
@@ -128,16 +157,18 @@ keep sex as needs-review instead of inferring it from the label.
 
 ### K0
 
-Baby goat stage immediately after birth, usually the first one to two days.
+Baby goat stage immediately after birth, with newborn kids kept with the mother
+for a maximum of about one day.
 
 ### K1
 
-Baby goat stage where the kid is trained to drink bottle milk.
+Baby goat stage where the kid is separated from the mother and trained to drink
+from the milk feeding system, for a maximum of about seven days.
 
 ### K2
 
-Baby goat stage of roughly two months where the kid receives milk and is trained
-to eat solid feed.
+Baby goat stage after milk training where the kid drinks milk freely. Confirmed
+duration is about 42 days / six weeks.
 
 ### K3
 
@@ -145,8 +176,8 @@ Weaning stage where milk is gradually stopped and the kid is moved to solid feed
 
 ### M0
 
-Mother-goat post-delivery stage. The mother stays in this stage for some time,
-typically around one month after giving birth.
+Mother-goat post-delivery stage. The mother has delivered recently and is managed
+as a mother/post-delivery animal rather than as a kid growth cohort.
 
 Canonical mapping:
 
@@ -168,6 +199,8 @@ evidence. Goat OS uses the source `Gender` column for sex and treats missing or
 conflicting sex evidence as reviewable. The goal is strong feed performance and
 average daily gain.
 
+`F0` is not currently used.
+
 ### ADG
 
 Average Daily Gain. Growth-performance measure used during fattening and R&D.
@@ -178,9 +211,10 @@ Ops mentioned a target around 200g+ daily gain for strong fattening performance.
 Adaptation period before the goat enters normal farm flow.
 
 - Source warm-up: goats are held at the source/holding farm after purchase,
-  often before travel.
+  usually as part of the 2 to 8 week holding period before travel.
 - Destination warm-up: goats adapt again after arriving at CBE/CPT or another
-  destination farm, especially to local climate and feed.
+  destination farm, especially to local climate and feed. Park warmup is
+  typically about 14 days.
 
 ## Goat OS Identity Terms
 
