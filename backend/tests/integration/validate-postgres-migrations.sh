@@ -91,7 +91,8 @@ BEGIN
   VALUES
     ('30000000-0000-4000-8000-000000000001', tenant, goat_a, 'rfid', 'RFID_EXAMPLE_A', 'RFID_EXAMPLE_A', 'global', 'active', now(), 'test_v1'),
     ('30000000-0000-4000-8000-000000000002', tenant, goat_a, 'old_tag', '1900', '1900', 'park:CBE', 'active', now(), 'test_v1'),
-    ('30000000-0000-4000-8000-000000000003', tenant, goat_b, 'old_tag', '1900', '1900', 'park:CPT', 'active', now(), 'test_v1');
+    ('30000000-0000-4000-8000-000000000003', tenant, goat_b, 'old_tag', '1900', '1900', 'park:CPT', 'active', now(), 'test_v1'),
+    ('30000000-0000-4000-8000-000000000004', tenant, merged, 'old_tag', '1999', '1999', 'park:CBE', 'retired', now(), 'test_v1');
 
   INSERT INTO identity_decisions (decision_id, tenant_id, decision_type, decision_result, decision_state, decided_by_type, policy_version, evidence)
   VALUES (decision, tenant, 'merge_goats', 'same_goat_merge', 'approved', 'human', 'phase1-identifier-v1', '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-validation"}]}'::jsonb);
@@ -230,6 +231,15 @@ VALUES (
 COMMIT;
 SQL
 
+expect_failure "goat_id-changing ownership update checks old goat total" "
+BEGIN;
+UPDATE goat_ownership
+SET goat_id = '10000000-0000-4000-8000-000000000002'
+WHERE goat_id = '10000000-0000-4000-8000-000000000001'
+  AND status = 'active';
+COMMIT;
+"
+
 expect_failure "duplicate active RFID fails" "
 INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
 VALUES (
@@ -260,10 +270,250 @@ VALUES (
 );
 "
 
+run_psql <<'SQL'
+\echo 'Running tenant namespace positive checks'
+
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ('00000000-0000-4000-8000-000000000002', 'Synthetic second tenant', 'active');
+
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ('00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000000002', 'park', 'CBE', 'Synthetic tenant 2 CBE', 'active');
+
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
+VALUES (
+  '10000000-0000-4000-8000-000000000101',
+  '00000000-0000-4000-8000-000000000002',
+  'alive',
+  'clean',
+  '00000000-0000-4000-8000-000000001001',
+  '00000000-0000-4000-8000-000000003101',
+  '00000000-0000-4000-8000-000000003101'
+);
+
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000101',
+  'old_tag',
+  '1900',
+  '1900',
+  'park:CBE',
+  'active',
+  now(),
+  'test_v1'
+);
+
+INSERT INTO legacy_import_runs (import_run_id, tenant_id, source_name, source_system, source_dataset, policy_version, status)
+VALUES
+  ('80000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'Synthetic import T1', 'legacy_rfid_db', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', 'completed'),
+  ('80000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002', 'Synthetic import T2', 'legacy_rfid_db', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', 'completed'),
+  ('80000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', 'Synthetic import alternate source', 'legacy_other_source', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', 'completed');
+
+INSERT INTO legacy_import_rows (
+  tenant_id,
+  import_run_id,
+  row_number,
+  source_system,
+  source_dataset,
+  source_row_key,
+  source_key_recipe_version,
+  source_row_version_hash,
+  hash_recipe_version,
+  raw_payload,
+  normalized_payload,
+  processing_state
+)
+VALUES
+  ('00000000-0000-4000-8000-000000000001', '80000000-0000-4000-8000-000000000001', 1, 'legacy_rfid_db', 'rfid_db_first_import', 'same-key', 'test_recipe', 'same-hash', 'test_hash', '{"synthetic":true}'::jsonb, '{"synthetic":true}'::jsonb, 'pending'),
+  ('00000000-0000-4000-8000-000000000002', '80000000-0000-4000-8000-000000000002', 1, 'legacy_rfid_db', 'rfid_db_first_import', 'same-key', 'test_recipe', 'same-hash', 'test_hash', '{"synthetic":true}'::jsonb, '{"synthetic":true}'::jsonb, 'pending'),
+  ('00000000-0000-4000-8000-000000000001', '80000000-0000-4000-8000-000000000003', 1, 'legacy_other_source', 'rfid_db_first_import', 'same-key', 'test_recipe', 'same-hash', 'test_hash', '{"synthetic":true}'::jsonb, '{"synthetic":true}'::jsonb, 'pending');
+SQL
+
+expect_failure "duplicate source row key/hash in same tenant/source fails" "
+INSERT INTO legacy_import_rows (
+  tenant_id,
+  import_run_id,
+  row_number,
+  source_system,
+  source_dataset,
+  source_row_key,
+  source_key_recipe_version,
+  source_row_version_hash,
+  hash_recipe_version,
+  raw_payload,
+  normalized_payload,
+  processing_state
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '80000000-0000-4000-8000-000000000001',
+  2,
+  'legacy_rfid_db',
+  'rfid_db_first_import',
+  'same-key',
+  'test_recipe',
+  'same-hash',
+  'test_hash',
+  '{\"synthetic\":true}'::jsonb,
+  '{\"synthetic\":true}'::jsonb,
+  'pending'
+);
+"
+
+expect_failure "tenant-scoped child cannot reference goat from another tenant" "
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000001',
+  'old_tag',
+  'cross-tenant-bad',
+  'cross-tenant-bad',
+  'park:CBE',
+  'active',
+  now(),
+  'test_v1'
+);
+"
+
+expect_failure "tenant-scoped goat cannot reference location from another tenant" "
+INSERT INTO goats (tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  'alive',
+  'clean',
+  '00000000-0000-4000-8000-000000001001',
+  '00000000-0000-4000-8000-000000003001'
+);
+"
+
+expect_failure "tenant-scoped location cannot reference parent from another tenant" "
+INSERT INTO locations (tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  'shed',
+  'T2-BAD-SHED',
+  'Synthetic invalid cross-tenant shed',
+  '00000000-0000-4000-8000-000000003001',
+  'active'
+);
+"
+
+expect_failure "tenant-scoped location alias cannot reference canonical location from another tenant" "
+INSERT INTO location_aliases (tenant_id, alias_code, canonical_location_id, source_context, notes)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  'BAD-CBE-ALIAS',
+  '00000000-0000-4000-8000-000000003001',
+  'validation',
+  'Synthetic invalid cross-tenant alias.'
+);
+"
+
+expect_failure "tenant-scoped decision join cannot cross tenants" "
+INSERT INTO identity_decision_goats (tenant_id, decision_id, goat_id, role)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  '20000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000101',
+  'affected'
+);
+"
+
 expect_failure "normal write to merged goat is blocked" "
 UPDATE goats
 SET breed = 'Synthetic invalid update'
 WHERE goat_id = '10000000-0000-4000-8000-000000000005';
+"
+
+expect_failure "hard delete of goat is blocked" "
+DELETE FROM goats
+WHERE goat_id = '10000000-0000-4000-8000-000000000005';
+"
+
+expect_failure "identifier child write to merged goat is blocked" "
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, status, valid_from, normalizer_version)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000005',
+  'old_tag',
+  'merged-child-bad',
+  'merged-child-bad',
+  'park:CBE',
+  'active',
+  now(),
+  'test_v1'
+);
+"
+
+expect_failure "identifier child update on merged goat is blocked" "
+UPDATE goat_identifiers
+SET normalizer_version = 'test_v2'
+WHERE identifier_id = '30000000-0000-4000-8000-000000000004';
+"
+
+expect_failure "identity event child write to merged goat is blocked" "
+INSERT INTO goat_identity_events (
+  tenant_id,
+  goat_id,
+  event_type,
+  event_version,
+  occurred_at,
+  recorded_at,
+  payload,
+  idempotency_key
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000005',
+  'goat.identity.updated',
+  1,
+  now(),
+  now(),
+  '{\"synthetic\":true}'::jsonb,
+  'merged-child-event-bad'
+);
+"
+
+expect_failure "outbox event must belong to same tenant" "
+INSERT INTO outbox_messages (
+  tenant_id,
+  event_id,
+  event_type,
+  schema_version,
+  aggregate_type,
+  aggregate_id,
+  topic,
+  payload,
+  headers,
+  idempotency_key,
+  status
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  '60000000-0000-4000-8000-000000000001',
+  'goat.created',
+  '1.0.0',
+  'goat',
+  '10000000-0000-4000-8000-000000000001',
+  'goat.identity.events',
+  '{\"synthetic\":true}'::jsonb,
+  '{}'::jsonb,
+  'outbox-tenant-mismatch',
+  'pending'
+);
+"
+
+expect_failure "user scope grant location must belong to tenant" "
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES (
+  '00000000-0000-4000-8000-000000000002',
+  '90000000-0000-4000-8000-000000000001',
+  'operator',
+  'park',
+  '00000000-0000-4000-8000-000000003001',
+  'active',
+  now()
+);
 "
 
 run_psql <<'SQL'
