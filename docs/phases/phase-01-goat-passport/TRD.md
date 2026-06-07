@@ -1194,6 +1194,13 @@ fresh allocation. A substitute goat cannot bypass sale blockers, uncleared
 feed-contamination exposure, promised-weight risk, or booking-date price-audit
 rules.
 
+Phase 8/P4 must also implement a scheduled and event-triggered promise
+re-evaluation sweeper over open bookings/allocations. It must re-run the same
+delivery-date readiness policy after critical facts change, write a
+decision_record/event, and create a remediation or replacement review task when
+the answer changes. The sweeper must be idempotent and paginated by
+tenant/park/date/status indexes, not a full-herd scan.
+
 Phase 1 preserves the inputs these later checks need: stable goat_id,
 source_record_ids, decision_records, audit_log, status axes, identity redirects,
 and goat_location_history. It does not execute customer/festival eligibility in

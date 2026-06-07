@@ -986,6 +986,13 @@ price audit are also sale/allocation safety inputs. A substitute/replacement
 goat must pass the same sale/allocation checks as a fresh booking, not bypass
 them.
 
+Future sale/allocation phases must also keep checking open promises after the
+initial booking. If a promised goat later gets sick, moves into a risky feed
+window, receives medicine, loses weight, is merged into another identity, or
+otherwise becomes unsafe before delivery/dispatch, Goat OS must create a
+remediation/replacement task and notify the responsible team. Phase 1 only
+stores the evidence and identifiers needed for that later monitoring loop.
+
 Known from legacy code: health diagnosis and follow-up tasks are driven by Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. That flow is disease, adult/kid age group, day, and session based. It is not mainly driven by status labels like K0/K1/K2/Pregnant.
 
 Known routine work seeds: K and F kids are weighed every Monday. Adult goats are

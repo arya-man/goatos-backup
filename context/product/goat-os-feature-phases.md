@@ -92,6 +92,14 @@ initial booking. Those changes emit events, recalculate eligibility/risk, create
 review tasks when needed, and notify the right people. A promise is not just
 "safe when booked"; it must remain monitored until dispatch/exit.
 
+Continuous monitoring means a real scheduled and event-triggered worker, not a
+dashboard someone remembers to refresh. Later phases must scan open
+bookings/allocations/promises until dispatch or exit, re-run the delivery-date
+readiness policy after critical facts change, write decision evidence, and create
+remediation/replacement tasks when the answer changes. The job must be
+idempotent, paginated by scope/date, and indexed so it never scans the full herd
+in memory.
+
 ## Phase 1: Goat Passport And Herd Registry
 
 Build the identity layer for every goat.
@@ -430,6 +438,10 @@ What users get:
 - Allocation of goat to buyer/order/occasion.
 - Replacement/substitution must re-run the full sellable/readiness policy before
   assigning a substitute goat.
+- Open bookings are continuously rechecked by a scheduled/event-triggered
+  promise-monitoring worker until dispatch/exit; any new risk creates a
+  remediation or replacement review task instead of waiting for a customer to
+  notice on delivery day.
 - Dispatch/exit proof.
 - Slaughter/meat-yield feedback where applicable.
 - Meat yield data flows back to genetics performance.
@@ -444,11 +456,13 @@ and what the real output was.
 Two-dev split:
 
 ```text
-Dev A builds sellable/readiness policy, allocation APIs, exit events,
-dispatch/slaughter proof records, and meat-yield feedback into genetics.
+Dev A builds sellable/readiness policy, allocation APIs, the promise-monitoring
+sweeper/remediation queue, exit events, dispatch/slaughter proof records, and
+meat-yield feedback into genetics.
 
-Dev B builds allocation/dispatch screens, sale-blocked reason UI, proof upload
-flows, meat-yield entry screens, and buyer/investor-safe views.
+Dev B builds allocation/dispatch screens, sale-blocked reason UI, open-promise
+risk/replacement review screens, proof upload flows, meat-yield entry screens,
+and buyer/investor-safe views.
 ```
 
 ## Phase 9: Devices, R&D, And AI Assistance

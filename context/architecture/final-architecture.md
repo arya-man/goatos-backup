@@ -246,6 +246,16 @@ booking:
   exposure and promised-weight risk, then write under the same transactional
   allocation constraints.
 
+promise monitoring:
+  A scheduled and event-triggered sweeper re-evaluates every open
+  booking/allocation/promise until dispatch or exit. It re-runs the same
+  delivery-date readiness policy used at booking time against the latest
+  health, withdrawal, feed-clearance, weight, identity-merge, movement, and
+  pricing facts. On risk changes it writes a decision record/event and creates a
+  remediation or replacement review task. It must be idempotent per
+  booking/allocation, policy_version, and observed_state_hash, and it must page
+  by tenant/park/date/status indexes instead of scanning the full herd in memory.
+
 weight and pricing:
   Pricing uses trusted-weight policy: accepted readings, device/source confidence, recency window, outlier rejection, and source evidence.
   Existing bookings are auditable against the rate/policy effective at booked_at;
@@ -320,6 +330,10 @@ sweeper:
   chunked by park/date.
   idempotent generation keys.
   no full-herd in-memory scans.
+  Promise-monitoring sweepers are the concrete mechanism that keep open
+  customer/festival promises safe after booking. They re-run readiness for open
+  allocations and create remediation tasks only when the observed state/policy
+  result changes.
 
 media:
   compression, lifecycle, proof hashes, CDN/cache for frequently viewed proof.
