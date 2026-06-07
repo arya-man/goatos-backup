@@ -1,0 +1,971 @@
+openapi: 3.1.0
+info:
+  title: Goat OS App API
+  version: 0.1.0
+  summary: Phase 1 Goat Passport lookup and field correction API.
+  description: REST/JSON API for operator mobile and app clients. All reads are RBAC scope-filtered before response DTOs are built.
+servers:
+  - url: https://api.goatos.example.invalid
+    description: Synthetic contract server placeholder.
+security:
+  - bearerAuth: []
+tags:
+  - name: Goats
+  - name: Identifiers
+  - name: Correction Requests
+paths:
+  /goats/search:
+    get:
+      tags:
+        - Goats
+      operationId: searchGoats
+      summary: Search visible goat passports by identifier, display ID, location, status, breed, or sex.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: identifier_type
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/IdentifierType"
+        - name: scope_key
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: farm_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: location_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+      responses:
+        "200":
+          description: Scope-filtered goat search results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoatSearchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /goats/{goat_id}:
+    get:
+      tags:
+        - Goats
+      operationId: getGoatPassport
+      summary: Get a scope-filtered goat passport.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+      responses:
+        "200":
+          description: Goat passport detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoatPassportResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /goats/{goat_id}/timeline:
+    get:
+      tags:
+        - Goats
+      operationId: getGoatTimeline
+      summary: Get a scope-filtered goat identity timeline.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Goat identity timeline.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoatTimelineResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /identifiers/{type}/{value}/resolve:
+    get:
+      tags:
+        - Identifiers
+      operationId: resolveIdentifier
+      summary: Resolve an identifier under explicit scope context when needed.
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/IdentifierType"
+        - name: value
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: scope_key
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: farm_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: location_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Identifier resolution result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveIdentifierResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /identity/correction-requests:
+    post:
+      tags:
+        - Correction Requests
+      operationId: createCorrectionRequest
+      summary: Submit an operator or park-head identity correction request.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCorrectionRequest"
+      responses:
+        "201":
+          description: Correction request accepted for review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrectionRequestResponse"
+        "200":
+          description: Idempotent replay of an already accepted correction request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrectionRequestResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags:
+        - Correction Requests
+      operationId: listCorrectionRequests
+      summary: List correction requests visible to the caller.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Scope-filtered correction request list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrectionRequestListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    GoatId:
+      name: goat_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    Cursor:
+      name: cursor
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 500
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 200
+  responses:
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Missing or invalid authentication.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Permission denied.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFoundOrNotAllowed:
+      description: Resource is missing or outside the caller's visibility scope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - field_errors
+        - trace_id
+        - retryable
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+        field_errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        retryable:
+          type: boolean
+    FieldError:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          minLength: 1
+          maxLength: 200
+        code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+    IdentifierType:
+      type: string
+      enum:
+        - old_tag
+        - rfid
+        - visual_tag
+        - sheet_row_id
+        - purchase_load_id
+        - temp_field_id
+        - external_system_id
+    IdentifierStatus:
+      type: string
+      enum:
+        - active
+        - retired
+        - disputed
+        - duplicate
+        - invalid
+    IdentityState:
+      type: string
+      enum:
+        - clean
+        - needs_review
+        - disputed
+        - merged
+        - inactive
+    ResolutionState:
+      type: string
+      enum:
+        - single_match
+        - multiple_matches
+        - no_match
+        - needs_review
+        - merged_redirect
+    Warning:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+        original_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        redirect_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    LocationPath:
+      type: object
+      additionalProperties: false
+      required:
+        - display
+      properties:
+        display:
+          type: string
+          minLength: 1
+          maxLength: 200
+        farm_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        park_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        shed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        cohort_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    EvidenceRef:
+      type: object
+      additionalProperties: false
+      required:
+        - evidence_type
+        - evidence_id
+      properties:
+        evidence_type:
+          type: string
+          enum:
+            - source_record
+            - identifier
+            - goat
+            - event
+            - media
+            - decision
+            - import_run
+            - conflict
+            - location
+            - actor
+        evidence_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        source_system:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 120
+        description:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+    GoatSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - breed
+        - sex
+        - age_band
+        - lifecycle_status
+        - reproductive_status
+        - growth_cohort_tag
+        - health_status
+        - identity_state
+        - location_path
+        - warnings
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        display_id:
+          type: string
+          pattern: "^G-[0-9]{6,}$"
+        primary_old_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        rfid:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        breed:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        sex:
+          type:
+            - string
+            - "null"
+          maxLength: 40
+        age_band:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        lifecycle_status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        reproductive_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        growth_cohort_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        management_stage:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        health_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        identity_state:
+          $ref: "#/components/schemas/IdentityState"
+        location_path:
+          $ref: "#/components/schemas/LocationPath"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Warning"
+    GoatIdentifier:
+      type: object
+      additionalProperties: false
+      required:
+        - identifier_id
+        - identifier_type
+        - identifier_value
+        - scope_key
+        - status
+        - is_primary_for_goat
+        - valid_from
+      properties:
+        identifier_id:
+          type: string
+          format: uuid
+        identifier_type:
+          $ref: "#/components/schemas/IdentifierType"
+        identifier_value:
+          type: string
+          minLength: 1
+          maxLength: 200
+        scope_key:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          $ref: "#/components/schemas/IdentifierStatus"
+        is_primary_for_goat:
+          type: boolean
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_system:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        source_record_id:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        confidence:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 1
+    GoatPassport:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - species
+        - identity_state
+        - summary
+        - identifiers
+        - evidence_refs
+        - row_version
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        display_id:
+          type: string
+          pattern: "^G-[0-9]{6,}$"
+        species:
+          type: string
+          const: goat
+        identity_state:
+          $ref: "#/components/schemas/IdentityState"
+        summary:
+          $ref: "#/components/schemas/GoatSummary"
+        identifiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoatIdentifier"
+        evidence_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        family_refs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - relation
+              - goat_id
+            properties:
+              relation:
+                type: string
+                minLength: 1
+                maxLength: 80
+              goat_id:
+                type: string
+                format: uuid
+        merged_into_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        row_version:
+          type: integer
+          minimum: 1
+    GoatSearchResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoatSummary"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    GoatPassportResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - goat
+        - warnings
+        - trace_id
+      properties:
+        goat:
+          $ref: "#/components/schemas/GoatPassport"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Warning"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    GoatTimelineEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - recorded_at
+        - actor_type
+        - evidence_refs
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          minLength: 1
+          maxLength: 120
+        occurred_at:
+          type: string
+          format: date-time
+        recorded_at:
+          type: string
+          format: date-time
+        actor_type:
+          type: string
+          minLength: 1
+          maxLength: 80
+        evidence_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        decision_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    GoatTimelineResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoatTimelineEvent"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ResolveIdentifierResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - resolution_state
+        - candidate_goats
+        - warnings
+        - trace_id
+      properties:
+        resolution_state:
+          $ref: "#/components/schemas/ResolutionState"
+        goat_summary:
+          oneOf:
+            - $ref: "#/components/schemas/GoatSummary"
+            - type: "null"
+        candidate_goats:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoatSummary"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Warning"
+        conflict_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        redirect_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationScope:
+      type: object
+      additionalProperties: false
+      properties:
+        farm_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        park_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        shed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        cohort_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    CorrectionRequestType:
+      type: string
+      enum:
+        - missing_tag
+        - tag_reused
+        - rfid_conflict
+        - possible_duplicate
+        - wrong_location
+        - wrong_status
+        - field_verification_result
+        - identifier_seen_but_not_attached
+    CreateCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - request_type
+        - location_scope
+        - description
+        - evidence_refs
+      properties:
+        request_type:
+          $ref: "#/components/schemas/CorrectionRequestType"
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        identifier_type:
+          oneOf:
+            - $ref: "#/components/schemas/IdentifierType"
+            - type: "null"
+        identifier_value:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+        location_scope:
+          $ref: "#/components/schemas/LocationScope"
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+    CorrectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - correction_request_id
+        - request_type
+        - state
+        - description
+        - evidence_refs
+        - created_at
+      properties:
+        correction_request_id:
+          type: string
+          format: uuid
+        request_type:
+          $ref: "#/components/schemas/CorrectionRequestType"
+        state:
+          type: string
+          enum:
+            - open
+            - assigned
+            - needs_field_check
+            - approved
+            - rejected
+            - closed
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        identifier_type:
+          oneOf:
+            - $ref: "#/components/schemas/IdentifierType"
+            - type: "null"
+        identifier_value:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        location_scope:
+          $ref: "#/components/schemas/LocationScope"
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    IdempotencyMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - idempotency_key
+        - replayed
+      properties:
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 200
+        replayed:
+          type: boolean
+        first_result_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    CorrectionRequestResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - correction_request
+        - idempotency
+        - trace_id
+      properties:
+        correction_request:
+          $ref: "#/components/schemas/CorrectionRequest"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CorrectionRequestListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CorrectionRequest"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200

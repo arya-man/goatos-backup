@@ -1,0 +1,368 @@
+openapi: 3.1.0
+info:
+  title: Goat OS Analytics API
+  version: 0.1.0
+  summary: Phase 1 governed identity count facade.
+  description: REST/JSON analytics facade for dashboards. Count responses read named projections or governed analytics APIs, never raw full-herd scans.
+servers:
+  - url: https://analytics-api.goatos.example.invalid
+    description: Synthetic contract server placeholder.
+security:
+  - bearerAuth: []
+tags:
+  - name: Identity Counts
+paths:
+  /analytics/identity/counts:
+    get:
+      tags:
+        - Identity Counts
+      operationId: getIdentityCounts
+      summary: Get scoped identity counts for a named materialized grain.
+      parameters:
+        - name: grain
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/CounterGrain"
+        - name: tenant_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: custodian_party_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: farm_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: cohort_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: lifecycle_status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: reproductive_status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: growth_cohort_tag
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: management_stage
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: health_status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: identity_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/IdentityState"
+        - name: breed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: sex
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+      responses:
+        "200":
+          description: Governed identity count rows and freshness state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityCountsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Permission denied.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - field_errors
+        - trace_id
+        - retryable
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+        field_errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        retryable:
+          type: boolean
+    FieldError:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          minLength: 1
+          maxLength: 200
+        code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+    IdentityState:
+      type: string
+      enum:
+        - clean
+        - needs_review
+        - disputed
+        - merged
+        - inactive
+    CounterGrain:
+      type: string
+      enum:
+        - tenant_lifecycle
+        - custodian_lifecycle
+        - custodian_identity
+        - park_lifecycle
+        - shed_lifecycle
+        - breed_sex_lifecycle
+        - health_status
+        - growth_cohort
+        - management_stage
+        - reproductive_status
+    CountDimensions:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        custodian_party_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        farm_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        park_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        shed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        cohort_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        lifecycle_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        reproductive_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        growth_cohort_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        management_stage:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        health_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        identity_state:
+          oneOf:
+            - $ref: "#/components/schemas/IdentityState"
+            - type: "null"
+        breed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        sex:
+          type:
+            - string
+            - "null"
+          maxLength: 40
+    IdentityCount:
+      type: object
+      additionalProperties: false
+      required:
+        - counter_grain
+        - dimensions
+        - count_value
+        - as_of_recorded_at
+        - source_import_run_id
+        - is_rebuilding
+        - updated_at
+      properties:
+        counter_grain:
+          $ref: "#/components/schemas/CounterGrain"
+        dimensions:
+          $ref: "#/components/schemas/CountDimensions"
+        count_value:
+          type: integer
+          minimum: 0
+        as_of_recorded_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_import_run_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        is_rebuilding:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+    Freshness:
+      type: object
+      additionalProperties: false
+      required:
+        - as_of_recorded_at
+        - is_rebuilding
+        - warning
+      properties:
+        as_of_recorded_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        is_rebuilding:
+          type: boolean
+        source_import_run_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        warning:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+    IdentityCountsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - grain
+        - items
+        - freshness
+        - trace_id
+      properties:
+        grain:
+          $ref: "#/components/schemas/CounterGrain"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/IdentityCount"
+        freshness:
+          $ref: "#/components/schemas/Freshness"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200

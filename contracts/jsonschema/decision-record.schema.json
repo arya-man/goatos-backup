@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.goatos.local/jsonschema/decision-record.schema.json",
+  "title": "Goat OS Decision Record",
+  "description": "Audited Phase 1 identity decision record. AI may propose but cannot approve canonical truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision_id",
+    "decision_type",
+    "decision_result",
+    "decision_state",
+    "decided_by_type",
+    "policy_version",
+    "reason",
+    "evidence",
+    "idempotency_key",
+    "trace_id",
+    "created_at"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "decision_type": {
+      "type": "string",
+      "enum": [
+        "create_goat",
+        "attach_identifier",
+        "retire_identifier",
+        "mark_identifier_disputed",
+        "merge_goats",
+        "batch_merge_goats",
+        "reject_match",
+        "request_field_verification"
+      ]
+    },
+    "decision_result": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "decision_state": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "approved",
+        "rejected",
+        "needs_review"
+      ]
+    },
+    "decided_by_type": {
+      "type": "string",
+      "enum": [
+        "human",
+        "system_rule",
+        "import_policy",
+        "ai_proposal"
+      ]
+    },
+    "decided_by": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "source_record_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "default": []
+    },
+    "source_identifier_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "default": []
+    },
+    "source_goat_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "default": []
+    },
+    "source_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "default": []
+    },
+    "source_media_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "default": []
+    },
+    "affected_goats": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/affected_goat"
+      },
+      "default": []
+    },
+    "identifier_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/identifier_action"
+      },
+      "default": []
+    },
+    "model_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 120
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reviewer_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_refs"
+      ],
+      "properties": {
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_ref"
+          },
+          "minItems": 1
+        },
+        "matching_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "default": []
+        },
+        "before": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "after": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 200
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "approved_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "decided_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decided_by_type": {
+            "const": "ai_proposal"
+          }
+        },
+        "required": [
+          "decided_by_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "decision_state": {
+            "enum": [
+              "proposed",
+              "needs_review"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "affected_goat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "goat_id",
+        "role"
+      ],
+      "properties": {
+        "goat_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "survivor",
+            "merged",
+            "candidate",
+            "source",
+            "target",
+            "affected"
+          ]
+        }
+      }
+    },
+    "identifier_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "identifier_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "identifier_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "old_tag",
+            "rfid",
+            "visual_tag",
+            "sheet_row_id",
+            "purchase_load_id",
+            "temp_field_id",
+            "external_system_id",
+            null
+          ]
+        },
+        "identifier_value": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "attach",
+            "retire",
+            "dispute",
+            "transfer",
+            "preserve",
+            "reject"
+          ]
+        }
+      }
+    },
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_type",
+        "evidence_id"
+      ],
+      "properties": {
+        "evidence_type": {
+          "type": "string",
+          "enum": [
+            "source_record",
+            "identifier",
+            "goat",
+            "event",
+            "media",
+            "decision",
+            "import_run",
+            "conflict",
+            "location",
+            "actor"
+          ]
+        },
+        "evidence_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

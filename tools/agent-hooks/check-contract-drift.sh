@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-missing=0
+validator_dir="tools/contract-validation"
+
 for path in \
   contracts/openapi \
   contracts/jsonschema \
-  packages/api-client \
-  packages/forms-dsl
+  contracts/examples \
+  "$validator_dir"
 do
   if [ ! -d "$path" ]; then
     echo "Missing expected contract path: $path"
-    missing=1
+    exit 1
   fi
 done
 
-exit "$missing"
+if [ ! -d "$validator_dir/node_modules" ]; then
+  if [ -f "$validator_dir/package-lock.json" ]; then
+    npm --prefix "$validator_dir" ci --no-audit --no-fund
+  else
+    npm --prefix "$validator_dir" install --no-audit --no-fund
+  fi
+fi
+
+npm --prefix "$validator_dir" run validate

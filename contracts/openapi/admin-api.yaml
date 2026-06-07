@@ -1,0 +1,1747 @@
+openapi: 3.1.0
+info:
+  title: Goat OS Admin API
+  version: 0.1.0
+  summary: Phase 1 Goat Passport import, reconciliation, and identity review API.
+  description: REST/JSON API for admin web. Risky identity changes require evidence-backed decisions and idempotent writes.
+servers:
+  - url: https://admin-api.goatos.example.invalid
+    description: Synthetic contract server placeholder.
+security:
+  - bearerAuth: []
+tags:
+  - name: Import Runs
+  - name: Identity Conflicts
+  - name: Identity Candidates
+  - name: Admin Goats
+  - name: Correction Requests
+paths:
+  /admin/import-runs:
+    post:
+      tags:
+        - Import Runs
+      operationId: createImportRun
+      summary: Create a staged legacy import run.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateImportRunRequest"
+      responses:
+        "201":
+          description: Import run created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRunResponse"
+        "200":
+          description: Idempotent replay of a previously created import run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/import-runs/{import_run_id}:
+    get:
+      tags:
+        - Import Runs
+      operationId: getImportRun
+      summary: Get an import run summary.
+      parameters:
+        - $ref: "#/components/parameters/ImportRunId"
+      responses:
+        "200":
+          description: Import run summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRunResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/import-runs/{import_run_id}/rows:
+    get:
+      tags:
+        - Import Runs
+      operationId: listImportRunRows
+      summary: List staged import rows and review state.
+      parameters:
+        - $ref: "#/components/parameters/ImportRunId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Import run rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRunRowsResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/identity/conflicts:
+    get:
+      tags:
+        - Identity Conflicts
+      operationId: listIdentityConflicts
+      summary: List identity conflicts requiring review.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ConflictState"
+        - name: conflict_type
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ConflictType"
+      responses:
+        "200":
+          description: Conflict queue page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConflictListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/identity/conflicts/{conflict_id}:
+    get:
+      tags:
+        - Identity Conflicts
+      operationId: getIdentityConflict
+      summary: Get conflict detail for side-by-side review.
+      parameters:
+        - $ref: "#/components/parameters/ConflictId"
+      responses:
+        "200":
+          description: Conflict detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConflictDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/identity/conflicts/{conflict_id}/resolve:
+    post:
+      tags:
+        - Identity Conflicts
+      operationId: resolveIdentityConflict
+      summary: Resolve an identity conflict with a human-approved decision.
+      parameters:
+        - $ref: "#/components/parameters/ConflictId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveConflictRequest"
+      responses:
+        "200":
+          description: Conflict resolved, including merge redirect details when relevant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveConflictResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/identity/candidates:
+    get:
+      tags:
+        - Identity Candidates
+      operationId: listIdentityCandidates
+      summary: List proposed identity match candidates.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Candidate match page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/identity/candidates/{candidate_id}/approve:
+    post:
+      tags:
+        - Identity Candidates
+      operationId: approveIdentityCandidate
+      summary: Approve a candidate match path when policy allows it.
+      parameters:
+        - $ref: "#/components/parameters/CandidateId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewCandidateRequest"
+      responses:
+        "200":
+          description: Candidate approval result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateDecisionResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/identity/candidates/{candidate_id}/reject:
+    post:
+      tags:
+        - Identity Candidates
+      operationId: rejectIdentityCandidate
+      summary: Reject a candidate match without canonical mutation.
+      parameters:
+        - $ref: "#/components/parameters/CandidateId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewCandidateRequest"
+      responses:
+        "200":
+          description: Candidate rejection result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateDecisionResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/goats:
+    post:
+      tags:
+        - Admin Goats
+      operationId: createAdminGoat
+      summary: Create a reviewed goat identity record.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGoatRequest"
+      responses:
+        "201":
+          description: Goat created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "200":
+          description: Idempotent replay of a previously created goat.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+  /admin/goats/{goat_id}:
+    patch:
+      tags:
+        - Admin Goats
+      operationId: updateAdminGoat
+      summary: Update canonical identity fields with optimistic concurrency.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGoatRequest"
+      responses:
+        "200":
+          description: Goat updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/goats/{goat_id}/identifiers:
+    post:
+      tags:
+        - Admin Goats
+      operationId: addGoatIdentifier
+      summary: Attach an identifier after policy and uniqueness checks.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddIdentifierRequest"
+      responses:
+        "200":
+          description: Identifier attached or conflict returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/goats/{goat_id}/identifiers/{identifier_id}/retire:
+    post:
+      tags:
+        - Admin Goats
+      operationId: retireGoatIdentifier
+      summary: Retire an identifier with evidence and audit.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdentifierId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireIdentifierRequest"
+      responses:
+        "200":
+          description: Identifier retired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /identity/correction-requests:
+    get:
+      tags:
+        - Correction Requests
+      operationId: adminListCorrectionRequests
+      summary: List correction requests visible to the admin.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Correction request page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrectionRequestListResponse"
+  /admin/identity/correction-requests/{correction_request_id}/resolve:
+    post:
+      tags:
+        - Correction Requests
+      operationId: resolveCorrectionRequest
+      summary: Resolve an operator correction request.
+      parameters:
+        - $ref: "#/components/parameters/CorrectionRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveCorrectionRequest"
+      responses:
+        "200":
+          description: Correction request resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrectionRequestResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ImportRunId:
+      name: import_run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConflictId:
+      name: conflict_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CandidateId:
+      name: candidate_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    GoatId:
+      name: goat_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdentifierId:
+      name: identifier_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CorrectionRequestId:
+      name: correction_request_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    Cursor:
+      name: cursor
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 500
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 200
+  responses:
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Permission denied.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFoundOrNotAllowed:
+      description: Resource is missing or outside the caller's visibility scope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    WriteConflict:
+      description: Optimistic concurrency, uniqueness, merge redirect, or idempotency conflict.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - field_errors
+        - trace_id
+        - retryable
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+        field_errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        retryable:
+          type: boolean
+    FieldError:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          minLength: 1
+          maxLength: 200
+        code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+    IdempotencyMeta:
+      type: object
+      additionalProperties: false
+      required:
+        - idempotency_key
+        - replayed
+      properties:
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 200
+        replayed:
+          type: boolean
+        first_result_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    EvidenceRef:
+      type: object
+      additionalProperties: false
+      required:
+        - evidence_type
+        - evidence_id
+      properties:
+        evidence_type:
+          type: string
+          enum:
+            - source_record
+            - identifier
+            - goat
+            - event
+            - media
+            - decision
+            - import_run
+            - conflict
+            - location
+            - actor
+        evidence_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        source_system:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 120
+        description:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+    IdentifierType:
+      type: string
+      enum:
+        - old_tag
+        - rfid
+        - visual_tag
+        - sheet_row_id
+        - purchase_load_id
+        - temp_field_id
+        - external_system_id
+    IdentifierStatus:
+      type: string
+      enum:
+        - active
+        - retired
+        - disputed
+        - duplicate
+        - invalid
+    IdentityState:
+      type: string
+      enum:
+        - clean
+        - needs_review
+        - disputed
+        - merged
+        - inactive
+    GoatSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - breed
+        - sex
+        - age_band
+        - lifecycle_status
+        - reproductive_status
+        - growth_cohort_tag
+        - health_status
+        - identity_state
+        - location_path
+        - warnings
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        display_id:
+          type: string
+          pattern: "^G-[0-9]{6,}$"
+        primary_old_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        rfid:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        breed:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        sex:
+          type:
+            - string
+            - "null"
+          maxLength: 40
+        age_band:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        lifecycle_status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        reproductive_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        growth_cohort_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        management_stage:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        health_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        identity_state:
+          $ref: "#/components/schemas/IdentityState"
+        location_path:
+          type: string
+          minLength: 1
+          maxLength: 200
+        warnings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+            properties:
+              code:
+                type: string
+                minLength: 1
+                maxLength: 120
+              message:
+                type: string
+                minLength: 1
+                maxLength: 500
+    GoatIdentifier:
+      type: object
+      additionalProperties: false
+      required:
+        - identifier_id
+        - identifier_type
+        - identifier_value
+        - scope_key
+        - status
+        - is_primary_for_goat
+        - valid_from
+      properties:
+        identifier_id:
+          type: string
+          format: uuid
+        identifier_type:
+          $ref: "#/components/schemas/IdentifierType"
+        identifier_value:
+          type: string
+          minLength: 1
+          maxLength: 200
+        scope_key:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          $ref: "#/components/schemas/IdentifierStatus"
+        is_primary_for_goat:
+          type: boolean
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+    DecisionRecordSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - decision_id
+        - decision_type
+        - decision_result
+        - decision_state
+        - policy_version
+        - created_at
+      properties:
+        decision_id:
+          type: string
+          format: uuid
+        decision_type:
+          type: string
+          minLength: 1
+          maxLength: 120
+        decision_result:
+          type: string
+          minLength: 1
+          maxLength: 120
+        decision_state:
+          type: string
+          enum:
+            - proposed
+            - approved
+            - rejected
+            - needs_review
+        policy_version:
+          type: string
+          minLength: 1
+          maxLength: 120
+        created_at:
+          type: string
+          format: date-time
+    CreateImportRunRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - source_system
+        - source_dataset
+        - source_file_ref
+        - policy_version
+        - dry_run
+      properties:
+        source_system:
+          type: string
+          minLength: 1
+          maxLength: 120
+        source_dataset:
+          type: string
+          minLength: 1
+          maxLength: 120
+        source_file_ref:
+          type: string
+          minLength: 1
+          maxLength: 500
+        policy_version:
+          type: string
+          minLength: 1
+          maxLength: 120
+        dry_run:
+          type: boolean
+    ImportRun:
+      type: object
+      additionalProperties: false
+      required:
+        - import_run_id
+        - source_system
+        - source_dataset
+        - policy_version
+        - status
+        - dry_run
+        - summary
+        - created_at
+      properties:
+        import_run_id:
+          type: string
+          format: uuid
+        source_system:
+          type: string
+          minLength: 1
+          maxLength: 120
+        source_dataset:
+          type: string
+          minLength: 1
+          maxLength: 120
+        policy_version:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          type: string
+          enum:
+            - staged
+            - running
+            - completed
+            - failed
+            - canceled
+        dry_run:
+          type: boolean
+        summary:
+          $ref: "#/components/schemas/ImportRunSummary"
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    ImportRunSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - rows_processed
+        - goats_created
+        - identifiers_added
+        - clean_matches
+        - duplicates_found
+        - missing_required_fields
+        - conflicts_opened
+        - rows_needing_review
+        - error_count
+      properties:
+        rows_processed:
+          type: integer
+          minimum: 0
+        goats_created:
+          type: integer
+          minimum: 0
+        identifiers_added:
+          type: integer
+          minimum: 0
+        clean_matches:
+          type: integer
+          minimum: 0
+        duplicates_found:
+          type: integer
+          minimum: 0
+        missing_required_fields:
+          type: integer
+          minimum: 0
+        conflicts_opened:
+          type: integer
+          minimum: 0
+        rows_needing_review:
+          type: integer
+          minimum: 0
+        error_count:
+          type: integer
+          minimum: 0
+    ImportRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - import_run
+        - idempotency
+        - trace_id
+      properties:
+        import_run:
+          $ref: "#/components/schemas/ImportRun"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ImportRunRow:
+      type: object
+      additionalProperties: false
+      required:
+        - import_row_id
+        - source_record_id
+        - row_state
+        - review_reasons
+      properties:
+        import_row_id:
+          type: string
+          format: uuid
+        source_record_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        row_state:
+          type: string
+          enum:
+            - staged
+            - clean
+            - needs_review
+            - conflict
+            - error
+        review_reasons:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+    ImportRunRowsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportRunRow"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ConflictType:
+      type: string
+      enum:
+        - duplicate_active_identifier
+        - missing_required_identifier
+        - tagless_goat_review
+        - rfid_already_linked
+        - old_tag_reused
+        - possible_duplicate_goat
+        - location_mismatch
+        - status_mismatch
+    ConflictState:
+      type: string
+      enum:
+        - open
+        - needs_field_check
+        - resolved
+        - rejected
+        - closed
+    ConflictSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - conflict_id
+        - conflict_type
+        - severity
+        - identifier
+        - goat_count
+        - source_record_count
+        - state
+        - created_at
+      properties:
+        conflict_id:
+          type: string
+          format: uuid
+        conflict_type:
+          $ref: "#/components/schemas/ConflictType"
+        severity:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+            - critical
+        identifier:
+          oneOf:
+            - $ref: "#/components/schemas/IdentifierReference"
+            - type: "null"
+        goat_count:
+          type: integer
+          minimum: 0
+        source_record_count:
+          type: integer
+          minimum: 0
+        state:
+          $ref: "#/components/schemas/ConflictState"
+        created_at:
+          type: string
+          format: date-time
+    IdentifierReference:
+      type: object
+      additionalProperties: false
+      required:
+        - identifier_type
+        - identifier_value
+        - scope_key
+      properties:
+        identifier_type:
+          $ref: "#/components/schemas/IdentifierType"
+        identifier_value:
+          type: string
+          minLength: 1
+          maxLength: 200
+        scope_key:
+          type: string
+          minLength: 1
+          maxLength: 120
+    ConflictListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConflictSummary"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ConflictGoatReview:
+      type: object
+      additionalProperties: false
+      required:
+        - goat
+        - identifiers
+        - evidence_refs
+        - row_version
+      properties:
+        goat:
+          $ref: "#/components/schemas/GoatSummary"
+        identifiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoatIdentifier"
+        evidence_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
+    ConflictDetailResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - conflict
+        - goats
+        - source_records
+        - decision_options
+        - trace_id
+      properties:
+        conflict:
+          $ref: "#/components/schemas/ConflictSummary"
+        goats:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConflictGoatReview"
+        source_records:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - source_system
+              - source_record_id
+              - evidence_refs
+            properties:
+              source_system:
+                type: string
+                minLength: 1
+                maxLength: 120
+              source_record_id:
+                type: string
+                minLength: 1
+                maxLength: 200
+              evidence_refs:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvidenceRef"
+        decision_options:
+          type: array
+          items:
+            type: string
+            enum:
+              - same_goat_merge
+              - different_goats_mark_identifier_disputed
+              - create_new_goat
+              - reject_candidate
+              - needs_field_verification
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ResolveConflictRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - decision_type
+        - decision_result
+        - affected_goat_ids
+        - identifier_actions
+        - evidence_ids
+        - reason
+        - row_version
+      properties:
+        decision_type:
+          type: string
+          enum:
+            - merge_goats
+            - mark_identifier_disputed
+            - create_goat
+            - reject_match
+            - request_field_verification
+        decision_result:
+          type: string
+          enum:
+            - same_goat_merge
+            - different_goats_identifier_disputed
+            - new_goat_required
+            - candidate_rejected
+            - field_verification_required
+        survivor_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        affected_goat_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+        identifier_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/IdentifierAction"
+        evidence_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    IdentifierAction:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+      properties:
+        identifier_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        identifier_type:
+          oneOf:
+            - $ref: "#/components/schemas/IdentifierType"
+            - type: "null"
+        identifier_value:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+        action:
+          type: string
+          enum:
+            - attach
+            - retire
+            - dispute
+            - transfer
+            - preserve
+            - reject
+    ResolveConflictResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - conflict_id
+        - state
+        - decision
+        - events
+        - idempotency
+        - trace_id
+      properties:
+        conflict_id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/ConflictState"
+        decision:
+          $ref: "#/components/schemas/DecisionRecordSummary"
+        merge:
+          oneOf:
+            - $ref: "#/components/schemas/MergeResult"
+            - type: "null"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventSummary"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    MergeResult:
+      type: object
+      additionalProperties: false
+      required:
+        - survivor_goat_id
+        - merged_goat_ids
+        - redirect_warnings
+        - affected_identifiers
+      properties:
+        survivor_goat_id:
+          type: string
+          format: uuid
+        merged_goat_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        redirect_warnings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - original_goat_id
+              - redirect_goat_id
+              - code
+              - message
+            properties:
+              original_goat_id:
+                type: string
+                format: uuid
+              redirect_goat_id:
+                type: string
+                format: uuid
+              code:
+                type: string
+                minLength: 1
+                maxLength: 120
+              message:
+                type: string
+                minLength: 1
+                maxLength: 500
+        affected_identifiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/IdentifierAction"
+    EventSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - event_type
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          minLength: 1
+          maxLength: 120
+    CandidateSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - candidate_id
+        - match_score
+        - match_reasons
+        - state
+        - created_by
+        - created_at
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+        proposed_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        candidate_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        match_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        match_reasons:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 500
+        state:
+          type: string
+          enum:
+            - proposed
+            - approved
+            - rejected
+            - needs_review
+            - expired
+        created_by:
+          type: string
+          enum:
+            - system_rule
+            - human
+            - ai_proposal
+        created_at:
+          type: string
+          format: date-time
+    CandidateListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CandidateSummary"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ReviewCandidateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - evidence_ids
+        - row_version
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        row_version:
+          type: integer
+          minimum: 1
+    CandidateDecisionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - candidate_id
+        - state
+        - decision
+        - idempotency
+        - trace_id
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum:
+            - approved
+            - rejected
+            - needs_review
+        decision:
+          $ref: "#/components/schemas/DecisionRecordSummary"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreateGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - custodian_party_id
+        - lifecycle_status
+        - identity_state
+        - evidence_refs
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        custodian_party_id:
+          type: string
+          format: uuid
+        breed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        sex:
+          type:
+            - string
+            - "null"
+          maxLength: 40
+        approx_dob:
+          type:
+            - string
+            - "null"
+          format: date
+        lifecycle_status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        reproductive_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        growth_cohort_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        management_stage:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        health_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        identity_state:
+          $ref: "#/components/schemas/IdentityState"
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+    UpdateGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - row_version
+        - reason
+        - evidence_refs
+      properties:
+        row_version:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        breed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        sex:
+          type:
+            - string
+            - "null"
+          maxLength: 40
+        lifecycle_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        reproductive_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        growth_cohort_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        management_stage:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        health_status:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+    AddIdentifierRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - identifier_type
+        - identifier_value
+        - scope_key
+        - evidence_refs
+        - row_version
+      properties:
+        identifier_type:
+          $ref: "#/components/schemas/IdentifierType"
+        identifier_value:
+          type: string
+          minLength: 1
+          maxLength: 200
+        scope_key:
+          type: string
+          minLength: 1
+          maxLength: 120
+        is_primary_for_goat:
+          type: boolean
+          default: false
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
+    RetireIdentifierRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - evidence_refs
+        - row_version
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
+    AdminGoatResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - goat
+        - identifiers
+        - decision
+        - events
+        - idempotency
+        - trace_id
+      properties:
+        goat:
+          $ref: "#/components/schemas/GoatSummary"
+        identifiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoatIdentifier"
+        decision:
+          $ref: "#/components/schemas/DecisionRecordSummary"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventSummary"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CorrectionRequestState:
+      type: string
+      enum:
+        - open
+        - assigned
+        - needs_field_check
+        - approved
+        - rejected
+        - closed
+    CorrectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - correction_request_id
+        - request_type
+        - state
+        - description
+        - evidence_refs
+        - created_at
+      properties:
+        correction_request_id:
+          type: string
+          format: uuid
+        request_type:
+          type: string
+          enum:
+            - missing_tag
+            - tag_reused
+            - rfid_conflict
+            - possible_duplicate
+            - wrong_location
+            - wrong_status
+            - field_verification_result
+            - identifier_seen_but_not_attached
+        state:
+          $ref: "#/components/schemas/CorrectionRequestState"
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        identifier_type:
+          oneOf:
+            - $ref: "#/components/schemas/IdentifierType"
+            - type: "null"
+        identifier_value:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    CorrectionRequestListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CorrectionRequest"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ResolveCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - reason
+        - evidence_ids
+        - row_version
+      properties:
+        state:
+          type: string
+          enum:
+            - approved
+            - rejected
+            - needs_field_check
+            - closed
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        row_version:
+          type: integer
+          minimum: 1
+    CorrectionRequestResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - correction_request
+        - decision
+        - idempotency
+        - trace_id
+      properties:
+        correction_request:
+          $ref: "#/components/schemas/CorrectionRequest"
+        decision:
+          $ref: "#/components/schemas/DecisionRecordSummary"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200

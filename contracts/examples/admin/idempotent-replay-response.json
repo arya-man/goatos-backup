@@ -1,0 +1,46 @@
+{
+  "conflict_id": "30000000-0000-4000-8000-000000000001",
+  "state": "resolved",
+  "decision": {
+    "decision_id": "20000000-0000-4000-8000-000000000001",
+    "decision_type": "merge_goats",
+    "decision_result": "same_goat_merge",
+    "decision_state": "approved",
+    "policy_version": "phase1-synthetic-policy-v1",
+    "created_at": "2026-01-15T10:00:00Z"
+  },
+  "merge": {
+    "survivor_goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+    "merged_goat_ids": [
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2"
+    ],
+    "redirect_warnings": [
+      {
+        "original_goat_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2",
+        "redirect_goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "code": "merged_redirect",
+        "message": "Synthetic merged goat now redirects to the survivor goat."
+      }
+    ],
+    "affected_identifiers": [
+      {
+        "identifier_id": "44444444-4444-4444-8444-444444444444",
+        "identifier_type": "rfid",
+        "identifier_value": "RFID_EXAMPLE_000001",
+        "action": "preserve"
+      }
+    ]
+  },
+  "events": [
+    {
+      "event_id": "10000000-0000-4000-8000-000000000010",
+      "event_type": "goat.identity.merge_approved"
+    }
+  ],
+  "idempotency": {
+    "idempotency_key": "synthetic-resolve-conflict-merge-0001",
+    "replayed": true,
+    "first_result_id": "20000000-0000-4000-8000-000000000001"
+  },
+  "trace_id": "trace-synthetic-phase1-merge-0001"
+}

@@ -1,0 +1,7 @@
+{
+  "code": "not_found_or_not_allowed",
+  "message": "The requested goat was not found or is outside the caller's scope.",
+  "field_errors": [],
+  "trace_id": "trace-synthetic-error-0001",
+  "retryable": false
+}

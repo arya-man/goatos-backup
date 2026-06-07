@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.goatos.local/jsonschema/domain-event-envelope.schema.json",
+  "title": "Goat OS Domain Event Envelope",
+  "description": "Shared envelope for Phase 1 Goat Passport domain/outbox events.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "schema_ref",
+    "aggregate_type",
+    "aggregate_id",
+    "occurred_at",
+    "recorded_at",
+    "producer",
+    "idempotency_key",
+    "actor",
+    "subject_type",
+    "subject_id",
+    "visibility_scope",
+    "evidence_refs",
+    "payload",
+    "trace_id"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "goat.created",
+        "goat.identity.updated",
+        "goat.identifier.added",
+        "goat.identifier.retired",
+        "goat.identifier.disputed",
+        "goat.identity.conflict_opened",
+        "goat.identity.conflict_resolved",
+        "goat.identity.merge_proposed",
+        "goat.identity.merge_approved",
+        "goat.identity.merge_rejected",
+        "goat.location.changed",
+        "legacy_import.row_processed",
+        "legacy_import.completed"
+      ]
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "schema_ref": {
+      "type": "string",
+      "format": "uri-reference"
+    },
+    "aggregate_type": {
+      "type": "string",
+      "enum": [
+        "goat",
+        "identifier",
+        "identity_conflict",
+        "identity_decision",
+        "legacy_import_run"
+      ]
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "subject_type": {
+      "type": "string",
+      "enum": [
+        "goat",
+        "identifier",
+        "identity_conflict",
+        "identity_decision",
+        "legacy_import_row",
+        "legacy_import_run",
+        "location"
+      ]
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "module"
+      ],
+      "properties": {
+        "service": {
+          "type": "string",
+          "minLength": 1
+        },
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 200
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_type"
+      ],
+      "properties": {
+        "actor_type": {
+          "type": "string",
+          "enum": [
+            "human",
+            "system_rule",
+            "import_job",
+            "device",
+            "ai_proposal"
+          ]
+        },
+        "actor_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "actor_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "visibility_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant_id"
+      ],
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "custodian_party_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "farm_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "park_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "shed_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "cohort_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence_ref"
+      },
+      "default": []
+    },
+    "payload": {
+      "type": "object"
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "replay": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "is_replay"
+      ],
+      "properties": {
+        "is_replay": {
+          "type": "boolean"
+        },
+        "replay_of_event_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "dlq_repair_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "attempt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_type",
+        "evidence_id"
+      ],
+      "properties": {
+        "evidence_type": {
+          "type": "string",
+          "enum": [
+            "source_record",
+            "identifier",
+            "goat",
+            "event",
+            "media",
+            "decision",
+            "import_run",
+            "conflict",
+            "location",
+            "actor"
+          ]
+        },
+        "evidence_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

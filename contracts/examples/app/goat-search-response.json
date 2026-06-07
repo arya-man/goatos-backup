@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      "display_id": "G-900001",
+      "primary_old_tag": "1900",
+      "rfid": "RFID_EXAMPLE_000001",
+      "breed": "Synthetic Jamunapari",
+      "sex": "female",
+      "age_band": "adult",
+      "lifecycle_status": "alive",
+      "reproductive_status": "non_pregnant",
+      "growth_cohort_tag": null,
+      "management_stage": "warmup",
+      "health_status": "healthy",
+      "identity_state": "clean",
+      "location_path": {
+        "display": "Synthetic CBE / Park A / Shed 01",
+        "farm_id": "33333333-3333-4333-8333-333333333333",
+        "park_id": "55555555-5555-4555-8555-555555555555",
+        "shed_id": "66666666-6666-4666-8666-666666666666",
+        "cohort_id": null
+      },
+      "warnings": []
+    }
+  ],
+  "next_cursor": null,
+  "trace_id": "trace-synthetic-search-0001"
+}

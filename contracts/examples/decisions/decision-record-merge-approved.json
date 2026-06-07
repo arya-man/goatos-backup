@@ -1,0 +1,87 @@
+{
+  "decision_id": "20000000-0000-4000-8000-000000000001",
+  "decision_type": "merge_goats",
+  "decision_result": "same_goat_merge",
+  "decision_state": "approved",
+  "decided_by_type": "human",
+  "decided_by": "77777777-7777-4777-8777-777777777777",
+  "policy_version": "phase1-synthetic-policy-v1",
+  "reason": "Synthetic review evidence shows the duplicate scoped old tag belongs to the same fake goat.",
+  "source_record_ids": [
+    "synthetic-rfid-db-row-0001",
+    "synthetic-rfid-db-row-0002"
+  ],
+  "source_identifier_ids": [
+    "44444444-4444-4444-8444-444444444444",
+    "44444444-4444-4444-8444-444444444445"
+  ],
+  "source_goat_ids": [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2"
+  ],
+  "source_event_ids": [
+    "10000000-0000-4000-8000-000000000001"
+  ],
+  "source_media_ids": [],
+  "affected_goats": [
+    {
+      "goat_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      "role": "survivor"
+    },
+    {
+      "goat_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2",
+      "role": "merged"
+    }
+  ],
+  "identifier_actions": [
+    {
+      "identifier_id": "44444444-4444-4444-8444-444444444444",
+      "identifier_type": "old_tag",
+      "identifier_value": "1900",
+      "action": "preserve"
+    },
+    {
+      "identifier_id": "44444444-4444-4444-8444-444444444445",
+      "identifier_type": "old_tag",
+      "identifier_value": "1900",
+      "action": "retire"
+    }
+  ],
+  "model_version": null,
+  "confidence": null,
+  "reviewer_id": "77777777-7777-4777-8777-777777777777",
+  "evidence": {
+    "evidence_refs": [
+      {
+        "evidence_type": "conflict",
+        "evidence_id": "30000000-0000-4000-8000-000000000001",
+        "source_system": null,
+        "description": "Synthetic duplicate old tag conflict."
+      },
+      {
+        "evidence_type": "source_record",
+        "evidence_id": "synthetic-rfid-db-row-0001",
+        "source_system": "synthetic_phase1_fixture",
+        "description": "Fake source row, not private data."
+      }
+    ],
+    "matching_reasons": [
+      "Same synthetic RFID value.",
+      "Same normalized old tag scope.",
+      "No conflicting fake status evidence."
+    ],
+    "before": {
+      "survivor_identity_state": "needs_review",
+      "merged_identity_state": "needs_review"
+    },
+    "after": {
+      "survivor_identity_state": "clean",
+      "merged_identity_state": "merged"
+    }
+  },
+  "idempotency_key": "synthetic-resolve-conflict-merge-0001",
+  "trace_id": "trace-synthetic-phase1-merge-0001",
+  "created_at": "2026-01-15T10:00:00Z",
+  "approved_at": "2026-01-15T10:00:00Z",
+  "decided_at": "2026-01-15T10:00:00Z"
+}
