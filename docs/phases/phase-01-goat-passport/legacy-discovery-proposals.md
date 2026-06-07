@@ -316,6 +316,7 @@ Display/import rule:
 legacy labels remain searchable, but canonical status fields are structured
 F2-Male maps to growth_cohort_tag=F2 and sex=male
 F2-Female maps to growth_cohort_tag=F2 and sex=female
+if F2-Male/F2-Female disagrees with the source Gender column, route to review
 ICU-Non-Pregnant maps to health_status=ICU and reproductive_status=non_pregnant
 ICU-Kid maps to health_status=ICU plus the known kid/growth stage when available
 Warmup maps to management_stage=warmup

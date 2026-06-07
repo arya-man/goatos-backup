@@ -907,6 +907,11 @@ legacy labels are split before storage, for example `F2-Male` becomes
 `reproductive_status=mother` plus `management_stage=m0_post_delivery`, not a
 growth or genetics category.
 
+Import conflict rule: if a compound label says one sex but the source Gender
+column says another, Goat OS must send the row to review. Example:
+`Gender=Female` plus `F2-Male` is a conflict, not an automatic male or female
+decision.
+
 Genetics/R&D answer: genetics should use structured fields such as breed, sex,
 age/date of birth, growth cohort, management stage, health history,
 reproductive history, parentage, growth events, and later meat-yield feedback.

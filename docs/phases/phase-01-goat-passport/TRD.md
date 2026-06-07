@@ -392,6 +392,8 @@ lifecycle_status is the alive/dead/sold/merged/inactive axis only
 reproductive_status is the pregnancy/mother/buck/milking axis
 growth_cohort_tag is the K0/K1/K2/K3/F1/F2-style cohort axis; sex remains in `sex`
 management_stage is the farm-operations stage such as warmup/intake when it is not reproductive, health, or growth
+management_stage is enumerated reference data, not a junk drawer; add new
+values only through status_definitions/legacy_status_mappings review
 health_status is the healthy/sick/ICU/quarantine/under-treatment axis
 do not mash compound legacy labels into lifecycle_status
 compound labels are decomposed:
@@ -421,6 +423,7 @@ description text null
 legacy_label text null              -- familiar old label when one exists
 sort_order int not null default 0
 active boolean not null default true
+expected_duration_days int null     -- optional hint, for example warmup or M0 review windows
 created_at timestamptz not null
 updated_at timestamptz not null
 ```
@@ -494,6 +497,8 @@ Rules:
 store the raw label from source in legacy_import_rows and source evidence
 map known labels through legacy_status_mappings
 unknown labels do not block import; set review_required=true and keep raw_label
+if a compound label implies sex, such as F2-Male/F2-Female, and the source sex
+column disagrees, route to conflict/review; do not silently pick either value
 sale/allocation blocking and routine task triggers are not stored here; they
 belong to later status_rule_policies in sales/SOP phases
 ```
@@ -878,6 +883,7 @@ hash_recipe must exclude export-volatile fields such as exported_at, formatting,
 field_diff_policy routes each changed field to auto_apply, review, ignore, or reject
 dry-run and committed import use the same policy_version so reconciliation results are reproducible
 first Phase 1 import scope is RFID DB only; tagless/event-log temporary identities are a later import pass
+compound label mappings that imply sex must agree with the source sex/Gender column; disagreement creates a sex_status_conflict review item
 HF in Origin Farm/source columns means provenance/source reference only; it does not set current custody or ownership
 HF in current Farm/location columns means goat is currently held at an external holding location; set temporary custodian/location evidence where supported and route ownership to review
 partner-held rows must not silently seed Mesha owner_party_id @10000 unless source evidence proves Mesha ownership

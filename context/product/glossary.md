@@ -119,6 +119,10 @@ genetics category. It maps to `growth_cohort_tag=F2` and `sex=male`.
 `ICU-Non-Pregnant` maps to `health_status=icu` and
 `reproductive_status=non_pregnant`.
 
+If a compound label implies one sex but the source Gender column says another,
+route the row to review. Do not silently choose the compound label or the Gender
+column.
+
 ### K0
 
 Baby goat stage immediately after birth, usually the first one to two days.
