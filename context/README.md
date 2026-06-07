@@ -46,6 +46,9 @@ Frontend, mobile, backend adapter architecture
 AI agent context and API protocol decisions
   context/agents/ai-agent-context-and-protocols.md
 
+Backend stack ADR
+  docs/decisions/go-backend-stack.md
+
 Goat OS agent skill bundle and reference map
   .agents/skills/goatos-build/SKILL.md
 
