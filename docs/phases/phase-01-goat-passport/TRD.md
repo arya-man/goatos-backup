@@ -2105,7 +2105,7 @@ geo/location mapping: locations include country, state_region, district, pincode
 old_tag scope policy: one of global | farm | park | purchase_load | source_system | unknown-to-review
 identifier policies per type: uniqueness scope, auto-link allowed?, primary allowed?
 identifier_policy_version: immutable once first import/mutation uses it
-temporary identity minimum: source row/load + tenant + owner/custodian party or staging party + current/unknown location + created_by + reason
+temporary identity minimum: old source row or load, tenant, owner/custodian party or staging party, current/unknown location, created_by, and reason
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import

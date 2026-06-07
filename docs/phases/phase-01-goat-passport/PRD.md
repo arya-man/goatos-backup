@@ -78,7 +78,7 @@ wrong goat. Phase 1 is the foundation.
 Phase 1 must be built in the same Goat OS architecture as every later phase.
 This is not a throwaway import tool.
 
-Plain English:
+In short:
 
 ```text
 The goat identity brain stays inside Goat OS.
@@ -111,7 +111,7 @@ Phase 1 is not where we build every BI screen and every AI analyst feature.
 But Phase 1 must create identity data in the correct analytics shape from day
 one.
 
-Plain English:
+In short:
 
 ```text
 Goat identity must be clean enough that dashboards, Cube, Metabase, AI, and
@@ -818,61 +818,90 @@ first import policy version
 first import scope
 ```
 
-## Legacy-To-New Mapping Decisions
+## Migration Decisions
 
-These are not open architecture debates. They are the few places where the old
-Sheets/Slack words must be mapped into the new Goat OS truth model before
-migrations/import logic can safely write canonical rows.
+These are not open architecture debates. They are the few decisions needed to
+move old Sheets/Slack data into the new Goat OS model without guessing.
 
-### Legacy Data Confirmation
+### Terms Used Below
 
-```text
-Old tag scope
-Plain English: the same old tag number appears in different farms.
+- **Source row:** one exact row from the old Excel/CSV/Slack export. Goat OS keeps this as evidence for where the imported fact came from.
+- **Load:** a batch/group of goats that came together, usually through purchase, transport, or shifting.
+- **Tenant:** the top-level Goat OS data boundary. Today this is Mesha. Later it lets Goat OS separate another company/franchise without mixing data.
+- **Party:** a person, company, farm operator, vendor, lender, investor pool, or system account that Goat OS can refer to.
+- **Owner:** the party that owns the goat's economic value. Today this is Mesha for imported goats.
+- **Custodian:** the party responsible for taking care of the goat operationally. Today this is Mesha unless source data proves otherwise.
+- **Staging party/location:** a safe temporary bucket for messy rows when Goat OS cannot yet prove the real owner, custodian, or location. Staging is review state, not final truth.
+- **Current location:** where the goat physically is now: farm, park, shed, or cohort.
+- **Display ID:** the human-visible goat code. It is different from the internal immutable `goat_id`.
+- **Merge:** combining two goat records when they are proven to be the same real goat. This is risky and needs approval.
+
+### Old Data Mapping
+
+**Old tag scope**
+
+Meaning: the same old tag number appears in different farms in the discovered data.
+
 Decision needed: approve old tags as farm-scoped, unless reuse actually happens by load/vendor.
 
-First migration source
-Plain English: RFID DB looks like the clean goat registry; DB/dashboard files look like history or derived views.
+**First migration source**
+
+Meaning: RFID DB looks like the clean goat registry; DB/dashboard files look like history or derived views.
+
 Decision needed: approve RFID DB first, then reconcile DB/dashboard data.
 
-Origin Farm / Holding Farm / HF meaning
-Plain English: legacy files use these labels, but they may mean source/vendor, owner, custodian, or procurement staging.
-Decision needed: choose what each label means in Goat OS, or mark it case-by-case source context.
+**Origin Farm / Holding Farm / HF meaning**
 
-Current location precedence
-Plain English: RFID DB may say one shed while the latest DB event says another.
+Meaning: legacy files use these labels, but they may mean source/vendor, owner, custodian, procurement staging, or just context from the old process.
+
+Decision needed: choose what each label means in Goat OS, or mark it as case-by-case source context.
+
+**Current location precedence**
+
+Meaning: RFID DB may say one shed while the latest DB event says another.
+
 Decision needed: choose which source wins for first import, or send disagreements to review.
 
-First-import scope
-Plain English: we can start with the cleaner RFID DB goats, or also create temporary goats from messy/tagless event rows.
+**First-import scope**
+
+Meaning: we can start with the cleaner RFID DB goats, or also create temporary goats from messy/tagless event rows.
+
 Decision needed: RFID DB only first, or RFID DB plus tagless/event population.
-```
 
-### New Goat OS Policy Confirmation
+### Goat OS Policy
 
-```text
-Display ID format
-Plain English: goat_id is internal; display_id is what humans see.
+**Display ID format**
+
+Meaning: `goat_id` is internal; `display_id` is the goat code people will search, read, and say out loud.
+
 Decision needed: choose the visible format before first import.
 
-Owner / custodian / location can differ?
-Plain English: one party may own the goat, another may be responsible for it, and the goat may physically sit elsewhere.
-Decision needed: confirm this is allowed and define who can see the goat when they differ.
+**Can owner, custodian, and location differ?**
 
-Merge approval authority
-Plain English: merging two goat records is risky because a wrong merge corrupts history.
+Meaning: one party may own the goat, another party may be responsible for it, and the goat may physically sit somewhere else.
+
+Decision needed: confirm this is allowed and define who can see the goat when those three differ.
+
+**Merge approval authority**
+
+Meaning: merging two goat records is risky because a wrong merge corrupts identity, health, vaccination, genetics, and sale history.
+
 Decision needed: central admin only, or park head can request/recommend with central approval.
 
-Temporary goat minimum evidence
-Plain English: tagless goats still need enough proof to avoid creating fake or duplicate goats.
-Decision needed: approve source row/load + tenant + owner/custodian/staging party + current/unknown location
-+ created_by + reason + photo/proof if available.
+**Temporary goat minimum evidence**
 
-Status model
-Plain English: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
+Meaning: tagless goats still need enough proof to avoid creating fake goats or duplicate goats.
+
+Decision needed: approve that a temporary/tagless goat can be created only when Goat OS knows the old source row or load, the tenant, the owner/custodian or staging bucket, the current or unknown location, who created it, why it was created, and photo/proof if available.
+
+**Status model**
+
+Meaning: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
+
 Decision needed: approve separating lifecycle, reproductive status, growth/cohort tag, and health overlay.
 
-Geo defaults
-Plain English: CBE, CPT, and Holding Farm rows may not have pincode/coordinates.
+**Geo defaults**
+
+Meaning: CBE, CPT, and Holding Farm rows may not have pincode/coordinates.
+
 Decision needed: approve default geo/timezone values for those locations.
-```

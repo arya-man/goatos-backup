@@ -478,59 +478,72 @@ scratch:
 
 ## Decisions Still Needed From Business Owner
 
-These are the remaining confirmations after discovery. They are split into
-legacy-to-new mapping decisions and new Goat OS policy decisions.
+These are the remaining confirmations after discovery. They decide how old
+Sheets/dashboard meanings become clean Goat OS truth.
 
-### Legacy-To-New Mapping
+### Terms Used Below
+
+- **Source row:** one exact row from the old Excel/CSV/Slack export. Goat OS keeps this as evidence for where the imported fact came from.
+- **Load:** a batch/group of goats that came together, usually through purchase, transport, or shifting.
+- **Tenant:** the top-level Goat OS data boundary. Today this is Mesha.
+- **Party:** a person, company, farm operator, vendor, lender, investor pool, or system account that Goat OS can refer to.
+- **Owner:** the party that owns the goat's economic value. Today this is Mesha for imported goats.
+- **Custodian:** the party responsible for taking care of the goat operationally. Today this is Mesha unless source data proves otherwise.
+- **Staging party/location:** a safe temporary bucket for messy rows when Goat OS cannot yet prove the real owner, custodian, or location.
+- **Current location:** where the goat physically is now: farm, park, shed, or cohort.
+- **Display ID:** the human-visible goat code. It is different from the internal immutable `goat_id`.
+- **Merge:** combining two goat records when they are proven to be the same real goat.
+
+### Old Data Mapping
 
 ```text
 1. First identity migration source
-   Plain English: RFID DB is the cleanest goat registry; DB/dashboard files are history or derived views.
+   Meaning: RFID DB is the cleanest goat registry; DB/dashboard files are history or derived views.
    Proposal: approve RFID DB first, then DB/dashboard reconciliation.
 
 2. Old tag scope
-   Plain English: old tag numbers repeat across farms in the discovered data.
+   Meaning: old tag numbers repeat across farms in the discovered data.
    Proposal: approve old tags as farm-scoped, unless reuse actually happens by load/vendor.
 
 3. Origin Farm and Holding Farm / HF meaning
-   Plain English: these legacy labels may mean source/vendor, owner, custodian, or procurement staging.
+   Meaning: these legacy labels may mean source/vendor, owner, custodian, procurement staging, or old-process context.
    Decision: choose the meaning, or mark each as case-by-case source context.
 
 4. Current location precedence
-   Plain English: RFID DB and latest DB event can disagree on current shed/location.
+   Meaning: RFID DB and latest DB event can disagree on current shed/location.
    Decision: choose which wins for first import, or send disagreements to review.
 
 5. First-import scope
-   Plain English: importing only RFID DB is cleaner; including tagless event rows creates more temporary goats.
+   Meaning: importing only RFID DB is cleaner; including tagless event rows creates more temporary goats.
    Decision: RFID DB only first, or RFID DB plus larger DB event/tagless population.
 ```
 
-### New Goat OS Policy
+### Goat OS Policy
 
 ```text
 6. Display ID format
-   Plain English: goat_id is internal; display_id is the visible goat number/code.
+   Meaning: goat_id is internal; display_id is the visible goat number/code.
    Decision: choose the human-readable format operators/admins will see.
 
 7. Owner / custodian / location separation
-   Plain English: one party may own the goat, another may be responsible for it, and the goat may sit elsewhere.
+   Meaning: one party may own the goat, another may be responsible for it, and the goat may sit elsewhere.
    Decision: confirm this is allowed and define visibility when they differ.
 
 8. Merge approval authority
-   Plain English: merge mistakes corrupt identity history.
+   Meaning: merge mistakes corrupt identity history.
    Proposal: central admin can approve merges; park head can request/recommend.
 
 9. Temporary goat minimum evidence
-   Plain English: tagless goats need enough proof to avoid fake/duplicate identities.
-   Proposal: source row/load + tenant + owner/custodian/staging party
-   + current/unknown location + created_by + reason + photo/proof if available.
+   Meaning: tagless goats need enough proof to avoid fake/duplicate identities.
+   Proposal: require the old source row or load, tenant, owner/custodian or staging bucket,
+   current or unknown location, who created it, why it was created, and photo/proof if available.
 
 10. Status model
-   Plain English: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
+   Meaning: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
    Proposal: keep lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
 
 11. Geo defaults
-   Plain English: some locations do not have pincode/coordinates in source files.
+   Meaning: some locations do not have pincode/coordinates in source files.
    Decision: approve default geo/timezone values for CBE, CPT, and Holding Farm rows.
 ```
 
