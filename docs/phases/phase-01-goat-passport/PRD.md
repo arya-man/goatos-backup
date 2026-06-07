@@ -837,8 +837,9 @@ context/product/glossary.md
 
 Important for Phase 1:
 
-- `CBE` and `CPT` are legacy farm/site codes found in the current data. Their official full names and geo details are still pending confirmation.
-- `HF` / `Holding Farm` is a legacy holding/procurement/source label. Do not treat it as final ownership or custody truth unless a confirmed mapping exists.
+- `CBE` is the Coimbatore farm/location code. `CPT` is the Channapatna farm/location code. Official addresses and geo details are still pending.
+- `HF` / `Holding Farm` means an external agent/partner holding place used after purchase and before transport or farm intake. Do not treat it as final goat ownership truth unless a confirmed mapping exists.
+- `Origin Farm` means where the goat was purchased from, born, or originally sourced.
 - `source row`, `load`, `tenant`, `party`, `owner`, `custodian`, `staging`, `current location`, `display ID`, and `merge` are defined in the glossary.
 
 ### Answers Already Locked
@@ -885,29 +886,29 @@ Meaning: legacy status mixes pregnancy, kid stage, fattening, sex, and health in
 
 Locked answer: separate the structure into lifecycle, reproductive status, growth/cohort tag, and health status. Do not leave the rest mashed after pulling lifecycle out.
 
+**Core site-code meanings**
+
+Meaning: CBE/CPT/HF were unclear labels in Sheets and dashboards.
+
+Locked answer: CBE is Coimbatore farm/location. CPT is Channapatna farm/location. HF means Holding Farm, an external agent/partner holding place used during procurement/warm-up. Origin Farm is source/origin evidence, not current location by itself.
+
+**Current location conflict**
+
+Meaning: RFID DB and latest DB event should ideally agree on current shed/location.
+
+Locked answer: if RFID DB shed and latest DB event shed disagree, treat it as a data discrepancy and route to reconciliation/review. Do not blindly pick one source.
+
+**Growth/cohort label meanings**
+
+Meaning: labels like K0/K1/K2/K3/M0/F2 are operational stages, not goat identity tags.
+
+Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2 is milk plus solid-feed training for roughly two months; K3 is weaning to solid feed; M0 is mother post-delivery for around a month; F2-Male/F2-Female are post-weaning fattening groups separated by sex. Warmup can happen at source before travel and at destination after arrival.
+
 ### Still Need Legacy/Ops Meaning
 
 These are not technical architecture questions. They are places where current
 legacy data uses business words/codes that only operations can correctly
 interpret.
-
-**Origin Farm**
-
-Current legacy state: RFID DB has `Origin Farm` values such as `BLR`, `CBE`, `CJB`, `CPT`, and `Gokul`.
-
-Need ops meaning: does `Origin Farm` mean source/vendor origin, original physical farm, owner, custodian, or only old context?
-
-**Holding Farm / HF**
-
-Current legacy state: DB has values like `HF - Rajasthan Farms`, `HF - Gokul Agronomics`, `HF - Goat World`, and `HF - Bhopal Agro`.
-
-Need ops meaning: does each HF value mean procurement staging, vendor/source, physical holding place, custodian, owner, or case-by-case?
-
-**Current location conflict**
-
-Current legacy state: RFID DB has `Shed/Shed Tag`; DB event log has latest `Dst Shed/Dst Shed Tag`.
-
-Need ops meaning: when these disagree, which source should win for first import, or should the row go to review?
 
 **First import scope**
 
@@ -919,10 +920,12 @@ Need ops meaning: should first import seed only RFID DB goats, or also create te
 
 Current legacy state: labels include `K0/K1/K2/K3`, `Pregnant`, `Non-Pregnant`, `Mother`, `Milking`, `Buck`, `F2-Male`, `F2-Female`, `ICU`, `ICU-Non-Pregnant`, `Quarantine kids`, and others.
 
-Need ops meaning: which labels are official, which labels block sale/allocation, and which labels should trigger SOP follow-up?
+Known from ops: K0/K1/K2/K3/M0/F2/Warmup meanings are captured in the glossary.
 
-**CBE / CPT / HF site-code mapping and geo details**
+Need ops meaning: which labels are official for reporting, which labels block sale/allocation, and which labels should trigger SOP follow-up?
 
-Current legacy state: CBE and CPT look like core farm/site codes. HF/Holding Farm looks like holding/procurement/source context, but this is not confirmed.
+**Geo details**
 
-Need ops meaning: for each code, confirm whether it is a physical location, custodian party, owner/source context, procurement staging bucket, or case-by-case. Then provide official name, address, district, pincode, coordinates, and timezone where applicable.
+Current legacy state: CBE and CPT are physical farm/location codes; HF values are external holding/source places.
+
+Need ops meaning: official address, district, pincode, coordinates, and timezone for CBE/CPT and any HF location that should be represented as a physical location.

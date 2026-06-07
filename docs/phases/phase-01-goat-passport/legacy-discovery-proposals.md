@@ -307,11 +307,23 @@ health_status
 Reason: dashboard/status labels are operationally useful, but they are not one
 clean lifecycle enum.
 
+Ops-confirmed label meanings:
+
+```text
+K0: newborn stage, usually first 1-2 days
+K1: bottle-milk training
+K2: milk plus solid-feed training, roughly two months
+K3: weaning to solid feed
+M0: mother post-delivery, typically around one month
+F2-Male / F2-Female: post-weaning fattening groups separated by sex
+Warmup: adaptation period, either at source before travel or destination after arrival
+```
+
 Still needs business/ops approval:
 
 ```text
-whether K0/K1/K2/K3/F2/M0/F0 are official growth classes, shed tags, or both
 official canonical labels for UI/reporting
+whether F0 is still used and what it means
 which labels are allowed to block sale or trigger SOPs
 ```
 
@@ -337,6 +349,15 @@ HF - Goat World
 HF - Bhopal Agro
 ```
 
+Ops-confirmed meanings:
+
+```text
+CBE: Coimbatore farm/location code
+CPT: Channapatna farm/location code
+HF: Holding Farm, external agent/partner holding place used after purchase and before travel or intake
+Origin Farm: where the goat was purchased from, born, or originally sourced
+```
+
 Proposal:
 
 ```text
@@ -344,7 +365,8 @@ tenant / owner / custodian:
   seed one Mesha tenant
   seed Mesha as the first org party
   imported goats default to Mesha owner_party_id and custodian_party_id unless source evidence says otherwise
-  Holding Farm / HF rows map to staging/procurement source context until approved
+  Holding Farm / HF rows map to procurement/source/holding context first; do not
+  treat them as goat ownership truth automatically
 
 current_location:
   Farm + Shed + Shed Tag when available
@@ -354,14 +376,16 @@ location precedence for first import:
   RFID DB Shed/Shed Tag for RFID-linked goats
   latest DB event Dst Shed/Dst Shed Tag for event-derived current position
   dashboard CSV only for aggregate reconciliation
+  if RFID DB and latest DB event disagree for the same goat, route to
+  reconciliation/review because ops says they should match
 ```
 
 Still needs business approval:
 
 ```text
-is Origin Farm a source/vendor origin, a custodian party, an owner party, or context only?
-is Holding Farm an owning party, custodian party, procurement staging bucket, vendor/source context, or all of these by case?
-for conflicts, should RFID DB current shed outrank latest DB event current shed?
+official addresses/geo details for CBE and CPT
+which HF partners should become external party/location records in Phase 1 versus source context only
+official addresses/geo details for any HF partner represented as a physical holding location
 ```
 
 ## SOP / Workflow Inventory From Slack and Mobile
@@ -492,8 +516,9 @@ context/product/glossary.md
 
 Important for this discovery:
 
-- `CBE` and `CPT` are legacy farm/site codes found in current data. Their official full names and geo details are still pending confirmation.
-- `HF` / `Holding Farm` is a legacy holding/procurement/source label. It must not become ownership or custody truth without an approved mapping.
+- `CBE` is the Coimbatore farm/location code. `CPT` is the Channapatna farm/location code. Official addresses and geo details are still pending.
+- `HF` / `Holding Farm` means an external agent/partner holding place used after purchase and before transport or farm intake. It must not become goat ownership truth without an approved mapping.
+- `Origin Farm` means where the goat was purchased from, born, or originally sourced.
 - `source row`, `load`, `tenant`, `party`, `owner`, `custodian`, `staging`, `current location`, `display ID`, and `merge` are defined in the glossary.
 
 ### Locked Answers
@@ -531,42 +556,60 @@ Important for this discovery:
 7. Status structure
    Meaning: legacy status strings mix multiple meanings.
    Locked answer: separate lifecycle, reproductive status, growth/cohort tag, and health status.
+
+8. CBE / CPT / HF meanings
+   Meaning: current data uses short site/source codes.
+   Locked answer: CBE is Coimbatore farm/location. CPT is Channapatna farm/location.
+   HF means Holding Farm: external agent/partner holding places used for procurement
+   and warm-up before travel or intake.
+
+9. Origin Farm
+   Meaning: RFID DB has Origin Farm values such as BLR, CBE, CJB, CPT, and Gokul.
+   Locked answer: Origin Farm means where the goat was purchased from, born, or
+   originally sourced. Store it as source/origin evidence, not current location
+   or owner/custodian by itself.
+
+10. Current location conflict
+   Meaning: RFID DB has Shed/Shed Tag; DB event log has latest Dst Shed/Dst Shed Tag.
+   Locked answer: they should match. If they differ, treat the row as a data
+   discrepancy and send it to reconciliation/review instead of blindly trusting
+   either source.
+
+11. K-stage, M0, F2, and Warmup meanings
+   Meaning: these are operating stages, not identity tags.
+   Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2
+   is milk plus solid-feed training for roughly two months; K3 is weaning to
+   solid feed; M0 is mother post-delivery, typically around a month; F2-Male and
+   F2-Female are post-weaning fattening groups separated by sex; Warmup can be
+   source-side before travel or destination-side after arrival.
 ```
 
 ### Still Need Ops Meaning
 
 ```text
-1. Origin Farm
-   Current legacy state: RFID DB has Origin Farm values such as BLR, CBE, CJB, CPT, and Gokul.
-   Need ops meaning: source/vendor origin, original physical farm, owner, custodian, or old context?
-
-2. Holding Farm / HF
-   Current legacy state: DB has HF - Rajasthan Farms, HF - Gokul Agronomics,
-   HF - Goat World, and HF - Bhopal Agro.
-   Need ops meaning: procurement staging, vendor/source, physical holding place,
-   custodian, owner, or case-by-case?
-
-3. Current location conflict
-   Current legacy state: RFID DB has Shed/Shed Tag; DB event log has latest Dst Shed/Dst Shed Tag.
-   Need ops meaning: which source wins first import, or should disagreement go to review?
-
-4. First-import scope
+1. First-import scope
    Current legacy state: RFID DB has 1,349 cleaner goat rows; DB has many event rows and no-tag values.
    Need ops meaning: RFID DB only first, or RFID DB plus tagless/event temporary goats?
 
-5. Status label semantics
+2. Status label semantics
    Current legacy state: labels include K0/K1/K2/K3, Pregnant, Non-Pregnant,
    Mother, Milking, Buck, F2-Male, F2-Female, ICU, ICU-Non-Pregnant,
    Quarantine kids, and others.
+   Known from ops: K0/K1/K2/K3/M0/F2/Warmup meanings are captured above.
    Need ops meaning: which labels are official, which block sale/allocation,
    and which trigger SOP follow-up?
 
-6. CBE / CPT / HF site-code mapping and geo details
-   Current legacy state: CBE and CPT look like core farm/site codes. HF looks
-   like holding/procurement/source context, but this is not confirmed.
-   Need ops meaning: for each code, confirm whether it is a physical location,
-   custodian party, owner/source context, procurement staging bucket, or case-by-case.
-   Then provide official name, address, district, pincode, coordinates, and timezone where applicable.
+3. Geo details
+   Current legacy state: CBE is Coimbatore and CPT is Channapatna. HF values are
+   external holding/source places.
+   Need ops meaning: official address, district, pincode, coordinates, and timezone
+   for CBE/CPT and any HF location that should become a physical location.
+
+4. HF partner modeling
+   Current legacy state: HF values are agent/partner company/source names and
+   their places are not Mesha-owned core farms.
+   Need ops meaning: should Phase 1 create separate external party/location
+   records for each HF partner, or keep them as source context first and promote later?
 ```
 
 ## Phase 1 Start Decision

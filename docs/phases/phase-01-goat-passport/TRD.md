@@ -2199,12 +2199,15 @@ status vocabulary:
   extract distinct statuses from XLSX/CSVs/dashboard display code. Propose
   mapping into separate lifecycle_status, reproductive_status, growth_cohort_tag,
   and health_status axes. Flag official labels, sale-blocking labels, and
-  SOP-trigger labels for ops confirmation.
+  SOP-trigger labels for ops confirmation. Known K0/K1/K2/K3/M0/F2/Warmup
+  meanings live in context/product/glossary.md.
 
 tenant/party/custody/location mapping:
   identify columns/code paths for farm, park, shed, shed_tag, load, source, CBE,
   CPT, holdings, and unknown locations. Propose tenant, owner_party,
-  custodian_party, current_location, and unknown-location handling.
+  custodian_party, current_location, and unknown-location handling. CBE is
+  Coimbatore, CPT is Channapatna, HF is Holding Farm, and Origin Farm is
+  source/origin evidence.
 
 first migration source:
   list candidate sources, sheet/tab/file name, row counts, column dictionary,
@@ -2218,9 +2221,9 @@ SOP/form inventory:
   phases and prevents losing current operating knowledge.
 
 policy-only decisions:
-  list decisions not derivable from data, such as merge approval authority and
-  minimum evidence for tagless temporary goats, with recommended options and
-  consequences.
+  list decisions not derivable from data, such as first-import scope,
+  sale/allocation blocking labels, SOP-trigger labels, official geo details,
+  and whether HF partners become external party/location records in Phase 1.
 ```
 
 Discovery output rules:
@@ -2248,6 +2251,8 @@ identifier_policy_version: immutable once first import/mutation uses it
 temporary identity minimum: field-created temp requires photo/proof; import-created temp requires source row evidence; both require current/unknown location and review state
 status structure: lifecycle_status, reproductive_status, growth_cohort_tag, and health_status are separate axes
 status semantics: official labels, sale-blocking labels, and SOP-trigger labels require ops confirmation
+site-code meanings: CBE = Coimbatore, CPT = Channapatna, HF = Holding Farm, Origin Farm = source/origin evidence
+location conflict rule: RFID DB and latest DB event should match; disagreements route to reconciliation/review
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import
@@ -2281,6 +2286,7 @@ What is the first approved source file for migration testing?
 Locked: custodian_party_id may differ from current physical farm/location.
 Open ops/policy question: when custody and placement differ, which roles/scopes can view or mutate the goat?
 What default geo values should be used for CBE, CPT, and Holding Farm rows when source files omit pincode/coordinates?
+Should HF partners become external party/location records in Phase 1, or remain source context until later?
 ```
 
 ## Phase 1 Exit Criteria

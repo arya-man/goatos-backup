@@ -10,52 +10,137 @@ plans. If a term is not confirmed, mark it as pending instead of guessing.
 
 Known meaning:
 
-- Legacy farm/site code found in current Sheets, dashboard filters, and Phase 1 discovery.
+- Ops-confirmed farm/site code for the Coimbatore farm/location.
+- The code follows the railway/location-code convention used internally.
+- Found in current Sheets, dashboard filters, and Phase 1 discovery.
 - Treated as one of the core Goat OS operating locations in current data.
 
 Pending confirmation:
 
-- Official full name, address, district, pincode, latitude/longitude, and timezone.
-- Whether CBE is only a physical location, or also maps to a custodian party in some legacy rows.
+- Official legal/location name, address, district, pincode, latitude/longitude, and timezone.
 
 Build rule:
 
-- Do not hard-code an expansion for `CBE`.
-- Store it as a location/code during migration and attach official geo/business details only after confirmation.
+- Store `CBE` as a physical location/site code during migration.
+- Do not use CBE as an owner or custodian party by itself.
+- Attach official geo details only after confirmation.
 
 ### CPT
 
 Known meaning:
 
-- Legacy farm/site code found in current Sheets, dashboard filters, and Phase 1 discovery.
+- Ops-confirmed farm/site code for the Channapatna farm/location.
+- The code follows the railway/location-code convention used internally.
+- Found in current Sheets, dashboard filters, and Phase 1 discovery.
 - Treated as one of the core Goat OS operating locations in current data.
 
 Pending confirmation:
 
-- Official full name, address, district, pincode, latitude/longitude, and timezone.
-- Whether CPT is only a physical location, or also maps to a custodian party in some legacy rows.
+- Official legal/location name, address, district, pincode, latitude/longitude, and timezone.
 
 Build rule:
 
-- Do not hard-code an expansion for `CPT`.
-- Store it as a location/code during migration and attach official geo/business details only after confirmation.
+- Store `CPT` as a physical location/site code during migration.
+- Do not use CPT as an owner or custodian party by itself.
+- Attach official geo details only after confirmation.
 
 ### HF / Holding Farm
 
 Known meaning:
 
+- `HF` means `Holding Farm`.
 - Legacy label found as `Holding Farm` and `HF - <name>` in current source data.
-- Appears to represent goats held outside the core CBE/CPT buckets, often with vendor/source/procurement context.
+- Holding farms are external agent/partner places used after purchase and before
+  transport or farm intake.
+- They are used for source-side warm-up, usually before a long journey.
+- Examples such as `HF - Rajasthan Farms`, `HF - Gokul Agronomics`,
+  `HF - Goat World`, and `HF - Bhopal Agro` are agent/partner company or
+  source names, not Mesha-owned core farms.
 
 Pending confirmation:
 
-- Whether each HF row means owner party, custodian party, procurement staging, vendor/source context, physical holding location, or a mix by case.
-- Official geo details for each holding farm if it is a real location.
+- Official geo details for each holding farm if it should be represented as a physical location.
+- Whether each named HF partner should be modeled as a separate external party
+  during Phase 1 import, or kept as source context first and promoted later.
 
 Build rule:
 
-- Do not treat HF/Holding Farm as final ownership or custody truth automatically.
-- Import ambiguous HF rows into staging/review unless a confirmed mapping exists.
+- Treat HF as procurement/source/holding context by default.
+- Do not treat HF/Holding Farm as final goat ownership truth automatically.
+- If a row says the goat is physically at an HF location, capture it as
+  holding-location evidence and route unclear owner/custodian meaning to review.
+
+### Origin Farm
+
+Known meaning:
+
+- Source/origin value in RFID DB.
+- Ops-confirmed meaning: where the goat was purchased from, born, or otherwise
+  originally sourced.
+
+Build rule:
+
+- Store Origin Farm as source/origin evidence.
+- Do not treat Origin Farm as current physical location, owner, or custodian
+  unless another source explicitly proves that relationship.
+
+### No Tag / Tagless
+
+Known meaning:
+
+- Animal has no reliable tag.
+- RFID tagging was done recently, so older rows can have no RFID or inconsistent
+  tag terminology.
+
+Build rule:
+
+- Do not collapse multiple No Tag/tagless rows into one goat.
+- Field-created temporary goats require photo/proof.
+- Import-created temporary goats require source-row evidence and stay in review
+  until stronger identity is attached.
+
+## Status And Cohort Labels
+
+### K0
+
+Baby goat stage immediately after birth, usually the first one to two days.
+
+### K1
+
+Baby goat stage where the kid is trained to drink bottle milk.
+
+### K2
+
+Baby goat stage of roughly two months where the kid receives milk and is trained
+to eat solid feed.
+
+### K3
+
+Weaning stage where milk is gradually stopped and the kid is moved to solid feed.
+
+### M0
+
+Mother-goat post-delivery stage. The mother stays in this stage for some time,
+typically around one month after giving birth.
+
+### F2-Male / F2-Female
+
+Fattening groups after K3/weaning, separated by sex. The goal is strong feed
+performance and average daily gain.
+
+### ADG
+
+Average Daily Gain. Growth-performance measure used during fattening and R&D.
+Ops mentioned a target around 200g+ daily gain for strong fattening performance.
+
+### Warmup
+
+Adaptation period before the goat enters normal farm flow.
+
+- Source warm-up: goats are held at the source/holding farm after purchase,
+  often before travel.
+- Destination warm-up: goats adapt again after arriving at CBE/CPT or another
+  destination farm, especially to local climate and feed.
 
 ## Goat OS Identity Terms
 
