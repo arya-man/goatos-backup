@@ -105,6 +105,20 @@ Build rule:
 
 ## Status And Cohort Labels
 
+Goat OS keeps three separate ideas:
+
+- **Raw legacy label:** exact old value from Sheets/Slack, kept as evidence and
+  searchable alias.
+- **Canonical code:** clean stored code used by APIs and analytics, such as
+  `K0`, `F2`, `pregnant`, `icu`.
+- **Display name:** human UI label, such as `K0 - Newborn` or
+  `F2 - Fattening`.
+
+Compound old labels must be split. Example: `F2-Male` is not a separate
+genetics category. It maps to `growth_cohort_tag=F2` and `sex=male`.
+`ICU-Non-Pregnant` maps to `health_status=icu` and
+`reproductive_status=non_pregnant`.
+
 ### K0
 
 Baby goat stage immediately after birth, usually the first one to two days.

@@ -892,7 +892,23 @@ Locked answer: temporary goats are allowed, but they stay in review until linked
 
 Meaning: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string. Genetics and R&D need this split correctly.
 
-Locked answer: separate the structure into lifecycle, reproductive status, growth/cohort tag, and health status. Do not leave the rest mashed after pulling lifecycle out.
+Locked answer: separate the structure into lifecycle, reproductive status,
+growth/cohort tag, management stage, and health status. Do not leave the rest
+mashed after pulling lifecycle out.
+
+Display answer: Goat OS keeps operator-friendly labels, but not as messy free
+text. The UI should show canonical display names such as `K0 - Newborn`,
+`K1 - Bottle milk training`, `F2 - Fattening`, `Pregnant`, `Mother`, or `ICU`.
+The familiar legacy code remains visible/searchable as the short label. Compound
+legacy labels are split before storage, for example `F2-Male` becomes
+`growth_cohort_tag=F2` plus `sex=male`, and `ICU-Non-Pregnant` becomes
+`health_status=ICU` plus `reproductive_status=non_pregnant`. `Warmup` becomes
+`management_stage=warmup`, not reproductive status.
+
+Genetics/R&D answer: genetics should use structured fields such as breed, sex,
+age/date of birth, growth cohort, management stage, health history,
+reproductive history, parentage, growth events, and later meat-yield feedback.
+It must not infer genetics from one raw legacy label like `F2-Male`.
 
 **Core site-code meanings**
 
@@ -935,7 +951,7 @@ Known from ops: K0/K1/K2/K3/M0/F2/Warmup meanings are captured in the glossary.
 
 Known from legacy code: health diagnosis and follow-up tasks are driven by Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. That flow is disease, adult/kid age group, day, and session based. It is not mainly driven by status labels like K0/K1/K2/Pregnant.
 
-Phase 1 handling: store the raw legacy label, map known values into lifecycle/reproductive/growth/health axes, and keep unknown or dirty labels reviewable. Do not hardcode sale-blocking or task-trigger behavior in Phase 1.
+Phase 1 handling: store the raw legacy label, map known values into lifecycle/reproductive/growth/management/health axes, and keep unknown or dirty labels reviewable. Do not hardcode sale-blocking or task-trigger behavior in Phase 1.
 
 Needed for later policy phases: which labels are official for reporting, which labels block sale/allocation, and which non-health status/stage changes should automatically create routine tasks such as K-stage movement, M0 mother checks, Warmup checks, or fattening follow-ups.
 

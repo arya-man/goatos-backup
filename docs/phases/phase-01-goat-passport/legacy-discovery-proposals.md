@@ -295,17 +295,34 @@ lifecycle_status
   alive, dead, sold, unknown
 
 reproductive_status
-  pregnant, non_pregnant, mother, milking, buck, warmup, unknown
+  pregnant, non_pregnant, mother, milking, buck, unknown
 
 growth_cohort_tag
-  K0, K1, K2, K3, M0, F0, F2-Male, F2-Female, unknown
+  K0, K1, K2, K3, F0, F2, unknown
+
+management_stage
+  warmup, unknown
 
 health_status
-  ICU, ICU-Kid, ICU-Non-Pregnant, quarantine, none/unknown
+  ICU, quarantine, none/unknown
 ```
 
 Reason: dashboard/status labels are operationally useful, but they are not one
 clean lifecycle enum.
+
+Display/import rule:
+
+```text
+legacy labels remain searchable, but canonical status fields are structured
+F2-Male maps to growth_cohort_tag=F2 and sex=male
+F2-Female maps to growth_cohort_tag=F2 and sex=female
+ICU-Non-Pregnant maps to health_status=ICU and reproductive_status=non_pregnant
+ICU-Kid maps to health_status=ICU plus the known kid/growth stage when available
+Warmup maps to management_stage=warmup
+UI should show friendly display labels such as "K0 - Newborn" or "F2 - Fattening"
+and may show the short legacy code as a chip
+unknown labels stay as raw_label in review until mapped
+```
 
 Ops-confirmed label meanings:
 
@@ -644,7 +661,7 @@ Important for this discovery:
    by status labels like K0/K1/K2/Pregnant.
    Phase 1 handling:
      store the raw legacy label
-     map known labels into lifecycle/reproductive/growth/health axes
+     map known labels into lifecycle/reproductive/growth/management/health axes
      keep unknown or dirty labels reviewable
      do not hardcode sale-blocking or task-trigger behavior
    Needed for later policy phases:

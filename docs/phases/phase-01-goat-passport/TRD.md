@@ -357,6 +357,7 @@ age_band text null
 lifecycle_status text not null
 reproductive_status text null
 growth_cohort_tag text null
+management_stage text null
 health_status text null
 identity_state text not null
 custodian_party_id uuid not null references parties(party_id)
@@ -389,13 +390,110 @@ custodian_party_id is the current operationally responsible party, not economic 
 farm_id/park_id/shed_id/cohort_id are current placement caches for fast scoped reads
 lifecycle_status is the alive/dead/sold/merged/inactive axis only
 reproductive_status is the pregnancy/mother/buck/milking axis
-growth_cohort_tag is the K0/K1/K2/K3/F1/F2/M0-style cohort axis
+growth_cohort_tag is the K0/K1/K2/K3/F1/F2-style cohort axis; sex remains in `sex`
+management_stage is the farm-operations stage such as warmup/intake when it is not reproductive, health, or growth
 health_status is the healthy/sick/ICU/quarantine/under-treatment axis
 do not mash compound legacy labels into lifecycle_status
+compound labels are decomposed:
+  F2-Male -> growth_cohort_tag=F2 and sex=male
+  F2-Female -> growth_cohort_tag=F2 and sex=female
+  ICU-Non-Pregnant -> health_status=icu and reproductive_status=non_pregnant
+  ICU-Kid -> health_status=icu and growth/age axis remains kid-stage when known
 identity_state: clean | needs_review | disputed | merged | inactive
 merged goats set merged_into_goat_id and reject normal future writes
 row_version supports optimistic concurrency for admin edits
 daily task assignment stays in workforce/tasks and must not be modeled as custody
+```
+
+### `status_definitions`
+
+Canonical status/stage reference data used by APIs and UI. These records keep
+legacy operator terms searchable while giving Goat OS clean dimensions for
+analytics, genetics, and R&D.
+
+```text
+status_code text primary key
+axis text not null                 -- lifecycle | reproductive | growth_cohort | management | health
+display_name text not null          -- UI label, for example "K0 - Newborn"
+short_label text not null           -- compact chip, for example "K0"
+description text null
+legacy_label text null              -- familiar old label when one exists
+sort_order int not null default 0
+active boolean not null default true
+created_at timestamptz not null
+updated_at timestamptz not null
+```
+
+Initial examples:
+
+```text
+axis=growth_cohort, status_code=K0, display_name="K0 - Newborn", short_label="K0"
+axis=growth_cohort, status_code=K1, display_name="K1 - Bottle milk training", short_label="K1"
+axis=growth_cohort, status_code=K2, display_name="K2 - Milk + solid-feed training", short_label="K2"
+axis=growth_cohort, status_code=K3, display_name="K3 - Weaning", short_label="K3"
+axis=growth_cohort, status_code=F2, display_name="F2 - Fattening", short_label="F2"
+axis=management, status_code=warmup, display_name="Warmup - Adaptation", short_label="Warmup"
+axis=reproductive, status_code=pregnant, display_name="Pregnant", short_label="Pregnant"
+axis=reproductive, status_code=non_pregnant, display_name="Non-pregnant", short_label="Non-pregnant"
+axis=reproductive, status_code=mother, display_name="Mother", short_label="Mother"
+axis=reproductive, status_code=milking, display_name="Milking", short_label="Milking"
+axis=reproductive, status_code=buck, display_name="Buck", short_label="Buck"
+axis=health, status_code=icu, display_name="ICU", short_label="ICU"
+axis=health, status_code=quarantine, display_name="Quarantine", short_label="Quarantine"
+```
+
+UI rule:
+
+```text
+operator/admin UI shows `display_name` with `short_label` chips.
+legacy labels remain searchable aliases.
+do not show raw dirty legacy strings as the primary UI label unless unmapped.
+unmapped values show as "Needs review: <raw_label>" until mapped.
+```
+
+Genetics/R&D rule:
+
+```text
+genetics and R&D must query structured fields: breed_id, sex, lifecycle_status,
+reproductive_status, growth_cohort_tag, management_stage, health_status,
+age/approx_dob, growth events, health events, breeding events, and meat-yield
+feedback.
+they must not infer genetics from one raw legacy label such as "F2-Male".
+```
+
+### `legacy_status_mappings`
+
+Mapping from old labels to canonical axes. This table lets Phase 1 import
+known labels immediately, preserve unknown labels safely, and improve mappings
+later without rewriting goat identity.
+
+```text
+mapping_id uuid primary key
+source_system text not null
+raw_label text not null
+normalized_raw_label text not null
+lifecycle_status text null
+reproductive_status text null
+growth_cohort_tag text null
+management_stage text null
+health_status text null
+sex_override text null
+display_status_code text null references status_definitions(status_code)
+confidence text not null             -- high | medium | low
+review_required boolean not null default false
+notes text null
+created_at timestamptz not null
+updated_at timestamptz not null
+```
+
+Rules:
+
+```text
+store the raw label from source in legacy_import_rows and source evidence
+map known labels through legacy_status_mappings
+unknown labels do not block import; set review_required=true and keep raw_label
+sale/allocation blocking and routine task triggers are not stored here; they
+belong to later status_rule_policies in sales/SOP phases
 ```
 
 Indexes:
@@ -406,6 +504,7 @@ Indexes:
 (tenant_id, custodian_party_id, lifecycle_status)
 (tenant_id, reproductive_status)
 (tenant_id, growth_cohort_tag)
+(tenant_id, management_stage)
 (tenant_id, health_status)
 (current_location_id, lifecycle_status)
 (farm_id, lifecycle_status)
@@ -1279,6 +1378,7 @@ cohort_id uuid null
 lifecycle_status text null
 reproductive_status text null
 growth_cohort_tag text null
+management_stage text null
 health_status text null
 identity_state text null
 breed_id uuid null
@@ -1314,6 +1414,7 @@ shed_lifecycle: tenant_id + park_id + shed_id + lifecycle_status
 breed_sex_lifecycle: tenant_id + breed_id + sex + lifecycle_status
 health_status: tenant_id + health_status
 growth_cohort: tenant_id + growth_cohort_tag
+management_stage: tenant_id + management_stage
 reproductive_status: tenant_id + reproductive_status
 ```
 
@@ -1643,7 +1744,7 @@ out-of-scope matches are treated as not visible for operator/mobile response sha
 ### Dashboard/Analytics APIs
 
 ```text
-GET /analytics/identity/counts?grain=&tenant_id=&custodian_party_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&reproductive_status=&growth_cohort_tag=&health_status=&identity_state=&breed_id=&sex=
+GET /analytics/identity/counts?grain=&tenant_id=&custodian_party_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&reproductive_status=&growth_cohort_tag=&management_stage=&health_status=&identity_state=&breed_id=&sex=
 ```
 
 Count endpoint rules:
@@ -2004,6 +2105,7 @@ goat_identity_counters(tenant_id, custodian_party_id, farm_id, park_id, shed_id,
 goat_identity_counters(tenant_id, breed_id, sex, lifecycle_status)
 goat_identity_counters(tenant_id, health_status)
 goat_identity_counters(tenant_id, growth_cohort_tag)
+goat_identity_counters(tenant_id, management_stage)
 goat_identity_counters(tenant_id, reproductive_status)
 user_scope_grants(user_id, role, scope_type, scope_id, status)
 audit_log(resource_type, resource_id, created_at)
@@ -2222,11 +2324,11 @@ old_tag uniqueness:
 status vocabulary:
   extract distinct statuses from XLSX/CSVs/dashboard display code. Propose
   mapping into separate lifecycle_status, reproductive_status, growth_cohort_tag,
-  and health_status axes. Flag official labels, sale-blocking labels, and
-  non-health status/stage task triggers for ops confirmation. Health diagnosis
-  follow-up behavior is legacy-derived from Diagnosis Form, Problem, Follow Up,
-  Adults SOP, and Kids SOP. Known K0/K1/K2/K3/M0/F2/Warmup meanings live in
-  context/product/glossary.md.
+  management_stage, and health_status axes. Flag official labels, sale-blocking
+  labels, and non-health status/stage task triggers for ops confirmation.
+  Health diagnosis follow-up behavior is legacy-derived from Diagnosis Form,
+  Problem, Follow Up, Adults SOP, and Kids SOP. Known K0/K1/K2/K3/M0/F2/Warmup
+  meanings live in context/product/glossary.md.
 
 tenant/party/custody/location mapping:
   identify columns/code paths for farm, park, shed, shed_tag, load, source, CBE,
@@ -2278,7 +2380,7 @@ to review
 identifier policies per type: uniqueness scope, auto-link allowed?, primary allowed?
 identifier_policy_version: immutable once first import/mutation uses it
 temporary identity minimum: field-created temp requires photo/proof; import-created temp requires source row evidence; both require current/unknown location and review state
-status structure: lifecycle_status, reproductive_status, growth_cohort_tag, and health_status are separate axes
+status structure: lifecycle_status, reproductive_status, growth_cohort_tag, management_stage, and health_status are separate axes
 status semantics: Phase 1 stores raw labels and known axis mappings; sale-blocking labels and non-health status/stage task triggers are later policy inputs, not Phase 1 migration blockers
 site-code meanings: CBE = Coimbatore, CPT = Channapatna, HF = Holding Farm, Origin Farm = source/origin evidence
 location conflict rule: RFID DB and latest DB event should match; disagreements route to reconciliation/review
