@@ -155,6 +155,45 @@ disagrees with the source `Gender` column, preserve both pieces of evidence and
 route the row to review. If `Gender` is blank and only an F2 label implies sex,
 keep sex as needs-review instead of inferring it from the label.
 
+## Animal And Breed Terms
+
+### Kid
+
+Baby goat. Male and female newborn goats are both called kids.
+
+### Adult Female
+
+Fully grown female goat.
+
+### Buck
+
+Adult male goat kept separately and used for breeding. Buck assignment is a
+breeding/genetics decision, not just a sex label.
+
+### Fattening Kid
+
+Weaned young goat raised for meat on a high-nutrition diet. Fattening is a
+management/growth stage, not a breed or genetics category.
+
+### Known Breed / Species Labels
+
+Reference labels found in current farm material and legacy dashboard constants:
+
+```text
+Malai
+Beetal
+Sojat
+Osmanabadi
+Boer
+Anantapur Sheep
+Anantapur
+Kenguri
+```
+
+Goat OS must store breeds/species as reference data with aliases, not as
+hardcoded dropdown strings. Dirty spellings or unknown labels should be
+reviewable instead of silently mapped.
+
 ### K0
 
 Baby goat stage immediately after birth, with newborn kids kept with the mother
@@ -215,6 +254,57 @@ Adaptation period before the goat enters normal farm flow.
 - Destination warm-up: goats adapt again after arriving at CBE/CPT or another
   destination farm, especially to local climate and feed. Park warmup is
   typically about 14 days.
+
+## Reproduction Terms
+
+### Estrus / Heat
+
+The period when a female goat is sexually receptive and can be bred.
+
+Current operating assumptions from farm material:
+
+```text
+duration: typically 12-48 hours, average about 24 hours
+goat cycle frequency: about every 21 days
+sheep cycle frequency: about every 17 days
+visible signs: restlessness, loud bleating, tail wagging, reduced appetite,
+  sometimes white discharge
+```
+
+### Estrus Synchronization
+
+Process of aligning heat cycles so breeding and delivery windows become more
+predictable. Current farm material mentions progesterone sponges kept in the
+vagina for about 14 days as one synchronization method.
+
+### Natural Breeding
+
+Buck naturally mates with the female. Current planning ratio is about one buck
+for every five females, with at least two days rest before using the buck again.
+
+### Artificial Insemination
+
+Semen is deposited manually. Current farm material says diluted fresh semen can
+be used for up to about 100 females within about three days after collection.
+Treat this as a configurable breeding protocol, not a hardcoded universal rule.
+
+### Gestation
+
+Pregnancy period. Current goat planning value is about 150 days / five months
+from breeding to delivery.
+
+Pregnancy confirmation:
+
+```text
+ultrasound can start around 45 days after breeding
+scans around 3-4 months become harder
+```
+
+### Anestrus
+
+Period after delivery or during off-season when a goat does not return to normal
+heat cycles. Current farm material says that if it is not seasonal, estrus is
+expected to resume around 60 days after delivery.
 
 ## Goat OS Identity Terms
 

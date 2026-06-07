@@ -25,8 +25,11 @@ Detailed phase PRD/TRD docs
 Goat OS coverage checklist (frozen migration audit, not living architecture)
   context/product/goat-os-coverage-map.md
 
-Drive source findings from General/Slack docs
+General/Slack source findings
   context/source-findings/drive-docs-findings.md
+
+Promise Keeper assignment source findings
+  context/source-findings/assignment-promise-keeper-findings.md
 
 Final architecture
   context/architecture/final-architecture.md

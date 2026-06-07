@@ -32,6 +32,7 @@ docs/archive/planning-history/existing-repos-deep-audit.md
 | Ledger/event envelope/timeline | `context/architecture/final-architecture.md`; `context/execution/next-contracts.md`; `.agents/skills/goatos-build/references/contracts-events.md` |
 | Locations, farms, parks, sheds, cohorts | Product Phase 1; architecture module rules |
 | SOP/config engine | Product Phase 2; `context/forms/final-forms-sop-engine.md` |
+| Legacy Slack form schemas: health, birth, shifting, death, proof/correction fields | `context/forms/final-forms-sop-engine.md`; `context/source-findings/drive-docs-findings.md`; future Phase 2/3/5/6 PRD/TRDs |
 | Task engine, carry-forward, assignment | Product Phase 2 and Phase 4; `context/forms/final-forms-sop-engine.md` |
 | Video/proof verification, park head + central verifier | Product Phase 2 and Phase 3; architecture verification rules |
 | Shared proof/media/verification engine across feed, health, procurement, attendance, death, and dispatch | Product cross-cutting proof section; architecture media/verification rules |
@@ -44,12 +45,14 @@ docs/archive/planning-history/existing-repos-deep-audit.md
 | Crop/fodder farming, farmer network, sowing, crop tasks, harvest, crop expenditure | Product Phase 5B; legacy `farmer_crops_automation.js` discovery |
 | Movement/shifting/K1-K2-K3 stage alerts | Product Phase 5 |
 | Breeding/pregnancy/kidding | Product Phase 6 |
+| Reproduction parameters: estrus, breeding ratios, AI, ultrasound timing, gestation, anestrus | `context/product/glossary.md`; `context/source-findings/drive-docs-findings.md`; Product Phase 6 |
 | Genetics/pedigree/embryo/semen/inbreeding | Product Phase 6 |
 | Procurement/vendor/source/landing cost | Product Phase 7 |
 | Holding-farm warmup, transport/transit, arrival gate, discrepancy review, intake proof | Product Phase 7 |
 | Inventory/vaccine/feed/medicine/equipment batch and expiry | Product Phase 7 |
 | Sales/readiness/allocation/exit | Product Phase 8 |
 | Customer/festival promise safety: delivery-date eligibility, no double-booking, uncleared feed-contamination gate, promised-weight risk, trusted weight/price, booking-date price audit, replacement/substitution, continuous open-promise monitoring, evidence trail | Product cross-phase promise safety section; Phase 1 foundation; Phase 3 health/withdrawal/feed-clearance; Phase 5 weight/feed/movement; Phase 8 allocation/replacement/price audit/promise-monitoring sweeper |
+| Promise Keeper assignment learnings: identity/eligibility/pricing/booking/feed-trace/replacement/evidence | `context/source-findings/assignment-promise-keeper-findings.md`; Product cross-phase promise safety section; Product Phase 8 |
 | Meat yield and genetics feedback | Product Phase 8 |
 | Devices/RFID/scales/cameras/ultrasound/collars | Product Phase 9; frontend/mobile device adapters; analytics telemetry flow |
 | Edge agent/device gateway/raw telemetry | `context/architecture/final-architecture.md`; `context/analytics/final-analytics-infra.md`; Product Phase 9 summary |
@@ -57,6 +60,7 @@ docs/archive/planning-history/existing-repos-deep-audit.md
 | Data labeling/model registry/realtime inference/batch scoring | Product Phase 9 summary; architecture AI/R&D rules; future implementation docs |
 | CEO/admin/investor dashboards | Product Phase 10; frontend architecture; dashboard visibility rules |
 | Analytics/BigQuery/Tinybird/Cube/dbt/Metabase/AI analyst | Product Phase 10; `context/analytics/final-analytics-infra.md` |
+| Legacy BigQuery/dashboard source table catalog | `context/analytics/final-analytics-infra.md`; Phase 10 analytics parity checks |
 | Unit economics, COGS, cost/kg, cost/goat, load/source margin | Product Phase 7 captures cost events; Product Phase 10 defines governed metrics |
 | Public website | Out of Goat OS core; frontend architecture says business-context reference only |
 | Public web lead capture | Future commerce/public surface only, not Goat OS core build |

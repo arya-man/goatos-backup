@@ -1,4 +1,4 @@
-# Drive Source Findings
+# General And Slack Source Findings
 
 Derived from private Drive/export source material reviewed locally. This
 document records only sanitized findings needed for Goat OS planning. Do not
@@ -120,6 +120,68 @@ Milking
 
 `M0` is a mother/post-delivery management stage, not a kid growth stage.
 
+### Breed And Animal Vocabulary
+
+The farm familiarisation material lists these known animal/breed labels:
+
+```text
+Kid: newborn/baby goat, male or female.
+Adult Female: fully grown female goat.
+Buck: adult male goat kept separately and used for breeding.
+Fattening Kid: weaned young goat raised for meat on a high-nutrition diet.
+
+Breeds / animal types:
+  Malai
+  Beetal
+  Sojat
+  Osmanabadi
+  Boer
+  Anantapur Sheep
+```
+
+Legacy dashboard code also contains historical breed constants such as
+`Kenguri` and `Anantapur`. Goat OS should treat breed/species labels as
+reference data with aliases, not as hardcoded enums inside forms or dashboards.
+
+### Reproduction And Breeding Parameters
+
+The General farm material contains operating assumptions needed for Phase 6
+breeding/genetics and future eligibility/risk rules:
+
+```text
+female puberty: around 10 months
+pregnancy / gestation: about 150 days / 5 months
+productive fertility: does and bucks are generally useful up to around 8 years,
+  with performance monitored and rotated.
+
+estrus / heat:
+  duration: typically 12-48 hours, average about 24 hours
+  goat frequency: about every 21 days
+  sheep frequency: about every 17 days
+  synchronization: progesterone sponge for about 14 days
+  signs: restlessness, loud bleating, rapid tail wagging, reduced appetite,
+    sometimes white discharge
+
+breeding:
+  natural breeding and artificial insemination both exist as modes
+  natural ratio: about 1 buck for every 5 females
+  buck rest: at least 2 days before the next breeding session
+  artificial insemination: diluted fresh semen can cover up to about 100 females
+    within about 3 days after semen collection
+
+pregnancy confirmation:
+  ultrasound can start around 45 days after breeding
+  scans around 3-4 months become more difficult
+
+anestrus:
+  expected after delivery or off-season
+  if not seasonal, estrus should resume around 60 days post delivery
+```
+
+Adult female shed/stage labels in the source material include warmup,
+non-pregnant, flushing, breeding, pregnant early gestation, pregnant late
+gestation, mother, mother milking waiting, milking warmup, and milking.
+
 ### Sale And Routine Work Seeds
 
 These are later policy inputs, not Phase 1 identity blockers:
@@ -136,6 +198,93 @@ Feed changes: experiment-dependent and should be managed as configurable work.
 ```
 
 ## Slack Workflow Findings For Later Phases
+
+### Legacy Slack Form Schemas
+
+These are the source fields Goat OS form DSLs must be able to express when
+replacing Slack/Sheet flows. The fields below are sanitized schema summaries, not
+raw form exports.
+
+```text
+Death report:
+  farm
+  goat_id
+  gender
+  breed
+  shed
+  reason
+  deceased_goat_video proof
+  optional post_mortem_video when central requests it
+
+Shifting report:
+  farm
+  type = Shifting Request | Shifting Direction
+  category = Health | Growth | Breeding | Delivery
+  priority = Low | High
+  goat_ids (comma-separated in legacy; structured repeat_for_each_goat in Goat OS)
+  breed
+  source_shed
+  destination_shed
+  comments
+  destination_shed_video proof
+
+Birth / abortion report:
+  farm
+  type = Birth | Abortion
+  mother_id
+  source_shed
+  destination_shed
+  breed
+  time_of_delivery
+  number_of_kids
+  kid_gender_breakdown
+  comments
+  mother/kid action proofs
+
+Health diagnosis / follow-up:
+  type = Diagnosis | Follow Up
+  goat_id
+  symptom fields from Goat Health Symptoms
+  diagnosis video proof
+  disease/problem selection by health head / park head / central team
+  treatment sessions and proof videos
+
+Not Eating:
+  separate health-related form used when a goat is not eating; details post into
+  the treatment message flow.
+```
+
+Health symptom fields have explicit field types/options in the source. Canonical
+Phase 3 DSL should preserve these as versioned fields:
+
+```text
+goat_status: normal | pregnant | mother
+rectal_temperature_f: number; normal range 101.5-103.5 F
+eyes: normal | red | swollen | cloudy
+famacha: red | pink | pale | jaundice
+nasal_discharge, orf_scabs, frothy_mouth, diarrhea, flystrike, mastitis_test:
+  boolean
+eartag: normal | wound | flystrike
+skin_coat: normal | ticks | hair_loss_neck | hair_loss_body | hair_loss_legs
+wounds: no | horn | neck | body | legs
+rashes: no | neck | body | legs
+lumps: no | neck | body
+left_stomach: normal | bloating | acidosis
+udder: normal | swollen_hard | rashes | wound | lumps
+lactation: no_output | milk | colostrum | water | pus | bloody_discharge
+head_position: up | down
+activity: normal | not_able_to_stand | limping | back_leg_drag |
+  front_leg_on_knees | weak
+leg_injury: normal | arthritis | fracture | foot_rot
+miscellaneous: none | competition | panting | red_urine | body_edema |
+  stomach_inside
+eating: normal | not_eating | concentrate | green_feed | dry_feed
+```
+
+Legacy deletion/correction behavior must become void/reversal/audit records.
+Every proof-gated action should store original media, rectified media when
+needed, verifier, verification state, and corrected response value when central
+overrides a wrong answer.
 
 ### Health Flow
 

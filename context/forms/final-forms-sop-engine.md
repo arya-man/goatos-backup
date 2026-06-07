@@ -194,3 +194,94 @@ Slack forms:
   Android/app-api owns operational submission.
 ```
 
+## Legacy Slack Form Inputs To Preserve
+
+The General/Slack source docs show the forms that Goat OS must replace with
+versioned DSL forms and native Android runners. These schemas are inputs to the
+future form DSL; they are not raw copied Slack forms.
+
+```text
+Death report:
+  fields: farm, goat_id, gender, breed, shed, reason
+  proof: deceased goat video showing goat_id, full body, reproductive tract,
+    and shed
+  optional proof: post-mortem video when central requests it
+  correction: void/reversal/audit, never hard delete
+
+Shifting report:
+  fields: farm, type, category, priority, goat_ids, breed, source_shed,
+    destination_shed, comments
+  type: Shifting Request | Shifting Direction
+  category: Health | Growth | Breeding | Delivery
+  priority: Low | High
+  proof: video showing each shifted goat ID in the destination shed
+  request flow: request needs authorization; direction is already authorized
+  timing: high priority due same day; low priority due depends on 13:30 cutoff
+
+Birth / abortion report:
+  fields: farm, type, mother_id, source_shed, destination_shed, breed,
+    time_of_delivery, number_of_kids, kid_gender_breakdown, comments
+  proof/actions: mother checks, kid cleaning, iodine dipping, teeth check,
+    suck reflex, colostrum, kid weight, next-morning K1/mother shifts
+  correction: rectified video and corrected answer must preserve audit trail
+
+Health diagnosis / follow-up:
+  fields: type, goat_id, health symptom fields, video proof
+  type: Diagnosis | Follow Up
+  derived flow: disease selection, one problem per disease, treatment sessions,
+    daily proof videos, close/extend decisions
+  ICU rule: all ICU goats need daily follow-up symptom reports
+
+Not Eating:
+  separate health-related form whose output appears in the treatment flow.
+```
+
+Health symptom field groups from the legacy source:
+
+```text
+goat_status: single select normal | pregnant | mother
+rectal_temperature_f: number, one decimal; normal range 101.5-103.5 F
+eyes: multi select normal | red | swollen | cloudy
+famacha: single select red | pink | pale | jaundice
+nasal_discharge: boolean
+orf_scabs: boolean
+frothy_mouth: boolean
+eartag: multi select normal | wound | flystrike
+skin_coat: multi select normal | ticks | hair_loss_neck | hair_loss_body | hair_loss_legs
+wounds: multi select no | horn | neck | body | legs
+rashes: multi select no | neck | body | legs
+lumps: multi select no | neck | body
+left_stomach: single select normal | bloating | acidosis
+diarrhea: boolean
+flystrike: boolean
+udder: multi select normal | swollen_hard | rashes | wound | lumps
+lactation: multi select no_output | milk | colostrum | water | pus | bloody_discharge
+mastitis_test: boolean
+head_position: single select up | down
+activity: multi select normal | not_able_to_stand | limping | back_leg_drag | front_leg_on_knees | weak
+leg_injury: multi select normal | arthritis | fracture | foot_rot
+miscellaneous: multi select none | competition | panting | red_urine | body_edema | stomach_inside
+eating: multi select normal | not_eating | concentrate | green_feed | dry_feed
+```
+
+Phase 3 should convert these into a versioned health form DSL, preserve raw
+legacy labels as aliases, and keep abnormal symptom -> disease mapping as
+configuration reviewed by health/central users.
+
+Implementation rules:
+
+```text
+repeat_for_each_goat:
+  used for shifting and batch health/proof flows instead of comma-separated goat IDs.
+
+proof policy:
+  each form version declares required proof type, proof count, proof subject,
+  verifier role, and rework/rectification behavior.
+
+corrections:
+  legacy delete-row behavior becomes void/reversal/correction events with audit.
+
+dynamic pickers:
+  farm/shed/breed/goat/assignee options come from backend reference data and
+  offline caches, not hardcoded Slack dropdowns.
+```

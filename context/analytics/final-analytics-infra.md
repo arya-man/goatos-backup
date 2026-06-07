@@ -143,6 +143,105 @@ device/RFID/scale/camera/ultrasound/collar
 
 Raw telemetry is never the operational write path.
 
+## Legacy Analytics Source Catalog
+
+Existing dashboards and Sheets/BigQuery code are analytics references only. They
+must not become the Goat OS operational backend, but their table/view names are
+useful seed material for dbt marts, Cube metrics, dashboard parity checks, and
+migration QA.
+
+Legacy BigQuery project observed:
+
+```text
+goatos-sheets
+```
+
+Legacy datasets referenced:
+
+```text
+goatsDB
+farm
+procurement_farm
+Shiftings
+feedDB
+salesDB
+crop_season
+ceo_dashboard
+healthDB
+```
+
+Legacy table/view families:
+
+```text
+Counts:
+  counting_db_with_holding_dev
+  counting_kpis_daily
+  daily_summary_dev
+  core_farm_genderwise
+
+Birth / breeding:
+  mother_kid_facts
+  birth_analysis_view
+  breedwise_kidding_8m
+  v_birth_count_last_10_days
+  kidding_frequency
+  parent_stock_table
+
+Fattening / growth:
+  growth_farmwise_weighing
+  adg_summary_age_shed
+  kids_counting_vs_weighing
+  adg_goat_last2
+  weighingprogression_loadwise
+  loadwise_summary
+  fattening_load_sales_comparison
+
+Feed:
+  last_10_loads_feedwise
+  feed_daily_spend
+  feed_daily_expense_feedwise
+  feed_breed_age_daily
+  last_7_days_feed_per_animal
+  last_7_days_feed_per_animal_shedwise
+  feedDB_clean
+  feedDB_load_summary
+  monthly_animals_vs_feed
+  seasons_clean
+
+Mortality / health:
+  mortality_overall_breedwise_dev
+  overall_farmwise_mortality_dev
+  load_Wise_pct_data
+  deaths_monthly_trend_v
+  mortality_genderwise
+  mother_litter_size_dev_breedwise
+  mother_litter_size_dev_overall
+  mortality_by_litter_size_overall_dev
+  mortality_this_month_dev
+  mortality_trend_dev
+  deaths_fact_dev
+  health_db_clean_dev
+
+Infra:
+  shed_capacity_count_dev
+  counting_shed_capacity_status_dev
+
+Sales:
+  salesDB_clean
+  monthly_feed_vs_sales
+
+Vaccination:
+  vaccination_dashboard
+```
+
+Migration rule:
+
+```text
+legacy table names can seed parity tests and metric inventory.
+new Goat OS metrics live in Cube and dbt marts.
+dashboards cannot keep direct hidden formulas against old BigQuery tables.
+```
+
 ## BigQuery Cost Controls
 
 BigQuery must not become an unbounded scan engine. Controls are mandatory.
@@ -264,4 +363,3 @@ Long-retention Tinybird:
 Raw table AI:
   forbidden.
 ```
-

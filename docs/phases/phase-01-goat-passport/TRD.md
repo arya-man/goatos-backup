@@ -1472,6 +1472,12 @@ Breed counter grain requires normalized breed data. Do not use raw free-text
 breed strings as counter dimensions; map legacy breed text to controlled
 `breed_id` before rebuilding `breed_sex_lifecycle`.
 
+Seed breed/species reference data from the canonical glossary/source findings.
+Known source labels include Malai, Beetal, Sojat, Osmanabadi, Boer, Anantapur
+Sheep, Anantapur, and Kenguri. Treat these as reviewable reference rows and
+aliases, not hardcoded enums. Unknown or dirty breed strings stay as raw evidence
+and route to review instead of fragmenting counters.
+
 ### `audit_log`
 
 Platform audit record written in the same transaction as canonical identity
@@ -2317,7 +2323,7 @@ unclear part to review instead of inventing a default.
 sample XLSX/Sheet export
 column dictionary
 status labels and raw source values
-official breed list if available
+official breed/species seed list from glossary/source findings
 legacy breed text mapping to normalized breed_id
 location hierarchy source
 old tag uniqueness rule

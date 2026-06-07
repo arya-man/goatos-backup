@@ -187,6 +187,9 @@ What users get:
 - Recovery follow-ups.
 - Death/abortion records.
 - ICU/Quarantine follow-up and shifting-out workflow once no open problem remains.
+- Legacy health rules preserved: diagnosis/follow-up form, disease selection by
+  head/central, one problem per disease per goat, daily treatment sessions,
+  close/extend decisions, and daily ICU follow-up symptom reports.
 - Mortality views by breed, farm, shed, age group, source batch.
 - Verification queue for high-risk events.
 
@@ -270,6 +273,10 @@ What users get:
 - Shifting request/direction authorization flow.
 - Shifting due rules: high priority same day; low priority tomorrow 9 AM if
   raised before 1:30 PM, day-after-tomorrow 9 AM if raised after 1:30 PM.
+- Legacy shifting form fields preserved: farm, request/direction type, health/
+  growth/breeding/delivery category, priority, goat IDs, breed, source shed,
+  destination shed, comments, authorization, destination proof video, and
+  correction audit.
 - Overdue stage alerts like K1/K2/K3.
 - Weighing rhythms: K/F kids every Monday; adults monthly, currently 15th.
 - Feed rhythm: 8:30 AM directions, 9 AM morning feed, 2 PM revisions, 3 PM
@@ -355,6 +362,15 @@ What users get:
 - Imported embryo/semen line tracking.
 - Breeder performance score.
 - Inbreeding risk flags.
+- Source reproduction parameters captured for Phase 6 design: estrus 12-48
+  hours, goat cycle around 21 days, progesterone sponge synchronization around
+  14 days, natural breeding planning ratio around one buck to five females,
+  buck rest, AI/semen-batch protocol, ultrasound from about day 45, gestation
+  around 150 days, and anestrus review after delivery/off-season.
+- Legacy birth form fields preserved: mother ID, source/destination shed,
+  breed, delivery time, kid count, kid gender breakdown, mother/kid action
+  proofs, colostrum sessions, next-morning K1/mother shifts, and rectified-video
+  audit.
 
 In short:
 
@@ -516,6 +532,8 @@ What users get:
 - Verification backlog.
 - Operator performance.
 - AI analyst over governed metrics only.
+- Legacy BigQuery/dashboard table catalog is seed material for parity checks,
+  dbt marts, and Cube metric inventory; it is not operational truth.
 
 In short:
 
