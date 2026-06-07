@@ -981,6 +981,10 @@ the glossary. ICU/serious illness and Quarantine/viral disease restrict
 sale/allocation. Kids at K3 or below are milk-drinking kids and must not be sold.
 Future medication withdrawal periods should block sale once medicine tracking is
 implemented.
+Future feed-contamination clearance, promised-weight risk, and booking-date
+price audit are also sale/allocation safety inputs. A substitute/replacement
+goat must pass the same sale/allocation checks as a fresh booking, not bypass
+them.
 
 Known from legacy code: health diagnosis and follow-up tasks are driven by Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. That flow is disease, adult/kid age group, day, and session based. It is not mainly driven by status labels like K0/K1/K2/Pregnant.
 
@@ -994,8 +998,9 @@ labels reviewable. Do not hardcode sale-blocking or task-trigger behavior in
 Phase 1.
 
 Needed for later policy phases: turn the known sale blockers, weighing rhythms,
-vaccination schedules, medicine withdrawal periods, and experiment-driven feed
-changes into configurable `status_rule_policies` / SOP task rules.
+vaccination schedules, medicine withdrawal periods, feed-contamination
+clearance, promised-weight risk, booking-date price audit, and experiment-driven
+feed changes into configurable `status_rule_policies` / SOP task rules.
 
 **Geo details**
 
