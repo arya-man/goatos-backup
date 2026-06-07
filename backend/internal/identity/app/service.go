@@ -1,0 +1,288 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"regexp"
+	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/identity/domain"
+	"github.com/vgoats/goatos/backend/internal/identity/ports"
+)
+
+var displayIDPattern = regexp.MustCompile(`^G-[0-9]{6,}$`)
+
+type Service struct {
+	repo ports.Repository
+}
+
+func NewService(repo ports.Repository) *Service {
+	return &Service{repo: repo}
+}
+
+func (s *Service) GetGoatPassport(ctx context.Context, tenantID, lookup string, traceID string) (*domain.GoatPassportResult, error) {
+	if err := requireTenant(tenantID); err != nil {
+		return nil, err
+	}
+	lookup = strings.TrimSpace(lookup)
+	if lookup == "" {
+		return nil, BadRequest("invalid_goat_lookup", "goat_id or display_id is required")
+	}
+
+	var goat *domain.GoatPassport
+	var err error
+	if displayIDPattern.MatchString(lookup) {
+		goat, err = s.repo.GetGoatByDisplayID(ctx, tenantID, lookup)
+	} else {
+		goat, err = s.repo.GetGoatByID(ctx, tenantID, lookup)
+	}
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+
+	warnings := ensureWarnings(goat.Summary.Warnings)
+	if goat.IdentityState == "merged" {
+		if goat.MergedIntoGoatID == nil {
+			return nil, Internal("merged goat is missing survivor redirect")
+		}
+		originalID := goat.GoatID
+		redirectID := *goat.MergedIntoGoatID
+		survivor, err := s.repo.GetGoatByID(ctx, tenantID, redirectID)
+		if err != nil {
+			return nil, mapRepoErr(err)
+		}
+		warning := domain.Warning{
+			Code:           "merged_redirect",
+			Message:        "Goat identity has been merged; returning survivor passport.",
+			OriginalGoatID: &originalID,
+			RedirectGoatID: &redirectID,
+		}
+		survivor.Summary.Warnings = append(ensureWarnings(survivor.Summary.Warnings), warning)
+		warnings = append(warnings, warning)
+		goat = survivor
+	}
+
+	goat.Identifiers = ensureIdentifiers(goat.Identifiers)
+	goat.EvidenceRefs = ensureEvidence(goat.EvidenceRefs)
+	goat.Summary.Warnings = ensureWarnings(goat.Summary.Warnings)
+	return &domain.GoatPassportResult{Goat: *goat, Warnings: warnings, TraceID: traceID}, nil
+}
+
+func (s *Service) SearchGoats(ctx context.Context, params ports.SearchGoatsParams, traceID string) (*domain.GoatSearchResult, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	if params.Limit < 1 || params.Limit > 100 {
+		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
+	}
+	items, next, err := s.repo.SearchGoats(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	for i := range items {
+		items[i].Warnings = ensureWarnings(items[i].Warnings)
+	}
+	return &domain.GoatSearchResult{Items: items, NextCursor: next, TraceID: traceID}, nil
+}
+
+func (s *Service) ResolveIdentifier(ctx context.Context, params ports.ResolveIdentifierParams, traceID string) (*domain.ResolveIdentifierResult, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	params.IdentifierType = strings.TrimSpace(params.IdentifierType)
+	params.NormalizedValue = normalizeIdentifier(params.IdentifierType, params.NormalizedValue)
+	if params.IdentifierType == "" || params.NormalizedValue == "" {
+		return nil, BadRequest("invalid_identifier", "identifier type and value are required")
+	}
+
+	matches, err := s.repo.FindIdentifierMatches(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+
+	active := make([]domain.IdentifierMatch, 0)
+	history := make([]domain.IdentifierMatch, 0)
+	for _, match := range matches {
+		if match.Identifier.Status == "active" {
+			active = append(active, match)
+			continue
+		}
+		if match.Identifier.Status == "retired" || match.Identifier.Status == "disputed" {
+			history = append(history, match)
+		}
+	}
+
+	result := &domain.ResolveIdentifierResult{
+		ResolutionState: domain.ResolutionNoMatch,
+		CandidateGoats:  []domain.GoatSummary{},
+		Warnings:        []domain.Warning{},
+		TraceID:         traceID,
+	}
+
+	if len(active) == 0 {
+		if len(history) > 0 {
+			result.ResolutionState = domain.ResolutionNeedsReview
+			result.CandidateGoats = summariesFromMatches(history)
+			result.Warnings = append(result.Warnings, domain.Warning{
+				Code:    "identifier_history_only",
+				Message: "Only retired or disputed identifier history matched; review evidence before linking.",
+			})
+		}
+		return result, nil
+	}
+
+	if len(active) > 1 {
+		result.ResolutionState = domain.ResolutionMultipleMatch
+		result.CandidateGoats = summariesFromMatches(active)
+		conflictID, err := s.repo.FindOpenConflictForIdentifier(ctx, params.TenantID, params.IdentifierType, params.NormalizedValue)
+		if err != nil {
+			return nil, mapRepoErr(err)
+		}
+		result.ConflictID = conflictID
+		return result, nil
+	}
+
+	match := active[0]
+	if len(history) > 0 {
+		result.Warnings = append(result.Warnings, domain.Warning{
+			Code:    "identifier_history_present",
+			Message: "Retired or disputed history exists for this identifier.",
+		})
+	}
+
+	if match.Goat.IdentityState == "merged" {
+		passport, err := s.GetGoatPassport(ctx, params.TenantID, match.Goat.GoatID, traceID)
+		if err != nil {
+			return nil, err
+		}
+		redirectID := passport.Goat.GoatID
+		originalID := match.Goat.GoatID
+		result.ResolutionState = domain.ResolutionMergedRedirect
+		result.GoatSummary = &passport.Goat.Summary
+		result.RedirectGoatID = &redirectID
+		result.Warnings = append(result.Warnings, domain.Warning{
+			Code:           "merged_redirect",
+			Message:        "Identifier matched a merged goat; returning survivor.",
+			OriginalGoatID: &originalID,
+			RedirectGoatID: &redirectID,
+		})
+		return result, nil
+	}
+
+	result.ResolutionState = domain.ResolutionSingleMatch
+	result.GoatSummary = &match.Goat
+	return result, nil
+}
+
+func (s *Service) ListConflicts(ctx context.Context, params ports.ListConflictsParams, traceID string) (*domain.ConflictListResult, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	if params.Limit < 1 || params.Limit > 100 {
+		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
+	}
+	items, next, err := s.repo.ListConflicts(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &domain.ConflictListResult{Items: items, NextCursor: next, TraceID: traceID}, nil
+}
+
+func (s *Service) GetConflict(ctx context.Context, tenantID, conflictID, traceID string) (*domain.ConflictDetailResult, error) {
+	if err := requireTenant(tenantID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(conflictID) == "" {
+		return nil, BadRequest("invalid_conflict_id", "conflict_id is required")
+	}
+	result, err := s.repo.GetConflict(ctx, tenantID, conflictID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	result.TraceID = traceID
+	return result, nil
+}
+
+func (s *Service) GetIdentityCounts(ctx context.Context, params ports.CountParams, traceID string) (*domain.IdentityCountsResult, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(params.Grain) == "" {
+		return nil, BadRequest("invalid_grain", "grain is required")
+	}
+	items, freshness, err := s.repo.ListIdentityCounts(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if len(items) == 0 {
+		msg := "Counters are empty until import/projection jobs populate goat_identity_counters."
+		freshness.Warning = &msg
+	}
+	return &domain.IdentityCountsResult{Grain: params.Grain, Items: items, Freshness: freshness, TraceID: traceID}, nil
+}
+
+func requireTenant(tenantID string) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return Unauthorized("missing_tenant_scope", "tenant scope is required")
+	}
+	return nil
+}
+
+func normalizeIdentifier(identifierType, value string) string {
+	value = strings.TrimSpace(value)
+	switch identifierType {
+	case "rfid":
+		return strings.ToUpper(value)
+	default:
+		return value
+	}
+}
+
+func summariesFromMatches(matches []domain.IdentifierMatch) []domain.GoatSummary {
+	summaries := make([]domain.GoatSummary, 0, len(matches))
+	seen := map[string]struct{}{}
+	for _, match := range matches {
+		if _, ok := seen[match.Goat.GoatID]; ok {
+			continue
+		}
+		match.Goat.Warnings = ensureWarnings(match.Goat.Warnings)
+		summaries = append(summaries, match.Goat)
+		seen[match.Goat.GoatID] = struct{}{}
+	}
+	return summaries
+}
+
+func ensureWarnings(in []domain.Warning) []domain.Warning {
+	if in == nil {
+		return []domain.Warning{}
+	}
+	return in
+}
+
+func ensureIdentifiers(in []domain.GoatIdentifier) []domain.GoatIdentifier {
+	if in == nil {
+		return []domain.GoatIdentifier{}
+	}
+	return in
+}
+
+func ensureEvidence(in []domain.EvidenceRef) []domain.EvidenceRef {
+	if in == nil {
+		return []domain.EvidenceRef{}
+	}
+	return in
+}
+
+func mapRepoErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		return NotFound("resource is missing or outside scope")
+	}
+	var appErr *Error
+	if errors.As(err, &appErr) {
+		return appErr
+	}
+	return Internal("identity repository error")
+}

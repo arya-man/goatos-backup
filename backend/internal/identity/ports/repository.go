@@ -1,0 +1,71 @@
+package ports
+
+import (
+	"context"
+	"errors"
+
+	"github.com/vgoats/goatos/backend/internal/identity/domain"
+)
+
+var ErrNotFound = errors.New("identity record not found")
+
+type SearchGoatsParams struct {
+	TenantID       string
+	Limit          int
+	Cursor         *string
+	Query          *string
+	IdentifierType *string
+	ScopeKey       *string
+	FarmID         *string
+	ParkID         *string
+	LocationID     *string
+	Status         *string
+}
+
+type ResolveIdentifierParams struct {
+	TenantID        string
+	IdentifierType  string
+	NormalizedValue string
+	ScopeKey        *string
+	FarmID          *string
+	ParkID          *string
+	LocationID      *string
+}
+
+type ListConflictsParams struct {
+	TenantID     string
+	Limit        int
+	Cursor       *string
+	State        *string
+	ConflictType *string
+}
+
+type CountParams struct {
+	Grain              string
+	TenantID           string
+	CustodianPartyID   *string
+	FarmID             *string
+	ParkID             *string
+	ShedID             *string
+	CohortID           *string
+	LifecycleStatus    *string
+	ReproductiveStatus *string
+	GrowthCohortTag    *string
+	ManagementStage    *string
+	HealthStatus       *string
+	IdentityState      *string
+	BreedID            *string
+	Sex                *string
+}
+
+type Repository interface {
+	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
+	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
+	SearchGoats(ctx context.Context, params SearchGoatsParams) ([]domain.GoatSummary, *string, error)
+	FindIdentifierMatches(ctx context.Context, params ResolveIdentifierParams) ([]domain.IdentifierMatch, error)
+	FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue string) (*string, error)
+	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
+	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
+	ListIdentityCounts(ctx context.Context, params CountParams) ([]domain.IdentityCount, domain.Freshness, error)
+	Ping(ctx context.Context) error
+}
