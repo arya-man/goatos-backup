@@ -725,17 +725,15 @@ Admin sees:
   missing-identifier queue
 ```
 
-## Phase 1 Decision Gate Before Migrations
+## Phase 1 Import Guardrails
 
-These decisions shape schema, import policy, and review rules. Contracts and
-read-only discovery can start immediately. Migrations, import seeds, identifier
-policies, and canonical import logic must wait until these decisions are
-confirmed.
+The decisions below shape schema, import policy, and review rules. They are now
+locked enough for contracts, migrations, import seeds, identifier policies, and
+canonical import logic to start.
 
-These are human/business answers. An agent may identify the missing decision
-and propose options, but it must not choose defaults on its own. If any required
-decision is unknown, stop and ask before writing migrations or canonical import
-logic.
+If a source value is still unclear, Phase 1 must preserve the raw legacy value,
+map what is known, and route the unclear part to staging/review. It must not
+invent business behavior such as sale-blocking or routine task triggers.
 
 Before asking a human owner to answer from memory, the implementation agent must run a
 read-only legacy discovery pass over the current artifacts:
@@ -794,8 +792,8 @@ tenant / party / custody / location
 status structure
   lifecycle, reproductive status, growth/cohort tag, and health status are separate axes
   health diagnosis follow-up rules are legacy-derived from Slack/App Script
-  label semantics for sale-blocking and non-health status/stage task triggers
-  still need ops confirmation
+  sale-blocking and non-health status/stage task triggers are later policy rules
+  and do not block Phase 1 identity import
 
 merge approval authority
   central admin approves and assigns approval roles; farm admin can approve only when granted
@@ -817,7 +815,7 @@ tenant/party/custody mapping
 old-tag scope policy
 identifier policy per type
 temporary identity minimum evidence
-status structure and label semantics
+status structure and raw-label preservation
 source stable-key recipe
 source hash/diff recipe
 first import policy version
@@ -839,7 +837,7 @@ context/product/glossary.md
 
 Important for Phase 1:
 
-- `CBE` is the Coimbatore farm/location code. `CPT` is the Channapatna farm/location code. Official addresses and geo details are still pending.
+- `CBE` is the Coimbatore farm/location code. `CPT` is the Channapatna farm/location code. Official addresses and geo details can be backfilled later; Phase 1 may seed city/state with null pincode/coordinates.
 - `HF` / `Holding Farm` means an external agent/partner holding place used after purchase and before transport or farm intake. Do not treat it as final goat ownership truth unless a confirmed mapping exists.
 - `Origin Farm` means where the goat was purchased from, born, or originally sourced.
 - `source row`, `load`, `tenant`, `party`, `owner`, `custodian`, `staging`, `current location`, `display ID`, and `merge` are defined in the glossary.
@@ -923,7 +921,7 @@ Meaning: labels like K0/K1/K2/K3/M0/F2 are operational stages, not goat identity
 
 Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2 is milk plus solid-feed training for roughly two months; K3 is weaning to solid feed; M0 is mother post-delivery for around a month; F2-Male/F2-Female are post-weaning fattening groups separated by sex. Warmup can happen at source before travel and at destination after arrival.
 
-### Still Need Legacy/Ops Meaning
+### Future Ops Inputs Not Blocking Phase 1
 
 These are not technical architecture questions. They are places where current
 legacy data uses business words/codes that only operations can correctly
@@ -937,10 +935,14 @@ Known from ops: K0/K1/K2/K3/M0/F2/Warmup meanings are captured in the glossary.
 
 Known from legacy code: health diagnosis and follow-up tasks are driven by Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. That flow is disease, adult/kid age group, day, and session based. It is not mainly driven by status labels like K0/K1/K2/Pregnant.
 
-Need ops meaning: which labels are official for reporting, which labels block sale/allocation, and which non-health status/stage changes should automatically create routine tasks such as K-stage movement, M0 mother checks, Warmup checks, or fattening follow-ups?
+Phase 1 handling: store the raw legacy label, map known values into lifecycle/reproductive/growth/health axes, and keep unknown or dirty labels reviewable. Do not hardcode sale-blocking or task-trigger behavior in Phase 1.
+
+Needed for later policy phases: which labels are official for reporting, which labels block sale/allocation, and which non-health status/stage changes should automatically create routine tasks such as K-stage movement, M0 mother checks, Warmup checks, or fattening follow-ups.
 
 **Geo details**
 
 Current legacy state: CBE and CPT are physical farm/location codes; HF values are external holding/source places.
 
-Need ops meaning: official address, district, pincode, coordinates, and timezone for CBE/CPT and any HF location that should be represented as a physical location.
+Phase 1 handling: create location rows with known code/city/state and nullable pincode/coordinates. Unknown exact address/GPS must not block import.
+
+Needed later: official address, district, pincode, coordinates, and timezone for CBE/CPT and any HF location that should be represented as a physical location.

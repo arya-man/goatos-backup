@@ -2155,16 +2155,20 @@ dashboard count endpoint under load
 RBAC-filtered search under load
 ```
 
-## Inputs Needed Before Migrations And Canonical Import Logic
+## Inputs And Policy Handling For Migrations
 
-Contracts can start now using the locked Phase 1 shape. The items below block
-Postgres migrations, import seeds, identifier/import policy seeds, and canonical
-import logic only.
+Contracts, Postgres migrations, import seeds, identifier/import policy seeds,
+and canonical import logic can start using the locked Phase 1 shape.
+
+The items below must be represented in staging/review/policy design, but
+unanswered later-business policies must not block Phase 1 import. If a value is
+not confirmed, preserve the raw source value, map what is known, and route the
+unclear part to review instead of inventing a default.
 
 ```text
 sample XLSX/Sheet export
 column dictionary
-official status list
+status labels and raw source values
 official breed list if available
 legacy breed text mapping to normalized breed_id
 location hierarchy source
@@ -2180,12 +2184,11 @@ approved identifier_policy_version
 approved legacy_import_policy policy_version for first migration
 ```
 
-Pre-migration locked decisions:
+Locked migration decisions:
 
-These are human/business answers, not agent defaults. The implementation agent
-may list options and consequences, but must stop and ask if any value is
-unknown. Do not write migrations, seed policies, or canonical import logic past
-an unanswered pre-migration decision.
+These are no longer a reason to stop Phase 1. The implementation agent may add
+review states, nullable geo fields, raw legacy value columns, and policy seams
+where later business behavior is still unconfirmed.
 
 ### Pre-Migration Legacy Discovery Pass
 
@@ -2244,10 +2247,11 @@ SOP/form inventory:
   phases and prevents losing current operating knowledge.
 
 policy-only decisions:
-  list decisions not derivable from data, such as first-import scope,
-  sale/allocation blocking labels, non-health status/stage task triggers,
-  official geo details, and whether HF partners become external party/location
-  records in Phase 1.
+  record future policy decisions not required for Phase 1 import, such as
+  sale/allocation blocking labels, non-health status/stage task triggers, and
+  official geo details. First import scope is locked to RFID DB first. HF
+  partner handling is locked to minimal external party records plus physical
+  location records only when source evidence supports them.
 ```
 
 Discovery output rules:
@@ -2257,7 +2261,8 @@ do not commit raw XLSX rows, raw Slack payloads, PII, tokens, or media URLs
 commit only derived proposals, aggregate counts, source paths, column names,
 anonymized examples, and confidence notes if a proposal doc is created
 state dataset coverage; never claim global uniqueness from a partial snapshot
-agent may propose, a human owner must confirm before migrations/seeds/import logic
+future sale/task/geo policy may be proposed for later confirmation, but it must
+not be invented inside Phase 1 migrations or import logic
 ```
 
 ```text
@@ -2274,7 +2279,7 @@ identifier policies per type: uniqueness scope, auto-link allowed?, primary allo
 identifier_policy_version: immutable once first import/mutation uses it
 temporary identity minimum: field-created temp requires photo/proof; import-created temp requires source row evidence; both require current/unknown location and review state
 status structure: lifecycle_status, reproductive_status, growth_cohort_tag, and health_status are separate axes
-status semantics: official labels, sale-blocking labels, and non-health status/stage task triggers require ops confirmation
+status semantics: Phase 1 stores raw labels and known axis mappings; sale-blocking labels and non-health status/stage task triggers are later policy inputs, not Phase 1 migration blockers
 site-code meanings: CBE = Coimbatore, CPT = Channapatna, HF = Holding Farm, Origin Farm = source/origin evidence
 location conflict rule: RFID DB and latest DB event should match; disagreements route to reconciliation/review
 source_row_key recipe: stable source ID, never spreadsheet row position

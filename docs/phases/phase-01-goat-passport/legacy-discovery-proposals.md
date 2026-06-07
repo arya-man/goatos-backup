@@ -630,7 +630,7 @@ Important for this discovery:
    source-side before travel or destination-side after arrival.
 ```
 
-### Still Need Ops Meaning
+### Future Ops Inputs Not Blocking Phase 1
 
 ```text
 1. Status label semantics
@@ -642,7 +642,12 @@ Important for this discovery:
    Diagnosis Form, Problem, Follow Up, Adults SOP, and Kids SOP. They are
    disease, age-group, day, and session based. They are not primarily driven
    by status labels like K0/K1/K2/Pregnant.
-   Need ops meaning:
+   Phase 1 handling:
+     store the raw legacy label
+     map known labels into lifecycle/reproductive/growth/health axes
+     keep unknown or dirty labels reviewable
+     do not hardcode sale-blocking or task-trigger behavior
+   Needed for later policy phases:
      which labels are official reporting labels versus old/dirty labels
      which labels block sale/allocation
      which non-health status/stage changes should automatically create routine tasks
@@ -652,18 +657,24 @@ Important for this discovery:
 2. Geo details
    Current legacy state: CBE is Coimbatore and CPT is Channapatna. HF values are
    external holding/source places.
-   Need ops meaning: official address, district, pincode, coordinates, and timezone
-   for CBE/CPT and any HF location that should become a physical location.
+   Phase 1 handling:
+     create location rows with known code/city/state
+     keep exact address, pincode, and coordinates nullable
+     do not block import on missing GPS
+   Needed later:
+     official address, district, pincode, coordinates, and timezone for CBE/CPT
+     and any HF location that should become a physical location.
 ```
 
 ## Phase 1 Start Decision
 
 ```text
 Contracts can start now.
+Migrations can start now.
+Import seeds, identifier policies, and canonical import logic can start now
+using the locked Phase 1 decisions.
 
-Migrations, import seeds, identifier policies, and canonical import logic should
-wait until the business owner confirms the decision list above.
+Unanswered sale/allocation rules, non-health routine task triggers, and exact
+GPS/address details are later policy/data enrichment inputs. They must not be
+hardcoded as guesses, but they do not block Phase 1 identity import.
 ```
-
-This is not a blocker to Phase 1. It is the first Phase 1 step before the build
-session writes schema defaults that would be expensive to unwind.
