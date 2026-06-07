@@ -250,7 +250,7 @@ components:
     Cursor:
       name: cursor
       in: query
-      required: true
+      required: false
       schema:
         type: string
         minLength: 1
@@ -473,6 +473,7 @@ components:
         - lifecycle_status
         - reproductive_status
         - growth_cohort_tag
+        - management_stage
         - health_status
         - identity_state
         - location_path
