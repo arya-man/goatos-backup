@@ -1861,6 +1861,11 @@ approved legacy_import_policy policy_version for first migration
 
 Pre-migration locked decisions:
 
+These are human/business answers, not agent defaults. The implementation agent
+may list options and consequences, but must stop and ask if any value is
+unknown. Do not write migrations, seed policies, or canonical import logic past
+an unanswered pre-migration decision.
+
 ```text
 goat_id format: UUID v7 unless explicitly rejected
 display_id generator: server-generated, unique, not manually typed; prefix/format can change before first migration only
@@ -1878,16 +1883,17 @@ legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and aut
 
 ```text
 1. OpenAPI + JSON Schema contracts for identity/passport/conflict/decision.
-2. Postgres migrations for identity/location/import/reconciliation/policy/outbox tables.
-3. Identifier and import policy seeds for first migration sample.
-4. Import staging and normalization.
-5. Deterministic matching/conflict engine.
-6. Admin APIs.
-7. App lookup APIs.
-8. Admin web goat search/passport/conflict screens.
-9. Operator mobile lookup shell.
-10. Dashboard count adapter from canonical identity.
-11. Tests/load baseline.
+2. Confirm pre-migration locked decisions; stop for human answers if any are unknown.
+3. Postgres migrations for identity/location/import/reconciliation/policy/outbox tables.
+4. Identifier and import policy seeds for first migration sample.
+5. Import staging and normalization.
+6. Deterministic matching/conflict engine.
+7. Admin APIs.
+8. App lookup APIs.
+9. Admin web goat search/passport/conflict screens.
+10. Operator mobile lookup shell.
+11. Dashboard count adapter from canonical identity.
+12. Tests/load baseline.
 ```
 
 ## Open Technical Questions

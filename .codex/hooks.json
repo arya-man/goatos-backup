@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash tools/agent-hooks/check-write-scope.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -730,6 +730,11 @@ Admin sees:
 These decisions shape schema, import policy, and review rules. They must be
 answered before implementation starts.
 
+These are human/business answers. An agent may identify the missing decision
+and propose options, but it must not choose defaults on its own. If any required
+decision is unknown, stop and ask before writing migrations or canonical import
+logic.
+
 ```text
 old_tag uniqueness
   global | farm-scoped | park-scoped | load/source-scoped
