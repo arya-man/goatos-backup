@@ -7,6 +7,8 @@ Canonical docs:
 - `docs/phases/README.md`
 - active phase `docs/phases/<phase>/PRD.md`
 - active phase `docs/phases/<phase>/TRD.md`
+- active phase discovery/proposal docs, if present, such as
+  `docs/phases/phase-01-goat-passport/legacy-discovery-proposals.md`
 - `context/product/goat-os-feature-phases.md`
 - `context/execution/two-dev-build-plan.md`
 

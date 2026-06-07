@@ -1947,7 +1947,8 @@ legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and aut
 
 ```text
 1. OpenAPI + JSON Schema contracts for identity/passport/conflict/decision.
-2. Run read-only legacy discovery and produce evidence-backed proposals.
+2. Run/read the legacy discovery proposal before schema defaults:
+   docs/phases/phase-01-goat-passport/legacy-discovery-proposals.md
 3. Confirm pre-migration locked decisions; stop for human answers if any are unknown.
 4. Postgres migrations for identity/location/import/reconciliation/policy/outbox tables.
 5. Identifier and import policy seeds for first migration sample.

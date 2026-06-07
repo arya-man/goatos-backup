@@ -727,8 +727,10 @@ Admin sees:
 
 ## Phase 1 Business Decisions Required Before Build
 
-These decisions shape schema, import policy, and review rules. They must be
-answered before implementation starts.
+These decisions shape schema, import policy, and review rules. Contracts and
+read-only discovery can start immediately. Migrations, import seeds, identifier
+policies, and canonical import logic must wait until these decisions are
+confirmed.
 
 These are human/business answers. An agent may identify the missing decision
 and propose options, but it must not choose defaults on its own. If any required
@@ -759,6 +761,12 @@ open policy decisions that cannot be derived from artifacts
 business owner confirms or corrects the proposal. Raw private goat data and PII stay out
 of git; committed proposal docs may include aggregate counts, source paths,
 column names, and anonymized examples only.
+
+Current discovery output:
+
+```text
+docs/phases/phase-01-goat-passport/legacy-discovery-proposals.md
+```
 
 ```text
 old_tag uniqueness
@@ -807,7 +815,9 @@ first import policy version
 
 ## Review Questions
 
-These need business confirmation before implementation:
+These need business confirmation before migrations/import logic. The discovery
+proposal should be reviewed first so business owner is confirming evidence-backed options,
+not answering from memory.
 
 ```text
 Which field is currently treated as the primary old tag?
