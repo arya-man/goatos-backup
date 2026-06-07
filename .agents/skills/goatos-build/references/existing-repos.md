@@ -4,10 +4,12 @@ Load this when inspecting or migrating from current cloned repos.
 
 Canonical docs:
 
-- `context/repo-audits/` when populated
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
-- root historical docs: `existing-repos-inventory.md`, `existing-repos-deep-audit.md`
+- `context/source-findings/drive-docs-findings.md`
+- `context/source-findings/assignment-promise-keeper-findings.md`
+- archived repo audits under `docs/archive/planning-history/` for historical
+  comparison only
 
 Current workspace repos:
 
@@ -32,3 +34,6 @@ Rules:
   not commit raw private rows, Slack payloads, tokens, PII, or media URLs.
 - Slack/App Script SOP workflows are operating knowledge. Inventory them before
   replacing them with Android/admin SOP forms.
+- When existing repos reveal durable facts, summarize them into `context/`
+  source findings or architecture docs. Do not leave build-critical facts only
+  in archive or in chat analysis.

@@ -31,6 +31,7 @@ Then load only the references needed for the task from the table below.
 | `references/analytics-infra.md` | Analytics, BI, AI analyst, BigQuery, Tinybird, Cube, dbt, Metabase, telemetry, cost guardrails, or dashboard metric source |
 | `references/execution-plan.md` | Splitting work across two developers/agents, delivery phases, dev/stg/prod setup, load testing, SLOs, or migration spike |
 | `references/phase-prd-trd.md` | Starting or reviewing a phase PRD/TRD, checking phase scope, or ensuring phase docs update agent references before code |
+| `references/source-findings.md` | Using facts from General/Slack docs, Promise Keeper assignment, legacy source docs, or checking whether source facts reached canonical docs |
 | `references/existing-repos.md` | Inspecting or migrating from `dashboard`, `vgoats-dashboard`, `procurement_app`, `slack-automation-scripts`, or `website` reference repos |
 | `references/security-ops.md` | Dashboard gating, Slack token rotation, secrets, IAM tiers, prod read-only agent access, or auth/RBAC concerns |
 
@@ -70,6 +71,8 @@ one product; this skill is the navigation layer.
 - Keep frontend/mobile behind app APIs and generated clients.
 - Keep official analytics metrics behind Cube.
 - Keep Slack/Sheets/App Script as legacy reference/migration only.
+- When source artifacts add lasting facts, sync the relevant `context/` doc and
+  this skill's reference map in the same closeout.
 
 ## Must Not
 

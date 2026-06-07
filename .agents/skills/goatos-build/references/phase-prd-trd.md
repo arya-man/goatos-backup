@@ -11,6 +11,8 @@ Canonical docs:
   `docs/phases/phase-01-goat-passport/legacy-discovery-proposals.md`
 - `context/product/goat-os-feature-phases.md`
 - `context/execution/two-dev-build-plan.md`
+- `context/source-findings/drive-docs-findings.md`
+- `context/source-findings/assignment-promise-keeper-findings.md`
 
 Rules:
 
@@ -32,6 +34,36 @@ Rules:
 - Keep references short. Do not duplicate the full PRD/TRD inside skill files.
 - Use phase docs for "what to build"; use skill references for "what context to
   load and which rules must not be forgotten."
+
+Current Phase 1 locked foundation:
+
+```text
+goat_id immutable internal ID; display_id human ID.
+RFID-first import; old tag scope = number + normalized park.
+tenant isolation + global parties + shared-PK org subtype.
+owner_party / custodian_party / location / task assignment are separate.
+ownership share_bps uses integer bps and deferred invariant.
+custody has temporal history; operator task assignment is not custody.
+status is decomposed into lifecycle/reproductive/growth/management/health + sex.
+F2-Male/F2-Female maps to growth_cohort=F2 only; sex comes from Gender source.
+breed strings normalize to breed_id reference rows/aliases before counters.
+merges use redirect/survivor resolution, evidence, and review gates.
+events/audit/history are partition-aware; idempotency is explicit.
+Phase 1 stores policy inputs but does not execute customer/festival eligibility.
+```
+
+Cross-phase facts already captured:
+
+```text
+verification/proof engine is platform-wide.
+promise safety requires P3 health, P5 movement/weight/feed, P8 allocation, and
+P4/P8 open-promise sweeper.
+Phase 5B crop/fodder/farmer module is conditional on Goat OS owning feed
+production, otherwise define integration.
+legacy Slack forms and health symptom fields are canonical source inputs.
+legacy BigQuery catalog is source inventory for analytics parity, not truth.
+Promise Keeper assignment logic is a Phase 8 reference, not production runtime.
+```
 
 Phase implementation checklist:
 
