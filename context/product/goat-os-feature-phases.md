@@ -58,6 +58,33 @@ treatment, death, and abortion. Phase 4 uses it for attendance and operator
 entry logs. Phase 7 uses it for procurement load, transit, and arrival proof.
 Phase 8 uses it for dispatch/exit proof.
 
+## Promise Safety Is A Cross-Phase Vertical Slice
+
+Goat OS must eventually answer a simple customer-facing question:
+
+```text
+Can we safely promise this exact goat for this exact delivery/event date, and
+can we prove the answer from source records?
+```
+
+This is not one module. It is a vertical slice across the product:
+
+```text
+Phase 1: stable goat passport, identifiers, merge redirects, source evidence,
+         decision records, audit trail, and movement history.
+Phase 3: health, treatment, quarantine, death, and medicine withdrawal periods.
+Phase 5: trusted weight, movement/shifting history, feed records, and growth.
+Phase 8: sellable/readiness policy, allocation, booking, double-book
+         prevention, replacement/substitution, dispatch, and exit proof.
+Phase 10: governed dashboards and promise-risk metrics.
+```
+
+The Phase 1 base does not itself perform festival/customer allocation. It makes
+that later allocation safe by giving every later phase one immutable `goat_id`,
+reviewable identity conflicts, source-backed decision records, and an audited
+movement trail. At scale, the later booking invariant must be enforced by the
+database, not by UI checks or in-memory locks.
+
 ## Phase 1: Goat Passport And Herd Registry
 
 Build the identity layer for every goat.

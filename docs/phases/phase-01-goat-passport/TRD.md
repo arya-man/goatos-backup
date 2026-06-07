@@ -1181,6 +1181,15 @@ transitive merges are flattened by resolving the live survivor before writing go
 merge code rejects cycles and locks affected goat rows in deterministic goat_id order
 ```
 
+Forward dependency for sale/allocation:
+
+```text
+Phase 8 booking/allocation must resolve any supplied goat reference through
+merged_into_goat_id before checking availability or writing an allocation.
+The no-double-promise invariant must be enforced against the live survivor
+goat_id, not the stale merged goat_id or a legacy tag value.
+```
+
 Undo/correction:
 
 ```text

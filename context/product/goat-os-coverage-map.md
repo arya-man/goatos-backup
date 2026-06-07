@@ -49,6 +49,7 @@ docs/archive/planning-history/existing-repos-deep-audit.md
 | Holding-farm warmup, transport/transit, arrival gate, discrepancy review, intake proof | Product Phase 7 |
 | Inventory/vaccine/feed/medicine/equipment batch and expiry | Product Phase 7 |
 | Sales/readiness/allocation/exit | Product Phase 8 |
+| Customer/festival promise safety: delivery-date eligibility, no double-booking, trusted weight/price, replacement/substitution, evidence trail | Product cross-phase promise safety section; Phase 1 foundation; Phase 3 health/withdrawal; Phase 5 weight/feed/movement; Phase 8 allocation/replacement |
 | Meat yield and genetics feedback | Product Phase 8 |
 | Devices/RFID/scales/cameras/ultrasound/collars | Product Phase 9; frontend/mobile device adapters; analytics telemetry flow |
 | Edge agent/device gateway/raw telemetry | `context/architecture/final-architecture.md`; `context/analytics/final-analytics-infra.md`; Product Phase 9 summary |
