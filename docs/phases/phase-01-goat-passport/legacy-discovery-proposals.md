@@ -478,40 +478,60 @@ scratch:
 
 ## Decisions Still Needed From Business Owner
 
-These cannot be safely derived from the files alone:
+These are the remaining confirmations after discovery. They are split into
+legacy-to-new mapping decisions and new Goat OS policy decisions.
+
+### Legacy-To-New Mapping
 
 ```text
 1. First identity migration source
-   Approve: RFID DB first, then DB/dashboard reconciliation?
-   Or name another source/tab as current active herd truth.
+   Plain English: RFID DB is the cleanest goat registry; DB/dashboard files are history or derived views.
+   Proposal: approve RFID DB first, then DB/dashboard reconciliation.
 
-2. Display ID format
-   Choose the human-readable format operators/admins will see.
+2. Old tag scope
+   Plain English: old tag numbers repeat across farms in the discovered data.
+   Proposal: approve old tags as farm-scoped, unless reuse actually happens by load/vendor.
 
-3. Old tag scope
-   Approve proposal: farm.
-   If old tag reuse happens by load/vendor instead, say that now.
+3. Origin Farm and Holding Farm / HF meaning
+   Plain English: these legacy labels may mean source/vendor, owner, custodian, or procurement staging.
+   Decision: choose the meaning, or mark each as case-by-case source context.
 
-4. Origin Farm and Holding Farm / HF meaning
-   Is Origin Farm source/vendor origin, owner party, custodian party, or context only?
-   Is Holding Farm owner party, custodian party, procurement staging, vendor/source context, or all of these by case?
+4. Current location precedence
+   Plain English: RFID DB and latest DB event can disagree on current shed/location.
+   Decision: choose which wins for first import, or send disagreements to review.
 
-5. Merge approval authority
+5. First-import scope
+   Plain English: importing only RFID DB is cleaner; including tagless event rows creates more temporary goats.
+   Decision: RFID DB only first, or RFID DB plus larger DB event/tagless population.
+```
+
+### New Goat OS Policy
+
+```text
+6. Display ID format
+   Plain English: goat_id is internal; display_id is the visible goat number/code.
+   Decision: choose the human-readable format operators/admins will see.
+
+7. Owner / custodian / location separation
+   Plain English: one party may own the goat, another may be responsible for it, and the goat may sit elsewhere.
+   Decision: confirm this is allowed and define visibility when they differ.
+
+8. Merge approval authority
+   Plain English: merge mistakes corrupt identity history.
    Proposal: central admin can approve merges; park head can request/recommend.
 
-6. Temporary goat minimum evidence
+9. Temporary goat minimum evidence
+   Plain English: tagless goats need enough proof to avoid fake/duplicate identities.
    Proposal: source row/load + tenant + owner/custodian/staging party
    + current/unknown location + created_by + reason + photo/proof if available.
 
-7. Current location precedence
-   Approve which wins when RFID DB and latest DB event disagree.
+10. Status model
+   Plain English: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
+   Proposal: keep lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
 
-8. Status model
-   Approve keeping lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
-
-9. First-import scope
-   Seed only the RFID DB goats first, or also mint temporary identities from
-   the larger DB event population in the first import?
+11. Geo defaults
+   Plain English: some locations do not have pincode/coordinates in source files.
+   Decision: approve default geo/timezone values for CBE, CPT, and Holding Farm rows.
 ```
 
 ## Phase 1 Start Decision

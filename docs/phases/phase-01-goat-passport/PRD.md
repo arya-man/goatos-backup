@@ -818,28 +818,61 @@ first import policy version
 first import scope
 ```
 
-## Review Questions
+## Legacy-To-New Mapping Decisions
 
-These need business confirmation before migrations/import logic. Discovery has
-already converted the data-grounded items into proposals, so the business owner
-is confirming a short list instead of researching from memory.
+These are not open architecture debates. They are the few places where the old
+Sheets/Slack words must be mapped into the new Goat OS truth model before
+migrations/import logic can safely write canonical rows.
+
+### Legacy Data Confirmation
 
 ```text
-Approve old-tag scope = farm-scoped?
-Approve first migration source = RFID DB first, then DB/dashboard reconciliation?
-Choose display_id format operators/admins will see.
-Confirm whether Origin Farm / Holding Farm / HF mean owner party, custodian party,
-source/vendor context, procurement staging, or case-by-case source context.
-Confirm whether owner_party_id, custodian_party_id, and current physical location
-can differ, and what visibility policy applies when they do.
-Approve merge authority: central admin only, or park head request plus central approval?
-Approve temporary goat minimum evidence:
-source row/load + tenant + owner/custodian/staging party + current/unknown location
+Old tag scope
+Plain English: the same old tag number appears in different farms.
+Decision needed: approve old tags as farm-scoped, unless reuse actually happens by load/vendor.
+
+First migration source
+Plain English: RFID DB looks like the clean goat registry; DB/dashboard files look like history or derived views.
+Decision needed: approve RFID DB first, then reconcile DB/dashboard data.
+
+Origin Farm / Holding Farm / HF meaning
+Plain English: legacy files use these labels, but they may mean source/vendor, owner, custodian, or procurement staging.
+Decision needed: choose what each label means in Goat OS, or mark it case-by-case source context.
+
+Current location precedence
+Plain English: RFID DB may say one shed while the latest DB event says another.
+Decision needed: choose which source wins for first import, or send disagreements to review.
+
+First-import scope
+Plain English: we can start with the cleaner RFID DB goats, or also create temporary goats from messy/tagless event rows.
+Decision needed: RFID DB only first, or RFID DB plus tagless/event population.
+```
+
+### New Goat OS Policy Confirmation
+
+```text
+Display ID format
+Plain English: goat_id is internal; display_id is what humans see.
+Decision needed: choose the visible format before first import.
+
+Owner / custodian / location can differ?
+Plain English: one party may own the goat, another may be responsible for it, and the goat may physically sit elsewhere.
+Decision needed: confirm this is allowed and define who can see the goat when they differ.
+
+Merge approval authority
+Plain English: merging two goat records is risky because a wrong merge corrupts history.
+Decision needed: central admin only, or park head can request/recommend with central approval.
+
+Temporary goat minimum evidence
+Plain English: tagless goats still need enough proof to avoid creating fake or duplicate goats.
+Decision needed: approve source row/load + tenant + owner/custodian/staging party + current/unknown location
 + created_by + reason + photo/proof if available.
-Approve status model:
-keep lifecycle, reproductive status, growth/cohort tag, and health overlay separate.
-Approve current-location precedence when RFID DB and latest DB event disagree.
-Approve geo defaults for CBE, CPT, and Holding Farm rows when source omits pincode/coordinates.
-Choose first-import scope:
-RFID DB goats only, or also mint temporary identities from the larger DB event population.
+
+Status model
+Plain English: legacy status mixes pregnancy, kid stage, fattening, sex, and health in one string.
+Decision needed: approve separating lifecycle, reproductive status, growth/cohort tag, and health overlay.
+
+Geo defaults
+Plain English: CBE, CPT, and Holding Farm rows may not have pincode/coordinates.
+Decision needed: approve default geo/timezone values for those locations.
 ```
