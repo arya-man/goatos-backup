@@ -232,7 +232,7 @@ identity merge:
   Risky merges require human approval before canonical identity changes.
 
 sale or festival eligibility:
-  Eligibility is calculated for the delivery/festival date from lifecycle status, health ledger, treatment withdrawal periods, pregnancy/breeding state, ownership locks, and booking state.
+  Eligibility is calculated for the delivery/festival date from lifecycle status, health ledger, treatment withdrawal periods, pregnancy/breeding state, ownership locks, feed-contamination clearance, promised/current weight policy, and booking state.
   AI can flag risks, but policy code decides.
 
 booking:
@@ -241,9 +241,16 @@ booking:
   redirect chain to the live survivor goat. The unique booking/allocation
   invariant is enforced against the survivor `goat_id`, so two old identifiers
   cannot double-promise the same real goat after a merge.
+  Replacement/substitution follows the same path as a fresh allocation: resolve
+  the survivor goat, re-run eligibility/readiness, re-check uncleared feed
+  exposure and promised-weight risk, then write under the same transactional
+  allocation constraints.
 
 weight and pricing:
   Pricing uses trusted-weight policy: accepted readings, device/source confidence, recency window, outlier rejection, and source evidence.
+  Existing bookings are auditable against the rate/policy effective at booked_at;
+  current pricing alone is not enough to prove a past promise was priced
+  correctly.
   AI can explain or flag anomalies, not invent the price.
 
 ambiguous cases:

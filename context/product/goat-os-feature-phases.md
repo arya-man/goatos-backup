@@ -85,6 +85,13 @@ reviewable identity conflicts, source-backed decision records, and an audited
 movement trail. At scale, the later booking invariant must be enforced by the
 database, not by UI checks or in-memory locks.
 
+This is stronger than a one-time report. Goat OS must keep the promise safe as
+facts change: a goat may move, get sick, receive medicine, be exposed to a bad
+feed batch, gain or lose weight, or be merged into another identity after the
+initial booking. Those changes emit events, recalculate eligibility/risk, create
+review tasks when needed, and notify the right people. A promise is not just
+"safe when booked"; it must remain monitored until dispatch/exit.
+
 ## Phase 1: Goat Passport And Herd Registry
 
 Build the identity layer for every goat.
@@ -413,7 +420,16 @@ What users get:
 - Initial sale blockers from current operating docs: ICU/serious illness,
   Quarantine/viral disease, milk-drinking kids up to K3, and medication
   withdrawal periods once medicine tracking is live.
+- Feed contamination that is not cleared before the delivery/event date blocks
+  sale/allocation and replacement/substitution.
+- Promised-weight fulfillment risk: if trusted current/projected weight is below
+  the promised or minimum delivery weight, the booking becomes a review item
+  before dispatch.
+- Price audit: existing bookings are checked against the pricing policy/rate
+  that applied on `booked_at`, not only against today's rate.
 - Allocation of goat to buyer/order/occasion.
+- Replacement/substitution must re-run the full sellable/readiness policy before
+  assigning a substitute goat.
 - Dispatch/exit proof.
 - Slaughter/meat-yield feedback where applicable.
 - Meat yield data flows back to genetics performance.

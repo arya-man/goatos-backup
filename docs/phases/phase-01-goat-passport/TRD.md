@@ -1188,6 +1188,16 @@ Phase 8 booking/allocation must resolve any supplied goat reference through
 merged_into_goat_id before checking availability or writing an allocation.
 The no-double-promise invariant must be enforced against the live survivor
 goat_id, not the stale merged goat_id or a legacy tag value.
+
+Phase 8 replacement/substitution must run the same eligibility/readiness path as
+fresh allocation. A substitute goat cannot bypass sale blockers, uncleared
+feed-contamination exposure, promised-weight risk, or booking-date price-audit
+rules.
+
+Phase 1 preserves the inputs these later checks need: stable goat_id,
+source_record_ids, decision_records, audit_log, status axes, identity redirects,
+and goat_location_history. It does not execute customer/festival eligibility in
+Phase 1.
 ```
 
 Undo/correction:
