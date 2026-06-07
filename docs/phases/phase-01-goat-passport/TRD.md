@@ -586,6 +586,8 @@ custody changes are captured separately in goat_custody_history
 
 Temporal economic ownership ledger. This is a foundation seam only; it does not
 build token, investor, lending, franchise, or billing workflows in Phase 1.
+Ownership transfer workflow is not part of Phase 1; the ledger exists so the
+schema does not narrow known future ownership to organizations only.
 
 ```text
 ownership_id uuid primary key
@@ -605,8 +607,12 @@ Rules:
 
 ```text
 seed every imported goat with Mesha owner_party_id at share_bps = 10000
+share_bps is integer basis points where 10000 = 100%; never use floating shares
+active ownership means status = active and valid_to is null
 active ownership shares for a goat must sum to 10000 basis points
-enforce active-share total in service transaction and DB trigger/reconciliation guard
+enforce active-share total with a deferrable constraint trigger at commit
+service transactions also pre-check the total for friendly validation errors
+reconciliation job flags any goat whose active ownership total drifts from 10000
 overlapping validity windows for the same owner/goat require explicit decision
 ownership is economic truth; it does not imply daily task responsibility
 ```
@@ -615,6 +621,8 @@ ownership is economic truth; it does not imply daily task responsibility
 
 Temporal operational responsibility ledger. Current custody is cached on
 `goats.custodian_party_id` for fast reads.
+Custody transfer workflow is not part of Phase 1; this table is the schema seam
+and audit target for future lending/handover flows.
 
 ```text
 custody_history_id uuid primary key
@@ -638,6 +646,7 @@ seed every imported goat with Mesha custodian_party_id unless source evidence sa
 custody can change without ownership changing
 location can change without custody changing
 operator task assignment is not custody; it stays in workforce/tasks
+do not build custody handover APIs or UI in Phase 1
 ```
 
 ### `legacy_import_policies`
