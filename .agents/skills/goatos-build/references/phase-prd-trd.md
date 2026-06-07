@@ -20,6 +20,10 @@ Rules:
   observability, load tests, and analytics/monitoring slice.
 - If the phase adds a permanent module/tool/workflow/rule, update the relevant
   skill reference in `.agents/skills/goatos-build/references/` before coding.
+- Before asking humans to answer business decisions from memory, inspect
+  reachable legacy/source artifacts and produce evidence-backed proposals with
+  source paths, counts, confidence, and open policy-only decisions. Do not commit
+  raw private rows, PII, tokens, or media URLs.
 - After coding, run a closeout sync: compare code, migrations, contracts,
   tests, adapters, workflows, and operational checks against PRD/TRD and update
   PRD/TRD/context/skills/agent shims where the implementation changed reality.
@@ -33,6 +37,8 @@ Phase implementation checklist:
 phase PRD reviewed
 phase TRD reviewed
 agent reference impact checked
+legacy/source discovery completed where relevant
+evidence-backed proposals reviewed by human for business decisions
 contracts drafted/updated
 tests/load expectations named
 security/RBAC impact checked

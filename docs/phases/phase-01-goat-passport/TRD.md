@@ -1866,6 +1866,70 @@ may list options and consequences, but must stop and ask if any value is
 unknown. Do not write migrations, seed policies, or canonical import logic past
 an unanswered pre-migration decision.
 
+### Pre-Migration Legacy Discovery Pass
+
+Before asking for human confirmation, run a read-only discovery pass over the
+legacy artifacts. This is the evidence stage for the locked decisions.
+
+Inputs:
+
+```text
+<mesha-workspace>/source-material/private-data/private herd workbook
+<mesha-workspace>/dashboard/public/data/*.csv
+<mesha-workspace>/vgoats-dashboard/public/data/*.csv
+<mesha-workspace>/dashboard/app/api/**/*
+<mesha-workspace>/dashboard/lib/**/*
+<mesha-workspace>/vgoats-dashboard/app/api/**/*
+<mesha-workspace>/vgoats-dashboard/lib/**/*
+<mesha-workspace>/slack-automation-scripts/**/*.{js,ts,docx}
+<mesha-workspace>/procurement_app/src/**/*.{ts,tsx}
+```
+
+Required proposal outputs:
+
+```text
+old_tag uniqueness:
+  group normalized old tags by source, farm, load/source if present, and count
+  distinct candidate goats/rows. Show duplicate examples as anonymized source
+  refs, not raw private rows.
+
+lifecycle/status vocabulary:
+  extract distinct statuses from XLSX/CSVs/dashboard display code. Propose
+  canonical lifecycle_status mapping and flag labels that look like breed/growth
+  class instead of lifecycle.
+
+owning_farm/location mapping:
+  identify columns/code paths for farm, park, shed, shed_tag, load, source, CBE,
+  CPT, holdings, and unknown locations. Propose owning_farm_id mapping strategy
+  and unknown-location handling.
+
+first migration source:
+  list candidate sources, sheet/tab/file name, row counts, column dictionary,
+  freshness/as-of date if available, and whether the source appears canonical or
+  derived.
+
+SOP/form inventory:
+  summarize Slack/App Script forms/workflows found, including health, feed,
+  shifting/death, procurement, video verification, attendance/manager flows,
+  and any form fields/conditions visible in code/docs. This informs later SOP
+  phases and prevents losing current operating knowledge.
+
+policy-only decisions:
+  list decisions not derivable from data, such as merge approval authority and
+  minimum evidence for tagless temporary goats, with recommended options and
+  consequences.
+```
+
+Discovery output rules:
+
+```text
+do not commit raw XLSX rows, raw Slack payloads, PII, tokens, or media URLs
+commit only derived proposals, aggregate counts, source paths, column names,
+anonymized examples, and confidence notes if a proposal doc is created
+state dataset coverage; never claim global uniqueness from a partial snapshot
+agent may propose, business owner must confirm before migrations/seeds/import logic
+```
+
 ```text
 goat_id format: UUID v7 unless explicitly rejected
 display_id generator: server-generated, unique, not manually typed; prefix/format can change before first migration only
@@ -1883,17 +1947,18 @@ legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and aut
 
 ```text
 1. OpenAPI + JSON Schema contracts for identity/passport/conflict/decision.
-2. Confirm pre-migration locked decisions; stop for human answers if any are unknown.
-3. Postgres migrations for identity/location/import/reconciliation/policy/outbox tables.
-4. Identifier and import policy seeds for first migration sample.
-5. Import staging and normalization.
-6. Deterministic matching/conflict engine.
-7. Admin APIs.
-8. App lookup APIs.
-9. Admin web goat search/passport/conflict screens.
-10. Operator mobile lookup shell.
-11. Dashboard count adapter from canonical identity.
-12. Tests/load baseline.
+2. Run read-only legacy discovery and produce evidence-backed proposals.
+3. Confirm pre-migration locked decisions; stop for human answers if any are unknown.
+4. Postgres migrations for identity/location/import/reconciliation/policy/outbox tables.
+5. Identifier and import policy seeds for first migration sample.
+6. Import staging and normalization.
+7. Deterministic matching/conflict engine.
+8. Admin APIs.
+9. App lookup APIs.
+10. Admin web goat search/passport/conflict screens.
+11. Operator mobile lookup shell.
+12. Dashboard count adapter from canonical identity.
+13. Tests/load baseline.
 ```
 
 ## Open Technical Questions

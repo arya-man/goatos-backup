@@ -735,6 +735,31 @@ and propose options, but it must not choose defaults on its own. If any required
 decision is unknown, stop and ask before writing migrations or canonical import
 logic.
 
+Before asking business owner to answer from memory, the implementation agent must run a
+read-only legacy discovery pass over the current artifacts:
+
+```text
+<mesha-workspace>/source-material/private-data/private herd workbook
+dashboard/ and vgoats-dashboard/ CSVs, API routes, data loaders, and display logic
+slack-automation-scripts/ App Script and Slack SOP automation files
+procurement_app/ mobile/operator patterns if useful
+```
+
+The output should be an evidence-backed proposal, not a silent default:
+
+```text
+old-tag uniqueness evidence + proposed scope
+lifecycle/status vocabulary + proposed canonical mapping
+owning farm/location mapping proposal
+first migration source candidates with row counts/freshness
+SOP/form inventory found in Slack/App Script
+open policy decisions that cannot be derived from artifacts
+```
+
+business owner confirms or corrects the proposal. Raw private goat data and PII stay out
+of git; committed proposal docs may include aggregate counts, source paths,
+column names, and anonymized examples only.
+
 ```text
 old_tag uniqueness
   global | farm-scoped | park-scoped | load/source-scoped

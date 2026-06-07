@@ -10,6 +10,7 @@ phase selected
 -> PRD written and reviewed
 -> TRD written and reviewed
 -> relevant skill/reference files updated if the phase adds permanent rules
+-> legacy/source discovery produces evidence-backed proposals before asking humans
 -> implementation starts
 -> tests/load checks/migration checks
 -> post-code docs/context/skills sync against actual code
@@ -49,6 +50,10 @@ DLQ/error counts, and the alert thresholds that matter for that phase.
 Every phase declares agent-context impact: if the phase adds a new module,
 vendor/tool, API pattern, form rule, analytics rule, or operational workflow,
 update `.agents/skills/goatos-build/references/` before implementation.
+Every phase must inspect available legacy/source artifacts before asking the
+business to answer from memory. Agents should produce evidence-backed proposals
+with source paths, counts, and confidence, then ask for confirmation. Raw PII or
+private source rows must not be committed.
 Every phase closes with a docs sync: compare implemented code, contracts,
 migrations, adapters, tests, and operational behavior against PRD/TRD/context
 and update docs, `SKILLS.md`, `AGENTS.md`, `CLAUDE.md`/`CODEX.md` shims, and

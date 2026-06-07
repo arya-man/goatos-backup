@@ -27,3 +27,8 @@ Rules:
 - Salvage UI/components/patterns deliberately.
 - Replace data sources with Goat OS backend/analytics APIs.
 - Do not extend Slack/App Script as canonical product code.
+- For phase discovery, read legacy repos as evidence. Extract source paths,
+  column names, aggregate counts, SOP/form names, and behavior summaries. Do
+  not commit raw private rows, Slack payloads, tokens, PII, or media URLs.
+- Slack/App Script SOP workflows are operating knowledge. Inventory them before
+  replacing them with Android/admin SOP forms.
