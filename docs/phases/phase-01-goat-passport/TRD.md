@@ -397,8 +397,9 @@ values only through status_definitions/legacy_status_mappings review
 health_status is the healthy/sick/ICU/quarantine/under-treatment axis
 do not mash compound legacy labels into lifecycle_status
 compound labels are decomposed:
-  F2-Male -> growth_cohort_tag=F2 and sex=male
-  F2-Female -> growth_cohort_tag=F2 and sex=female
+  F2-Male -> growth_cohort_tag=F2; sex remains sourced from Gender evidence
+  F2-Female -> growth_cohort_tag=F2; sex remains sourced from Gender evidence
+  Fattening -> growth_cohort_tag=F2
   M0 -> reproductive_status=mother and management_stage=m0_post_delivery
   ICU-Non-Pregnant -> health_status=icu and reproductive_status=non_pregnant
   ICU-Kid -> health_status=icu and growth/age axis remains kid-stage when known
@@ -498,7 +499,11 @@ store the raw label from source in legacy_import_rows and source evidence
 map known labels through legacy_status_mappings
 unknown labels do not block import; set review_required=true and keep raw_label
 if a compound label implies sex, such as F2-Male/F2-Female, and the source sex
-column disagrees, route to conflict/review; do not silently pick either value
+column disagrees, preserve both values and route to conflict/review; do not let
+the F2 label override the source Gender value
+if source Gender is blank/unknown and the only sex clue is F2-Male/F2-Female,
+leave sex needs-review; do not infer sex from the F2 suffix
+legacy raw label Fattening maps to growth_cohort_tag=F2
 sale/allocation blocking and routine task triggers are not stored here; they
 belong to later status_rule_policies in sales/SOP phases
 ```
@@ -883,7 +888,9 @@ hash_recipe must exclude export-volatile fields such as exported_at, formatting,
 field_diff_policy routes each changed field to auto_apply, review, ignore, or reject
 dry-run and committed import use the same policy_version so reconciliation results are reproducible
 first Phase 1 import scope is RFID DB only; tagless/event-log temporary identities are a later import pass
-compound label mappings that imply sex must agree with the source sex/Gender column; disagreement creates a sex_status_conflict review item
+F2-Male/F2-Female mappings must not set sex; sex comes from source Gender evidence
+blank/unknown Gender plus an F2 sex suffix creates a sex_needs_review item
+F2 label and source Gender disagreement creates a sex_status_conflict review item
 HF in Origin Farm/source columns means provenance/source reference only; it does not set current custody or ownership
 HF in current Farm/location columns means goat is currently held at an external holding location; set temporary custodian/location evidence where supported and route ownership to review
 partner-held rows must not silently seed Mesha owner_party_id @10000 unless source evidence proves Mesha ownership

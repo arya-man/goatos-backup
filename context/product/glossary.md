@@ -115,13 +115,16 @@ Goat OS keeps three separate ideas:
   `F2 - Fattening`.
 
 Compound old labels must be split. Example: `F2-Male` is not a separate
-genetics category. It maps to `growth_cohort_tag=F2` and `sex=male`.
+genetics category and must not set sex by itself. It maps to
+`growth_cohort_tag=F2`; sex comes from the source `Gender` column when present.
 `ICU-Non-Pregnant` maps to `health_status=icu` and
 `reproductive_status=non_pregnant`.
 
-If a compound label implies one sex but the source Gender column says another,
-route the row to review. Do not silently choose the compound label or the Gender
-column.
+Legacy code sometimes defaulted unknown gender into an F2 sex label, so
+`F2-Male`/`F2-Female` is a contaminated sex signal. If a compound F2 label
+disagrees with the source `Gender` column, preserve both pieces of evidence and
+route the row to review. If `Gender` is blank and only an F2 label implies sex,
+keep sex as needs-review instead of inferring it from the label.
 
 ### K0
 
@@ -159,8 +162,11 @@ post-delivery management stage for a mother.
 
 ### F2-Male / F2-Female
 
-Fattening groups after K3/weaning, separated by sex. The goal is strong feed
-performance and average daily gain.
+Fattening groups after K3/weaning. `F2` is the growth/fattening stage; the
+`Male`/`Female` suffix is a legacy grouping label and is not authoritative sex
+evidence. Goat OS uses the source `Gender` column for sex and treats missing or
+conflicting sex evidence as reviewable. The goal is strong feed performance and
+average daily gain.
 
 ### ADG
 

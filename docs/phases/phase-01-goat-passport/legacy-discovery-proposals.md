@@ -314,9 +314,11 @@ Display/import rule:
 
 ```text
 legacy labels remain searchable, but canonical status fields are structured
-F2-Male maps to growth_cohort_tag=F2 and sex=male
-F2-Female maps to growth_cohort_tag=F2 and sex=female
-if F2-Male/F2-Female disagrees with the source Gender column, route to review
+F2-Male maps to growth_cohort_tag=F2 only; sex comes from the source Gender column
+F2-Female maps to growth_cohort_tag=F2 only; sex comes from the source Gender column
+Fattening maps to growth_cohort_tag=F2
+if F2-Male/F2-Female disagrees with the source Gender column, preserve both values and route to review
+if Gender is blank/unknown and only the F2 label implies sex, keep sex needs-review
 ICU-Non-Pregnant maps to health_status=ICU and reproductive_status=non_pregnant
 ICU-Kid maps to health_status=ICU plus the known kid/growth stage when available
 Warmup maps to management_stage=warmup
@@ -334,8 +336,8 @@ K1: bottle-milk training
 K2: milk plus solid-feed training, roughly two months
 K3: weaning to solid feed
 M0: mother post-delivery, typically around one month
-F2-Male / F2-Female: F2 fattening group separated by sex; F2 is the stage,
-Male/Female is the sex split
+F2-Male / F2-Female: F2 fattening group labels; F2 is the stage, while
+Male/Female is a legacy grouping suffix and not authoritative sex evidence
 Warmup: adaptation period, either at source before travel or destination after arrival
 ```
 
@@ -646,8 +648,9 @@ Important for this discovery:
    Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2
    is milk plus solid-feed training for roughly two months; K3 is weaning to
    solid feed; M0 is mother post-delivery, typically around a month; F2-Male and
-   F2-Female are post-weaning fattening groups separated by sex; Warmup can be
-   source-side before travel or destination-side after arrival.
+   F2-Female are post-weaning fattening group labels; F2 is the stage and
+   source Gender remains the sex evidence. Warmup can be source-side before
+   travel or destination-side after arrival.
 ```
 
 ### Future Ops Inputs Not Blocking Phase 1

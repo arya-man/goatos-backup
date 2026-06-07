@@ -900,17 +900,20 @@ Display answer: Goat OS keeps operator-friendly labels, but not as messy free
 text. The UI should show canonical display names such as `K0 - Newborn`,
 `K1 - Bottle milk training`, `F2 - Fattening`, `Pregnant`, `Mother`, or `ICU`.
 The familiar legacy code remains visible/searchable as the short label. Compound
-legacy labels are split before storage, for example `F2-Male` becomes
-`growth_cohort_tag=F2` plus `sex=male`, and `ICU-Non-Pregnant` becomes
+legacy labels are split before storage. For example, `F2-Male` / `F2-Female`
+become `growth_cohort_tag=F2`; they do not set sex by themselves because legacy
+code could create those labels from blank or defaulted gender. Sex comes from the
+source `Gender` column when present. `ICU-Non-Pregnant` becomes
 `health_status=ICU` plus `reproductive_status=non_pregnant`. `Warmup` becomes
 `management_stage=warmup`, not reproductive status. `M0` becomes
 `reproductive_status=mother` plus `management_stage=m0_post_delivery`, not a
 growth or genetics category.
 
-Import conflict rule: if a compound label says one sex but the source Gender
-column says another, Goat OS must send the row to review. Example:
-`Gender=Female` plus `F2-Male` is a conflict, not an automatic male or female
-decision.
+Import conflict rule: if a compound F2 label says one sex but the source
+`Gender` column says another, Goat OS must preserve both values and send the row
+to review. Example: `Gender=Female` plus `F2-Male` is a review case; the F2
+label must not override the Gender column. If `Gender` is blank and only the F2
+label implies sex, sex stays needs-review.
 
 Genetics/R&D answer: genetics should use structured fields such as breed, sex,
 age/date of birth, growth cohort, management stage, health history,
@@ -942,7 +945,7 @@ Locked answer: if RFID DB shed and latest DB event shed disagree, treat it as a 
 
 Meaning: labels like K0/K1/K2/K3/M0/F2 are operational stages, not goat identity tags.
 
-Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2 is milk plus solid-feed training for roughly two months; K3 is weaning to solid feed; M0 is mother post-delivery for around a month; F2-Male/F2-Female are post-weaning fattening groups separated by sex. F2 is the fattening stage; Male/Female is just the sex split inside that stage. Warmup can happen at source before travel and at destination after arrival.
+Locked answer: K0 is newborn first 1-2 days; K1 is bottle-milk training; K2 is milk plus solid-feed training for roughly two months; K3 is weaning to solid feed; M0 is mother post-delivery for around a month; F2-Male/F2-Female are post-weaning fattening group labels. F2 is the fattening stage; Male/Female is a legacy grouping suffix, not authoritative sex evidence. Warmup can happen at source before travel and at destination after arrival.
 
 ### Future Ops Inputs Not Blocking Phase 1
 
