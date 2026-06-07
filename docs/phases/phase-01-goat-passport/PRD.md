@@ -175,7 +175,7 @@ CEO/internal user
 Already present:
 
 ```text
-private herd workbook / Sheets
+private herd workbook and sheet exports
   current goat rows, old tags, breed/status/location-ish data
 
 dashboard/
@@ -739,7 +739,7 @@ Before asking a human owner to answer from memory, the implementation agent must
 read-only legacy discovery pass over the current artifacts:
 
 ```text
-<mesha-workspace>/source-material/private-data/private herd workbook
+private herd workbook kept outside git
 dashboard/ and vgoats-dashboard/ CSVs, API routes, data loaders, and display logic
 slack-automation-scripts/ App Script and Slack SOP automation files
 procurement_app/ mobile/operator patterns if useful

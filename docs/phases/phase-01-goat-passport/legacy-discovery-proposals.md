@@ -31,7 +31,7 @@ identity decisions.
 ## Inputs Inspected
 
 ```text
-<mesha-workspace>/source-material/private-data/private herd workbook
+private herd workbook kept outside git
 <mesha-workspace>/dashboard/public/data/*.csv
 <mesha-workspace>/vgoats-dashboard/public/data/*.csv
 <mesha-workspace>/dashboard/app/api/**/*

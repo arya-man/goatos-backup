@@ -2329,7 +2329,7 @@ legacy artifacts. This is the evidence stage for the locked decisions.
 Inputs:
 
 ```text
-<mesha-workspace>/source-material/private-data/private herd workbook
+private herd workbook kept outside git
 <mesha-workspace>/dashboard/public/data/*.csv
 <mesha-workspace>/vgoats-dashboard/public/data/*.csv
 <mesha-workspace>/dashboard/app/api/**/*
