@@ -890,6 +890,8 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 	return identifier, summary, nil
 }
 
+// Keep this projection in sync with GetConflictSummaryByID in sqlc/query.sql.
+// ListConflicts stays handwritten because it composes optional filters.
 func conflictSummarySelect() string {
 	return `
 SELECT

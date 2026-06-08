@@ -98,6 +98,7 @@ WHERE tenant_id = @tenant_id
 ORDER BY created_at DESC
 LIMIT 1;
 
+-- Keep this projection in sync with conflictSummarySelect in repository.go.
 -- name: GetConflictSummaryByID :one
 SELECT
   c.conflict_id::text AS conflict_id,

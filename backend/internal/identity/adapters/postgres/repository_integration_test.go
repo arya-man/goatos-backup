@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,9 +65,26 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if passport.DisplayID == "" || passport.Summary.PrimaryOldTag == nil || *passport.Summary.PrimaryOldTag != "1900" {
 		t.Fatalf("unexpected passport: %#v", passport)
 	}
+	if len(passport.Identifiers) != 1 || passport.Identifiers[0].IdentifierValue != "1900" {
+		t.Fatalf("unexpected passport identifiers: %#v", passport.Identifiers)
+	}
 
-	if _, err := repo.GetGoatByID(ctx, secondTenant, "10000000-0000-4000-8000-000000000001"); err == nil {
-		t.Fatal("cross-tenant goat lookup unexpectedly succeeded")
+	displayPassport, err := repo.GetGoatByDisplayID(ctx, meshaTenant, passport.DisplayID)
+	if err != nil {
+		t.Fatalf("GetGoatByDisplayID: %v", err)
+	}
+	if displayPassport.GoatID != passport.GoatID || displayPassport.DisplayID != passport.DisplayID {
+		t.Fatalf("display lookup returned wrong goat: %#v", displayPassport)
+	}
+	if len(displayPassport.Identifiers) != 1 || displayPassport.Identifiers[0].ScopeKey != "park:CBE" {
+		t.Fatalf("display lookup identifiers wrong: %#v", displayPassport.Identifiers)
+	}
+
+	if _, err := repo.GetGoatByID(ctx, secondTenant, "10000000-0000-4000-8000-000000000001"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-tenant goat lookup should return ErrNotFound, got %v", err)
+	}
+	if _, err := repo.GetGoatByDisplayID(ctx, secondTenant, passport.DisplayID); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-tenant display lookup should return ErrNotFound, got %v", err)
 	}
 
 	matches, err := repo.FindIdentifierMatches(ctx, ports.ResolveIdentifierParams{
@@ -107,6 +125,34 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	}
 	if conflict != nil {
 		t.Fatalf("unexpected cross-scope conflict id: %v", *conflict)
+	}
+
+	detail, err := repo.GetConflict(ctx, meshaTenant, "20000000-0000-4000-8000-000000000001")
+	if err != nil {
+		t.Fatalf("GetConflict: %v", err)
+	}
+	if detail.Conflict.ConflictID != "20000000-0000-4000-8000-000000000001" ||
+		detail.Conflict.GoatCount != 2 ||
+		detail.Conflict.SourceRecordCount != 1 ||
+		detail.Conflict.Identifier == nil ||
+		detail.Conflict.Identifier.ScopeKey != "park:CBE" {
+		t.Fatalf("unexpected conflict summary: %#v", detail.Conflict)
+	}
+	if len(detail.Goats) != 2 {
+		t.Fatalf("expected 2 conflict goats, got %#v", detail.Goats)
+	}
+	if detail.Goats[0].Goat.GoatID != "10000000-0000-4000-8000-000000000001" ||
+		detail.Goats[1].Goat.GoatID != "10000000-0000-4000-8000-000000000002" {
+		t.Fatalf("unexpected conflict goats: %#v", detail.Goats)
+	}
+	if len(detail.SourceRecords) != 1 ||
+		detail.SourceRecords[0].SourceSystem != "synthetic_import" ||
+		detail.SourceRecords[0].SourceRecordID != "synthetic-source-record-1" ||
+		len(detail.SourceRecords[0].EvidenceRefs) != 1 {
+		t.Fatalf("unexpected conflict source records: %#v", detail.SourceRecords)
+	}
+	if _, err := repo.GetConflict(ctx, secondTenant, "20000000-0000-4000-8000-000000000001"); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-tenant conflict lookup should return ErrNotFound, got %v", err)
 	}
 
 	counts, freshness, err := repo.ListIdentityCounts(ctx, ports.CountParams{
@@ -178,6 +224,9 @@ INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
 VALUES
   ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'affected'),
   ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'affected');
+
+INSERT INTO identity_conflict_source_records (conflict_id, tenant_id, source_system, source_record_id)
+VALUES ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'synthetic_import', 'synthetic-source-record-1');
 
 INSERT INTO goat_identity_counters (counter_grain, tenant_id, lifecycle_status, count_value, as_of_recorded_at, is_rebuilding)
 VALUES ('tenant_lifecycle', '`+meshaTenant+`', 'alive', 2, now(), false);

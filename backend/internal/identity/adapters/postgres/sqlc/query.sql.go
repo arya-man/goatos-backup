@@ -76,6 +76,7 @@ type GetConflictSummaryByIDRow struct {
 	CreatedAt         pgtype.Timestamptz
 }
 
+// Keep this projection in sync with conflictSummarySelect in repository.go.
 func (q *Queries) GetConflictSummaryByID(ctx context.Context, arg GetConflictSummaryByIDParams) (GetConflictSummaryByIDRow, error) {
 	row := q.db.QueryRow(ctx, getConflictSummaryByID, arg.TenantID, arg.ConflictID)
 	var i GetConflictSummaryByIDRow

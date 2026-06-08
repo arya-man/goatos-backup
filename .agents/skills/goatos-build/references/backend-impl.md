@@ -55,8 +55,10 @@ Rules:
   generating it or documenting why the shape must remain dynamic.
 - `make sqlc-check` regenerates the migration-derived schema dump and generated
   sqlc code with the pinned `tools/sqlc/sqlc.version`; it fails on drift.
-- `make validate-sqlc-plans` runs EXPLAIN checks for the generated static read
-  paths and rejects sequential scans on the hot lookup tables.
+- `make validate-sqlc-plans` extracts every generated static read from
+  `sqlc/query.sql`, runs EXPLAIN checks, and rejects sequential scans on the
+  hot lookup tables. New generated queries must be registered in that plan
+  validator or the check fails.
 
 Phase 1 read behaviors already built:
 

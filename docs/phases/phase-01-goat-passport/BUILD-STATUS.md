@@ -96,7 +96,8 @@ dynamic optional-filter reads remain handwritten:
   conflict list
   identity counts
 sqlc drift check regenerates schema/code and fails on stale generated files
-sqlc query-plan validation rejects hot-path sequential scans for generated reads
+sqlc query-plan validation covers every generated query.sql read and rejects
+hot-path sequential scans
 ```
 
 ## Temporary Scaffolds

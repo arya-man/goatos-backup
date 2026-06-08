@@ -6,6 +6,7 @@ container_name="goatos-sqlc-plan-validation-$$"
 image="${GOATOS_SQLC_POSTGRES_IMAGE:-postgres:16.9-alpine}"
 db_name="goatos"
 db_user="postgres"
+query_file="$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql"
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -51,6 +52,72 @@ explain_must_use_index() {
   echo "Indexed plan observed: $label"
 }
 
+extract_query() {
+  local query_name="$1"
+  awk -v query_name="$query_name" '
+    /^-- name: / {
+      in_query = ($3 == query_name)
+      next
+    }
+    in_query { print }
+  ' "$query_file"
+}
+
+bind_query_params() {
+  sed \
+    -e "s/@tenant_id/'00000000-0000-4000-8000-000000000001'::uuid/g" \
+    -e "s/@goat_id/'10000000-0000-4000-8000-000000000001'::uuid/g" \
+    -e "s/@display_id/'G-000001'/g" \
+    -e "s/@identifier_type/'old_tag'/g" \
+    -e "s/@identifier_value/'1900'/g" \
+    -e "s/@scope_key/'park:CBE'/g" \
+    -e "s/@conflict_id/'20000000-0000-4000-8000-000000000001'::uuid/g"
+}
+
+forbidden_seq_scan_pattern() {
+  local query_name="$1"
+  case "$query_name" in
+    GetGoatByID|GetGoatByDisplayID)
+      printf '%s\n' 'Seq Scan on (goats|goat_identifiers)'
+      ;;
+    ListIdentifiersForGoat)
+      printf '%s\n' 'Seq Scan on goat_identifiers'
+      ;;
+    FindOpenConflictForIdentifier)
+      printf '%s\n' 'Seq Scan on identity_conflicts'
+      ;;
+    GetConflictSummaryByID)
+      printf '%s\n' 'Seq Scan on (identity_conflicts|identity_conflict_goats|identity_conflict_source_records)'
+      ;;
+    ListConflictGoatsByID)
+      printf '%s\n' 'Seq Scan on identity_conflict_goats'
+      ;;
+    ListConflictSourceRecordsByID)
+      printf '%s\n' 'Seq Scan on identity_conflict_source_records'
+      ;;
+    *)
+      echo "No sqlc plan expectation registered for generated query: $query_name" >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_generated_query_plan() {
+  local query_name="$1"
+  local forbidden
+  local sql
+
+  forbidden="$(forbidden_seq_scan_pattern "$query_name")"
+  sql="$(extract_query "$query_name" | bind_query_params)"
+  if [ -z "$(tr -d '[:space:]' <<<"$sql")" ]; then
+    echo "Generated query not found in $query_file: $query_name" >&2
+    exit 1
+  fi
+
+  explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
+$sql"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -69,50 +136,16 @@ while IFS= read -r migration; do
   apply_goose_up "$migration"
 done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 
-explain_must_use_index "get goat by id" 'Seq Scan on goats' "
-EXPLAIN (COSTS OFF)
-SELECT g.goat_id::text
-FROM goats g
-LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
-LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
-  AND old_tag.goat_id = g.goat_id
-  AND old_tag.identifier_type = 'old_tag'
-  AND old_tag.status = 'active'
-  AND old_tag.is_primary_for_goat
-LEFT JOIN goat_identifiers rfid ON rfid.tenant_id = g.tenant_id
-  AND rfid.goat_id = g.goat_id
-  AND rfid.identifier_type = 'rfid'
-  AND rfid.status = 'active'
-WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND g.goat_id = '10000000-0000-4000-8000-000000000001'::uuid;
-"
+checked_count=0
+while IFS= read -r query_name; do
+  validate_generated_query_plan "$query_name"
+  checked_count=$((checked_count + 1))
+done < <(awk '/^-- name: / { print $3 }' "$query_file")
 
-explain_must_use_index "get goat by display id" 'Seq Scan on goats' "
-EXPLAIN (COSTS OFF)
-SELECT g.goat_id::text
-FROM goats g
-WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND g.display_id = 'G-000001';
-"
+declared_count="$(awk '/^-- name: / { count++ } END { print count + 0 }' "$query_file")"
+if [ "$checked_count" -ne "$declared_count" ]; then
+  echo "Validated $checked_count sqlc query plans, expected $declared_count" >&2
+  exit 1
+fi
 
-explain_must_use_index "list identifiers for goat" 'Seq Scan on goat_identifiers' "
-EXPLAIN (COSTS OFF)
-SELECT identifier_id::text
-FROM goat_identifiers
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND goat_id = '10000000-0000-4000-8000-000000000001'::uuid
-ORDER BY is_primary_for_goat DESC, status ASC, valid_from DESC;
-"
-
-explain_must_use_index "find open conflict for scoped identifier" 'Seq Scan on identity_conflicts' "
-EXPLAIN (COSTS OFF)
-SELECT conflict_id::text
-FROM identity_conflicts
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND identifier_type = 'old_tag'
-  AND identifier_value = '1900'
-  AND evidence->>'scope_key' = 'park:CBE'
-  AND state IN ('open', 'needs_field_check')
-ORDER BY created_at DESC
-LIMIT 1;
-"
+echo "Validated $checked_count generated sqlc query plans"
