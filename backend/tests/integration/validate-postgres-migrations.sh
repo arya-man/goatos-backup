@@ -503,6 +503,35 @@ VALUES (
 );
 "
 
+expect_failure "correction outbox aggregate must exist for tenant" "
+INSERT INTO outbox_messages (
+  tenant_id,
+  event_id,
+  event_type,
+  schema_version,
+  aggregate_type,
+  aggregate_id,
+  topic,
+  payload,
+  headers,
+  idempotency_key,
+  status
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  gen_random_uuid(),
+  'identity.correction_request.created',
+  '1.0.0',
+  'correction_request',
+  gen_random_uuid(),
+  'identity.events',
+  '{\"synthetic\":true}'::jsonb,
+  '{}'::jsonb,
+  'outbox-missing-correction-aggregate',
+  'pending'
+);
+"
+
 expect_failure "user scope grant location must belong to tenant" "
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES (

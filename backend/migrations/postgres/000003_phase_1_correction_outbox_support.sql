@@ -8,6 +8,16 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   IF NEW.aggregate_type = 'correction_request' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM identity_correction_requests
+      WHERE tenant_id = NEW.tenant_id
+        AND correction_request_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'correction request outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
     RETURN NEW;
   END IF;
 
