@@ -50,8 +50,8 @@ func (s *Service) ResolveConflict(ctx context.Context, input ResolveConflictInpu
 	if err := validateResolveConflict(body); err != nil {
 		return nil, err
 	}
-	if body.DecisionType != "merge_goats" || body.DecisionResult != "same_goat_merge" {
-		return nil, NotImplemented("unsupported_conflict_decision", "Only merge_goats with same_goat_merge is implemented in this Phase 1 slice")
+	if body.DecisionType == "create_goat" {
+		return nil, NotImplemented("unsupported_conflict_decision", "create_goat conflict resolution needs contract-defined goat creation fields before implementation")
 	}
 
 	route := fmt.Sprintf("/admin/identity/conflicts/%s/resolve", conflictID)
@@ -71,7 +71,7 @@ func (s *Service) ResolveConflict(ctx context.Context, input ResolveConflictInpu
 		ConflictID:           conflictID,
 		DecisionType:         body.DecisionType,
 		DecisionResult:       body.DecisionResult,
-		SurvivorGoatID:       *body.SurvivorGoatID,
+		SurvivorGoatID:       stringValue(body.SurvivorGoatID),
 		AffectedGoatIDs:      body.AffectedGoatIDs,
 		IdentifierActions:    body.IdentifierActions,
 		EvidenceRefs:         *body.EvidenceRefs,
@@ -85,7 +85,7 @@ func (s *Service) ResolveConflict(ctx context.Context, input ResolveConflictInpu
 		ConflictID: result.ConflictID,
 		State:      result.State,
 		Decision:   result.Decision,
-		Merge:      &result.Merge,
+		Merge:      result.Merge,
 		Events:     result.Events,
 		Idempotency: domain.IdempotencyMeta{
 			IdempotencyKey: clientKey,
@@ -122,37 +122,41 @@ func validateResolveConflict(body *resolveConflictBody) error {
 	if !allowedResolveConflictDecisionResults[body.DecisionResult] {
 		return BadRequest("invalid_decision_result", "decision_result is not supported")
 	}
-	if body.SurvivorGoatID == nil {
+	if expected := resolveConflictDecisionPairs[body.DecisionType]; expected != body.DecisionResult {
+		return BadRequest("invalid_decision_pair", "decision_type and decision_result are not a supported pair")
+	}
+	if body.SurvivorGoatID != nil {
+		trimmed := strings.TrimSpace(*body.SurvivorGoatID)
+		body.SurvivorGoatID = &trimmed
+	}
+	if body.DecisionType == "merge_goats" && (body.SurvivorGoatID == nil || strings.TrimSpace(*body.SurvivorGoatID) == "") {
 		return BadRequest("missing_survivor_goat_id", "survivor_goat_id is required for merge_goats")
 	}
-	if err := validateOptionalUUID("survivor_goat_id", body.SurvivorGoatID); err != nil {
+	if body.SurvivorGoatID != nil && strings.TrimSpace(*body.SurvivorGoatID) != "" {
+		if err := validateOptionalUUID("survivor_goat_id", body.SurvivorGoatID); err != nil {
+			return err
+		}
+	}
+	if body.DecisionType != "merge_goats" && body.SurvivorGoatID != nil && strings.TrimSpace(*body.SurvivorGoatID) != "" {
+		return BadRequest("unexpected_survivor_goat_id", "survivor_goat_id is only supported for merge_goats")
+	}
+	if body.DecisionType == "mark_identifier_disputed" && len(body.IdentifierActions) == 0 {
+		return BadRequest("missing_identifier_actions", "mark_identifier_disputed requires explicit dispute identifier_actions")
+	}
+	if err := validateResolveConflictAffectedGoats(body); err != nil {
 		return err
-	}
-	if len(body.AffectedGoatIDs) == 0 {
-		return BadRequest("missing_affected_goat_ids", "affected_goat_ids must contain at least one goat")
-	}
-	seen := map[string]struct{}{}
-	hasLoser := false
-	for i := range body.AffectedGoatIDs {
-		goatID := strings.TrimSpace(body.AffectedGoatIDs[i])
-		if !uuidPattern.MatchString(goatID) {
-			return BadRequest("invalid_affected_goat_id", "affected_goat_ids must contain valid UUIDs")
-		}
-		body.AffectedGoatIDs[i] = goatID
-		if _, ok := seen[goatID]; ok {
-			return BadRequest("duplicate_affected_goat_id", "affected_goat_ids must not contain duplicates")
-		}
-		seen[goatID] = struct{}{}
-		if goatID != *body.SurvivorGoatID {
-			hasLoser = true
-		}
-	}
-	if !hasLoser {
-		return BadRequest("missing_merged_goat", "affected_goat_ids must include at least one goat distinct from survivor_goat_id")
 	}
 	for i := range body.IdentifierActions {
 		if err := validateIdentifierAction(&body.IdentifierActions[i]); err != nil {
 			return err
+		}
+		if body.DecisionType == "mark_identifier_disputed" {
+			if body.IdentifierActions[i].Action != "dispute" {
+				return BadRequest("invalid_identifier_action", "mark_identifier_disputed only accepts dispute identifier_actions")
+			}
+			if body.IdentifierActions[i].IdentifierID == nil {
+				return BadRequest("missing_identifier_id", "dispute identifier_actions require identifier_id")
+			}
 		}
 	}
 	if body.EvidenceRefs == nil {
@@ -167,6 +171,36 @@ func validateResolveConflict(body *resolveConflictBody) error {
 	}
 	if body.RowVersion == nil || *body.RowVersion < 1 {
 		return BadRequest("invalid_row_version", "row_version must be at least 1")
+	}
+	return nil
+}
+
+func validateResolveConflictAffectedGoats(body *resolveConflictBody) error {
+	if len(body.AffectedGoatIDs) == 0 {
+		return BadRequest("missing_affected_goat_ids", "affected_goat_ids must contain at least one goat")
+	}
+	seen := map[string]struct{}{}
+	hasLoser := false
+	survivorID := ""
+	if body.SurvivorGoatID != nil {
+		survivorID = *body.SurvivorGoatID
+	}
+	for i := range body.AffectedGoatIDs {
+		goatID := strings.TrimSpace(body.AffectedGoatIDs[i])
+		if !uuidPattern.MatchString(goatID) {
+			return BadRequest("invalid_affected_goat_id", "affected_goat_ids must contain valid UUIDs")
+		}
+		body.AffectedGoatIDs[i] = goatID
+		if _, ok := seen[goatID]; ok {
+			return BadRequest("duplicate_affected_goat_id", "affected_goat_ids must not contain duplicates")
+		}
+		seen[goatID] = struct{}{}
+		if goatID != survivorID {
+			hasLoser = true
+		}
+	}
+	if body.DecisionType == "merge_goats" && !hasLoser {
+		return BadRequest("missing_merged_goat", "affected_goat_ids must include at least one goat distinct from survivor_goat_id")
 	}
 	return nil
 }
@@ -212,6 +246,14 @@ var allowedResolveConflictDecisionResults = map[string]bool{
 	"field_verification_required":         true,
 }
 
+var resolveConflictDecisionPairs = map[string]string{
+	"merge_goats":                "same_goat_merge",
+	"mark_identifier_disputed":   "different_goats_identifier_disputed",
+	"create_goat":                "new_goat_required",
+	"reject_match":               "candidate_rejected",
+	"request_field_verification": "field_verification_required",
+}
+
 var allowedIdentifierActions = map[string]bool{
 	"attach":   true,
 	"retire":   true,
@@ -219,4 +261,11 @@ var allowedIdentifierActions = map[string]bool{
 	"transfer": true,
 	"preserve": true,
 	"reject":   true,
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

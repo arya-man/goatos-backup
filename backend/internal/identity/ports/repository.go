@@ -174,7 +174,7 @@ type ResolveConflictResult struct {
 	ConflictID    string
 	State         string
 	Decision      domain.DecisionRecordSummary
-	Merge         domain.MergeResult
+	Merge         *domain.MergeResult
 	Events        []domain.EventSummary
 	Replayed      bool
 	FirstResultID *string

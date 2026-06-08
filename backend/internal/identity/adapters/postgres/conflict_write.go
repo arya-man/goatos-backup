@@ -25,6 +25,13 @@ const (
 	mergeSubjectType          = "goat"
 	mergeResourceType         = "identity_conflict"
 	mergePolicyVersion        = "phase1-manual-correction-review-v1"
+	rejectMatchDecisionType   = "reject_match"
+	fieldCheckDecisionType    = "request_field_verification"
+	disputeIdentifierDecision = "mark_identifier_disputed"
+	createGoatDecisionType    = "create_goat"
+	rejectMatchAuditAction    = "goat.identity.match_rejected"
+	fieldCheckAuditAction     = "goat.identity.field_verification_requested"
+	disputeIdentifierEvent    = "goat.identifier.disputed"
 	maxMergeWriteRedirectHops = 16
 )
 
@@ -80,9 +87,6 @@ func (r *Repository) ResolveConflict(ctx context.Context, cmd ports.ResolveConfl
 	if err != nil {
 		return nil, err
 	}
-	if !mergeEligibleConflictTypes[conflict.ConflictType] {
-		return nil, ports.ErrWriteConflict
-	}
 
 	members, err := qtx.ListConflictMemberGoats(ctx, identitydb.ListConflictMemberGoatsParams{
 		TenantID:   tenantUUID,
@@ -95,13 +99,23 @@ func (r *Repository) ResolveConflict(ctx context.Context, cmd ports.ResolveConfl
 	for _, member := range members {
 		memberSet[member.GoatID] = struct{}{}
 	}
-	if _, ok := memberSet[cmd.SurvivorGoatID]; !ok {
-		return nil, ports.ErrWriteConflict
+	if cmd.DecisionType == mergeDecisionType {
+		if _, ok := memberSet[cmd.SurvivorGoatID]; !ok {
+			return nil, ports.ErrWriteConflict
+		}
 	}
 	for _, goatID := range cmd.AffectedGoatIDs {
 		if _, ok := memberSet[goatID]; !ok {
 			return nil, ports.ErrWriteConflict
 		}
+	}
+
+	if cmd.DecisionType != mergeDecisionType {
+		return r.resolveNonMergeConflict(ctx, qtx, tx, &committed, tenantUUID, actorUUID, conflictUUID, conflict, memberSet, cmd)
+	}
+
+	if !mergeEligibleConflictTypes[conflict.ConflictType] {
+		return nil, ports.ErrWriteConflict
 	}
 
 	now := time.Now().UTC()
@@ -145,13 +159,14 @@ func (r *Repository) ResolveConflict(ctx context.Context, cmd ports.ResolveConfl
 	}
 	decision := decisionSummaryFromInsertRow(decisionRow)
 
-	resolved, err := qtx.ResolveIdentityConflict(ctx, identitydb.ResolveIdentityConflictParams{
-		ResolvedAt: pgtype.Timestamptz{Time: now, Valid: true},
-		ResolvedBy: actorUUID,
-		DecisionID: decisionUUID,
-		TenantID:   tenantUUID,
-		ConflictID: conflictUUID,
-		RowVersion: int32(cmd.RowVersion),
+	resolved, err := qtx.UpdateIdentityConflictState(ctx, identitydb.UpdateIdentityConflictStateParams{
+		TargetState: "resolved",
+		ResolvedAt:  pgtype.Timestamptz{Time: now, Valid: true},
+		ResolvedBy:  actorUUID,
+		DecisionID:  decisionUUID,
+		TenantID:    tenantUUID,
+		ConflictID:  conflictUUID,
+		RowVersion:  int32(cmd.RowVersion),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, resolveConflictGuardError(ctx, qtx, tenantUUID, conflictUUID)
@@ -436,9 +451,375 @@ func (r *Repository) ResolveConflict(ctx context.Context, cmd ports.ResolveConfl
 		ConflictID: cmd.ConflictID,
 		State:      resolved.State,
 		Decision:   decision,
-		Merge:      merge,
+		Merge:      &merge,
 		Events:     events,
 	}, nil
+}
+
+type conflictDecisionPlan struct {
+	TargetState    string
+	DecisionState  string
+	DecisionResult string
+	Terminal       bool
+	AuditAction    string
+}
+
+type disputeIdentifierCandidate struct {
+	Identifier identitydb.GetIdentifierForConflictDisputeRow
+	Action     domain.IdentifierAction
+}
+
+func (r *Repository) resolveNonMergeConflict(ctx context.Context, qtx *identitydb.Queries, tx pgx.Tx, committed *bool, tenantUUID, actorUUID, conflictUUID pgtype.UUID, conflict identitydb.GetConflictForResolveRow, memberSet map[string]struct{}, cmd ports.ResolveConflictCommand) (*ports.ResolveConflictResult, error) {
+	plan, ok := conflictDecisionPlanFor(cmd.DecisionType, cmd.DecisionResult)
+	if !ok {
+		return nil, ports.ErrWriteConflict
+	}
+	if conflict.State == plan.TargetState {
+		return nil, ports.ErrWriteConflict
+	}
+
+	var disputeCandidates []disputeIdentifierCandidate
+	var err error
+	if cmd.DecisionType == disputeIdentifierDecision {
+		disputeCandidates, err = collectDisputeIdentifierCandidates(ctx, qtx, tenantUUID, conflict, memberSet, cmd.IdentifierActions)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	now := time.Now().UTC()
+	decisionID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	decisionUUID, err := uuidParam(decisionID)
+	if err != nil {
+		return nil, err
+	}
+	decisionRecord, err := conflictDecisionRecordPayload(cmd, decisionID, plan, now)
+	if err != nil {
+		return nil, err
+	}
+	decisionEvidence, err := json.Marshal(mergeDecisionEvidence{
+		EvidenceRefs:   cmd.EvidenceRefs,
+		Reason:         cmd.Reason,
+		DecisionRecord: decisionRecord,
+	})
+	if err != nil {
+		return nil, err
+	}
+	approvedAt := pgtype.Timestamptz{}
+	if plan.DecisionState == "approved" {
+		approvedAt = pgtype.Timestamptz{Time: now, Valid: true}
+	}
+	decisionRow, err := qtx.InsertIdentityDecision(ctx, identitydb.InsertIdentityDecisionParams{
+		DecisionID:     decisionUUID,
+		TenantID:       tenantUUID,
+		DecisionType:   cmd.DecisionType,
+		DecisionResult: cmd.DecisionResult,
+		DecisionState:  plan.DecisionState,
+		DecidedBy:      actorUUID,
+		PolicyVersion:  mergePolicyVersion,
+		ReviewerID:     actorUUID,
+		Evidence:       decisionEvidence,
+		CreatedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+		ApprovedAt:     approvedAt,
+		DecidedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	decision := decisionSummaryFromInsertRow(decisionRow)
+
+	resolvedAt := pgtype.Timestamptz{}
+	resolvedBy := pgtype.UUID{}
+	if plan.Terminal {
+		resolvedAt = pgtype.Timestamptz{Time: now, Valid: true}
+		resolvedBy = actorUUID
+	}
+	updated, err := qtx.UpdateIdentityConflictState(ctx, identitydb.UpdateIdentityConflictStateParams{
+		TargetState: plan.TargetState,
+		ResolvedAt:  resolvedAt,
+		ResolvedBy:  resolvedBy,
+		DecisionID:  decisionUUID,
+		TenantID:    tenantUUID,
+		ConflictID:  conflictUUID,
+		RowVersion:  int32(cmd.RowVersion),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, resolveConflictGuardError(ctx, qtx, tenantUUID, conflictUUID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	events := []domain.EventSummary{}
+	disputedIdentifierIDs := []string{}
+	if cmd.DecisionType == disputeIdentifierDecision {
+		events, disputedIdentifierIDs, err = r.applyConflictIdentifierDisputes(ctx, qtx, tenantUUID, actorUUID, decisionUUID, decision, disputeCandidates, cmd, now)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	afterState, err := json.Marshal(map[string]any{
+		"conflict_id":              cmd.ConflictID,
+		"state":                    updated.State,
+		"decision":                 decision,
+		"events":                   events,
+		"disputed_identifier_ids":  disputedIdentifierIDs,
+		"decision_only_visibility": cmd.DecisionType == rejectMatchDecisionType || cmd.DecisionType == fieldCheckDecisionType,
+	})
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"actor_id":               cmd.ActorID,
+		"idempotency_key":        cmd.StoredIdempotencyKey,
+		"client_idempotency_key": cmd.ClientIdempotencyKey,
+		"idempotency_scope":      cmd.IdempotencyScope,
+		"trace_id":               cmd.TraceID,
+		"decision_id":            decision.DecisionID,
+		"decision_type":          cmd.DecisionType,
+		"decision_result":        cmd.DecisionResult,
+		"reason":                 cmd.Reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := qtx.InsertAuditLog(ctx, identitydb.InsertAuditLogParams{
+		TenantID:     tenantUUID,
+		ActorID:      actorUUID,
+		Action:       plan.AuditAction,
+		ResourceType: mergeResourceType,
+		ResourceID:   conflictUUID,
+		ScopeType:    pgtype.Text{},
+		ScopeID:      pgtype.UUID{},
+		AfterState:   afterState,
+		Metadata:     metadata,
+		TraceID:      nullableText(nonEmptyStringPtr(cmd.TraceID)),
+	}); err != nil {
+		return nil, err
+	}
+	if r.afterAuditHook != nil {
+		if err := r.afterAuditHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if err := qtx.CompleteIdempotencyKey(ctx, identitydb.CompleteIdempotencyKeyParams{
+		ResultType:     textParam(conflictResultType),
+		ResultID:       conflictUUID,
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	*committed = true
+	return &ports.ResolveConflictResult{
+		ConflictID: cmd.ConflictID,
+		State:      updated.State,
+		Decision:   decision,
+		Events:     events,
+	}, nil
+}
+
+func conflictDecisionPlanFor(decisionType, decisionResult string) (conflictDecisionPlan, bool) {
+	switch {
+	case decisionType == rejectMatchDecisionType && decisionResult == "candidate_rejected":
+		return conflictDecisionPlan{TargetState: "rejected", DecisionState: "rejected", DecisionResult: decisionResult, Terminal: true, AuditAction: rejectMatchAuditAction}, true
+	case decisionType == fieldCheckDecisionType && decisionResult == "field_verification_required":
+		return conflictDecisionPlan{TargetState: "needs_field_check", DecisionState: "needs_review", DecisionResult: decisionResult, AuditAction: fieldCheckAuditAction}, true
+	case decisionType == disputeIdentifierDecision && decisionResult == "different_goats_identifier_disputed":
+		return conflictDecisionPlan{TargetState: "resolved", DecisionState: "approved", DecisionResult: decisionResult, Terminal: true, AuditAction: disputeIdentifierEvent}, true
+	default:
+		return conflictDecisionPlan{}, false
+	}
+}
+
+func collectDisputeIdentifierCandidates(ctx context.Context, qtx *identitydb.Queries, tenantUUID pgtype.UUID, conflict identitydb.GetConflictForResolveRow, memberSet map[string]struct{}, actions []domain.IdentifierAction) ([]disputeIdentifierCandidate, error) {
+	if len(actions) == 0 {
+		return nil, ports.ErrWriteConflict
+	}
+	seen := map[string]struct{}{}
+	out := make([]disputeIdentifierCandidate, 0, len(actions))
+	for _, action := range actions {
+		if action.Action != "dispute" || action.IdentifierID == nil {
+			return nil, ports.ErrWriteConflict
+		}
+		if _, ok := seen[*action.IdentifierID]; ok {
+			return nil, ports.ErrWriteConflict
+		}
+		seen[*action.IdentifierID] = struct{}{}
+		identifierUUID, err := uuidParam(*action.IdentifierID)
+		if err != nil {
+			return nil, err
+		}
+		row, err := qtx.GetIdentifierForConflictDispute(ctx, identitydb.GetIdentifierForConflictDisputeParams{
+			TenantID:     tenantUUID,
+			IdentifierID: identifierUUID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ports.ErrNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		if row.Status != "active" {
+			return nil, ports.ErrWriteConflict
+		}
+		if _, ok := memberSet[row.GoatID]; !ok {
+			return nil, ports.ErrWriteConflict
+		}
+		if conflict.IdentifierType.Valid && strings.TrimSpace(conflict.IdentifierType.String) != "" && row.IdentifierType != conflict.IdentifierType.String {
+			return nil, ports.ErrWriteConflict
+		}
+		if conflict.IdentifierValue.Valid && strings.TrimSpace(conflict.IdentifierValue.String) != "" {
+			expected := strings.TrimSpace(conflict.IdentifierValue.String)
+			if row.NormalizedValue != expected && row.IdentifierValue != expected {
+				return nil, ports.ErrWriteConflict
+			}
+		}
+		out = append(out, disputeIdentifierCandidate{Identifier: row, Action: action})
+	}
+	return out, nil
+}
+
+func (r *Repository) applyConflictIdentifierDisputes(ctx context.Context, qtx *identitydb.Queries, tenantUUID, actorUUID, decisionUUID pgtype.UUID, decision domain.DecisionRecordSummary, candidates []disputeIdentifierCandidate, cmd ports.ResolveConflictCommand, now time.Time) ([]domain.EventSummary, []string, error) {
+	events := make([]domain.EventSummary, 0, len(candidates))
+	identifierIDs := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		identifierUUID, err := uuidParam(candidate.Identifier.IdentifierID)
+		if err != nil {
+			return nil, nil, err
+		}
+		updated, err := qtx.MarkIdentifierDisputedForConflict(ctx, identitydb.MarkIdentifierDisputedForConflictParams{
+			ApprovedBy:   actorUUID,
+			UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+			TenantID:     tenantUUID,
+			IdentifierID: identifierUUID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ports.ErrWriteConflict
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		identifier := identifierFromConflictDisputeRow(updated)
+		if err := qtx.InsertIdentityDecisionIdentifier(ctx, identitydb.InsertIdentityDecisionIdentifierParams{
+			DecisionID:      decisionUUID,
+			TenantID:        tenantUUID,
+			IdentifierID:    identifierUUID,
+			IdentifierType:  textParam(identifier.IdentifierType),
+			IdentifierValue: textParam(identifier.IdentifierValue),
+			Action:          "dispute",
+		}); err != nil {
+			return nil, nil, err
+		}
+		goatUUID, err := uuidParam(updated.GoatID)
+		if err != nil {
+			return nil, nil, err
+		}
+		goatRow, err := qtx.GetGoatByID(ctx, identitydb.GetGoatByIDParams{
+			TenantID: tenantUUID,
+			GoatID:   goatUUID,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		goat, _, _, _ := goatSummaryFromSQLC(sqlcGoatRowFromID(goatRow))
+		finish := identifierMutationFinish{
+			TenantUUID: tenantUUID,
+			ActorUUID:  actorUUID,
+			GoatUUID:   goatUUID,
+			Command: identifierCommandEnvelope{
+				TenantID:             cmd.TenantID,
+				ActorID:              cmd.ActorID,
+				ClientIdempotencyKey: cmd.ClientIdempotencyKey,
+				StoredIdempotencyKey: cmd.StoredIdempotencyKey,
+				IdempotencyScope:     cmd.IdempotencyScope,
+				TraceID:              cmd.TraceID,
+				GoatID:               updated.GoatID,
+				Reason:               cmd.Reason,
+				EvidenceRefs:         cmd.EvidenceRefs,
+			},
+			Identifier:      identifier,
+			NormalizedValue: updated.NormalizedValue,
+			DecisionType:    disputeIdentifierDecision,
+			DecisionResult:  cmd.DecisionResult,
+			Action:          "dispute",
+			EventType:       disputeIdentifierEvent,
+			OccurredAt:      now,
+		}
+		eventID, err := qtx.NewUUID(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		eventUUID, err := uuidParam(eventID)
+		if err != nil {
+			return nil, nil, err
+		}
+		eventPayload, err := identifierEventPayload(finish, decision.DecisionID)
+		if err != nil {
+			return nil, nil, err
+		}
+		eventRow, err := qtx.InsertGoatIdentityEvent(ctx, identitydb.InsertGoatIdentityEventParams{
+			IdentityEventID: eventUUID,
+			TenantID:        tenantUUID,
+			GoatID:          goatUUID,
+			EventType:       disputeIdentifierEvent,
+			OccurredAt:      pgtype.Timestamptz{Time: now, Valid: true},
+			RecordedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+			ActorID:         actorUUID,
+			Payload:         eventPayload,
+			DecisionID:      decisionUUID,
+			IdempotencyKey:  cmd.StoredIdempotencyKey,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := qtx.InsertIdentityDecisionEvent(ctx, identitydb.InsertIdentityDecisionEventParams{
+			DecisionID:      decisionUUID,
+			TenantID:        tenantUUID,
+			EventID:         eventUUID,
+			EventRecordedAt: eventRow.RecordedAt,
+		}); err != nil {
+			return nil, nil, err
+		}
+		envelope, err := identifierDomainEventEnvelope(finish, goat, decision, eventRow.EventID)
+		if err != nil {
+			return nil, nil, err
+		}
+		headers, err := json.Marshal(map[string]any{
+			"actor_id":               cmd.ActorID,
+			"client_idempotency_key": cmd.ClientIdempotencyKey,
+			"trace_id":               cmd.TraceID,
+			"decision_id":            decision.DecisionID,
+			"identifier_id":          identifier.IdentifierID,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := qtx.InsertOutboxMessage(ctx, identitydb.InsertOutboxMessageParams{
+			TenantID:       tenantUUID,
+			EventID:        eventUUID,
+			EventType:      disputeIdentifierEvent,
+			SchemaVersion:  eventSchemaVersion,
+			AggregateType:  identifierAggregate,
+			AggregateID:    goatUUID,
+			Topic:          identifierTopic,
+			Payload:        envelope,
+			Headers:        headers,
+			IdempotencyKey: cmd.StoredIdempotencyKey,
+			TraceID:        nullableText(nonEmptyStringPtr(cmd.TraceID)),
+		}); err != nil {
+			return nil, nil, err
+		}
+		events = append(events, domain.EventSummary{EventID: eventRow.EventID, EventType: disputeIdentifierEvent})
+		identifierIDs = append(identifierIDs, identifier.IdentifierID)
+	}
+	return events, identifierIDs, nil
 }
 
 type mergeDecisionEvidence struct {
@@ -759,7 +1140,6 @@ func replayResolvedConflict(ctx context.Context, qtx *identitydb.Queries, tenant
 	if err != nil {
 		return nil, err
 	}
-	warnings := redirectWarningsFromDecisionEvidence(evidence)
 	actions := make([]domain.IdentifierAction, 0, len(identifiers))
 	for _, row := range identifiers {
 		actions = append(actions, domain.IdentifierAction{
@@ -781,17 +1161,22 @@ func replayResolvedConflict(ctx context.Context, qtx *identitydb.Queries, tenant
 	for _, row := range eventRows {
 		events = append(events, domain.EventSummary{EventID: row.EventID, EventType: row.EventType})
 	}
-	firstResultID := idempotency.ResultID
-	return &ports.ResolveConflictResult{
-		ConflictID: idempotency.ResultID,
-		State:      conflict.State,
-		Decision:   decisionSummaryFromGetRow(decisionRow),
-		Merge: domain.MergeResult{
+	var merge *domain.MergeResult
+	if decisionRow.DecisionType == mergeDecisionType {
+		warnings := redirectWarningsFromDecisionEvidence(evidence)
+		merge = &domain.MergeResult{
 			SurvivorGoatID:      survivorID,
 			MergedGoatIDs:       mergedIDs,
 			RedirectWarnings:    warnings,
 			AffectedIdentifiers: actions,
-		},
+		}
+	}
+	firstResultID := idempotency.ResultID
+	return &ports.ResolveConflictResult{
+		ConflictID:    idempotency.ResultID,
+		State:         conflict.State,
+		Decision:      decisionSummaryFromGetRow(decisionRow),
+		Merge:         merge,
 		Events:        events,
 		Replayed:      true,
 		FirstResultID: &firstResultID,
@@ -813,6 +1198,46 @@ func resolveConflictGuardError(ctx context.Context, qtx *identitydb.Queries, ten
 		return ports.ErrWriteConflict
 	}
 	return ports.ErrWriteConflict
+}
+
+func conflictDecisionRecordPayload(cmd ports.ResolveConflictCommand, decisionID string, plan conflictDecisionPlan, createdAt time.Time) ([]byte, error) {
+	affected := make([]map[string]string, 0, len(cmd.AffectedGoatIDs))
+	for _, goatID := range cmd.AffectedGoatIDs {
+		affected = append(affected, map[string]string{"goat_id": goatID, "role": "affected"})
+	}
+	payload := map[string]any{
+		"decision_id":     decisionID,
+		"decision_type":   cmd.DecisionType,
+		"decision_result": cmd.DecisionResult,
+		"decision_state":  plan.DecisionState,
+		"decided_by_type": "human",
+		"decided_by":      cmd.ActorID,
+		"reviewer_id":     cmd.ActorID,
+		"policy_version":  mergePolicyVersion,
+		"reason":          cmd.Reason,
+		"evidence": map[string]any{
+			"evidence_refs": cmd.EvidenceRefs,
+			"after": map[string]any{
+				"conflict_id":     cmd.ConflictID,
+				"target_state":    plan.TargetState,
+				"decision_type":   cmd.DecisionType,
+				"decision_result": cmd.DecisionResult,
+				"decision_state":  plan.DecisionState,
+			},
+		},
+		"affected_goats":     affected,
+		"identifier_actions": cmd.IdentifierActions,
+		"idempotency_key":    cmd.StoredIdempotencyKey,
+		"trace_id":           cmd.TraceID,
+		"created_at":         createdAt.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		"decided_at":         createdAt.UTC().Format("2006-01-02T15:04:05.000000Z"),
+	}
+	if plan.DecisionState == "approved" {
+		payload["approved_at"] = createdAt.UTC().Format("2006-01-02T15:04:05.000000Z")
+	} else {
+		payload["approved_at"] = nil
+	}
+	return json.Marshal(payload)
 }
 
 func mergeDecisionRecordPayload(cmd ports.ResolveConflictCommand, decisionID string, survivorID string, mergedGoatIDs []string, redirectWarnings []domain.MergeRedirectWarning, identifierActions []domain.IdentifierAction, createdAt time.Time) ([]byte, error) {
@@ -983,6 +1408,27 @@ func actionFromMergeTransferRow(row identitydb.TransferIdentifierForMergeRow, ac
 	identifierType := row.IdentifierType
 	identifierValue := row.IdentifierValue
 	return domain.IdentifierAction{IdentifierID: &identifierID, IdentifierType: &identifierType, IdentifierValue: &identifierValue, Action: action}
+}
+
+func identifierFromConflictDisputeRow(row identitydb.MarkIdentifierDisputedForConflictRow) domain.GoatIdentifier {
+	confidence := row.Confidence
+	var confidencePtr *float64
+	if !isNaN(confidence) {
+		confidencePtr = &confidence
+	}
+	return domain.GoatIdentifier{
+		IdentifierID:     row.IdentifierID,
+		IdentifierType:   row.IdentifierType,
+		IdentifierValue:  row.IdentifierValue,
+		ScopeKey:         row.ScopeKey,
+		Status:           row.Status,
+		IsPrimaryForGoat: row.IsPrimaryForGoat,
+		ValidFrom:        pgTime(row.ValidFrom),
+		ValidTo:          pgTimePtr(row.ValidTo),
+		SourceSystem:     pgTextPtr(row.SourceSystem),
+		SourceRecordID:   pgTextPtr(row.SourceRecordID),
+		Confidence:       confidencePtr,
+	}
 }
 
 func mergeGoatRowFromLock(row identitydb.LockGoatsForMergeRow) mergeGoatRow {

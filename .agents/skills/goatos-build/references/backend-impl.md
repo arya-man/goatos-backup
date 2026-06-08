@@ -182,18 +182,36 @@ POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire
   goat_identity_events
 
 POST /admin/identity/conflicts/{conflict_id}/resolve
-  implements only decision_type=merge_goats with
-  decision_result=same_goat_merge; non-merge conflict decisions return typed
-  unsupported/not_implemented errors until built
+  implements decision_type/result pairs:
+  merge_goats + same_goat_merge
+  reject_match + candidate_rejected
+  request_field_verification + field_verification_required
+  mark_identifier_disputed + different_goats_identifier_disputed
+  create_goat + new_goat_required remains typed not_implemented until the
+  contract defines required goat creation fields
   strict JSON rejects old evidence_ids; use typed evidence_refs
-  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, survivor goat,
-  affected goat IDs, identifier actions array, reason, and conflict row_version
+  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, affected goat IDs,
+  identifier actions array, reason, and conflict row_version
+  survivor goat is required only for merge_goats and rejected for non-merge
+  decisions
   stored idempotency key is
   <tenant_id>:resolveIdentityConflict:<conflict_id>:<client_key>
   inserts identity_decisions before the guarded conflict update so
   identity_conflicts.decision_id satisfies its FK, then gates the mutation with
-  one conditional update on tenant, conflict, open/needs_field_check state, and
-  row_version
+  one conditional update on tenant, conflict, target state,
+  open/needs_field_check state, and row_version
+  reject_match is terminal: conflict state rejected, resolved_at/resolved_by
+  set, decision + audit only, no goat_identity_events/outbox
+  request_field_verification is nonterminal: conflict state needs_field_check,
+  resolved_at/resolved_by null, decision + audit only, no
+  goat_identity_events/outbox; same-state field-check with a new idempotency key
+  is a write conflict
+  mark_identifier_disputed is a goat identity mutation: it requires explicit
+  identifier_actions with action=dispute and identifier_id; identifiers must be
+  same-tenant, active, attached to conflict member goats, and match conflict
+  identifier type/value when those fields are present; selected identifiers are
+  set to status=disputed and primary=false, with one goat.identifier.disputed
+  event/outbox per identifier
   merge is allowed only for duplicate-identity conflict types:
   possible_duplicate_goat, duplicate_active_identifier, rfid_already_linked,
   old_tag_reused
@@ -209,6 +227,9 @@ POST /admin/identity/conflicts/{conflict_id}/resolve
   identity_decision_identifiers actions, goat_merge_links,
   goat_identity_events, identity_decision_events, audit_log, outbox_messages,
   and idempotency completion in one transaction
+  decision-only reject_match/request_field_verification changes are not
+  event-stream visible until a conflict-aggregate event/projection contract is
+  defined; projections must read canonical conflict state
   exact replay rebuilds from DB state, not cached response bodies
 ```
 
@@ -217,7 +238,7 @@ Known backend deferments:
 ```text
 auth/RBAC adapter
 legacy import runner
-non-merge conflict decisions
+create_goat conflict decision fields
 candidate approve/reject command handlers
 standalone merge command handler
 unmerge command handler/contract

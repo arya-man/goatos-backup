@@ -152,6 +152,8 @@ SELECT
   conflict_type,
   state,
   row_version,
+  identifier_type,
+  identifier_value,
   COALESCE(decision_id::text, '')::text AS decision_id,
   resolved_at
 FROM identity_conflicts
@@ -164,12 +166,14 @@ type GetConflictForResolveParams struct {
 }
 
 type GetConflictForResolveRow struct {
-	ConflictID   string
-	ConflictType string
-	State        string
-	RowVersion   int32
-	DecisionID   string
-	ResolvedAt   pgtype.Timestamptz
+	ConflictID      string
+	ConflictType    string
+	State           string
+	RowVersion      int32
+	IdentifierType  pgtype.Text
+	IdentifierValue pgtype.Text
+	DecisionID      string
+	ResolvedAt      pgtype.Timestamptz
 }
 
 func (q *Queries) GetConflictForResolve(ctx context.Context, arg GetConflictForResolveParams) (GetConflictForResolveRow, error) {
@@ -180,6 +184,8 @@ func (q *Queries) GetConflictForResolve(ctx context.Context, arg GetConflictForR
 		&i.ConflictType,
 		&i.State,
 		&i.RowVersion,
+		&i.IdentifierType,
+		&i.IdentifierValue,
 		&i.DecisionID,
 		&i.ResolvedAt,
 	)
@@ -564,6 +570,84 @@ func (q *Queries) GetIdentifierDecisionEventForReplay(ctx context.Context, arg G
 		&i.EventType,
 		&i.RecordedAt,
 		&i.GoatID,
+	)
+	return i, err
+}
+
+const getIdentifierForConflictDispute = `-- name: GetIdentifierForConflictDispute :one
+SELECT
+  gi.identifier_id::text AS identifier_id,
+  gi.goat_id::text AS goat_id,
+  gi.identifier_type,
+  gi.identifier_value,
+  gi.normalized_value,
+  gi.scope_key,
+  gi.status,
+  gi.is_primary_for_goat,
+  gi.valid_from,
+  gi.valid_to,
+  gi.source_system,
+  gi.source_record_id,
+  COALESCE(gi.confidence::float8, 'NaN'::float8)::float8 AS confidence,
+  COALESCE(g.farm_id::text, '')::text AS farm_id,
+  COALESCE(g.park_id::text, '')::text AS park_id,
+  COALESCE(g.shed_id::text, '')::text AS shed_id,
+  COALESCE(g.cohort_id::text, '')::text AS cohort_id
+FROM goat_identifiers gi
+JOIN goats g
+  ON g.tenant_id = gi.tenant_id
+ AND g.goat_id = gi.goat_id
+WHERE gi.tenant_id = $1
+  AND gi.identifier_id = $2
+FOR UPDATE OF gi
+`
+
+type GetIdentifierForConflictDisputeParams struct {
+	TenantID     pgtype.UUID
+	IdentifierID pgtype.UUID
+}
+
+type GetIdentifierForConflictDisputeRow struct {
+	IdentifierID     string
+	GoatID           string
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+	FarmID           string
+	ParkID           string
+	ShedID           string
+	CohortID         string
+}
+
+func (q *Queries) GetIdentifierForConflictDispute(ctx context.Context, arg GetIdentifierForConflictDisputeParams) (GetIdentifierForConflictDisputeRow, error) {
+	row := q.db.QueryRow(ctx, getIdentifierForConflictDispute, arg.TenantID, arg.IdentifierID)
+	var i GetIdentifierForConflictDisputeRow
+	err := row.Scan(
+		&i.IdentifierID,
+		&i.GoatID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.NormalizedValue,
+		&i.ScopeKey,
+		&i.Status,
+		&i.IsPrimaryForGoat,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.SourceSystem,
+		&i.SourceRecordID,
+		&i.Confidence,
+		&i.FarmID,
+		&i.ParkID,
+		&i.ShedID,
+		&i.CohortID,
 	)
 	return i, err
 }
@@ -1631,6 +1715,81 @@ func (q *Queries) MarkGoatMerged(ctx context.Context, arg MarkGoatMergedParams) 
 	return err
 }
 
+const markIdentifierDisputedForConflict = `-- name: MarkIdentifierDisputedForConflict :one
+UPDATE goat_identifiers
+SET
+  status = 'disputed',
+  is_primary_for_goat = false,
+  approved_by = $1,
+  updated_at = $2
+WHERE tenant_id = $3
+  AND identifier_id = $4
+  AND status = 'active'
+RETURNING
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+`
+
+type MarkIdentifierDisputedForConflictParams struct {
+	ApprovedBy   pgtype.UUID
+	UpdatedAt    pgtype.Timestamptz
+	TenantID     pgtype.UUID
+	IdentifierID pgtype.UUID
+}
+
+type MarkIdentifierDisputedForConflictRow struct {
+	IdentifierID     string
+	GoatID           string
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+}
+
+func (q *Queries) MarkIdentifierDisputedForConflict(ctx context.Context, arg MarkIdentifierDisputedForConflictParams) (MarkIdentifierDisputedForConflictRow, error) {
+	row := q.db.QueryRow(ctx, markIdentifierDisputedForConflict,
+		arg.ApprovedBy,
+		arg.UpdatedAt,
+		arg.TenantID,
+		arg.IdentifierID,
+	)
+	var i MarkIdentifierDisputedForConflictRow
+	err := row.Scan(
+		&i.IdentifierID,
+		&i.GoatID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.NormalizedValue,
+		&i.ScopeKey,
+		&i.Status,
+		&i.IsPrimaryForGoat,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.SourceSystem,
+		&i.SourceRecordID,
+		&i.Confidence,
+	)
+	return i, err
+}
+
 const newUUID = `-- name: NewUUID :one
 SELECT gen_random_uuid()::text AS uuid
 `
@@ -1761,60 +1920,6 @@ func (q *Queries) ResolveCorrectionRequest(ctx context.Context, arg ResolveCorre
 		&i.RowVersion,
 		&i.DecisionID,
 		&i.CreatedAt,
-		&i.ResolvedAt,
-	)
-	return i, err
-}
-
-const resolveIdentityConflict = `-- name: ResolveIdentityConflict :one
-UPDATE identity_conflicts
-SET
-  state = 'resolved',
-  resolved_at = $1,
-  resolved_by = $2,
-  decision_id = $3,
-  row_version = row_version + 1
-WHERE tenant_id = $4
-  AND conflict_id = $5
-  AND state IN ('open', 'needs_field_check')
-  AND row_version = $6
-RETURNING
-  conflict_id::text AS conflict_id,
-  state,
-  row_version,
-  resolved_at
-`
-
-type ResolveIdentityConflictParams struct {
-	ResolvedAt pgtype.Timestamptz
-	ResolvedBy pgtype.UUID
-	DecisionID pgtype.UUID
-	TenantID   pgtype.UUID
-	ConflictID pgtype.UUID
-	RowVersion int32
-}
-
-type ResolveIdentityConflictRow struct {
-	ConflictID string
-	State      string
-	RowVersion int32
-	ResolvedAt pgtype.Timestamptz
-}
-
-func (q *Queries) ResolveIdentityConflict(ctx context.Context, arg ResolveIdentityConflictParams) (ResolveIdentityConflictRow, error) {
-	row := q.db.QueryRow(ctx, resolveIdentityConflict,
-		arg.ResolvedAt,
-		arg.ResolvedBy,
-		arg.DecisionID,
-		arg.TenantID,
-		arg.ConflictID,
-		arg.RowVersion,
-	)
-	var i ResolveIdentityConflictRow
-	err := row.Scan(
-		&i.ConflictID,
-		&i.State,
-		&i.RowVersion,
 		&i.ResolvedAt,
 	)
 	return i, err
@@ -2048,6 +2153,62 @@ func (q *Queries) TransferIdentifierForMerge(ctx context.Context, arg TransferId
 		&i.SourceSystem,
 		&i.SourceRecordID,
 		&i.Confidence,
+	)
+	return i, err
+}
+
+const updateIdentityConflictState = `-- name: UpdateIdentityConflictState :one
+UPDATE identity_conflicts
+SET
+  state = $1,
+  resolved_at = $2,
+  resolved_by = $3,
+  decision_id = $4,
+  row_version = row_version + 1
+WHERE tenant_id = $5
+  AND conflict_id = $6
+  AND state IN ('open', 'needs_field_check')
+  AND row_version = $7
+RETURNING
+  conflict_id::text AS conflict_id,
+  state,
+  row_version,
+  resolved_at
+`
+
+type UpdateIdentityConflictStateParams struct {
+	TargetState string
+	ResolvedAt  pgtype.Timestamptz
+	ResolvedBy  pgtype.UUID
+	DecisionID  pgtype.UUID
+	TenantID    pgtype.UUID
+	ConflictID  pgtype.UUID
+	RowVersion  int32
+}
+
+type UpdateIdentityConflictStateRow struct {
+	ConflictID string
+	State      string
+	RowVersion int32
+	ResolvedAt pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateIdentityConflictState(ctx context.Context, arg UpdateIdentityConflictStateParams) (UpdateIdentityConflictStateRow, error) {
+	row := q.db.QueryRow(ctx, updateIdentityConflictState,
+		arg.TargetState,
+		arg.ResolvedAt,
+		arg.ResolvedBy,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.ConflictID,
+		arg.RowVersion,
+	)
+	var i UpdateIdentityConflictStateRow
+	err := row.Scan(
+		&i.ConflictID,
+		&i.State,
+		&i.RowVersion,
+		&i.ResolvedAt,
 	)
 	return i, err
 }

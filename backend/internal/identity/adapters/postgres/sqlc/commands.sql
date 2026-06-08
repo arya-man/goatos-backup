@@ -471,15 +471,17 @@ SELECT
   conflict_type,
   state,
   row_version,
+  identifier_type,
+  identifier_value,
   COALESCE(decision_id::text, '')::text AS decision_id,
   resolved_at
 FROM identity_conflicts
 WHERE tenant_id = @tenant_id AND conflict_id = @conflict_id;
 
--- name: ResolveIdentityConflict :one
+-- name: UpdateIdentityConflictState :one
 UPDATE identity_conflicts
 SET
-  state = 'resolved',
+  state = @target_state,
   resolved_at = @resolved_at,
   resolved_by = @resolved_by,
   decision_id = @decision_id,
@@ -620,6 +622,58 @@ WHERE tenant_id = @tenant_id
   AND status = 'active'
 ORDER BY goat_id, identifier_type, normalized_value, scope_key, identifier_id
 FOR UPDATE;
+
+-- name: GetIdentifierForConflictDispute :one
+SELECT
+  gi.identifier_id::text AS identifier_id,
+  gi.goat_id::text AS goat_id,
+  gi.identifier_type,
+  gi.identifier_value,
+  gi.normalized_value,
+  gi.scope_key,
+  gi.status,
+  gi.is_primary_for_goat,
+  gi.valid_from,
+  gi.valid_to,
+  gi.source_system,
+  gi.source_record_id,
+  COALESCE(gi.confidence::float8, 'NaN'::float8)::float8 AS confidence,
+  COALESCE(g.farm_id::text, '')::text AS farm_id,
+  COALESCE(g.park_id::text, '')::text AS park_id,
+  COALESCE(g.shed_id::text, '')::text AS shed_id,
+  COALESCE(g.cohort_id::text, '')::text AS cohort_id
+FROM goat_identifiers gi
+JOIN goats g
+  ON g.tenant_id = gi.tenant_id
+ AND g.goat_id = gi.goat_id
+WHERE gi.tenant_id = @tenant_id
+  AND gi.identifier_id = @identifier_id
+FOR UPDATE OF gi;
+
+-- name: MarkIdentifierDisputedForConflict :one
+UPDATE goat_identifiers
+SET
+  status = 'disputed',
+  is_primary_for_goat = false,
+  approved_by = @approved_by,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND identifier_id = @identifier_id
+  AND status = 'active'
+RETURNING
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence;
 
 -- name: RetireIdentifierForMerge :one
 UPDATE goat_identifiers

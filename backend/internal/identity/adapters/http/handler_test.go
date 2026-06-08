@@ -261,7 +261,7 @@ func TestResolveCorrectionRequestReplayReturnsDecision(t *testing.T) {
 	}
 }
 
-func TestResolveConflictRejectsOldEvidenceIDsAndUnsupportedDecision(t *testing.T) {
+func TestResolveConflictRejectsOldEvidenceIDsAndCreateGoatNotImplemented(t *testing.T) {
 	oldEvidenceBody := `{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000001","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_ids":["synthetic-row-1"],"reason":"synthetic merge reason","row_version":1}`
 	rec := postResolveConflict(t, "90000000-0000-4000-8000-000000000001", "idem-conflict-handler-0001", oldEvidenceBody)
 	if rec.Code != http.StatusBadRequest {
@@ -275,7 +275,7 @@ func TestResolveConflictRejectsOldEvidenceIDsAndUnsupportedDecision(t *testing.T
 		t.Fatalf("unexpected envelope: %#v", envelope)
 	}
 
-	unsupportedBody := `{"decision_type":"reject_match","decision_result":"candidate_rejected","survivor_goat_id":"10000000-0000-4000-8000-000000000001","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic unsupported reason","row_version":1}`
+	unsupportedBody := `{"decision_type":"create_goat","decision_result":"new_goat_required","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic unsupported reason","row_version":1}`
 	rec = postResolveConflict(t, "90000000-0000-4000-8000-000000000001", "idem-conflict-handler-0002", unsupportedBody)
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
@@ -302,7 +302,7 @@ func TestResolveConflictReturnsMergeResponse(t *testing.T) {
 				PolicyVersion:  "phase1-manual-correction-review-v1",
 				CreatedAt:      time.Now().UTC(),
 			},
-			Merge: domain.MergeResult{
+			Merge: &domain.MergeResult{
 				SurvivorGoatID: "10000000-0000-4000-8000-000000000001",
 				MergedGoatIDs:  []string{"10000000-0000-4000-8000-000000000002"},
 			},
@@ -320,6 +320,33 @@ func TestResolveConflictReturnsMergeResponse(t *testing.T) {
 	}
 	if response.Decision.DecisionType != "merge_goats" || response.Merge == nil || len(response.Events) != 1 || !response.Idempotency.Replayed {
 		t.Fatalf("unexpected conflict response: %#v", response)
+	}
+}
+
+func TestResolveConflictReturnsNonMergeResponse(t *testing.T) {
+	rec := postResolveConflictWithRepo(t, &handlerRepo{
+		resolveConflictResult: &ports.ResolveConflictResult{
+			ConflictID: "20000000-0000-4000-8000-000000000001",
+			State:      "rejected",
+			Decision: domain.DecisionRecordSummary{
+				DecisionID:     "50000000-0000-4000-8000-000000000202",
+				DecisionType:   "reject_match",
+				DecisionResult: "candidate_rejected",
+				DecisionState:  "rejected",
+				PolicyVersion:  "phase1-manual-correction-review-v1",
+				CreatedAt:      time.Now().UTC(),
+			},
+		},
+	}, "90000000-0000-4000-8000-000000000001", "idem-conflict-handler-0004", validRejectConflictBody())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.ResolveConflictResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.State != "rejected" || response.Decision.DecisionType != "reject_match" || response.Merge != nil || len(response.Events) != 0 {
+		t.Fatalf("unexpected non-merge conflict response: %#v", response)
 	}
 }
 
@@ -585,6 +612,10 @@ func validResolveConflictBody() string {
 	return `{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000001","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"reason":"synthetic merge reason","row_version":1}`
 }
 
+func validRejectConflictBody() string {
+	return `{"decision_type":"reject_match","decision_result":"candidate_rejected","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"reason":"synthetic rejection reason","row_version":1}`
+}
+
 type handlerRepo struct {
 	correctionResult       *ports.CreateCorrectionRequestResult
 	resolveResult          *ports.ResolveCorrectionRequestResult
@@ -683,7 +714,7 @@ func (h handlerRepo) ResolveConflict(_ context.Context, cmd ports.ResolveConflic
 			PolicyVersion:  "phase1-manual-correction-review-v1",
 			CreatedAt:      time.Now().UTC(),
 		},
-		Merge: domain.MergeResult{
+		Merge: &domain.MergeResult{
 			SurvivorGoatID: cmd.SurvivorGoatID,
 			MergedGoatIDs:  []string{cmd.AffectedGoatIDs[0]},
 		},

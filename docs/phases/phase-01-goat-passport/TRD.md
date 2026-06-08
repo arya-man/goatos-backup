@@ -1147,6 +1147,40 @@ reject_match
 request_field_verification
 ```
 
+Conflict resolve target mapping:
+
+```text
+merge_goats + same_goat_merge
+  -> identity_conflicts.state = resolved
+  -> terminal; set resolved_at/resolved_by
+  -> goat identity mutation; emits goat.identity.merge_approved events/outbox
+
+reject_match + candidate_rejected
+  -> identity_conflicts.state = rejected
+  -> terminal; set resolved_at/resolved_by
+  -> decision + audit only; no goat_identity_events or outbox row
+
+request_field_verification + field_verification_required
+  -> identity_conflicts.state = needs_field_check
+  -> nonterminal; leave resolved_at/resolved_by null
+  -> decision + audit only; no goat_identity_events or outbox row
+  -> resolving an already needs_field_check conflict with a new idempotency key is a write conflict
+
+mark_identifier_disputed + different_goats_identifier_disputed
+  -> identity_conflicts.state = resolved
+  -> terminal; set resolved_at/resolved_by
+  -> goat identity mutation; selected identifiers become disputed and emit goat.identifier.disputed events/outbox
+
+create_goat + new_goat_required
+  -> not implemented until ResolveConflictRequest defines the required goat creation fields
+```
+
+Decision-only conflict state changes (`reject_match` and
+`request_field_verification`) intentionally do not emit `goat_identity_events`
+or `outbox_messages` until a conflict-aggregate event payload/projection
+contract is defined. Projections and admin queues must read canonical
+`identity_conflicts` state for those transitions.
+
 Approval authority:
 
 ```text
@@ -1930,6 +1964,24 @@ For `merge_goats`, the persisted decision record must use the resolved live
 the reviewer submitted stale ids that redirected during merge resolution, the
 record may also include `requested_survivor_goat_id` and
 `requested_affected_goat_ids` as audit trail fields.
+
+For `mark_identifier_disputed`, the reviewer must select identifiers
+explicitly through `identifier_actions[]` with `action=dispute` and non-null
+`identifier_id`. The backend must not infer disputed identifiers loosely from
+`identifier_type` and `identifier_value` alone. Each selected identifier must
+belong to the same tenant, be active, belong to a goat in the conflict, and,
+when the conflict stores `identifier_type` or `identifier_value`, match those
+fields. The mutation sets `goat_identifiers.status=disputed`,
+`is_primary_for_goat=false`, `approved_by=<actor>`, and `updated_at=<decision
+time>`, then writes `identity_decision_identifiers(action=dispute)`,
+`goat.identifier.disputed`, `identity_decision_events`, audit, outbox, and
+idempotency completion in the same transaction.
+
+For `reject_match`, the resolver records a rejected decision, marks the conflict
+`rejected`, and does not mutate goat identity. For
+`request_field_verification`, the resolver records a `needs_review` decision,
+marks the conflict `needs_field_check`, and leaves `resolved_at` and
+`resolved_by` null.
 
 Create correction request:
 

@@ -340,7 +340,7 @@ func TestResolveConflictMergeValidationAndCommand(t *testing.T) {
 				PolicyVersion:  "phase1-manual-correction-review-v1",
 				CreatedAt:      time.Now().UTC(),
 			},
-			Merge: domain.MergeResult{
+			Merge: &domain.MergeResult{
 				SurvivorGoatID: survivorGoat,
 				MergedGoatIDs:  []string{mergedGoat},
 			},
@@ -380,14 +380,69 @@ func TestResolveConflictRejectsOldEvidenceIDs(t *testing.T) {
 	}
 }
 
-func TestResolveConflictUnsupportedDecisionIsNotImplemented(t *testing.T) {
+func TestResolveConflictRejectMatchRoutesToRepository(t *testing.T) {
+	repo := &fakeRepo{
+		resolveConflictResult: &ports.ResolveConflictResult{
+			ConflictID: conflictID,
+			State:      "rejected",
+			Decision: domain.DecisionRecordSummary{
+				DecisionID:     "50000000-0000-4000-8000-000000000202",
+				DecisionType:   "reject_match",
+				DecisionResult: "candidate_rejected",
+				DecisionState:  "rejected",
+				PolicyVersion:  "phase1-manual-correction-review-v1",
+				CreatedAt:      time.Now().UTC(),
+			},
+		},
+	}
 	input := validResolveConflictInput()
-	input.RawBody = []byte(`{"decision_type":"reject_match","decision_result":"candidate_rejected","survivor_goat_id":"10000000-0000-4000-8000-000000000004","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic unsupported reason","row_version":1}`)
+	input.RawBody = []byte(`{"decision_type":"reject_match","decision_result":"candidate_rejected","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic candidate rejection reason","row_version":1}`)
+	svc := NewService(repo)
+	response, err := svc.ResolveConflict(context.Background(), input)
+	if err != nil {
+		t.Fatalf("ResolveConflict reject_match: %v", err)
+	}
+	if response.State != "rejected" || response.Merge != nil {
+		t.Fatalf("unexpected reject_match response: %#v", response)
+	}
+	if repo.lastResolveConflictCmd.DecisionType != "reject_match" || repo.lastResolveConflictCmd.SurvivorGoatID != "" {
+		t.Fatalf("unexpected reject_match command: %#v", repo.lastResolveConflictCmd)
+	}
+}
+
+func TestResolveConflictCreateGoatIsNotImplemented(t *testing.T) {
+	input := validResolveConflictInput()
+	input.RawBody = []byte(`{"decision_type":"create_goat","decision_result":"new_goat_required","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic new goat required reason","row_version":1}`)
 	svc := NewService(&fakeRepo{})
 	_, err := svc.ResolveConflict(context.Background(), input)
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.HTTPStatus != 501 || appErr.Code != "unsupported_conflict_decision" {
 		t.Fatalf("expected unsupported_conflict_decision, got %v", err)
+	}
+}
+
+func TestResolveConflictRejectsInvalidDecisionPairAndDisputeActions(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	input := validResolveConflictInput()
+	input.RawBody = []byte(`{"decision_type":"reject_match","decision_result":"same_goat_merge","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic wrong pair reason","row_version":1}`)
+	_, err := svc.ResolveConflict(context.Background(), input)
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_decision_pair" {
+		t.Fatalf("expected invalid_decision_pair, got %v", err)
+	}
+
+	input = validResolveConflictInput()
+	input.RawBody = []byte(`{"decision_type":"mark_identifier_disputed","decision_result":"different_goats_identifier_disputed","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic missing actions reason","row_version":1}`)
+	_, err = svc.ResolveConflict(context.Background(), input)
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "missing_identifier_actions" {
+		t.Fatalf("expected missing_identifier_actions, got %v", err)
+	}
+
+	input = validResolveConflictInput()
+	input.RawBody = []byte(`{"decision_type":"mark_identifier_disputed","decision_result":"different_goats_identifier_disputed","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[{"action":"dispute"}],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic missing identifier id reason","row_version":1}`)
+	_, err = svc.ResolveConflict(context.Background(), input)
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "missing_identifier_id" {
+		t.Fatalf("expected missing_identifier_id, got %v", err)
 	}
 }
 
@@ -757,7 +812,7 @@ func (f *fakeRepo) ResolveConflict(_ context.Context, cmd ports.ResolveConflictC
 			PolicyVersion:  "phase1-manual-correction-review-v1",
 			CreatedAt:      time.Now().UTC(),
 		},
-		Merge: domain.MergeResult{
+		Merge: &domain.MergeResult{
 			SurvivorGoatID: cmd.SurvivorGoatID,
 			MergedGoatIDs:  []string{cmd.AffectedGoatIDs[0]},
 		},

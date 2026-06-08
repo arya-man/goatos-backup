@@ -299,6 +299,200 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 	})
 }
 
+func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+
+	t.Run("reject match writes terminal decision audit only and replays", func(t *testing.T) {
+		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "possible_duplicate_goat", []string{goatA, goatB})
+		cmd := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-reject-0001", conflictID, "reject_match", "candidate_rejected", []string{goatA, goatB}, nil, 1)
+
+		result, err := repo.ResolveConflict(ctx, cmd)
+		if err != nil {
+			t.Fatalf("reject_match resolve: %v", err)
+		}
+		if result.Replayed || result.State != "rejected" || result.Decision.DecisionType != "reject_match" || result.Decision.DecisionState != "rejected" || result.Merge != nil || len(result.Events) != 0 {
+			t.Fatalf("unexpected reject result: %#v", result)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_conflicts WHERE conflict_id = $1 AND state = 'rejected' AND row_version = 2 AND resolved_at IS NOT NULL AND resolved_by = $2 AND decision_id = $3`, conflictID, correctionActor, result.Decision.DecisionID); got != 1 {
+			t.Fatalf("rejected conflict rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE action = 'goat.identity.match_rejected' AND resource_id = $1`, conflictID); got != 1 {
+			t.Fatalf("reject audit rows = %d", got)
+		}
+		assertNoRows(t, pool, "reject goat events", `SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "reject outbox", `SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
+		decisionPayload := queryBytes(t, pool, `SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1`, result.Decision.DecisionID)
+		validateDecisionRecord(t, decisionPayload)
+		assertIdempotencyCompleted(t, pool, cmd.StoredIdempotencyKey, conflictID)
+
+		replay, err := repo.ResolveConflict(ctx, cmd)
+		if err != nil {
+			t.Fatalf("reject replay: %v", err)
+		}
+		if !replay.Replayed || replay.Decision.DecisionID != result.Decision.DecisionID || replay.Merge != nil || len(replay.Events) != 0 {
+			t.Fatalf("unexpected reject replay: %#v", replay)
+		}
+		changed := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-reject-0001", conflictID, "reject_match", "candidate_rejected", []string{goatA}, nil, 1)
+		changed.RequestHash = "synthetic-different-request-hash"
+		if _, err := repo.ResolveConflict(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("expected reject changed-body conflict, got %v", err)
+		}
+		terminal := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-reject-terminal-0001", conflictID, "reject_match", "candidate_rejected", []string{goatA, goatB}, nil, 2)
+		if _, err := repo.ResolveConflict(ctx, terminal); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected terminal reject conflict, got %v", err)
+		}
+	})
+
+	t.Run("request field verification is nonterminal and same-state conflicts", func(t *testing.T) {
+		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "status_mismatch", []string{goatA, goatB})
+		cmd := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-field-0001", conflictID, "request_field_verification", "field_verification_required", []string{goatA, goatB}, nil, 1)
+
+		result, err := repo.ResolveConflict(ctx, cmd)
+		if err != nil {
+			t.Fatalf("field verification resolve: %v", err)
+		}
+		if result.State != "needs_field_check" || result.Decision.DecisionState != "needs_review" || result.Merge != nil || len(result.Events) != 0 {
+			t.Fatalf("unexpected field verification result: %#v", result)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_conflicts WHERE conflict_id = $1 AND state = 'needs_field_check' AND row_version = 2 AND resolved_at IS NULL AND resolved_by IS NULL AND decision_id = $2`, conflictID, result.Decision.DecisionID); got != 1 {
+			t.Fatalf("field-check conflict rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE action = 'goat.identity.field_verification_requested' AND resource_id = $1`, conflictID); got != 1 {
+			t.Fatalf("field-check audit rows = %d", got)
+		}
+		assertNoRows(t, pool, "field-check goat events", `SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "field-check outbox", `SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
+		decisionPayload := queryBytes(t, pool, `SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1`, result.Decision.DecisionID)
+		validateDecisionRecord(t, decisionPayload)
+
+		sameState := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-field-0002", conflictID, "request_field_verification", "field_verification_required", []string{goatA, goatB}, nil, 2)
+		if _, err := repo.ResolveConflict(ctx, sameState); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected same-state field-check conflict, got %v", err)
+		}
+	})
+
+	t.Run("identifier dispute mutates explicit active identifier and writes event outbox", func(t *testing.T) {
+		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		identifierID := insertActiveIdentifier(t, pool, meshaTenant, goatA, "old_tag", "synthetic-dispute-1", "park:CBE", true)
+		conflictID := insertSyntheticIdentifierConflict(t, pool, meshaTenant, "old_tag_reused", "old_tag", "synthetic-dispute-1", []string{goatA, goatB})
+		action := domain.IdentifierAction{IdentifierID: strPtr(identifierID), IdentifierType: strPtr("old_tag"), IdentifierValue: strPtr("synthetic-dispute-1"), Action: "dispute"}
+		cmd := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{action}, 1)
+
+		result, err := repo.ResolveConflict(ctx, cmd)
+		if err != nil {
+			t.Fatalf("identifier dispute resolve: %v", err)
+		}
+		if result.State != "resolved" || result.Decision.DecisionType != "mark_identifier_disputed" || result.Decision.DecisionState != "approved" || result.Merge != nil || len(result.Events) != 1 {
+			t.Fatalf("unexpected dispute result: %#v", result)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id = $1 AND status = 'disputed' AND is_primary_for_goat = false AND approved_by = $2`, identifierID, correctionActor); got != 1 {
+			t.Fatalf("disputed identifier rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_decision_identifiers WHERE decision_id = $1 AND identifier_id = $2 AND action = 'dispute'`, result.Decision.DecisionID, identifierID); got != 1 {
+			t.Fatalf("dispute decision identifier rows = %d", got)
+		}
+		eventID := result.Events[0].EventID
+		var recordedAt string
+		if err := pool.QueryRow(ctx, `SELECT recorded_at::text FROM goat_identity_events WHERE identity_event_id = $1 AND goat_id = $2 AND event_type = 'goat.identifier.disputed'`, eventID, goatA).Scan(&recordedAt); err != nil {
+			t.Fatal(err)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_decision_events WHERE decision_id = $1 AND event_id = $2 AND event_recorded_at::text = $3`, result.Decision.DecisionID, eventID, recordedAt); got != 1 {
+			t.Fatalf("dispute decision event rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1 AND event_id = $2 AND aggregate_type = 'goat' AND aggregate_id = $3`, cmd.StoredIdempotencyKey, eventID, goatA); got != 1 {
+			t.Fatalf("dispute outbox rows = %d", got)
+		}
+		decisionPayload := queryBytes(t, pool, `SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1`, result.Decision.DecisionID)
+		validateDecisionRecord(t, decisionPayload)
+		outboxPayload := queryBytes(t, pool, `SELECT payload FROM outbox_messages WHERE event_id = $1`, eventID)
+		validateDomainEventEnvelope(t, outboxPayload)
+		assertIdempotencyCompleted(t, pool, cmd.StoredIdempotencyKey, conflictID)
+
+		replay, err := repo.ResolveConflict(ctx, cmd)
+		if err != nil {
+			t.Fatalf("dispute replay: %v", err)
+		}
+		if !replay.Replayed || replay.Decision.DecisionID != result.Decision.DecisionID || replay.Events[0].EventID != eventID || replay.Merge != nil {
+			t.Fatalf("unexpected dispute replay: %#v", replay)
+		}
+	})
+
+	t.Run("identifier dispute guards selection tenant status value and rollback", func(t *testing.T) {
+		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		conflictID := insertSyntheticIdentifierConflict(t, pool, meshaTenant, "old_tag_reused", "old_tag", "synthetic-guard-1", []string{goatA, goatB})
+		if _, err := repo.ResolveConflict(ctx, nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-missing-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, nil, 1)); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected missing identifier actions conflict, got %v", err)
+		}
+		noID := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-noid-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{{Action: "dispute"}}, 1)
+		if _, err := repo.ResolveConflict(ctx, noID); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected missing identifier id conflict, got %v", err)
+		}
+
+		outsideGoat := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		outsideIdentifier := insertActiveIdentifier(t, pool, meshaTenant, outsideGoat, "old_tag", "synthetic-guard-1", "park:CBE", false)
+		outside := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-outside-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{{IdentifierID: strPtr(outsideIdentifier), Action: "dispute"}}, 1)
+		if _, err := repo.ResolveConflict(ctx, outside); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected outside identifier conflict, got %v", err)
+		}
+
+		otherTenantGoat := insertSyntheticGoat(t, pool, secondTenant, t2Location)
+		otherTenantIdentifier := insertActiveIdentifier(t, pool, secondTenant, otherTenantGoat, "old_tag", "synthetic-guard-1", "park:CBE", false)
+		wrongTenant := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-wrongtenant-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{{IdentifierID: strPtr(otherTenantIdentifier), Action: "dispute"}}, 1)
+		if _, err := repo.ResolveConflict(ctx, wrongTenant); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("expected wrong tenant identifier not_found, got %v", err)
+		}
+
+		inactiveIdentifier := insertActiveIdentifier(t, pool, meshaTenant, goatA, "old_tag", "synthetic-guard-1", "park:INACTIVE", false)
+		if _, err := pool.Exec(ctx, `UPDATE goat_identifiers SET status = 'retired', valid_to = now() WHERE identifier_id = $1`, inactiveIdentifier); err != nil {
+			t.Fatal(err)
+		}
+		inactive := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-inactive-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{{IdentifierID: strPtr(inactiveIdentifier), Action: "dispute"}}, 1)
+		if _, err := repo.ResolveConflict(ctx, inactive); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected inactive identifier conflict, got %v", err)
+		}
+
+		mismatchIdentifier := insertActiveIdentifier(t, pool, meshaTenant, goatA, "old_tag", "synthetic-mismatch-live", "park:CBE", false)
+		mismatch := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-mismatch-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{{IdentifierID: strPtr(mismatchIdentifier), Action: "dispute"}}, 1)
+		if _, err := repo.ResolveConflict(ctx, mismatch); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected mismatch identifier conflict, got %v", err)
+		}
+
+		rollbackIdentifier := insertActiveIdentifier(t, pool, meshaTenant, goatA, "old_tag", "synthetic-guard-1", "park:CPT", false)
+		rollbackConflictID := insertSyntheticIdentifierConflict(t, pool, meshaTenant, "old_tag_reused", "old_tag", "synthetic-guard-1", []string{goatA, goatB})
+		rollback := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-rollback-0001", rollbackConflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{{IdentifierID: strPtr(rollbackIdentifier), Action: "dispute"}}, 1)
+		rollback.TraceID = "trace-conflict-dispute-forced-rollback"
+		repo.afterAuditHook = func(context.Context) error { return errors.New("forced dispute rollback") }
+		_, err := repo.ResolveConflict(ctx, rollback)
+		repo.afterAuditHook = nil
+		if err == nil {
+			t.Fatal("expected forced dispute rollback error")
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_conflicts WHERE conflict_id = $1 AND state = 'open' AND row_version = 1 AND decision_id IS NULL`, rollbackConflictID); got != 1 {
+			t.Fatalf("rollback conflict rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id = $1 AND status = 'active'`, rollbackIdentifier); got != 1 {
+			t.Fatalf("rollback identifier active rows = %d", got)
+		}
+		assertNoRows(t, pool, "idempotency after dispute rollback", `SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1`, rollback.StoredIdempotencyKey)
+		assertNoRows(t, pool, "decision after dispute rollback", `SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1`, rollback.TraceID)
+		assertNoRows(t, pool, "event after dispute rollback", `SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1`, rollback.StoredIdempotencyKey)
+		assertNoRows(t, pool, "audit after dispute rollback", `SELECT count(*) FROM audit_log WHERE trace_id = $1`, rollback.TraceID)
+		assertNoRows(t, pool, "outbox after dispute rollback", `SELECT count(*) FROM outbox_messages WHERE trace_id = $1`, rollback.TraceID)
+	})
+}
+
 func mergeConflictCommand(t *testing.T, tenantID, key, conflictID, survivorID string, affectedIDs []string, actions []domain.IdentifierAction, rowVersion int) ports.ResolveConflictCommand {
 	t.Helper()
 	evidenceRefs := []domain.EvidenceRef{{
@@ -346,6 +540,55 @@ func mergeConflictCommand(t *testing.T, tenantID, key, conflictID, survivorID st
 	}
 }
 
+func nonMergeConflictCommand(t *testing.T, tenantID, key, conflictID, decisionType, decisionResult string, affectedIDs []string, actions []domain.IdentifierAction, rowVersion int) ports.ResolveConflictCommand {
+	t.Helper()
+	if actions == nil {
+		actions = []domain.IdentifierAction{}
+	}
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   "synthetic-conflict-row-1",
+		SourceSystem: strPtr("synthetic_import"),
+		Description:  strPtr("Synthetic conflict review note."),
+	}}
+	reason := "synthetic " + decisionType + " manual review"
+	body := map[string]any{
+		"decision_type":      decisionType,
+		"decision_result":    decisionResult,
+		"affected_goat_ids":  affectedIDs,
+		"identifier_actions": actions,
+		"evidence_refs":      evidenceRefs,
+		"reason":             reason,
+		"row_version":        rowVersion,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := "/admin/identity/conflicts/" + conflictID + "/resolve"
+	hash, err := app.CanonicalRequestHashWithSubject(tenantID, "resolveIdentityConflict", route, conflictID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.ResolveConflictCommand{
+		TenantID:             tenantID,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: tenantID + ":resolveIdentityConflict:" + conflictID + ":" + key,
+		IdempotencyScope:     "resolveIdentityConflict",
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		ConflictID:           conflictID,
+		DecisionType:         decisionType,
+		DecisionResult:       decisionResult,
+		AffectedGoatIDs:      affectedIDs,
+		IdentifierActions:    actions,
+		EvidenceRefs:         evidenceRefs,
+		Reason:               reason,
+		RowVersion:           rowVersion,
+	}
+}
+
 func insertSyntheticConflict(t *testing.T, pool *pgxpool.Pool, tenantID, conflictType string, goatIDs []string) string {
 	t.Helper()
 	var conflictID string
@@ -370,6 +613,44 @@ INSERT INTO identity_conflicts (
 )
 RETURNING conflict_id::text`
 	if err := pool.QueryRow(context.Background(), sqlText, tenantID, conflictType).Scan(&conflictID); err != nil {
+		t.Fatal(err)
+	}
+	for _, goatID := range goatIDs {
+		if _, err := pool.Exec(context.Background(), `INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role) VALUES ($1, $2, $3, 'affected')`, conflictID, tenantID, goatID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return conflictID
+}
+
+func insertSyntheticIdentifierConflict(t *testing.T, pool *pgxpool.Pool, tenantID, conflictType, identifierType, identifierValue string, goatIDs []string) string {
+	t.Helper()
+	var conflictID string
+	arrayExpr := uuidArraySQL(goatIDs)
+	sqlText := `
+INSERT INTO identity_conflicts (
+  tenant_id,
+  conflict_type,
+  severity,
+  state,
+  identifier_type,
+  identifier_value,
+  goat_ids,
+  source_record_ids,
+  evidence
+) VALUES (
+  $1,
+  $2,
+  'high',
+  'open',
+  $3,
+  $4,
+  ` + arrayExpr + `,
+  ARRAY['synthetic-conflict-source-1'],
+  '{"scope_key":"synthetic"}'::jsonb
+)
+RETURNING conflict_id::text`
+	if err := pool.QueryRow(context.Background(), sqlText, tenantID, conflictType, identifierType, identifierValue).Scan(&conflictID); err != nil {
 		t.Fatal(err)
 	}
 	for _, goatID := range goatIDs {

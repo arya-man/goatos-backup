@@ -61,15 +61,18 @@ transactional admin identifier attach
 POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire
 transactional admin identifier retire
 POST /admin/identity/conflicts/{conflict_id}/resolve
-transactional merge_goats / same_goat_merge conflict resolve
+transactional conflict resolve for merge_goats, reject_match,
+request_field_verification, and mark_identifier_disputed
 tenant/route-namespaced idempotency key handling
-same-transaction audit_log + outbox_messages persistence
+same-transaction audit_log + optional outbox_messages persistence
 correction_request domain event envelope payloads
 resolve_correction_request decision records
 attach_identifier and retire_identifier decision records
 goat.identifier.added and goat.identifier.retired domain event envelopes
-merge_goats decision records
+merge_goats, reject_match, request_field_verification, and
+mark_identifier_disputed decision records
 goat.identity.merge_approved domain event envelopes
+goat.identifier.disputed domain event envelopes
 ```
 
 ## Verified Behaviors
@@ -183,16 +186,38 @@ admin identifier add/retire:
   persisted decision_record validates against decision-record JSON Schema
   persisted outbox payload validates against domain-event-envelope JSON Schema
   goat outbox rows are DB-validated against same-tenant goat_identity_events
-conflict resolve merge_goats:
+conflict resolve:
   implements POST /admin/identity/conflicts/{conflict_id}/resolve for
-  decision_type=merge_goats and decision_result=same_goat_merge only
-  rejects unsupported conflict decisions with a typed not_implemented response
+  decision_type/result pairs:
+    merge_goats + same_goat_merge
+    reject_match + candidate_rejected
+    request_field_verification + field_verification_required
+    mark_identifier_disputed + different_goats_identifier_disputed
+  keeps create_goat + new_goat_required as typed not_implemented because the
+  contract/TRD do not define the required goat creation fields
   rejects unknown JSON fields and old evidence_ids payloads
-  requires typed evidence_refs, survivor_goat_id, affected_goat_ids,
-  identifier_actions, reason, current conflict row_version, Idempotency-Key,
-  and temporary X-GoatOS-Actor-ID uuid
+  validates exact decision_type/decision_result pairs
+  requires typed evidence_refs, affected_goat_ids, identifier_actions, reason,
+  current conflict row_version, Idempotency-Key, and temporary
+  X-GoatOS-Actor-ID uuid
+  requires survivor_goat_id only for merge_goats and rejects it for non-merge
+  decisions
   adds identity_conflicts.row_version via migration 000005 and uses a single
-  conditional conflict update on state + row_version
+  conditional conflict update on target state + row_version
+  maps reject_match to state=rejected, terminal resolved_at/resolved_by,
+  decision_state=rejected, audit only, and no goat_identity_events/outbox
+  maps request_field_verification to state=needs_field_check,
+  decision_state=needs_review, no resolved_at/resolved_by, audit only, and no
+  goat_identity_events/outbox; same-state field-check with a new idempotency key
+  is a write conflict
+  maps mark_identifier_disputed to state=resolved, terminal
+  resolved_at/resolved_by, decision_state=approved, selected identifier status
+  disputed, primary flag cleared, one goat.identifier.disputed event/outbox per
+  selected identifier
+  requires mark_identifier_disputed to supply explicit identifier_actions with
+  action=dispute and identifier_id; identifiers must be same-tenant, active,
+  attached to conflict member goats, and match conflict identifier type/value
+  when those fields are present
   allows merge only for duplicate-identity conflict types:
   possible_duplicate_goat, duplicate_active_identifier, rfid_already_linked,
   and old_tag_reused
@@ -219,6 +244,9 @@ conflict resolve merge_goats:
   same key with different request_hash conflicts
   persisted decision_record validates against decision-record JSON Schema
   persisted outbox payload validates against domain-event-envelope JSON Schema
+  decision-only reject_match/request_field_verification changes are not
+  event-stream visible until a conflict-aggregate event contract/projection
+  worker is defined; projections must read canonical conflict state
 ```
 
 ## Temporary Scaffolds
@@ -242,12 +270,9 @@ generated sqlc unless the query shape is intentionally dynamic and documented.
 auth/RBAC adapter
 legacy import runner and source-file ingestion
 remaining admin write handlers except identifier add/retire, correction resolve,
-and conflict resolve merge_goats
-non-merge conflict decisions:
-  mark_identifier_disputed
-  create_goat
-  reject_match
-  request_field_verification
+and built conflict resolve paths
+create_goat conflict decision until required goat creation fields are
+contract-defined
 candidate approve/reject command handlers
 standalone merge command handler
 unmerge command handler/contract
@@ -358,16 +383,22 @@ merge override GUCs for normal identifier mutation; merged goats must reject as
 write conflicts. Replay must rebuild from the database, not cached response
 bodies.
 
-Conflict resolve merge_goats mutates goat identity through
+Conflict resolve mutates conflict state through
 POST /admin/identity/conflicts/{conflict_id}/resolve. It must keep using
 SET LOCAL goatos.allow_merged_goat_update='on' and
 goatos.allow_merged_goat_child_write='on' only inside the merge transaction,
 resolve identifier actions before marking losers merged, and write
 identity_decisions, identity_decision_goats, identity_decision_identifiers,
 goat_merge_links, goat_identity_events, identity_decision_events, audit_log,
-outbox_messages, and idempotency completion in one transaction. Non-merge
-conflict decisions remain deferred and must return typed unsupported errors
-until implemented.
+outbox_messages, and idempotency completion in one transaction for merge_goats.
+reject_match and request_field_verification are decision-only conflict state
+changes: they write decision + conflict update + audit + idempotency in one
+transaction and do not emit goat_identity_events/outbox rows. mark_identifier_disputed
+is a goat identity mutation: it requires explicit dispute identifier actions,
+updates selected identifiers to disputed, and writes goat_identity_events,
+identity_decision_events, outbox_messages, audit_log, and idempotency
+completion in one transaction. create_goat remains typed not_implemented until
+the goat creation fields are contract-defined.
 
 Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
 actor headers are local/dev scaffolding only. They are a deploy gate for shared,
