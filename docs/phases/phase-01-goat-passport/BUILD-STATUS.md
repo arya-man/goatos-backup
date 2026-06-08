@@ -25,6 +25,7 @@ Database foundation:
 backend/migrations/postgres/000001_phase_1_identity_foundation.sql
 backend/migrations/postgres/000002_phase_1_identity_schema_hardening.sql
 backend/migrations/postgres/000003_phase_1_correction_outbox_support.sql
+backend/migrations/postgres/000004_phase_1_correction_resolve_support.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -52,9 +53,12 @@ Go backend write foundation:
 ```text
 POST /identity/correction-requests
 transactional correction request create
+POST /admin/identity/correction-requests/{correction_request_id}/resolve
+transactional correction request resolve
 tenant/route-namespaced idempotency key handling
 same-transaction audit_log + outbox_messages persistence
 correction_request domain event envelope payloads
+resolve_correction_request decision records
 ```
 
 ## Verified Behaviors
@@ -120,6 +124,27 @@ correction request create:
   exact idempotent replay returns the original correction request
   same key with different request hash conflicts
   persisted outbox payload validates against domain-event-envelope JSON Schema
+correction request resolve:
+  requires Idempotency-Key
+  requires temporary X-GoatOS-Actor-ID uuid
+  rejects unknown JSON fields and old evidence_ids payloads
+  requires typed evidence_refs and current row_version
+  allows open/assigned/needs_field_check -> approved/rejected/closed or needs_field_check
+  treats approved/rejected/closed as terminal except exact idempotent replay
+  rejects same-state no-op resolves unless exact idempotent replay
+  uses conditional row_version update and increments row_version on success
+  sets resolved_at only for terminal approved/rejected/closed targets
+  writes identity_decisions decision_type=resolve_correction_request
+  uses policy_version=phase1-manual-correction-review-v1
+  maps needs_field_check to decision_state=needs_review and result=needs_field_check
+  maps closed to decision_state=approved and result=closed
+  preserves reason and typed evidence_refs in the decision record JSON
+  writes correction row, decision row, idempotency row, audit row, and outbox row in one tx
+  exact idempotent replay returns the original correction request and decision
+  same key with different request hash conflicts
+  persisted decision_record validates against decision-record JSON Schema
+  persisted outbox payload validates against domain-event-envelope JSON Schema
+  does not directly mutate goat identity and does not write goat_identity_events
 ```
 
 ## Temporary Scaffolds
@@ -142,9 +167,8 @@ generated sqlc unless the query shape is intentionally dynamic and documented.
 ```text
 auth/RBAC adapter
 legacy import runner and source-file ingestion
-admin write handlers
-merge/resolve command handlers
-identity correction request resolve flow
+remaining admin write handlers
+merge/unmerge and conflict/candidate resolve command handlers
 outbox relay runtime
 projection workers and counter population
 partition auto-creation worker or pg_partman
@@ -197,18 +221,25 @@ Idempotency rules for write endpoints:
     write path; it belongs to a future async/two-phase command design if one is
     introduced.
 
-Correction request create exists in app-api.yaml. Admin correction resolve also
-exists, but resolve is a later write slice. Create supports goat-linked and
-goatless requests; goat_id is optional in the contract and DB. Goatless
-correction requests use the correction request as the outbox aggregate and do
-not create a goat timeline event. evidence_refs maps into the DB evidence jsonb
-shape and must never be NULL. request_type must stay within the contract/DB
-enum. Create writes state='open', populates scope, and requires the temporary
-actor header to parse as uuid because requested_by is uuid NOT NULL.
+Correction request create exists in app-api.yaml. Admin correction resolve
+exists in admin-api.yaml and is implemented as the first admin write command.
+Create supports goat-linked and goatless requests; goat_id is optional in the
+contract and DB. Goatless correction requests use the correction request as the
+outbox aggregate and do not create a goat timeline event. evidence_refs maps
+into the DB evidence jsonb shape and must never be NULL. request_type must stay
+within the contract/DB enum. Create writes state='open', populates scope, and
+requires the temporary actor header to parse as uuid because requested_by is uuid
+NOT NULL.
 
-When resolve is built, the state machine is open/assigned/needs_field_check ->
-approved/rejected/closed or needs_field_check, and already-terminal requests
-must not be re-resolved except as exact idempotent replay.
+Correction resolve writes an identity_decisions row with
+decision_type=resolve_correction_request and
+policy_version=phase1-manual-correction-review-v1. The request must include
+typed evidence_refs and row_version. The state machine is
+open/assigned/needs_field_check -> approved/rejected/closed or
+needs_field_check, and already-terminal requests must not be re-resolved except
+as exact idempotent replay. decision_state is the lifecycle of the decision
+record; decision_result is the outcome. Do not reuse old assignment framing for
+decision_state.
 
 Do not implement goat merge in the write-foundation slice. The merge slice must:
   - use SET LOCAL goatos.allow_merged_goat_update='on' and

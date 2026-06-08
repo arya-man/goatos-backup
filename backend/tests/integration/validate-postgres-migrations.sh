@@ -203,6 +203,72 @@ BEGIN
 END $$;
 SQL
 
+run_psql <<'SQL'
+\echo 'Running correction resolve schema checks'
+
+DO $$
+DECLARE
+  tenant uuid := '00000000-0000-4000-8000-000000000001';
+  correction_id uuid;
+  default_row_version integer;
+  decision_type text;
+BEGIN
+  INSERT INTO identity_correction_requests (
+    tenant_id,
+    request_type,
+    state,
+    description,
+    evidence,
+    requested_by
+  )
+  VALUES (
+    tenant,
+    'missing_tag',
+    'open',
+    'Synthetic row version validation.',
+    '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-version"}]}'::jsonb,
+    '90000000-0000-4000-8000-000000000001'
+  )
+  RETURNING correction_request_id, row_version INTO correction_id, default_row_version;
+
+  IF default_row_version <> 1 THEN
+    RAISE EXCEPTION 'expected correction row_version default 1, got %', default_row_version;
+  END IF;
+
+  FOREACH decision_type IN ARRAY ARRAY[
+    'create_goat',
+    'attach_identifier',
+    'retire_identifier',
+    'mark_identifier_disputed',
+    'merge_goats',
+    'batch_merge_goats',
+    'reject_match',
+    'request_field_verification',
+    'resolve_correction_request'
+  ]
+  LOOP
+    INSERT INTO identity_decisions (
+      tenant_id,
+      decision_type,
+      decision_result,
+      decision_state,
+      decided_by_type,
+      policy_version,
+      evidence
+    )
+    VALUES (
+      tenant,
+      decision_type,
+      'synthetic_result',
+      'approved',
+      'human',
+      'phase1-manual-correction-review-v1',
+      '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-decision-type"}]}'::jsonb
+    );
+  END LOOP;
+END $$;
+SQL
+
 expect_failure "bad active ownership share total fails at commit" "
 BEGIN;
 INSERT INTO goat_ownership (tenant_id, goat_id, owner_party_id, share_bps, valid_from, status)

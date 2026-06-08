@@ -68,6 +68,29 @@ Rules:
   not create goat_identity_events because it is a review input, not canonical
   goat identity mutation. It writes a `correction_request` outbox event envelope
   in the same transaction.
+- POST `/admin/identity/correction-requests/{correction_request_id}/resolve`
+  is the first admin write pattern. It requires `Idempotency-Key`,
+  temporary `X-GoatOS-Actor-ID`, typed `evidence_refs`, `reason`, and
+  `row_version`. The stored key is
+  `<tenant_id>:resolveCorrectionRequest:<client_key>`, and request_hash includes
+  tenant, command, route, correction_request_id, and canonical JSON body.
+- Correction resolve is optimistic-concurrency guarded:
+  `state in (open, assigned, needs_field_check)`, matching row_version, and
+  `state <> target`. Approved/rejected/closed are terminal except exact
+  idempotent replay.
+- Correction resolve writes `identity_decisions` with
+  `decision_type=resolve_correction_request` and
+  `policy_version=phase1-manual-correction-review-v1`. `decision_state` is the
+  lifecycle of the decision record; `decision_result` is the business outcome.
+  Do not use old assignment/status framing for `decision_state`.
+- Correction resolve maps targets as:
+  approved -> decision_state approved/result approved; rejected -> rejected;
+  needs_field_check -> needs_review/result needs_field_check; closed ->
+  approved/result closed. Terminal targets set `resolved_at`; needs_field_check
+  leaves `resolved_at` null.
+- Correction resolve persists correction update, decision, audit, outbox, and
+  idempotency completion in one transaction. It does not directly mutate goat
+  identity and must not write `goat_identity_events`.
 - `make sqlc-check` regenerates the migration-derived schema dump and generated
   sqlc code with the pinned `tools/sqlc/sqlc.version`; it fails on drift.
 - `make validate-sqlc-plans` extracts every generated static read from
@@ -110,6 +133,18 @@ POST /identity/correction-requests
   state=open
   same-transaction idempotency + correction row + audit_log + outbox_messages
   correction_request is the outbox aggregate; goat is subject only when goat_id exists
+
+POST /admin/identity/correction-requests/{correction_request_id}/resolve
+  strict contract-shaped JSON body validation with unknown-field rejection
+  old evidence_ids payloads rejected; use typed evidence_refs
+  open/assigned/needs_field_check -> approved/rejected/closed or needs_field_check
+  exact idempotent replay returns original correction request plus decision
+  same key/different body, same-state no-op, stale row_version, and terminal
+  re-resolve all conflict
+  same-transaction idempotency + identity_decisions + correction update +
+  audit_log + outbox_messages
+  correction_request is aggregate and subject; no goat_identity_events are
+  written because this is review state, not canonical goat identity mutation
 ```
 
 Known backend deferments:
@@ -117,7 +152,7 @@ Known backend deferments:
 ```text
 auth/RBAC adapter
 legacy import runner
-merge/resolve command handlers
+merge/unmerge and conflict/candidate resolve command handlers
 projection workers and counter population
 outbox relay/runtime workers
 OpenTelemetry exporters/spans/metrics

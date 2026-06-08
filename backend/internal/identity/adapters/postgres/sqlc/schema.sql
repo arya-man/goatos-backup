@@ -925,6 +925,8 @@ CREATE TABLE public.identity_correction_requests (
     decision_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     resolved_at timestamp with time zone,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT identity_correction_requests_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT identity_correction_requests_state_check CHECK ((state = ANY (ARRAY['open'::text, 'assigned'::text, 'needs_field_check'::text, 'approved'::text, 'rejected'::text, 'closed'::text]))),
     CONSTRAINT identity_correction_requests_type_check CHECK ((request_type = ANY (ARRAY['missing_tag'::text, 'tag_reused'::text, 'rfid_conflict'::text, 'possible_duplicate'::text, 'wrong_location'::text, 'wrong_status'::text, 'field_verification_result'::text, 'identifier_seen_but_not_attached'::text])))
 );
@@ -1014,7 +1016,7 @@ CREATE TABLE public.identity_decisions (
     CONSTRAINT identity_decisions_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT identity_decisions_decided_by_type_check CHECK ((decided_by_type = ANY (ARRAY['human'::text, 'system_rule'::text, 'import_policy'::text, 'ai_proposal'::text]))),
     CONSTRAINT identity_decisions_decision_state_check CHECK ((decision_state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text]))),
-    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text])))
+    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text])))
 );
 
 

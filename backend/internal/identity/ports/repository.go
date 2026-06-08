@@ -11,6 +11,7 @@ var (
 	ErrNotFound            = errors.New("identity record not found")
 	ErrIdempotencyConflict = errors.New("idempotency key reused with different request")
 	ErrIdempotencyPending  = errors.New("idempotency key is not completed")
+	ErrWriteConflict       = errors.New("identity write conflict")
 )
 
 type SearchGoatsParams struct {
@@ -85,6 +86,28 @@ type CreateCorrectionRequestResult struct {
 	FirstResultID     *string
 }
 
+type ResolveCorrectionRequestCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	CorrectionRequestID  string
+	TargetState          string
+	Reason               string
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
+type ResolveCorrectionRequestResult struct {
+	CorrectionRequest domain.CorrectionRequest
+	Decision          domain.DecisionRecordSummary
+	Replayed          bool
+	FirstResultID     *string
+}
+
 type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
@@ -95,5 +118,6 @@ type Repository interface {
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListIdentityCounts(ctx context.Context, params CountParams) ([]domain.IdentityCount, domain.Freshness, error)
 	CreateCorrectionRequest(ctx context.Context, cmd CreateCorrectionRequestCommand) (*CreateCorrectionRequestResult, error)
+	ResolveCorrectionRequest(ctx context.Context, cmd ResolveCorrectionRequestCommand) (*ResolveCorrectionRequestResult, error)
 	Ping(ctx context.Context) error
 }

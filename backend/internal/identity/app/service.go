@@ -312,6 +312,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrIdempotencyPending) {
 		return Conflict("idempotency_pending", "Idempotency-Key is already processing")
 	}
+	if errors.Is(err, ports.ErrWriteConflict) {
+		return Conflict("write_conflict", "correction request cannot be resolved with the supplied state or row_version")
+	}
 	var appErr *Error
 	if errors.As(err, &appErr) {
 		return appErr

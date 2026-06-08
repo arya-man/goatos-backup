@@ -455,6 +455,7 @@ type IdentityCorrectionRequest struct {
 	DecisionID          pgtype.UUID
 	CreatedAt           pgtype.Timestamptz
 	ResolvedAt          pgtype.Timestamptz
+	RowVersion          int32
 }
 
 type IdentityDecision struct {

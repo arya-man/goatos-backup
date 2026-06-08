@@ -225,8 +225,18 @@ type CorrectionRequest struct {
 	LocationScope       LocationScope `json:"location_scope"`
 	Description         string        `json:"description"`
 	EvidenceRefs        []EvidenceRef `json:"evidence_refs"`
+	RowVersion          *int          `json:"row_version,omitempty"`
 	CreatedAt           time.Time     `json:"created_at"`
 	ResolvedAt          *time.Time    `json:"resolved_at"`
+}
+
+type DecisionRecordSummary struct {
+	DecisionID     string    `json:"decision_id"`
+	DecisionType   string    `json:"decision_type"`
+	DecisionResult string    `json:"decision_result"`
+	DecisionState  string    `json:"decision_state"`
+	PolicyVersion  string    `json:"policy_version"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type IdempotencyMeta struct {
@@ -236,7 +246,8 @@ type IdempotencyMeta struct {
 }
 
 type CorrectionRequestResponse struct {
-	CorrectionRequest CorrectionRequest `json:"correction_request"`
-	Idempotency       IdempotencyMeta   `json:"idempotency"`
-	TraceID           string            `json:"trace_id"`
+	CorrectionRequest CorrectionRequest      `json:"correction_request"`
+	Decision          *DecisionRecordSummary `json:"decision,omitempty"`
+	Idempotency       IdempotencyMeta        `json:"idempotency"`
+	TraceID           string                 `json:"trace_id"`
 }

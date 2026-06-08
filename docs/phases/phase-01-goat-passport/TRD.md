@@ -409,6 +409,13 @@ row_version supports optimistic concurrency for admin edits
 daily task assignment stays in workforce/tasks and must not be modeled as custody
 ```
 
+Correction request resolution uses the same optimistic-concurrency rule:
+`POST /admin/identity/correction-requests/{correction_request_id}/resolve`
+must include the current `row_version`. The write is conditional on
+`state in (open, assigned, needs_field_check)`, matching `row_version`, and a
+state change. Approved/rejected/closed requests are terminal and can only be
+returned by exact idempotent replay.
+
 ### `status_definitions`
 
 Canonical status/stage reference data used by APIs and UI. These records keep
@@ -1727,6 +1734,8 @@ Common API rules:
 All list endpoints require limit and cursor.
 All write endpoints require Idempotency-Key.
 PATCH endpoints require row_version or ETag.
+Admin correction resolve is a POST command but still requires row_version
+because it changes a reviewed correction request state.
 All endpoints enforce RBAC scopes server-side.
 All read endpoints apply visibility scope before building response DTOs.
 Errors use a shared envelope:
@@ -1903,6 +1912,43 @@ location_scope
 description
 evidence_refs[]
 ```
+
+Resolve correction request:
+
+```text
+state: approved | rejected | needs_field_check | closed
+reason
+evidence_refs[]          -- typed EvidenceRef objects, not evidence_ids
+row_version
+```
+
+Resolve correction request decision record:
+
+```text
+decision_type = resolve_correction_request
+policy_version = phase1-manual-correction-review-v1
+decided_by_type = human
+decided_by = reviewer actor id
+reviewer_id = reviewer actor id
+evidence.evidence_refs[] preserves typed EvidenceRef objects
+reason is preserved in the decision record and audit metadata
+```
+
+Decision-state mapping for correction resolve:
+
+```text
+target approved          -> decision_state approved     + decision_result approved
+target rejected          -> decision_state rejected     + decision_result rejected
+target needs_field_check -> decision_state needs_review + decision_result needs_field_check
+target closed            -> decision_state approved     + decision_result closed
+```
+
+`decision_state` is the lifecycle of the review decision record
+(proposed/approved/rejected/needs_review). It is not an old assignment label or
+operator work status. The business outcome belongs in `decision_result`.
+Resolving a correction request does not directly mutate goat identity and does
+not create `goat_identity_events`; identity mutation, if approved later, must be
+its own explicit write with evidence and audit.
 
 Shared error envelope:
 

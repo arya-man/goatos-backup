@@ -217,6 +217,222 @@ func TestCorrectionRequestWritePathWithDockerPostgres(t *testing.T) {
 			t.Fatalf("expected idempotency conflict, got %v", err)
 		}
 	})
+
+	t.Run("resolve approved writes decision audit outbox and schema-valid payloads", func(t *testing.T) {
+		create := correctionCommand(t, meshaTenant, "idem-resolve-create-0001", "synthetic resolve approved correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		created, err := repo.CreateCorrectionRequest(ctx, create)
+		if err != nil {
+			t.Fatalf("create for resolve: %v", err)
+		}
+		correctionID := created.CorrectionRequest.CorrectionRequestID
+		cmd := resolveCommand(t, meshaTenant, "idem-resolve-0001", correctionID, "approved", 1, "synthetic approval after manual review")
+		result, err := repo.ResolveCorrectionRequest(ctx, cmd)
+		if err != nil {
+			t.Fatalf("ResolveCorrectionRequest: %v", err)
+		}
+		if result.Replayed || result.CorrectionRequest.State != "approved" {
+			t.Fatalf("unexpected resolve result: %#v", result)
+		}
+		if result.CorrectionRequest.RowVersion == nil || *result.CorrectionRequest.RowVersion != 2 || result.CorrectionRequest.ResolvedAt == nil {
+			t.Fatalf("row_version/resolved_at not updated: %#v", result.CorrectionRequest)
+		}
+		if result.Decision.DecisionType != "resolve_correction_request" || result.Decision.DecisionState != "approved" || result.Decision.DecisionResult != "approved" {
+			t.Fatalf("unexpected decision summary: %#v", result.Decision)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM identity_decisions WHERE decision_id = $1 AND tenant_id = $2", result.Decision.DecisionID, meshaTenant); got != 1 {
+			t.Fatalf("decision rows = %d", got)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM audit_log WHERE action = 'identity.correction_request.updated' AND resource_id = $1", correctionID); got != 1 {
+			t.Fatalf("resolve audit rows = %d", got)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM outbox_messages WHERE event_type = 'identity.correction_request.updated' AND aggregate_id = $1", correctionID); got != 1 {
+			t.Fatalf("resolve outbox rows = %d", got)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1", cmd.StoredIdempotencyKey); got != 0 {
+			t.Fatalf("resolve wrote goat_identity_events rows = %d", got)
+		}
+		decisionPayload := queryBytes(t, pool, "SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1", result.Decision.DecisionID)
+		validateDecisionRecord(t, decisionPayload)
+		var decisionRecord map[string]any
+		if err := json.Unmarshal(decisionPayload, &decisionRecord); err != nil {
+			t.Fatal(err)
+		}
+		if decisionRecord["policy_version"] != "phase1-manual-correction-review-v1" || decisionRecord["decision_result"] != "approved" {
+			t.Fatalf("unexpected decision record: %#v", decisionRecord)
+		}
+		evidence := decisionRecord["evidence"].(map[string]any)
+		refs := evidence["evidence_refs"].([]any)
+		firstRef := refs[0].(map[string]any)
+		if firstRef["source_system"] != "synthetic_import" || firstRef["description"] != "Synthetic manual review note." {
+			t.Fatalf("evidence refs not round-tripped: %#v", refs)
+		}
+		payload := queryBytes(t, pool, "SELECT payload FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		validateDomainEventEnvelope(t, payload)
+		var envelope map[string]any
+		if err := json.Unmarshal(payload, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope["event_type"] != "identity.correction_request.updated" || envelope["aggregate_type"] != "correction_request" || envelope["subject_type"] != "correction_request" {
+			t.Fatalf("unexpected resolve envelope: %#v", envelope)
+		}
+		assertIdempotencyCompleted(t, pool, cmd.StoredIdempotencyKey, correctionID)
+	})
+
+	t.Run("resolve needs field check stays nonterminal", func(t *testing.T) {
+		create := correctionCommand(t, meshaTenant, "idem-resolve-create-0002", "synthetic needs field check correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		created, err := repo.CreateCorrectionRequest(ctx, create)
+		if err != nil {
+			t.Fatalf("create for resolve: %v", err)
+		}
+		cmd := resolveCommand(t, meshaTenant, "idem-resolve-0002", created.CorrectionRequest.CorrectionRequestID, "needs_field_check", 1, "synthetic field check requested")
+		result, err := repo.ResolveCorrectionRequest(ctx, cmd)
+		if err != nil {
+			t.Fatalf("ResolveCorrectionRequest needs_field_check: %v", err)
+		}
+		if result.CorrectionRequest.State != "needs_field_check" || result.CorrectionRequest.ResolvedAt != nil {
+			t.Fatalf("expected nonterminal field-check state, got %#v", result.CorrectionRequest)
+		}
+		if result.CorrectionRequest.RowVersion == nil || *result.CorrectionRequest.RowVersion != 2 {
+			t.Fatalf("row_version not incremented: %#v", result.CorrectionRequest.RowVersion)
+		}
+		if result.Decision.DecisionState != "needs_review" || result.Decision.DecisionResult != "needs_field_check" {
+			t.Fatalf("unexpected needs_field_check decision: %#v", result.Decision)
+		}
+	})
+
+	t.Run("resolve closed maps to approved decision state and closed result", func(t *testing.T) {
+		create := correctionCommand(t, meshaTenant, "idem-resolve-create-0003", "synthetic closed correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		created, err := repo.CreateCorrectionRequest(ctx, create)
+		if err != nil {
+			t.Fatalf("create for resolve: %v", err)
+		}
+		cmd := resolveCommand(t, meshaTenant, "idem-resolve-0003", created.CorrectionRequest.CorrectionRequestID, "closed", 1, "synthetic close without identity mutation")
+		result, err := repo.ResolveCorrectionRequest(ctx, cmd)
+		if err != nil {
+			t.Fatalf("ResolveCorrectionRequest closed: %v", err)
+		}
+		if result.CorrectionRequest.State != "closed" || result.CorrectionRequest.ResolvedAt == nil {
+			t.Fatalf("expected terminal closed state, got %#v", result.CorrectionRequest)
+		}
+		if result.Decision.DecisionState != "approved" || result.Decision.DecisionResult != "closed" {
+			t.Fatalf("unexpected closed decision: %#v", result.Decision)
+		}
+	})
+
+	t.Run("resolve rejects terminal same-state stale-version and wrong-tenant writes", func(t *testing.T) {
+		terminalCreate := correctionCommand(t, meshaTenant, "idem-resolve-create-0004", "synthetic terminal conflict correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		terminalCreated, err := repo.CreateCorrectionRequest(ctx, terminalCreate)
+		if err != nil {
+			t.Fatalf("create terminal conflict: %v", err)
+		}
+		terminalID := terminalCreated.CorrectionRequest.CorrectionRequestID
+		if _, err := repo.ResolveCorrectionRequest(ctx, resolveCommand(t, meshaTenant, "idem-resolve-0004", terminalID, "approved", 1, "synthetic first terminal resolution")); err != nil {
+			t.Fatalf("first terminal resolve: %v", err)
+		}
+		terminalConflict := resolveCommand(t, meshaTenant, "idem-resolve-0005", terminalID, "rejected", 2, "synthetic terminal conflict attempt")
+		if _, err := repo.ResolveCorrectionRequest(ctx, terminalConflict); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected terminal write conflict, got %v", err)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", terminalConflict.StoredIdempotencyKey); got != 0 {
+			t.Fatalf("terminal conflict left idempotency row count=%d", got)
+		}
+
+		fieldCheckCreate := correctionCommand(t, meshaTenant, "idem-resolve-create-0005", "synthetic same-state conflict correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		fieldCheckCreated, err := repo.CreateCorrectionRequest(ctx, fieldCheckCreate)
+		if err != nil {
+			t.Fatalf("create same-state conflict: %v", err)
+		}
+		fieldCheckID := fieldCheckCreated.CorrectionRequest.CorrectionRequestID
+		if _, err := repo.ResolveCorrectionRequest(ctx, resolveCommand(t, meshaTenant, "idem-resolve-0006", fieldCheckID, "needs_field_check", 1, "synthetic first field check")); err != nil {
+			t.Fatalf("first field-check resolve: %v", err)
+		}
+		sameState := resolveCommand(t, meshaTenant, "idem-resolve-0007", fieldCheckID, "needs_field_check", 2, "synthetic same-state attempt")
+		if _, err := repo.ResolveCorrectionRequest(ctx, sameState); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected same-state write conflict, got %v", err)
+		}
+
+		staleCreate := correctionCommand(t, meshaTenant, "idem-resolve-create-0006", "synthetic stale row version correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		staleCreated, err := repo.CreateCorrectionRequest(ctx, staleCreate)
+		if err != nil {
+			t.Fatalf("create stale conflict: %v", err)
+		}
+		stale := resolveCommand(t, meshaTenant, "idem-resolve-0008", staleCreated.CorrectionRequest.CorrectionRequestID, "approved", 2, "synthetic stale row version attempt")
+		if _, err := repo.ResolveCorrectionRequest(ctx, stale); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected stale row_version conflict, got %v", err)
+		}
+
+		wrongTenant := resolveCommand(t, secondTenant, "idem-resolve-0009", staleCreated.CorrectionRequest.CorrectionRequestID, "approved", 1, "synthetic wrong tenant attempt")
+		if _, err := repo.ResolveCorrectionRequest(ctx, wrongTenant); !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("expected wrong tenant not found, got %v", err)
+		}
+	})
+
+	t.Run("resolve exact replay works and changed body conflicts", func(t *testing.T) {
+		create := correctionCommand(t, meshaTenant, "idem-resolve-create-0007", "synthetic replay correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		created, err := repo.CreateCorrectionRequest(ctx, create)
+		if err != nil {
+			t.Fatalf("create replay correction: %v", err)
+		}
+		correctionID := created.CorrectionRequest.CorrectionRequestID
+		cmd := resolveCommand(t, meshaTenant, "idem-resolve-0010", correctionID, "approved", 1, "synthetic replay approval")
+		first, err := repo.ResolveCorrectionRequest(ctx, cmd)
+		if err != nil {
+			t.Fatalf("first resolve replay test: %v", err)
+		}
+		replay, err := repo.ResolveCorrectionRequest(ctx, cmd)
+		if err != nil {
+			t.Fatalf("replay resolve: %v", err)
+		}
+		if !replay.Replayed || replay.FirstResultID == nil || *replay.FirstResultID != correctionID {
+			t.Fatalf("expected replay metadata, got %#v", replay)
+		}
+		if replay.CorrectionRequest.CorrectionRequestID != first.CorrectionRequest.CorrectionRequestID || replay.Decision.DecisionID != first.Decision.DecisionID {
+			t.Fatalf("replay did not refetch original result: first=%#v replay=%#v", first, replay)
+		}
+		changed := resolveCommand(t, meshaTenant, "idem-resolve-0010", correctionID, "approved", 1, "synthetic changed replay body")
+		if _, err := repo.ResolveCorrectionRequest(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("expected changed-body idempotency conflict, got %v", err)
+		}
+	})
+
+	t.Run("resolve forced failure rolls back decision correction audit outbox and idempotency", func(t *testing.T) {
+		create := correctionCommand(t, meshaTenant, "idem-resolve-create-0008", "synthetic resolve rollback correction", domain.LocationScope{ParkID: strPtr(cbeLocation)}, nil)
+		created, err := repo.CreateCorrectionRequest(ctx, create)
+		if err != nil {
+			t.Fatalf("create rollback correction: %v", err)
+		}
+		correctionID := created.CorrectionRequest.CorrectionRequestID
+		cmd := resolveCommand(t, meshaTenant, "idem-resolve-0011", correctionID, "approved", 1, "synthetic rollback approval")
+		cmd.TraceID = "trace-resolve-forced-rollback"
+		repo.afterAuditHook = func(context.Context) error { return errors.New("forced resolve rollback") }
+		_, err = repo.ResolveCorrectionRequest(ctx, cmd)
+		repo.afterAuditHook = nil
+		if err == nil {
+			t.Fatal("expected forced resolve rollback error")
+		}
+		var state string
+		var rowVersion int
+		var decisionID string
+		var hasResolvedAt bool
+		if err := pool.QueryRow(ctx, `SELECT state, row_version, COALESCE(decision_id::text, ''), resolved_at IS NOT NULL FROM identity_correction_requests WHERE correction_request_id = $1`, correctionID).Scan(&state, &rowVersion, &decisionID, &hasResolvedAt); err != nil {
+			t.Fatal(err)
+		}
+		if state != "open" || rowVersion != 1 || decisionID != "" || hasResolvedAt {
+			t.Fatalf("correction mutated despite rollback: state=%s row_version=%d decision=%q resolved=%v", state, rowVersion, decisionID, hasResolvedAt)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey); got != 0 {
+			t.Fatalf("idempotency rows after resolve rollback = %d", got)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1", cmd.TraceID); got != 0 {
+			t.Fatalf("decision rows after resolve rollback = %d", got)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM audit_log WHERE trace_id = $1", cmd.TraceID); got != 0 {
+			t.Fatalf("audit rows after resolve rollback = %d", got)
+		}
+		if got := countRows(t, pool, "SELECT count(*) FROM outbox_messages WHERE trace_id = $1", cmd.TraceID); got != 0 {
+			t.Fatalf("outbox rows after resolve rollback = %d", got)
+		}
+	})
 }
 
 func startCorrectionWriteDB(t *testing.T, ctx context.Context) (*pgxpool.Pool, *Repository) {
@@ -288,6 +504,45 @@ func correctionCommand(t *testing.T, tenantID, key, description string, scope do
 	}
 }
 
+func resolveCommand(t *testing.T, tenantID, key, correctionID, state string, rowVersion int, reason string) ports.ResolveCorrectionRequestCommand {
+	t.Helper()
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   "synthetic-row-1",
+		SourceSystem: strPtr("synthetic_import"),
+		Description:  strPtr("Synthetic manual review note."),
+	}}
+	body := map[string]any{
+		"state":         state,
+		"reason":        reason,
+		"evidence_refs": evidenceRefs,
+		"row_version":   rowVersion,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := "/admin/identity/correction-requests/" + correctionID + "/resolve"
+	hash, err := app.CanonicalRequestHashWithSubject(tenantID, "resolveCorrectionRequest", route, correctionID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.ResolveCorrectionRequestCommand{
+		TenantID:             tenantID,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: tenantID + ":resolveCorrectionRequest:" + key,
+		IdempotencyScope:     "resolveCorrectionRequest",
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		CorrectionRequestID:  correctionID,
+		TargetState:          state,
+		Reason:               reason,
+		EvidenceRefs:         evidenceRefs,
+		RowVersion:           rowVersion,
+	}
+}
+
 func countRows(t *testing.T, pool *pgxpool.Pool, query string, args ...any) int {
 	t.Helper()
 	var count int
@@ -319,8 +574,18 @@ func assertIdempotencyCompleted(t *testing.T, pool *pgxpool.Pool, key, resultID 
 
 func validateDomainEventEnvelope(t *testing.T, payload []byte) {
 	t.Helper()
+	validateJSONSchema(t, "domain-event-envelope.schema.json", payload)
+}
+
+func validateDecisionRecord(t *testing.T, payload []byte) {
+	t.Helper()
+	validateJSONSchema(t, "decision-record.schema.json", payload)
+}
+
+func validateJSONSchema(t *testing.T, schemaName string, payload []byte) {
+	t.Helper()
 	root := repoRoot(t)
-	schemaPath := filepath.Join(root, "contracts", "jsonschema", "domain-event-envelope.schema.json")
+	schemaPath := filepath.Join(root, "contracts", "jsonschema", schemaName)
 	schemaBytes, err := os.ReadFile(schemaPath)
 	if err != nil {
 		t.Fatal(err)
@@ -330,10 +595,10 @@ func validateDomainEventEnvelope(t *testing.T, payload []byte) {
 		t.Fatal(err)
 	}
 	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("domain-event-envelope.schema.json", schemaDoc); err != nil {
+	if err := compiler.AddResource(schemaName, schemaDoc); err != nil {
 		t.Fatal(err)
 	}
-	schema, err := compiler.Compile("domain-event-envelope.schema.json")
+	schema, err := compiler.Compile(schemaName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,6 +607,6 @@ func validateDomainEventEnvelope(t *testing.T, payload []byte) {
 		t.Fatal(err)
 	}
 	if err := schema.Validate(payloadDoc); err != nil {
-		t.Fatalf("outbox payload failed domain event schema validation: %v\n%s", err, string(payload))
+		t.Fatalf("payload failed %s validation: %v\n%s", schemaName, err, string(payload))
 	}
 }

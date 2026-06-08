@@ -33,7 +33,8 @@
         "merge_goats",
         "batch_merge_goats",
         "reject_match",
-        "request_field_verification"
+        "request_field_verification",
+        "resolve_correction_request"
       ]
     },
     "decision_result": {
@@ -193,7 +194,7 @@
     "idempotency_key": {
       "type": "string",
       "minLength": 8,
-      "maxLength": 200
+      "maxLength": 320
     },
     "trace_id": {
       "type": "string",

@@ -44,6 +44,7 @@
         "goat.identity.merge_rejected",
         "goat.location.changed",
         "identity.correction_request.created",
+        "identity.correction_request.updated",
         "legacy_import.row_processed",
         "legacy_import.completed"
       ]

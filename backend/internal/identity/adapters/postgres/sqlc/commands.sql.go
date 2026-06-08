@@ -210,6 +210,116 @@ func (q *Queries) GetCorrectionRequestByID(ctx context.Context, arg GetCorrectio
 	return i, err
 }
 
+const getCorrectionRequestForResolve = `-- name: GetCorrectionRequestForResolve :one
+SELECT
+  correction_request_id::text AS correction_request_id,
+  request_type,
+  state,
+  COALESCE(goat_id::text, '')::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id,
+  description,
+  evidence,
+  row_version,
+  COALESCE(decision_id::text, '')::text AS decision_id,
+  created_at,
+  resolved_at
+FROM identity_correction_requests
+WHERE tenant_id = $1 AND correction_request_id = $2
+`
+
+type GetCorrectionRequestForResolveParams struct {
+	TenantID            pgtype.UUID
+	CorrectionRequestID pgtype.UUID
+}
+
+type GetCorrectionRequestForResolveRow struct {
+	CorrectionRequestID string
+	RequestType         string
+	State               string
+	GoatID              string
+	IdentifierType      pgtype.Text
+	IdentifierValue     pgtype.Text
+	FarmID              string
+	ParkID              string
+	ShedID              string
+	CohortID            string
+	Description         string
+	Evidence            []byte
+	RowVersion          int32
+	DecisionID          string
+	CreatedAt           pgtype.Timestamptz
+	ResolvedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) GetCorrectionRequestForResolve(ctx context.Context, arg GetCorrectionRequestForResolveParams) (GetCorrectionRequestForResolveRow, error) {
+	row := q.db.QueryRow(ctx, getCorrectionRequestForResolve, arg.TenantID, arg.CorrectionRequestID)
+	var i GetCorrectionRequestForResolveRow
+	err := row.Scan(
+		&i.CorrectionRequestID,
+		&i.RequestType,
+		&i.State,
+		&i.GoatID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.FarmID,
+		&i.ParkID,
+		&i.ShedID,
+		&i.CohortID,
+		&i.Description,
+		&i.Evidence,
+		&i.RowVersion,
+		&i.DecisionID,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
+const getDecisionSummaryByID = `-- name: GetDecisionSummaryByID :one
+SELECT
+  decision_id::text AS decision_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  policy_version,
+  created_at
+FROM identity_decisions
+WHERE tenant_id = $1 AND decision_id = $2
+`
+
+type GetDecisionSummaryByIDParams struct {
+	TenantID   pgtype.UUID
+	DecisionID pgtype.UUID
+}
+
+type GetDecisionSummaryByIDRow struct {
+	DecisionID     string
+	DecisionType   string
+	DecisionResult string
+	DecisionState  string
+	PolicyVersion  string
+	CreatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) GetDecisionSummaryByID(ctx context.Context, arg GetDecisionSummaryByIDParams) (GetDecisionSummaryByIDRow, error) {
+	row := q.db.QueryRow(ctx, getDecisionSummaryByID, arg.TenantID, arg.DecisionID)
+	var i GetDecisionSummaryByIDRow
+	err := row.Scan(
+		&i.DecisionID,
+		&i.DecisionType,
+		&i.DecisionResult,
+		&i.DecisionState,
+		&i.PolicyVersion,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getIdempotencyKey = `-- name: GetIdempotencyKey :one
 SELECT
   request_hash,
@@ -353,6 +463,96 @@ func (q *Queries) InsertIdempotencyStarted(ctx context.Context, arg InsertIdempo
 	return idempotency_key, err
 }
 
+const insertIdentityDecision = `-- name: InsertIdentityDecision :one
+INSERT INTO identity_decisions (
+  decision_id,
+  tenant_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  decided_by_type,
+  decided_by,
+  policy_version,
+  reviewer_id,
+  evidence,
+  created_at,
+  approved_at,
+  decided_at
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  'human',
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11::timestamptz,
+  $12
+)
+RETURNING
+  decision_id::text AS decision_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  policy_version,
+  created_at
+`
+
+type InsertIdentityDecisionParams struct {
+	DecisionID     pgtype.UUID
+	TenantID       pgtype.UUID
+	DecisionType   string
+	DecisionResult string
+	DecisionState  string
+	DecidedBy      pgtype.UUID
+	PolicyVersion  string
+	ReviewerID     pgtype.UUID
+	Evidence       []byte
+	CreatedAt      pgtype.Timestamptz
+	ApprovedAt     pgtype.Timestamptz
+	DecidedAt      pgtype.Timestamptz
+}
+
+type InsertIdentityDecisionRow struct {
+	DecisionID     string
+	DecisionType   string
+	DecisionResult string
+	DecisionState  string
+	PolicyVersion  string
+	CreatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) InsertIdentityDecision(ctx context.Context, arg InsertIdentityDecisionParams) (InsertIdentityDecisionRow, error) {
+	row := q.db.QueryRow(ctx, insertIdentityDecision,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.DecisionType,
+		arg.DecisionResult,
+		arg.DecisionState,
+		arg.DecidedBy,
+		arg.PolicyVersion,
+		arg.ReviewerID,
+		arg.Evidence,
+		arg.CreatedAt,
+		arg.ApprovedAt,
+		arg.DecidedAt,
+	)
+	var i InsertIdentityDecisionRow
+	err := row.Scan(
+		&i.DecisionID,
+		&i.DecisionType,
+		&i.DecisionResult,
+		&i.DecisionState,
+		&i.PolicyVersion,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertOutboxMessage = `-- name: InsertOutboxMessage :exec
 INSERT INTO outbox_messages (
   tenant_id,
@@ -423,4 +623,99 @@ func (q *Queries) NewUUID(ctx context.Context) (string, error) {
 	var uuid string
 	err := row.Scan(&uuid)
 	return uuid, err
+}
+
+const resolveCorrectionRequest = `-- name: ResolveCorrectionRequest :one
+UPDATE identity_correction_requests
+SET
+  state = $1,
+  assigned_reviewer_id = $2,
+  decision_id = $3,
+  resolved_at = CASE WHEN $4::bool THEN $5::timestamptz ELSE NULL END,
+  row_version = row_version + 1
+WHERE tenant_id = $6
+  AND correction_request_id = $7
+  AND state IN ('open', 'assigned', 'needs_field_check')
+  AND state <> $1
+  AND row_version = $8
+RETURNING
+  correction_request_id::text AS correction_request_id,
+  request_type,
+  state,
+  COALESCE(goat_id::text, '')::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id,
+  description,
+  evidence,
+  row_version,
+  COALESCE(decision_id::text, '')::text AS decision_id,
+  created_at,
+  resolved_at
+`
+
+type ResolveCorrectionRequestParams struct {
+	State               string
+	ReviewerID          pgtype.UUID
+	DecisionID          pgtype.UUID
+	Terminal            bool
+	ResolvedAt          pgtype.Timestamptz
+	TenantID            pgtype.UUID
+	CorrectionRequestID pgtype.UUID
+	RowVersion          int32
+}
+
+type ResolveCorrectionRequestRow struct {
+	CorrectionRequestID string
+	RequestType         string
+	State               string
+	GoatID              string
+	IdentifierType      pgtype.Text
+	IdentifierValue     pgtype.Text
+	FarmID              string
+	ParkID              string
+	ShedID              string
+	CohortID            string
+	Description         string
+	Evidence            []byte
+	RowVersion          int32
+	DecisionID          string
+	CreatedAt           pgtype.Timestamptz
+	ResolvedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) ResolveCorrectionRequest(ctx context.Context, arg ResolveCorrectionRequestParams) (ResolveCorrectionRequestRow, error) {
+	row := q.db.QueryRow(ctx, resolveCorrectionRequest,
+		arg.State,
+		arg.ReviewerID,
+		arg.DecisionID,
+		arg.Terminal,
+		arg.ResolvedAt,
+		arg.TenantID,
+		arg.CorrectionRequestID,
+		arg.RowVersion,
+	)
+	var i ResolveCorrectionRequestRow
+	err := row.Scan(
+		&i.CorrectionRequestID,
+		&i.RequestType,
+		&i.State,
+		&i.GoatID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.FarmID,
+		&i.ParkID,
+		&i.ShedID,
+		&i.CohortID,
+		&i.Description,
+		&i.Evidence,
+		&i.RowVersion,
+		&i.DecisionID,
+		&i.CreatedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
 }

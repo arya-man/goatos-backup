@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	correctionCreateCommand = "createCorrectionRequest"
-	correctionCreateRoute   = "/identity/correction-requests"
+	correctionCreateCommand  = "createCorrectionRequest"
+	correctionCreateRoute    = "/identity/correction-requests"
+	correctionResolveCommand = "resolveCorrectionRequest"
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
@@ -30,6 +31,15 @@ type CreateCorrectionRequestInput struct {
 	RawBody        []byte
 }
 
+type ResolveCorrectionRequestInput struct {
+	TenantID            string
+	ActorID             string
+	IdempotencyKey      string
+	TraceID             string
+	CorrectionRequestID string
+	RawBody             []byte
+}
+
 type createCorrectionRequestBody struct {
 	RequestType     string                `json:"request_type"`
 	GoatID          *string               `json:"goat_id"`
@@ -38,6 +48,13 @@ type createCorrectionRequestBody struct {
 	LocationScope   *domain.LocationScope `json:"location_scope"`
 	Description     string                `json:"description"`
 	EvidenceRefs    *[]domain.EvidenceRef `json:"evidence_refs"`
+}
+
+type resolveCorrectionRequestBody struct {
+	State        string                `json:"state"`
+	Reason       string                `json:"reason"`
+	EvidenceRefs *[]domain.EvidenceRef `json:"evidence_refs"`
+	RowVersion   *int                  `json:"row_version"`
 }
 
 func (s *Service) CreateCorrectionRequest(ctx context.Context, input CreateCorrectionRequestInput) (*domain.CorrectionRequestResponse, error) {
@@ -101,21 +118,96 @@ func (s *Service) CreateCorrectionRequest(ctx context.Context, input CreateCorre
 	}, nil
 }
 
+func (s *Service) ResolveCorrectionRequest(ctx context.Context, input ResolveCorrectionRequestInput) (*domain.CorrectionRequestResponse, error) {
+	tenantID := strings.TrimSpace(input.TenantID)
+	if err := requireTenant(tenantID); err != nil {
+		return nil, err
+	}
+	actorID := strings.TrimSpace(input.ActorID)
+	if !uuidPattern.MatchString(actorID) {
+		return nil, BadRequest("invalid_actor_id", "X-GoatOS-Actor-ID must be a valid UUID")
+	}
+	clientKey := strings.TrimSpace(input.IdempotencyKey)
+	if clientKey == "" {
+		return nil, BadRequest("missing_idempotency_key", "Idempotency-Key header is required")
+	}
+	if len(clientKey) < 8 || len(clientKey) > 200 {
+		return nil, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
+	}
+	correctionID := strings.TrimSpace(input.CorrectionRequestID)
+	if !uuidPattern.MatchString(correctionID) {
+		return nil, BadRequest("invalid_correction_request_id", "correction_request_id must be a valid UUID")
+	}
+
+	body, err := decodeResolveCorrectionRequest(input.RawBody)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateResolveCorrectionRequest(body); err != nil {
+		return nil, err
+	}
+	route := fmt.Sprintf("/admin/identity/correction-requests/%s/resolve", correctionID)
+	requestHash, err := CanonicalRequestHashWithSubject(tenantID, correctionResolveCommand, route, correctionID, input.RawBody)
+	if err != nil {
+		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+	}
+
+	storedKey := fmt.Sprintf("%s:%s:%s", tenantID, correctionResolveCommand, clientKey)
+	result, err := s.repo.ResolveCorrectionRequest(ctx, ports.ResolveCorrectionRequestCommand{
+		TenantID:             tenantID,
+		ActorID:              actorID,
+		ClientIdempotencyKey: clientKey,
+		StoredIdempotencyKey: storedKey,
+		IdempotencyScope:     correctionResolveCommand,
+		RequestHash:          requestHash,
+		TraceID:              input.TraceID,
+		CorrectionRequestID:  correctionID,
+		TargetState:          body.State,
+		Reason:               body.Reason,
+		EvidenceRefs:         *body.EvidenceRefs,
+		RowVersion:           *body.RowVersion,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+
+	return &domain.CorrectionRequestResponse{
+		CorrectionRequest: result.CorrectionRequest,
+		Decision:          &result.Decision,
+		Idempotency: domain.IdempotencyMeta{
+			IdempotencyKey: clientKey,
+			Replayed:       result.Replayed,
+			FirstResultID:  result.FirstResultID,
+		},
+		TraceID: input.TraceID,
+	}, nil
+}
+
 func CanonicalRequestHash(tenantID, command, route string, body []byte) (string, error) {
+	return canonicalRequestHash(tenantID, command, route, "", body)
+}
+
+func CanonicalRequestHashWithSubject(tenantID, command, route, subjectID string, body []byte) (string, error) {
+	return canonicalRequestHash(tenantID, command, route, subjectID, body)
+}
+
+func canonicalRequestHash(tenantID, command, route, subjectID string, body []byte) (string, error) {
 	var decoded any
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		return "", err
 	}
 	canonical := struct {
-		TenantID string `json:"tenant_id"`
-		Command  string `json:"command"`
-		Route    string `json:"route"`
-		Body     any    `json:"body"`
+		TenantID  string `json:"tenant_id"`
+		Command   string `json:"command"`
+		Route     string `json:"route"`
+		SubjectID string `json:"subject_id,omitempty"`
+		Body      any    `json:"body"`
 	}{
-		TenantID: tenantID,
-		Command:  command,
-		Route:    route,
-		Body:     decoded,
+		TenantID:  tenantID,
+		Command:   command,
+		Route:     route,
+		SubjectID: subjectID,
+		Body:      decoded,
 	}
 	payload, err := json.Marshal(canonical)
 	if err != nil {
@@ -134,6 +226,23 @@ func decodeCreateCorrectionRequest(raw []byte) (*createCorrectionRequestBody, er
 	var body createCorrectionRequestBody
 	if err := decoder.Decode(&body); err != nil {
 		return nil, BadRequest("invalid_json", "request body must match CreateCorrectionRequest")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return &body, nil
+}
+
+func decodeResolveCorrectionRequest(raw []byte) (*resolveCorrectionRequestBody, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var body resolveCorrectionRequestBody
+	if err := decoder.Decode(&body); err != nil {
+		return nil, BadRequest("invalid_json", "request body must match ResolveCorrectionRequest")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
@@ -180,8 +289,33 @@ func validateCreateCorrectionRequest(body *createCorrectionRequestBody) error {
 	if body.EvidenceRefs == nil {
 		return BadRequest("missing_evidence_refs", "evidence_refs is required")
 	}
-	for i := range *body.EvidenceRefs {
-		ref := &(*body.EvidenceRefs)[i]
+	return validateEvidenceRefs(*body.EvidenceRefs, false)
+}
+
+func validateResolveCorrectionRequest(body *resolveCorrectionRequestBody) error {
+	body.State = strings.TrimSpace(body.State)
+	if !allowedResolveCorrectionStates[body.State] {
+		return BadRequest("invalid_state", "state is not supported for correction resolution")
+	}
+	body.Reason = strings.TrimSpace(body.Reason)
+	if body.Reason == "" || len(body.Reason) > 2000 {
+		return BadRequest("invalid_reason", "reason must be between 1 and 2000 characters")
+	}
+	if body.RowVersion == nil || *body.RowVersion < 1 {
+		return BadRequest("invalid_row_version", "row_version must be at least 1")
+	}
+	if body.EvidenceRefs == nil {
+		return BadRequest("missing_evidence_refs", "evidence_refs is required")
+	}
+	return validateEvidenceRefs(*body.EvidenceRefs, true)
+}
+
+func validateEvidenceRefs(refs []domain.EvidenceRef, requireNonEmpty bool) error {
+	if requireNonEmpty && len(refs) == 0 {
+		return BadRequest("missing_evidence_refs", "evidence_refs must contain at least one item")
+	}
+	for i := range refs {
+		ref := &refs[i]
 		ref.EvidenceType = strings.TrimSpace(ref.EvidenceType)
 		ref.EvidenceID = strings.TrimSpace(ref.EvidenceID)
 		if !allowedEvidenceTypes[ref.EvidenceType] {
@@ -252,6 +386,13 @@ var allowedCorrectionRequestTypes = map[string]bool{
 	"wrong_status":                     true,
 	"field_verification_result":        true,
 	"identifier_seen_but_not_attached": true,
+}
+
+var allowedResolveCorrectionStates = map[string]bool{
+	"approved":          true,
+	"rejected":          true,
+	"needs_field_check": true,
+	"closed":            true,
 }
 
 var allowedIdentifierTypes = map[string]bool{

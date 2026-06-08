@@ -195,6 +195,17 @@ func TestCanonicalRequestHashIsStableAndScoped(t *testing.T) {
 	if otherRouteHash == hashA {
 		t.Fatal("hash must include route identity")
 	}
+	subjectHash, err := CanonicalRequestHashWithSubject(testTenant, correctionResolveCommand, "/admin/identity/correction-requests/40000000-0000-4000-8000-000000000001/resolve", "40000000-0000-4000-8000-000000000001", bodyA)
+	if err != nil {
+		t.Fatalf("hash with subject: %v", err)
+	}
+	otherSubjectHash, err := CanonicalRequestHashWithSubject(testTenant, correctionResolveCommand, "/admin/identity/correction-requests/40000000-0000-4000-8000-000000000002/resolve", "40000000-0000-4000-8000-000000000002", bodyA)
+	if err != nil {
+		t.Fatalf("hash with other subject: %v", err)
+	}
+	if subjectHash == otherSubjectHash {
+		t.Fatal("hash must include correction request id")
+	}
 }
 
 func TestCreateCorrectionRequestIdempotencyReplay(t *testing.T) {
@@ -240,6 +251,80 @@ func TestCreateCorrectionRequestIdempotencyConflict(t *testing.T) {
 	}
 }
 
+func TestResolveCorrectionRequestValidationAndReplay(t *testing.T) {
+	resultID := "40000000-0000-4000-8000-000000000001"
+	repo := &fakeRepo{
+		resolveResult: &ports.ResolveCorrectionRequestResult{
+			CorrectionRequest: domain.CorrectionRequest{
+				CorrectionRequestID: resultID,
+				RequestType:         "missing_tag",
+				State:               "approved",
+				LocationScope:       domain.LocationScope{ParkID: strPtr("00000000-0000-4000-8000-000000003001")},
+				Description:         "synthetic field note",
+				EvidenceRefs:        []domain.EvidenceRef{{EvidenceType: "source_record", EvidenceID: "synthetic-row-1"}},
+				RowVersion:          intPtr(2),
+				CreatedAt:           time.Now().UTC(),
+				ResolvedAt:          timePtr(time.Now().UTC()),
+			},
+			Decision: domain.DecisionRecordSummary{
+				DecisionID:     "50000000-0000-4000-8000-000000000001",
+				DecisionType:   "resolve_correction_request",
+				DecisionResult: "approved",
+				DecisionState:  "approved",
+				PolicyVersion:  "phase1-manual-correction-review-v1",
+				CreatedAt:      time.Now().UTC(),
+			},
+			Replayed:      true,
+			FirstResultID: &resultID,
+		},
+	}
+	svc := NewService(repo)
+	response, err := svc.ResolveCorrectionRequest(context.Background(), validResolveInput())
+	if err != nil {
+		t.Fatalf("ResolveCorrectionRequest: %v", err)
+	}
+	if response.Decision == nil || response.Decision.DecisionType != "resolve_correction_request" {
+		t.Fatalf("decision missing from response: %#v", response.Decision)
+	}
+	if !response.Idempotency.Replayed || response.Idempotency.FirstResultID == nil || *response.Idempotency.FirstResultID != resultID {
+		t.Fatalf("unexpected idempotency response: %#v", response.Idempotency)
+	}
+	if repo.lastResolveCmd.StoredIdempotencyKey != testTenant+":"+correctionResolveCommand+":idem-resolve-0001" {
+		t.Fatalf("stored idempotency key was not namespaced: %q", repo.lastResolveCmd.StoredIdempotencyKey)
+	}
+	if repo.lastResolveCmd.CorrectionRequestID != resultID || repo.lastResolveCmd.RowVersion != 1 {
+		t.Fatalf("resolve command not normalized: %#v", repo.lastResolveCmd)
+	}
+}
+
+func TestResolveCorrectionRequestRejectsBadEvidence(t *testing.T) {
+	input := validResolveInput()
+	input.RawBody = []byte(`{"state":"approved","reason":"synthetic reason","evidence_refs":[],"row_version":1}`)
+	svc := NewService(&fakeRepo{})
+	_, err := svc.ResolveCorrectionRequest(context.Background(), input)
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "missing_evidence_refs" {
+		t.Fatalf("expected missing evidence_refs bad request, got %v", err)
+	}
+
+	input = validResolveInput()
+	input.RawBody = []byte(`{"state":"approved","reason":"synthetic reason","evidence_refs":[{"evidence_type":"made_up","evidence_id":"synthetic"}],"row_version":1}`)
+	_, err = svc.ResolveCorrectionRequest(context.Background(), input)
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_evidence_ref" {
+		t.Fatalf("expected invalid evidence type bad request, got %v", err)
+	}
+}
+
+func TestResolveCorrectionRequestIdempotencyConflict(t *testing.T) {
+	repo := &fakeRepo{resolveErr: ports.ErrIdempotencyConflict}
+	svc := NewService(repo)
+	_, err := svc.ResolveCorrectionRequest(context.Background(), validResolveInput())
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 409 || appErr.Code != "idempotency_conflict" {
+		t.Fatalf("expected idempotency conflict app error, got %v", err)
+	}
+}
+
 func validCorrectionInput() CreateCorrectionRequestInput {
 	return CreateCorrectionRequestInput{
 		TenantID:       testTenant,
@@ -250,13 +335,27 @@ func validCorrectionInput() CreateCorrectionRequestInput {
 	}
 }
 
+func validResolveInput() ResolveCorrectionRequestInput {
+	return ResolveCorrectionRequestInput{
+		TenantID:            testTenant,
+		ActorID:             "90000000-0000-4000-8000-000000000001",
+		IdempotencyKey:      "idem-resolve-0001",
+		TraceID:             testTrace,
+		CorrectionRequestID: "40000000-0000-4000-8000-000000000001",
+		RawBody:             []byte(`{"state":"approved","reason":"synthetic review reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import","description":"Synthetic source row."}],"row_version":1}`),
+	}
+}
+
 type fakeRepo struct {
 	goats             map[string]*domain.GoatPassport
 	matches           []domain.IdentifierMatch
 	conflictID        string
 	correctionResult  *ports.CreateCorrectionRequestResult
 	correctionErr     error
+	resolveResult     *ports.ResolveCorrectionRequestResult
+	resolveErr        error
 	lastCorrectionCmd ports.CreateCorrectionRequestCommand
+	lastResolveCmd    ports.ResolveCorrectionRequestCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -327,6 +426,36 @@ func (f *fakeRepo) CreateCorrectionRequest(_ context.Context, cmd ports.CreateCo
 	}, nil
 }
 
+func (f *fakeRepo) ResolveCorrectionRequest(_ context.Context, cmd ports.ResolveCorrectionRequestCommand) (*ports.ResolveCorrectionRequestResult, error) {
+	f.lastResolveCmd = cmd
+	if f.resolveErr != nil {
+		return nil, f.resolveErr
+	}
+	if f.resolveResult != nil {
+		return f.resolveResult, nil
+	}
+	return &ports.ResolveCorrectionRequestResult{
+		CorrectionRequest: domain.CorrectionRequest{
+			CorrectionRequestID: cmd.CorrectionRequestID,
+			RequestType:         "missing_tag",
+			State:               cmd.TargetState,
+			LocationScope:       domain.LocationScope{ParkID: strPtr("00000000-0000-4000-8000-000000003001")},
+			Description:         "synthetic field note",
+			EvidenceRefs:        cmd.EvidenceRefs,
+			RowVersion:          intPtr(cmd.RowVersion + 1),
+			CreatedAt:           time.Now().UTC(),
+		},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000001",
+			DecisionType:   "resolve_correction_request",
+			DecisionResult: cmd.TargetState,
+			DecisionState:  "approved",
+			PolicyVersion:  "phase1-manual-correction-review-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+	}, nil
+}
+
 func (f *fakeRepo) Ping(context.Context) error { return nil }
 
 func passport(goatID, displayID, identityState string, mergedInto *string) *domain.GoatPassport {
@@ -369,6 +498,14 @@ func identifier(identifierType, value, scope, status string, validFrom time.Time
 }
 
 func strPtr(value string) *string {
+	return &value
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func timePtr(value time.Time) *time.Time {
 	return &value
 }
 
