@@ -129,6 +129,44 @@ fresh private RFID DB import run
 P8 sales/allocation/promise behavior
 ```
 
+## Next Write-Slice Guardrails
+
+```text
+Write-side tables already exist in the Phase 1 migrations. Do not add a new
+migration for idempotency_keys, outbox_messages, audit_log,
+goat_identity_events, identity_correction_requests, goat_merge_links, or
+identity_decisions unless the current schema cannot safely support the required
+behavior.
+
+Build the write foundation before merge:
+  1. transaction/unit-of-work port
+  2. idempotency via INSERT ... ON CONFLICT, not SELECT-then-INSERT
+  3. same-transaction audit_log + goat_identity_events/outbox where the command
+     actually mutates goat identity
+  4. first small write surface: POST /identity/correction-requests
+
+Correction request create exists in app-api.yaml. Admin correction resolve also
+exists, but resolve is a later write slice. When resolve is built, the state
+machine is open/assigned/needs_field_check -> approved/rejected/closed or
+needs_field_check, and already-terminal requests must not be re-resolved except
+as exact idempotent replay.
+
+Do not implement goat merge in the write-foundation slice. The merge slice must:
+  - use SET LOCAL goatos.allow_merged_goat_update='on' and
+    goatos.allow_merged_goat_child_write='on' only inside the merge/unmerge
+    transaction
+  - resolve identifier collisions before moving identifiers, because active
+    RFID/scoped/primary uniqueness can abort blind moves
+  - write goat_merge_links and decision records
+
+Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
+actor headers are local/dev scaffolding only. They are a deploy gate for shared,
+staging, or production-like environments.
+
+Outbox relay/publisher remains deferred. The write slice persists outbox rows
+only; it must not add a publisher goroutine.
+```
+
 ## Validation Commands
 
 Current expected checks:
