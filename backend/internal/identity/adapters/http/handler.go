@@ -3,6 +3,7 @@ package identityhttp
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,7 +28,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /goats/{goat_id}/timeline", h.NotImplemented("goat_timeline_deferred"))
 	mux.HandleFunc("GET /identifiers/{type}/{value}/resolve", h.ResolveIdentifier)
 	mux.HandleFunc("GET /identity/correction-requests", h.NotImplemented("correction_requests_deferred"))
-	mux.HandleFunc("POST /identity/correction-requests", h.NotImplemented("correction_requests_deferred"))
+	mux.HandleFunc("POST /identity/correction-requests", h.CreateCorrectionRequest)
 
 	mux.HandleFunc("GET /admin/identity/conflicts", h.ListConflicts)
 	mux.HandleFunc("GET /admin/identity/conflicts/{conflict_id}", h.GetConflict)
@@ -109,6 +110,36 @@ func (h *Handler) ListConflicts(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetConflict(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetConflict(r.Context(), tenantID(r), r.PathValue("conflict_id"), traceID(r))
 	respond(w, r, result, err)
+}
+
+func (h *Handler) CreateCorrectionRequest(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.CreateCorrectionRequest(r.Context(), app.CreateCorrectionRequestInput{
+		TenantID:       tenantID(r),
+		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		RawBody:        body,
+	})
+	if err != nil {
+		respond(w, r, nil, err)
+		return
+	}
+	status := http.StatusCreated
+	if result.Idempotency.Replayed {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, result)
 }
 
 func (h *Handler) GetIdentityCounts(w http.ResponseWriter, r *http.Request) {

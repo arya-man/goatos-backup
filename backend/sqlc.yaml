@@ -2,7 +2,9 @@ version: "2"
 sql:
   - engine: postgresql
     schema: internal/identity/adapters/postgres/sqlc/schema.sql
-    queries: internal/identity/adapters/postgres/sqlc/query.sql
+    queries:
+      - internal/identity/adapters/postgres/sqlc/query.sql
+      - internal/identity/adapters/postgres/sqlc/commands.sql
     gen:
       go:
         package: identitydb

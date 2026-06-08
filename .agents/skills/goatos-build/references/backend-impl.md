@@ -53,6 +53,21 @@ Rules:
   handwritten pgx for dynamic optional-filter reads. Do not spread new
   hand-written SQL into write-heavy/import/reconciliation paths without either
   generating it or documenting why the shape must remain dynamic.
+- Write commands use repository-owned Postgres transactions behind the module
+  port. The app service validates command semantics and idempotency identity;
+  the Postgres adapter owns SQL and commits idempotency row, domain write,
+  audit row, and outbox row together.
+- POST `/identity/correction-requests` is the first write pattern:
+  `Idempotency-Key` is required, the stored key is
+  `<tenant_id>:createCorrectionRequest:<client_key>`, request_hash includes
+  canonical JSON body + command + route + tenant, exact replay re-fetches the
+  correction request, and same key/different body is a conflict.
+- Temporary `X-GoatOS-Actor-ID` is required for write scaffolding until
+  auth/RBAC lands. It must parse as uuid and is local/dev only.
+- Correction request create supports goat-linked and goatless requests. It does
+  not create goat_identity_events because it is a review input, not canonical
+  goat identity mutation. It writes a `correction_request` outbox event envelope
+  in the same transaction.
 - `make sqlc-check` regenerates the migration-derived schema dump and generated
   sqlc code with the pinned `tools/sqlc/sqlc.version`; it fails on drift.
 - `make validate-sqlc-plans` extracts every generated static read from
@@ -87,6 +102,14 @@ GET /admin/identity/conflicts
 GET /admin/identity/conflicts/{conflict_id}
 GET /analytics/identity/counts
   structural read paths only; counters are populated by later projection/import work
+
+POST /identity/correction-requests
+  strict contract-shaped JSON body validation with unknown-field rejection
+  goat-linked tenant ownership validation
+  goatless correction requests allowed
+  state=open
+  same-transaction idempotency + correction row + audit_log + outbox_messages
+  correction_request is the outbox aggregate; goat is subject only when goat_id exists
 ```
 
 Known backend deferments:
@@ -94,7 +117,7 @@ Known backend deferments:
 ```text
 auth/RBAC adapter
 legacy import runner
-write/merge handlers
+merge/resolve command handlers
 projection workers and counter population
 outbox relay/runtime workers
 OpenTelemetry exporters/spans/metrics

@@ -207,6 +207,10 @@ CREATE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
+  IF NEW.aggregate_type = 'correction_request' THEN
+    RETURN NEW;
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
     FROM goat_identity_events

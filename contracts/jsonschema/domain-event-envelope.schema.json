@@ -43,6 +43,7 @@
         "goat.identity.merge_approved",
         "goat.identity.merge_rejected",
         "goat.location.changed",
+        "identity.correction_request.created",
         "legacy_import.row_processed",
         "legacy_import.completed"
       ]
@@ -62,6 +63,7 @@
         "identifier",
         "identity_conflict",
         "identity_decision",
+        "correction_request",
         "legacy_import_run"
       ]
     },
@@ -76,6 +78,7 @@
         "identifier",
         "identity_conflict",
         "identity_decision",
+        "correction_request",
         "legacy_import_row",
         "legacy_import_run",
         "location"
@@ -120,7 +123,7 @@
     "idempotency_key": {
       "type": "string",
       "minLength": 8,
-      "maxLength": 200
+      "maxLength": 320
     },
     "actor": {
       "type": "object",

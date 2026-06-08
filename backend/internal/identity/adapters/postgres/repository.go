@@ -19,9 +19,10 @@ import (
 )
 
 type Repository struct {
-	pool         *pgxpool.Pool
-	queries      *identitydb.Queries
-	queryTimeout time.Duration
+	pool           *pgxpool.Pool
+	queries        *identitydb.Queries
+	queryTimeout   time.Duration
+	afterAuditHook func(context.Context) error
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {

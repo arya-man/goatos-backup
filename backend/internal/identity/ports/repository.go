@@ -7,7 +7,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 )
 
-var ErrNotFound = errors.New("identity record not found")
+var (
+	ErrNotFound            = errors.New("identity record not found")
+	ErrIdempotencyConflict = errors.New("idempotency key reused with different request")
+	ErrIdempotencyPending  = errors.New("idempotency key is not completed")
+)
 
 type SearchGoatsParams struct {
 	TenantID       string
@@ -58,6 +62,29 @@ type CountParams struct {
 	Sex                *string
 }
 
+type CreateCorrectionRequestCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	RequestType          string
+	GoatID               *string
+	IdentifierType       *string
+	IdentifierValue      *string
+	LocationScope        domain.LocationScope
+	Description          string
+	EvidenceRefs         []domain.EvidenceRef
+}
+
+type CreateCorrectionRequestResult struct {
+	CorrectionRequest domain.CorrectionRequest
+	Replayed          bool
+	FirstResultID     *string
+}
+
 type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
@@ -67,5 +94,6 @@ type Repository interface {
 	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListIdentityCounts(ctx context.Context, params CountParams) ([]domain.IdentityCount, domain.Freshness, error)
+	CreateCorrectionRequest(ctx context.Context, cmd CreateCorrectionRequestCommand) (*CreateCorrectionRequestResult, error)
 	Ping(ctx context.Context) error
 }

@@ -24,6 +24,7 @@ Database foundation:
 ```text
 backend/migrations/postgres/000001_phase_1_identity_foundation.sql
 backend/migrations/postgres/000002_phase_1_identity_schema_hardening.sql
+backend/migrations/postgres/000003_phase_1_correction_outbox_support.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -44,6 +45,16 @@ backend/internal/identity/adapters/postgres
 backend/internal/identity/adapters/postgres/sqlc
 backend/sqlc.yaml
 tools/sqlc/
+```
+
+Go backend write foundation:
+
+```text
+POST /identity/correction-requests
+transactional correction request create
+tenant/route-namespaced idempotency key handling
+same-transaction audit_log + outbox_messages persistence
+correction_request domain event envelope payloads
 ```
 
 ## Verified Behaviors
@@ -98,6 +109,17 @@ dynamic optional-filter reads remain handwritten:
 sqlc drift check regenerates schema/code and fails on stale generated files
 sqlc query-plan validation covers every generated query.sql read and rejects
 hot-path sequential scans
+correction request create:
+  requires Idempotency-Key
+  requires temporary X-GoatOS-Actor-ID uuid
+  rejects unknown JSON fields
+  supports goat-linked and goatless requests
+  validates goat-linked tenant ownership
+  maps location_scope to DB location FK columns
+  writes correction row, idempotency row, audit row, and outbox row in one tx
+  exact idempotent replay returns the original correction request
+  same key with different request hash conflicts
+  persisted outbox payload validates against domain-event-envelope JSON Schema
 ```
 
 ## Temporary Scaffolds
@@ -106,6 +128,9 @@ hot-path sequential scans
 X-GoatOS-Tenant-ID is a local/dev tenant-scope placeholder.
 It is not production authentication or authorization.
 Replace it with the auth/RBAC adapter before deploy-like environments.
+
+X-GoatOS-Actor-ID is the temporary local/dev actor scaffold for writes until
+auth/RBAC lands. It must parse as uuid and is not production authentication.
 
 The identity Postgres repository still has handwritten pgx for dynamic
 optional-filter reads. New write-heavy/import/reconciliation SQL should use
@@ -119,7 +144,7 @@ auth/RBAC adapter
 legacy import runner and source-file ingestion
 admin write handlers
 merge/resolve command handlers
-identity correction request write/resolve flow
+identity correction request resolve flow
 outbox relay runtime
 projection workers and counter population
 partition auto-creation worker or pg_partman
@@ -132,18 +157,20 @@ P8 sales/allocation/promise behavior
 ## Next Write-Slice Guardrails
 
 ```text
-Write-side tables already exist in the Phase 1 migrations. Do not add a new
-migration for idempotency_keys, outbox_messages, audit_log,
-goat_identity_events, identity_correction_requests, goat_merge_links, or
-identity_decisions unless the current schema cannot safely support the required
-behavior.
+Write-side tables already exist in the Phase 1 migrations. Migration 000003 is
+the narrow correction-request outbox support patch: correction_request outbox
+events do not require a goat_identity_events row because goatless correction
+requests have no goat_id. Do not add new write-side tables for
+idempotency_keys, outbox_messages, audit_log, goat_identity_events,
+identity_correction_requests, goat_merge_links, or identity_decisions unless the
+current schema cannot safely support the required behavior.
 
-Build the write foundation before merge:
-  1. transaction/unit-of-work port
-  2. idempotency via INSERT ... ON CONFLICT, not SELECT-then-INSERT
-  3. same-transaction audit_log + goat_identity_events/outbox where the command
-     actually mutates goat identity
-  4. first small write surface: POST /identity/correction-requests
+The first write foundation is built:
+  - repository-owned Postgres transaction around command persistence
+  - idempotency via INSERT ... ON CONFLICT, not SELECT-then-INSERT
+  - same-transaction audit_log + outbox where the command does not mutate goat
+    identity
+  - POST /identity/correction-requests
 
 Idempotency rules for write endpoints:
   - Idempotency-Key is required when the OpenAPI contract says it is required.

@@ -306,6 +306,12 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrNotFound) {
 		return NotFound("resource is missing or outside scope")
 	}
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		return Conflict("idempotency_conflict", "Idempotency-Key was reused with a different request body")
+	}
+	if errors.Is(err, ports.ErrIdempotencyPending) {
+		return Conflict("idempotency_pending", "Idempotency-Key is already processing")
+	}
 	var appErr *Error
 	if errors.As(err, &appErr) {
 		return appErr

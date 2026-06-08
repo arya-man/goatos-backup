@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -166,10 +167,96 @@ func TestGetGoatPassportDetectsMergeRedirectCycle(t *testing.T) {
 	}
 }
 
+func TestCanonicalRequestHashIsStableAndScoped(t *testing.T) {
+	bodyA := []byte(`{"description":"field note","request_type":"missing_tag","location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`)
+	bodyB := []byte(`{"evidence_refs":[{"evidence_id":"synthetic-row-1","evidence_type":"source_record"}],"location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"request_type":"missing_tag","description":"field note"}`)
+	hashA, err := CanonicalRequestHash(testTenant, correctionCreateCommand, correctionCreateRoute, bodyA)
+	if err != nil {
+		t.Fatalf("hash A: %v", err)
+	}
+	hashB, err := CanonicalRequestHash(testTenant, correctionCreateCommand, correctionCreateRoute, bodyB)
+	if err != nil {
+		t.Fatalf("hash B: %v", err)
+	}
+	if hashA != hashB {
+		t.Fatalf("hash should be stable across JSON key order: %s != %s", hashA, hashB)
+	}
+	otherTenantHash, err := CanonicalRequestHash("00000000-0000-4000-8000-000000000002", correctionCreateCommand, correctionCreateRoute, bodyA)
+	if err != nil {
+		t.Fatalf("hash other tenant: %v", err)
+	}
+	if otherTenantHash == hashA {
+		t.Fatal("hash must include tenant scope")
+	}
+	otherRouteHash, err := CanonicalRequestHash(testTenant, correctionCreateCommand, "/other", bodyA)
+	if err != nil {
+		t.Fatalf("hash other route: %v", err)
+	}
+	if otherRouteHash == hashA {
+		t.Fatal("hash must include route identity")
+	}
+}
+
+func TestCreateCorrectionRequestIdempotencyReplay(t *testing.T) {
+	resultID := "40000000-0000-4000-8000-000000000001"
+	repo := &fakeRepo{
+		correctionResult: &ports.CreateCorrectionRequestResult{
+			CorrectionRequest: domain.CorrectionRequest{
+				CorrectionRequestID: resultID,
+				RequestType:         "missing_tag",
+				State:               "open",
+				LocationScope:       domain.LocationScope{ParkID: strPtr("00000000-0000-4000-8000-000000003001")},
+				Description:         "synthetic field note",
+				EvidenceRefs:        []domain.EvidenceRef{{EvidenceType: "source_record", EvidenceID: "synthetic-row-1"}},
+				CreatedAt:           time.Now().UTC(),
+			},
+			Replayed:      true,
+			FirstResultID: &resultID,
+		},
+	}
+	svc := NewService(repo)
+	response, err := svc.CreateCorrectionRequest(context.Background(), validCorrectionInput())
+	if err != nil {
+		t.Fatalf("CreateCorrectionRequest: %v", err)
+	}
+	if !response.Idempotency.Replayed || response.Idempotency.FirstResultID == nil || *response.Idempotency.FirstResultID != resultID {
+		t.Fatalf("unexpected idempotency response: %#v", response.Idempotency)
+	}
+	if repo.lastCorrectionCmd.StoredIdempotencyKey != testTenant+":"+correctionCreateCommand+":idem-unit-0001" {
+		t.Fatalf("stored idempotency key was not namespaced: %q", repo.lastCorrectionCmd.StoredIdempotencyKey)
+	}
+	if repo.lastCorrectionCmd.RequestHash == "" {
+		t.Fatal("request hash was not populated")
+	}
+}
+
+func TestCreateCorrectionRequestIdempotencyConflict(t *testing.T) {
+	repo := &fakeRepo{correctionErr: ports.ErrIdempotencyConflict}
+	svc := NewService(repo)
+	_, err := svc.CreateCorrectionRequest(context.Background(), validCorrectionInput())
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 409 || appErr.Code != "idempotency_conflict" {
+		t.Fatalf("expected idempotency conflict app error, got %v", err)
+	}
+}
+
+func validCorrectionInput() CreateCorrectionRequestInput {
+	return CreateCorrectionRequestInput{
+		TenantID:       testTenant,
+		ActorID:        "90000000-0000-4000-8000-000000000001",
+		IdempotencyKey: "idem-unit-0001",
+		TraceID:        testTrace,
+		RawBody:        []byte(`{"request_type":"missing_tag","location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"description":"synthetic field note","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`),
+	}
+}
+
 type fakeRepo struct {
-	goats      map[string]*domain.GoatPassport
-	matches    []domain.IdentifierMatch
-	conflictID string
+	goats             map[string]*domain.GoatPassport
+	matches           []domain.IdentifierMatch
+	conflictID        string
+	correctionResult  *ports.CreateCorrectionRequestResult
+	correctionErr     error
+	lastCorrectionCmd ports.CreateCorrectionRequestCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -214,6 +301,30 @@ func (f *fakeRepo) GetConflict(context.Context, string, string) (*domain.Conflic
 
 func (f *fakeRepo) ListIdentityCounts(context.Context, ports.CountParams) ([]domain.IdentityCount, domain.Freshness, error) {
 	return nil, domain.Freshness{}, nil
+}
+
+func (f *fakeRepo) CreateCorrectionRequest(_ context.Context, cmd ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
+	f.lastCorrectionCmd = cmd
+	if f.correctionErr != nil {
+		return nil, f.correctionErr
+	}
+	if f.correctionResult != nil {
+		return f.correctionResult, nil
+	}
+	return &ports.CreateCorrectionRequestResult{
+		CorrectionRequest: domain.CorrectionRequest{
+			CorrectionRequestID: "40000000-0000-4000-8000-000000000001",
+			RequestType:         cmd.RequestType,
+			State:               "open",
+			GoatID:              cmd.GoatID,
+			IdentifierType:      cmd.IdentifierType,
+			IdentifierValue:     cmd.IdentifierValue,
+			LocationScope:       cmd.LocationScope,
+			Description:         cmd.Description,
+			EvidenceRefs:        cmd.EvidenceRefs,
+			CreatedAt:           time.Now().UTC(),
+		},
+	}, nil
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return nil }

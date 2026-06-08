@@ -46,6 +46,13 @@ type EvidenceRef struct {
 	Description  *string `json:"description"`
 }
 
+type LocationScope struct {
+	FarmID   *string `json:"farm_id"`
+	ParkID   *string `json:"park_id"`
+	ShedID   *string `json:"shed_id"`
+	CohortID *string `json:"cohort_id"`
+}
+
 type GoatSummary struct {
 	GoatID             string       `json:"goat_id"`
 	DisplayID          string       `json:"display_id"`
@@ -206,4 +213,30 @@ type IdentityCountsResult struct {
 	Items     []IdentityCount `json:"items"`
 	Freshness Freshness       `json:"freshness"`
 	TraceID   string          `json:"trace_id"`
+}
+
+type CorrectionRequest struct {
+	CorrectionRequestID string        `json:"correction_request_id"`
+	RequestType         string        `json:"request_type"`
+	State               string        `json:"state"`
+	GoatID              *string       `json:"goat_id"`
+	IdentifierType      *string       `json:"identifier_type"`
+	IdentifierValue     *string       `json:"identifier_value"`
+	LocationScope       LocationScope `json:"location_scope"`
+	Description         string        `json:"description"`
+	EvidenceRefs        []EvidenceRef `json:"evidence_refs"`
+	CreatedAt           time.Time     `json:"created_at"`
+	ResolvedAt          *time.Time    `json:"resolved_at"`
+}
+
+type IdempotencyMeta struct {
+	IdempotencyKey string  `json:"idempotency_key"`
+	Replayed       bool    `json:"replayed"`
+	FirstResultID  *string `json:"first_result_id"`
+}
+
+type CorrectionRequestResponse struct {
+	CorrectionRequest CorrectionRequest `json:"correction_request"`
+	Idempotency       IdempotencyMeta   `json:"idempotency"`
+	TraceID           string            `json:"trace_id"`
 }
