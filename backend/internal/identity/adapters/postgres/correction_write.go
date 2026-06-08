@@ -616,11 +616,9 @@ func correctionCreatedEnvelope(cmd ports.CreateCorrectionRequestCommand, correct
 }
 
 func correctionUpdatedEnvelope(cmd ports.ResolveCorrectionRequestCommand, correction domain.CorrectionRequest, decision domain.DecisionRecordSummary, eventID string) ([]byte, error) {
-	recordedAt := correction.CreatedAt
+	recordedAt := decision.CreatedAt
 	if correction.ResolvedAt != nil {
 		recordedAt = *correction.ResolvedAt
-	} else {
-		recordedAt = decision.CreatedAt
 	}
 	envelope := eventEnvelope{
 		EventID:        eventID,
