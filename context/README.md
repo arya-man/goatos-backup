@@ -28,8 +28,8 @@ Goat OS coverage checklist (frozen migration audit, not living architecture)
 General/Slack source findings
   context/source-findings/drive-docs-findings.md
 
-Promise Keeper assignment source findings
-  context/source-findings/assignment-promise-keeper-findings.md
+Customer promise safety source findings
+  context/source-findings/customer-promise-safety-findings.md
 
 Final architecture
   context/architecture/final-architecture.md

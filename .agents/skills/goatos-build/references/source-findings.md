@@ -1,13 +1,13 @@
 # Source Findings Reference
 
-Load this when using facts from General/Slack docs, assignment material, legacy
-dashboards, Slack/App Script, or when checking whether source facts reached
-canonical docs.
+Load this when using facts from General/Slack docs, customer promise safety
+material, legacy dashboards, Slack/App Script, or when checking whether source
+facts reached canonical docs.
 
 Canonical docs:
 
 - `context/source-findings/drive-docs-findings.md`
-- `context/source-findings/assignment-promise-keeper-findings.md`
+- `context/source-findings/customer-promise-safety-findings.md`
 - `context/product/glossary.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/forms/final-forms-sop-engine.md`
@@ -29,6 +29,6 @@ Rules:
   - reproduction parameters for Phase 6.
   - Slack form schemas and health symptom option sets.
   - legacy BigQuery/dashboard table catalog.
-  - Promise Keeper assignment decision logic and residual safety gaps.
+  - Customer promise safety decision logic and residual safety gaps.
 - If a new source doc is reviewed, update `context/source-findings/` and any
   affected product/architecture/forms/analytics doc in the same commit.

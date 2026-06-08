@@ -7,7 +7,7 @@ Canonical docs:
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
 - `context/source-findings/drive-docs-findings.md`
-- `context/source-findings/assignment-promise-keeper-findings.md`
+- `context/source-findings/customer-promise-safety-findings.md`
 - archived repo audits under `docs/archive/planning-history/` for historical
   comparison only
 

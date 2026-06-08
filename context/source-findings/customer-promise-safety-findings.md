@@ -1,24 +1,23 @@
-# Assignment Promise Keeper Findings
+# Customer Promise Safety Findings
 
 Status: source finding for future Phase 8/P3/P5 implementation.
 
-This summarizes the local candidate assignment solution and what Goat OS should
-carry forward. It is not production architecture by itself. The assignment was a
-snapshot demo over small local files; Goat OS must implement the same safety
-logic as durable, proof-backed, event-driven, million-scale workflows.
+This summarizes customer/festival promise-safety scenarios that Goat OS must
+support. It is not production architecture by itself. Goat OS must implement
+the same safety logic as durable, proof-backed, event-driven, million-scale
+workflows.
 
-Latest PR review note:
+Latest source review note:
 
 ```text
-The latest candidate PR patched two earlier gaps: feed exposure is now a
-booking/substitute gate, and promised-weight shortfall is implemented. Keep
-those as Goat OS requirements, not as current candidate misses.
+Feed exposure must be a booking/substitute gate, and promised-weight shortfall
+must be a readiness risk. Keep both as Goat OS requirements.
 ```
 
-## What The Assignment Was About
+## What The Promise Safety Flow Must Answer
 
-The assignment asks whether a goat promised to a customer or festival can really
-be delivered safely on the delivery date.
+The flow asks whether a goat promised to a customer or festival can really be
+delivered safely on the delivery date.
 
 In farm language, it checks:
 
@@ -31,7 +30,7 @@ If the promised goat fails, is there a safe substitute?
 Can every answer point back to source evidence?
 ```
 
-## Candidate Solution Strengths
+## Decision Logic To Preserve
 
 The solution is valuable as a reference for decision logic:
 
@@ -72,11 +71,11 @@ evidence:
   verdicts link back to source records instead of being unsupported claims.
 ```
 
-## Source Data Shapes From The Assignment
+## Source Data Shapes To Preserve As Test Fixtures
 
-These assignment sources are useful as Phase 8/P10 design fixtures and test
-cases. They should not be imported as production data, but their semantics are
-good acceptance-test material.
+These source shapes are useful as Phase 8/P10 design fixtures and test cases.
+They should not be imported as production data, but their semantics are good
+acceptance-test material.
 
 ```text
 goatos_animals:
@@ -122,9 +121,9 @@ field_reports:
   movements, treatments, weights, or births not present in structured systems.
 ```
 
-## Conscious Demo Cuts
+## Production Gaps To Avoid
 
-These were acceptable for a take-home but must not ship in Goat OS:
+These must not ship in Goat OS:
 
 ```text
 runtime state:
@@ -134,14 +133,11 @@ multi-instance concurrency:
   process-local locks do not protect multiple API instances.
 
 feed gate:
-  earlier assignment revisions treated feed exposure mainly as a discrepancy
-  flag. The latest PR moves it into the booking/substitute gate. Goat OS should
-  keep that stricter behavior.
+  feed exposure must be a booking/substitute gate, not only a discrepancy flag.
+  Goat OS should keep the stricter behavior.
 
 promised-weight risk:
-  earlier assignment revisions documented current/projected weight shortfall
-  without enforcing it. The latest PR implements the shortfall check. Goat OS
-  should keep it as a readiness risk.
+  current/projected weight shortfall must be enforced as a readiness risk.
 
 price audit:
   existing bookings were not audited against the rate/policy effective on
@@ -151,10 +147,9 @@ field-message ingestion:
   death detection was regex/thin, not full multilingual evidence processing.
 
 runtime cache shape:
-  feed-sale blocking used a process-local cache in the take-home. That is fine
-  for static files, but production must not use one global context-free cache
-  for safety decisions. Goat OS should compute from tenant/policy-scoped facts
-  or use invalidated/projection-backed caches.
+  feed-sale blocking must not use one global context-free cache for safety
+  decisions. Goat OS should compute from tenant/policy-scoped facts or use
+  invalidated/projection-backed caches.
 ```
 
 ## Goat OS Requirements Carried Forward
@@ -190,11 +185,11 @@ Phase 10:
 
 ## Scale Difference
 
-The assignment logic should be lifted as reference logic, but not its runtime
+The decision logic should be lifted as reference logic, but not its runtime
 shape.
 
 ```text
-assignment:
+static demo:
   small local files, in-memory state, one Node process, no durable event stream.
 
 Goat OS:
@@ -208,6 +203,6 @@ Goat OS:
   1 lakh to 1 million goat scale without full-herd request scans
 ```
 
-The key product difference is continuity: the assignment answers whether a
+The key product difference is continuity: static review answers whether a
 promise is safe at one snapshot; Goat OS must keep that promise safe as facts
 change until dispatch or exit.

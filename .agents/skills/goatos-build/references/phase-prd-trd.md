@@ -13,7 +13,7 @@ Canonical docs:
 - `context/product/goat-os-feature-phases.md`
 - `context/execution/two-dev-build-plan.md`
 - `context/source-findings/drive-docs-findings.md`
-- `context/source-findings/assignment-promise-keeper-findings.md`
+- `context/source-findings/customer-promise-safety-findings.md`
 
 Rules:
 
@@ -77,7 +77,7 @@ Phase 5B crop/fodder/farmer module is conditional on Goat OS owning feed
 production, otherwise define integration.
 legacy Slack forms and health symptom fields are canonical source inputs.
 legacy BigQuery catalog is source inventory for analytics parity, not truth.
-Promise Keeper assignment logic is a Phase 8 reference, not production runtime.
+Customer promise safety logic is a Phase 8 reference, not production runtime.
 ```
 
 Phase implementation checklist:

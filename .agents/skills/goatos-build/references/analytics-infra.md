@@ -6,7 +6,7 @@ Tinybird, Cube, dbt, Metabase, GCP infra, or cost controls.
 Canonical docs:
 
 - `context/analytics/final-analytics-infra.md`
-- `context/source-findings/assignment-promise-keeper-findings.md`
+- `context/source-findings/customer-promise-safety-findings.md`
 - `context/execution/env-load-test-and-doc-hygiene.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 
