@@ -147,9 +147,18 @@ Build the write foundation before merge:
 
 Idempotency rules for write endpoints:
   - Idempotency-Key is required when the OpenAPI contract says it is required.
+  - For synchronous writes, idempotency row creation, domain write, audit, event
+    and outbox must happen in one transaction. The started -> completed
+    transition is internal to that transaction; if the transaction fails, the
+    idempotency row rolls back too.
   - INSERT ... ON CONFLICT on the idempotency_keys primary key is the
     concurrency primitive. The second concurrent request must block on the row
-    conflict, then read the committed result.
+    conflict, then read the committed completed result.
+  - The idempotency_keys primary key is key-only, so the stored key must be
+    tenant/route namespaced, for example
+    <tenant_id>:<command_or_route>:<client_idempotency_key>. The raw client
+    header must not be stored as the bare primary key because two tenants can
+    send the same key string.
   - request_hash is based on canonical JSON body + command identity + route
     identity + tenant_id.
   - Completed replay re-fetches the result by result_type/result_id; the
@@ -157,15 +166,18 @@ Idempotency rules for write endpoints:
   - For POST /identity/correction-requests, fresh create returns 201 and exact
     completed replay returns 200.
   - Same key with different request_hash is a conflict.
-  - Failed or stale started keys may be retried/reclaimed only according to
-    status/expires_at policy; do not wedge a key forever in started state.
+  - Committed started-key reclaim via expires_at is not part of this synchronous
+    write path; it belongs to a future async/two-phase command design if one is
+    introduced.
 
 Correction request create exists in app-api.yaml. Admin correction resolve also
 exists, but resolve is a later write slice. Create supports goat-linked and
 goatless requests; goat_id is optional in the contract and DB. Goatless
 correction requests use the correction request as the outbox aggregate and do
 not create a goat timeline event. evidence_refs maps into the DB evidence jsonb
-shape. request_type must stay within the contract/DB enum.
+shape and must never be NULL. request_type must stay within the contract/DB
+enum. Create writes state='open', populates scope, and requires the temporary
+actor header to parse as uuid because requested_by is uuid NOT NULL.
 
 When resolve is built, the state machine is open/assigned/needs_field_check ->
 approved/rejected/closed or needs_field_check, and already-terminal requests
