@@ -1944,7 +1944,7 @@ target closed            -> decision_state approved     + decision_result closed
 ```
 
 `decision_state` is the lifecycle of the review decision record
-(proposed/approved/rejected/needs_review). It is not an old assignment label or
+(proposed/approved/rejected/needs_review). It is not external review wording or
 operator work status. The business outcome belongs in `decision_result`.
 Resolving a correction request does not directly mutate goat identity and does
 not create `goat_identity_events`; identity mutation, if approved later, must be

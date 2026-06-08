@@ -238,7 +238,7 @@ typed evidence_refs and row_version. The state machine is
 open/assigned/needs_field_check -> approved/rejected/closed or
 needs_field_check, and already-terminal requests must not be re-resolved except
 as exact idempotent replay. decision_state is the lifecycle of the decision
-record; decision_result is the outcome. Do not reuse old assignment framing for
+record; decision_result is the outcome. Do not reuse external review wording for
 decision_state.
 
 Do not implement goat merge in the write-foundation slice. The merge slice must:
