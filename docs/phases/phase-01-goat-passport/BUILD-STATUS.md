@@ -161,7 +161,7 @@ admin identifier add/retire:
   disambiguates goat guard failures as not_found or write_conflict
   rejects stale row_version, merged goat, wrong-tenant goat, wrong-goat identifier,
   already-retired identifier, duplicate active RFID, duplicate same-scope old_tag,
-  and active primary-per-goat conflicts
+  disallowed primary_allowed policy requests, and active primary-per-goat conflicts
   allows the same old_tag value in a different scope
   writes identity_decisions decision_type=attach_identifier or retire_identifier
   uses policy_version=phase1-identifier-v1

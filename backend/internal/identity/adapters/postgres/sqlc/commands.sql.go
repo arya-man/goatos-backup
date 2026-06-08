@@ -511,7 +511,7 @@ func (q *Queries) GetIdentifierDecisionEventForReplay(ctx context.Context, arg G
 }
 
 const getIdentifierPolicy = `-- name: GetIdentifierPolicy :one
-SELECT normalizer_version
+SELECT normalizer_version, primary_allowed
 FROM identifier_policies
 WHERE policy_version = $1
   AND identifier_type = $2
@@ -522,11 +522,16 @@ type GetIdentifierPolicyParams struct {
 	IdentifierType string
 }
 
-func (q *Queries) GetIdentifierPolicy(ctx context.Context, arg GetIdentifierPolicyParams) (string, error) {
+type GetIdentifierPolicyRow struct {
+	NormalizerVersion string
+	PrimaryAllowed    bool
+}
+
+func (q *Queries) GetIdentifierPolicy(ctx context.Context, arg GetIdentifierPolicyParams) (GetIdentifierPolicyRow, error) {
 	row := q.db.QueryRow(ctx, getIdentifierPolicy, arg.PolicyVersion, arg.IdentifierType)
-	var normalizer_version string
-	err := row.Scan(&normalizer_version)
-	return normalizer_version, err
+	var i GetIdentifierPolicyRow
+	err := row.Scan(&i.NormalizerVersion, &i.PrimaryAllowed)
+	return i, err
 }
 
 const goatBelongsToTenant = `-- name: GoatBelongsToTenant :one

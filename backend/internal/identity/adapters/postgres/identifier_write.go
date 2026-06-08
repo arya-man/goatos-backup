@@ -81,7 +81,7 @@ func (r *Repository) AddGoatIdentifier(ctx context.Context, cmd ports.AddGoatIde
 		return nil, err
 	}
 
-	normalizerVersion, err := qtx.GetIdentifierPolicy(ctx, identitydb.GetIdentifierPolicyParams{
+	policy, err := qtx.GetIdentifierPolicy(ctx, identitydb.GetIdentifierPolicyParams{
 		PolicyVersion:  identifierPolicyVersion,
 		IdentifierType: cmd.IdentifierType,
 	})
@@ -90,6 +90,9 @@ func (r *Repository) AddGoatIdentifier(ctx context.Context, cmd ports.AddGoatIde
 	}
 	if err != nil {
 		return nil, err
+	}
+	if cmd.IsPrimaryForGoat && !policy.PrimaryAllowed {
+		return nil, ports.ErrWriteConflict
 	}
 
 	inserted, err := qtx.InsertGoatIdentifier(ctx, identitydb.InsertGoatIdentifierParams{
@@ -101,7 +104,7 @@ func (r *Repository) AddGoatIdentifier(ctx context.Context, cmd ports.AddGoatIde
 		ScopeKey:          cmd.ScopeKey,
 		IsPrimaryForGoat:  cmd.IsPrimaryForGoat,
 		ValidFrom:         pgtype.Timestamptz{Time: now, Valid: true},
-		NormalizerVersion: normalizerVersion,
+		NormalizerVersion: policy.NormalizerVersion,
 		ApprovedBy:        actorUUID,
 	})
 	if isUniqueViolation(err) {

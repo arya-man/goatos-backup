@@ -282,7 +282,7 @@ FROM goats
 WHERE tenant_id = @tenant_id AND goat_id = @goat_id;
 
 -- name: GetIdentifierPolicy :one
-SELECT normalizer_version
+SELECT normalizer_version, primary_allowed
 FROM identifier_policies
 WHERE policy_version = @policy_version
   AND identifier_type = @identifier_type;

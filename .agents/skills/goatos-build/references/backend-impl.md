@@ -106,9 +106,9 @@ Rules:
   joins, never cached response bodies.
 - Identifier add/retire must not use merge override GUCs. Merged goats, stale
   row_version, wrong-tenant/wrong-goat identifiers, already-retired
-  identifiers, duplicate active RFID, duplicate same-scope old_tag, and active
-  primary-per-goat conflicts all reject as not_found or write_conflict according
-  to route visibility.
+  identifiers, duplicate active RFID, duplicate same-scope old_tag, identifier
+  policy `primary_allowed=false`, and active primary-per-goat conflicts all
+  reject as not_found or write_conflict according to route visibility.
 - `make sqlc-check` regenerates the migration-derived schema dump and generated
   sqlc code with the pinned `tools/sqlc/sqlc.version`; it fails on drift.
 - `make validate-sqlc-plans` extracts every generated static read from

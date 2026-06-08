@@ -134,6 +134,19 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("primary disallowed by identifier policy rolls back row version", func(t *testing.T) {
+		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		cmd := addIdentifierCommand(t, meshaTenant, "idem-add-policy-primary-0001", goatID, "sheet_row_id", "synthetic-sheet-row-primary", "source:synthetic", true, 1)
+		if _, err := repo.AddGoatIdentifier(ctx, cmd); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected primary_allowed policy write conflict, got %v", err)
+		}
+		if got := goatRowVersion(t, pool, goatID); got != 1 {
+			t.Fatalf("policy conflict did not roll back goat row_version: got %d", got)
+		}
+		assertNoRows(t, pool, "identifier after primary policy conflict", "SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = $2", goatID, "synthetic-sheet-row-primary")
+		assertNoRows(t, pool, "idempotency after primary policy conflict", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+	})
+
 	t.Run("add rejects merged stale and wrong tenant goats", func(t *testing.T) {
 		survivorID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		mergedID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
