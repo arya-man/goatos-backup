@@ -12,6 +12,8 @@ import (
 
 var displayIDPattern = regexp.MustCompile(`^G-[0-9]{6,}$`)
 
+const maxMergeRedirectHops = 16
+
 type Service struct {
 	repo ports.Repository
 }
@@ -40,26 +42,32 @@ func (s *Service) GetGoatPassport(ctx context.Context, tenantID, lookup string, 
 		return nil, mapRepoErr(err)
 	}
 
+	originalID := goat.GoatID
 	warnings := ensureWarnings(goat.Summary.Warnings)
-	if goat.IdentityState == "merged" {
+	visited := map[string]struct{}{}
+	for hop := 0; goat.IdentityState == "merged"; hop++ {
+		if hop >= maxMergeRedirectHops {
+			return nil, Internal("merge redirect chain exceeded maximum depth")
+		}
+		if _, ok := visited[goat.GoatID]; ok {
+			return nil, Internal("merge redirect cycle detected")
+		}
+		visited[goat.GoatID] = struct{}{}
 		if goat.MergedIntoGoatID == nil {
 			return nil, Internal("merged goat is missing survivor redirect")
 		}
-		originalID := goat.GoatID
 		redirectID := *goat.MergedIntoGoatID
-		survivor, err := s.repo.GetGoatByID(ctx, tenantID, redirectID)
-		if err != nil {
-			return nil, mapRepoErr(err)
-		}
-		warning := domain.Warning{
+		warnings = append(warnings, domain.Warning{
 			Code:           "merged_redirect",
 			Message:        "Goat identity has been merged; returning survivor passport.",
 			OriginalGoatID: &originalID,
 			RedirectGoatID: &redirectID,
+		})
+		next, err := s.repo.GetGoatByID(ctx, tenantID, redirectID)
+		if err != nil {
+			return nil, mapRepoErr(err)
 		}
-		survivor.Summary.Warnings = append(ensureWarnings(survivor.Summary.Warnings), warning)
-		warnings = append(warnings, warning)
-		goat = survivor
+		goat = next
 	}
 
 	goat.Identifiers = ensureIdentifiers(goat.Identifiers)
@@ -134,11 +142,13 @@ func (s *Service) ResolveIdentifier(ctx context.Context, params ports.ResolveIde
 	if len(active) > 1 {
 		result.ResolutionState = domain.ResolutionMultipleMatch
 		result.CandidateGoats = summariesFromMatches(active)
-		conflictID, err := s.repo.FindOpenConflictForIdentifier(ctx, params.TenantID, params.IdentifierType, params.NormalizedValue)
-		if err != nil {
-			return nil, mapRepoErr(err)
+		if scopeKey, ok := sameScopeKey(active); ok {
+			conflictID, err := s.repo.FindOpenConflictForIdentifier(ctx, params.TenantID, params.IdentifierType, params.NormalizedValue, scopeKey)
+			if err != nil {
+				return nil, mapRepoErr(err)
+			}
+			result.ConflictID = conflictID
 		}
-		result.ConflictID = conflictID
 		return result, nil
 	}
 
@@ -250,6 +260,22 @@ func summariesFromMatches(matches []domain.IdentifierMatch) []domain.GoatSummary
 		seen[match.Goat.GoatID] = struct{}{}
 	}
 	return summaries
+}
+
+func sameScopeKey(matches []domain.IdentifierMatch) (string, bool) {
+	if len(matches) == 0 {
+		return "", false
+	}
+	scope := matches[0].Identifier.ScopeKey
+	if strings.TrimSpace(scope) == "" {
+		return "", false
+	}
+	for _, match := range matches[1:] {
+		if match.Identifier.ScopeKey != scope {
+			return "", false
+		}
+	}
+	return scope, true
 }
 
 func ensureWarnings(in []domain.Warning) []domain.Warning {

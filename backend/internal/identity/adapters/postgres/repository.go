@@ -225,7 +225,7 @@ ORDER BY CASE gi.status WHEN 'active' THEN 0 WHEN 'disputed' THEN 1 ELSE 2 END, 
 	return matches, rows.Err()
 }
 
-func (r *Repository) FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue string) (*string, error) {
+func (r *Repository) FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (*string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
@@ -236,9 +236,10 @@ FROM identity_conflicts
 WHERE tenant_id = $1::uuid
   AND identifier_type = $2
   AND identifier_value = $3
+  AND evidence->>'scope_key' = $4
   AND state IN ('open', 'needs_field_check')
 ORDER BY created_at DESC
-LIMIT 1`, tenantID, identifierType, normalizedValue).Scan(&conflictID)
+LIMIT 1`, tenantID, identifierType, normalizedValue, scopeKey).Scan(&conflictID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

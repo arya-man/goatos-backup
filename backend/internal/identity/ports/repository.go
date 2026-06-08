@@ -63,7 +63,7 @@ type Repository interface {
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
 	SearchGoats(ctx context.Context, params SearchGoatsParams) ([]domain.GoatSummary, *string, error)
 	FindIdentifierMatches(ctx context.Context, params ResolveIdentifierParams) ([]domain.IdentifierMatch, error)
-	FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue string) (*string, error)
+	FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (*string, error)
 	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListIdentityCounts(ctx context.Context, params CountParams) ([]domain.IdentityCount, domain.Freshness, error)

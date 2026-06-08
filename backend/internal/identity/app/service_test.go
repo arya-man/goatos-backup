@@ -41,10 +41,18 @@ func TestResolveIdentifierStateMachine(t *testing.T) {
 			name: "multiple_matches_with_conflict",
 			matches: []domain.IdentifierMatch{
 				{Identifier: identifier("old_tag", "1900", "park:CBE", "active", now), Goat: summary(goatA, "G-000001", "clean")},
-				{Identifier: identifier("old_tag", "1900", "park:CPT", "active", now), Goat: summary(goatB, "G-000002", "clean")},
+				{Identifier: identifier("old_tag", "1900", "park:CBE", "active", now), Goat: summary(goatB, "G-000002", "clean")},
 			},
 			wantState:    domain.ResolutionMultipleMatch,
 			wantConflict: true,
+		},
+		{
+			name: "cross_scope_multiple_matches_without_conflict",
+			matches: []domain.IdentifierMatch{
+				{Identifier: identifier("old_tag", "1900", "park:CBE", "active", now), Goat: summary(goatA, "G-000001", "clean")},
+				{Identifier: identifier("old_tag", "1900", "park:CPT", "active", now), Goat: summary(goatB, "G-000002", "clean")},
+			},
+			wantState: domain.ResolutionMultipleMatch,
 		},
 		{
 			name:      "no_match",
@@ -74,7 +82,7 @@ func TestResolveIdentifierStateMachine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeRepo{
 				matches:    tt.matches,
-				conflictID: conflictID,
+				conflictID: conflictForTest(tt.name),
 				goats: map[string]*domain.GoatPassport{
 					mergedGoat:   passport(mergedGoat, "G-000003", "merged", &[]string{survivorGoat}[0]),
 					survivorGoat: passport(survivorGoat, "G-000004", "clean", nil),
@@ -122,6 +130,42 @@ func TestGetGoatPassportRedirectsMergedGoat(t *testing.T) {
 	}
 }
 
+func TestGetGoatPassportFollowsMergeRedirectChain(t *testing.T) {
+	midSurvivor := "10000000-0000-4000-8000-000000000005"
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{
+		mergedGoat:   passport(mergedGoat, "G-000003", "merged", &midSurvivor),
+		midSurvivor:  passport(midSurvivor, "G-000005", "merged", &[]string{survivorGoat}[0]),
+		survivorGoat: passport(survivorGoat, "G-000004", "clean", nil),
+	}}
+	svc := NewService(repo)
+
+	result, err := svc.GetGoatPassport(context.Background(), testTenant, mergedGoat, testTrace)
+	if err != nil {
+		t.Fatalf("GetGoatPassport error = %v", err)
+	}
+	if result.Goat.GoatID != survivorGoat {
+		t.Fatalf("goat id = %s, want final survivor %s", result.Goat.GoatID, survivorGoat)
+	}
+	if result.Goat.IdentityState == "merged" {
+		t.Fatalf("returned merged goat: %#v", result.Goat)
+	}
+	if len(result.Warnings) != 2 {
+		t.Fatalf("warnings = %#v, want two redirect hops", result.Warnings)
+	}
+}
+
+func TestGetGoatPassportDetectsMergeRedirectCycle(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{
+		mergedGoat:   passport(mergedGoat, "G-000003", "merged", &[]string{survivorGoat}[0]),
+		survivorGoat: passport(survivorGoat, "G-000004", "merged", &[]string{mergedGoat}[0]),
+	}}
+	svc := NewService(repo)
+
+	if _, err := svc.GetGoatPassport(context.Background(), testTenant, mergedGoat, testTrace); err == nil {
+		t.Fatal("expected cycle error")
+	}
+}
+
 type fakeRepo struct {
 	goats      map[string]*domain.GoatPassport
 	matches    []domain.IdentifierMatch
@@ -153,7 +197,7 @@ func (f *fakeRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifie
 	return f.matches, nil
 }
 
-func (f *fakeRepo) FindOpenConflictForIdentifier(context.Context, string, string, string) (*string, error) {
+func (f *fakeRepo) FindOpenConflictForIdentifier(context.Context, string, string, string, string) (*string, error) {
 	if f.conflictID == "" {
 		return nil, nil
 	}
@@ -215,4 +259,11 @@ func identifier(identifierType, value, scope, status string, validFrom time.Time
 
 func strPtr(value string) *string {
 	return &value
+}
+
+func conflictForTest(name string) string {
+	if name == "multiple_matches_with_conflict" {
+		return conflictID
+	}
+	return ""
 }

@@ -13,7 +13,10 @@ import (
 const (
 	headerRequestID = "X-Request-ID"
 	headerTrace     = "traceparent"
-	headerTenantID  = "X-GoatOS-Tenant-ID"
+	// X-GoatOS-Tenant-ID is a local-development placeholder until auth/RBAC
+	// derives tenant scope from a verified identity. Do not deploy shared
+	// environments that trust this header as authority.
+	headerTenantID = "X-GoatOS-Tenant-ID"
 )
 
 // RequestContext preserves inbound request/trace IDs, generates missing IDs,

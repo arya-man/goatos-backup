@@ -113,6 +113,16 @@ func (h *Handler) GetConflict(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetIdentityCounts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	if headerTenant := tenantID(r); headerTenant != "" && q.Get("tenant_id") != "" && headerTenant != q.Get("tenant_id") {
+		writeError(w, http.StatusForbidden, domain.ErrorEnvelope{
+			Code:        "tenant_scope_mismatch",
+			Message:     "tenant_id query parameter must match the request tenant scope",
+			FieldErrors: []domain.FieldError{{Field: "tenant_id", Code: "scope_mismatch", Message: "tenant_id does not match request tenant scope"}},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
 	params := ports.CountParams{
 		Grain:              q.Get("grain"),
 		TenantID:           q.Get("tenant_id"),

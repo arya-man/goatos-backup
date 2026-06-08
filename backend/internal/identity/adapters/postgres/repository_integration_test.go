@@ -94,12 +94,19 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 		t.Fatalf("same old tag across scopes should return 2 visible matches, got %d", len(matches))
 	}
 
-	conflict, err := repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "old_tag", "1900")
+	conflict, err := repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "old_tag", "1900", "park:CBE")
 	if err != nil {
 		t.Fatalf("FindOpenConflictForIdentifier: %v", err)
 	}
 	if conflict == nil || *conflict != "20000000-0000-4000-8000-000000000001" {
 		t.Fatalf("unexpected conflict id: %v", conflict)
+	}
+	conflict, err = repo.FindOpenConflictForIdentifier(ctx, meshaTenant, "old_tag", "1900", "park:CPT")
+	if err != nil {
+		t.Fatalf("FindOpenConflictForIdentifier wrong scope: %v", err)
+	}
+	if conflict != nil {
+		t.Fatalf("unexpected cross-scope conflict id: %v", *conflict)
 	}
 
 	counts, freshness, err := repo.ListIdentityCounts(ctx, ports.CountParams{
