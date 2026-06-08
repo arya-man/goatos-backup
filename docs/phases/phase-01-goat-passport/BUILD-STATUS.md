@@ -157,6 +157,9 @@ admin identifier add/retire:
   rejects unknown JSON fields and old evidence_ids payloads
   requires typed evidence_refs, scope_key for add, and current goat row_version
   normalizes RFID by trim + uppercase; other identifier values are trimmed
+  records policy_version=phase1-identifier-v1; `rfid_v1` is named but the
+  concrete RFID format validator is not locked until source RFID examples are
+  supplied
   guards goat mutation with conditional row_version update and identity_state <> merged
   disambiguates goat guard failures as not_found or write_conflict
   rejects stale row_version, merged goat, wrong-tenant goat, wrong-goat identifier,

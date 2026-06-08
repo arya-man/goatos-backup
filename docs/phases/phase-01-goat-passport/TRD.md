@@ -624,6 +624,10 @@ not inferred from the generic identifier table.
 RFID values must pass the configured format validator before they occupy global
 RFID uniqueness. Invalid or suspicious values route to review/reject according
 to `invalid_value_action`; they must not silently block a real future RFID.
+`rfid_v1` is the Phase 1 validator policy name, but the concrete accepted
+pattern is not locked until source RFID examples are supplied. Do not invent a
+regex or silently reject canonical RFID writes from guessed format rules; keep
+uncertain values on the configured review/reject path.
 
 ### `identifier_policies`
 
