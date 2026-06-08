@@ -1169,7 +1169,7 @@ request_field_verification + field_verification_required
 mark_identifier_disputed + different_goats_identifier_disputed
   -> identity_conflicts.state = resolved
   -> terminal; set resolved_at/resolved_by
-  -> goat identity mutation; selected identifiers become disputed and emit goat.identifier.disputed events/outbox
+  -> goat identity mutation; selected identifiers become disputed, affected goats bump row_version, and emit goat.identifier.disputed events/outbox
 
 create_goat + new_goat_required
   -> not implemented until ResolveConflictRequest defines the required goat creation fields
@@ -1973,9 +1973,12 @@ belong to the same tenant, be active, belong to a goat in the conflict, and,
 when the conflict stores `identifier_type` or `identifier_value`, match those
 fields. The mutation sets `goat_identifiers.status=disputed`,
 `is_primary_for_goat=false`, `approved_by=<actor>`, and `updated_at=<decision
-time>`, then writes `identity_decision_identifiers(action=dispute)`,
-`goat.identifier.disputed`, `identity_decision_events`, audit, outbox, and
-idempotency completion in the same transaction.
+time>`, bumps each affected goat `row_version` once, then writes
+`identity_decision_identifiers(action=dispute)`, `goat.identifier.disputed`,
+`identity_decision_events`, audit, outbox, and idempotency completion in the
+same transaction. When `merge_goats` transfers a loser identifier to the
+survivor, the survivor goat `row_version` is also bumped because the survivor's
+identifier surface changed.
 
 For `reject_match`, the resolver records a rejected decision, marks the conflict
 `rejected`, and does not mutate goat identity. For

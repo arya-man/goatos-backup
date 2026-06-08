@@ -27,6 +27,7 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 	t.Run("merge success writes decision links events audit outbox and replays", func(t *testing.T) {
 		survivorID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		loserID := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		survivorRowVersion := goatRowVersion(t, pool, survivorID)
 		loserIdentifierID := insertActiveIdentifier(t, pool, meshaTenant, loserID, "old_tag", "synthetic-merge-transfer-1", "park:CPT", true)
 		defaultRetiredIdentifierID := insertActiveIdentifier(t, pool, meshaTenant, loserID, "visual_tag", "synthetic-visual-retire-1", "goat:"+loserID, false)
 		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "possible_duplicate_goat", []string{survivorID, loserID})
@@ -84,6 +85,9 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 		}
 		if transferredGoatID != survivorID || transferredPrimary {
 			t.Fatalf("transferred identifier goat/primary = %s/%v", transferredGoatID, transferredPrimary)
+		}
+		if got := goatRowVersion(t, pool, survivorID); got != survivorRowVersion+1 {
+			t.Fatalf("survivor row_version after transfer = %d, want %d", got, survivorRowVersion+1)
 		}
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND status = 'active'`, loserID); got != 0 {
 			t.Fatalf("active loser identifiers after merge = %d", got)
@@ -274,6 +278,7 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 	t.Run("identifier collision defaults to retiring loser identifier", func(t *testing.T) {
 		survivorID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		loserID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		survivorRowVersion := goatRowVersion(t, pool, survivorID)
 		if _, err := pool.Exec(ctx, `DROP INDEX goat_identifiers_active_rfid_unique`); err != nil {
 			t.Fatal(err)
 		}
@@ -296,6 +301,9 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 		if len(result.Merge.AffectedIdentifiers) != 1 || result.Merge.AffectedIdentifiers[0].Action != "retire" {
 			t.Fatalf("unexpected collision actions: %#v", result.Merge.AffectedIdentifiers)
 		}
+		if got := goatRowVersion(t, pool, survivorID); got != survivorRowVersion {
+			t.Fatalf("survivor row_version without transfer = %d, want %d", got, survivorRowVersion)
+		}
 	})
 }
 
@@ -311,6 +319,8 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 	t.Run("reject match writes terminal decision audit only and replays", func(t *testing.T) {
 		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		goatAVersion := goatRowVersion(t, pool, goatA)
+		goatBVersion := goatRowVersion(t, pool, goatB)
 		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "possible_duplicate_goat", []string{goatA, goatB})
 		cmd := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-reject-0001", conflictID, "reject_match", "candidate_rejected", []string{goatA, goatB}, nil, 1)
 
@@ -329,6 +339,12 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 		}
 		assertNoRows(t, pool, "reject goat events", `SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
 		assertNoRows(t, pool, "reject outbox", `SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
+		if got := goatRowVersion(t, pool, goatA); got != goatAVersion {
+			t.Fatalf("reject bumped goatA row_version = %d, want %d", got, goatAVersion)
+		}
+		if got := goatRowVersion(t, pool, goatB); got != goatBVersion {
+			t.Fatalf("reject bumped goatB row_version = %d, want %d", got, goatBVersion)
+		}
 		decisionPayload := queryBytes(t, pool, `SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1`, result.Decision.DecisionID)
 		validateDecisionRecord(t, decisionPayload)
 		assertIdempotencyCompleted(t, pool, cmd.StoredIdempotencyKey, conflictID)
@@ -354,6 +370,8 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 	t.Run("request field verification is nonterminal and same-state conflicts", func(t *testing.T) {
 		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		goatAVersion := goatRowVersion(t, pool, goatA)
+		goatBVersion := goatRowVersion(t, pool, goatB)
 		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "status_mismatch", []string{goatA, goatB})
 		cmd := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-field-0001", conflictID, "request_field_verification", "field_verification_required", []string{goatA, goatB}, nil, 1)
 
@@ -372,6 +390,12 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 		}
 		assertNoRows(t, pool, "field-check goat events", `SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
 		assertNoRows(t, pool, "field-check outbox", `SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
+		if got := goatRowVersion(t, pool, goatA); got != goatAVersion {
+			t.Fatalf("field-check bumped goatA row_version = %d, want %d", got, goatAVersion)
+		}
+		if got := goatRowVersion(t, pool, goatB); got != goatBVersion {
+			t.Fatalf("field-check bumped goatB row_version = %d, want %d", got, goatBVersion)
+		}
 		decisionPayload := queryBytes(t, pool, `SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1`, result.Decision.DecisionID)
 		validateDecisionRecord(t, decisionPayload)
 
@@ -384,6 +408,7 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 	t.Run("identifier dispute mutates explicit active identifier and writes event outbox", func(t *testing.T) {
 		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		goatAVersion := goatRowVersion(t, pool, goatA)
 		identifierID := insertActiveIdentifier(t, pool, meshaTenant, goatA, "old_tag", "synthetic-dispute-1", "park:CBE", true)
 		conflictID := insertSyntheticIdentifierConflict(t, pool, meshaTenant, "old_tag_reused", "old_tag", "synthetic-dispute-1", []string{goatA, goatB})
 		action := domain.IdentifierAction{IdentifierID: strPtr(identifierID), IdentifierType: strPtr("old_tag"), IdentifierValue: strPtr("synthetic-dispute-1"), Action: "dispute"}
@@ -398,6 +423,9 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 		}
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id = $1 AND status = 'disputed' AND is_primary_for_goat = false AND approved_by = $2`, identifierID, correctionActor); got != 1 {
 			t.Fatalf("disputed identifier rows = %d", got)
+		}
+		if got := goatRowVersion(t, pool, goatA); got != goatAVersion+1 {
+			t.Fatalf("dispute goat row_version = %d, want %d", got, goatAVersion+1)
 		}
 		if got := countRows(t, pool, `SELECT count(*) FROM identity_decision_identifiers WHERE decision_id = $1 AND identifier_id = $2 AND action = 'dispute'`, result.Decision.DecisionID, identifierID); got != 1 {
 			t.Fatalf("dispute decision identifier rows = %d", got)
@@ -425,6 +453,36 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 		}
 		if !replay.Replayed || replay.Decision.DecisionID != result.Decision.DecisionID || replay.Events[0].EventID != eventID || replay.Merge != nil {
 			t.Fatalf("unexpected dispute replay: %#v", replay)
+		}
+		if got := goatRowVersion(t, pool, goatA); got != goatAVersion+1 {
+			t.Fatalf("dispute replay bumped goat row_version = %d, want %d", got, goatAVersion+1)
+		}
+	})
+
+	t.Run("identifier dispute bumps each goat once for multiple identifiers", func(t *testing.T) {
+		goatA := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
+		goatB := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		goatAVersion := goatRowVersion(t, pool, goatA)
+		oldTagID := insertActiveIdentifier(t, pool, meshaTenant, goatA, "old_tag", "synthetic-dispute-batch-1", "park:CBE", false)
+		visualID := insertActiveIdentifier(t, pool, meshaTenant, goatA, "visual_tag", "synthetic-visual-dispute-batch-1", "goat:"+goatA, false)
+		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "possible_duplicate_goat", []string{goatA, goatB})
+		cmd := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-batch-0001", conflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{
+			{IdentifierID: strPtr(oldTagID), Action: "dispute"},
+			{IdentifierID: strPtr(visualID), Action: "dispute"},
+		}, 1)
+
+		result, err := repo.ResolveConflict(ctx, cmd)
+		if err != nil {
+			t.Fatalf("identifier dispute batch resolve: %v", err)
+		}
+		if len(result.Events) != 2 {
+			t.Fatalf("batch dispute events = %d, want 2", len(result.Events))
+		}
+		if got := goatRowVersion(t, pool, goatA); got != goatAVersion+1 {
+			t.Fatalf("batch dispute goat row_version = %d, want %d", got, goatAVersion+1)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id IN ($1, $2) AND status = 'disputed'`, oldTagID, visualID); got != 2 {
+			t.Fatalf("batch disputed identifiers = %d", got)
 		}
 	})
 
@@ -470,6 +528,7 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 		}
 
 		rollbackIdentifier := insertActiveIdentifier(t, pool, meshaTenant, goatA, "old_tag", "synthetic-guard-1", "park:CPT", false)
+		rollbackGoatVersion := goatRowVersion(t, pool, goatA)
 		rollbackConflictID := insertSyntheticIdentifierConflict(t, pool, meshaTenant, "old_tag_reused", "old_tag", "synthetic-guard-1", []string{goatA, goatB})
 		rollback := nonMergeConflictCommand(t, meshaTenant, "idem-conflict-dispute-rollback-0001", rollbackConflictID, "mark_identifier_disputed", "different_goats_identifier_disputed", []string{goatA, goatB}, []domain.IdentifierAction{{IdentifierID: strPtr(rollbackIdentifier), Action: "dispute"}}, 1)
 		rollback.TraceID = "trace-conflict-dispute-forced-rollback"
@@ -484,6 +543,9 @@ func TestConflictNonMergeWritePathsWithDockerPostgres(t *testing.T) {
 		}
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id = $1 AND status = 'active'`, rollbackIdentifier); got != 1 {
 			t.Fatalf("rollback identifier active rows = %d", got)
+		}
+		if got := goatRowVersion(t, pool, goatA); got != rollbackGoatVersion {
+			t.Fatalf("rollback goat row_version = %d, want %d", got, rollbackGoatVersion)
 		}
 		assertNoRows(t, pool, "idempotency after dispute rollback", `SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1`, rollback.StoredIdempotencyKey)
 		assertNoRows(t, pool, "decision after dispute rollback", `SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1`, rollback.TraceID)

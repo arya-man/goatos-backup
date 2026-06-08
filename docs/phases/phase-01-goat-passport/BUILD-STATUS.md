@@ -213,7 +213,8 @@ conflict resolve:
   maps mark_identifier_disputed to state=resolved, terminal
   resolved_at/resolved_by, decision_state=approved, selected identifier status
   disputed, primary flag cleared, one goat.identifier.disputed event/outbox per
-  selected identifier
+  selected identifier, and one goat row_version bump per goat with disputed
+  identifiers
   requires mark_identifier_disputed to supply explicit identifier_actions with
   action=dispute and identifier_id; identifiers must be same-tenant, active,
   attached to conflict member goats, and match conflict identifier type/value
@@ -237,6 +238,8 @@ conflict resolve:
   writes identity_decision_identifiers for supplied/applied identifier actions
   transfers only explicitly requested non-colliding loser identifiers and
   demotes transferred identifiers from primary by default
+  bumps the survivor goat row_version when a loser identifier is transferred to
+  the survivor
   default-retires loser identifiers that are not explicitly transferred
   records the resolved live survivor/merged goat IDs in the decision record
   while preserving requested affected goat IDs for traceability
@@ -395,10 +398,12 @@ reject_match and request_field_verification are decision-only conflict state
 changes: they write decision + conflict update + audit + idempotency in one
 transaction and do not emit goat_identity_events/outbox rows. mark_identifier_disputed
 is a goat identity mutation: it requires explicit dispute identifier actions,
-updates selected identifiers to disputed, and writes goat_identity_events,
-identity_decision_events, outbox_messages, audit_log, and idempotency
-completion in one transaction. create_goat remains typed not_implemented until
-the goat creation fields are contract-defined.
+updates selected identifiers to disputed, bumps each affected goat row_version
+once, and writes goat_identity_events, identity_decision_events,
+outbox_messages, audit_log, and idempotency completion in one transaction.
+Merge transfer actions also bump the survivor goat row_version because the
+survivor's identifier surface changes. create_goat remains typed
+not_implemented until the goat creation fields are contract-defined.
 
 Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
 actor headers are local/dev scaffolding only. They are a deploy gate for shared,

@@ -599,7 +599,6 @@ JOIN goats g
  AND g.goat_id = gi.goat_id
 WHERE gi.tenant_id = $1
   AND gi.identifier_id = $2
-FOR UPDATE OF gi
 `
 
 type GetIdentifierForConflictDisputeParams struct {
@@ -1724,6 +1723,9 @@ SET
   updated_at = $2
 WHERE tenant_id = $3
   AND identifier_id = $4
+  AND goat_id = $5
+  AND identifier_type = $6
+  AND normalized_value = $7
   AND status = 'active'
 RETURNING
   identifier_id::text AS identifier_id,
@@ -1742,10 +1744,13 @@ RETURNING
 `
 
 type MarkIdentifierDisputedForConflictParams struct {
-	ApprovedBy   pgtype.UUID
-	UpdatedAt    pgtype.Timestamptz
-	TenantID     pgtype.UUID
-	IdentifierID pgtype.UUID
+	ApprovedBy      pgtype.UUID
+	UpdatedAt       pgtype.Timestamptz
+	TenantID        pgtype.UUID
+	IdentifierID    pgtype.UUID
+	GoatID          pgtype.UUID
+	IdentifierType  string
+	NormalizedValue string
 }
 
 type MarkIdentifierDisputedForConflictRow struct {
@@ -1770,6 +1775,9 @@ func (q *Queries) MarkIdentifierDisputedForConflict(ctx context.Context, arg Mar
 		arg.UpdatedAt,
 		arg.TenantID,
 		arg.IdentifierID,
+		arg.GoatID,
+		arg.IdentifierType,
+		arg.NormalizedValue,
 	)
 	var i MarkIdentifierDisputedForConflictRow
 	err := row.Scan(
@@ -2077,6 +2085,35 @@ func (q *Queries) RetireIdentifierForMerge(ctx context.Context, arg RetireIdenti
 		&i.SourceRecordID,
 		&i.Confidence,
 	)
+	return i, err
+}
+
+const touchGoatForIdentityMutation = `-- name: TouchGoatForIdentityMutation :one
+UPDATE goats
+SET
+  row_version = row_version + 1,
+  updated_at = $1
+WHERE tenant_id = $2
+  AND goat_id = $3
+  AND identity_state <> 'merged'
+RETURNING goat_id::text AS goat_id, row_version
+`
+
+type TouchGoatForIdentityMutationParams struct {
+	UpdatedAt pgtype.Timestamptz
+	TenantID  pgtype.UUID
+	GoatID    pgtype.UUID
+}
+
+type TouchGoatForIdentityMutationRow struct {
+	GoatID     string
+	RowVersion int32
+}
+
+func (q *Queries) TouchGoatForIdentityMutation(ctx context.Context, arg TouchGoatForIdentityMutationParams) (TouchGoatForIdentityMutationRow, error) {
+	row := q.db.QueryRow(ctx, touchGoatForIdentityMutation, arg.UpdatedAt, arg.TenantID, arg.GoatID)
+	var i TouchGoatForIdentityMutationRow
+	err := row.Scan(&i.GoatID, &i.RowVersion)
 	return i, err
 }
 

@@ -281,6 +281,16 @@ WHERE goat_id = @goat_id
   AND identity_state <> 'merged'
 RETURNING goat_id::text AS goat_id, row_version;
 
+-- name: TouchGoatForIdentityMutation :one
+UPDATE goats
+SET
+  row_version = row_version + 1,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND goat_id = @goat_id
+  AND identity_state <> 'merged'
+RETURNING goat_id::text AS goat_id, row_version;
+
 -- name: GetGoatMutationState :one
 SELECT identity_state, row_version
 FROM goats
@@ -647,8 +657,7 @@ JOIN goats g
   ON g.tenant_id = gi.tenant_id
  AND g.goat_id = gi.goat_id
 WHERE gi.tenant_id = @tenant_id
-  AND gi.identifier_id = @identifier_id
-FOR UPDATE OF gi;
+  AND gi.identifier_id = @identifier_id;
 
 -- name: MarkIdentifierDisputedForConflict :one
 UPDATE goat_identifiers
@@ -659,6 +668,9 @@ SET
   updated_at = @updated_at
 WHERE tenant_id = @tenant_id
   AND identifier_id = @identifier_id
+  AND goat_id = @goat_id
+  AND identifier_type = @identifier_type
+  AND normalized_value = @normalized_value
   AND status = 'active'
 RETURNING
   identifier_id::text AS identifier_id,

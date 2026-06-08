@@ -235,6 +235,11 @@ func (r *Repository) ResolveConflict(ctx context.Context, cmd ports.ResolveConfl
 	if err != nil {
 		return nil, err
 	}
+	if hasTransferredIdentifier(identifierActions) {
+		if err := touchGoatsForIdentityMutation(ctx, qtx, tenantUUID, []string{finalSurvivorID}, now); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := qtx.InsertIdentityDecisionGoat(ctx, identitydb.InsertIdentityDecisionGoatParams{
 		DecisionID: decisionUUID,
@@ -687,6 +692,20 @@ func collectDisputeIdentifierCandidates(ctx context.Context, qtx *identitydb.Que
 }
 
 func (r *Repository) applyConflictIdentifierDisputes(ctx context.Context, qtx *identitydb.Queries, tenantUUID, actorUUID, decisionUUID pgtype.UUID, decision domain.DecisionRecordSummary, candidates []disputeIdentifierCandidate, cmd ports.ResolveConflictCommand, now time.Time) ([]domain.EventSummary, []string, error) {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Identifier.GoatID == candidates[j].Identifier.GoatID {
+			return candidates[i].Identifier.IdentifierID < candidates[j].Identifier.IdentifierID
+		}
+		return candidates[i].Identifier.GoatID < candidates[j].Identifier.GoatID
+	})
+	goatIDs := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		goatIDs = append(goatIDs, candidate.Identifier.GoatID)
+	}
+	if err := touchGoatsForIdentityMutation(ctx, qtx, tenantUUID, goatIDs, now); err != nil {
+		return nil, nil, err
+	}
+
 	events := make([]domain.EventSummary, 0, len(candidates))
 	identifierIDs := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -695,10 +714,13 @@ func (r *Repository) applyConflictIdentifierDisputes(ctx context.Context, qtx *i
 			return nil, nil, err
 		}
 		updated, err := qtx.MarkIdentifierDisputedForConflict(ctx, identitydb.MarkIdentifierDisputedForConflictParams{
-			ApprovedBy:   actorUUID,
-			UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
-			TenantID:     tenantUUID,
-			IdentifierID: identifierUUID,
+			ApprovedBy:      actorUUID,
+			UpdatedAt:       pgtype.Timestamptz{Time: now, Valid: true},
+			TenantID:        tenantUUID,
+			IdentifierID:    identifierUUID,
+			GoatID:          mustUUID(candidate.Identifier.GoatID),
+			IdentifierType:  candidate.Identifier.IdentifierType,
+			NormalizedValue: candidate.Identifier.NormalizedValue,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, ports.ErrWriteConflict
@@ -820,6 +842,32 @@ func (r *Repository) applyConflictIdentifierDisputes(ctx context.Context, qtx *i
 		identifierIDs = append(identifierIDs, identifier.IdentifierID)
 	}
 	return events, identifierIDs, nil
+}
+
+func touchGoatsForIdentityMutation(ctx context.Context, qtx *identitydb.Queries, tenantUUID pgtype.UUID, goatIDs []string, at time.Time) error {
+	for _, goatID := range uniqueStrings(goatIDs) {
+		_, err := qtx.TouchGoatForIdentityMutation(ctx, identitydb.TouchGoatForIdentityMutationParams{
+			UpdatedAt: pgtype.Timestamptz{Time: at, Valid: true},
+			TenantID:  tenantUUID,
+			GoatID:    mustUUID(goatID),
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.ErrWriteConflict
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasTransferredIdentifier(actions []domain.IdentifierAction) bool {
+	for _, action := range actions {
+		if action.Action == "transfer" && action.IdentifierID != nil {
+			return true
+		}
+	}
+	return false
 }
 
 type mergeDecisionEvidence struct {

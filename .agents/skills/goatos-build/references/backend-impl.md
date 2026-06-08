@@ -210,8 +210,8 @@ POST /admin/identity/conflicts/{conflict_id}/resolve
   identifier_actions with action=dispute and identifier_id; identifiers must be
   same-tenant, active, attached to conflict member goats, and match conflict
   identifier type/value when those fields are present; selected identifiers are
-  set to status=disputed and primary=false, with one goat.identifier.disputed
-  event/outbox per identifier
+  set to status=disputed and primary=false, with one goat row_version bump per
+  affected goat and one goat.identifier.disputed event/outbox per identifier
   merge is allowed only for duplicate-identity conflict types:
   possible_duplicate_goat, duplicate_active_identifier, rfid_already_linked,
   old_tag_reused
@@ -223,6 +223,8 @@ POST /admin/identity/conflicts/{conflict_id}/resolve
   with requested affected IDs preserved for traceability
   loser identifiers are default-retired unless explicitly transferred; no
   active identifier remains attached to a newly merged goat
+  survivor goat row_version is bumped when a loser identifier is transferred to
+  the survivor
   writes identity_decision_goats roles survivor and merged, applied
   identity_decision_identifiers actions, goat_merge_links,
   goat_identity_events, identity_decision_events, audit_log, outbox_messages,
