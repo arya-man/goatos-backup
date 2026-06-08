@@ -1129,6 +1129,11 @@ For `merge_goats`, canonical `identity_decision_goats.role` values are
 `survivor` for the live survivor and `merged` for each goat tombstoned by the
 decision.
 
+For redirected merges, `identity_decision_goats` stores the resolved live
+survivor and newly tombstoned goat ids. The decision evidence may preserve the
+requested survivor and affected goat ids for traceability, but consumers must
+not treat requested ids as the authoritative merge outcome.
+
 Decision types:
 
 ```text
@@ -1919,6 +1924,12 @@ row_version
 `rfid_already_linked`, and `old_tag_reused`. It must reject
 `location_mismatch`, `status_mismatch`, `missing_required_identifier`, and
 `tagless_goat_review`.
+
+For `merge_goats`, the persisted decision record must use the resolved live
+`survivor_goat_id` and resolved live `merged_goat_ids` as the outcome truth. If
+the reviewer submitted stale ids that redirected during merge resolution, the
+record may also include `requested_survivor_goat_id` and
+`requested_affected_goat_ids` as audit trail fields.
 
 Create correction request:
 
