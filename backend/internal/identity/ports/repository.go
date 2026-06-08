@@ -142,10 +142,39 @@ type RetireGoatIdentifierCommand struct {
 	RowVersion           int
 }
 
+type ResolveConflictCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	ConflictID           string
+	DecisionType         string
+	DecisionResult       string
+	SurvivorGoatID       string
+	AffectedGoatIDs      []string
+	IdentifierActions    []domain.IdentifierAction
+	EvidenceRefs         []domain.EvidenceRef
+	Reason               string
+	RowVersion           int
+}
+
 type AdminGoatMutationResult struct {
 	Goat          domain.GoatSummary
 	Identifiers   []domain.GoatIdentifier
 	Decision      domain.DecisionRecordSummary
+	Events        []domain.EventSummary
+	Replayed      bool
+	FirstResultID *string
+}
+
+type ResolveConflictResult struct {
+	ConflictID    string
+	State         string
+	Decision      domain.DecisionRecordSummary
+	Merge         domain.MergeResult
 	Events        []domain.EventSummary
 	Replayed      bool
 	FirstResultID *string
@@ -164,5 +193,6 @@ type Repository interface {
 	ResolveCorrectionRequest(ctx context.Context, cmd ResolveCorrectionRequestCommand) (*ResolveCorrectionRequestResult, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
+	ResolveConflict(ctx context.Context, cmd ResolveConflictCommand) (*ResolveConflictResult, error)
 	Ping(ctx context.Context) error
 }

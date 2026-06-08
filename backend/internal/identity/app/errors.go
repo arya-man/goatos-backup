@@ -25,6 +25,10 @@ func Conflict(code, message string) *Error {
 	return &Error{Code: code, Message: message, HTTPStatus: 409}
 }
 
+func NotImplemented(code, message string) *Error {
+	return &Error{Code: code, Message: message, HTTPStatus: 501}
+}
+
 func NotFound(message string) *Error {
 	return &Error{Code: "not_found_or_not_allowed", Message: message, HTTPStatus: 404}
 }

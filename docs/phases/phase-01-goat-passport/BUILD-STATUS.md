@@ -26,6 +26,7 @@ backend/migrations/postgres/000001_phase_1_identity_foundation.sql
 backend/migrations/postgres/000002_phase_1_identity_schema_hardening.sql
 backend/migrations/postgres/000003_phase_1_correction_outbox_support.sql
 backend/migrations/postgres/000004_phase_1_correction_resolve_support.sql
+backend/migrations/postgres/000005_phase_1_conflict_resolve_support.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -59,12 +60,16 @@ POST /admin/goats/{goat_id}/identifiers
 transactional admin identifier attach
 POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire
 transactional admin identifier retire
+POST /admin/identity/conflicts/{conflict_id}/resolve
+transactional merge_goats / same_goat_merge conflict resolve
 tenant/route-namespaced idempotency key handling
 same-transaction audit_log + outbox_messages persistence
 correction_request domain event envelope payloads
 resolve_correction_request decision records
 attach_identifier and retire_identifier decision records
 goat.identifier.added and goat.identifier.retired domain event envelopes
+merge_goats decision records
+goat.identity.merge_approved domain event envelopes
 ```
 
 ## Verified Behaviors
@@ -178,6 +183,40 @@ admin identifier add/retire:
   persisted decision_record validates against decision-record JSON Schema
   persisted outbox payload validates against domain-event-envelope JSON Schema
   goat outbox rows are DB-validated against same-tenant goat_identity_events
+conflict resolve merge_goats:
+  implements POST /admin/identity/conflicts/{conflict_id}/resolve for
+  decision_type=merge_goats and decision_result=same_goat_merge only
+  rejects unsupported conflict decisions with a typed not_implemented response
+  rejects unknown JSON fields and old evidence_ids payloads
+  requires typed evidence_refs, survivor_goat_id, affected_goat_ids,
+  identifier_actions, reason, current conflict row_version, Idempotency-Key,
+  and temporary X-GoatOS-Actor-ID uuid
+  adds identity_conflicts.row_version via migration 000005 and uses a single
+  conditional conflict update on state + row_version
+  allows merge only for duplicate-identity conflict types:
+  possible_duplicate_goat, duplicate_active_identifier, rfid_already_linked,
+  and old_tag_reused
+  rejects location/status/missing/tagless conflict types for merge_goats
+  requires survivor and affected goats to belong to the conflict
+  sets merge override GUCs with SET LOCAL only inside the merge transaction
+  resolves survivor redirects, detects redirect cycles/max-hop, and repoints
+  goats currently redirecting to merged losers to the final survivor
+  treats goats.merged_into_goat_id as the authoritative live-survivor pointer
+  and keeps goat_merge_links as immutable merge history
+  locks affected goat rows in deterministic goat_id order
+  keeps survivor live; marks merged goats identity_state=merged with
+  merged_into_goat_id pointing to the final survivor
+  writes one goat_merge_links row and one goat.identity.merge_approved
+  goat_identity_event/outbox row per newly merged goat
+  writes identity_decision_goats roles survivor and merged
+  writes identity_decision_identifiers for supplied/applied identifier actions
+  transfers only explicitly requested non-colliding loser identifiers and
+  demotes transferred identifiers from primary by default
+  requires explicit retire/reject actions for detected unique-key collisions
+  exact idempotent replay rebuilds the merge response from DB state
+  same key with different request_hash conflicts
+  persisted decision_record validates against decision-record JSON Schema
+  persisted outbox payload validates against domain-event-envelope JSON Schema
 ```
 
 ## Temporary Scaffolds
@@ -200,8 +239,16 @@ generated sqlc unless the query shape is intentionally dynamic and documented.
 ```text
 auth/RBAC adapter
 legacy import runner and source-file ingestion
-remaining admin write handlers except identifier add/retire and correction resolve
-merge/unmerge and conflict/candidate resolve command handlers
+remaining admin write handlers except identifier add/retire, correction resolve,
+and conflict resolve merge_goats
+non-merge conflict decisions:
+  mark_identifier_disputed
+  create_goat
+  reject_match
+  request_field_verification
+candidate approve/reject command handlers
+standalone merge command handler
+unmerge command handler/contract
 outbox relay runtime
 projection workers and counter population
 partition auto-creation worker or pg_partman
@@ -209,6 +256,30 @@ OpenTelemetry spans/metrics/exporters
 generated client drift checks
 fresh private RFID DB import run
 P8 sales/allocation/promise behavior
+```
+
+## Merge/Unmerge Contract Status
+
+```text
+The only contract path that performs a merge is
+  POST /admin/identity/conflicts/{conflict_id}/resolve
+with ResolveConflictRequest.decision_type = merge_goats and
+decision_result = same_goat_merge, returning ResolveConflictResponse with an
+optional MergeResult.
+That merge path is now implemented for duplicate-identity conflict types.
+admin-api.yaml exposes no POST /admin/identity/merges,
+POST /admin/goats/{goat_id}/merge, or equivalent standalone merge route.
+```
+
+Unmerge remains contract-blocked:
+
+```text
+No unmerge route in admin-api.yaml or the TRD API list.
+No unmerge request/response schema anywhere.
+No unmerge_goats decision_type in decision-record.schema.json.
+No unmerge / merge_reversed event_type in domain-event-envelope.schema.json.
+Unmerge exists only as TRD prose and needs a future contract decision before
+implementation.
 ```
 
 ## Next Write-Slice Guardrails
@@ -285,13 +356,16 @@ merge override GUCs for normal identifier mutation; merged goats must reject as
 write conflicts. Replay must rebuild from the database, not cached response
 bodies.
 
-Do not implement goat merge in the write-foundation slice. The merge slice must:
-  - use SET LOCAL goatos.allow_merged_goat_update='on' and
-    goatos.allow_merged_goat_child_write='on' only inside the merge/unmerge
-    transaction
-  - resolve identifier collisions before moving identifiers, because active
-    RFID/scoped/primary uniqueness can abort blind moves
-  - write goat_merge_links and decision records
+Conflict resolve merge_goats mutates goat identity through
+POST /admin/identity/conflicts/{conflict_id}/resolve. It must keep using
+SET LOCAL goatos.allow_merged_goat_update='on' and
+goatos.allow_merged_goat_child_write='on' only inside the merge transaction,
+resolve identifier actions before marking losers merged, and write
+identity_decisions, identity_decision_goats, identity_decision_identifiers,
+goat_merge_links, goat_identity_events, identity_decision_events, audit_log,
+outbox_messages, and idempotency completion in one transaction. Non-merge
+conflict decisions remain deferred and must return typed unsupported errors
+until implemented.
 
 Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
 actor headers are local/dev scaffolding only. They are a deploy gate for shared,

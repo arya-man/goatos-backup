@@ -146,6 +146,46 @@ func (q *Queries) CreateCorrectionRequest(ctx context.Context, arg CreateCorrect
 	return i, err
 }
 
+const getConflictForResolve = `-- name: GetConflictForResolve :one
+SELECT
+  conflict_id::text AS conflict_id,
+  conflict_type,
+  state,
+  row_version,
+  COALESCE(decision_id::text, '')::text AS decision_id,
+  resolved_at
+FROM identity_conflicts
+WHERE tenant_id = $1 AND conflict_id = $2
+`
+
+type GetConflictForResolveParams struct {
+	TenantID   pgtype.UUID
+	ConflictID pgtype.UUID
+}
+
+type GetConflictForResolveRow struct {
+	ConflictID   string
+	ConflictType string
+	State        string
+	RowVersion   int32
+	DecisionID   string
+	ResolvedAt   pgtype.Timestamptz
+}
+
+func (q *Queries) GetConflictForResolve(ctx context.Context, arg GetConflictForResolveParams) (GetConflictForResolveRow, error) {
+	row := q.db.QueryRow(ctx, getConflictForResolve, arg.TenantID, arg.ConflictID)
+	var i GetConflictForResolveRow
+	err := row.Scan(
+		&i.ConflictID,
+		&i.ConflictType,
+		&i.State,
+		&i.RowVersion,
+		&i.DecisionID,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
 const getCorrectionRequestByID = `-- name: GetCorrectionRequestByID :one
 SELECT
   correction_request_id::text AS correction_request_id,
@@ -278,6 +318,24 @@ func (q *Queries) GetCorrectionRequestForResolve(ctx context.Context, arg GetCor
 		&i.ResolvedAt,
 	)
 	return i, err
+}
+
+const getDecisionEvidenceByID = `-- name: GetDecisionEvidenceByID :one
+SELECT evidence
+FROM identity_decisions
+WHERE tenant_id = $1 AND decision_id = $2
+`
+
+type GetDecisionEvidenceByIDParams struct {
+	TenantID   pgtype.UUID
+	DecisionID pgtype.UUID
+}
+
+func (q *Queries) GetDecisionEvidenceByID(ctx context.Context, arg GetDecisionEvidenceByIDParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getDecisionEvidenceByID, arg.TenantID, arg.DecisionID)
+	var evidence []byte
+	err := row.Scan(&evidence)
+	return evidence, err
 }
 
 const getDecisionSummaryByID = `-- name: GetDecisionSummaryByID :one
@@ -809,6 +867,52 @@ func (q *Queries) InsertGoatIdentityEvent(ctx context.Context, arg InsertGoatIde
 	return i, err
 }
 
+const insertGoatMergeLink = `-- name: InsertGoatMergeLink :one
+INSERT INTO goat_merge_links (
+  tenant_id,
+  survivor_goat_id,
+  merged_goat_id,
+  decision_id,
+  reason,
+  created_at,
+  created_by
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7
+)
+RETURNING merge_link_id::text AS merge_link_id
+`
+
+type InsertGoatMergeLinkParams struct {
+	TenantID       pgtype.UUID
+	SurvivorGoatID pgtype.UUID
+	MergedGoatID   pgtype.UUID
+	DecisionID     pgtype.UUID
+	Reason         string
+	CreatedAt      pgtype.Timestamptz
+	CreatedBy      pgtype.UUID
+}
+
+func (q *Queries) InsertGoatMergeLink(ctx context.Context, arg InsertGoatMergeLinkParams) (string, error) {
+	row := q.db.QueryRow(ctx, insertGoatMergeLink,
+		arg.TenantID,
+		arg.SurvivorGoatID,
+		arg.MergedGoatID,
+		arg.DecisionID,
+		arg.Reason,
+		arg.CreatedAt,
+		arg.CreatedBy,
+	)
+	var merge_link_id string
+	err := row.Scan(&merge_link_id)
+	return merge_link_id, err
+}
+
 const insertIdempotencyStarted = `-- name: InsertIdempotencyStarted :one
 INSERT INTO idempotency_keys (
   idempotency_key,
@@ -967,6 +1071,37 @@ func (q *Queries) InsertIdentityDecisionEvent(ctx context.Context, arg InsertIde
 	return err
 }
 
+const insertIdentityDecisionGoat = `-- name: InsertIdentityDecisionGoat :exec
+INSERT INTO identity_decision_goats (
+  decision_id,
+  tenant_id,
+  goat_id,
+  role
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4
+)
+`
+
+type InsertIdentityDecisionGoatParams struct {
+	DecisionID pgtype.UUID
+	TenantID   pgtype.UUID
+	GoatID     pgtype.UUID
+	Role       string
+}
+
+func (q *Queries) InsertIdentityDecisionGoat(ctx context.Context, arg InsertIdentityDecisionGoatParams) error {
+	_, err := q.db.Exec(ctx, insertIdentityDecisionGoat,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.GoatID,
+		arg.Role,
+	)
+	return err
+}
+
 const insertIdentityDecisionIdentifier = `-- name: InsertIdentityDecisionIdentifier :exec
 INSERT INTO identity_decision_identifiers (
   decision_id,
@@ -1067,6 +1202,435 @@ func (q *Queries) InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessa
 	return err
 }
 
+const listActiveIdentifiersForGoatsForUpdate = `-- name: ListActiveIdentifiersForGoatsForUpdate :many
+SELECT
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+FROM goat_identifiers
+WHERE tenant_id = $1
+  AND goat_id = ANY($2::uuid[])
+  AND status = 'active'
+ORDER BY goat_id, identifier_type, normalized_value, scope_key, identifier_id
+FOR UPDATE
+`
+
+type ListActiveIdentifiersForGoatsForUpdateParams struct {
+	TenantID pgtype.UUID
+	GoatIds  []pgtype.UUID
+}
+
+type ListActiveIdentifiersForGoatsForUpdateRow struct {
+	IdentifierID     string
+	GoatID           string
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+}
+
+func (q *Queries) ListActiveIdentifiersForGoatsForUpdate(ctx context.Context, arg ListActiveIdentifiersForGoatsForUpdateParams) ([]ListActiveIdentifiersForGoatsForUpdateRow, error) {
+	rows, err := q.db.Query(ctx, listActiveIdentifiersForGoatsForUpdate, arg.TenantID, arg.GoatIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveIdentifiersForGoatsForUpdateRow
+	for rows.Next() {
+		var i ListActiveIdentifiersForGoatsForUpdateRow
+		if err := rows.Scan(
+			&i.IdentifierID,
+			&i.GoatID,
+			&i.IdentifierType,
+			&i.IdentifierValue,
+			&i.NormalizedValue,
+			&i.ScopeKey,
+			&i.Status,
+			&i.IsPrimaryForGoat,
+			&i.ValidFrom,
+			&i.ValidTo,
+			&i.SourceSystem,
+			&i.SourceRecordID,
+			&i.Confidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConflictMemberGoats = `-- name: ListConflictMemberGoats :many
+SELECT
+  cg.goat_id::text AS goat_id,
+  g.identity_state,
+  COALESCE(g.merged_into_goat_id::text, '')::text AS merged_into_goat_id,
+  g.row_version,
+  COALESCE(g.farm_id::text, '')::text AS farm_id,
+  COALESCE(g.park_id::text, '')::text AS park_id,
+  COALESCE(g.shed_id::text, '')::text AS shed_id,
+  COALESCE(g.cohort_id::text, '')::text AS cohort_id
+FROM identity_conflict_goats cg
+JOIN goats g
+  ON g.tenant_id = cg.tenant_id
+ AND g.goat_id = cg.goat_id
+WHERE cg.tenant_id = $1
+  AND cg.conflict_id = $2
+ORDER BY cg.goat_id
+`
+
+type ListConflictMemberGoatsParams struct {
+	TenantID   pgtype.UUID
+	ConflictID pgtype.UUID
+}
+
+type ListConflictMemberGoatsRow struct {
+	GoatID           string
+	IdentityState    string
+	MergedIntoGoatID string
+	RowVersion       int32
+	FarmID           string
+	ParkID           string
+	ShedID           string
+	CohortID         string
+}
+
+func (q *Queries) ListConflictMemberGoats(ctx context.Context, arg ListConflictMemberGoatsParams) ([]ListConflictMemberGoatsRow, error) {
+	rows, err := q.db.Query(ctx, listConflictMemberGoats, arg.TenantID, arg.ConflictID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListConflictMemberGoatsRow
+	for rows.Next() {
+		var i ListConflictMemberGoatsRow
+		if err := rows.Scan(
+			&i.GoatID,
+			&i.IdentityState,
+			&i.MergedIntoGoatID,
+			&i.RowVersion,
+			&i.FarmID,
+			&i.ParkID,
+			&i.ShedID,
+			&i.CohortID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDecisionEvents = `-- name: ListDecisionEvents :many
+SELECT
+  gie.identity_event_id::text AS event_id,
+  gie.event_type,
+  gie.recorded_at
+FROM identity_decision_events ide
+JOIN goat_identity_events gie
+  ON gie.tenant_id = ide.tenant_id
+ AND gie.identity_event_id = ide.event_id
+ AND gie.recorded_at = ide.event_recorded_at
+WHERE ide.tenant_id = $1 AND ide.decision_id = $2
+ORDER BY gie.recorded_at ASC, gie.identity_event_id ASC
+`
+
+type ListDecisionEventsParams struct {
+	TenantID   pgtype.UUID
+	DecisionID pgtype.UUID
+}
+
+type ListDecisionEventsRow struct {
+	EventID    string
+	EventType  string
+	RecordedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListDecisionEvents(ctx context.Context, arg ListDecisionEventsParams) ([]ListDecisionEventsRow, error) {
+	rows, err := q.db.Query(ctx, listDecisionEvents, arg.TenantID, arg.DecisionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDecisionEventsRow
+	for rows.Next() {
+		var i ListDecisionEventsRow
+		if err := rows.Scan(&i.EventID, &i.EventType, &i.RecordedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDecisionIdentifiers = `-- name: ListDecisionIdentifiers :many
+SELECT
+  COALESCE(identifier_id::text, '')::text AS identifier_id,
+  identifier_type,
+  identifier_value,
+  action
+FROM identity_decision_identifiers
+WHERE tenant_id = $1 AND decision_id = $2
+ORDER BY created_at ASC, decision_identifier_id ASC
+`
+
+type ListDecisionIdentifiersParams struct {
+	TenantID   pgtype.UUID
+	DecisionID pgtype.UUID
+}
+
+type ListDecisionIdentifiersRow struct {
+	IdentifierID    string
+	IdentifierType  pgtype.Text
+	IdentifierValue pgtype.Text
+	Action          string
+}
+
+func (q *Queries) ListDecisionIdentifiers(ctx context.Context, arg ListDecisionIdentifiersParams) ([]ListDecisionIdentifiersRow, error) {
+	rows, err := q.db.Query(ctx, listDecisionIdentifiers, arg.TenantID, arg.DecisionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDecisionIdentifiersRow
+	for rows.Next() {
+		var i ListDecisionIdentifiersRow
+		if err := rows.Scan(
+			&i.IdentifierID,
+			&i.IdentifierType,
+			&i.IdentifierValue,
+			&i.Action,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGoatsRedirectingTo = `-- name: ListGoatsRedirectingTo :many
+SELECT
+  goat_id::text AS goat_id,
+  identity_state,
+  COALESCE(merged_into_goat_id::text, '')::text AS merged_into_goat_id,
+  row_version,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id
+FROM goats
+WHERE tenant_id = $1
+  AND merged_into_goat_id = ANY($2::uuid[])
+ORDER BY goat_id
+FOR UPDATE
+`
+
+type ListGoatsRedirectingToParams struct {
+	TenantID pgtype.UUID
+	GoatIds  []pgtype.UUID
+}
+
+type ListGoatsRedirectingToRow struct {
+	GoatID           string
+	IdentityState    string
+	MergedIntoGoatID string
+	RowVersion       int32
+	FarmID           string
+	ParkID           string
+	ShedID           string
+	CohortID         string
+}
+
+func (q *Queries) ListGoatsRedirectingTo(ctx context.Context, arg ListGoatsRedirectingToParams) ([]ListGoatsRedirectingToRow, error) {
+	rows, err := q.db.Query(ctx, listGoatsRedirectingTo, arg.TenantID, arg.GoatIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGoatsRedirectingToRow
+	for rows.Next() {
+		var i ListGoatsRedirectingToRow
+		if err := rows.Scan(
+			&i.GoatID,
+			&i.IdentityState,
+			&i.MergedIntoGoatID,
+			&i.RowVersion,
+			&i.FarmID,
+			&i.ParkID,
+			&i.ShedID,
+			&i.CohortID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMergeLinksByDecision = `-- name: ListMergeLinksByDecision :many
+SELECT
+  merge_link_id::text AS merge_link_id,
+  survivor_goat_id::text AS survivor_goat_id,
+  merged_goat_id::text AS merged_goat_id
+FROM goat_merge_links
+WHERE tenant_id = $1 AND decision_id = $2
+ORDER BY created_at ASC, merged_goat_id ASC
+`
+
+type ListMergeLinksByDecisionParams struct {
+	TenantID   pgtype.UUID
+	DecisionID pgtype.UUID
+}
+
+type ListMergeLinksByDecisionRow struct {
+	MergeLinkID    string
+	SurvivorGoatID string
+	MergedGoatID   string
+}
+
+func (q *Queries) ListMergeLinksByDecision(ctx context.Context, arg ListMergeLinksByDecisionParams) ([]ListMergeLinksByDecisionRow, error) {
+	rows, err := q.db.Query(ctx, listMergeLinksByDecision, arg.TenantID, arg.DecisionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMergeLinksByDecisionRow
+	for rows.Next() {
+		var i ListMergeLinksByDecisionRow
+		if err := rows.Scan(&i.MergeLinkID, &i.SurvivorGoatID, &i.MergedGoatID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockGoatsForMerge = `-- name: LockGoatsForMerge :many
+SELECT
+  goat_id::text AS goat_id,
+  identity_state,
+  COALESCE(merged_into_goat_id::text, '')::text AS merged_into_goat_id,
+  row_version,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id
+FROM goats
+WHERE tenant_id = $1
+  AND goat_id = ANY($2::uuid[])
+ORDER BY goat_id
+FOR UPDATE
+`
+
+type LockGoatsForMergeParams struct {
+	TenantID pgtype.UUID
+	GoatIds  []pgtype.UUID
+}
+
+type LockGoatsForMergeRow struct {
+	GoatID           string
+	IdentityState    string
+	MergedIntoGoatID string
+	RowVersion       int32
+	FarmID           string
+	ParkID           string
+	ShedID           string
+	CohortID         string
+}
+
+func (q *Queries) LockGoatsForMerge(ctx context.Context, arg LockGoatsForMergeParams) ([]LockGoatsForMergeRow, error) {
+	rows, err := q.db.Query(ctx, lockGoatsForMerge, arg.TenantID, arg.GoatIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockGoatsForMergeRow
+	for rows.Next() {
+		var i LockGoatsForMergeRow
+		if err := rows.Scan(
+			&i.GoatID,
+			&i.IdentityState,
+			&i.MergedIntoGoatID,
+			&i.RowVersion,
+			&i.FarmID,
+			&i.ParkID,
+			&i.ShedID,
+			&i.CohortID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markGoatMerged = `-- name: MarkGoatMerged :exec
+UPDATE goats
+SET
+  identity_state = 'merged',
+  merged_into_goat_id = $1,
+  row_version = row_version + 1,
+  updated_at = $2
+WHERE tenant_id = $3
+  AND goat_id = $4
+  AND goat_id <> $1
+`
+
+type MarkGoatMergedParams struct {
+	SurvivorGoatID pgtype.UUID
+	UpdatedAt      pgtype.Timestamptz
+	TenantID       pgtype.UUID
+	MergedGoatID   pgtype.UUID
+}
+
+func (q *Queries) MarkGoatMerged(ctx context.Context, arg MarkGoatMergedParams) error {
+	_, err := q.db.Exec(ctx, markGoatMerged,
+		arg.SurvivorGoatID,
+		arg.UpdatedAt,
+		arg.TenantID,
+		arg.MergedGoatID,
+	)
+	return err
+}
+
 const newUUID = `-- name: NewUUID :one
 SELECT gen_random_uuid()::text AS uuid
 `
@@ -1076,6 +1640,35 @@ func (q *Queries) NewUUID(ctx context.Context) (string, error) {
 	var uuid string
 	err := row.Scan(&uuid)
 	return uuid, err
+}
+
+const repointMergedGoatRedirect = `-- name: RepointMergedGoatRedirect :exec
+UPDATE goats
+SET
+  merged_into_goat_id = $1,
+  row_version = row_version + 1,
+  updated_at = $2
+WHERE tenant_id = $3
+  AND goat_id = $4
+  AND identity_state = 'merged'
+  AND merged_into_goat_id IS DISTINCT FROM $1
+`
+
+type RepointMergedGoatRedirectParams struct {
+	SurvivorGoatID pgtype.UUID
+	UpdatedAt      pgtype.Timestamptz
+	TenantID       pgtype.UUID
+	GoatID         pgtype.UUID
+}
+
+func (q *Queries) RepointMergedGoatRedirect(ctx context.Context, arg RepointMergedGoatRedirectParams) error {
+	_, err := q.db.Exec(ctx, repointMergedGoatRedirect,
+		arg.SurvivorGoatID,
+		arg.UpdatedAt,
+		arg.TenantID,
+		arg.GoatID,
+	)
+	return err
 }
 
 const resolveCorrectionRequest = `-- name: ResolveCorrectionRequest :one
@@ -1173,6 +1766,60 @@ func (q *Queries) ResolveCorrectionRequest(ctx context.Context, arg ResolveCorre
 	return i, err
 }
 
+const resolveIdentityConflict = `-- name: ResolveIdentityConflict :one
+UPDATE identity_conflicts
+SET
+  state = 'resolved',
+  resolved_at = $1,
+  resolved_by = $2,
+  decision_id = $3,
+  row_version = row_version + 1
+WHERE tenant_id = $4
+  AND conflict_id = $5
+  AND state IN ('open', 'needs_field_check')
+  AND row_version = $6
+RETURNING
+  conflict_id::text AS conflict_id,
+  state,
+  row_version,
+  resolved_at
+`
+
+type ResolveIdentityConflictParams struct {
+	ResolvedAt pgtype.Timestamptz
+	ResolvedBy pgtype.UUID
+	DecisionID pgtype.UUID
+	TenantID   pgtype.UUID
+	ConflictID pgtype.UUID
+	RowVersion int32
+}
+
+type ResolveIdentityConflictRow struct {
+	ConflictID string
+	State      string
+	RowVersion int32
+	ResolvedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ResolveIdentityConflict(ctx context.Context, arg ResolveIdentityConflictParams) (ResolveIdentityConflictRow, error) {
+	row := q.db.QueryRow(ctx, resolveIdentityConflict,
+		arg.ResolvedAt,
+		arg.ResolvedBy,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.ConflictID,
+		arg.RowVersion,
+	)
+	var i ResolveIdentityConflictRow
+	err := row.Scan(
+		&i.ConflictID,
+		&i.State,
+		&i.RowVersion,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
 const retireGoatIdentifier = `-- name: RetireGoatIdentifier :one
 UPDATE goat_identifiers
 SET
@@ -1235,6 +1882,161 @@ func (q *Queries) RetireGoatIdentifier(ctx context.Context, arg RetireGoatIdenti
 	var i RetireGoatIdentifierRow
 	err := row.Scan(
 		&i.IdentifierID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.NormalizedValue,
+		&i.ScopeKey,
+		&i.Status,
+		&i.IsPrimaryForGoat,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.SourceSystem,
+		&i.SourceRecordID,
+		&i.Confidence,
+	)
+	return i, err
+}
+
+const retireIdentifierForMerge = `-- name: RetireIdentifierForMerge :one
+UPDATE goat_identifiers
+SET
+  status = 'retired',
+  is_primary_for_goat = false,
+  valid_to = $1,
+  approved_by = $2,
+  updated_at = $3
+WHERE tenant_id = $4
+  AND identifier_id = $5
+  AND status = 'active'
+RETURNING
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+`
+
+type RetireIdentifierForMergeParams struct {
+	ValidTo      pgtype.Timestamptz
+	ApprovedBy   pgtype.UUID
+	UpdatedAt    pgtype.Timestamptz
+	TenantID     pgtype.UUID
+	IdentifierID pgtype.UUID
+}
+
+type RetireIdentifierForMergeRow struct {
+	IdentifierID     string
+	GoatID           string
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+}
+
+func (q *Queries) RetireIdentifierForMerge(ctx context.Context, arg RetireIdentifierForMergeParams) (RetireIdentifierForMergeRow, error) {
+	row := q.db.QueryRow(ctx, retireIdentifierForMerge,
+		arg.ValidTo,
+		arg.ApprovedBy,
+		arg.UpdatedAt,
+		arg.TenantID,
+		arg.IdentifierID,
+	)
+	var i RetireIdentifierForMergeRow
+	err := row.Scan(
+		&i.IdentifierID,
+		&i.GoatID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.NormalizedValue,
+		&i.ScopeKey,
+		&i.Status,
+		&i.IsPrimaryForGoat,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.SourceSystem,
+		&i.SourceRecordID,
+		&i.Confidence,
+	)
+	return i, err
+}
+
+const transferIdentifierForMerge = `-- name: TransferIdentifierForMerge :one
+UPDATE goat_identifiers
+SET
+  goat_id = $1,
+  is_primary_for_goat = false,
+  approved_by = $2,
+  updated_at = $3
+WHERE tenant_id = $4
+  AND identifier_id = $5
+  AND status = 'active'
+RETURNING
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+`
+
+type TransferIdentifierForMergeParams struct {
+	SurvivorGoatID pgtype.UUID
+	ApprovedBy     pgtype.UUID
+	UpdatedAt      pgtype.Timestamptz
+	TenantID       pgtype.UUID
+	IdentifierID   pgtype.UUID
+}
+
+type TransferIdentifierForMergeRow struct {
+	IdentifierID     string
+	GoatID           string
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+}
+
+func (q *Queries) TransferIdentifierForMerge(ctx context.Context, arg TransferIdentifierForMergeParams) (TransferIdentifierForMergeRow, error) {
+	row := q.db.QueryRow(ctx, transferIdentifierForMerge,
+		arg.SurvivorGoatID,
+		arg.ApprovedBy,
+		arg.UpdatedAt,
+		arg.TenantID,
+		arg.IdentifierID,
+	)
+	var i TransferIdentifierForMergeRow
+	err := row.Scan(
+		&i.IdentifierID,
+		&i.GoatID,
 		&i.IdentifierType,
 		&i.IdentifierValue,
 		&i.NormalizedValue,

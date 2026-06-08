@@ -896,6 +896,8 @@ CREATE TABLE public.identity_conflicts (
     resolved_at timestamp with time zone,
     resolved_by uuid,
     decision_id uuid,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT identity_conflicts_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT identity_conflicts_severity_check CHECK ((severity = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text]))),
     CONSTRAINT identity_conflicts_state_check CHECK ((state = ANY (ARRAY['open'::text, 'needs_field_check'::text, 'resolved'::text, 'rejected'::text, 'closed'::text]))),
     CONSTRAINT identity_conflicts_type_check CHECK ((conflict_type = ANY (ARRAY['duplicate_active_identifier'::text, 'missing_required_identifier'::text, 'tagless_goat_review'::text, 'rfid_already_linked'::text, 'old_tag_reused'::text, 'possible_duplicate_goat'::text, 'location_mismatch'::text, 'status_mismatch'::text])))

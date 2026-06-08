@@ -418,6 +418,7 @@ type IdentityConflict struct {
 	ResolvedAt      pgtype.Timestamptz
 	ResolvedBy      pgtype.UUID
 	DecisionID      pgtype.UUID
+	RowVersion      int32
 }
 
 type IdentityConflictGoat struct {

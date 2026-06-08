@@ -265,6 +265,11 @@ SELECT
 FROM identity_decisions
 WHERE tenant_id = @tenant_id AND decision_id = @decision_id;
 
+-- name: GetDecisionEvidenceByID :one
+SELECT evidence
+FROM identity_decisions
+WHERE tenant_id = @tenant_id AND decision_id = @decision_id;
+
 -- name: GuardGoatForIdentifierMutation :one
 UPDATE goats
 SET
@@ -459,3 +464,242 @@ WHERE idi.tenant_id = @tenant_id
   AND d.evidence->'decision_record'->>'idempotency_key' = @idempotency_key::text
 ORDER BY d.created_at DESC
 LIMIT 1;
+
+-- name: GetConflictForResolve :one
+SELECT
+  conflict_id::text AS conflict_id,
+  conflict_type,
+  state,
+  row_version,
+  COALESCE(decision_id::text, '')::text AS decision_id,
+  resolved_at
+FROM identity_conflicts
+WHERE tenant_id = @tenant_id AND conflict_id = @conflict_id;
+
+-- name: ResolveIdentityConflict :one
+UPDATE identity_conflicts
+SET
+  state = 'resolved',
+  resolved_at = @resolved_at,
+  resolved_by = @resolved_by,
+  decision_id = @decision_id,
+  row_version = row_version + 1
+WHERE tenant_id = @tenant_id
+  AND conflict_id = @conflict_id
+  AND state IN ('open', 'needs_field_check')
+  AND row_version = @row_version
+RETURNING
+  conflict_id::text AS conflict_id,
+  state,
+  row_version,
+  resolved_at;
+
+-- name: ListConflictMemberGoats :many
+SELECT
+  cg.goat_id::text AS goat_id,
+  g.identity_state,
+  COALESCE(g.merged_into_goat_id::text, '')::text AS merged_into_goat_id,
+  g.row_version,
+  COALESCE(g.farm_id::text, '')::text AS farm_id,
+  COALESCE(g.park_id::text, '')::text AS park_id,
+  COALESCE(g.shed_id::text, '')::text AS shed_id,
+  COALESCE(g.cohort_id::text, '')::text AS cohort_id
+FROM identity_conflict_goats cg
+JOIN goats g
+  ON g.tenant_id = cg.tenant_id
+ AND g.goat_id = cg.goat_id
+WHERE cg.tenant_id = @tenant_id
+  AND cg.conflict_id = @conflict_id
+ORDER BY cg.goat_id;
+
+-- name: LockGoatsForMerge :many
+SELECT
+  goat_id::text AS goat_id,
+  identity_state,
+  COALESCE(merged_into_goat_id::text, '')::text AS merged_into_goat_id,
+  row_version,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id
+FROM goats
+WHERE tenant_id = @tenant_id
+  AND goat_id = ANY(@goat_ids::uuid[])
+ORDER BY goat_id
+FOR UPDATE;
+
+-- name: ListGoatsRedirectingTo :many
+SELECT
+  goat_id::text AS goat_id,
+  identity_state,
+  COALESCE(merged_into_goat_id::text, '')::text AS merged_into_goat_id,
+  row_version,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id
+FROM goats
+WHERE tenant_id = @tenant_id
+  AND merged_into_goat_id = ANY(@goat_ids::uuid[])
+ORDER BY goat_id
+FOR UPDATE;
+
+-- name: MarkGoatMerged :exec
+UPDATE goats
+SET
+  identity_state = 'merged',
+  merged_into_goat_id = @survivor_goat_id,
+  row_version = row_version + 1,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND goat_id = @merged_goat_id
+  AND goat_id <> @survivor_goat_id;
+
+-- name: RepointMergedGoatRedirect :exec
+UPDATE goats
+SET
+  merged_into_goat_id = @survivor_goat_id,
+  row_version = row_version + 1,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND goat_id = @goat_id
+  AND identity_state = 'merged'
+  AND merged_into_goat_id IS DISTINCT FROM @survivor_goat_id;
+
+-- name: InsertGoatMergeLink :one
+INSERT INTO goat_merge_links (
+  tenant_id,
+  survivor_goat_id,
+  merged_goat_id,
+  decision_id,
+  reason,
+  created_at,
+  created_by
+) VALUES (
+  @tenant_id,
+  @survivor_goat_id,
+  @merged_goat_id,
+  @decision_id,
+  @reason,
+  @created_at,
+  @created_by
+)
+RETURNING merge_link_id::text AS merge_link_id;
+
+-- name: InsertIdentityDecisionGoat :exec
+INSERT INTO identity_decision_goats (
+  decision_id,
+  tenant_id,
+  goat_id,
+  role
+) VALUES (
+  @decision_id,
+  @tenant_id,
+  @goat_id,
+  @role
+);
+
+-- name: ListActiveIdentifiersForGoatsForUpdate :many
+SELECT
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+FROM goat_identifiers
+WHERE tenant_id = @tenant_id
+  AND goat_id = ANY(@goat_ids::uuid[])
+  AND status = 'active'
+ORDER BY goat_id, identifier_type, normalized_value, scope_key, identifier_id
+FOR UPDATE;
+
+-- name: RetireIdentifierForMerge :one
+UPDATE goat_identifiers
+SET
+  status = 'retired',
+  is_primary_for_goat = false,
+  valid_to = @valid_to,
+  approved_by = @approved_by,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND identifier_id = @identifier_id
+  AND status = 'active'
+RETURNING
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence;
+
+-- name: TransferIdentifierForMerge :one
+UPDATE goat_identifiers
+SET
+  goat_id = @survivor_goat_id,
+  is_primary_for_goat = false,
+  approved_by = @approved_by,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND identifier_id = @identifier_id
+  AND status = 'active'
+RETURNING
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence;
+
+-- name: ListMergeLinksByDecision :many
+SELECT
+  merge_link_id::text AS merge_link_id,
+  survivor_goat_id::text AS survivor_goat_id,
+  merged_goat_id::text AS merged_goat_id
+FROM goat_merge_links
+WHERE tenant_id = @tenant_id AND decision_id = @decision_id
+ORDER BY created_at ASC, merged_goat_id ASC;
+
+-- name: ListDecisionIdentifiers :many
+SELECT
+  COALESCE(identifier_id::text, '')::text AS identifier_id,
+  identifier_type,
+  identifier_value,
+  action
+FROM identity_decision_identifiers
+WHERE tenant_id = @tenant_id AND decision_id = @decision_id
+ORDER BY created_at ASC, decision_identifier_id ASC;
+
+-- name: ListDecisionEvents :many
+SELECT
+  gie.identity_event_id::text AS event_id,
+  gie.event_type,
+  gie.recorded_at
+FROM identity_decision_events ide
+JOIN goat_identity_events gie
+  ON gie.tenant_id = ide.tenant_id
+ AND gie.identity_event_id = ide.event_id
+ AND gie.recorded_at = ide.event_recorded_at
+WHERE ide.tenant_id = @tenant_id AND ide.decision_id = @decision_id
+ORDER BY gie.recorded_at ASC, gie.identity_event_id ASC;

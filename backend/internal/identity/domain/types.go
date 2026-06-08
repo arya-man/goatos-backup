@@ -244,6 +244,27 @@ type EventSummary struct {
 	EventType string `json:"event_type"`
 }
 
+type IdentifierAction struct {
+	IdentifierID    *string `json:"identifier_id"`
+	IdentifierType  *string `json:"identifier_type"`
+	IdentifierValue *string `json:"identifier_value"`
+	Action          string  `json:"action"`
+}
+
+type MergeRedirectWarning struct {
+	OriginalGoatID string `json:"original_goat_id"`
+	RedirectGoatID string `json:"redirect_goat_id"`
+	Code           string `json:"code"`
+	Message        string `json:"message"`
+}
+
+type MergeResult struct {
+	SurvivorGoatID      string                 `json:"survivor_goat_id"`
+	MergedGoatIDs       []string               `json:"merged_goat_ids"`
+	RedirectWarnings    []MergeRedirectWarning `json:"redirect_warnings"`
+	AffectedIdentifiers []IdentifierAction     `json:"affected_identifiers"`
+}
+
 type IdempotencyMeta struct {
 	IdempotencyKey string  `json:"idempotency_key"`
 	Replayed       bool    `json:"replayed"`
@@ -261,6 +282,16 @@ type AdminGoatResponse struct {
 	Goat        GoatSummary           `json:"goat"`
 	Identifiers []GoatIdentifier      `json:"identifiers"`
 	Decision    DecisionRecordSummary `json:"decision"`
+	Events      []EventSummary        `json:"events"`
+	Idempotency IdempotencyMeta       `json:"idempotency"`
+	TraceID     string                `json:"trace_id"`
+}
+
+type ResolveConflictResponse struct {
+	ConflictID  string                `json:"conflict_id"`
+	State       string                `json:"state"`
+	Decision    DecisionRecordSummary `json:"decision"`
+	Merge       *MergeResult          `json:"merge"`
 	Events      []EventSummary        `json:"events"`
 	Idempotency IdempotencyMeta       `json:"idempotency"`
 	TraceID     string                `json:"trace_id"`

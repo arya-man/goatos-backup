@@ -1065,6 +1065,7 @@ created_at timestamptz not null
 resolved_at timestamptz null
 resolved_by uuid null
 decision_id uuid null
+row_version int not null default 1
 ```
 
 Array columns are allowed only as denormalized display caches. Referential
@@ -1124,6 +1125,10 @@ identity_decision_events(decision_id, event_id)
 identity_decision_media(decision_id, media_id)
 ```
 
+For `merge_goats`, canonical `identity_decision_goats.role` values are
+`survivor` for the live survivor and `merged` for each goat tombstoned by the
+decision.
+
 Decision types:
 
 ```text
@@ -1179,6 +1184,9 @@ merged goat remains readable for audit
 lookup by merged goat redirects to survivor with warning
 events are not physically moved or deleted
 new writes must use survivor_goat_id
+goats.merged_into_goat_id is the authoritative live-survivor pointer
+goat_merge_links is immutable merge history and is not rewritten when
+transitive redirects are flattened
 ```
 
 Lookup rule:
@@ -1900,10 +1908,16 @@ decision_result
 survivor_goat_id
 affected_goat_ids[]
 identifier_actions[]
-evidence_ids[]
+evidence_refs[]          -- typed EvidenceRef objects, not evidence_ids
 reason
 row_version
 ```
+
+`merge_goats` is valid only for duplicate-identity conflict types:
+`possible_duplicate_goat`, `duplicate_active_identifier`,
+`rfid_already_linked`, and `old_tag_reused`. It must reject
+`location_mismatch`, `status_mismatch`, `missing_required_identifier`, and
+`tagless_goat_review`.
 
 Create correction request:
 

@@ -180,6 +180,32 @@ POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire
   same key/different body conflicts
   goat identity event outbox rows are DB-validated against same-tenant
   goat_identity_events
+
+POST /admin/identity/conflicts/{conflict_id}/resolve
+  implements only decision_type=merge_goats with
+  decision_result=same_goat_merge; non-merge conflict decisions return typed
+  unsupported/not_implemented errors until built
+  strict JSON rejects old evidence_ids; use typed evidence_refs
+  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, survivor goat,
+  affected goat IDs, identifier actions array, reason, and conflict row_version
+  stored idempotency key is
+  <tenant_id>:resolveIdentityConflict:<conflict_id>:<client_key>
+  inserts identity_decisions before the guarded conflict update so
+  identity_conflicts.decision_id satisfies its FK, then gates the mutation with
+  one conditional update on tenant, conflict, open/needs_field_check state, and
+  row_version
+  merge is allowed only for duplicate-identity conflict types:
+  possible_duplicate_goat, duplicate_active_identifier, rfid_already_linked,
+  old_tag_reused
+  survivor and affected goats must belong to the conflict
+  merge override GUCs are SET LOCAL inside the transaction only
+  goats.merged_into_goat_id is the authoritative live-survivor pointer;
+  goat_merge_links is immutable history
+  writes identity_decision_goats roles survivor and merged, applied
+  identity_decision_identifiers actions, goat_merge_links,
+  goat_identity_events, identity_decision_events, audit_log, outbox_messages,
+  and idempotency completion in one transaction
+  exact replay rebuilds from DB state, not cached response bodies
 ```
 
 Known backend deferments:
@@ -187,7 +213,10 @@ Known backend deferments:
 ```text
 auth/RBAC adapter
 legacy import runner
-merge/unmerge and conflict/candidate resolve command handlers
+non-merge conflict decisions
+candidate approve/reject command handlers
+standalone merge command handler
+unmerge command handler/contract
 projection workers and counter population
 outbox relay/runtime workers
 OpenTelemetry exporters/spans/metrics

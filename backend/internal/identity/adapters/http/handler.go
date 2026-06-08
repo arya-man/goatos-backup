@@ -32,7 +32,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 
 	mux.HandleFunc("GET /admin/identity/conflicts", h.ListConflicts)
 	mux.HandleFunc("GET /admin/identity/conflicts/{conflict_id}", h.GetConflict)
-	mux.HandleFunc("POST /admin/identity/conflicts/{conflict_id}/resolve", h.NotImplemented("conflict_resolution_deferred"))
+	mux.HandleFunc("POST /admin/identity/conflicts/{conflict_id}/resolve", h.ResolveConflict)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}", h.NotImplemented("legacy_import_deferred"))
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows", h.NotImplemented("legacy_import_deferred"))
 	mux.HandleFunc("POST /admin/import-runs", h.NotImplemented("legacy_import_deferred"))
@@ -109,6 +109,29 @@ func (h *Handler) ListConflicts(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetConflict(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetConflict(r.Context(), tenantID(r), r.PathValue("conflict_id"), traceID(r))
+	respond(w, r, result, err)
+}
+
+func (h *Handler) ResolveConflict(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.ResolveConflict(r.Context(), app.ResolveConflictInput{
+		TenantID:       tenantID(r),
+		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		ConflictID:     r.PathValue("conflict_id"),
+		RawBody:        body,
+	})
 	respond(w, r, result, err)
 }
 

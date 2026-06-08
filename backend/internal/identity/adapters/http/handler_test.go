@@ -261,6 +261,68 @@ func TestResolveCorrectionRequestReplayReturnsDecision(t *testing.T) {
 	}
 }
 
+func TestResolveConflictRejectsOldEvidenceIDsAndUnsupportedDecision(t *testing.T) {
+	oldEvidenceBody := `{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000001","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_ids":["synthetic-row-1"],"reason":"synthetic merge reason","row_version":1}`
+	rec := postResolveConflict(t, "90000000-0000-4000-8000-000000000001", "idem-conflict-handler-0001", oldEvidenceBody)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "invalid_json" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+
+	unsupportedBody := `{"decision_type":"reject_match","decision_result":"candidate_rejected","survivor_goat_id":"10000000-0000-4000-8000-000000000001","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic unsupported reason","row_version":1}`
+	rec = postResolveConflict(t, "90000000-0000-4000-8000-000000000001", "idem-conflict-handler-0002", unsupportedBody)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "unsupported_conflict_decision" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestResolveConflictReturnsMergeResponse(t *testing.T) {
+	resultID := "20000000-0000-4000-8000-000000000001"
+	rec := postResolveConflictWithRepo(t, &handlerRepo{
+		resolveConflictResult: &ports.ResolveConflictResult{
+			ConflictID: resultID,
+			State:      "resolved",
+			Decision: domain.DecisionRecordSummary{
+				DecisionID:     "50000000-0000-4000-8000-000000000201",
+				DecisionType:   "merge_goats",
+				DecisionResult: "same_goat_merge",
+				DecisionState:  "approved",
+				PolicyVersion:  "phase1-manual-correction-review-v1",
+				CreatedAt:      time.Now().UTC(),
+			},
+			Merge: domain.MergeResult{
+				SurvivorGoatID: "10000000-0000-4000-8000-000000000001",
+				MergedGoatIDs:  []string{"10000000-0000-4000-8000-000000000002"},
+			},
+			Events:        []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.identity.merge_approved"}},
+			Replayed:      true,
+			FirstResultID: &resultID,
+		},
+	}, "90000000-0000-4000-8000-000000000001", "idem-conflict-handler-0003", validResolveConflictBody())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.ResolveConflictResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.Decision.DecisionType != "merge_goats" || response.Merge == nil || len(response.Events) != 1 || !response.Idempotency.Replayed {
+		t.Fatalf("unexpected conflict response: %#v", response)
+	}
+}
+
 func TestAddGoatIdentifierRequiresIdempotencyKey(t *testing.T) {
 	rec := postAddGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "", validAddIdentifierBody())
 	if rec.Code != http.StatusBadRequest {
@@ -434,6 +496,29 @@ func postResolveCorrectionRequestWithRepo(t *testing.T, repo ports.Repository, a
 	return rec
 }
 
+func postResolveConflict(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return postResolveConflictWithRepo(t, &handlerRepo{}, actorID, idempotencyKey, body)
+}
+
+func postResolveConflictWithRepo(t *testing.T, repo ports.Repository, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/identity/conflicts/20000000-0000-4000-8000-000000000001/resolve", strings.NewReader(body))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", actorID)
+	req.Header.Set("X-Request-ID", "req-resolve-conflict")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
 func postAddGoatIdentifier(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return postAddGoatIdentifierWithRepo(t, &handlerRepo{}, actorID, idempotencyKey, body)
@@ -496,11 +581,16 @@ func validRetireIdentifierBody() string {
 	return `{"reason":"synthetic retire reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":2}`
 }
 
+func validResolveConflictBody() string {
+	return `{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000001","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"reason":"synthetic merge reason","row_version":1}`
+}
+
 type handlerRepo struct {
 	correctionResult       *ports.CreateCorrectionRequestResult
 	resolveResult          *ports.ResolveCorrectionRequestResult
 	addIdentifierResult    *ports.AdminGoatMutationResult
 	retireIdentifierResult *ports.AdminGoatMutationResult
+	resolveConflictResult  *ports.ResolveConflictResult
 }
 
 func (handlerRepo) GetGoatByID(context.Context, string, string) (*domain.GoatPassport, error) {
@@ -575,6 +665,29 @@ func (h handlerRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoa
 		Identifiers: []domain.GoatIdentifier{identifierResponseFixture(cmd.IdentifierID, "old_tag", "1900", "retired")},
 		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000102", "retire_identifier", "identifier_retired"),
 		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+	}, nil
+}
+
+func (h handlerRepo) ResolveConflict(_ context.Context, cmd ports.ResolveConflictCommand) (*ports.ResolveConflictResult, error) {
+	if h.resolveConflictResult != nil {
+		return h.resolveConflictResult, nil
+	}
+	return &ports.ResolveConflictResult{
+		ConflictID: cmd.ConflictID,
+		State:      "resolved",
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000201",
+			DecisionType:   "merge_goats",
+			DecisionResult: "same_goat_merge",
+			DecisionState:  "approved",
+			PolicyVersion:  "phase1-manual-correction-review-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Merge: domain.MergeResult{
+			SurvivorGoatID: cmd.SurvivorGoatID,
+			MergedGoatIDs:  []string{cmd.AffectedGoatIDs[0]},
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.identity.merge_approved"}},
 	}, nil
 }
 

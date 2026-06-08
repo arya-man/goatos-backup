@@ -326,6 +326,71 @@ func TestResolveCorrectionRequestIdempotencyConflict(t *testing.T) {
 	}
 }
 
+func TestResolveConflictMergeValidationAndCommand(t *testing.T) {
+	resultID := conflictID
+	repo := &fakeRepo{
+		resolveConflictResult: &ports.ResolveConflictResult{
+			ConflictID: conflictID,
+			State:      "resolved",
+			Decision: domain.DecisionRecordSummary{
+				DecisionID:     "50000000-0000-4000-8000-000000000201",
+				DecisionType:   "merge_goats",
+				DecisionResult: "same_goat_merge",
+				DecisionState:  "approved",
+				PolicyVersion:  "phase1-manual-correction-review-v1",
+				CreatedAt:      time.Now().UTC(),
+			},
+			Merge: domain.MergeResult{
+				SurvivorGoatID: survivorGoat,
+				MergedGoatIDs:  []string{mergedGoat},
+			},
+			Events:        []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.identity.merge_approved"}},
+			Replayed:      true,
+			FirstResultID: &resultID,
+		},
+	}
+	svc := NewService(repo)
+	response, err := svc.ResolveConflict(context.Background(), validResolveConflictInput())
+	if err != nil {
+		t.Fatalf("ResolveConflict: %v", err)
+	}
+	if response.Decision.DecisionType != "merge_goats" || response.Merge == nil || response.Merge.SurvivorGoatID != survivorGoat {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+	wantKey := testTenant + ":" + resolveConflictCommand + ":" + conflictID + ":idem-conflict-0001"
+	if repo.lastResolveConflictCmd.StoredIdempotencyKey != wantKey {
+		t.Fatalf("stored idempotency key = %q, want %q", repo.lastResolveConflictCmd.StoredIdempotencyKey, wantKey)
+	}
+	if repo.lastResolveConflictCmd.RowVersion != 1 || len(repo.lastResolveConflictCmd.EvidenceRefs) != 1 {
+		t.Fatalf("command not normalized: %#v", repo.lastResolveConflictCmd)
+	}
+	if !response.Idempotency.Replayed || response.Idempotency.FirstResultID == nil || *response.Idempotency.FirstResultID != conflictID {
+		t.Fatalf("unexpected idempotency response: %#v", response.Idempotency)
+	}
+}
+
+func TestResolveConflictRejectsOldEvidenceIDs(t *testing.T) {
+	input := validResolveConflictInput()
+	input.RawBody = []byte(`{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000004","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_ids":["synthetic-row-1"],"reason":"synthetic merge reason","row_version":1}`)
+	svc := NewService(&fakeRepo{})
+	_, err := svc.ResolveConflict(context.Background(), input)
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_json" {
+		t.Fatalf("expected invalid_json for old evidence_ids, got %v", err)
+	}
+}
+
+func TestResolveConflictUnsupportedDecisionIsNotImplemented(t *testing.T) {
+	input := validResolveConflictInput()
+	input.RawBody = []byte(`{"decision_type":"reject_match","decision_result":"candidate_rejected","survivor_goat_id":"10000000-0000-4000-8000-000000000004","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic unsupported reason","row_version":1}`)
+	svc := NewService(&fakeRepo{})
+	_, err := svc.ResolveConflict(context.Background(), input)
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 501 || appErr.Code != "unsupported_conflict_decision" {
+		t.Fatalf("expected unsupported_conflict_decision, got %v", err)
+	}
+}
+
 func TestAddGoatIdentifierValidationAndCommand(t *testing.T) {
 	identifierID := "30000000-0000-4000-8000-000000000001"
 	repo := &fakeRepo{
@@ -479,6 +544,17 @@ func validRetireIdentifierInput() RetireGoatIdentifierInput {
 	}
 }
 
+func validResolveConflictInput() ResolveConflictInput {
+	return ResolveConflictInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-conflict-0001",
+		TraceID:        testTrace,
+		ConflictID:     conflictID,
+		RawBody:        []byte(`{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000004","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"reason":"synthetic merge reason","row_version":1}`),
+	}
+}
+
 type fakeRepo struct {
 	goats                   map[string]*domain.GoatPassport
 	matches                 []domain.IdentifierMatch
@@ -491,10 +567,13 @@ type fakeRepo struct {
 	addIdentifierErr        error
 	retireIdentifierResult  *ports.AdminGoatMutationResult
 	retireIdentifierErr     error
+	resolveConflictResult   *ports.ResolveConflictResult
+	resolveConflictErr      error
 	lastCorrectionCmd       ports.CreateCorrectionRequestCommand
 	lastResolveCmd          ports.ResolveCorrectionRequestCommand
 	lastAddIdentifierCmd    ports.AddGoatIdentifierCommand
 	lastRetireIdentifierCmd ports.RetireGoatIdentifierCommand
+	lastResolveConflictCmd  ports.ResolveConflictCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -656,6 +735,33 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 			CreatedAt:      time.Now().UTC(),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+	}, nil
+}
+
+func (f *fakeRepo) ResolveConflict(_ context.Context, cmd ports.ResolveConflictCommand) (*ports.ResolveConflictResult, error) {
+	f.lastResolveConflictCmd = cmd
+	if f.resolveConflictErr != nil {
+		return nil, f.resolveConflictErr
+	}
+	if f.resolveConflictResult != nil {
+		return f.resolveConflictResult, nil
+	}
+	return &ports.ResolveConflictResult{
+		ConflictID: cmd.ConflictID,
+		State:      "resolved",
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000201",
+			DecisionType:   "merge_goats",
+			DecisionResult: "same_goat_merge",
+			DecisionState:  "approved",
+			PolicyVersion:  "phase1-manual-correction-review-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Merge: domain.MergeResult{
+			SurvivorGoatID: cmd.SurvivorGoatID,
+			MergedGoatIDs:  []string{cmd.AffectedGoatIDs[0]},
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.identity.merge_approved"}},
 	}, nil
 }
 

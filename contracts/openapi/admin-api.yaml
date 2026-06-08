@@ -1121,7 +1121,7 @@ components:
         - decision_result
         - affected_goat_ids
         - identifier_actions
-        - evidence_ids
+        - evidence_refs
         - reason
         - row_version
       properties:
@@ -1156,13 +1156,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/IdentifierAction"
-        evidence_ids:
+        evidence_refs:
           type: array
           minItems: 1
           items:
-            type: string
-            minLength: 1
-            maxLength: 200
+            $ref: "#/components/schemas/EvidenceRef"
         reason:
           type: string
           minLength: 1
