@@ -7,6 +7,7 @@ Canonical docs:
 - `docs/phases/README.md`
 - active phase `docs/phases/<phase>/PRD.md`
 - active phase `docs/phases/<phase>/TRD.md`
+- active phase `docs/phases/<phase>/BUILD-STATUS.md`, if present
 - active phase discovery/proposal docs, if present, such as
   `docs/phases/phase-01-goat-passport/legacy-discovery-proposals.md`
 - `context/product/goat-os-feature-phases.md`
@@ -30,7 +31,8 @@ Rules:
   raw private rows, PII, tokens, or media URLs.
 - After coding, run a closeout sync: compare code, migrations, contracts,
   tests, adapters, workflows, and operational checks against PRD/TRD and update
-  PRD/TRD/context/skills/agent shims where the implementation changed reality.
+  PRD/TRD/BUILD-STATUS/context/skills/agent shims where the implementation
+  changed reality.
 - Keep references short. Do not duplicate the full PRD/TRD inside skill files.
 - Use phase docs for "what to build"; use skill references for "what context to
   load and which rules must not be forgotten."
@@ -52,6 +54,17 @@ allocation, and replacement resolve to the survivor before availability and
 no-double-promise checks.
 events/audit/history are partition-aware; idempotency is explicit.
 Phase 1 stores policy inputs but does not execute customer/festival eligibility.
+```
+
+Current Phase 1 build status:
+
+```text
+Before continuing Phase 1 implementation, read
+docs/phases/phase-01-goat-passport/BUILD-STATUS.md.
+
+It records the built contracts, migrations, Go read API foundation, verified
+edge-case fixes, temporary X-GoatOS-Tenant-ID scaffold, sqlc deferment, and
+remaining work.
 ```
 
 Cross-phase facts already captured:

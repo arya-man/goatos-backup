@@ -6,6 +6,8 @@ Read first:
 - `../context/architecture/final-architecture.md`
 - `../context/execution/next-contracts.md`
 - `../docs/decisions/go-backend-stack.md`
+- `../.agents/skills/goatos-build/references/backend-impl.md`
+- `../docs/phases/phase-01-goat-passport/BUILD-STATUS.md`
 
 Purpose:
 
