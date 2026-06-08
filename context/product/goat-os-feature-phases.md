@@ -100,6 +100,35 @@ remediation/replacement tasks when the answer changes. The job must be
 idempotent, paginated by scope/date, and indexed so it never scans the full herd
 in memory.
 
+Future promise-safety acceptance cases must include:
+
+```text
+identity:
+  retagged/stale-tag evidence, duplicate records across systems, transferred
+  goats, ambiguous references, and no-silent-merge review.
+booking:
+  double promises, phantom/unresolved promises, void promises that should not
+  reserve, booked-dead goats, booked-ineligible goats, and ambiguous booked refs.
+eligibility:
+  delivery-date health/quarantine/withdrawal/age/weight rules, including exact
+  boundary dates and no-trusted-weight review.
+telemetry/pricing:
+  double-occupancy spikes, implausible drops, stale readings, unresolved tag
+  reads, trusted-weight pricing, promised-weight shortfall, and booked_at price
+  audit.
+feed:
+  historical movement trace through contaminated shed/date windows, not current
+  shed only; uncleared exposure blocks allocation/substitution; cleared exposure
+  does not block forever.
+field reports:
+  report-only death/treatment/tag-correction facts enter proof/review, while
+  ambiguous low-confidence text never becomes truth automatically.
+listings:
+  offered goats already booked, ineligible, or unresolved are blocked/reviewed.
+lineage:
+  impossible parentage is preserved as genetics/data-quality evidence.
+```
+
 ## Phase 1: Goat Passport And Herd Registry
 
 Build the identity layer for every goat.
@@ -449,6 +478,10 @@ What users get:
 - Promised-weight fulfillment risk: if trusted current/projected weight is below
   the promised or minimum delivery weight, the booking becomes a review item
   before dispatch.
+- Phantom, unresolved, ambiguous, duplicated, and void promise rows are
+  reconciled before availability is trusted.
+- Exchange/listing availability is computed from identity, eligibility,
+  booking, and feed/weight truth; copied listing status is not authoritative.
 - Price audit: existing bookings are checked against the pricing policy/rate
   that applied on `booked_at`, not only against today's rate.
 - Allocation of goat to buyer/order/occasion.
