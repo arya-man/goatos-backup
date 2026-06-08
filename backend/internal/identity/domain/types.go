@@ -239,6 +239,11 @@ type DecisionRecordSummary struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type EventSummary struct {
+	EventID   string `json:"event_id"`
+	EventType string `json:"event_type"`
+}
+
 type IdempotencyMeta struct {
 	IdempotencyKey string  `json:"idempotency_key"`
 	Replayed       bool    `json:"replayed"`
@@ -250,4 +255,13 @@ type CorrectionRequestResponse struct {
 	Decision          *DecisionRecordSummary `json:"decision,omitempty"`
 	Idempotency       IdempotencyMeta        `json:"idempotency"`
 	TraceID           string                 `json:"trace_id"`
+}
+
+type AdminGoatResponse struct {
+	Goat        GoatSummary           `json:"goat"`
+	Identifiers []GoatIdentifier      `json:"identifiers"`
+	Decision    DecisionRecordSummary `json:"decision"`
+	Events      []EventSummary        `json:"events"`
+	Idempotency IdempotencyMeta       `json:"idempotency"`
+	TraceID     string                `json:"trace_id"`
 }

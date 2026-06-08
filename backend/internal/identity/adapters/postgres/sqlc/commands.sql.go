@@ -320,6 +320,29 @@ func (q *Queries) GetDecisionSummaryByID(ctx context.Context, arg GetDecisionSum
 	return i, err
 }
 
+const getGoatMutationState = `-- name: GetGoatMutationState :one
+SELECT identity_state, row_version
+FROM goats
+WHERE tenant_id = $1 AND goat_id = $2
+`
+
+type GetGoatMutationStateParams struct {
+	TenantID pgtype.UUID
+	GoatID   pgtype.UUID
+}
+
+type GetGoatMutationStateRow struct {
+	IdentityState string
+	RowVersion    int32
+}
+
+func (q *Queries) GetGoatMutationState(ctx context.Context, arg GetGoatMutationStateParams) (GetGoatMutationStateRow, error) {
+	row := q.db.QueryRow(ctx, getGoatMutationState, arg.TenantID, arg.GoatID)
+	var i GetGoatMutationStateRow
+	err := row.Scan(&i.IdentityState, &i.RowVersion)
+	return i, err
+}
+
 const getIdempotencyKey = `-- name: GetIdempotencyKey :one
 SELECT
   request_hash,
@@ -349,6 +372,163 @@ func (q *Queries) GetIdempotencyKey(ctx context.Context, idempotencyKey string) 
 	return i, err
 }
 
+const getIdentifierByID = `-- name: GetIdentifierByID :one
+SELECT
+  identifier_id::text AS identifier_id,
+  goat_id::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+FROM goat_identifiers
+WHERE tenant_id = $1 AND identifier_id = $2
+`
+
+type GetIdentifierByIDParams struct {
+	TenantID     pgtype.UUID
+	IdentifierID pgtype.UUID
+}
+
+type GetIdentifierByIDRow struct {
+	IdentifierID     string
+	GoatID           string
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+}
+
+func (q *Queries) GetIdentifierByID(ctx context.Context, arg GetIdentifierByIDParams) (GetIdentifierByIDRow, error) {
+	row := q.db.QueryRow(ctx, getIdentifierByID, arg.TenantID, arg.IdentifierID)
+	var i GetIdentifierByIDRow
+	err := row.Scan(
+		&i.IdentifierID,
+		&i.GoatID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.NormalizedValue,
+		&i.ScopeKey,
+		&i.Status,
+		&i.IsPrimaryForGoat,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.SourceSystem,
+		&i.SourceRecordID,
+		&i.Confidence,
+	)
+	return i, err
+}
+
+const getIdentifierDecisionEventForReplay = `-- name: GetIdentifierDecisionEventForReplay :one
+SELECT
+  d.decision_id::text AS decision_id,
+  d.decision_type,
+  d.decision_result,
+  d.decision_state,
+  d.policy_version,
+  d.created_at,
+  gie.identity_event_id::text AS event_id,
+  gie.event_type,
+  gie.recorded_at,
+  gi.goat_id::text AS goat_id
+FROM identity_decision_identifiers idi
+JOIN identity_decisions d
+  ON d.tenant_id = idi.tenant_id
+ AND d.decision_id = idi.decision_id
+JOIN identity_decision_events ide
+  ON ide.tenant_id = idi.tenant_id
+ AND ide.decision_id = idi.decision_id
+JOIN goat_identity_events gie
+  ON gie.tenant_id = idi.tenant_id
+ AND gie.identity_event_id = ide.event_id
+ AND gie.recorded_at = ide.event_recorded_at
+JOIN goat_identifiers gi
+  ON gi.tenant_id = idi.tenant_id
+ AND gi.identifier_id = idi.identifier_id
+WHERE idi.tenant_id = $1
+  AND idi.identifier_id = $2
+  AND idi.action = $3
+  AND d.evidence->'decision_record'->>'idempotency_key' = $4::text
+ORDER BY d.created_at DESC
+LIMIT 1
+`
+
+type GetIdentifierDecisionEventForReplayParams struct {
+	TenantID       pgtype.UUID
+	IdentifierID   pgtype.UUID
+	Action         string
+	IdempotencyKey string
+}
+
+type GetIdentifierDecisionEventForReplayRow struct {
+	DecisionID     string
+	DecisionType   string
+	DecisionResult string
+	DecisionState  string
+	PolicyVersion  string
+	CreatedAt      pgtype.Timestamptz
+	EventID        string
+	EventType      string
+	RecordedAt     pgtype.Timestamptz
+	GoatID         string
+}
+
+func (q *Queries) GetIdentifierDecisionEventForReplay(ctx context.Context, arg GetIdentifierDecisionEventForReplayParams) (GetIdentifierDecisionEventForReplayRow, error) {
+	row := q.db.QueryRow(ctx, getIdentifierDecisionEventForReplay,
+		arg.TenantID,
+		arg.IdentifierID,
+		arg.Action,
+		arg.IdempotencyKey,
+	)
+	var i GetIdentifierDecisionEventForReplayRow
+	err := row.Scan(
+		&i.DecisionID,
+		&i.DecisionType,
+		&i.DecisionResult,
+		&i.DecisionState,
+		&i.PolicyVersion,
+		&i.CreatedAt,
+		&i.EventID,
+		&i.EventType,
+		&i.RecordedAt,
+		&i.GoatID,
+	)
+	return i, err
+}
+
+const getIdentifierPolicy = `-- name: GetIdentifierPolicy :one
+SELECT normalizer_version
+FROM identifier_policies
+WHERE policy_version = $1
+  AND identifier_type = $2
+`
+
+type GetIdentifierPolicyParams struct {
+	PolicyVersion  string
+	IdentifierType string
+}
+
+func (q *Queries) GetIdentifierPolicy(ctx context.Context, arg GetIdentifierPolicyParams) (string, error) {
+	row := q.db.QueryRow(ctx, getIdentifierPolicy, arg.PolicyVersion, arg.IdentifierType)
+	var normalizer_version string
+	err := row.Scan(&normalizer_version)
+	return normalizer_version, err
+}
+
 const goatBelongsToTenant = `-- name: GoatBelongsToTenant :one
 SELECT EXISTS (
   SELECT 1
@@ -367,6 +547,42 @@ func (q *Queries) GoatBelongsToTenant(ctx context.Context, arg GoatBelongsToTena
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const guardGoatForIdentifierMutation = `-- name: GuardGoatForIdentifierMutation :one
+UPDATE goats
+SET
+  row_version = row_version + 1,
+  updated_at = $1
+WHERE goat_id = $2
+  AND tenant_id = $3
+  AND row_version = $4
+  AND identity_state <> 'merged'
+RETURNING goat_id::text AS goat_id, row_version
+`
+
+type GuardGoatForIdentifierMutationParams struct {
+	UpdatedAt  pgtype.Timestamptz
+	GoatID     pgtype.UUID
+	TenantID   pgtype.UUID
+	RowVersion int32
+}
+
+type GuardGoatForIdentifierMutationRow struct {
+	GoatID     string
+	RowVersion int32
+}
+
+func (q *Queries) GuardGoatForIdentifierMutation(ctx context.Context, arg GuardGoatForIdentifierMutationParams) (GuardGoatForIdentifierMutationRow, error) {
+	row := q.db.QueryRow(ctx, guardGoatForIdentifierMutation,
+		arg.UpdatedAt,
+		arg.GoatID,
+		arg.TenantID,
+		arg.RowVersion,
+	)
+	var i GuardGoatForIdentifierMutationRow
+	err := row.Scan(&i.GoatID, &i.RowVersion)
+	return i, err
 }
 
 const insertAuditLog = `-- name: InsertAuditLog :exec
@@ -424,6 +640,168 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 		arg.TraceID,
 	)
 	return err
+}
+
+const insertGoatIdentifier = `-- name: InsertGoatIdentifier :one
+INSERT INTO goat_identifiers (
+  tenant_id,
+  goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  is_primary_for_goat,
+  status,
+  valid_from,
+  normalizer_version,
+  approved_by
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  'active',
+  $8,
+  $9,
+  $10
+)
+RETURNING
+  identifier_id::text AS identifier_id,
+  identifier_type,
+  identifier_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+`
+
+type InsertGoatIdentifierParams struct {
+	TenantID          pgtype.UUID
+	GoatID            pgtype.UUID
+	IdentifierType    string
+	IdentifierValue   string
+	NormalizedValue   string
+	ScopeKey          string
+	IsPrimaryForGoat  bool
+	ValidFrom         pgtype.Timestamptz
+	NormalizerVersion string
+	ApprovedBy        pgtype.UUID
+}
+
+type InsertGoatIdentifierRow struct {
+	IdentifierID     string
+	IdentifierType   string
+	IdentifierValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+}
+
+func (q *Queries) InsertGoatIdentifier(ctx context.Context, arg InsertGoatIdentifierParams) (InsertGoatIdentifierRow, error) {
+	row := q.db.QueryRow(ctx, insertGoatIdentifier,
+		arg.TenantID,
+		arg.GoatID,
+		arg.IdentifierType,
+		arg.IdentifierValue,
+		arg.NormalizedValue,
+		arg.ScopeKey,
+		arg.IsPrimaryForGoat,
+		arg.ValidFrom,
+		arg.NormalizerVersion,
+		arg.ApprovedBy,
+	)
+	var i InsertGoatIdentifierRow
+	err := row.Scan(
+		&i.IdentifierID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.ScopeKey,
+		&i.Status,
+		&i.IsPrimaryForGoat,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.SourceSystem,
+		&i.SourceRecordID,
+		&i.Confidence,
+	)
+	return i, err
+}
+
+const insertGoatIdentityEvent = `-- name: InsertGoatIdentityEvent :one
+INSERT INTO goat_identity_events (
+  identity_event_id,
+  tenant_id,
+  goat_id,
+  event_type,
+  event_version,
+  occurred_at,
+  recorded_at,
+  actor_id,
+  payload,
+  decision_id,
+  idempotency_key
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  1,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10
+)
+RETURNING identity_event_id::text AS event_id, recorded_at
+`
+
+type InsertGoatIdentityEventParams struct {
+	IdentityEventID pgtype.UUID
+	TenantID        pgtype.UUID
+	GoatID          pgtype.UUID
+	EventType       string
+	OccurredAt      pgtype.Timestamptz
+	RecordedAt      pgtype.Timestamptz
+	ActorID         pgtype.UUID
+	Payload         []byte
+	DecisionID      pgtype.UUID
+	IdempotencyKey  string
+}
+
+type InsertGoatIdentityEventRow struct {
+	EventID    string
+	RecordedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertGoatIdentityEvent(ctx context.Context, arg InsertGoatIdentityEventParams) (InsertGoatIdentityEventRow, error) {
+	row := q.db.QueryRow(ctx, insertGoatIdentityEvent,
+		arg.IdentityEventID,
+		arg.TenantID,
+		arg.GoatID,
+		arg.EventType,
+		arg.OccurredAt,
+		arg.RecordedAt,
+		arg.ActorID,
+		arg.Payload,
+		arg.DecisionID,
+		arg.IdempotencyKey,
+	)
+	var i InsertGoatIdentityEventRow
+	err := row.Scan(&i.EventID, &i.RecordedAt)
+	return i, err
 }
 
 const insertIdempotencyStarted = `-- name: InsertIdempotencyStarted :one
@@ -551,6 +929,76 @@ func (q *Queries) InsertIdentityDecision(ctx context.Context, arg InsertIdentity
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const insertIdentityDecisionEvent = `-- name: InsertIdentityDecisionEvent :exec
+INSERT INTO identity_decision_events (
+  decision_id,
+  tenant_id,
+  event_id,
+  event_recorded_at
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4
+)
+`
+
+type InsertIdentityDecisionEventParams struct {
+	DecisionID      pgtype.UUID
+	TenantID        pgtype.UUID
+	EventID         pgtype.UUID
+	EventRecordedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertIdentityDecisionEvent(ctx context.Context, arg InsertIdentityDecisionEventParams) error {
+	_, err := q.db.Exec(ctx, insertIdentityDecisionEvent,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.EventID,
+		arg.EventRecordedAt,
+	)
+	return err
+}
+
+const insertIdentityDecisionIdentifier = `-- name: InsertIdentityDecisionIdentifier :exec
+INSERT INTO identity_decision_identifiers (
+  decision_id,
+  tenant_id,
+  identifier_id,
+  identifier_type,
+  identifier_value,
+  action
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6
+)
+`
+
+type InsertIdentityDecisionIdentifierParams struct {
+	DecisionID      pgtype.UUID
+	TenantID        pgtype.UUID
+	IdentifierID    pgtype.UUID
+	IdentifierType  pgtype.Text
+	IdentifierValue pgtype.Text
+	Action          string
+}
+
+func (q *Queries) InsertIdentityDecisionIdentifier(ctx context.Context, arg InsertIdentityDecisionIdentifierParams) error {
+	_, err := q.db.Exec(ctx, insertIdentityDecisionIdentifier,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.IdentifierID,
+		arg.IdentifierType,
+		arg.IdentifierValue,
+		arg.Action,
+	)
+	return err
 }
 
 const insertOutboxMessage = `-- name: InsertOutboxMessage :exec
@@ -716,6 +1164,83 @@ func (q *Queries) ResolveCorrectionRequest(ctx context.Context, arg ResolveCorre
 		&i.DecisionID,
 		&i.CreatedAt,
 		&i.ResolvedAt,
+	)
+	return i, err
+}
+
+const retireGoatIdentifier = `-- name: RetireGoatIdentifier :one
+UPDATE goat_identifiers
+SET
+  status = 'retired',
+  valid_to = $1,
+  approved_by = $2,
+  updated_at = $3
+WHERE tenant_id = $4
+  AND goat_id = $5
+  AND identifier_id = $6
+  AND status = 'active'
+RETURNING
+  identifier_id::text AS identifier_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  status,
+  is_primary_for_goat,
+  valid_from,
+  valid_to,
+  source_system,
+  source_record_id,
+  COALESCE(confidence::float8, 'NaN'::float8)::float8 AS confidence
+`
+
+type RetireGoatIdentifierParams struct {
+	ValidTo      pgtype.Timestamptz
+	ApprovedBy   pgtype.UUID
+	UpdatedAt    pgtype.Timestamptz
+	TenantID     pgtype.UUID
+	GoatID       pgtype.UUID
+	IdentifierID pgtype.UUID
+}
+
+type RetireGoatIdentifierRow struct {
+	IdentifierID     string
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	Status           string
+	IsPrimaryForGoat bool
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
+	SourceSystem     pgtype.Text
+	SourceRecordID   pgtype.Text
+	Confidence       float64
+}
+
+func (q *Queries) RetireGoatIdentifier(ctx context.Context, arg RetireGoatIdentifierParams) (RetireGoatIdentifierRow, error) {
+	row := q.db.QueryRow(ctx, retireGoatIdentifier,
+		arg.ValidTo,
+		arg.ApprovedBy,
+		arg.UpdatedAt,
+		arg.TenantID,
+		arg.GoatID,
+		arg.IdentifierID,
+	)
+	var i RetireGoatIdentifierRow
+	err := row.Scan(
+		&i.IdentifierID,
+		&i.IdentifierType,
+		&i.IdentifierValue,
+		&i.NormalizedValue,
+		&i.ScopeKey,
+		&i.Status,
+		&i.IsPrimaryForGoat,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.SourceSystem,
+		&i.SourceRecordID,
+		&i.Confidence,
 	)
 	return i, err
 }

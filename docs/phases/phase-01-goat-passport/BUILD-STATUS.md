@@ -55,10 +55,16 @@ POST /identity/correction-requests
 transactional correction request create
 POST /admin/identity/correction-requests/{correction_request_id}/resolve
 transactional correction request resolve
+POST /admin/goats/{goat_id}/identifiers
+transactional admin identifier attach
+POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire
+transactional admin identifier retire
 tenant/route-namespaced idempotency key handling
 same-transaction audit_log + outbox_messages persistence
 correction_request domain event envelope payloads
 resolve_correction_request decision records
+attach_identifier and retire_identifier decision records
+goat.identifier.added and goat.identifier.retired domain event envelopes
 ```
 
 ## Verified Behaviors
@@ -145,6 +151,30 @@ correction request resolve:
   persisted decision_record validates against decision-record JSON Schema
   persisted outbox payload validates against domain-event-envelope JSON Schema
   does not directly mutate goat identity and does not write goat_identity_events
+admin identifier add/retire:
+  requires Idempotency-Key
+  requires temporary X-GoatOS-Actor-ID uuid
+  rejects unknown JSON fields and old evidence_ids payloads
+  requires typed evidence_refs, scope_key for add, and current goat row_version
+  normalizes RFID by trim + uppercase; other identifier values are trimmed
+  guards goat mutation with conditional row_version update and identity_state <> merged
+  disambiguates goat guard failures as not_found or write_conflict
+  rejects stale row_version, merged goat, wrong-tenant goat, wrong-goat identifier,
+  already-retired identifier, duplicate active RFID, duplicate same-scope old_tag,
+  and active primary-per-goat conflicts
+  allows the same old_tag value in a different scope
+  writes identity_decisions decision_type=attach_identifier or retire_identifier
+  uses policy_version=phase1-identifier-v1
+  writes identity_decision_identifiers and identity_decision_events join rows
+  writes goat_identity_events with event_type goat.identifier.added or
+  goat.identifier.retired
+  writes goat row_version update, identifier mutation, decision, event, audit,
+  outbox, and idempotency completion in one transaction
+  exact idempotent replay rebuilds the admin goat response from the DB
+  same key with different request_hash conflicts
+  persisted decision_record validates against decision-record JSON Schema
+  persisted outbox payload validates against domain-event-envelope JSON Schema
+  goat outbox rows are DB-validated against same-tenant goat_identity_events
 ```
 
 ## Temporary Scaffolds
@@ -167,7 +197,7 @@ generated sqlc unless the query shape is intentionally dynamic and documented.
 ```text
 auth/RBAC adapter
 legacy import runner and source-file ingestion
-remaining admin write handlers
+remaining admin write handlers except identifier add/retire and correction resolve
 merge/unmerge and conflict/candidate resolve command handlers
 outbox relay runtime
 projection workers and counter population
@@ -221,8 +251,9 @@ Idempotency rules for write endpoints:
     write path; it belongs to a future async/two-phase command design if one is
     introduced.
 
-Correction request create exists in app-api.yaml. Admin correction resolve
-exists in admin-api.yaml and is implemented as the first admin write command.
+Correction request create exists in app-api.yaml. Admin correction resolve and
+admin identifier add/retire exist in admin-api.yaml and are implemented write
+commands.
 Create supports goat-linked and goatless requests; goat_id is optional in the
 contract and DB. Goatless correction requests use the correction request as the
 outbox aggregate and do not create a goat timeline event. evidence_refs maps
@@ -240,6 +271,16 @@ needs_field_check, and already-terminal requests must not be re-resolved except
 as exact idempotent replay. decision_state is the lifecycle of the decision
 record; decision_result is the outcome. Do not reuse external review wording for
 decision_state.
+
+Identifier add/retire mutates goat identity. It must guard the goat with one
+conditional update on tenant_id + goat_id + row_version + identity_state <>
+merged, then perform the identifier change and write identity_decisions,
+identity_decision_identifiers, goat_identity_events, identity_decision_events,
+audit_log, outbox_messages, and idempotency completion in the same transaction.
+The outbox aggregate is the goat and the subject is the identifier. Do not use
+merge override GUCs for normal identifier mutation; merged goats must reject as
+write conflicts. Replay must rebuild from the database, not cached response
+bodies.
 
 Do not implement goat merge in the write-foundation slice. The merge slice must:
   - use SET LOCAL goatos.allow_merged_goat_update='on' and

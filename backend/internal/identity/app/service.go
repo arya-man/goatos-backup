@@ -313,7 +313,7 @@ func mapRepoErr(err error) error {
 		return Conflict("idempotency_pending", "Idempotency-Key is already processing")
 	}
 	if errors.Is(err, ports.ErrWriteConflict) {
-		return Conflict("write_conflict", "correction request cannot be resolved with the supplied state or row_version")
+		return Conflict("write_conflict", "identity write cannot be applied with the supplied state or row_version")
 	}
 	var appErr *Error
 	if errors.As(err, &appErr) {

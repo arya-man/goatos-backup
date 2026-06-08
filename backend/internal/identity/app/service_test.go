@@ -12,6 +12,7 @@ import (
 
 const (
 	testTenant   = "00000000-0000-4000-8000-000000000001"
+	testActor    = "90000000-0000-4000-8000-000000000001"
 	testTrace    = "trace-test"
 	goatA        = "10000000-0000-4000-8000-000000000001"
 	goatB        = "10000000-0000-4000-8000-000000000002"
@@ -325,10 +326,119 @@ func TestResolveCorrectionRequestIdempotencyConflict(t *testing.T) {
 	}
 }
 
+func TestAddGoatIdentifierValidationAndCommand(t *testing.T) {
+	identifierID := "30000000-0000-4000-8000-000000000001"
+	repo := &fakeRepo{
+		addIdentifierResult: &ports.AdminGoatMutationResult{
+			Goat:        summary(goatA, "G-000001", "clean"),
+			Identifiers: []domain.GoatIdentifier{identifier("rfid", " rfid-synthetic-001 ", "global:rfid", "active", time.Now().UTC())},
+			Decision: domain.DecisionRecordSummary{
+				DecisionID:     "50000000-0000-4000-8000-000000000101",
+				DecisionType:   "attach_identifier",
+				DecisionResult: "identifier_attached",
+				DecisionState:  "approved",
+				PolicyVersion:  "phase1-identifier-v1",
+				CreatedAt:      time.Now().UTC(),
+			},
+			Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000101", EventType: "goat.identifier.added"}},
+		},
+	}
+	repo.addIdentifierResult.Identifiers[0].IdentifierID = identifierID
+	svc := NewService(repo)
+
+	response, err := svc.AddGoatIdentifier(context.Background(), validAddIdentifierInput())
+	if err != nil {
+		t.Fatalf("AddGoatIdentifier: %v", err)
+	}
+	if response.Decision.DecisionType != "attach_identifier" || len(response.Events) != 1 || response.Events[0].EventType != "goat.identifier.added" {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+	if repo.lastAddIdentifierCmd.NormalizedValue != "RFID-SYNTHETIC-001" {
+		t.Fatalf("normalized value = %q", repo.lastAddIdentifierCmd.NormalizedValue)
+	}
+	wantKey := testTenant + ":" + addGoatIdentifierCommand + ":" + goatA + ":idem-add-0001"
+	if repo.lastAddIdentifierCmd.StoredIdempotencyKey != wantKey {
+		t.Fatalf("stored idempotency key = %q, want %q", repo.lastAddIdentifierCmd.StoredIdempotencyKey, wantKey)
+	}
+	if repo.lastAddIdentifierCmd.RequestHash == "" || repo.lastAddIdentifierCmd.RowVersion != 1 || repo.lastAddIdentifierCmd.ScopeKey != "global:rfid" {
+		t.Fatalf("command not normalized: %#v", repo.lastAddIdentifierCmd)
+	}
+	if repo.lastAddIdentifierCmd.IsPrimaryForGoat {
+		t.Fatalf("is_primary_for_goat default = true")
+	}
+	if response.Idempotency.IdempotencyKey != "idem-add-0001" {
+		t.Fatalf("client idempotency key not returned: %#v", response.Idempotency)
+	}
+}
+
+func TestAddGoatIdentifierRejectsOldEvidenceIDsAndMissingScope(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	input := validAddIdentifierInput()
+	input.RawBody = []byte(`{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_ids":["synthetic-row-1"],"row_version":1}`)
+	_, err := svc.AddGoatIdentifier(context.Background(), input)
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_json" {
+		t.Fatalf("expected invalid_json for old evidence_ids, got %v", err)
+	}
+
+	input = validAddIdentifierInput()
+	input.RawBody = []byte(`{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"row_version":1}`)
+	_, err = svc.AddGoatIdentifier(context.Background(), input)
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_scope_key" {
+		t.Fatalf("expected invalid_scope_key, got %v", err)
+	}
+}
+
+func TestRetireGoatIdentifierValidationAndCommand(t *testing.T) {
+	identifierID := "30000000-0000-4000-8000-000000000001"
+	repo := &fakeRepo{
+		retireIdentifierResult: &ports.AdminGoatMutationResult{
+			Goat:        summary(goatA, "G-000001", "clean"),
+			Identifiers: []domain.GoatIdentifier{identifier("old_tag", "1900", "park:CBE", "retired", time.Now().UTC())},
+			Decision: domain.DecisionRecordSummary{
+				DecisionID:     "50000000-0000-4000-8000-000000000102",
+				DecisionType:   "retire_identifier",
+				DecisionResult: "identifier_retired",
+				DecisionState:  "approved",
+				PolicyVersion:  "phase1-identifier-v1",
+				CreatedAt:      time.Now().UTC(),
+			},
+			Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+		},
+	}
+	repo.retireIdentifierResult.Identifiers[0].IdentifierID = identifierID
+	svc := NewService(repo)
+
+	response, err := svc.RetireGoatIdentifier(context.Background(), validRetireIdentifierInput())
+	if err != nil {
+		t.Fatalf("RetireGoatIdentifier: %v", err)
+	}
+	if response.Decision.DecisionType != "retire_identifier" || len(response.Events) != 1 || response.Events[0].EventType != "goat.identifier.retired" {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+	wantKey := testTenant + ":" + retireGoatIdentifierCommand + ":" + goatA + ":" + identifierID + ":idem-retire-0001"
+	if repo.lastRetireIdentifierCmd.StoredIdempotencyKey != wantKey {
+		t.Fatalf("stored idempotency key = %q, want %q", repo.lastRetireIdentifierCmd.StoredIdempotencyKey, wantKey)
+	}
+	if repo.lastRetireIdentifierCmd.RequestHash == "" || repo.lastRetireIdentifierCmd.RowVersion != 2 || repo.lastRetireIdentifierCmd.Reason != "synthetic retire reason" {
+		t.Fatalf("command not normalized: %#v", repo.lastRetireIdentifierCmd)
+	}
+}
+
+func TestRetireGoatIdentifierIdempotencyConflict(t *testing.T) {
+	repo := &fakeRepo{retireIdentifierErr: ports.ErrIdempotencyConflict}
+	svc := NewService(repo)
+	_, err := svc.RetireGoatIdentifier(context.Background(), validRetireIdentifierInput())
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 409 || appErr.Code != "idempotency_conflict" {
+		t.Fatalf("expected idempotency conflict app error, got %v", err)
+	}
+}
+
 func validCorrectionInput() CreateCorrectionRequestInput {
 	return CreateCorrectionRequestInput{
 		TenantID:       testTenant,
-		ActorID:        "90000000-0000-4000-8000-000000000001",
+		ActorID:        testActor,
 		IdempotencyKey: "idem-unit-0001",
 		TraceID:        testTrace,
 		RawBody:        []byte(`{"request_type":"missing_tag","location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"description":"synthetic field note","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`),
@@ -338,7 +448,7 @@ func validCorrectionInput() CreateCorrectionRequestInput {
 func validResolveInput() ResolveCorrectionRequestInput {
 	return ResolveCorrectionRequestInput{
 		TenantID:            testTenant,
-		ActorID:             "90000000-0000-4000-8000-000000000001",
+		ActorID:             testActor,
 		IdempotencyKey:      "idem-resolve-0001",
 		TraceID:             testTrace,
 		CorrectionRequestID: "40000000-0000-4000-8000-000000000001",
@@ -346,16 +456,45 @@ func validResolveInput() ResolveCorrectionRequestInput {
 	}
 }
 
+func validAddIdentifierInput() AddGoatIdentifierInput {
+	return AddGoatIdentifierInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-add-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"identifier_type":"rfid","identifier_value":" rfid-synthetic-001 ","scope_key":"global:rfid","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`),
+	}
+}
+
+func validRetireIdentifierInput() RetireGoatIdentifierInput {
+	return RetireGoatIdentifierInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-retire-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		IdentifierID:   "30000000-0000-4000-8000-000000000001",
+		RawBody:        []byte(`{"reason":"synthetic retire reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":2}`),
+	}
+}
+
 type fakeRepo struct {
-	goats             map[string]*domain.GoatPassport
-	matches           []domain.IdentifierMatch
-	conflictID        string
-	correctionResult  *ports.CreateCorrectionRequestResult
-	correctionErr     error
-	resolveResult     *ports.ResolveCorrectionRequestResult
-	resolveErr        error
-	lastCorrectionCmd ports.CreateCorrectionRequestCommand
-	lastResolveCmd    ports.ResolveCorrectionRequestCommand
+	goats                   map[string]*domain.GoatPassport
+	matches                 []domain.IdentifierMatch
+	conflictID              string
+	correctionResult        *ports.CreateCorrectionRequestResult
+	correctionErr           error
+	resolveResult           *ports.ResolveCorrectionRequestResult
+	resolveErr              error
+	addIdentifierResult     *ports.AdminGoatMutationResult
+	addIdentifierErr        error
+	retireIdentifierResult  *ports.AdminGoatMutationResult
+	retireIdentifierErr     error
+	lastCorrectionCmd       ports.CreateCorrectionRequestCommand
+	lastResolveCmd          ports.ResolveCorrectionRequestCommand
+	lastAddIdentifierCmd    ports.AddGoatIdentifierCommand
+	lastRetireIdentifierCmd ports.RetireGoatIdentifierCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -453,6 +592,70 @@ func (f *fakeRepo) ResolveCorrectionRequest(_ context.Context, cmd ports.Resolve
 			PolicyVersion:  "phase1-manual-correction-review-v1",
 			CreatedAt:      time.Now().UTC(),
 		},
+	}, nil
+}
+
+func (f *fakeRepo) AddGoatIdentifier(_ context.Context, cmd ports.AddGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	f.lastAddIdentifierCmd = cmd
+	if f.addIdentifierErr != nil {
+		return nil, f.addIdentifierErr
+	}
+	if f.addIdentifierResult != nil {
+		return f.addIdentifierResult, nil
+	}
+	return &ports.AdminGoatMutationResult{
+		Goat: summary(cmd.GoatID, "G-000001", "clean"),
+		Identifiers: []domain.GoatIdentifier{{
+			IdentifierID:     "30000000-0000-4000-8000-000000000001",
+			IdentifierType:   cmd.IdentifierType,
+			IdentifierValue:  cmd.IdentifierValue,
+			ScopeKey:         cmd.ScopeKey,
+			Status:           "active",
+			IsPrimaryForGoat: cmd.IsPrimaryForGoat,
+			ValidFrom:        time.Now().UTC(),
+		}},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000101",
+			DecisionType:   "attach_identifier",
+			DecisionResult: "identifier_attached",
+			DecisionState:  "approved",
+			PolicyVersion:  "phase1-identifier-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000101", EventType: "goat.identifier.added"}},
+	}, nil
+}
+
+func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	f.lastRetireIdentifierCmd = cmd
+	if f.retireIdentifierErr != nil {
+		return nil, f.retireIdentifierErr
+	}
+	if f.retireIdentifierResult != nil {
+		return f.retireIdentifierResult, nil
+	}
+	validTo := time.Now().UTC()
+	return &ports.AdminGoatMutationResult{
+		Goat: summary(cmd.GoatID, "G-000001", "clean"),
+		Identifiers: []domain.GoatIdentifier{{
+			IdentifierID:     cmd.IdentifierID,
+			IdentifierType:   "old_tag",
+			IdentifierValue:  "1900",
+			ScopeKey:         "park:CBE",
+			Status:           "retired",
+			IsPrimaryForGoat: true,
+			ValidFrom:        validTo.Add(-time.Hour),
+			ValidTo:          &validTo,
+		}},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000102",
+			DecisionType:   "retire_identifier",
+			DecisionResult: "identifier_retired",
+			DecisionState:  "approved",
+			PolicyVersion:  "phase1-identifier-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
 	}, nil
 }
 

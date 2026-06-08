@@ -108,6 +108,49 @@ type ResolveCorrectionRequestResult struct {
 	FirstResultID     *string
 }
 
+type AddGoatIdentifierCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	IdentifierType       string
+	IdentifierValue      string
+	NormalizedValue      string
+	ScopeKey             string
+	IsPrimaryForGoat     bool
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+	Reason               string
+}
+
+type RetireGoatIdentifierCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	IdentifierID         string
+	Reason               string
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
+type AdminGoatMutationResult struct {
+	Goat          domain.GoatSummary
+	Identifiers   []domain.GoatIdentifier
+	Decision      domain.DecisionRecordSummary
+	Events        []domain.EventSummary
+	Replayed      bool
+	FirstResultID *string
+}
+
 type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
@@ -119,5 +162,7 @@ type Repository interface {
 	ListIdentityCounts(ctx context.Context, params CountParams) ([]domain.IdentityCount, domain.Freshness, error)
 	CreateCorrectionRequest(ctx context.Context, cmd CreateCorrectionRequestCommand) (*CreateCorrectionRequestResult, error)
 	ResolveCorrectionRequest(ctx context.Context, cmd ResolveCorrectionRequestCommand) (*ResolveCorrectionRequestResult, error)
+	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)
+	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	Ping(ctx context.Context) error
 }

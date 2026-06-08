@@ -91,6 +91,24 @@ Rules:
 - Correction resolve persists correction update, decision, audit, outbox, and
   idempotency completion in one transaction. It does not directly mutate goat
   identity and must not write `goat_identity_events`.
+- POST `/admin/goats/{goat_id}/identifiers` and
+  `/admin/goats/{goat_id}/identifiers/{identifier_id}/retire` are the first
+  canonical goat identity mutation commands. They require `Idempotency-Key`,
+  temporary `X-GoatOS-Actor-ID`, typed `evidence_refs`, and goat `row_version`.
+  Add also requires `scope_key`; RFID values are trim + uppercase normalized,
+  while other identifier values are trimmed.
+- Identifier add/retire uses one transaction for idempotency row, goat
+  row_version guard, identifier mutation, `identity_decisions`,
+  `identity_decision_identifiers`, `goat_identity_events`,
+  `identity_decision_events`, `audit_log`, `outbox_messages`, and idempotency
+  completion. The outbox aggregate is `goat`; the subject is `identifier`.
+  Replay re-fetches the DB state from idempotency result metadata and decision
+  joins, never cached response bodies.
+- Identifier add/retire must not use merge override GUCs. Merged goats, stale
+  row_version, wrong-tenant/wrong-goat identifiers, already-retired
+  identifiers, duplicate active RFID, duplicate same-scope old_tag, and active
+  primary-per-goat conflicts all reject as not_found or write_conflict according
+  to route visibility.
 - `make sqlc-check` regenerates the migration-derived schema dump and generated
   sqlc code with the pinned `tools/sqlc/sqlc.version`; it fails on drift.
 - `make validate-sqlc-plans` extracts every generated static read from
@@ -145,6 +163,23 @@ POST /admin/identity/correction-requests/{correction_request_id}/resolve
   audit_log + outbox_messages
   correction_request is aggregate and subject; no goat_identity_events are
   written because this is review state, not canonical goat identity mutation
+
+POST /admin/goats/{goat_id}/identifiers
+POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire
+  strict contract-shaped JSON body validation with unknown-field rejection
+  old evidence_ids payloads rejected; use typed evidence_refs
+  tenant/route/subject namespaced idempotency keys
+  add writes decision_type=attach_identifier, result=identifier_attached,
+  policy_version=phase1-identifier-v1, decision identifier action=attach,
+  goat_identity_events event_type=goat.identifier.added
+  retire writes decision_type=retire_identifier, result=identifier_retired,
+  policy_version=phase1-identifier-v1, decision identifier action=retire,
+  goat_identity_events event_type=goat.identifier.retired
+  exact idempotent replay returns the original decision/event plus current goat
+  identifier state
+  same key/different body conflicts
+  goat identity event outbox rows are DB-validated against same-tenant
+  goat_identity_events
 ```
 
 Known backend deferments:

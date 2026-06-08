@@ -261,6 +261,133 @@ func TestResolveCorrectionRequestReplayReturnsDecision(t *testing.T) {
 	}
 }
 
+func TestAddGoatIdentifierRequiresIdempotencyKey(t *testing.T) {
+	rec := postAddGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "", validAddIdentifierBody())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "missing_idempotency_key" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestAddGoatIdentifierRejectsInvalidActorAndUnknownFields(t *testing.T) {
+	rec := postAddGoatIdentifier(t, "not-a-uuid", "idem-add-handler-0001", validAddIdentifierBody())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "invalid_actor_id" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+
+	body := `{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_ids":["synthetic-row-1"],"row_version":1}`
+	rec = postAddGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "idem-add-handler-0002", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "invalid_json" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestAddGoatIdentifierReplayReturnsAdminResponse(t *testing.T) {
+	resultID := "30000000-0000-4000-8000-000000000001"
+	rec := postAddGoatIdentifierWithRepo(t, &handlerRepo{
+		addIdentifierResult: &ports.AdminGoatMutationResult{
+			Goat:          handlerPassport().Summary,
+			Identifiers:   []domain.GoatIdentifier{identifierResponseFixture(resultID, "rfid", "RFID-SYNTHETIC-001", "active")},
+			Decision:      identifierDecisionFixture("50000000-0000-4000-8000-000000000101", "attach_identifier", "identifier_attached"),
+			Events:        []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000101", EventType: "goat.identifier.added"}},
+			Replayed:      true,
+			FirstResultID: &resultID,
+		},
+	}, "90000000-0000-4000-8000-000000000001", "idem-add-handler-0003", validAddIdentifierBody())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.AdminGoatResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.Decision.DecisionType != "attach_identifier" || len(response.Events) != 1 || !response.Idempotency.Replayed {
+		t.Fatalf("unexpected admin response: %#v", response)
+	}
+}
+
+func TestRetireGoatIdentifierRequiresIdempotencyKey(t *testing.T) {
+	rec := postRetireGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "", validRetireIdentifierBody())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "missing_idempotency_key" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestRetireGoatIdentifierRejectsInvalidActorAndMissingEvidence(t *testing.T) {
+	rec := postRetireGoatIdentifier(t, "not-a-uuid", "idem-retire-handler-0001", validRetireIdentifierBody())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "invalid_actor_id" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+
+	rec = postRetireGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "idem-retire-handler-0002", `{"reason":"synthetic retire reason","row_version":2}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "missing_evidence_refs" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestRetireGoatIdentifierReplayReturnsAdminResponse(t *testing.T) {
+	resultID := "30000000-0000-4000-8000-000000000001"
+	rec := postRetireGoatIdentifierWithRepo(t, &handlerRepo{
+		retireIdentifierResult: &ports.AdminGoatMutationResult{
+			Goat:          handlerPassport().Summary,
+			Identifiers:   []domain.GoatIdentifier{identifierResponseFixture(resultID, "old_tag", "1900", "retired")},
+			Decision:      identifierDecisionFixture("50000000-0000-4000-8000-000000000102", "retire_identifier", "identifier_retired"),
+			Events:        []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+			Replayed:      true,
+			FirstResultID: &resultID,
+		},
+	}, "90000000-0000-4000-8000-000000000001", "idem-retire-handler-0003", validRetireIdentifierBody())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.AdminGoatResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.Decision.DecisionType != "retire_identifier" || len(response.Events) != 1 || !response.Idempotency.Replayed {
+		t.Fatalf("unexpected admin response: %#v", response)
+	}
+}
+
 func postCorrectionRequest(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return postCorrectionRequestWithRepo(t, &handlerRepo{}, actorID, idempotencyKey, body)
@@ -307,6 +434,52 @@ func postResolveCorrectionRequestWithRepo(t *testing.T, repo ports.Repository, a
 	return rec
 }
 
+func postAddGoatIdentifier(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return postAddGoatIdentifierWithRepo(t, &handlerRepo{}, actorID, idempotencyKey, body)
+}
+
+func postAddGoatIdentifierWithRepo(t *testing.T, repo ports.Repository, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers", strings.NewReader(body))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", actorID)
+	req.Header.Set("X-Request-ID", "req-add-identifier")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func postRetireGoatIdentifier(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return postRetireGoatIdentifierWithRepo(t, &handlerRepo{}, actorID, idempotencyKey, body)
+}
+
+func postRetireGoatIdentifierWithRepo(t *testing.T, repo ports.Repository, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers/30000000-0000-4000-8000-000000000001/retire", strings.NewReader(body))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", actorID)
+	req.Header.Set("X-Request-ID", "req-retire-identifier")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
 func validCorrectionBody() string {
 	return `{"request_type":"missing_tag","location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"description":"synthetic note","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`
 }
@@ -315,9 +488,19 @@ func validResolveBody() string {
 	return `{"state":"approved","reason":"synthetic review reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import","description":"Synthetic source row."}],"row_version":1}`
 }
 
+func validAddIdentifierBody() string {
+	return `{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`
+}
+
+func validRetireIdentifierBody() string {
+	return `{"reason":"synthetic retire reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":2}`
+}
+
 type handlerRepo struct {
-	correctionResult *ports.CreateCorrectionRequestResult
-	resolveResult    *ports.ResolveCorrectionRequestResult
+	correctionResult       *ports.CreateCorrectionRequestResult
+	resolveResult          *ports.ResolveCorrectionRequestResult
+	addIdentifierResult    *ports.AdminGoatMutationResult
+	retireIdentifierResult *ports.AdminGoatMutationResult
 }
 
 func (handlerRepo) GetGoatByID(context.Context, string, string) (*domain.GoatPassport, error) {
@@ -371,6 +554,30 @@ func (h handlerRepo) ResolveCorrectionRequest(context.Context, ports.ResolveCorr
 	}, nil
 }
 
+func (h handlerRepo) AddGoatIdentifier(_ context.Context, cmd ports.AddGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	if h.addIdentifierResult != nil {
+		return h.addIdentifierResult, nil
+	}
+	return &ports.AdminGoatMutationResult{
+		Goat:        handlerPassport().Summary,
+		Identifiers: []domain.GoatIdentifier{identifierResponseFixture("30000000-0000-4000-8000-000000000001", cmd.IdentifierType, cmd.IdentifierValue, "active")},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000101", "attach_identifier", "identifier_attached"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000101", EventType: "goat.identifier.added"}},
+	}, nil
+}
+
+func (h handlerRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	if h.retireIdentifierResult != nil {
+		return h.retireIdentifierResult, nil
+	}
+	return &ports.AdminGoatMutationResult{
+		Goat:        handlerPassport().Summary,
+		Identifiers: []domain.GoatIdentifier{identifierResponseFixture(cmd.IdentifierID, "old_tag", "1900", "retired")},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000102", "retire_identifier", "identifier_retired"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+	}, nil
+}
+
 func (handlerRepo) Ping(context.Context) error { return nil }
 
 func strPtr(value string) *string {
@@ -412,6 +619,35 @@ func decisionResponseFixture(id, result, state string) domain.DecisionRecordSumm
 		PolicyVersion:  "phase1-manual-correction-review-v1",
 		CreatedAt:      time.Now().UTC(),
 	}
+}
+
+func identifierDecisionFixture(id, decisionType, result string) domain.DecisionRecordSummary {
+	return domain.DecisionRecordSummary{
+		DecisionID:     id,
+		DecisionType:   decisionType,
+		DecisionResult: result,
+		DecisionState:  "approved",
+		PolicyVersion:  "phase1-identifier-v1",
+		CreatedAt:      time.Now().UTC(),
+	}
+}
+
+func identifierResponseFixture(id, identifierType, value, status string) domain.GoatIdentifier {
+	validFrom := time.Now().UTC().Add(-time.Hour)
+	identifier := domain.GoatIdentifier{
+		IdentifierID:     id,
+		IdentifierType:   identifierType,
+		IdentifierValue:  value,
+		ScopeKey:         "global:rfid",
+		Status:           status,
+		IsPrimaryForGoat: false,
+		ValidFrom:        validFrom,
+	}
+	if status == "retired" {
+		validTo := time.Now().UTC()
+		identifier.ValidTo = &validTo
+	}
+	return identifier
 }
 
 func intPtr(value int) *int {

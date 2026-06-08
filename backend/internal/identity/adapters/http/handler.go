@@ -41,8 +41,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/reject", h.NotImplemented("identity_candidates_deferred"))
 	mux.HandleFunc("POST /admin/goats", h.NotImplemented("admin_goat_writes_deferred"))
 	mux.HandleFunc("PATCH /admin/goats/{goat_id}", h.NotImplemented("admin_goat_writes_deferred"))
-	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.NotImplemented("admin_identifier_writes_deferred"))
-	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.NotImplemented("admin_identifier_writes_deferred"))
+	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
+	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
 	mux.HandleFunc("POST /admin/identity/correction-requests/{correction_request_id}/resolve", h.ResolveCorrectionRequest)
 
 	mux.HandleFunc("GET /analytics/identity/counts", h.GetIdentityCounts)
@@ -161,6 +161,53 @@ func (h *Handler) ResolveCorrectionRequest(w http.ResponseWriter, r *http.Reques
 		TraceID:             traceID(r),
 		CorrectionRequestID: r.PathValue("correction_request_id"),
 		RawBody:             body,
+	})
+	respond(w, r, result, err)
+}
+
+func (h *Handler) AddGoatIdentifier(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.AddGoatIdentifier(r.Context(), app.AddGoatIdentifierInput{
+		TenantID:       tenantID(r),
+		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		GoatID:         r.PathValue("goat_id"),
+		RawBody:        body,
+	})
+	respond(w, r, result, err)
+}
+
+func (h *Handler) RetireGoatIdentifier(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.RetireGoatIdentifier(r.Context(), app.RetireGoatIdentifierInput{
+		TenantID:       tenantID(r),
+		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		GoatID:         r.PathValue("goat_id"),
+		IdentifierID:   r.PathValue("identifier_id"),
+		RawBody:        body,
 	})
 	respond(w, r, result, err)
 }
