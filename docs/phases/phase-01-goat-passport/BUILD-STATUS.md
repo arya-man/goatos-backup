@@ -212,7 +212,9 @@ conflict resolve merge_goats:
   writes identity_decision_identifiers for supplied/applied identifier actions
   transfers only explicitly requested non-colliding loser identifiers and
   demotes transferred identifiers from primary by default
-  requires explicit retire/reject actions for detected unique-key collisions
+  default-retires loser identifiers that are not explicitly transferred
+  records the resolved live survivor/merged goat IDs in the decision record
+  while preserving requested affected goat IDs for traceability
   exact idempotent replay rebuilds the merge response from DB state
   same key with different request_hash conflicts
   persisted decision_record validates against decision-record JSON Schema

@@ -114,7 +114,7 @@ func (r *Repository) ResolveConflict(ctx context.Context, cmd ports.ResolveConfl
 		return nil, err
 	}
 
-	decisionRecord, err := mergeDecisionRecordPayload(cmd, decisionID, nil, nil, now)
+	decisionRecord, err := mergeDecisionRecordPayload(cmd, decisionID, cmd.SurvivorGoatID, requestedMergedGoatIDs(cmd.SurvivorGoatID, cmd.AffectedGoatIDs), nil, nil, now)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func (r *Repository) ResolveConflict(ctx context.Context, cmd ports.ResolveConfl
 		mergeLinkIDs = append(mergeLinkIDs, linkID)
 	}
 
-	decisionRecord, err = mergeDecisionRecordPayload(cmd, decisionID, redirectWarnings, identifierActions, now)
+	decisionRecord, err = mergeDecisionRecordPayload(cmd, decisionID, finalSurvivorID, liveLoserIDs, redirectWarnings, identifierActions, now)
 	if err != nil {
 		return nil, err
 	}
@@ -604,10 +604,24 @@ func applyMergeIdentifierActions(ctx context.Context, qtx *identitydb.Queries, t
 				break
 			}
 		}
-		if collides && (!hasAction || (action.Action != "retire" && action.Action != "reject")) {
+		if collides && hasAction && action.Action != "retire" && action.Action != "reject" {
 			return nil, ports.ErrWriteConflict
 		}
 		if !hasAction {
+			updated, err := qtx.RetireIdentifierForMerge(ctx, identitydb.RetireIdentifierForMergeParams{
+				ValidTo:      pgtype.Timestamptz{Time: now, Valid: true},
+				ApprovedBy:   actorUUID,
+				UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+				TenantID:     tenantUUID,
+				IdentifierID: mustUUID(row.IdentifierID),
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ports.ErrWriteConflict
+			}
+			if err != nil {
+				return nil, err
+			}
+			applied = append(applied, actionFromMergeRetireRow(updated, "retire"))
 			continue
 		}
 		switch action.Action {
@@ -645,7 +659,20 @@ func applyMergeIdentifierActions(ctx context.Context, qtx *identitydb.Queries, t
 			}
 			applied = append(applied, actionFromMergeTransferRow(updated, "transfer"))
 		case "preserve":
-			applied = append(applied, actionFromActiveIdentifier(row, "preserve"))
+			updated, err := qtx.RetireIdentifierForMerge(ctx, identitydb.RetireIdentifierForMergeParams{
+				ValidTo:      pgtype.Timestamptz{Time: now, Valid: true},
+				ApprovedBy:   actorUUID,
+				UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+				TenantID:     tenantUUID,
+				IdentifierID: mustUUID(row.IdentifierID),
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ports.ErrWriteConflict
+			}
+			if err != nil {
+				return nil, err
+			}
+			applied = append(applied, actionFromMergeRetireRow(updated, "preserve"))
 		default:
 			return nil, ports.ErrWriteConflict
 		}
@@ -788,10 +815,10 @@ func resolveConflictGuardError(ctx context.Context, qtx *identitydb.Queries, ten
 	return ports.ErrWriteConflict
 }
 
-func mergeDecisionRecordPayload(cmd ports.ResolveConflictCommand, decisionID string, redirectWarnings []domain.MergeRedirectWarning, identifierActions []domain.IdentifierAction, createdAt time.Time) ([]byte, error) {
-	affected := []map[string]string{{"goat_id": cmd.SurvivorGoatID, "role": "survivor"}}
-	for _, goatID := range cmd.AffectedGoatIDs {
-		if goatID != cmd.SurvivorGoatID {
+func mergeDecisionRecordPayload(cmd ports.ResolveConflictCommand, decisionID string, survivorID string, mergedGoatIDs []string, redirectWarnings []domain.MergeRedirectWarning, identifierActions []domain.IdentifierAction, createdAt time.Time) ([]byte, error) {
+	affected := []map[string]string{{"goat_id": survivorID, "role": "survivor"}}
+	for _, goatID := range mergedGoatIDs {
+		if goatID != survivorID {
 			affected = append(affected, map[string]string{"goat_id": goatID, "role": "merged"})
 		}
 	}
@@ -808,15 +835,17 @@ func mergeDecisionRecordPayload(cmd ports.ResolveConflictCommand, decisionID str
 		"evidence": map[string]any{
 			"evidence_refs": cmd.EvidenceRefs,
 			"after": map[string]any{
-				"survivor_goat_id":    cmd.SurvivorGoatID,
-				"merged_goat_ids":     cmd.AffectedGoatIDs,
-				"redirect_warnings":   redirectWarnings,
-				"identifier_actions":  identifierActions,
-				"conflict_id":         cmd.ConflictID,
-				"decision_result":     mergeDecisionResult,
-				"decision_type":       mergeDecisionType,
-				"decision_state":      "approved",
-				"merge_policy_source": mergePolicyVersion,
+				"survivor_goat_id":            survivorID,
+				"merged_goat_ids":             mergedGoatIDs,
+				"requested_survivor_goat_id":  cmd.SurvivorGoatID,
+				"requested_affected_goat_ids": cmd.AffectedGoatIDs,
+				"redirect_warnings":           redirectWarnings,
+				"identifier_actions":          identifierActions,
+				"conflict_id":                 cmd.ConflictID,
+				"decision_result":             mergeDecisionResult,
+				"decision_type":               mergeDecisionType,
+				"decision_state":              "approved",
+				"merge_policy_source":         mergePolicyVersion,
 			},
 		},
 		"affected_goats":     affected,
@@ -828,6 +857,16 @@ func mergeDecisionRecordPayload(cmd ports.ResolveConflictCommand, decisionID str
 		"decided_at":         createdAt.UTC().Format("2006-01-02T15:04:05.000000Z"),
 	}
 	return json.Marshal(payload)
+}
+
+func requestedMergedGoatIDs(survivorID string, affectedGoatIDs []string) []string {
+	out := make([]string, 0, len(affectedGoatIDs))
+	for _, goatID := range affectedGoatIDs {
+		if goatID != survivorID {
+			out = append(out, goatID)
+		}
+	}
+	return out
 }
 
 func mergeEventPayload(cmd ports.ResolveConflictCommand, survivorID string, mergedIDs []string, thisMergedID string, decisionID string, mergeLinkIDs []string, identifierActions []domain.IdentifierAction, redirectWarnings []domain.MergeRedirectWarning) ([]byte, error) {
@@ -930,13 +969,6 @@ func identifierUniqueKeys(row identitydb.ListActiveIdentifiersForGoatsForUpdateR
 	default:
 		return nil
 	}
-}
-
-func actionFromActiveIdentifier(row identitydb.ListActiveIdentifiersForGoatsForUpdateRow, action string) domain.IdentifierAction {
-	identifierID := row.IdentifierID
-	identifierType := row.IdentifierType
-	identifierValue := row.IdentifierValue
-	return domain.IdentifierAction{IdentifierID: &identifierID, IdentifierType: &identifierType, IdentifierValue: &identifierValue, Action: action}
 }
 
 func actionFromMergeRetireRow(row identitydb.RetireIdentifierForMergeRow, action string) domain.IdentifierAction {

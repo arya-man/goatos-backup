@@ -28,6 +28,7 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 		survivorID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		loserID := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
 		loserIdentifierID := insertActiveIdentifier(t, pool, meshaTenant, loserID, "old_tag", "synthetic-merge-transfer-1", "park:CPT", true)
+		defaultRetiredIdentifierID := insertActiveIdentifier(t, pool, meshaTenant, loserID, "visual_tag", "synthetic-visual-retire-1", "goat:"+loserID, false)
 		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "possible_duplicate_goat", []string{survivorID, loserID})
 		cmd := mergeConflictCommand(t, meshaTenant, "idem-merge-0001", conflictID, survivorID, []string{loserID}, []domain.IdentifierAction{{
 			IdentifierID:    strPtr(loserIdentifierID),
@@ -83,6 +84,15 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 		}
 		if transferredGoatID != survivorID || transferredPrimary {
 			t.Fatalf("transferred identifier goat/primary = %s/%v", transferredGoatID, transferredPrimary)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND status = 'active'`, loserID); got != 0 {
+			t.Fatalf("active loser identifiers after merge = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id = $1 AND status = 'retired'`, defaultRetiredIdentifierID); got != 1 {
+			t.Fatalf("default-retired identifier rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_decision_identifiers WHERE decision_id = $1 AND identifier_id = $2 AND action = 'retire'`, result.Decision.DecisionID, defaultRetiredIdentifierID); got != 1 {
+			t.Fatalf("default-retired decision identifier rows = %d", got)
 		}
 
 		eventID := result.Events[0].EventID
@@ -203,6 +213,7 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 		survivorID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		liveRepresentativeID := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
 		staleMemberID := insertSyntheticGoat(t, pool, meshaTenant, cptLocation)
+		liveRepresentativeIdentifierID := insertActiveIdentifier(t, pool, meshaTenant, liveRepresentativeID, "visual_tag", "synthetic-live-representative-retire-1", "goat:"+liveRepresentativeID, false)
 		seedHistoricalMerge(t, pool, staleMemberID, liveRepresentativeID)
 		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "possible_duplicate_goat", []string{survivorID, staleMemberID})
 
@@ -236,9 +247,31 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_merge_links WHERE merged_goat_id = $1 AND survivor_goat_id = $2 AND decision_id = $3`, liveRepresentativeID, survivorID, result.Decision.DecisionID); got != 1 {
 			t.Fatalf("new live-representative merge link rows = %d", got)
 		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id = $1 AND status = 'retired'`, liveRepresentativeIdentifierID); got != 1 {
+			t.Fatalf("live representative identifier default-retired rows = %d", got)
+		}
+		decisionPayload := queryBytes(t, pool, `SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1`, result.Decision.DecisionID)
+		var decisionRecord struct {
+			Evidence struct {
+				After struct {
+					SurvivorGoatID           string   `json:"survivor_goat_id"`
+					MergedGoatIDs            []string `json:"merged_goat_ids"`
+					RequestedAffectedGoatIDs []string `json:"requested_affected_goat_ids"`
+				} `json:"after"`
+			} `json:"evidence"`
+		}
+		if err := json.Unmarshal(decisionPayload, &decisionRecord); err != nil {
+			t.Fatalf("decode decision record: %v", err)
+		}
+		if decisionRecord.Evidence.After.SurvivorGoatID != survivorID || len(decisionRecord.Evidence.After.MergedGoatIDs) != 1 || decisionRecord.Evidence.After.MergedGoatIDs[0] != liveRepresentativeID {
+			t.Fatalf("decision record did not use resolved merge goats: %#v", decisionRecord.Evidence.After)
+		}
+		if len(decisionRecord.Evidence.After.RequestedAffectedGoatIDs) != 1 || decisionRecord.Evidence.After.RequestedAffectedGoatIDs[0] != staleMemberID {
+			t.Fatalf("decision record lost requested affected goats: %#v", decisionRecord.Evidence.After)
+		}
 	})
 
-	t.Run("identifier collision requires explicit retire action", func(t *testing.T) {
+	t.Run("identifier collision defaults to retiring loser identifier", func(t *testing.T) {
 		survivorID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		loserID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
 		if _, err := pool.Exec(ctx, `DROP INDEX goat_identifiers_active_rfid_unique`); err != nil {
@@ -250,17 +283,9 @@ func TestConflictMergeWritePathWithDockerPostgres(t *testing.T) {
 		_ = insertActiveIdentifier(t, pool, meshaTenant, survivorID, "rfid", "RFID-SYNTHETIC-COLLIDE", "global:rfid", false)
 		loserIdentifierID := insertActiveIdentifier(t, pool, meshaTenant, loserID, "rfid", "RFID-SYNTHETIC-COLLIDE", "global:rfid", false)
 		conflictID := insertSyntheticConflict(t, pool, meshaTenant, "rfid_already_linked", []string{survivorID, loserID})
-		if _, err := repo.ResolveConflict(ctx, mergeConflictCommand(t, meshaTenant, "idem-merge-collision-0001", conflictID, survivorID, []string{loserID}, nil, 1)); !errors.Is(err, ports.ErrWriteConflict) {
-			t.Fatalf("expected collision without action to conflict, got %v", err)
-		}
-		result, err := repo.ResolveConflict(ctx, mergeConflictCommand(t, meshaTenant, "idem-merge-collision-0002", conflictID, survivorID, []string{loserID}, []domain.IdentifierAction{{
-			IdentifierID:    strPtr(loserIdentifierID),
-			IdentifierType:  strPtr("rfid"),
-			IdentifierValue: strPtr("RFID-SYNTHETIC-COLLIDE"),
-			Action:          "retire",
-		}}, 1))
+		result, err := repo.ResolveConflict(ctx, mergeConflictCommand(t, meshaTenant, "idem-merge-collision-0001", conflictID, survivorID, []string{loserID}, nil, 1))
 		if err != nil {
-			t.Fatalf("collision retire merge: %v", err)
+			t.Fatalf("collision default-retire merge: %v", err)
 		}
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_id = $1 AND status = 'retired'`, loserIdentifierID); got != 1 {
 			t.Fatalf("loser colliding identifier retired rows = %d", got)

@@ -1694,6 +1694,7 @@ Identifier collision policy:
 survivor active identifiers win by default
 loser identifiers with colliding unique keys are retired, not transferred
 non-colliding loser identifiers may transfer to survivor only when decision explicitly says so
+loser identifiers not explicitly transferred are retired; merged goats do not retain active identifiers
 transferred identifiers are demoted with is_primary_for_goat = false by default
 survivor keeps its existing primary identifier for each identifier_type unless reviewer explicitly changes it
 RFID collision always creates/keeps conflict unless reviewer resolves device/tag evidence

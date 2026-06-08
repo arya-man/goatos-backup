@@ -201,6 +201,10 @@ POST /admin/identity/conflicts/{conflict_id}/resolve
   merge override GUCs are SET LOCAL inside the transaction only
   goats.merged_into_goat_id is the authoritative live-survivor pointer;
   goat_merge_links is immutable history
+  decision records use the resolved live survivor and newly merged goat IDs,
+  with requested affected IDs preserved for traceability
+  loser identifiers are default-retired unless explicitly transferred; no
+  active identifier remains attached to a newly merged goat
   writes identity_decision_goats roles survivor and merged, applied
   identity_decision_identifiers actions, goat_merge_links,
   goat_identity_events, identity_decision_events, audit_log, outbox_messages,
