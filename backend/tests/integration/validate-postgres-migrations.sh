@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 container_name="goatos-migration-validation-$$"
-image="${GOATOS_POSTGRES_IMAGE:-postgres:16-alpine}"
+image="${GOATOS_POSTGRES_IMAGE:-postgres:16.9-alpine}"
 db_name="goatos"
 db_user="postgres"
 

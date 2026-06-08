@@ -8,8 +8,14 @@ on:
 jobs:
   guardrails:
     runs-on: ubuntu-latest
+    env:
+      GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
       - name: Agent guardrails
         run: |
           bash tools/agent-hooks/check-boundaries.sh
@@ -32,3 +38,14 @@ jobs:
             cd backend
             go test ./...
           fi
+      - name: Install pinned sqlc
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@"$(cat tools/sqlc/sqlc.version)"
+          "$(go env GOPATH)/bin/sqlc" version
+      - name: SQL and migration validation
+        run: |
+          make sqlc-check
+          make validate-sqlc-plans
+          make validate-migrations
+          git diff --check

@@ -19,12 +19,13 @@ import (
 )
 
 const (
-	meshaTenant  = "00000000-0000-4000-8000-000000000001"
-	secondTenant = "00000000-0000-4000-8000-000000000002"
-	meshaParty   = "00000000-0000-4000-8000-000000001001"
-	cbeLocation  = "00000000-0000-4000-8000-000000003001"
-	cptLocation  = "00000000-0000-4000-8000-000000003002"
-	t2Location   = "00000000-0000-4000-8000-000000003101"
+	defaultPostgresImage = "postgres:16.9-alpine"
+	meshaTenant          = "00000000-0000-4000-8000-000000000001"
+	secondTenant         = "00000000-0000-4000-8000-000000000002"
+	meshaParty           = "00000000-0000-4000-8000-000000001001"
+	cbeLocation          = "00000000-0000-4000-8000-000000003001"
+	cptLocation          = "00000000-0000-4000-8000-000000003002"
+	t2Location           = "00000000-0000-4000-8000-000000003101"
 )
 
 func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
@@ -34,7 +35,11 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 
 	ctx := context.Background()
 	container := fmt.Sprintf("goatos-repo-test-%d", time.Now().UnixNano())
-	run(t, "docker", "run", "--rm", "--name", container, "-e", "POSTGRES_PASSWORD=goatos", "-e", "POSTGRES_DB=goatos", "-p", "127.0.0.1::5432", "-d", "postgres:16-alpine")
+	postgresImage := os.Getenv("GOATOS_POSTGRES_IMAGE")
+	if postgresImage == "" {
+		postgresImage = defaultPostgresImage
+	}
+	run(t, "docker", "run", "--rm", "--name", container, "-e", "POSTGRES_PASSWORD=goatos", "-e", "POSTGRES_DB=goatos", "-p", "127.0.0.1::5432", "-d", postgresImage)
 	t.Cleanup(func() {
 		_ = exec.Command("docker", "rm", "-f", container).Run()
 	})

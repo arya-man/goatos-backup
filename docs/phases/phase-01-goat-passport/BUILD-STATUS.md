@@ -144,6 +144,10 @@ make validate-migrations
 git diff --check
 ```
 
+CI runs guardrails, Go tests, `make sqlc-check`, `make validate-sqlc-plans`,
+`make validate-migrations`, and `git diff --check` with Docker Postgres pinned
+to `postgres:16.9-alpine`.
+
 For Go-only changes, `make check` is the preferred root command. Running
 `go test ./...` from the repo root is not valid because the Go module lives under
 `backend/`; use `make test` or `cd backend && go test ./...`.

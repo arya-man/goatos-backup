@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 container_name="goatos-sqlc-plan-validation-$$"
-image="${GOATOS_SQLC_POSTGRES_IMAGE:-postgres:16.9-alpine}"
+image="${GOATOS_SQLC_POSTGRES_IMAGE:-${GOATOS_POSTGRES_IMAGE:-postgres:16.9-alpine}}"
 db_name="goatos"
 db_user="postgres"
 query_file="$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql"
