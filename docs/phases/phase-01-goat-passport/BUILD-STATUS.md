@@ -145,11 +145,31 @@ Build the write foundation before merge:
      actually mutates goat identity
   4. first small write surface: POST /identity/correction-requests
 
+Idempotency rules for write endpoints:
+  - Idempotency-Key is required when the OpenAPI contract says it is required.
+  - INSERT ... ON CONFLICT on the idempotency_keys primary key is the
+    concurrency primitive. The second concurrent request must block on the row
+    conflict, then read the committed result.
+  - request_hash is based on canonical JSON body + command identity + route
+    identity + tenant_id.
+  - Completed replay re-fetches the result by result_type/result_id; the
+    idempotency table does not store full response bodies.
+  - For POST /identity/correction-requests, fresh create returns 201 and exact
+    completed replay returns 200.
+  - Same key with different request_hash is a conflict.
+  - Failed or stale started keys may be retried/reclaimed only according to
+    status/expires_at policy; do not wedge a key forever in started state.
+
 Correction request create exists in app-api.yaml. Admin correction resolve also
-exists, but resolve is a later write slice. When resolve is built, the state
-machine is open/assigned/needs_field_check -> approved/rejected/closed or
-needs_field_check, and already-terminal requests must not be re-resolved except
-as exact idempotent replay.
+exists, but resolve is a later write slice. Create supports goat-linked and
+goatless requests; goat_id is optional in the contract and DB. Goatless
+correction requests use the correction request as the outbox aggregate and do
+not create a goat timeline event. evidence_refs maps into the DB evidence jsonb
+shape. request_type must stay within the contract/DB enum.
+
+When resolve is built, the state machine is open/assigned/needs_field_check ->
+approved/rejected/closed or needs_field_check, and already-terminal requests
+must not be re-resolved except as exact idempotent replay.
 
 Do not implement goat merge in the write-foundation slice. The merge slice must:
   - use SET LOCAL goatos.allow_merged_goat_update='on' and
