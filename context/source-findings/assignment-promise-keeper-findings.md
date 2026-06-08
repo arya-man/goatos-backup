@@ -7,6 +7,14 @@ carry forward. It is not production architecture by itself. The assignment was a
 snapshot demo over small local files; Goat OS must implement the same safety
 logic as durable, proof-backed, event-driven, million-scale workflows.
 
+Latest PR review note:
+
+```text
+The latest candidate PR patched two earlier gaps: feed exposure is now a
+booking/substitute gate, and promised-weight shortfall is implemented. Keep
+those as Goat OS requirements, not as current candidate misses.
+```
+
 ## What The Assignment Was About
 
 The assignment asks whether a goat promised to a customer or festival can really
@@ -49,11 +57,16 @@ reconciliation:
 
 feed trace:
   uses movement history to determine whether a goat was in a contaminated
-  feed/shed/date window.
+  feed/shed/date window and blocks booking/substitution when uncleared exposure
+  makes the goat unsafe.
 
 replacement:
   proposes substitute goats by breed, promised weight, eligibility, and
   availability.
+
+promised-weight risk:
+  checks whether the current/projected weight can still satisfy the customer
+  promise instead of treating booked weight as static truth.
 
 evidence:
   verdicts link back to source records instead of being unsupported claims.
@@ -121,12 +134,14 @@ multi-instance concurrency:
   process-local locks do not protect multiple API instances.
 
 feed gate:
-  feed exposure was mainly a discrepancy flag; a contaminated goat could still
-  enter a new booking or substitute path unless eligibility blocks it.
+  earlier assignment revisions treated feed exposure mainly as a discrepancy
+  flag. The latest PR moves it into the booking/substitute gate. Goat OS should
+  keep that stricter behavior.
 
 promised-weight risk:
-  current/projected weight shortfall against the promise was documented but not
-  fully implemented.
+  earlier assignment revisions documented current/projected weight shortfall
+  without enforcing it. The latest PR implements the shortfall check. Goat OS
+  should keep it as a readiness risk.
 
 price audit:
   existing bookings were not audited against the rate/policy effective on
@@ -134,6 +149,12 @@ price audit:
 
 field-message ingestion:
   death detection was regex/thin, not full multilingual evidence processing.
+
+runtime cache shape:
+  feed-sale blocking used a process-local cache in the take-home. That is fine
+  for static files, but production must not use one global context-free cache
+  for safety decisions. Goat OS should compute from tenant/policy-scoped facts
+  or use invalidated/projection-backed caches.
 ```
 
 ## Goat OS Requirements Carried Forward
