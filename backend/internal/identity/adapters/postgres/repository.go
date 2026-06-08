@@ -5,18 +5,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
 )
 
 type Repository struct {
 	pool         *pgxpool.Pool
+	queries      *identitydb.Queries
 	queryTimeout time.Duration
 }
 
@@ -24,7 +28,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = 3 * time.Second
 	}
-	return &Repository{pool: pool, queryTimeout: queryTimeout}
+	return &Repository{pool: pool, queries: identitydb.New(pool), queryTimeout: queryTimeout}
 }
 
 func (r *Repository) Ping(ctx context.Context) error {
@@ -34,23 +38,55 @@ func (r *Repository) Ping(ctx context.Context) error {
 }
 
 func (r *Repository) GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error) {
-	return r.getGoat(ctx, tenantID, "g.goat_id = $2::uuid", goatID)
-}
-
-func (r *Repository) GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error) {
-	return r.getGoat(ctx, tenantID, "g.display_id = $2", displayID)
-}
-
-func (r *Repository) getGoat(ctx context.Context, tenantID, predicate, value string) (*domain.GoatPassport, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	query := goatSummarySelect() + " WHERE g.tenant_id = $1::uuid AND " + predicate
-	row := r.pool.QueryRow(ctx, query, tenantID, value)
-	summary, species, mergedInto, rowVersion, err := scanGoatRow(row)
+	tenantUUID, err := uuidParam(tenantID)
 	if err != nil {
 		return nil, err
 	}
+	goatUUID, err := uuidParam(goatID)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := r.queries.GetGoatByID(ctx, identitydb.GetGoatByIDParams{
+		TenantID: tenantUUID,
+		GoatID:   goatUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.getGoatFromSQLC(ctx, tenantID, sqlcGoatRowFromID(row))
+}
+
+func (r *Repository) GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := r.queries.GetGoatByDisplayID(ctx, identitydb.GetGoatByDisplayIDParams{
+		TenantID:  tenantUUID,
+		DisplayID: displayID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.getGoatFromSQLC(ctx, tenantID, sqlcGoatRowFromDisplayID(row))
+}
+
+func (r *Repository) getGoatFromSQLC(ctx context.Context, tenantID string, row sqlcGoatRow) (*domain.GoatPassport, error) {
+	summary, species, mergedInto, rowVersion := goatSummaryFromSQLC(row)
 	identifiers, err := r.listIdentifiers(ctx, tenantID, summary.GoatID)
 	if err != nil {
 		return nil, err
@@ -229,17 +265,16 @@ func (r *Repository) FindOpenConflictForIdentifier(ctx context.Context, tenantID
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	var conflictID string
-	err := r.pool.QueryRow(ctx, `
-SELECT conflict_id::text
-FROM identity_conflicts
-WHERE tenant_id = $1::uuid
-  AND identifier_type = $2
-  AND identifier_value = $3
-  AND evidence->>'scope_key' = $4
-  AND state IN ('open', 'needs_field_check')
-ORDER BY created_at DESC
-LIMIT 1`, tenantID, identifierType, normalizedValue, scopeKey).Scan(&conflictID)
+	tenantUUID, err := uuidParam(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	conflictID, err := r.queries.FindOpenConflictForIdentifier(ctx, identitydb.FindOpenConflictForIdentifierParams{
+		TenantID:        tenantUUID,
+		IdentifierType:  textParam(identifierType),
+		IdentifierValue: textParam(normalizedValue),
+		ScopeKey:        scopeKey,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -299,28 +334,37 @@ func (r *Repository) GetConflict(ctx context.Context, tenantID, conflictID strin
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	row := r.pool.QueryRow(ctx, conflictSummarySelect()+" WHERE c.tenant_id = $1::uuid AND c.conflict_id = $2::uuid", tenantID, conflictID)
-	summary, err := scanConflictSummary(row)
+	tenantUUID, err := uuidParam(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	conflictUUID, err := uuidParam(conflictID)
 	if err != nil {
 		return nil, err
 	}
 
-	goatRows, err := r.pool.Query(ctx, `
-SELECT goat_id::text
-FROM identity_conflict_goats
-WHERE tenant_id = $1::uuid AND conflict_id = $2::uuid
-ORDER BY created_at ASC`, tenantID, conflictID)
+	summaryRow, err := r.queries.GetConflictSummaryByID(ctx, identitydb.GetConflictSummaryByIDParams{
+		TenantID:   tenantUUID,
+		ConflictID: conflictUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer goatRows.Close()
+	summary := conflictSummaryFromSQLC(summaryRow)
+
+	goatIDs, err := r.queries.ListConflictGoatsByID(ctx, identitydb.ListConflictGoatsByIDParams{
+		TenantID:   tenantUUID,
+		ConflictID: conflictUUID,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	goats := []domain.ConflictGoatReview{}
-	for goatRows.Next() {
-		var goatID string
-		if err := goatRows.Scan(&goatID); err != nil {
-			return nil, err
-		}
+	for _, goatID := range goatIDs {
 		passport, err := r.GetGoatByID(ctx, tenantID, goatID)
 		if err != nil {
 			return nil, err
@@ -332,25 +376,20 @@ ORDER BY created_at ASC`, tenantID, conflictID)
 			RowVersion:   passport.RowVersion,
 		})
 	}
-	if err := goatRows.Err(); err != nil {
-		return nil, err
-	}
 
-	sourceRows, err := r.pool.Query(ctx, `
-SELECT source_system, source_record_id
-FROM identity_conflict_source_records
-WHERE tenant_id = $1::uuid AND conflict_id = $2::uuid
-ORDER BY created_at ASC`, tenantID, conflictID)
+	sourceRows, err := r.queries.ListConflictSourceRecordsByID(ctx, identitydb.ListConflictSourceRecordsByIDParams{
+		TenantID:   tenantUUID,
+		ConflictID: conflictUUID,
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer sourceRows.Close()
 
 	sourceRecords := []domain.ConflictSourceRecord{}
-	for sourceRows.Next() {
-		var rec domain.ConflictSourceRecord
-		if err := sourceRows.Scan(&rec.SourceSystem, &rec.SourceRecordID); err != nil {
-			return nil, err
+	for _, row := range sourceRows {
+		rec := domain.ConflictSourceRecord{
+			SourceSystem:   row.SourceSystem,
+			SourceRecordID: row.SourceRecordID,
 		}
 		rec.EvidenceRefs = []domain.EvidenceRef{{
 			EvidenceType: "source_record",
@@ -358,9 +397,6 @@ ORDER BY created_at ASC`, tenantID, conflictID)
 			SourceSystem: &rec.SourceSystem,
 		}}
 		sourceRecords = append(sourceRecords, rec)
-	}
-	if err := sourceRows.Err(); err != nil {
-		return nil, err
 	}
 
 	return &domain.ConflictDetailResult{
@@ -461,36 +497,28 @@ LIMIT 100`
 }
 
 func (r *Repository) listIdentifiers(ctx context.Context, tenantID, goatID string) ([]domain.GoatIdentifier, error) {
-	rows, err := r.pool.Query(ctx, `
-SELECT
-  identifier_id::text,
-  identifier_type,
-  identifier_value,
-  scope_key,
-  status,
-  is_primary_for_goat,
-  valid_from,
-  valid_to,
-  source_system,
-  source_record_id,
-  confidence::float8
-FROM goat_identifiers
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
-ORDER BY is_primary_for_goat DESC, status ASC, valid_from DESC`, tenantID, goatID)
+	tenantUUID, err := uuidParam(tenantID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	items := []domain.GoatIdentifier{}
-	for rows.Next() {
-		item, err := scanIdentifier(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
+	goatUUID, err := uuidParam(goatID)
+	if err != nil {
+		return nil, err
 	}
-	return items, rows.Err()
+
+	rows, err := r.queries.ListIdentifiersForGoat(ctx, identitydb.ListIdentifiersForGoatParams{
+		TenantID: tenantUUID,
+		GoatID:   goatUUID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.GoatIdentifier, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, identifierFromSQLC(row))
+	}
+	return items, nil
 }
 
 func goatSummarySelect() string {
@@ -535,6 +563,150 @@ func goatSummaryColumns() string {
 
 type scanner interface {
 	Scan(dest ...any) error
+}
+
+type sqlcGoatRow struct {
+	GoatID             string
+	DisplayID          string
+	PrimaryOldTag      pgtype.Text
+	RFID               pgtype.Text
+	Breed              pgtype.Text
+	Sex                pgtype.Text
+	AgeBand            pgtype.Text
+	LifecycleStatus    string
+	ReproductiveStatus pgtype.Text
+	GrowthCohortTag    pgtype.Text
+	ManagementStage    pgtype.Text
+	HealthStatus       pgtype.Text
+	IdentityState      string
+	LocationDisplay    string
+	FarmID             string
+	ParkID             string
+	ShedID             string
+	CohortID           string
+	Species            string
+	MergedIntoGoatID   string
+	RowVersion         int32
+}
+
+func sqlcGoatRowFromID(row identitydb.GetGoatByIDRow) sqlcGoatRow {
+	return sqlcGoatRow{
+		GoatID:             row.GoatID,
+		DisplayID:          row.DisplayID,
+		PrimaryOldTag:      row.PrimaryOldTag,
+		RFID:               row.Rfid,
+		Breed:              row.Breed,
+		Sex:                row.Sex,
+		AgeBand:            row.AgeBand,
+		LifecycleStatus:    row.LifecycleStatus,
+		ReproductiveStatus: row.ReproductiveStatus,
+		GrowthCohortTag:    row.GrowthCohortTag,
+		ManagementStage:    row.ManagementStage,
+		HealthStatus:       row.HealthStatus,
+		IdentityState:      row.IdentityState,
+		LocationDisplay:    row.LocationDisplay,
+		FarmID:             row.FarmID,
+		ParkID:             row.ParkID,
+		ShedID:             row.ShedID,
+		CohortID:           row.CohortID,
+		Species:            row.Species,
+		MergedIntoGoatID:   row.MergedIntoGoatID,
+		RowVersion:         row.RowVersion,
+	}
+}
+
+func sqlcGoatRowFromDisplayID(row identitydb.GetGoatByDisplayIDRow) sqlcGoatRow {
+	return sqlcGoatRow{
+		GoatID:             row.GoatID,
+		DisplayID:          row.DisplayID,
+		PrimaryOldTag:      row.PrimaryOldTag,
+		RFID:               row.Rfid,
+		Breed:              row.Breed,
+		Sex:                row.Sex,
+		AgeBand:            row.AgeBand,
+		LifecycleStatus:    row.LifecycleStatus,
+		ReproductiveStatus: row.ReproductiveStatus,
+		GrowthCohortTag:    row.GrowthCohortTag,
+		ManagementStage:    row.ManagementStage,
+		HealthStatus:       row.HealthStatus,
+		IdentityState:      row.IdentityState,
+		LocationDisplay:    row.LocationDisplay,
+		FarmID:             row.FarmID,
+		ParkID:             row.ParkID,
+		ShedID:             row.ShedID,
+		CohortID:           row.CohortID,
+		Species:            row.Species,
+		MergedIntoGoatID:   row.MergedIntoGoatID,
+		RowVersion:         row.RowVersion,
+	}
+}
+
+func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, int) {
+	summary := domain.GoatSummary{
+		GoatID:             row.GoatID,
+		DisplayID:          row.DisplayID,
+		PrimaryOldTag:      pgTextPtr(row.PrimaryOldTag),
+		RFID:               pgTextPtr(row.RFID),
+		Breed:              pgTextPtr(row.Breed),
+		Sex:                pgTextPtr(row.Sex),
+		AgeBand:            pgTextPtr(row.AgeBand),
+		LifecycleStatus:    row.LifecycleStatus,
+		ReproductiveStatus: pgTextPtr(row.ReproductiveStatus),
+		GrowthCohortTag:    pgTextPtr(row.GrowthCohortTag),
+		ManagementStage:    pgTextPtr(row.ManagementStage),
+		HealthStatus:       pgTextPtr(row.HealthStatus),
+		IdentityState:      row.IdentityState,
+		LocationPath: domain.LocationPath{
+			Display:  row.LocationDisplay,
+			FarmID:   nonEmptyStringPtr(row.FarmID),
+			ParkID:   nonEmptyStringPtr(row.ParkID),
+			ShedID:   nonEmptyStringPtr(row.ShedID),
+			CohortID: nonEmptyStringPtr(row.CohortID),
+		},
+		Warnings: []domain.Warning{},
+	}
+	return summary, row.Species, nonEmptyStringPtr(row.MergedIntoGoatID), int(row.RowVersion)
+}
+
+func identifierFromSQLC(row identitydb.ListIdentifiersForGoatRow) domain.GoatIdentifier {
+	confidence := row.Confidence
+	var confidencePtr *float64
+	if !math.IsNaN(confidence) {
+		confidencePtr = &confidence
+	}
+	return domain.GoatIdentifier{
+		IdentifierID:     row.IdentifierID,
+		IdentifierType:   row.IdentifierType,
+		IdentifierValue:  row.IdentifierValue,
+		ScopeKey:         row.ScopeKey,
+		Status:           row.Status,
+		IsPrimaryForGoat: row.IsPrimaryForGoat,
+		ValidFrom:        pgTime(row.ValidFrom),
+		ValidTo:          pgTimePtr(row.ValidTo),
+		SourceSystem:     pgTextPtr(row.SourceSystem),
+		SourceRecordID:   pgTextPtr(row.SourceRecordID),
+		Confidence:       confidencePtr,
+	}
+}
+
+func conflictSummaryFromSQLC(row identitydb.GetConflictSummaryByIDRow) domain.ConflictSummary {
+	item := domain.ConflictSummary{
+		ConflictID:        row.ConflictID,
+		ConflictType:      row.ConflictType,
+		Severity:          row.Severity,
+		GoatCount:         int(row.GoatCount),
+		SourceRecordCount: int(row.SourceRecordCount),
+		State:             row.State,
+		CreatedAt:         pgTime(row.CreatedAt),
+	}
+	if row.IdentifierType.Valid && row.IdentifierValue.Valid {
+		item.Identifier = &domain.IdentifierReference{
+			IdentifierType:  row.IdentifierType.String,
+			IdentifierValue: row.IdentifierValue.String,
+			ScopeKey:        row.ScopeKey,
+		}
+	}
+	return item
 }
 
 func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) {
@@ -857,4 +1029,44 @@ func floatPtr(v sql.NullFloat64) *float64 {
 		return nil
 	}
 	return &v.Float64
+}
+
+func uuidParam(value string) (pgtype.UUID, error) {
+	var out pgtype.UUID
+	if err := out.Scan(value); err != nil {
+		return pgtype.UUID{}, fmt.Errorf("invalid uuid %q: %w", value, err)
+	}
+	return out, nil
+}
+
+func textParam(value string) pgtype.Text {
+	return pgtype.Text{String: value, Valid: true}
+}
+
+func pgTextPtr(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
+}
+
+func nonEmptyStringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func pgTime(value pgtype.Timestamptz) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return value.Time
+}
+
+func pgTimePtr(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Time
 }

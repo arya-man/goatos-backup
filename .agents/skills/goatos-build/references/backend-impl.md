@@ -28,6 +28,7 @@ identity/app                    use cases and state-machine logic
 identity/ports                  interfaces owned by the identity module
 identity/adapters/http          thin net/http handlers
 identity/adapters/postgres      repository adapter behind ports.Repository
+identity/adapters/postgres/sqlc generated query package for static reads
 ```
 
 Rules:
@@ -48,9 +49,14 @@ Rules:
   request ID when missing, and logs method/path/status/duration with slog.
 - Full OpenTelemetry exporters/spans/metrics are deferred, but the request
   context/logging shape must remain OTel-friendly.
-- The Postgres repository is hand-written pgx only for the first read slice.
-  Replace with generated sqlc queries before import/reconciliation write-heavy
-  code depends on it.
+- The Postgres repository uses generated sqlc for stable static reads and
+  handwritten pgx for dynamic optional-filter reads. Do not spread new
+  hand-written SQL into write-heavy/import/reconciliation paths without either
+  generating it or documenting why the shape must remain dynamic.
+- `make sqlc-check` regenerates the migration-derived schema dump and generated
+  sqlc code with the pinned `tools/sqlc/sqlc.version`; it fails on drift.
+- `make validate-sqlc-plans` runs EXPLAIN checks for the generated static read
+  paths and rejects sequential scans on the hot lookup tables.
 
 Phase 1 read behaviors already built:
 
@@ -85,7 +91,6 @@ Known backend deferments:
 
 ```text
 auth/RBAC adapter
-sqlc generation/config
 legacy import runner
 write/merge handlers
 projection workers and counter population
@@ -100,6 +105,8 @@ Before extending this backend:
 read BUILD-STATUS.md for current Phase 1 state
 run make test
 run make check
+run make sqlc-check for DB query changes
+run make validate-sqlc-plans when adding/changing indexed identity read queries
 run make validate-migrations for schema-sensitive work
 keep fixtures synthetic
 ```

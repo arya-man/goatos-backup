@@ -1,4 +1,4 @@
-.PHONY: check guardrails test validate-migrations
+.PHONY: check guardrails test sqlc-generate sqlc-check validate-migrations validate-sqlc-plans
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh
@@ -7,8 +7,19 @@ guardrails:
 test:
 	@if [ -f backend/go.mod ]; then cd backend && go test ./...; fi
 
+sqlc-generate:
+	bash tools/sqlc/dump-schema.sh
+	bash tools/sqlc/check-version.sh
+	cd backend && sqlc generate -f sqlc.yaml
+
+sqlc-check: sqlc-generate
+	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc
+
 check: guardrails
 	$(MAKE) test
 
 validate-migrations:
 	bash backend/tests/integration/validate-postgres-migrations.sh
+
+validate-sqlc-plans:
+	bash backend/tests/integration/validate-sqlc-query-plans.sh
