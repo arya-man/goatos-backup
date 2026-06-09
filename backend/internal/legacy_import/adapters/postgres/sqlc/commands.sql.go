@@ -1145,6 +1145,27 @@ func (q *Queries) MarkLegacyImportRowCreatedGoat(ctx context.Context, arg MarkLe
 	return err
 }
 
+const markLegacyImportRowError = `-- name: MarkLegacyImportRowError :exec
+UPDATE legacy_import_rows
+SET
+  processing_state = 'error',
+  error_reason = $1,
+  matched_goat_id = NULL
+WHERE tenant_id = $2
+  AND legacy_row_id = $3
+`
+
+type MarkLegacyImportRowErrorParams struct {
+	ErrorReason pgtype.Text
+	TenantID    pgtype.UUID
+	LegacyRowID pgtype.UUID
+}
+
+func (q *Queries) MarkLegacyImportRowError(ctx context.Context, arg MarkLegacyImportRowErrorParams) error {
+	_, err := q.db.Exec(ctx, markLegacyImportRowError, arg.ErrorReason, arg.TenantID, arg.LegacyRowID)
+	return err
+}
+
 const markLegacyImportRowNeedsReview = `-- name: MarkLegacyImportRowNeedsReview :exec
 UPDATE legacy_import_rows
 SET
@@ -1203,6 +1224,29 @@ type RefreshLegacyImportRunCreatedGoatCountParams struct {
 
 func (q *Queries) RefreshLegacyImportRunCreatedGoatCount(ctx context.Context, arg RefreshLegacyImportRunCreatedGoatCountParams) error {
 	_, err := q.db.Exec(ctx, refreshLegacyImportRunCreatedGoatCount, arg.TenantID, arg.ImportRunID)
+	return err
+}
+
+const refreshLegacyImportRunErrorCount = `-- name: RefreshLegacyImportRunErrorCount :exec
+UPDATE legacy_import_runs lirun
+SET error_count = (
+  SELECT count(*)::int
+  FROM legacy_import_rows lirow
+  WHERE lirow.tenant_id = $1
+    AND lirow.import_run_id = $2
+    AND lirow.processing_state = 'error'
+)
+WHERE lirun.tenant_id = $1
+  AND lirun.import_run_id = $2
+`
+
+type RefreshLegacyImportRunErrorCountParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+}
+
+func (q *Queries) RefreshLegacyImportRunErrorCount(ctx context.Context, arg RefreshLegacyImportRunErrorCountParams) error {
+	_, err := q.db.Exec(ctx, refreshLegacyImportRunErrorCount, arg.TenantID, arg.ImportRunID)
 	return err
 }
 

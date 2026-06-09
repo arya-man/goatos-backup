@@ -165,6 +165,11 @@ Rules:
   review-required status mapping, unsafe/non-goat breed or species labels, and
   changed source row hashes. It does not create dirty conflicts/candidates,
   goat_location_history, counters, projections, or an outbox relay.
+- Unexpected per-row apply failures roll back that row's canonical write
+  transaction, then a separate short transaction marks only that staged row
+  `processing_state='error'` with an error reason and refreshes the run
+  `error_count`. Later pending rows continue. Error rows are not auto-retried;
+  an operator must promote them back to `pending` after fixing the root cause.
 - RFID apply idempotency derives from tenant, command, source_system,
   source_dataset, source_row_key, and source_row_version_hash. It intentionally
   excludes import_run_id, and exact replay must not duplicate goat, identifier,

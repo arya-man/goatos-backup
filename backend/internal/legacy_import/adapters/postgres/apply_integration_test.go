@@ -184,14 +184,17 @@ WHERE import_run_id = $1`, runID); err != nil {
 		}
 	})
 
-	t.Run("forced failure rolls back canonical writes and staged row state", func(t *testing.T) {
+	t.Run("unexpected row failure marks error and continues applying later rows", func(t *testing.T) {
 		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
 			RowNumber: 2,
 			Raw:       rawRFIDRow("ROLLBACKAPPLY", "CBE", "9900000000000000000000009150001", "Female", "Boer", ""),
+		}, {
+			RowNumber: 3,
+			Raw:       rawRFIDRow("AFTERERROR", "CBE", "9900000000000000000000009150002", "Female", "Boer", ""),
 		}})
 		var sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash string
 		if err := pool.QueryRow(ctx, `
-SELECT source_system, source_dataset, source_row_key, source_row_version_hash
+	SELECT source_system, source_dataset, source_row_key, source_row_version_hash
 FROM legacy_import_rows
 WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRowKey, &sourceRowVersionHash); err != nil {
 			t.Fatal(err)
@@ -199,25 +202,37 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		idempotencyKey := stableApplyIdempotencyKey(meshaTenant, sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash)
 		beforeGoats := countRows(t, pool, `SELECT count(*) FROM goats`)
 
+		hookCalls := 0
 		repo.afterAuditHook = func(context.Context) error {
-			return errors.New("synthetic forced apply rollback")
+			hookCalls++
+			if hookCalls == 1 {
+				return errors.New("synthetic forced apply rollback")
+			}
+			return nil
 		}
 		defer func() { repo.afterAuditHook = nil }()
-		_, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+		result, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
 			TenantID:    meshaTenant,
 			ImportRunID: runID,
 			BatchSize:   1,
 			ActorID:     strPtr(applyActorID),
 		})
-		if err == nil {
-			t.Fatal("expected forced apply rollback error")
+		if err != nil {
+			t.Fatalf("apply with isolated row error: %v", err)
 		}
-		assertRowState(t, pool, runID, 2, legacy_import.StatePending, "")
-		if got := countRows(t, pool, `SELECT created_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 0 {
-			t.Fatalf("created_goat_count after rollback=%d, want 0", got)
+		if result.ErrorCount != 1 || result.AppliedCount != 1 || result.PendingScanned != 2 {
+			t.Fatalf("unexpected isolated-error result: %#v", result)
 		}
-		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
-			t.Fatalf("goat rows after rollback=%d, before=%d", got, beforeGoats)
+		assertRowState(t, pool, runID, 2, legacy_import.StateError, "synthetic forced apply rollback")
+		assertRowState(t, pool, runID, 3, legacy_import.StateCreatedGoat, "")
+		if got := countRows(t, pool, `SELECT created_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 1 {
+			t.Fatalf("created_goat_count after isolated error=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT error_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 1 {
+			t.Fatalf("error_count after isolated error=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats+1 {
+			t.Fatalf("goat rows after isolated error=%d, want %d", got, beforeGoats+1)
 		}
 		assertZeroRows(t, pool, "idempotency after apply rollback", `SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1`, idempotencyKey)
 		assertZeroRows(t, pool, "rfid identifier after apply rollback", `SELECT count(*) FROM goat_identifiers WHERE normalized_value = '9900000000000000000000009150001'`)
@@ -226,6 +241,9 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		assertZeroRows(t, pool, "event after apply rollback", `SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1`, idempotencyKey)
 		assertZeroRows(t, pool, "outbox after apply rollback", `SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1`, idempotencyKey)
 		assertZeroRows(t, pool, "audit after apply rollback", `SELECT count(*) FROM audit_log WHERE trace_id = $1`, "rfid-apply:"+rowID)
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE normalized_value = 'AFTERERROR' AND status = 'active'`); got != 1 {
+			t.Fatalf("following clean row old_tag identifiers=%d, want 1", got)
+		}
 	})
 
 	t.Run("dry-run previews applyable and review rows without mutation", func(t *testing.T) {

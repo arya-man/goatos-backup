@@ -522,6 +522,15 @@ SET
 WHERE tenant_id = @tenant_id
   AND legacy_row_id = @legacy_row_id;
 
+-- name: MarkLegacyImportRowError :exec
+UPDATE legacy_import_rows
+SET
+  processing_state = 'error',
+  error_reason = @error_reason,
+  matched_goat_id = NULL
+WHERE tenant_id = @tenant_id
+  AND legacy_row_id = @legacy_row_id;
+
 -- name: IncrementLegacyImportRunCreatedGoatCount :exec
 UPDATE legacy_import_runs
 SET created_goat_count = created_goat_count + 1
@@ -536,6 +545,18 @@ SET created_goat_count = (
   WHERE lirow.tenant_id = @tenant_id
     AND lirow.import_run_id = @import_run_id
     AND lirow.processing_state = 'created_goat'
+)
+WHERE lirun.tenant_id = @tenant_id
+  AND lirun.import_run_id = @import_run_id;
+
+-- name: RefreshLegacyImportRunErrorCount :exec
+UPDATE legacy_import_runs lirun
+SET error_count = (
+  SELECT count(*)::int
+  FROM legacy_import_rows lirow
+  WHERE lirow.tenant_id = @tenant_id
+    AND lirow.import_run_id = @import_run_id
+    AND lirow.processing_state = 'error'
 )
 WHERE lirun.tenant_id = @tenant_id
   AND lirun.import_run_id = @import_run_id;

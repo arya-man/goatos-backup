@@ -172,7 +172,14 @@ func (r *Repository) ApplyRFIDRows(ctx context.Context, cmd legacy_import.ApplyC
 
 			outcome, err := r.applyOnePendingRow(ctx, tenantUUID, runUUID, meshaPartyUUID, actorUUID, policy, cmd, applyRow.LegacyRowID)
 			if err != nil {
-				return nil, err
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return nil, err
+				}
+				if markErr := r.markApplyRowError(ctx, tenantUUID, runUUID, applyRow.LegacyRowID, err); markErr != nil {
+					return nil, fmt.Errorf("apply row %s failed: %v; mark row error failed: %w", applyRow.LegacyRowID, err, markErr)
+				}
+				result.ErrorCount++
+				continue
 			}
 			switch {
 			case outcome.applied:
@@ -207,6 +214,42 @@ func (r *Repository) resolveMeshaParty(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("active Mesha org party is ambiguous")
 	}
 	return rows[0], nil
+}
+
+func (r *Repository) markApplyRowError(ctx context.Context, tenantUUID, runUUID pgtype.UUID, legacyRowID string, cause error) error {
+	rowUUID, err := uuidParam(legacyRowID)
+	if err != nil {
+		return err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+	if err := qtx.MarkLegacyImportRowError(ctx, importdb.MarkLegacyImportRowErrorParams{
+		TenantID:    tenantUUID,
+		LegacyRowID: rowUUID,
+		ErrorReason: textParam(applyUnexpectedErrorReason(cause)),
+	}); err != nil {
+		return err
+	}
+	if err := qtx.RefreshLegacyImportRunErrorCount(ctx, importdb.RefreshLegacyImportRunErrorCountParams{
+		TenantID:    tenantUUID,
+		ImportRunID: runUUID,
+	}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID, meshaPartyUUID, actorUUID pgtype.UUID, policy legacy_import.Policy, cmd legacy_import.ApplyCommand, legacyRowID string) (applyOutcome, error) {
@@ -818,6 +861,18 @@ func stableApplyRequestHash(row pendingApplyRow) string {
 	input := strings.Join([]string{row.SourceSystem, row.SourceDataset, row.SourceRowKey, row.SourceRowVersionHash, string(row.NormalizedPayload)}, "\x1f")
 	sum := sha256.Sum256([]byte(input))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func applyUnexpectedErrorReason(err error) string {
+	message := strings.Join(strings.Fields(strings.TrimSpace(err.Error())), " ")
+	if message == "" {
+		return "apply_unexpected_error"
+	}
+	const maxMessageLength = 400
+	if len(message) > maxMessageLength {
+		message = message[:maxMessageLength]
+	}
+	return "apply_unexpected_error: " + message
 }
 
 func normalizedStatusLabel(value string) string {

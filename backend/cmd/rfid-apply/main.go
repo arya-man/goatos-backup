@@ -62,7 +62,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("import_run_id=%s dry_run=%t policy_version=%s source_system=%s source_dataset=%s scanned=%d applied=%d replayed=%d review=%d skipped=%d",
+	fmt.Printf("import_run_id=%s dry_run=%t policy_version=%s source_system=%s source_dataset=%s scanned=%d applied=%d replayed=%d review=%d errors=%d skipped=%d",
 		result.ImportRunID,
 		result.DryRun,
 		result.PolicyVersion,
@@ -72,6 +72,7 @@ func main() {
 		result.AppliedCount,
 		result.ReplayCount,
 		result.ReviewCount,
+		result.ErrorCount,
 		result.SkippedCount,
 	)
 	for _, reason := range sortedReasons(result.ReviewReasons) {

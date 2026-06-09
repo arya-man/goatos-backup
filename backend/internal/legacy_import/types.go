@@ -58,6 +58,7 @@ type ApplyResult struct {
 	PendingScanned int
 	AppliedCount   int
 	ReviewCount    int
+	ErrorCount     int
 	ReplayCount    int
 	SkippedCount   int
 	ReviewReasons  map[string]int
