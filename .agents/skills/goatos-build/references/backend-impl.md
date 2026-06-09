@@ -143,6 +143,12 @@ Rules:
 - Import fixtures committed to git must stay synthetic `.xlsx` files only. Do
   not commit raw private workbook rows, RFID values, local paths, screenshots,
   names, media URLs, or PII.
+- Future AI suggestion workers are proposer-only. They must write
+  `ai_proposal` records that remain `proposed` or `needs_review`, include
+  reasons plus evidence/source links, and must never write as `system_rule` or
+  `import_policy`. Governed deterministic automation may use those actor types
+  only under approved policy. Add candidate DB hardening before building the AI
+  worker.
 
 Phase 1 read behaviors already built:
 
@@ -302,6 +308,7 @@ Known backend deferments:
 
 ```text
 auth/RBAC adapter
+AI suggestion worker and candidate-state DB hardening
 canonical apply from staged legacy import rows
 create_goat conflict decision fields
 candidate approve canonical mutation semantics

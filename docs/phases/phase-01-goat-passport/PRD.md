@@ -461,6 +461,16 @@ AI or image matching may suggest:
 
 AI may not directly merge goats or make canonical identity truth.
 
+AI proposal authority is intentionally narrower than deterministic automation:
+
+```text
+AI can propose review work with reasons, confidence, and evidence/source links.
+AI-authored identity records must use ai_proposal and remain proposed or needs_review.
+AI must not write as system_rule or import_policy to bypass review gates.
+Governed system_rule/import_policy automation is allowed only for deterministic,
+approved policy paths; it is not an AI escape hatch.
+```
+
 ## Main Workflows
 
 ### Workflow 1: Import Existing Herd

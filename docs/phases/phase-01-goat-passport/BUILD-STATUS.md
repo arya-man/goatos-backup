@@ -343,12 +343,20 @@ auth/RBAC lands. It must parse as uuid and is not production authentication.
 The identity Postgres repository still has handwritten pgx for dynamic
 optional-filter reads. New write-heavy/import/reconciliation SQL should use
 generated sqlc unless the query shape is intentionally dynamic and documented.
+
+AI proposal guardrail is documented but no AI worker is built yet:
+AI-authored identity suggestions must use `ai_proposal`, remain
+`proposed`/`needs_review`, include explainable reasons and source/evidence
+links, and must never write as `system_rule` or `import_policy`. A future
+AI-worker migration should add a candidate CHECK mirroring
+`identity_decisions_ai_not_approved_check`.
 ```
 
 ## Deferred Work
 
 ```text
 auth/RBAC adapter
+AI suggestion worker and candidate-state DB hardening
 remaining admin write handlers except identifier add/retire, correction resolve,
 candidate reject, and built conflict resolve paths
 canonical apply from staged legacy import rows to goats/identifiers/events

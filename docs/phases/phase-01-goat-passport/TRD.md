@@ -1042,6 +1042,11 @@ created_at timestamptz not null
 `CandidateSummary` must expose it because there is no candidate-detail endpoint
 and reject requires the current candidate row version.
 
+AI-created candidates must remain `state in ('proposed','needs_review')` and
+must not be marked approved/rejected by the AI worker. Candidate approval remains
+an apply-layer decision with canonical mutation semantics; candidate rejection
+is an audited human/admin review action.
+
 States:
 
 ```text
@@ -1195,6 +1200,9 @@ park head or operator can request/recommend corrections, but cannot mutate canon
 mass approval is allowed only as a configured admin workflow after validation preview, evidence sampling, and dry-run results
 batch merge approval creates one batch decision plus individual child decision records for every affected goat pair
 high-risk identity merges must never be silently auto-approved by AI/import logic
+AI workers must not impersonate `system_rule` or `import_policy`; governed
+automation may use those actor types only for deterministic, approved policy
+paths.
 ```
 
 ### `goat_merge_links`
@@ -1781,6 +1789,23 @@ It cannot write:
 goats
 goat_identifiers active links
 merge decisions
+```
+
+AI proposal guardrails:
+
+```text
+AI-authored identity suggestions must use created_by/decided_by_type =
+ai_proposal.
+AI proposals may only be proposed or needs_review. They must not be approved,
+rejected, auto-applied, or terminal by themselves.
+AI workers must never write as system_rule or import_policy. Those actor types
+are reserved for deterministic, governed policy automation.
+AI suggestions must include explainable match_reasons, confidence/model
+metadata where applicable, and evidence/source links sufficient for a human or
+policy worker to verify the suggestion.
+Future AI-worker migrations should add a DB check mirroring
+identity_decisions_ai_not_approved_check for candidates:
+created_by <> 'ai_proposal' OR state IN ('proposed','needs_review').
 ```
 
 ## API Contracts
