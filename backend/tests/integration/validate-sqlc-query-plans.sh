@@ -77,12 +77,15 @@ bind_query_params() {
     -e "s/@scope_key/'park:CBE'/g" \
     -e "s/@conflict_id/'20000000-0000-4000-8000-000000000001'::uuid/g" \
     -e "s/@policy_version/'phase1-rfid-db-import-v1'/g" \
+    -e "s/@import_run_id/'30000000-0000-4000-8000-000000000001'::uuid/g" \
     -e "s/@source_system/'legacy_rfid_db'/g" \
     -e "s/@source_dataset/'rfid_db_first_import'/g" \
     -e "s/@source_row_key/'source_system=legacy_rfid_db|source_dataset=rfid_db_first_import|normalized_old_tag=1900|normalized_park_code=CBE|rfid=RFID_SYNTHETIC_0001'/g" \
     -e "s/@source_row_version_hash/'sha256:0000000000000000000000000000000000000000000000000000000000000000'/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('cursor_row_number')::int/NULL::int/g" \
+    -e "s/sqlc.narg('cursor_legacy_row_id')::uuid/NULL::uuid/g" \
     -e "s/@limit_count/10/g"
 }
 
@@ -114,6 +117,12 @@ forbidden_seq_scan_pattern() {
       printf '%s\n' 'Seq Scan on legacy_import_policies'
       ;;
     HasLegacyImportRowWithDifferentHash)
+      printf '%s\n' 'Seq Scan on legacy_import_rows'
+      ;;
+    GetLegacyImportRunForApply)
+      printf '%s\n' 'Seq Scan on legacy_import_runs'
+      ;;
+    ListPendingLegacyImportRowsForApply)
       printf '%s\n' 'Seq Scan on legacy_import_rows'
       ;;
     *)

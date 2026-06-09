@@ -84,6 +84,7 @@ Legacy import staging foundation:
 
 ```text
 backend/cmd/rfid-import
+backend/cmd/rfid-apply
 backend/internal/legacy_import
 backend/internal/legacy_import/adapters/postgres
 backend/internal/legacy_import/adapters/postgres/sqlc
@@ -92,6 +93,12 @@ backend/internal/legacy_import/testdata/synthetic_rfid_import.xlsx
 RFID workbook import runner loads approved policy phase1-rfid-db-import-v1,
 parses .xlsx rows as raw text, normalizes RFID/old tag/scope/status evidence,
 and stages legacy_import_runs plus legacy_import_rows only.
+
+RFID apply runner reads completed non-dry-run staging runs and creates canonical
+goats only for safe pending rows. It writes identity_decisions, goats,
+goat_identifiers, ownership, custody history, goat_identity_events,
+identity_decision_* join rows, audit_log, outbox_messages, idempotency
+completion, and legacy row/run state in one transaction per applied row.
 ```
 
 ## Verified Behaviors
@@ -324,10 +331,41 @@ RFID source-of-truth staging:
   blank Old ID Suffix, blank Gender, and RFID-less rows route to needs_review
   F2/F2-Male/F2-Female/Fattening map only to growth/status context; sex comes
   only from the Gender column
-  this slice does not mutate goats, goat_identifiers, goat_identity_events,
+  staging does not mutate goats, goat_identifiers, goat_identity_events,
   outbox_messages, counters, candidates, conflicts, or correction requests
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
+RFID source-of-truth canonical apply:
+  CLI requires tenant_id and import_run_id; optional dry-run preview,
+  batch-size, actor-id, and policy-version guard are supported
+  apply loads the completed non-dry-run import run, verifies its approved
+  policy and source_system/source_dataset, and resolves exactly one active Mesha
+  org party with org_type=mesha
+  apply processes only legacy_import_rows.processing_state=pending for the
+  requested import_run_id; needs_review/error/rejected/created_goat/auto_linked
+  rows are skipped
+  safe rows create goats with DB-generated display_id, species=goat,
+  identity_state=clean, sex from Gender only, status axes from
+  legacy_status_mappings, active goat breed_id when the breed alias is clear,
+  and Mesha party as custodian/owner for this first RFID DB import only
+  each created goat gets active primary RFID scope global and optional active
+  primary old_tag scope park:<normalized_park_code> when same-scope uniqueness
+  is clear
+  ownership is 10000 bps active and custody history reason is
+  first_rfid_import; goat_location_history and counters are not written in this
+  slice
+  active RFID conflicts, active same-scope old_tag conflicts, unknown or
+  review_required status mappings, unsafe species/breed labels, and changed
+  source_row_version_hash route the row to needs_review without creating a goat
+  stable apply idempotency derives from tenant, command, source_system,
+  source_dataset, source_row_key, and source_row_version_hash; import_run_id is
+  intentionally not part of the business idempotency identity
+  decision records use decision_type=create_goat,
+  decision_result=imported_from_rfid_source,
+  decision_state=approved, decided_by_type=import_policy, and evidence_refs for
+  import_run plus source_record
+  goat.created events are inserted before outbox rows, and
+  identity_decision_events stores the exact goat_identity_events.recorded_at
 ```
 
 ## Temporary Scaffolds
@@ -359,7 +397,7 @@ auth/RBAC adapter
 AI suggestion worker and candidate-state DB hardening
 remaining admin write handlers except identifier add/retire, correction resolve,
 candidate reject, and built conflict resolve paths
-canonical apply from staged legacy import rows to goats/identifiers/events
+dirty staged-row conflict/candidate creation and auto-link reconciliation
 create_goat conflict decision until required goat creation fields are
 contract-defined
 candidate approve canonical mutation until required semantics are

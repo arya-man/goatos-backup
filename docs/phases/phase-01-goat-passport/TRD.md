@@ -2328,8 +2328,8 @@ dry-run writes a completed legacy_import_runs row and aggregate counts only; it
 does not insert legacy_import_rows
 real staging writes a running legacy_import_runs row, inserts rows in bounded
 batches, then marks the run completed or failed
-created_goat_count, updated_goat_count, and conflict_count remain 0 in this
-staging-only slice
+created_goat_count, updated_goat_count, and conflict_count remain 0 during
+staging; canonical apply updates created_goat_count for rows it creates
 ```
 
 RFID runner normalization:
@@ -2378,10 +2378,97 @@ row staging uses ON CONFLICT against the 000002 uniqueness constraint:
 source_row_version_hash)
 ```
 
-This runner intentionally stops at staging. It does not create/update goats,
-goat_identifiers, goat_identity_events, outbox_messages, counters, candidates,
-conflicts, or correction requests. Canonical apply from staged rows is a later
-Phase 1 slice.
+The staging runner intentionally stops at legacy_import_runs and
+legacy_import_rows. Canonical apply is a separate Phase 1 command so workbook
+parsing, review classification, and canonical mutation can be retried and
+audited independently.
+
+Phase 1 RFID canonical apply:
+
+```text
+backend/cmd/rfid-apply is the thin CLI entrypoint
+backend/internal/legacy_import owns apply orchestration for staged RFID rows
+apply requires tenant_id and import_run_id
+optional flags: dry-run preview, batch-size, actor UUID, policy-version guard
+apply only reads completed non-dry-run import runs
+run policy_version must exist, be approved, and match run source_system/source_dataset
+apply resolves one active Mesha org party (org_type=mesha); tenant_id is not a
+party_id and must not be used as owner/custodian
+for the first RFID DB import only, safe created goats use Mesha party as
+custodian_party_id, goat_ownership.owner_party_id, and
+goat_custody_history.custodian_party_id
+```
+
+Apply row eligibility:
+
+```text
+only legacy_import_rows.processing_state='pending' rows for the requested run
+are eligible
+needs_review, error, rejected, created_goat, and auto_linked rows are skipped
+valid RFID is required and must not already be active globally
+Gender-derived sex is required; F2/F2-Male/F2-Female/Fattening never provide sex
+nonblank Tag/status labels must map through legacy_status_mappings for
+source_system='legacy_rfid_db'
+unknown status mappings and review_required mappings route to needs_review
+blank Tag/status defaults lifecycle_status='alive' only
+breed/species must resolve to a clear active goat breed alias; unsafe or
+non-goat labels such as Anantapur Sheep route to needs_review
+same source_row_key with different source_row_version_hash routes to
+needs_review before canonical creation
+```
+
+Canonical writes for one safe row commit in one transaction:
+
+```text
+identity_decisions
+goats
+goat_identifiers for active primary RFID scope global
+optional goat_identifiers for active old_tag scope park:<normalized_park_code>
+  when same-scope uniqueness is clear
+goat_ownership with share_bps=10000, status=active, owner_party_id=Mesha party
+goat_custody_history with reason=first_rfid_import and custodian_party_id=Mesha party
+goat_identity_events event_type=goat.created
+identity_decision_goats
+identity_decision_identifiers
+identity_decision_events using exact goat_identity_events.recorded_at
+audit_log
+outbox_messages
+idempotency_keys completion
+legacy_import_rows.processing_state='created_goat' and matched_goat_id
+legacy_import_runs.created_goat_count increment
+```
+
+Apply does not write goat_location_history, candidates, conflicts, correction
+requests, counters, projection rows, or an outbox publisher. Dirty row
+conflict/candidate creation and auto-link reconciliation remain later slices.
+
+Canonical apply idempotency:
+
+```text
+business idempotency key derives from tenant_id, command name, source_system,
+source_dataset, source_row_key, and source_row_version_hash
+import_run_id is intentionally excluded from the business idempotency identity
+exact replay returns the existing created goat and marks the staged row
+created_goat without duplicate goat/identifier/ownership/custody/decision/event/outbox rows
+same source_row_key with a different source_row_version_hash is review-driven,
+not auto-applied
+```
+
+Apply decision/event contract:
+
+```text
+identity_decisions.decision_type=create_goat
+identity_decisions.decision_result=imported_from_rfid_source
+identity_decisions.decision_state=approved
+identity_decisions.decided_by_type=import_policy
+policy_version is the import run policy_version
+decision record evidence_refs include import_run and source_record only using
+existing evidence_type enum values
+goat.created event envelope aggregate_type=goat, aggregate_id=goat_id,
+subject_type=goat, subject_id=goat_id, actor.actor_type=import_job
+goat_identity_events is inserted before outbox_messages so the outbox tenant
+integrity trigger sees the canonical event first
+```
 
 ## Scale And Performance Requirements
 
@@ -2527,17 +2614,17 @@ idempotency retention sweep rules
 Integration tests:
 
 ```text
-import clean row -> goat + identifiers + event
-duplicate old tag -> conflict
-RFID already linked -> conflict
+import clean row -> goat + identifiers + ownership + custody + decision + event + outbox + audit
+duplicate old tag in same scope -> needs_review, no duplicate goat
+RFID already linked -> needs_review, no duplicate goat
 invalid RFID format -> review/reject before occupying global RFID uniqueness
 approve candidate -> identifier link / merge path
 reject candidate -> no canonical mutation
 same source row in a new import run -> no duplicate goat/event
 same source row with same payload -> no duplicate goat/identifier/event/conflict
-same source row with changed payload -> new row version processed with audit trail
+same source row with changed payload -> needs_review before canonical mutation
 spreadsheet row reorder -> no new source_row_key, no duplicate goat
-dry-run import -> preview only, no canonical goats/identifiers/active conflicts/counters
+dry-run import/apply -> preview only, no canonical goats/identifiers/active conflicts/counters
 two tagless goats with same breed/sex/location -> two review cases, not one collapsed goat
 export timestamp/formatting change -> hash unchanged
 identity-material diff -> review, not auto-apply
@@ -2731,6 +2818,9 @@ site-code meanings: CBE = Coimbatore, CJB = historic CBE alias, CPT = Channapatn
 location conflict rule: latest DB event is the current placement source when RFID DB shed is stale; preserve both pieces of evidence and route disagreement to reconciliation/review
 source_row_key recipe: stable source ID, never spreadsheet row position
 source_row_version_hash recipe: stable projection fields and hash_recipe_version
+first RFID apply rule: clean pending RFID rows can create goats only through the
+rfid-apply command; unsafe rows become needs_review and dirty conflict/candidate
+creation remains deferred
 legacy_import_policy: source-key recipe, hash recipe, field-diff policy, and auto-link policy approved before first import
 first_import_scope: RFID DB only for the first import; event-log/tagless temporary identities are a later import pass
 ```

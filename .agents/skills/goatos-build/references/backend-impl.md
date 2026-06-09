@@ -16,6 +16,7 @@ Current backend shape:
 ```text
 backend/cmd/api                 process entrypoint and graceful shutdown
 backend/cmd/rfid-import         Phase 1 RFID workbook staging CLI
+backend/cmd/rfid-apply          Phase 1 RFID staged-row canonical apply CLI
 backend/internal/bootstrap      explicit constructor wiring
 backend/internal/platform       shared platform adapters
 backend/internal/identity       Phase 1 Goat Passport module
@@ -37,8 +38,8 @@ Legacy import module layout:
 
 ```text
 legacy_import                   parser, normalization, key/hash, runner orchestration
-legacy_import/adapters/postgres repository for legacy_import_runs/rows only
-legacy_import/adapters/postgres/sqlc generated import policy/staging SQL
+legacy_import/adapters/postgres repository for staging and RFID apply SQL
+legacy_import/adapters/postgres/sqlc generated import policy/staging/apply SQL
 ```
 
 Rules:
@@ -140,6 +141,27 @@ Rules:
 - Source row keys follow the policy recipe and never include tenant prefixes or
   spreadsheet row numbers. Row version hashes use deterministic fixed-order
   serialization from the policy hash recipe.
+- `backend/cmd/rfid-apply` applies only completed non-dry-run RFID staging
+  runs. It processes bounded batches of `legacy_import_rows` where
+  `processing_state='pending'`, uses the approved import policy and Mesha org
+  party from DB, and leaves needs_review/error/rejected/created_goat/auto_linked
+  rows untouched.
+- RFID apply creates canonical goats only for safe clean rows. One row
+  transaction writes the import-policy `create_goat` decision, DB-generated
+  goat, active primary RFID, optional active primary old_tag in
+  `park:<normalized_park_code>`, 10000 bps Mesha ownership, initial Mesha
+  custody history with `reason=first_rfid_import`, `goat.created` event,
+  decision join rows, audit row, outbox row, idempotency completion, and
+  legacy row/run state.
+- RFID apply routes unsafe rows to `needs_review` without goat creation:
+  duplicate active RFID, duplicate active old_tag in the same scope, unknown or
+  review-required status mapping, unsafe/non-goat breed or species labels, and
+  changed source row hashes. It does not create dirty conflicts/candidates,
+  goat_location_history, counters, projections, or an outbox relay.
+- RFID apply idempotency derives from tenant, command, source_system,
+  source_dataset, source_row_key, and source_row_version_hash. It intentionally
+  excludes import_run_id, and exact replay must not duplicate goat, identifier,
+  ownership, custody, decision, event, audit, or outbox rows.
 - Import fixtures committed to git must stay synthetic `.xlsx` files only. Do
   not commit raw private workbook rows, RFID values, local paths, screenshots,
   names, media URLs, or PII.
@@ -309,7 +331,7 @@ Known backend deferments:
 ```text
 auth/RBAC adapter
 AI suggestion worker and candidate-state DB hardening
-canonical apply from staged legacy import rows
+dirty staged-row conflict/candidate creation and auto-link reconciliation
 create_goat conflict decision fields
 candidate approve canonical mutation semantics
 standalone merge command handler

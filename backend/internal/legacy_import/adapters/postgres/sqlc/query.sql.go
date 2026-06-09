@@ -56,6 +56,65 @@ func (q *Queries) GetApprovedLegacyImportPolicy(ctx context.Context, policyVersi
 	return i, err
 }
 
+const getLegacyImportRunForApply = `-- name: GetLegacyImportRunForApply :one
+SELECT
+  import_run_id::text AS import_run_id,
+  tenant_id::text AS tenant_id,
+  source_system,
+  source_dataset,
+  policy_version,
+  dry_run,
+  status,
+  row_count,
+  created_goat_count,
+  updated_goat_count,
+  conflict_count,
+  error_count
+FROM legacy_import_runs
+WHERE tenant_id = $1
+  AND import_run_id = $2
+`
+
+type GetLegacyImportRunForApplyParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+}
+
+type GetLegacyImportRunForApplyRow struct {
+	ImportRunID      string
+	TenantID         string
+	SourceSystem     string
+	SourceDataset    string
+	PolicyVersion    string
+	DryRun           bool
+	Status           string
+	RowCount         int32
+	CreatedGoatCount int32
+	UpdatedGoatCount int32
+	ConflictCount    int32
+	ErrorCount       int32
+}
+
+func (q *Queries) GetLegacyImportRunForApply(ctx context.Context, arg GetLegacyImportRunForApplyParams) (GetLegacyImportRunForApplyRow, error) {
+	row := q.db.QueryRow(ctx, getLegacyImportRunForApply, arg.TenantID, arg.ImportRunID)
+	var i GetLegacyImportRunForApplyRow
+	err := row.Scan(
+		&i.ImportRunID,
+		&i.TenantID,
+		&i.SourceSystem,
+		&i.SourceDataset,
+		&i.PolicyVersion,
+		&i.DryRun,
+		&i.Status,
+		&i.RowCount,
+		&i.CreatedGoatCount,
+		&i.UpdatedGoatCount,
+		&i.ConflictCount,
+		&i.ErrorCount,
+	)
+	return i, err
+}
+
 const hasLegacyImportRowWithDifferentHash = `-- name: HasLegacyImportRowWithDifferentHash :one
 SELECT EXISTS (
   SELECT 1
@@ -87,4 +146,95 @@ func (q *Queries) HasLegacyImportRowWithDifferentHash(ctx context.Context, arg H
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const listPendingLegacyImportRowsForApply = `-- name: ListPendingLegacyImportRowsForApply :many
+SELECT
+  legacy_row_id::text AS legacy_row_id,
+  row_number,
+  source_system,
+  source_dataset,
+  source_record_id,
+  source_row_key,
+  source_key_recipe_version,
+  source_row_version_hash,
+  hash_recipe_version,
+  raw_payload,
+  normalized_payload,
+  processing_state,
+  error_reason
+FROM legacy_import_rows
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND processing_state = 'pending'
+  AND (
+    $3::int IS NULL
+    OR (row_number, legacy_row_id) > ($3::int, $4::uuid)
+  )
+ORDER BY row_number, legacy_row_id
+LIMIT $5
+`
+
+type ListPendingLegacyImportRowsForApplyParams struct {
+	TenantID          pgtype.UUID
+	ImportRunID       pgtype.UUID
+	CursorRowNumber   pgtype.Int4
+	CursorLegacyRowID pgtype.UUID
+	LimitCount        int32
+}
+
+type ListPendingLegacyImportRowsForApplyRow struct {
+	LegacyRowID            string
+	RowNumber              int32
+	SourceSystem           string
+	SourceDataset          string
+	SourceRecordID         pgtype.Text
+	SourceRowKey           string
+	SourceKeyRecipeVersion string
+	SourceRowVersionHash   string
+	HashRecipeVersion      string
+	RawPayload             []byte
+	NormalizedPayload      []byte
+	ProcessingState        string
+	ErrorReason            pgtype.Text
+}
+
+func (q *Queries) ListPendingLegacyImportRowsForApply(ctx context.Context, arg ListPendingLegacyImportRowsForApplyParams) ([]ListPendingLegacyImportRowsForApplyRow, error) {
+	rows, err := q.db.Query(ctx, listPendingLegacyImportRowsForApply,
+		arg.TenantID,
+		arg.ImportRunID,
+		arg.CursorRowNumber,
+		arg.CursorLegacyRowID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingLegacyImportRowsForApplyRow
+	for rows.Next() {
+		var i ListPendingLegacyImportRowsForApplyRow
+		if err := rows.Scan(
+			&i.LegacyRowID,
+			&i.RowNumber,
+			&i.SourceSystem,
+			&i.SourceDataset,
+			&i.SourceRecordID,
+			&i.SourceRowKey,
+			&i.SourceKeyRecipeVersion,
+			&i.SourceRowVersionHash,
+			&i.HashRecipeVersion,
+			&i.RawPayload,
+			&i.NormalizedPayload,
+			&i.ProcessingState,
+			&i.ErrorReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

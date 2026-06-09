@@ -11,6 +11,75 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activeRFIDExistsForApply = `-- name: ActiveRFIDExistsForApply :one
+SELECT EXISTS (
+  SELECT 1
+  FROM goat_identifiers
+  WHERE identifier_type = 'rfid'
+    AND normalized_value = $1
+    AND status = 'active'
+)::bool
+`
+
+func (q *Queries) ActiveRFIDExistsForApply(ctx context.Context, normalizedValue string) (bool, error) {
+	row := q.db.QueryRow(ctx, activeRFIDExistsForApply, normalizedValue)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const activeScopedIdentifierExistsForApply = `-- name: ActiveScopedIdentifierExistsForApply :one
+SELECT EXISTS (
+  SELECT 1
+  FROM goat_identifiers
+  WHERE tenant_id = $1
+    AND identifier_type = $2
+    AND normalized_value = $3
+    AND scope_key = $4
+    AND status = 'active'
+)::bool
+`
+
+type ActiveScopedIdentifierExistsForApplyParams struct {
+	TenantID        pgtype.UUID
+	IdentifierType  string
+	NormalizedValue string
+	ScopeKey        string
+}
+
+func (q *Queries) ActiveScopedIdentifierExistsForApply(ctx context.Context, arg ActiveScopedIdentifierExistsForApplyParams) (bool, error) {
+	row := q.db.QueryRow(ctx, activeScopedIdentifierExistsForApply,
+		arg.TenantID,
+		arg.IdentifierType,
+		arg.NormalizedValue,
+		arg.ScopeKey,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const completeIdempotencyKey = `-- name: CompleteIdempotencyKey :exec
+UPDATE idempotency_keys
+SET
+  status = 'completed',
+  result_type = $1,
+  result_id = $2,
+  completed_at = now()
+WHERE idempotency_key = $3
+`
+
+type CompleteIdempotencyKeyParams struct {
+	ResultType     pgtype.Text
+	ResultID       pgtype.UUID
+	IdempotencyKey string
+}
+
+func (q *Queries) CompleteIdempotencyKey(ctx context.Context, arg CompleteIdempotencyKeyParams) error {
+	_, err := q.db.Exec(ctx, completeIdempotencyKey, arg.ResultType, arg.ResultID, arg.IdempotencyKey)
+	return err
+}
+
 const completeLegacyImportRun = `-- name: CompleteLegacyImportRun :exec
 UPDATE legacy_import_runs
 SET
@@ -147,6 +216,718 @@ func (q *Queries) FailLegacyImportRun(ctx context.Context, arg FailLegacyImportR
 	return err
 }
 
+const findActiveMeshaOrgPartyIDs = `-- name: FindActiveMeshaOrgPartyIDs :many
+SELECT p.party_id::text AS party_id
+FROM parties p
+JOIN orgs o ON o.party_id = p.party_id
+WHERE p.party_type = 'org'
+  AND p.status = 'active'
+  AND o.org_type = 'mesha'
+  AND o.status = 'active'
+ORDER BY p.party_id
+`
+
+func (q *Queries) FindActiveMeshaOrgPartyIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, findActiveMeshaOrgPartyIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var party_id string
+		if err := rows.Scan(&party_id); err != nil {
+			return nil, err
+		}
+		items = append(items, party_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getIdempotencyKey = `-- name: GetIdempotencyKey :one
+SELECT
+  request_hash,
+  status,
+  COALESCE(result_type, '')::text AS result_type,
+  COALESCE(result_id::text, '')::text AS result_id
+FROM idempotency_keys
+WHERE idempotency_key = $1
+`
+
+type GetIdempotencyKeyRow struct {
+	RequestHash string
+	Status      string
+	ResultType  string
+	ResultID    string
+}
+
+func (q *Queries) GetIdempotencyKey(ctx context.Context, idempotencyKey string) (GetIdempotencyKeyRow, error) {
+	row := q.db.QueryRow(ctx, getIdempotencyKey, idempotencyKey)
+	var i GetIdempotencyKeyRow
+	err := row.Scan(
+		&i.RequestHash,
+		&i.Status,
+		&i.ResultType,
+		&i.ResultID,
+	)
+	return i, err
+}
+
+const getIdentifierPolicyForApply = `-- name: GetIdentifierPolicyForApply :one
+SELECT normalizer_version, primary_allowed
+FROM identifier_policies
+WHERE policy_version = $1
+  AND identifier_type = $2
+`
+
+type GetIdentifierPolicyForApplyParams struct {
+	PolicyVersion  string
+	IdentifierType string
+}
+
+type GetIdentifierPolicyForApplyRow struct {
+	NormalizerVersion string
+	PrimaryAllowed    bool
+}
+
+func (q *Queries) GetIdentifierPolicyForApply(ctx context.Context, arg GetIdentifierPolicyForApplyParams) (GetIdentifierPolicyForApplyRow, error) {
+	row := q.db.QueryRow(ctx, getIdentifierPolicyForApply, arg.PolicyVersion, arg.IdentifierType)
+	var i GetIdentifierPolicyForApplyRow
+	err := row.Scan(&i.NormalizerVersion, &i.PrimaryAllowed)
+	return i, err
+}
+
+const getLegacyStatusMappingForApply = `-- name: GetLegacyStatusMappingForApply :one
+SELECT
+  lifecycle_status,
+  reproductive_status,
+  growth_cohort_tag,
+  management_stage,
+  health_status,
+  review_required
+FROM legacy_status_mappings
+WHERE source_system = $1
+  AND normalized_raw_label = $2
+`
+
+type GetLegacyStatusMappingForApplyParams struct {
+	SourceSystem       string
+	NormalizedRawLabel string
+}
+
+type GetLegacyStatusMappingForApplyRow struct {
+	LifecycleStatus    pgtype.Text
+	ReproductiveStatus pgtype.Text
+	GrowthCohortTag    pgtype.Text
+	ManagementStage    pgtype.Text
+	HealthStatus       pgtype.Text
+	ReviewRequired     bool
+}
+
+func (q *Queries) GetLegacyStatusMappingForApply(ctx context.Context, arg GetLegacyStatusMappingForApplyParams) (GetLegacyStatusMappingForApplyRow, error) {
+	row := q.db.QueryRow(ctx, getLegacyStatusMappingForApply, arg.SourceSystem, arg.NormalizedRawLabel)
+	var i GetLegacyStatusMappingForApplyRow
+	err := row.Scan(
+		&i.LifecycleStatus,
+		&i.ReproductiveStatus,
+		&i.GrowthCohortTag,
+		&i.ManagementStage,
+		&i.HealthStatus,
+		&i.ReviewRequired,
+	)
+	return i, err
+}
+
+const incrementLegacyImportRunCreatedGoatCount = `-- name: IncrementLegacyImportRunCreatedGoatCount :exec
+UPDATE legacy_import_runs
+SET created_goat_count = created_goat_count + 1
+WHERE tenant_id = $1
+  AND import_run_id = $2
+`
+
+type IncrementLegacyImportRunCreatedGoatCountParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+}
+
+func (q *Queries) IncrementLegacyImportRunCreatedGoatCount(ctx context.Context, arg IncrementLegacyImportRunCreatedGoatCountParams) error {
+	_, err := q.db.Exec(ctx, incrementLegacyImportRunCreatedGoatCount, arg.TenantID, arg.ImportRunID)
+	return err
+}
+
+const insertAuditLogForApply = `-- name: InsertAuditLogForApply :exec
+INSERT INTO audit_log (
+  tenant_id,
+  actor_id,
+  actor_type,
+  action,
+  resource_type,
+  resource_id,
+  decision_id,
+  after_state,
+  metadata,
+  trace_id
+) VALUES (
+  $1,
+  $2::uuid,
+  'import_job',
+  'goat.created',
+  'goat',
+  $3,
+  $4,
+  $5,
+  $6,
+  $7
+)
+`
+
+type InsertAuditLogForApplyParams struct {
+	TenantID   pgtype.UUID
+	ActorID    pgtype.UUID
+	ResourceID pgtype.UUID
+	DecisionID pgtype.UUID
+	AfterState []byte
+	Metadata   []byte
+	TraceID    pgtype.Text
+}
+
+func (q *Queries) InsertAuditLogForApply(ctx context.Context, arg InsertAuditLogForApplyParams) error {
+	_, err := q.db.Exec(ctx, insertAuditLogForApply,
+		arg.TenantID,
+		arg.ActorID,
+		arg.ResourceID,
+		arg.DecisionID,
+		arg.AfterState,
+		arg.Metadata,
+		arg.TraceID,
+	)
+	return err
+}
+
+const insertGoatCustodyHistoryFromRFIDApply = `-- name: InsertGoatCustodyHistoryFromRFIDApply :exec
+INSERT INTO goat_custody_history (
+  tenant_id,
+  goat_id,
+  custodian_party_id,
+  valid_from,
+  decision_id,
+  reason,
+  created_by
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  'first_rfid_import',
+  $6::uuid
+)
+`
+
+type InsertGoatCustodyHistoryFromRFIDApplyParams struct {
+	TenantID         pgtype.UUID
+	GoatID           pgtype.UUID
+	CustodianPartyID pgtype.UUID
+	ValidFrom        pgtype.Timestamptz
+	DecisionID       pgtype.UUID
+	CreatedBy        pgtype.UUID
+}
+
+func (q *Queries) InsertGoatCustodyHistoryFromRFIDApply(ctx context.Context, arg InsertGoatCustodyHistoryFromRFIDApplyParams) error {
+	_, err := q.db.Exec(ctx, insertGoatCustodyHistoryFromRFIDApply,
+		arg.TenantID,
+		arg.GoatID,
+		arg.CustodianPartyID,
+		arg.ValidFrom,
+		arg.DecisionID,
+		arg.CreatedBy,
+	)
+	return err
+}
+
+const insertGoatFromRFIDApply = `-- name: InsertGoatFromRFIDApply :one
+INSERT INTO goats (
+  tenant_id,
+  species,
+  breed,
+  breed_id,
+  sex,
+  age_band,
+  lifecycle_status,
+  reproductive_status,
+  growth_cohort_tag,
+  management_stage,
+  health_status,
+  identity_state,
+  custodian_party_id,
+  created_at,
+  updated_at,
+  created_by
+) VALUES (
+  $1,
+  'goat',
+  $2::text,
+  $3::uuid,
+  $4,
+  $5::text,
+  $6,
+  $7::text,
+  $8::text,
+  $9::text,
+  $10::text,
+  'clean',
+  $11,
+  $12,
+  $12,
+  $13::uuid
+)
+RETURNING goat_id::text AS goat_id, display_id, row_version, created_at
+`
+
+type InsertGoatFromRFIDApplyParams struct {
+	TenantID           pgtype.UUID
+	Breed              pgtype.Text
+	BreedID            pgtype.UUID
+	Sex                pgtype.Text
+	AgeBand            pgtype.Text
+	LifecycleStatus    string
+	ReproductiveStatus pgtype.Text
+	GrowthCohortTag    pgtype.Text
+	ManagementStage    pgtype.Text
+	HealthStatus       pgtype.Text
+	CustodianPartyID   pgtype.UUID
+	CreatedAt          pgtype.Timestamptz
+	CreatedBy          pgtype.UUID
+}
+
+type InsertGoatFromRFIDApplyRow struct {
+	GoatID     string
+	DisplayID  string
+	RowVersion int32
+	CreatedAt  pgtype.Timestamptz
+}
+
+func (q *Queries) InsertGoatFromRFIDApply(ctx context.Context, arg InsertGoatFromRFIDApplyParams) (InsertGoatFromRFIDApplyRow, error) {
+	row := q.db.QueryRow(ctx, insertGoatFromRFIDApply,
+		arg.TenantID,
+		arg.Breed,
+		arg.BreedID,
+		arg.Sex,
+		arg.AgeBand,
+		arg.LifecycleStatus,
+		arg.ReproductiveStatus,
+		arg.GrowthCohortTag,
+		arg.ManagementStage,
+		arg.HealthStatus,
+		arg.CustodianPartyID,
+		arg.CreatedAt,
+		arg.CreatedBy,
+	)
+	var i InsertGoatFromRFIDApplyRow
+	err := row.Scan(
+		&i.GoatID,
+		&i.DisplayID,
+		&i.RowVersion,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertGoatIdentifierFromRFIDApply = `-- name: InsertGoatIdentifierFromRFIDApply :one
+INSERT INTO goat_identifiers (
+  tenant_id,
+  goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  is_primary_for_goat,
+  status,
+  valid_from,
+  source_system,
+  source_record_id,
+  normalizer_version,
+  confidence,
+  approved_by
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  'active',
+  $8,
+  $9,
+  $10,
+  $11,
+  1,
+  $12::uuid
+)
+RETURNING identifier_id::text AS identifier_id
+`
+
+type InsertGoatIdentifierFromRFIDApplyParams struct {
+	TenantID          pgtype.UUID
+	GoatID            pgtype.UUID
+	IdentifierType    string
+	IdentifierValue   string
+	NormalizedValue   string
+	ScopeKey          string
+	IsPrimaryForGoat  bool
+	ValidFrom         pgtype.Timestamptz
+	SourceSystem      pgtype.Text
+	SourceRecordID    pgtype.Text
+	NormalizerVersion string
+	ApprovedBy        pgtype.UUID
+}
+
+func (q *Queries) InsertGoatIdentifierFromRFIDApply(ctx context.Context, arg InsertGoatIdentifierFromRFIDApplyParams) (string, error) {
+	row := q.db.QueryRow(ctx, insertGoatIdentifierFromRFIDApply,
+		arg.TenantID,
+		arg.GoatID,
+		arg.IdentifierType,
+		arg.IdentifierValue,
+		arg.NormalizedValue,
+		arg.ScopeKey,
+		arg.IsPrimaryForGoat,
+		arg.ValidFrom,
+		arg.SourceSystem,
+		arg.SourceRecordID,
+		arg.NormalizerVersion,
+		arg.ApprovedBy,
+	)
+	var identifier_id string
+	err := row.Scan(&identifier_id)
+	return identifier_id, err
+}
+
+const insertGoatIdentityEventFromRFIDApply = `-- name: InsertGoatIdentityEventFromRFIDApply :one
+INSERT INTO goat_identity_events (
+  identity_event_id,
+  tenant_id,
+  goat_id,
+  event_type,
+  event_version,
+  occurred_at,
+  recorded_at,
+  actor_id,
+  source_system,
+  source_record_id,
+  payload,
+  decision_id,
+  idempotency_key
+) VALUES (
+  $1,
+  $2,
+  $3,
+  'goat.created',
+  1,
+  $4,
+  $4,
+  $5::uuid,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10
+)
+RETURNING identity_event_id::text AS event_id, recorded_at
+`
+
+type InsertGoatIdentityEventFromRFIDApplyParams struct {
+	IdentityEventID pgtype.UUID
+	TenantID        pgtype.UUID
+	GoatID          pgtype.UUID
+	OccurredAt      pgtype.Timestamptz
+	ActorID         pgtype.UUID
+	SourceSystem    pgtype.Text
+	SourceRecordID  pgtype.Text
+	Payload         []byte
+	DecisionID      pgtype.UUID
+	IdempotencyKey  string
+}
+
+type InsertGoatIdentityEventFromRFIDApplyRow struct {
+	EventID    string
+	RecordedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertGoatIdentityEventFromRFIDApply(ctx context.Context, arg InsertGoatIdentityEventFromRFIDApplyParams) (InsertGoatIdentityEventFromRFIDApplyRow, error) {
+	row := q.db.QueryRow(ctx, insertGoatIdentityEventFromRFIDApply,
+		arg.IdentityEventID,
+		arg.TenantID,
+		arg.GoatID,
+		arg.OccurredAt,
+		arg.ActorID,
+		arg.SourceSystem,
+		arg.SourceRecordID,
+		arg.Payload,
+		arg.DecisionID,
+		arg.IdempotencyKey,
+	)
+	var i InsertGoatIdentityEventFromRFIDApplyRow
+	err := row.Scan(&i.EventID, &i.RecordedAt)
+	return i, err
+}
+
+const insertGoatOwnershipFromRFIDApply = `-- name: InsertGoatOwnershipFromRFIDApply :exec
+INSERT INTO goat_ownership (
+  tenant_id,
+  goat_id,
+  owner_party_id,
+  share_bps,
+  valid_from,
+  status,
+  decision_id,
+  created_by
+) VALUES (
+  $1,
+  $2,
+  $3,
+  10000,
+  $4,
+  'active',
+  $5,
+  $6::uuid
+)
+`
+
+type InsertGoatOwnershipFromRFIDApplyParams struct {
+	TenantID     pgtype.UUID
+	GoatID       pgtype.UUID
+	OwnerPartyID pgtype.UUID
+	ValidFrom    pgtype.Timestamptz
+	DecisionID   pgtype.UUID
+	CreatedBy    pgtype.UUID
+}
+
+func (q *Queries) InsertGoatOwnershipFromRFIDApply(ctx context.Context, arg InsertGoatOwnershipFromRFIDApplyParams) error {
+	_, err := q.db.Exec(ctx, insertGoatOwnershipFromRFIDApply,
+		arg.TenantID,
+		arg.GoatID,
+		arg.OwnerPartyID,
+		arg.ValidFrom,
+		arg.DecisionID,
+		arg.CreatedBy,
+	)
+	return err
+}
+
+const insertIdempotencyStarted = `-- name: InsertIdempotencyStarted :one
+INSERT INTO idempotency_keys (
+  idempotency_key,
+  tenant_id,
+  scope,
+  request_hash,
+  status
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  'started'
+)
+ON CONFLICT (idempotency_key) DO NOTHING
+RETURNING idempotency_key
+`
+
+type InsertIdempotencyStartedParams struct {
+	IdempotencyKey string
+	TenantID       pgtype.UUID
+	Scope          string
+	RequestHash    string
+}
+
+func (q *Queries) InsertIdempotencyStarted(ctx context.Context, arg InsertIdempotencyStartedParams) (string, error) {
+	row := q.db.QueryRow(ctx, insertIdempotencyStarted,
+		arg.IdempotencyKey,
+		arg.TenantID,
+		arg.Scope,
+		arg.RequestHash,
+	)
+	var idempotency_key string
+	err := row.Scan(&idempotency_key)
+	return idempotency_key, err
+}
+
+const insertIdentityDecisionEventForApply = `-- name: InsertIdentityDecisionEventForApply :exec
+INSERT INTO identity_decision_events (
+  decision_id,
+  tenant_id,
+  event_id,
+  event_recorded_at
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4
+)
+`
+
+type InsertIdentityDecisionEventForApplyParams struct {
+	DecisionID      pgtype.UUID
+	TenantID        pgtype.UUID
+	EventID         pgtype.UUID
+	EventRecordedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertIdentityDecisionEventForApply(ctx context.Context, arg InsertIdentityDecisionEventForApplyParams) error {
+	_, err := q.db.Exec(ctx, insertIdentityDecisionEventForApply,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.EventID,
+		arg.EventRecordedAt,
+	)
+	return err
+}
+
+const insertIdentityDecisionGoatForApply = `-- name: InsertIdentityDecisionGoatForApply :exec
+INSERT INTO identity_decision_goats (
+  decision_id,
+  tenant_id,
+  goat_id,
+  role
+) VALUES (
+  $1,
+  $2,
+  $3,
+  'affected'
+)
+`
+
+type InsertIdentityDecisionGoatForApplyParams struct {
+	DecisionID pgtype.UUID
+	TenantID   pgtype.UUID
+	GoatID     pgtype.UUID
+}
+
+func (q *Queries) InsertIdentityDecisionGoatForApply(ctx context.Context, arg InsertIdentityDecisionGoatForApplyParams) error {
+	_, err := q.db.Exec(ctx, insertIdentityDecisionGoatForApply, arg.DecisionID, arg.TenantID, arg.GoatID)
+	return err
+}
+
+const insertIdentityDecisionIdentifierForApply = `-- name: InsertIdentityDecisionIdentifierForApply :exec
+INSERT INTO identity_decision_identifiers (
+  decision_id,
+  tenant_id,
+  identifier_id,
+  identifier_type,
+  identifier_value,
+  action
+) VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  'attach'
+)
+`
+
+type InsertIdentityDecisionIdentifierForApplyParams struct {
+	DecisionID      pgtype.UUID
+	TenantID        pgtype.UUID
+	IdentifierID    pgtype.UUID
+	IdentifierType  pgtype.Text
+	IdentifierValue pgtype.Text
+}
+
+func (q *Queries) InsertIdentityDecisionIdentifierForApply(ctx context.Context, arg InsertIdentityDecisionIdentifierForApplyParams) error {
+	_, err := q.db.Exec(ctx, insertIdentityDecisionIdentifierForApply,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.IdentifierID,
+		arg.IdentifierType,
+		arg.IdentifierValue,
+	)
+	return err
+}
+
+const insertImportIdentityDecision = `-- name: InsertImportIdentityDecision :one
+INSERT INTO identity_decisions (
+  decision_id,
+  tenant_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  decided_by_type,
+  decided_by,
+  policy_version,
+  reviewer_id,
+  evidence,
+  created_at,
+  approved_at,
+  decided_at
+) VALUES (
+  $1,
+  $2,
+  'create_goat',
+  'imported_from_rfid_source',
+  'approved',
+  'import_policy',
+  $3::uuid,
+  $4,
+  $5::uuid,
+  $6,
+  $7,
+  $7,
+  $7
+)
+RETURNING
+  decision_id::text AS decision_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  policy_version,
+  created_at
+`
+
+type InsertImportIdentityDecisionParams struct {
+	DecisionID    pgtype.UUID
+	TenantID      pgtype.UUID
+	DecidedBy     pgtype.UUID
+	PolicyVersion string
+	ReviewerID    pgtype.UUID
+	Evidence      []byte
+	CreatedAt     pgtype.Timestamptz
+}
+
+type InsertImportIdentityDecisionRow struct {
+	DecisionID     string
+	DecisionType   string
+	DecisionResult string
+	DecisionState  string
+	PolicyVersion  string
+	CreatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) InsertImportIdentityDecision(ctx context.Context, arg InsertImportIdentityDecisionParams) (InsertImportIdentityDecisionRow, error) {
+	row := q.db.QueryRow(ctx, insertImportIdentityDecision,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.DecidedBy,
+		arg.PolicyVersion,
+		arg.ReviewerID,
+		arg.Evidence,
+		arg.CreatedAt,
+	)
+	var i InsertImportIdentityDecisionRow
+	err := row.Scan(
+		&i.DecisionID,
+		&i.DecisionType,
+		&i.DecisionResult,
+		&i.DecisionState,
+		&i.PolicyVersion,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertLegacyImportRow = `-- name: InsertLegacyImportRow :one
 INSERT INTO legacy_import_rows (
   import_run_id,
@@ -222,4 +1003,219 @@ func (q *Queries) InsertLegacyImportRow(ctx context.Context, arg InsertLegacyImp
 	var legacy_row_id string
 	err := row.Scan(&legacy_row_id)
 	return legacy_row_id, err
+}
+
+const insertOutboxMessageForApply = `-- name: InsertOutboxMessageForApply :exec
+INSERT INTO outbox_messages (
+  tenant_id,
+  event_id,
+  event_type,
+  schema_version,
+  aggregate_type,
+  aggregate_id,
+  topic,
+  payload,
+  headers,
+  idempotency_key,
+  trace_id,
+  status
+) VALUES (
+  $1,
+  $2,
+  'goat.created',
+  '1.0.0',
+  'goat',
+  $3,
+  'identity.events',
+  $4,
+  $5,
+  $6,
+  $7,
+  'pending'
+)
+`
+
+type InsertOutboxMessageForApplyParams struct {
+	TenantID       pgtype.UUID
+	EventID        pgtype.UUID
+	AggregateID    pgtype.UUID
+	Payload        []byte
+	Headers        []byte
+	IdempotencyKey string
+	TraceID        pgtype.Text
+}
+
+func (q *Queries) InsertOutboxMessageForApply(ctx context.Context, arg InsertOutboxMessageForApplyParams) error {
+	_, err := q.db.Exec(ctx, insertOutboxMessageForApply,
+		arg.TenantID,
+		arg.EventID,
+		arg.AggregateID,
+		arg.Payload,
+		arg.Headers,
+		arg.IdempotencyKey,
+		arg.TraceID,
+	)
+	return err
+}
+
+const lockLegacyImportRowForApply = `-- name: LockLegacyImportRowForApply :one
+SELECT
+  legacy_row_id::text AS legacy_row_id,
+  row_number,
+  source_system,
+  source_dataset,
+  source_record_id,
+  source_row_key,
+  source_key_recipe_version,
+  source_row_version_hash,
+  hash_recipe_version,
+  raw_payload,
+  normalized_payload,
+  processing_state,
+  error_reason,
+  COALESCE(matched_goat_id::text, '')::text AS matched_goat_id
+FROM legacy_import_rows
+WHERE tenant_id = $1
+  AND legacy_row_id = $2
+FOR UPDATE
+`
+
+type LockLegacyImportRowForApplyParams struct {
+	TenantID    pgtype.UUID
+	LegacyRowID pgtype.UUID
+}
+
+type LockLegacyImportRowForApplyRow struct {
+	LegacyRowID            string
+	RowNumber              int32
+	SourceSystem           string
+	SourceDataset          string
+	SourceRecordID         pgtype.Text
+	SourceRowKey           string
+	SourceKeyRecipeVersion string
+	SourceRowVersionHash   string
+	HashRecipeVersion      string
+	RawPayload             []byte
+	NormalizedPayload      []byte
+	ProcessingState        string
+	ErrorReason            pgtype.Text
+	MatchedGoatID          string
+}
+
+func (q *Queries) LockLegacyImportRowForApply(ctx context.Context, arg LockLegacyImportRowForApplyParams) (LockLegacyImportRowForApplyRow, error) {
+	row := q.db.QueryRow(ctx, lockLegacyImportRowForApply, arg.TenantID, arg.LegacyRowID)
+	var i LockLegacyImportRowForApplyRow
+	err := row.Scan(
+		&i.LegacyRowID,
+		&i.RowNumber,
+		&i.SourceSystem,
+		&i.SourceDataset,
+		&i.SourceRecordID,
+		&i.SourceRowKey,
+		&i.SourceKeyRecipeVersion,
+		&i.SourceRowVersionHash,
+		&i.HashRecipeVersion,
+		&i.RawPayload,
+		&i.NormalizedPayload,
+		&i.ProcessingState,
+		&i.ErrorReason,
+		&i.MatchedGoatID,
+	)
+	return i, err
+}
+
+const markLegacyImportRowCreatedGoat = `-- name: MarkLegacyImportRowCreatedGoat :exec
+UPDATE legacy_import_rows
+SET
+  processing_state = 'created_goat',
+  matched_goat_id = $1,
+  error_reason = NULL
+WHERE tenant_id = $2
+  AND legacy_row_id = $3
+`
+
+type MarkLegacyImportRowCreatedGoatParams struct {
+	MatchedGoatID pgtype.UUID
+	TenantID      pgtype.UUID
+	LegacyRowID   pgtype.UUID
+}
+
+func (q *Queries) MarkLegacyImportRowCreatedGoat(ctx context.Context, arg MarkLegacyImportRowCreatedGoatParams) error {
+	_, err := q.db.Exec(ctx, markLegacyImportRowCreatedGoat, arg.MatchedGoatID, arg.TenantID, arg.LegacyRowID)
+	return err
+}
+
+const markLegacyImportRowNeedsReview = `-- name: MarkLegacyImportRowNeedsReview :exec
+UPDATE legacy_import_rows
+SET
+  processing_state = 'needs_review',
+  normalized_payload = $1,
+  error_reason = $2
+WHERE tenant_id = $3
+  AND legacy_row_id = $4
+`
+
+type MarkLegacyImportRowNeedsReviewParams struct {
+	NormalizedPayload []byte
+	ErrorReason       pgtype.Text
+	TenantID          pgtype.UUID
+	LegacyRowID       pgtype.UUID
+}
+
+func (q *Queries) MarkLegacyImportRowNeedsReview(ctx context.Context, arg MarkLegacyImportRowNeedsReviewParams) error {
+	_, err := q.db.Exec(ctx, markLegacyImportRowNeedsReview,
+		arg.NormalizedPayload,
+		arg.ErrorReason,
+		arg.TenantID,
+		arg.LegacyRowID,
+	)
+	return err
+}
+
+const newUUID = `-- name: NewUUID :one
+SELECT gen_random_uuid()::text AS uuid
+`
+
+func (q *Queries) NewUUID(ctx context.Context) (string, error) {
+	row := q.db.QueryRow(ctx, newUUID)
+	var uuid string
+	err := row.Scan(&uuid)
+	return uuid, err
+}
+
+const resolveBreedAliasForApply = `-- name: ResolveBreedAliasForApply :one
+SELECT
+  b.breed_id::text AS breed_id,
+  b.canonical_name
+FROM breed_aliases ba
+JOIN breeds b ON b.breed_id = ba.breed_id
+WHERE ba.normalized_alias = $1
+  AND b.species = 'goat'
+  AND b.status = 'active'
+  AND (ba.source_system = $2 OR ba.source_system = 'phase1_seed' OR ba.source_system IS NULL)
+ORDER BY
+  CASE
+    WHEN ba.source_system = $2 THEN 0
+    WHEN ba.source_system = 'phase1_seed' THEN 1
+    ELSE 2
+  END,
+  b.canonical_name
+LIMIT 1
+`
+
+type ResolveBreedAliasForApplyParams struct {
+	NormalizedAlias string
+	SourceSystem    pgtype.Text
+}
+
+type ResolveBreedAliasForApplyRow struct {
+	BreedID       string
+	CanonicalName string
+}
+
+func (q *Queries) ResolveBreedAliasForApply(ctx context.Context, arg ResolveBreedAliasForApplyParams) (ResolveBreedAliasForApplyRow, error) {
+	row := q.db.QueryRow(ctx, resolveBreedAliasForApply, arg.NormalizedAlias, arg.SourceSystem)
+	var i ResolveBreedAliasForApplyRow
+	err := row.Scan(&i.BreedID, &i.CanonicalName)
+	return i, err
 }

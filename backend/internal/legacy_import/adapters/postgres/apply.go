@@ -1,0 +1,1009 @@
+package postgres
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/vgoats/goatos/backend/internal/legacy_import"
+	importdb "github.com/vgoats/goatos/backend/internal/legacy_import/adapters/postgres/sqlc"
+)
+
+const (
+	rfidApplyCommandName    = "legacy_import.apply_rfid_row"
+	rfidApplyResultType     = "goat"
+	rfidApplyEventType      = "goat.created"
+	rfidApplyEventSchemaRef = "contracts/jsonschema/domain-event-envelope.schema.json"
+	rfidApplySchemaVersion  = "1.0.0"
+	rfidApplyTopic          = "identity.events"
+)
+
+type pendingApplyRow struct {
+	LegacyRowID          string
+	RowNumber            int32
+	SourceSystem         string
+	SourceDataset        string
+	SourceRecordID       pgtype.Text
+	SourceRowKey         string
+	SourceRowVersionHash string
+	RawPayload           []byte
+	NormalizedPayload    []byte
+	ProcessingState      string
+}
+
+type applyPlan struct {
+	RFID               string
+	OldTag             string
+	OldTagScopeKey     string
+	Sex                string
+	AgeBand            *string
+	Breed              string
+	BreedID            *string
+	LifecycleStatus    string
+	ReproductiveStatus *string
+	GrowthCohortTag    *string
+	ManagementStage    *string
+	HealthStatus       *string
+	Reason             string
+}
+
+type applyOutcome struct {
+	applied bool
+	review  string
+	replay  bool
+	goatID  string
+}
+
+func (r *Repository) ApplyRFIDRows(ctx context.Context, cmd legacy_import.ApplyCommand) (*legacy_import.ApplyResult, error) {
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	runUUID, err := uuidParam(cmd.ImportRunID)
+	if err != nil {
+		return nil, err
+	}
+	if cmd.BatchSize <= 0 {
+		cmd.BatchSize = legacy_import.DefaultBatchSize
+	}
+
+	run, err := r.queries.GetLegacyImportRunForApply(ctx, importdb.GetLegacyImportRunForApplyParams{
+		TenantID:    tenantUUID,
+		ImportRunID: runUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("legacy import run not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if run.Status != "completed" {
+		return nil, fmt.Errorf("legacy import run must be completed")
+	}
+	if run.DryRun {
+		return nil, fmt.Errorf("dry-run import run cannot be applied")
+	}
+	if cmd.PolicyVersion != "" && cmd.PolicyVersion != run.PolicyVersion {
+		return nil, fmt.Errorf("apply policy_version does not match import run")
+	}
+
+	policy, err := r.LoadApprovedPolicy(ctx, run.PolicyVersion)
+	if err != nil {
+		return nil, err
+	}
+	if policy.SourceSystem != run.SourceSystem || policy.SourceDataset != run.SourceDataset {
+		return nil, fmt.Errorf("legacy import policy source does not match import run")
+	}
+	meshaPartyID, err := r.resolveMeshaParty(ctx)
+	if err != nil {
+		return nil, err
+	}
+	meshaPartyUUID, err := uuidParam(meshaPartyID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := nullableUUID(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &legacy_import.ApplyResult{
+		ImportRunID:   cmd.ImportRunID,
+		TenantID:      cmd.TenantID,
+		PolicyVersion: run.PolicyVersion,
+		SourceSystem:  run.SourceSystem,
+		SourceDataset: run.SourceDataset,
+		DryRun:        cmd.DryRun,
+		ReviewReasons: map[string]int{},
+	}
+
+	var cursorRow pgtype.Int4
+	var cursorID pgtype.UUID
+	for {
+		rows, err := r.queries.ListPendingLegacyImportRowsForApply(ctx, importdb.ListPendingLegacyImportRowsForApplyParams{
+			TenantID:          tenantUUID,
+			ImportRunID:       runUUID,
+			CursorRowNumber:   cursorRow,
+			CursorLegacyRowID: cursorID,
+			LimitCount:        int32(cmd.BatchSize),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			applyRow := pendingRowFromList(row)
+			result.PendingScanned++
+			cursorRow = pgtype.Int4{Int32: row.RowNumber, Valid: true}
+			if err := cursorID.Scan(row.LegacyRowID); err != nil {
+				return nil, err
+			}
+
+			if cmd.DryRun {
+				plan, reason, err := r.evaluatePendingApplyRow(ctx, r.queries, tenantUUID, policy, applyRow)
+				if err != nil {
+					return nil, err
+				}
+				if reason != "" {
+					result.ReviewCount++
+					result.ReviewReasons[reason]++
+					continue
+				}
+				if plan.RFID == "" {
+					result.ReviewCount++
+					result.ReviewReasons["missing_rfid"]++
+					continue
+				}
+				result.AppliedCount++
+				continue
+			}
+
+			outcome, err := r.applyOnePendingRow(ctx, tenantUUID, runUUID, meshaPartyUUID, actorUUID, policy, cmd, applyRow.LegacyRowID)
+			if err != nil {
+				return nil, err
+			}
+			switch {
+			case outcome.applied:
+				result.AppliedCount++
+				result.CreatedGoatIDs = append(result.CreatedGoatIDs, outcome.goatID)
+			case outcome.replay:
+				result.ReplayCount++
+				if outcome.goatID != "" {
+					result.CreatedGoatIDs = append(result.CreatedGoatIDs, outcome.goatID)
+				}
+			case outcome.review != "":
+				result.ReviewCount++
+				result.ReviewReasons[outcome.review]++
+			default:
+				result.SkippedCount++
+			}
+		}
+	}
+	sort.Strings(result.CreatedGoatIDs)
+	return result, nil
+}
+
+func (r *Repository) resolveMeshaParty(ctx context.Context) (string, error) {
+	rows, err := r.queries.FindActiveMeshaOrgPartyIDs(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 {
+		return "", fmt.Errorf("active Mesha org party not found")
+	}
+	if len(rows) > 1 {
+		return "", fmt.Errorf("active Mesha org party is ambiguous")
+	}
+	return rows[0], nil
+}
+
+func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID, meshaPartyUUID, actorUUID pgtype.UUID, policy legacy_import.Policy, cmd legacy_import.ApplyCommand, legacyRowID string) (applyOutcome, error) {
+	rowUUID, err := uuidParam(legacyRowID)
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+
+	locked, err := qtx.LockLegacyImportRowForApply(ctx, importdb.LockLegacyImportRowForApplyParams{
+		TenantID:    tenantUUID,
+		LegacyRowID: rowUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return applyOutcome{}, nil
+	}
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	row := pendingRowFromLock(locked)
+	if row.ProcessingState != legacy_import.StatePending {
+		return applyOutcome{}, nil
+	}
+
+	idempotencyKey := stableApplyIdempotencyKey(cmd.TenantID, row.SourceSystem, row.SourceDataset, row.SourceRowKey, row.SourceRowVersionHash)
+	requestHash := stableApplyRequestHash(row)
+	existingIDM, err := qtx.GetIdempotencyKey(ctx, idempotencyKey)
+	if err == nil {
+		if existingIDM.RequestHash != requestHash {
+			return applyOutcome{}, fmt.Errorf("idempotency key reused with different source payload")
+		}
+		if existingIDM.Status != "completed" || existingIDM.ResultType != rfidApplyResultType || strings.TrimSpace(existingIDM.ResultID) == "" {
+			return applyOutcome{}, fmt.Errorf("idempotency key is not completed")
+		}
+		goatUUID := mustUUID(existingIDM.ResultID)
+		if err := qtx.MarkLegacyImportRowCreatedGoat(ctx, importdb.MarkLegacyImportRowCreatedGoatParams{
+			TenantID:      tenantUUID,
+			LegacyRowID:   rowUUID,
+			MatchedGoatID: goatUUID,
+		}); err != nil {
+			return applyOutcome{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return applyOutcome{}, err
+		}
+		committed = true
+		return applyOutcome{replay: true, goatID: existingIDM.ResultID}, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return applyOutcome{}, err
+	}
+
+	plan, reviewReason, err := r.evaluatePendingApplyRow(ctx, qtx, tenantUUID, policy, row)
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if reviewReason != "" {
+		if err := qtx.MarkLegacyImportRowNeedsReview(ctx, importdb.MarkLegacyImportRowNeedsReviewParams{
+			TenantID:          tenantUUID,
+			LegacyRowID:       rowUUID,
+			NormalizedPayload: appendReviewReason(row.NormalizedPayload, reviewReason),
+			ErrorReason:       textParam(reviewReason),
+		}); err != nil {
+			return applyOutcome{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return applyOutcome{}, err
+		}
+		committed = true
+		return applyOutcome{review: reviewReason}, nil
+	}
+
+	_, err = qtx.InsertIdempotencyStarted(ctx, importdb.InsertIdempotencyStartedParams{
+		IdempotencyKey: idempotencyKey,
+		TenantID:       tenantUUID,
+		Scope:          rfidApplyCommandName,
+		RequestHash:    requestHash,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		outcome, err := replayAppliedRow(ctx, qtx, tenantUUID, rowUUID, idempotencyKey, requestHash)
+		if err != nil {
+			return applyOutcome{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return applyOutcome{}, err
+		}
+		committed = true
+		return outcome, nil
+	}
+	if err != nil {
+		return applyOutcome{}, err
+	}
+
+	now := time.Now().UTC()
+	traceID := "rfid-apply:" + row.LegacyRowID
+	decisionID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	decisionUUID := mustUUID(decisionID)
+	decisionRecord, err := importDecisionRecordPayload(importDecisionRecordInput{
+		DecisionID:     decisionID,
+		TenantID:       cmd.TenantID,
+		ActorID:        cmd.ActorID,
+		PolicyVersion:  policy.PolicyVersion,
+		Reason:         plan.Reason,
+		ImportRunID:    cmd.ImportRunID,
+		LegacyRowID:    row.LegacyRowID,
+		SourceSystem:   row.SourceSystem,
+		SourceRowKey:   row.SourceRowKey,
+		IdempotencyKey: idempotencyKey,
+		TraceID:        traceID,
+		CreatedAt:      now,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	decisionEvidence, err := json.Marshal(map[string]any{
+		"evidence_refs":   importEvidenceRefs(cmd.ImportRunID, row.LegacyRowID, row.SourceSystem, row.SourceRowKey),
+		"reason":          plan.Reason,
+		"decision_record": json.RawMessage(decisionRecord),
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if _, err := qtx.InsertImportIdentityDecision(ctx, importdb.InsertImportIdentityDecisionParams{
+		DecisionID:    decisionUUID,
+		TenantID:      tenantUUID,
+		DecidedBy:     actorUUID,
+		PolicyVersion: policy.PolicyVersion,
+		ReviewerID:    actorUUID,
+		Evidence:      decisionEvidence,
+		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+
+	breedUUID, err := nullableUUID(plan.BreedID)
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	goatRow, err := qtx.InsertGoatFromRFIDApply(ctx, importdb.InsertGoatFromRFIDApplyParams{
+		TenantID:           tenantUUID,
+		Breed:              nullableText(planStringPtr(plan.Breed)),
+		BreedID:            breedUUID,
+		Sex:                textParam(plan.Sex),
+		AgeBand:            nullableText(plan.AgeBand),
+		LifecycleStatus:    plan.LifecycleStatus,
+		ReproductiveStatus: nullableText(plan.ReproductiveStatus),
+		GrowthCohortTag:    nullableText(plan.GrowthCohortTag),
+		ManagementStage:    nullableText(plan.ManagementStage),
+		HealthStatus:       nullableText(plan.HealthStatus),
+		CustodianPartyID:   meshaPartyUUID,
+		CreatedAt:          pgtype.Timestamptz{Time: now, Valid: true},
+		CreatedBy:          actorUUID,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	goatUUID := mustUUID(goatRow.GoatID)
+
+	rfidPolicy, err := qtx.GetIdentifierPolicyForApply(ctx, importdb.GetIdentifierPolicyForApplyParams{
+		PolicyVersion:  policy.IdentifierPolicyVersion,
+		IdentifierType: "rfid",
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	rfidIdentifierID, err := qtx.InsertGoatIdentifierFromRFIDApply(ctx, importdb.InsertGoatIdentifierFromRFIDApplyParams{
+		TenantID:          tenantUUID,
+		GoatID:            goatUUID,
+		IdentifierType:    "rfid",
+		IdentifierValue:   plan.RFID,
+		NormalizedValue:   plan.RFID,
+		ScopeKey:          "global",
+		IsPrimaryForGoat:  true,
+		ValidFrom:         pgtype.Timestamptz{Time: now, Valid: true},
+		SourceSystem:      textParam(row.SourceSystem),
+		SourceRecordID:    textParam(sourceRecordID(row)),
+		NormalizerVersion: rfidPolicy.NormalizerVersion,
+		ApprovedBy:        actorUUID,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	identifierIDs := []string{rfidIdentifierID}
+	identifierActions := []map[string]any{{
+		"identifier_id":    rfidIdentifierID,
+		"identifier_type":  "rfid",
+		"identifier_value": plan.RFID,
+		"action":           "attach",
+	}}
+
+	oldTagPolicy, err := qtx.GetIdentifierPolicyForApply(ctx, importdb.GetIdentifierPolicyForApplyParams{
+		PolicyVersion:  policy.IdentifierPolicyVersion,
+		IdentifierType: "old_tag",
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if plan.OldTag != "" && plan.OldTagScopeKey != "" {
+		oldTagIdentifierID, err := qtx.InsertGoatIdentifierFromRFIDApply(ctx, importdb.InsertGoatIdentifierFromRFIDApplyParams{
+			TenantID:          tenantUUID,
+			GoatID:            goatUUID,
+			IdentifierType:    "old_tag",
+			IdentifierValue:   plan.OldTag,
+			NormalizedValue:   plan.OldTag,
+			ScopeKey:          plan.OldTagScopeKey,
+			IsPrimaryForGoat:  oldTagPolicy.PrimaryAllowed,
+			ValidFrom:         pgtype.Timestamptz{Time: now, Valid: true},
+			SourceSystem:      textParam(row.SourceSystem),
+			SourceRecordID:    textParam(sourceRecordID(row)),
+			NormalizerVersion: oldTagPolicy.NormalizerVersion,
+			ApprovedBy:        actorUUID,
+		})
+		if err != nil {
+			return applyOutcome{}, err
+		}
+		identifierIDs = append(identifierIDs, oldTagIdentifierID)
+		identifierActions = append(identifierActions, map[string]any{
+			"identifier_id":    oldTagIdentifierID,
+			"identifier_type":  "old_tag",
+			"identifier_value": plan.OldTag,
+			"action":           "attach",
+		})
+	}
+
+	if err := qtx.InsertGoatOwnershipFromRFIDApply(ctx, importdb.InsertGoatOwnershipFromRFIDApplyParams{
+		TenantID:     tenantUUID,
+		GoatID:       goatUUID,
+		OwnerPartyID: meshaPartyUUID,
+		ValidFrom:    pgtype.Timestamptz{Time: now, Valid: true},
+		DecisionID:   decisionUUID,
+		CreatedBy:    actorUUID,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.InsertGoatCustodyHistoryFromRFIDApply(ctx, importdb.InsertGoatCustodyHistoryFromRFIDApplyParams{
+		TenantID:         tenantUUID,
+		GoatID:           goatUUID,
+		CustodianPartyID: meshaPartyUUID,
+		ValidFrom:        pgtype.Timestamptz{Time: now, Valid: true},
+		DecisionID:       decisionUUID,
+		CreatedBy:        actorUUID,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.InsertIdentityDecisionGoatForApply(ctx, importdb.InsertIdentityDecisionGoatForApplyParams{
+		DecisionID: decisionUUID,
+		TenantID:   tenantUUID,
+		GoatID:     goatUUID,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	for _, identifierID := range identifierIDs {
+		identifierUUID := mustUUID(identifierID)
+		var identifierType, identifierValue string
+		if identifierID == rfidIdentifierID {
+			identifierType, identifierValue = "rfid", plan.RFID
+		} else {
+			identifierType, identifierValue = "old_tag", plan.OldTag
+		}
+		if err := qtx.InsertIdentityDecisionIdentifierForApply(ctx, importdb.InsertIdentityDecisionIdentifierForApplyParams{
+			DecisionID:      decisionUUID,
+			TenantID:        tenantUUID,
+			IdentifierID:    identifierUUID,
+			IdentifierType:  textParam(identifierType),
+			IdentifierValue: textParam(identifierValue),
+		}); err != nil {
+			return applyOutcome{}, err
+		}
+	}
+
+	eventID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	eventUUID := mustUUID(eventID)
+	eventPayload, err := json.Marshal(map[string]any{
+		"goat_id":            goatRow.GoatID,
+		"display_id":         goatRow.DisplayID,
+		"decision_id":        decisionID,
+		"import_run_id":      cmd.ImportRunID,
+		"legacy_row_id":      row.LegacyRowID,
+		"source_row_key":     row.SourceRowKey,
+		"identifier_ids":     identifierIDs,
+		"identifier_actions": identifierActions,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	eventRow, err := qtx.InsertGoatIdentityEventFromRFIDApply(ctx, importdb.InsertGoatIdentityEventFromRFIDApplyParams{
+		IdentityEventID: eventUUID,
+		TenantID:        tenantUUID,
+		GoatID:          goatUUID,
+		OccurredAt:      pgtype.Timestamptz{Time: now, Valid: true},
+		ActorID:         actorUUID,
+		SourceSystem:    textParam(row.SourceSystem),
+		SourceRecordID:  textParam(sourceRecordID(row)),
+		Payload:         eventPayload,
+		DecisionID:      decisionUUID,
+		IdempotencyKey:  idempotencyKey,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.InsertIdentityDecisionEventForApply(ctx, importdb.InsertIdentityDecisionEventForApplyParams{
+		DecisionID:      decisionUUID,
+		TenantID:        tenantUUID,
+		EventID:         eventUUID,
+		EventRecordedAt: eventRow.RecordedAt,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+
+	afterState, err := json.Marshal(map[string]any{
+		"goat_id":        goatRow.GoatID,
+		"display_id":     goatRow.DisplayID,
+		"legacy_row_id":  row.LegacyRowID,
+		"import_run_id":  cmd.ImportRunID,
+		"identifier_ids": identifierIDs,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"command":         rfidApplyCommandName,
+		"idempotency_key": idempotencyKey,
+		"trace_id":        traceID,
+		"source_system":   row.SourceSystem,
+		"source_dataset":  row.SourceDataset,
+		"source_row_key":  row.SourceRowKey,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.InsertAuditLogForApply(ctx, importdb.InsertAuditLogForApplyParams{
+		TenantID:   tenantUUID,
+		ActorID:    actorUUID,
+		ResourceID: goatUUID,
+		DecisionID: decisionUUID,
+		AfterState: afterState,
+		Metadata:   metadata,
+		TraceID:    textParam(traceID),
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+
+	envelope, err := importDomainEventEnvelope(importEventEnvelopeInput{
+		EventID:        eventRow.EventID,
+		GoatID:         goatRow.GoatID,
+		TenantID:       cmd.TenantID,
+		ActorID:        cmd.ActorID,
+		IdempotencyKey: idempotencyKey,
+		TraceID:        traceID,
+		OccurredAt:     now,
+		RecordedAt:     eventRow.RecordedAt.Time,
+		EvidenceRefs:   importEvidenceRefs(cmd.ImportRunID, row.LegacyRowID, row.SourceSystem, row.SourceRowKey),
+		Payload:        json.RawMessage(eventPayload),
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	headers, err := json.Marshal(map[string]any{
+		"command":       rfidApplyCommandName,
+		"trace_id":      traceID,
+		"decision_id":   decisionID,
+		"legacy_row_id": row.LegacyRowID,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.InsertOutboxMessageForApply(ctx, importdb.InsertOutboxMessageForApplyParams{
+		TenantID:       tenantUUID,
+		EventID:        eventUUID,
+		AggregateID:    goatUUID,
+		Payload:        envelope,
+		Headers:        headers,
+		IdempotencyKey: idempotencyKey,
+		TraceID:        textParam(traceID),
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.MarkLegacyImportRowCreatedGoat(ctx, importdb.MarkLegacyImportRowCreatedGoatParams{
+		TenantID:      tenantUUID,
+		LegacyRowID:   rowUUID,
+		MatchedGoatID: goatUUID,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.IncrementLegacyImportRunCreatedGoatCount(ctx, importdb.IncrementLegacyImportRunCreatedGoatCountParams{
+		TenantID:    tenantUUID,
+		ImportRunID: runUUID,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.CompleteIdempotencyKey(ctx, importdb.CompleteIdempotencyKeyParams{
+		ResultType:     textParam(rfidApplyResultType),
+		ResultID:       goatUUID,
+		IdempotencyKey: idempotencyKey,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return applyOutcome{}, err
+	}
+	committed = true
+	return applyOutcome{applied: true, goatID: goatRow.GoatID}, nil
+}
+
+func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Queries, tenantUUID pgtype.UUID, policy legacy_import.Policy, row pendingApplyRow) (applyPlan, string, error) {
+	if row.ProcessingState != legacy_import.StatePending {
+		return applyPlan{}, "", nil
+	}
+	if changed, err := q.HasLegacyImportRowWithDifferentHash(ctx, importdb.HasLegacyImportRowWithDifferentHashParams{
+		TenantID:             tenantUUID,
+		SourceSystem:         row.SourceSystem,
+		SourceDataset:        row.SourceDataset,
+		SourceRowKey:         row.SourceRowKey,
+		SourceRowVersionHash: row.SourceRowVersionHash,
+	}); err != nil {
+		return applyPlan{}, "", err
+	} else if changed {
+		return applyPlan{}, "source_row_changed", nil
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(row.NormalizedPayload, &payload); err != nil {
+		return applyPlan{}, "", fmt.Errorf("decode normalized payload: %w", err)
+	}
+	if reasons := stringSlice(payload["processing_reasons"]); len(reasons) > 0 {
+		return applyPlan{}, "normalized_payload_has_review_reasons", nil
+	}
+	rfid := strings.TrimSpace(stringValue(payload["rfid"]))
+	if rfid == "" {
+		return applyPlan{}, "missing_rfid", nil
+	}
+	sex := strings.TrimSpace(stringValue(payload["sex"]))
+	if sex != "male" && sex != "female" {
+		return applyPlan{}, "sex_requires_review", nil
+	}
+	rfidExists, err := q.ActiveRFIDExistsForApply(ctx, rfid)
+	if err != nil {
+		return applyPlan{}, "", err
+	}
+	if rfidExists {
+		return applyPlan{}, "rfid_already_linked", nil
+	}
+
+	plan := applyPlan{
+		RFID:            rfid,
+		Sex:             sex,
+		AgeBand:         optionalString(payload["age"]),
+		LifecycleStatus: "alive",
+		Reason:          "Imported from approved Phase 1 RFID DB staging row.",
+	}
+
+	tag := strings.TrimSpace(stringValue(payload["tag"]))
+	if tag != "" {
+		status, err := q.GetLegacyStatusMappingForApply(ctx, importdb.GetLegacyStatusMappingForApplyParams{
+			SourceSystem:       policy.SourceSystem,
+			NormalizedRawLabel: normalizedStatusLabel(tag),
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return applyPlan{}, "unknown_status_mapping", nil
+		}
+		if err != nil {
+			return applyPlan{}, "", err
+		}
+		if status.ReviewRequired {
+			return applyPlan{}, "status_mapping_requires_review", nil
+		}
+		plan.LifecycleStatus = pgTextValue(status.LifecycleStatus, "alive")
+		plan.ReproductiveStatus = pgTextStringPtr(status.ReproductiveStatus)
+		plan.GrowthCohortTag = pgTextStringPtr(status.GrowthCohortTag)
+		plan.ManagementStage = pgTextStringPtr(status.ManagementStage)
+		plan.HealthStatus = pgTextStringPtr(status.HealthStatus)
+	}
+
+	breed := strings.TrimSpace(stringValue(payload["breed"]))
+	if breed == "" {
+		return applyPlan{}, "species_or_breed_requires_review", nil
+	}
+	breedRow, err := q.ResolveBreedAliasForApply(ctx, importdb.ResolveBreedAliasForApplyParams{
+		NormalizedAlias: normalizedBreedAlias(breed),
+		SourceSystem:    textParam(policy.SourceSystem),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return applyPlan{}, "species_or_breed_requires_review", nil
+	}
+	if err != nil {
+		return applyPlan{}, "", err
+	}
+	plan.Breed = breed
+	plan.BreedID = &breedRow.BreedID
+
+	oldTag := strings.TrimSpace(stringValue(payload["normalized_old_tag"]))
+	parkCode := strings.TrimSpace(stringValue(payload["normalized_park_code"]))
+	if oldTag != "" && parkCode != "" {
+		scopeKey := "park:" + parkCode
+		exists, err := q.ActiveScopedIdentifierExistsForApply(ctx, importdb.ActiveScopedIdentifierExistsForApplyParams{
+			TenantID:        tenantUUID,
+			IdentifierType:  "old_tag",
+			NormalizedValue: oldTag,
+			ScopeKey:        scopeKey,
+		})
+		if err != nil {
+			return applyPlan{}, "", err
+		}
+		if exists {
+			return applyPlan{}, "old_tag_same_scope_conflict", nil
+		}
+		plan.OldTag = oldTag
+		plan.OldTagScopeKey = scopeKey
+	}
+	return plan, "", nil
+}
+
+func replayAppliedRow(ctx context.Context, qtx *importdb.Queries, tenantUUID, rowUUID pgtype.UUID, idempotencyKey, requestHash string) (applyOutcome, error) {
+	row, err := qtx.GetIdempotencyKey(ctx, idempotencyKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return applyOutcome{}, fmt.Errorf("idempotency key missing during replay")
+	}
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if row.RequestHash != requestHash {
+		return applyOutcome{}, fmt.Errorf("idempotency key reused with different source payload")
+	}
+	if row.Status != "completed" || row.ResultType != rfidApplyResultType || strings.TrimSpace(row.ResultID) == "" {
+		return applyOutcome{}, fmt.Errorf("idempotency key is not completed")
+	}
+	goatUUID := mustUUID(row.ResultID)
+	if err := qtx.MarkLegacyImportRowCreatedGoat(ctx, importdb.MarkLegacyImportRowCreatedGoatParams{
+		TenantID:      tenantUUID,
+		LegacyRowID:   rowUUID,
+		MatchedGoatID: goatUUID,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	return applyOutcome{replay: true, goatID: row.ResultID}, nil
+}
+
+func pendingRowFromList(row importdb.ListPendingLegacyImportRowsForApplyRow) pendingApplyRow {
+	return pendingApplyRow{
+		LegacyRowID:          row.LegacyRowID,
+		RowNumber:            row.RowNumber,
+		SourceSystem:         row.SourceSystem,
+		SourceDataset:        row.SourceDataset,
+		SourceRecordID:       row.SourceRecordID,
+		SourceRowKey:         row.SourceRowKey,
+		SourceRowVersionHash: row.SourceRowVersionHash,
+		RawPayload:           row.RawPayload,
+		NormalizedPayload:    row.NormalizedPayload,
+		ProcessingState:      row.ProcessingState,
+	}
+}
+
+func pendingRowFromLock(row importdb.LockLegacyImportRowForApplyRow) pendingApplyRow {
+	return pendingApplyRow{
+		LegacyRowID:          row.LegacyRowID,
+		RowNumber:            row.RowNumber,
+		SourceSystem:         row.SourceSystem,
+		SourceDataset:        row.SourceDataset,
+		SourceRecordID:       row.SourceRecordID,
+		SourceRowKey:         row.SourceRowKey,
+		SourceRowVersionHash: row.SourceRowVersionHash,
+		RawPayload:           row.RawPayload,
+		NormalizedPayload:    row.NormalizedPayload,
+		ProcessingState:      row.ProcessingState,
+	}
+}
+
+func stableApplyIdempotencyKey(tenantID, sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash string) string {
+	input := strings.Join([]string{tenantID, rfidApplyCommandName, sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash}, "\x1f")
+	sum := sha256.Sum256([]byte(input))
+	return rfidApplyCommandName + ":" + hex.EncodeToString(sum[:])
+}
+
+func stableApplyRequestHash(row pendingApplyRow) string {
+	input := strings.Join([]string{row.SourceSystem, row.SourceDataset, row.SourceRowKey, row.SourceRowVersionHash, string(row.NormalizedPayload)}, "\x1f")
+	sum := sha256.Sum256([]byte(input))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func normalizedStatusLabel(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+var breedAliasCleanRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+func normalizedBreedAlias(value string) string {
+	cleaned := breedAliasCleanRe.ReplaceAllString(strings.ToLower(strings.TrimSpace(value)), "_")
+	return strings.Trim(cleaned, "_")
+}
+
+func appendReviewReason(payload []byte, reason string) []byte {
+	var doc map[string]any
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return payload
+	}
+	reasons := stringSlice(doc["processing_reasons"])
+	reasons = append(reasons, reason)
+	doc["processing_reasons"] = reasons
+	updated, err := json.Marshal(doc)
+	if err != nil {
+		return payload
+	}
+	return updated
+}
+
+func stringSlice(value any) []string {
+	switch v := value.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if text, ok := item.(string); ok && text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func optionalString(value any) *string {
+	text := strings.TrimSpace(stringValue(value))
+	if text == "" {
+		return nil
+	}
+	return &text
+}
+
+func planStringPtr(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func pgTextStringPtr(value pgtype.Text) *string {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return nil
+	}
+	return &value.String
+}
+
+func pgTextValue(value pgtype.Text, fallback string) string {
+	if !value.Valid || value.String == "" {
+		return fallback
+	}
+	return value.String
+}
+
+func sourceRecordID(row pendingApplyRow) string {
+	if row.SourceRecordID.Valid && row.SourceRecordID.String != "" {
+		return row.SourceRecordID.String
+	}
+	return row.SourceRowKey
+}
+
+func importEvidenceRefs(importRunID, legacyRowID, sourceSystem, sourceRowKey string) []map[string]any {
+	return []map[string]any{
+		{
+			"evidence_type": "import_run",
+			"evidence_id":   importRunID,
+			"source_system": sourceSystem,
+			"description":   "Approved legacy RFID import run.",
+		},
+		{
+			"evidence_type": "source_record",
+			"evidence_id":   legacyRowID,
+			"source_system": sourceSystem,
+			"description":   "Synthetic-safe legacy RFID source row reference: " + sourceRowKey,
+		},
+	}
+}
+
+type importDecisionRecordInput struct {
+	DecisionID     string
+	TenantID       string
+	ActorID        *string
+	PolicyVersion  string
+	Reason         string
+	ImportRunID    string
+	LegacyRowID    string
+	SourceSystem   string
+	SourceRowKey   string
+	IdempotencyKey string
+	TraceID        string
+	CreatedAt      time.Time
+}
+
+func importDecisionRecordPayload(input importDecisionRecordInput) ([]byte, error) {
+	payload := map[string]any{
+		"decision_id":     input.DecisionID,
+		"decision_type":   "create_goat",
+		"decision_result": "imported_from_rfid_source",
+		"decision_state":  "approved",
+		"decided_by_type": "import_policy",
+		"decided_by":      input.ActorID,
+		"reviewer_id":     input.ActorID,
+		"policy_version":  input.PolicyVersion,
+		"reason":          input.Reason,
+		"source_record_ids": []string{
+			input.LegacyRowID,
+			input.SourceRowKey,
+		},
+		"affected_goats":     []map[string]any{},
+		"identifier_actions": []map[string]any{},
+		"evidence": map[string]any{
+			"evidence_refs": importEvidenceRefs(input.ImportRunID, input.LegacyRowID, input.SourceSystem, input.SourceRowKey),
+		},
+		"idempotency_key": input.IdempotencyKey,
+		"trace_id":        input.TraceID,
+		"created_at":      formatEventTime(input.CreatedAt),
+		"approved_at":     formatEventTime(input.CreatedAt),
+		"decided_at":      formatEventTime(input.CreatedAt),
+	}
+	return json.Marshal(payload)
+}
+
+type importEventEnvelopeInput struct {
+	EventID        string
+	GoatID         string
+	TenantID       string
+	ActorID        *string
+	IdempotencyKey string
+	TraceID        string
+	OccurredAt     time.Time
+	RecordedAt     time.Time
+	EvidenceRefs   []map[string]any
+	Payload        json.RawMessage
+}
+
+func importDomainEventEnvelope(input importEventEnvelopeInput) ([]byte, error) {
+	envelope := map[string]any{
+		"event_id":        input.EventID,
+		"event_type":      rfidApplyEventType,
+		"schema_version":  rfidApplySchemaVersion,
+		"schema_ref":      rfidApplyEventSchemaRef,
+		"aggregate_type":  "goat",
+		"aggregate_id":    input.GoatID,
+		"occurred_at":     formatEventTime(input.OccurredAt),
+		"recorded_at":     formatEventTime(input.RecordedAt),
+		"producer":        map[string]any{"service": "goatos-import", "module": "legacy_import"},
+		"idempotency_key": input.IdempotencyKey,
+		"actor":           map[string]any{"actor_type": "import_job", "actor_id": input.ActorID},
+		"subject_type":    "goat",
+		"subject_id":      input.GoatID,
+		"visibility_scope": map[string]any{
+			"tenant_id": input.TenantID,
+		},
+		"evidence_refs": input.EvidenceRefs,
+		"payload":       json.RawMessage(input.Payload),
+		"trace_id":      input.TraceID,
+	}
+	return json.Marshal(envelope)
+}
+
+func formatEventTime(value time.Time) string {
+	return value.UTC().Format("2006-01-02T15:04:05.000000Z")
+}
+
+func mustUUID(value string) pgtype.UUID {
+	uuid, err := uuidParam(value)
+	if err != nil {
+		panic(err)
+	}
+	return uuid
+}
+
+func textParam(value string) pgtype.Text {
+	return pgtype.Text{String: value, Valid: strings.TrimSpace(value) != ""}
+}
