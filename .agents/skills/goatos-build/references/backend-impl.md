@@ -15,9 +15,11 @@ Current backend shape:
 
 ```text
 backend/cmd/api                 process entrypoint and graceful shutdown
+backend/cmd/rfid-import         Phase 1 RFID workbook staging CLI
 backend/internal/bootstrap      explicit constructor wiring
 backend/internal/platform       shared platform adapters
 backend/internal/identity       Phase 1 Goat Passport module
+backend/internal/legacy_import  Phase 1 import staging and reconciliation inputs
 ```
 
 Identity module layout:
@@ -29,6 +31,14 @@ identity/ports                  interfaces owned by the identity module
 identity/adapters/http          thin net/http handlers
 identity/adapters/postgres      repository adapter behind ports.Repository
 identity/adapters/postgres/sqlc generated query package for static reads
+```
+
+Legacy import module layout:
+
+```text
+legacy_import                   parser, normalization, key/hash, runner orchestration
+legacy_import/adapters/postgres repository for legacy_import_runs/rows only
+legacy_import/adapters/postgres/sqlc generated import policy/staging SQL
 ```
 
 Rules:
@@ -115,6 +125,24 @@ Rules:
   `sqlc/query.sql`, runs EXPLAIN checks, and rejects sequential scans on the
   hot lookup tables. New generated queries must be registered in that plan
   validator or the check fails.
+- `backend/internal/legacy_import` owns import staging and reconciliation
+  inputs. Do not route staging writes through identity adapters, and do not let
+  `cmd` write `legacy_import_*` tables directly.
+- The RFID import CLI loads approved policy `phase1-rfid-db-import-v1`; source
+  system/dataset, source key recipe/version, hash recipe/version, identifier
+  policy version, and normalizer version come from that DB policy row.
+- RFID workbook imports parse `.xlsx` cells as text/raw values. Never coerce
+  RFID or old-tag-like fields through float conversion.
+- Dry-run imports write only `legacy_import_runs` aggregate counts. Real staging
+  writes `legacy_import_rows` in bounded batches and does not mutate canonical
+  goats, identifiers, events, outbox, counters, candidates, conflicts, or
+  corrections.
+- Source row keys follow the policy recipe and never include tenant prefixes or
+  spreadsheet row numbers. Row version hashes use deterministic fixed-order
+  serialization from the policy hash recipe.
+- Import fixtures committed to git must stay synthetic `.xlsx` files only. Do
+  not commit raw private workbook rows, RFID values, local paths, screenshots,
+  names, media URLs, or PII.
 
 Phase 1 read behaviors already built:
 
@@ -274,7 +302,7 @@ Known backend deferments:
 
 ```text
 auth/RBAC adapter
-legacy import runner
+canonical apply from staged legacy import rows
 create_goat conflict decision fields
 candidate approve canonical mutation semantics
 standalone merge command handler

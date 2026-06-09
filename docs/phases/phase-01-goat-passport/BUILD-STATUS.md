@@ -80,6 +80,20 @@ goat.identifier.disputed domain event envelopes
 reject candidate decision records
 ```
 
+Legacy import staging foundation:
+
+```text
+backend/cmd/rfid-import
+backend/internal/legacy_import
+backend/internal/legacy_import/adapters/postgres
+backend/internal/legacy_import/adapters/postgres/sqlc
+backend/internal/legacy_import/testdata/synthetic_rfid_import.xlsx
+
+RFID workbook import runner loads approved policy phase1-rfid-db-import-v1,
+parses .xlsx rows as raw text, normalizes RFID/old tag/scope/status evidence,
+and stages legacy_import_runs plus legacy_import_rows only.
+```
+
 ## Verified Behaviors
 
 Schema/migration invariants:
@@ -283,6 +297,37 @@ candidate review:
   exact idempotent replay rebuilds from DB state, not cached response bodies
   POST /admin/identity/candidates/{candidate_id}/approve remains typed
   not_implemented until canonical mutation semantics are contract-defined
+RFID source-of-truth staging:
+  CLI requires input workbook path and tenant_id; optional dry-run, batch-size,
+  started-by actor UUID, source-name, and policy-version are supported
+  source_system and source_dataset come from the approved
+  legacy_import_policies row, not CLI flags
+  policy phase1-rfid-db-import-v1 must exist and be approved before importing
+  source_file_hash stores a sha256 of workbook bytes; source_file_ref remains
+  null so local absolute paths are not persisted
+  dry-run writes one completed legacy_import_runs row with aggregate counts only
+  and writes no legacy_import_rows
+  real staging writes legacy_import_runs as running -> completed or failed and
+  inserts legacy_import_rows in bounded batches
+  source_row_key uses policy source_key_recipe fields in order:
+  source_system, source_dataset, normalized_old_tag, normalized_park_code, RFID
+  source_row_key never prepends tenant_id and never uses spreadsheet row_number
+  source_row_version_hash uses deterministic fixed-order serialization of the
+  policy hash_recipe include_fields and stores hash_recipe_version
+  same tenant/source/dataset/source_row_key/source_row_version_hash re-import is
+  ON CONFLICT DO NOTHING; the same source key with a different hash stages a
+  new row as needs_review
+  RFID values are read as text and never through float conversion
+  duplicate RFID values within a workbook hard-error the affected rows
+  duplicate old_tag within the same normalized park/scope routes affected rows
+  to needs_review; the same old_tag in different scopes remains allowed
+  blank Old ID Suffix, blank Gender, and RFID-less rows route to needs_review
+  F2/F2-Male/F2-Female/Fattening map only to growth/status context; sex comes
+  only from the Gender column
+  this slice does not mutate goats, goat_identifiers, goat_identity_events,
+  outbox_messages, counters, candidates, conflicts, or correction requests
+  synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
+  values, local paths, screenshots, names, media URLs, and PII are not committed
 ```
 
 ## Temporary Scaffolds
@@ -304,9 +349,9 @@ generated sqlc unless the query shape is intentionally dynamic and documented.
 
 ```text
 auth/RBAC adapter
-legacy import runner and source-file ingestion
 remaining admin write handlers except identifier add/retire, correction resolve,
 candidate reject, and built conflict resolve paths
+canonical apply from staged legacy import rows to goats/identifiers/events
 create_goat conflict decision until required goat creation fields are
 contract-defined
 candidate approve canonical mutation until required semantics are

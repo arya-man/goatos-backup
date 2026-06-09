@@ -960,7 +960,7 @@ created_at timestamptz not null
 Constraints:
 
 ```text
-unique(source_row_key, source_row_version_hash)
+unique(tenant_id, source_system, source_dataset, source_row_key, source_row_version_hash)
 index(import_run_id, processing_state, row_number)
 index(source_row_key)
 ```
@@ -2281,6 +2281,82 @@ same source_row_key + different source_row_version_hash requires field-level dif
 dry_run records import-run-scoped preview results but does not mutate canonical goats/identifiers/counters or active conflict queues
 never load full future herd into memory
 ```
+
+Phase 1 RFID runner foundation:
+
+```text
+backend/cmd/rfid-import is the thin CLI entrypoint
+backend/internal/legacy_import owns workbook parsing, source-key/hash creation,
+row-state classification, and staging orchestration
+backend/internal/legacy_import/adapters/postgres owns legacy_import_runs and
+legacy_import_rows persistence; cmd must not write those tables directly
+the runner supports .xlsx only in this slice
+required CLI flags: input workbook path, tenant_id
+optional CLI flags: dry-run, batch-size, started-by actor UUID, source-name,
+policy-version defaulting to phase1-rfid-db-import-v1
+source_system and source_dataset always come from the approved policy row
+the runner validates the policy exists and status=approved before import
+source_file_hash is sha256 over workbook bytes
+source_file_ref is null for local CLI imports so local absolute paths are never
+stored
+dry-run writes a completed legacy_import_runs row and aggregate counts only; it
+does not insert legacy_import_rows
+real staging writes a running legacy_import_runs row, inserts rows in bounded
+batches, then marks the run completed or failed
+created_goat_count, updated_goat_count, and conflict_count remain 0 in this
+staging-only slice
+```
+
+RFID runner normalization:
+
+```text
+RFID, Old ID, Old ID Suffix, and other identifier-like fields are read from
+OOXML cell text/raw values and never through float conversion
+RFID is trimmed and uppercased for staging; duplicate RFID values within the
+same workbook hard-error all affected rows
+Old ID becomes normalized_old_tag
+Old ID Suffix becomes normalized_park_code and old_tag scope; historic aliases
+CJB -> CBE and BLR -> CPT are normalized while preserving raw_payload evidence
+Current Farm never replaces Old ID Suffix as the old_tag scope
+blank Old ID Suffix routes the row to needs_review
+same old_tag in the same normalized scope routes affected rows to needs_review
+same old_tag in different normalized scopes is allowed
+Gender is the only sex source; blank/unknown Gender routes to needs_review
+F2, F2-Male, F2-Female, and Fattening are growth/status context only and must
+not set sex
+RFID-less rows are staged with a policy-compatible source_row_key when stable
+old-tag/scope evidence exists and route to needs_review
+clean staged rows use processing_state=pending
+review rows use processing_state=needs_review
+hard malformed/unparseable rows use processing_state=error with error_reason
+do not invent processing states such as staged, anomaly, or review
+```
+
+Source key and hash implementation:
+
+```text
+source_row_key is built from policy source_key_recipe fields in fixed order:
+source_system, source_dataset, normalized_old_tag, normalized_park_code, rfid
+tenant_id is stored separately and must never be prepended to source_row_key
+row_number, sorted_position, and export_line_number are forbidden in
+source_row_key
+source_key_recipe_version is copied from the policy row
+source_row_version_hash is sha256 over a deterministic fixed-order
+serialization of the policy hash_recipe include_fields after normalization
+hash_recipe_version is copied from the policy row
+same logical row re-imported with the same normalized projection produces the
+same source_row_key and source_row_version_hash
+the same source_row_key with a changed normalized projection produces a
+different source_row_version_hash and routes the new staged row to needs_review
+row staging uses ON CONFLICT against the 000002 uniqueness constraint:
+(tenant_id, source_system, source_dataset, source_row_key,
+source_row_version_hash)
+```
+
+This runner intentionally stops at staging. It does not create/update goats,
+goat_identifiers, goat_identity_events, outbox_messages, counters, candidates,
+conflicts, or correction requests. Canonical apply from staged rows is a later
+Phase 1 slice.
 
 ## Scale And Performance Requirements
 

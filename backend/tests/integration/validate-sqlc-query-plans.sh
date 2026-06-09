@@ -6,7 +6,10 @@ container_name="goatos-sqlc-plan-validation-$$"
 image="${GOATOS_SQLC_POSTGRES_IMAGE:-${GOATOS_POSTGRES_IMAGE:-postgres:16.9-alpine}}"
 db_name="goatos"
 db_user="postgres"
-query_file="$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql"
+query_files=(
+  "$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql"
+  "$repo_root/backend/internal/legacy_import/adapters/postgres/sqlc/query.sql"
+)
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -53,7 +56,8 @@ explain_must_use_index() {
 }
 
 extract_query() {
-  local query_name="$1"
+  local query_file="$1"
+  local query_name="$2"
   awk -v query_name="$query_name" '
     /^-- name: / {
       in_query = ($3 == query_name)
@@ -72,6 +76,11 @@ bind_query_params() {
     -e "s/@identifier_value/'1900'/g" \
     -e "s/@scope_key/'park:CBE'/g" \
     -e "s/@conflict_id/'20000000-0000-4000-8000-000000000001'::uuid/g" \
+    -e "s/@policy_version/'phase1-rfid-db-import-v1'/g" \
+    -e "s/@source_system/'legacy_rfid_db'/g" \
+    -e "s/@source_dataset/'rfid_db_first_import'/g" \
+    -e "s/@source_row_key/'source_system=legacy_rfid_db|source_dataset=rfid_db_first_import|normalized_old_tag=1900|normalized_park_code=CBE|rfid=RFID_SYNTHETIC_0001'/g" \
+    -e "s/@source_row_version_hash/'sha256:0000000000000000000000000000000000000000000000000000000000000000'/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
     -e "s/@limit_count/10/g"
@@ -101,6 +110,12 @@ forbidden_seq_scan_pattern() {
     ListIdentityCandidates)
       printf '%s\n' 'Seq Scan on identity_match_candidates'
       ;;
+    GetApprovedLegacyImportPolicy)
+      printf '%s\n' 'Seq Scan on legacy_import_policies'
+      ;;
+    HasLegacyImportRowWithDifferentHash)
+      printf '%s\n' 'Seq Scan on legacy_import_rows'
+      ;;
     *)
       echo "No sqlc plan expectation registered for generated query: $query_name" >&2
       exit 1
@@ -109,12 +124,13 @@ forbidden_seq_scan_pattern() {
 }
 
 validate_generated_query_plan() {
-  local query_name="$1"
+  local query_file="$1"
+  local query_name="$2"
   local forbidden
   local sql
 
   forbidden="$(forbidden_seq_scan_pattern "$query_name")"
-  sql="$(extract_query "$query_name" | bind_query_params)"
+  sql="$(extract_query "$query_file" "$query_name" | bind_query_params)"
   if [ -z "$(tr -d '[:space:]' <<<"$sql")" ]; then
     echo "Generated query not found in $query_file: $query_name" >&2
     exit 1
@@ -143,12 +159,16 @@ while IFS= read -r migration; do
 done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 
 checked_count=0
-while IFS= read -r query_name; do
-  validate_generated_query_plan "$query_name"
-  checked_count=$((checked_count + 1))
-done < <(awk '/^-- name: / { print $3 }' "$query_file")
+declared_count=0
+for query_file in "${query_files[@]}"; do
+  while IFS= read -r query_name; do
+    validate_generated_query_plan "$query_file" "$query_name"
+    checked_count=$((checked_count + 1))
+  done < <(awk '/^-- name: / { print $3 }' "$query_file")
+  file_count="$(awk '/^-- name: / { count++ } END { print count + 0 }' "$query_file")"
+  declared_count=$((declared_count + file_count))
+done
 
-declared_count="$(awk '/^-- name: / { count++ } END { print count + 0 }' "$query_file")"
 if [ "$checked_count" -ne "$declared_count" ]; then
   echo "Validated $checked_count sqlc query plans, expected $declared_count" >&2
   exit 1

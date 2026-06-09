@@ -13,7 +13,7 @@ sqlc-generate:
 	cd backend && sqlc generate -f sqlc.yaml
 
 sqlc-check: sqlc-generate
-	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc
+	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc backend/internal/legacy_import/adapters/postgres/sqlc
 
 check: guardrails
 	$(MAKE) test

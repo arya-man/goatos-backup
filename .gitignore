@@ -12,6 +12,8 @@
 *.xls
 *.csv
 source-material/
+!backend/internal/legacy_import/testdata/
+!backend/internal/legacy_import/testdata/*.xlsx
 
 # generated / dependency noise
 node_modules/
