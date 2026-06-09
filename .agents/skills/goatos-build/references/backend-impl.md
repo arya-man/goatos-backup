@@ -225,6 +225,10 @@ POST /admin/identity/conflicts/{conflict_id}/resolve
   active identifier remains attached to a newly merged goat
   survivor goat row_version is bumped when a loser identifier is transferred to
   the survivor
+  row-version invariant: every implemented write that changes a goat identity
+  surface must bump that goat row_version exactly once per transaction; future
+  candidate approve/reject, correction auto-apply, unmerge, and create_goat
+  slices must apply the same rule when they mutate goat identity
   writes identity_decision_goats roles survivor and merged, applied
   identity_decision_identifiers actions, goat_merge_links,
   goat_identity_events, identity_decision_events, audit_log, outbox_messages,

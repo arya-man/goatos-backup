@@ -1980,6 +1980,14 @@ same transaction. When `merge_goats` transfers a loser identifier to the
 survivor, the survivor goat `row_version` is also bumped because the survivor's
 identifier surface changed.
 
+Row-version invariant: every implemented write that changes a goat identity
+surface must bump that goat's `row_version` exactly once per transaction. Future
+Phase 1 mutation slices must preserve this before projection/cache invalidation
+depends on `row_version`: candidate approve/reject only when it mutates goat
+identity, correction auto-apply when it applies attach/retire/dispute/status
+changes, unmerge when redirect or identifier state changes, and create_goat
+starts with its initial `row_version` unless follow-up mutations happen.
+
 For `reject_match`, the resolver records a rejected decision, marks the conflict
 `rejected`, and does not mutate goat identity. For
 `request_field_verification`, the resolver records a `needs_review` decision,

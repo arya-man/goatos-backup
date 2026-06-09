@@ -405,6 +405,15 @@ Merge transfer actions also bump the survivor goat row_version because the
 survivor's identifier surface changes. create_goat remains typed
 not_implemented until the goat creation fields are contract-defined.
 
+Row-version invariant for this phase: every implemented write that changes a
+goat identity surface must bump that goat's row_version exactly once per
+transaction. Future identity mutation slices must apply the same rule before
+projection/cache invalidation depends on row_version: candidate approve/reject
+only when it mutates identity, correction auto-apply when it applies
+attach/retire/dispute/status changes, unmerge when redirect or identifier state
+changes, and create_goat starts with its initial row_version unless follow-up
+mutations happen.
+
 Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
 actor headers are local/dev scaffolding only. They are a deploy gate for shared,
 staging, or production-like environments.
