@@ -1,0 +1,167 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/outbox/domain"
+	"github.com/vgoats/goatos/backend/internal/outbox/ports"
+)
+
+var serviceTestNow = time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+
+func TestRunOnceReturnsRepositoryMarkError(t *testing.T) {
+	markErr := errors.New("synthetic mark published failure")
+	repo := &serviceFakeRepo{
+		messages:         []domain.Message{serviceTestMessage(t, 1, validServiceEnvelope(t, 1))},
+		markPublishedErr: markErr,
+	}
+	publisher := &serviceFakePublisher{}
+	service := NewService(repo, publisher, serviceTestValidator(t), Config{
+		Limit:       10,
+		MaxAttempts: 5,
+		Now:         func() time.Time { return serviceTestNow },
+	})
+
+	result, err := service.RunOnce(context.Background())
+	if !errors.Is(err, markErr) {
+		t.Fatalf("RunOnce error=%v want mark error", err)
+	}
+	if result == nil || result.ClaimedCount != 1 || result.PublishedCount != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if publisher.callCount != 1 {
+		t.Fatalf("publisher call count=%d want 1", publisher.callCount)
+	}
+}
+
+func serviceTestMessage(t *testing.T, suffix int, payload json.RawMessage) domain.Message {
+	t.Helper()
+	eventID := serviceTestUUID("20000000", suffix)
+	return domain.Message{
+		OutboxID:       serviceTestUUID("10000000", suffix),
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		EventID:        eventID,
+		EventType:      "goat.created",
+		SchemaVersion:  "1.0.0",
+		AggregateType:  "goat",
+		AggregateID:    "91000000-0000-4000-8000-000000000001",
+		Topic:          "identity.events",
+		Headers:        json.RawMessage(`{"source":"outbox-service-test"}`),
+		Payload:        payload,
+		IdempotencyKey: "outbox-service-test-" + eventID,
+		AttemptCount:   1,
+		CreatedAt:      serviceTestNow,
+		UpdatedAt:      serviceTestNow,
+	}
+}
+
+func validServiceEnvelope(t *testing.T, suffix int) json.RawMessage {
+	t.Helper()
+	eventID := serviceTestUUID("20000000", suffix)
+	envelope := map[string]any{
+		"event_id":        eventID,
+		"event_type":      "goat.created",
+		"schema_version":  "1.0.0",
+		"schema_ref":      "contracts/jsonschema/domain-event-envelope.schema.json",
+		"aggregate_type":  "goat",
+		"aggregate_id":    "91000000-0000-4000-8000-000000000001",
+		"occurred_at":     serviceTestNow.Format(time.RFC3339),
+		"recorded_at":     serviceTestNow.Format(time.RFC3339),
+		"producer":        map[string]any{"service": "goatos-test", "module": "outbox"},
+		"idempotency_key": "outbox-service-test-" + eventID,
+		"actor":           map[string]any{"actor_type": "system_rule", "actor_id": nil, "actor_ref": "outbox-service-test"},
+		"subject_type":    "goat",
+		"subject_id":      "91000000-0000-4000-8000-000000000001",
+		"visibility_scope": map[string]any{
+			"tenant_id": "00000000-0000-4000-8000-000000000001",
+		},
+		"evidence_refs": []any{},
+		"payload":       map[string]any{"source": "synthetic_outbox_service_test"},
+		"trace_id":      "trace-outbox-service-test",
+	}
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func serviceTestValidator(t *testing.T) *EnvelopeValidator {
+	t.Helper()
+	validator, err := NewEnvelopeValidator(filepath.Join(serviceRepoRoot(t), "contracts", "jsonschema", "domain-event-envelope.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return validator
+}
+
+func serviceRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return filepath.Dir(dir)
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			t.Fatal("repo root not found")
+		}
+		dir = next
+	}
+}
+
+func serviceTestUUID(prefix string, suffix int) string {
+	return fmt.Sprintf("%s-0000-4000-8000-%012d", prefix, suffix)
+}
+
+type serviceFakeRepo struct {
+	messages         []domain.Message
+	markPublishedErr error
+}
+
+func (r *serviceFakeRepo) ReclaimStalePublishing(context.Context, time.Time, time.Duration) (int64, error) {
+	return 0, nil
+}
+
+func (r *serviceFakeRepo) ClaimPending(context.Context, ports.ClaimParams) (*ports.ClaimResult, error) {
+	return &ports.ClaimResult{Messages: r.messages}, nil
+}
+
+func (r *serviceFakeRepo) MarkPublished(context.Context, string, time.Time) error {
+	return r.markPublishedErr
+}
+
+func (r *serviceFakeRepo) MarkRetry(context.Context, string, time.Time, string, time.Time) error {
+	return nil
+}
+
+func (r *serviceFakeRepo) MarkFailed(context.Context, string, string, time.Time) error {
+	return nil
+}
+
+func (r *serviceFakeRepo) MarkDeadLetter(context.Context, string, string, time.Time) error {
+	return nil
+}
+
+func (r *serviceFakeRepo) Ping(context.Context) error {
+	return nil
+}
+
+type serviceFakePublisher struct {
+	callCount int
+}
+
+func (p *serviceFakePublisher) Publish(context.Context, ports.PublishMessage) error {
+	p.callCount++
+	return nil
+}

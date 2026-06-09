@@ -27,6 +27,9 @@ backend/migrations/postgres/000002_phase_1_identity_schema_hardening.sql
 backend/migrations/postgres/000003_phase_1_correction_outbox_support.sql
 backend/migrations/postgres/000004_phase_1_correction_resolve_support.sql
 backend/migrations/postgres/000005_phase_1_conflict_resolve_support.sql
+backend/migrations/postgres/000006_phase_1_candidate_review_support.sql
+backend/migrations/postgres/000007_phase_1_reporting_counter_rebuild_support.sql
+backend/migrations/postgres/000008_phase_1_reporting_counts_pagination.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -35,6 +38,7 @@ Go backend read foundation:
 
 ```text
 backend/cmd/api
+backend/cmd/outbox-relay
 backend/internal/bootstrap
 backend/internal/platform/logger
 backend/internal/platform/httpmiddleware
@@ -78,6 +82,41 @@ mark_identifier_disputed decision records
 goat.identity.merge_approved domain event envelopes
 goat.identifier.disputed domain event envelopes
 reject candidate decision records
+```
+
+Outbox relay foundation:
+
+```text
+backend/cmd/outbox-relay
+backend/internal/outbox/domain
+backend/internal/outbox/app
+backend/internal/outbox/ports
+backend/internal/outbox/adapters/postgres
+backend/internal/outbox/adapters/publisher/logging
+
+The relay is local/dev worker/CLI foundation only. It claims pending rows where
+next_attempt_at is null or due, ordered by created_at/outbox_id, in bounded
+FOR UPDATE SKIP LOCKED batches. Claiming happens in a short transaction, then
+publishing happens outside the claim transaction through a publisher port.
+
+Status behavior:
+  pending -> publishing when claimed, with attempt_count incremented
+  publishing -> published on success, with published_at set and last_error cleared
+  publishing -> pending on retryable publish failure, with future next_attempt_at
+  publishing -> failed when the domain event envelope is invalid
+  pending/publishing -> dead_letter when max attempts are exhausted
+
+Fresh outbox rows use status=pending and next_attempt_at=null. Stale publishing
+rows are reclaimed by lease timeout without resetting attempt_count; fresh
+publishing leases are not stolen. Pending rows already at max attempts are moved
+to dead_letter at claim time and are not published. Publisher panics are
+recovered per row and treated as retryable failures unless attempts are
+exhausted. The relay validates outbox payloads against
+contracts/jsonschema/domain-event-envelope.schema.json using
+github.com/santhosh-tekuri/jsonschema/v6. Relay update SQL only touches status,
+attempt_count, next_attempt_at, last_error, published_at, and updated_at; it
+does not update tenant_id or event_id. The logging/no-op publisher logs safe
+metadata only and never logs raw payloads.
 ```
 
 Legacy import staging foundation:
@@ -414,7 +453,8 @@ candidate approve canonical mutation until required semantics are
 contract-defined
 standalone merge command handler
 unmerge command handler/contract
-outbox relay runtime
+real Google Pub/Sub outbox publisher and production worker deployment
+frontend event/DLQ UI
 incremental projection workers
 externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
@@ -657,8 +697,11 @@ Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
 actor headers are local/dev scaffolding only. They are a deploy gate for shared,
 staging, or production-like environments.
 
-Outbox relay/publisher remains deferred. The write slice persists outbox rows
-only; it must not add a publisher goroutine.
+Outbox relay is a standalone local/dev CLI foundation. It is not run as an API
+server goroutine and does not include real cloud publishing. Production
+deployment, Google Pub/Sub adapter, event consumers, projection workers,
+incremental counter consumer, rebuild-status metadata, and richer DLQ operations
+remain deferred.
 ```
 
 ## Validation Commands

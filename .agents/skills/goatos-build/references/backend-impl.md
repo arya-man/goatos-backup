@@ -15,12 +15,14 @@ Current backend shape:
 
 ```text
 backend/cmd/api                 process entrypoint and graceful shutdown
+backend/cmd/outbox-relay        Phase 1 local/dev outbox relay one-shot CLI
 backend/cmd/rfid-import         Phase 1 RFID workbook staging CLI
 backend/cmd/rfid-apply          Phase 1 RFID staged-row canonical apply CLI
 backend/internal/bootstrap      explicit constructor wiring
 backend/internal/platform       shared platform adapters
 backend/internal/identity       Phase 1 Goat Passport module
 backend/internal/legacy_import  Phase 1 import staging and reconciliation inputs
+backend/internal/outbox         Phase 1 local/dev outbox relay foundation
 ```
 
 Identity module layout:
@@ -40,6 +42,16 @@ Legacy import module layout:
 legacy_import                   parser, normalization, key/hash, runner orchestration
 legacy_import/adapters/postgres repository for staging and RFID apply SQL
 legacy_import/adapters/postgres/sqlc generated import policy/staging/apply SQL
+```
+
+Outbox module layout:
+
+```text
+outbox/domain                  relay DTOs and outbox status constants
+outbox/app                     claim/publish/retry/dead-letter workflow
+outbox/ports                   repository and publisher interfaces
+outbox/adapters/postgres       outbox_messages claim/update adapter
+outbox/adapters/publisher/logging local no-op publisher with safe metadata logs
 ```
 
 Rules:
@@ -195,6 +207,26 @@ Rules:
   `import_policy`. Governed deterministic automation may use those actor types
   only under approved policy. Add candidate DB hardening before building the AI
   worker.
+- `backend/cmd/outbox-relay` is the Phase 1 local/dev relay foundation. It is a
+  one-shot CLI, not an API-server goroutine. It claims due `pending`
+  `outbox_messages` rows in bounded `FOR UPDATE SKIP LOCKED` chunks, moves them
+  to `publishing` with atomic attempt_count increment, validates payloads
+  against `contracts/jsonschema/domain-event-envelope.schema.json`, publishes
+  outside the claim transaction through a publisher port, and then marks
+  `published`, `pending` retry with future `next_attempt_at`, `failed`, or
+  `dead_letter`. Relay SQL only updates `status`, `attempt_count`,
+  `next_attempt_at`, `last_error`, `published_at`, and `updated_at`; it must not
+  update `tenant_id` or `event_id`.
+- Fresh outbox rows have `status='pending'` and `next_attempt_at IS NULL`.
+  Stale `publishing` rows are reclaimed by lease timeout without resetting
+  `attempt_count`; fresh publishing leases must not be stolen. Rows already at
+  max attempts dead-letter at claim time without publisher calls. Publisher
+  panic is recovered per row and treated as retryable unless attempts are
+  exhausted. Logging/no-op publisher logs safe metadata only and never raw
+  payloads, RFID/tag values, headers, source rows, media URLs, or PII.
+- Real Google Pub/Sub publishing, production worker deployment, event
+  consumers, projection workers, incremental counter consumer, frontend event
+  UI, and richer DLQ operations remain deferred.
 
 Phase 1 read behaviors already built:
 
@@ -362,7 +394,8 @@ standalone merge command handler
 unmerge command handler/contract
 incremental projection workers
 externally visible counter rebuild-status metadata table
-outbox relay/runtime workers
+real Google Pub/Sub outbox publisher and production worker deployment
+frontend event/DLQ UI
 OpenTelemetry exporters/spans/metrics
 P8 sales/allocation behavior
 ```

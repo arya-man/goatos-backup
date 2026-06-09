@@ -1489,13 +1489,32 @@ Relay rules:
 
 ```text
 API/import transactions never publish directly to Pub/Sub
-relay claims pending rows in bounded chunks with SKIP LOCKED or equivalent
-stale publishing rows are reclaimed by lease timeout
-publish success records provider metadata and marks published
-publish failure increments attempt_count and schedules bounded backoff
-poison rows move to failed/dead-letter state with alertable error metadata
+local/dev relay foundation lives in backend/cmd/outbox-relay and
+backend/internal/outbox
+relay claims pending rows where next_attempt_at is null or due, ordered by
+created_at/outbox_id, in bounded chunks with FOR UPDATE SKIP LOCKED
+claim happens in a short transaction; publish happens outside the claim
+transaction
+before incrementing attempts, pending rows already at max attempts move to
+dead_letter and are not published
+stale publishing rows are reclaimed by lease timeout without resetting
+attempt_count; fresh publishing leases are not stolen
+publish success marks published, sets published_at, clears last_error, and
+clears next_attempt_at
+retryable publish failure resets to pending, schedules future next_attempt_at,
+and stores sanitized last_error
+invalid domain event envelope payloads fail terminally with status=failed and
+are not retried
+exhausted attempts move to dead_letter
+relay update SQL only touches status, attempt_count, next_attempt_at,
+last_error, published_at, and updated_at; it does not update tenant_id or
+event_id
+the local logging/no-op publisher logs safe metadata only and never logs raw
+payload, RFID/tag values, headers, or media/source data
 published rows are kept only for hot replay/debug window, then archived/exported or deleted by scheduler
 relay uses event_id/idempotency_key so retry cannot create a second downstream business event
+real Google Pub/Sub adapter, production worker deployment, event consumers,
+projection workers, incremental counter consumer, and richer DLQ UI are deferred
 ```
 
 ### `goat_identity_counters`
