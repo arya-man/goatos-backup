@@ -177,6 +177,15 @@ Rules:
   source_dataset, source_row_key, and source_row_version_hash. It intentionally
   excludes import_run_id, and exact replay must not duplicate goat, identifier,
   ownership, custody, decision, event, audit, or outbox rows.
+- Future RFID apply ops hardening is tracked but not built: optional latest
+  apply-attempt visibility fields (`apply_started_at`, `apply_completed_at`,
+  `apply_status`, sanitized `apply_error_reason`), a separate `apply_attempts`
+  table only if full history is needed, DB delete/update guards for permanent
+  seed/reference rows such as Mesha party/org, active goat breed seeds,
+  identifier policies, and import policies, bounded retry only if real
+  40001/40P01 appears or apply becomes parallel, and deterministic non-SQL
+  row-local isolation only after such faults are proven reachable and safely
+  sanitizable.
 - Import fixtures committed to git must stay synthetic `.xlsx` files only. Do
   not commit raw private workbook rows, RFID values, local paths, screenshots,
   names, media URLs, or PII.
@@ -355,6 +364,31 @@ projection workers and counter population
 outbox relay/runtime workers
 OpenTelemetry exporters/spans/metrics
 P8 sales/allocation behavior
+```
+
+Counter projection order:
+
+```text
+Build counter rebuild before incremental counters. Rebuild belongs in
+backend/internal/reporting, recomputes goat_identity_counters from canonical
+goats via bounded/grouped SQL, writes as_of_recorded_at as the canonical
+snapshot boundary counted by the rebuild (not now()), exposes
+is_rebuilding/freshness to analytics/counts, and never makes dashboard reads
+fall back to raw goats count(*).
+
+Phase 1 counter membership excludes identity_state=merged and
+identity_state=inactive from all grains. Dead/sold lifecycle buckets are counted
+only for non-merged, non-inactive goats. Location grains use goats
+farm/park/shed/cohort cache columns; custodian grains use
+goats.custodian_party_id.
+
+Incremental counters are a later async event/outbox consumer with event_id
+dedupe and before/after multi-grain deltas. Projection failures must never roll
+back canonical identity writes; the counter table's count_value >= 0 check is a
+projection concern, not a reason to abort a valid goat mutation. Large imports
+rebuild counters instead of doing per-row counter increments. Incremental
+workers need drift detection, such as scheduled rebuild plus bounded
+reconciliation checks.
 ```
 
 Before extending this backend:

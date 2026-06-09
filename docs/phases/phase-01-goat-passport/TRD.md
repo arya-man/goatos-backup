@@ -1534,11 +1534,25 @@ Rules:
 dashboard count APIs read this projection, not the full goats table
 projection is rebuildable from goats + identity/location events
 large import runs rebuild counters at import completion in bounded grouped queries
-steady-state single-goat changes update counters incrementally
-same-transaction counter updates are allowed only for low-volume steady-state writes
+counter rebuild writes `as_of_recorded_at` as the projection watermark and
+`is_rebuilding` as the freshness flag; the watermark is the canonical snapshot
+boundary counted by the rebuild, not `now()`
+steady-state incremental updates are a later event/projection consumer, not a
+large-import row-by-row path
+incremental counter updates must be async/event-driven with event_id dedupe and
+must not roll back canonical goat writes if a projection update fails; the
+`count_value >= 0` check means projection underflow/drift must be isolated in
+the projection worker, not allowed to abort a valid goat mutation
+incremental deltas require before/after dimension snapshots because a goat
+change can affect multiple counter grains
+incremental workers must include a drift-detection trigger, such as scheduled
+rebuild plus bounded reconciliation checks, because high-side drift is otherwise
+silent
 parallel import workers must not contend on hot counter rows
 dashboard/API responses include as_of_recorded_at and is_rebuilding
 if counters are stale/rebuilding, dashboards show freshness state and still must not fall back to raw table scans
+the rebuild implementation must explicitly pin grain membership semantics before
+code, including how merged/inactive goats are counted or excluded
 ```
 
 Materialized grains:
@@ -1554,6 +1568,25 @@ health_status: tenant_id + health_status
 growth_cohort: tenant_id + growth_cohort_tag
 management_stage: tenant_id + management_stage
 reproductive_status: tenant_id + reproductive_status
+```
+
+Phase 1 grain membership:
+
+```text
+all counter rebuild queries exclude goats with identity_state='merged' because
+merged goats are tombstones/redirects and would double-count the survivor
+all counter rebuild queries exclude goats with identity_state='inactive' because
+inactive is not a current canonical herd member for Phase 1 operational counts
+non-merged, non-inactive goats are counted in lifecycle grains by their
+lifecycle_status value, including dead or sold buckets when those values are
+present
+custodian_identity counts only non-merged, non-inactive goats by identity_state
+and therefore includes clean, needs_review, and disputed in Phase 1; inactive
+remains excluded unless a later phase explicitly changes the inactive exclusion
+rule
+location grains use the current cache columns on goats (farm_id, park_id,
+shed_id, cohort_id) and do not read historical location ledgers
+custodian grains use goats.custodian_party_id as the current custodian cache
 ```
 
 Do not materialize arbitrary combinations of all nullable dimensions. New grains
@@ -2447,6 +2480,23 @@ error rows are not auto-retried by rfid-apply; an operator must inspect/fix and
 promote the row back to pending before retry
 ```
 
+Future apply ops hardening backlog:
+
+```text
+last-attempt visibility fields may be added later:
+apply_started_at, apply_completed_at, apply_status, sanitized apply_error_reason
+these fields are latest-attempt visibility only, not full history
+if full attempt history matters, add a separate apply_attempts table instead of
+overloading legacy_import_runs
+add delete/update guards for foundational seed/reference rows such as Mesha
+party/org, active goat breed seeds, identifier policies, and import policies
+to prevent systemic FK failures from missing reference data
+bounded per-row retry for 40001/40P01 is deferred until apply becomes parallel
+or those failures appear in real operation
+unknown non-SQL errors abort; deterministic non-SQL row-local faults may be
+isolated only after proven reachable and safely sanitizable
+```
+
 Canonical writes for one safe row commit in one transaction:
 
 ```text
@@ -2633,6 +2683,8 @@ merge decision validation
 merged-goat redirect behavior
 permission checks
 counter projection update rules
+counter rebuild watermark protocol and safe replacement strategy
+incremental counter event_id dedupe and before/after delta semantics
 RBAC scope filtering
 audit log write rules
 outbox write/envelope validation rules

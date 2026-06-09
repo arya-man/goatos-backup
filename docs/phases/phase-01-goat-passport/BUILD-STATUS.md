@@ -419,6 +419,63 @@ fresh private RFID DB import run
 P8 sales/allocation/promise behavior
 ```
 
+Counter projection sequencing:
+
+```text
+next counter slice should implement rebuild first in backend/internal/reporting:
+  recompute goat_identity_counters from canonical goats in bounded/grouped
+  queries, set as_of_recorded_at to the canonical snapshot boundary counted by
+  the rebuild (not now()), maintain is_rebuilding freshness, use a safe
+  replacement/upsert strategy, and wire analytics/counts to projection rows only
+
+incremental counter updates are a later slice:
+  consume goat identity events/outbox asynchronously with event_id dedupe, derive
+  multi-grain before/after deltas, and isolate projection failures from
+  canonical goat writes. The counter table's count_value >= 0 check must never
+  roll back a valid goat mutation, so do not put incremental projection updates
+  in the identity write transaction. Do not update large-import counters
+  row-by-row. Include a drift trigger such as scheduled rebuild plus bounded
+  reconciliation checks.
+
+Phase 1 counter membership is pinned:
+  exclude identity_state=merged from all grains because merged goats are
+  tombstones/redirects; exclude identity_state=inactive from Phase 1 operational
+  counts; count dead/sold lifecycle_status buckets only for non-merged,
+  non-inactive goats; location grains use goats farm/park/shed/cohort cache
+  columns; custodian grains use goats.custodian_party_id.
+```
+
+## Future Ops Hardening Backlog
+
+```text
+RFID apply attempt visibility:
+  add last-attempt fields later if operators need per-run visibility:
+  apply_started_at, apply_completed_at, apply_status, and sanitized
+  apply_error_reason. These fields describe the latest apply attempt only; they
+  are not a full attempt ledger.
+
+RFID apply attempt history:
+  if full attempt history becomes necessary, add a separate apply_attempts table
+  instead of overloading legacy_import_runs.
+
+Foundational seed/reference delete guards:
+  add DB delete/update guards for permanent seed/reference rows such as the
+  Mesha party/org, active goat breed seeds, identifier policies, and import
+  policies. The goal is to prevent systemic FK failures from missing
+  foundational rows instead of teaching the row-error classifier to guess around
+  preventable reference-data deletion.
+
+Apply retry policy:
+  add bounded per-row retry only if apply becomes parallel or real 40001/40P01
+  failures appear in operations. Until then, transient/concurrency/unknown
+  failures abort the run and do not mark rows error.
+
+Non-SQL deterministic row-local faults:
+  keep unknown non-SQL errors as run-aborting failures. Only extend row-error
+  isolation to deterministic non-SQL row-local faults after such faults are
+  proven reachable and can be sanitized safely.
+```
+
 ## Merge/Unmerge Contract Status
 
 ```text
