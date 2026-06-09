@@ -7,7 +7,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/reporting/domain"
 )
 
-var ErrNotFound = errors.New("reporting record not found")
+var (
+	ErrNotFound      = errors.New("reporting record not found")
+	ErrInvalidFilter = errors.New("invalid reporting filter")
+)
 
 type CountParams struct {
 	Grain              string

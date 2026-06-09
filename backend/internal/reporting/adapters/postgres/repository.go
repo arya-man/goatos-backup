@@ -46,25 +46,49 @@ func (r *Repository) ListIdentityCounts(ctx context.Context, params ports.CountP
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	tenantUUID, err := uuidParam(params.TenantID)
+	tenantUUID, err := uuidParam("tenant_id", params.TenantID)
+	if err != nil {
+		return nil, domain.Freshness{}, err
+	}
+	custodianPartyID, err := nullableUUIDParam("custodian_party_id", params.CustodianPartyID)
+	if err != nil {
+		return nil, domain.Freshness{}, err
+	}
+	farmID, err := nullableUUIDParam("farm_id", params.FarmID)
+	if err != nil {
+		return nil, domain.Freshness{}, err
+	}
+	parkID, err := nullableUUIDParam("park_id", params.ParkID)
+	if err != nil {
+		return nil, domain.Freshness{}, err
+	}
+	shedID, err := nullableUUIDParam("shed_id", params.ShedID)
+	if err != nil {
+		return nil, domain.Freshness{}, err
+	}
+	cohortID, err := nullableUUIDParam("cohort_id", params.CohortID)
+	if err != nil {
+		return nil, domain.Freshness{}, err
+	}
+	breedID, err := nullableUUIDParam("breed_id", params.BreedID)
 	if err != nil {
 		return nil, domain.Freshness{}, err
 	}
 	rows, err := r.queries.ListIdentityCounts(ctx, reportingdb.ListIdentityCountsParams{
 		CounterGrain:       params.Grain,
 		TenantID:           tenantUUID,
-		CustodianPartyID:   nullableUUID(params.CustodianPartyID),
-		FarmID:             nullableUUID(params.FarmID),
-		ParkID:             nullableUUID(params.ParkID),
-		ShedID:             nullableUUID(params.ShedID),
-		CohortID:           nullableUUID(params.CohortID),
+		CustodianPartyID:   custodianPartyID,
+		FarmID:             farmID,
+		ParkID:             parkID,
+		ShedID:             shedID,
+		CohortID:           cohortID,
 		LifecycleStatus:    nullableText(params.LifecycleStatus),
 		ReproductiveStatus: nullableText(params.ReproductiveStatus),
 		GrowthCohortTag:    nullableText(params.GrowthCohortTag),
 		ManagementStage:    nullableText(params.ManagementStage),
 		HealthStatus:       nullableText(params.HealthStatus),
 		IdentityState:      nullableText(params.IdentityState),
-		BreedID:            nullableUUID(params.BreedID),
+		BreedID:            breedID,
 		Sex:                nullableText(params.Sex),
 	})
 	if err != nil {
@@ -103,11 +127,11 @@ func (r *Repository) rebuildIdentityCountersOnce(ctx context.Context, params por
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	tenantUUID, err := uuidParam(params.TenantID)
+	tenantUUID, err := uuidParam("tenant_id", params.TenantID)
 	if err != nil {
 		return nil, err
 	}
-	sourceRunUUID, err := nullableUUIDParam(params.SourceImportRunID)
+	sourceRunUUID, err := nullableUUIDParam("source_import_run_id", params.SourceImportRunID)
 	if err != nil {
 		return nil, err
 	}
@@ -299,30 +323,19 @@ func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.
 	return context.WithTimeout(ctx, r.timeout)
 }
 
-func uuidParam(value string) (pgtype.UUID, error) {
+func uuidParam(field, value string) (pgtype.UUID, error) {
 	var out pgtype.UUID
 	if err := out.Scan(value); err != nil {
-		return pgtype.UUID{}, fmt.Errorf("invalid uuid %q: %w", value, err)
+		return pgtype.UUID{}, fmt.Errorf("%w: %s must be a uuid", ports.ErrInvalidFilter, field)
 	}
 	return out, nil
 }
 
-func nullableUUIDParam(value *string) (pgtype.UUID, error) {
+func nullableUUIDParam(field string, value *string) (pgtype.UUID, error) {
 	if value == nil {
 		return pgtype.UUID{}, nil
 	}
-	return uuidParam(*value)
-}
-
-func nullableUUID(value *string) pgtype.UUID {
-	if value == nil {
-		return pgtype.UUID{}
-	}
-	uuid, err := uuidParam(*value)
-	if err != nil {
-		return pgtype.UUID{}
-	}
-	return uuid
+	return uuidParam(field, *value)
 }
 
 func nullableText(value *string) pgtype.Text {

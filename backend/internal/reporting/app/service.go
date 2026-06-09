@@ -82,5 +82,8 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrNotFound) {
 		return BadRequest("not_found_or_not_allowed", "reporting scope is missing or outside tenant scope")
 	}
+	if errors.Is(err, ports.ErrInvalidFilter) {
+		return BadRequest("invalid_filter", "one or more reporting filters are invalid")
+	}
 	return Internal("reporting repository operation failed")
 }

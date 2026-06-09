@@ -39,10 +39,36 @@ func TestAnalyticsTenantScopeMismatchReturnsErrorEnvelope(t *testing.T) {
 	}
 }
 
-type fakeRepo struct{}
+func TestAnalyticsInvalidFilterReturnsBadRequestEnvelope(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(fakeRepo{listErr: ports.ErrInvalidFilter})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
 
-func (fakeRepo) ListIdentityCounts(context.Context, ports.CountParams) ([]domain.IdentityCount, domain.Freshness, error) {
-	return nil, domain.Freshness{}, nil
+	req := httptest.NewRequest(http.MethodGet, "/analytics/identity/counts?grain=tenant_lifecycle&tenant_id=00000000-0000-4000-8000-000000000001&park_id=not-a-uuid", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-invalid-filter")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "invalid_filter" || envelope.TraceID != "req-invalid-filter" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+type fakeRepo struct {
+	listErr error
+}
+
+func (f fakeRepo) ListIdentityCounts(context.Context, ports.CountParams) ([]domain.IdentityCount, domain.Freshness, error) {
+	return nil, domain.Freshness{}, f.listErr
 }
 
 func (fakeRepo) RebuildIdentityCounters(context.Context, ports.RebuildIdentityCountersParams) (*domain.IdentityCounterRebuildResult, error) {

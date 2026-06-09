@@ -38,7 +38,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	repo := reportingpg.NewRepository(pool, cfg.QueryTimeout)
+	repo := reportingpg.NewRepository(pool, timeout)
 	service := reportingapp.NewService(repo)
 	params := ports.RebuildIdentityCountersParams{
 		TenantID: tenantID,

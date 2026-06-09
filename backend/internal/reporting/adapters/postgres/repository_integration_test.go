@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -72,6 +73,13 @@ func TestIdentityCounterRebuildWithDockerPostgres(t *testing.T) {
 	wantWatermark := time.Date(2026, 6, 9, 12, 30, 0, 0, time.UTC)
 	if result.AsOfRecordedAt == nil || !result.AsOfRecordedAt.Equal(wantWatermark) {
 		t.Fatalf("watermark=%v want %v", result.AsOfRecordedAt, wantWatermark)
+	}
+	if _, _, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+		TenantID: meshaTenant,
+		Grain:    domain.GrainParkLifecycle,
+		ParkID:   strPtr("not-a-uuid"),
+	}); !errors.Is(err, ports.ErrInvalidFilter) {
+		t.Fatalf("malformed park_id should fail closed with ErrInvalidFilter, got %v", err)
 	}
 
 	assertCounter(t, pool, domain.GrainTenantLifecycle, `lifecycle_status = 'alive'`, 2)
