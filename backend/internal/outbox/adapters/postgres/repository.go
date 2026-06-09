@@ -125,6 +125,7 @@ FOR UPDATE SKIP LOCKED`, params.Now, params.Limit)
 			tag, err := tx.Exec(ctx, `
 UPDATE outbox_messages
 SET status = 'dead_letter',
+    next_attempt_at = NULL,
     last_error = $2,
     updated_at = $3
 WHERE outbox_id = $1

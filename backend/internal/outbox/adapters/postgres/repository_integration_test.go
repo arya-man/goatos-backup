@@ -130,7 +130,12 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 	})
 
 	t.Run("claim time max attempts dead letters without publish", func(t *testing.T) {
-		row := insertOutboxMessage(t, pool, outboxRow{Suffix: 40, Status: domain.StatusPending, AttemptCount: 5})
+		row := insertOutboxMessage(t, pool, outboxRow{
+			Suffix:        40,
+			Status:        domain.StatusPending,
+			AttemptCount:  5,
+			NextAttemptAt: timePtr(outboxTestNow.Add(-time.Minute)),
+		})
 		publisher := &fakePublisher{}
 		service := newRelayService(t, pool, publisher, outboxapp.Config{Limit: 10, MaxAttempts: 5, Now: fixedNow})
 
