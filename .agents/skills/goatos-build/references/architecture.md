@@ -62,8 +62,12 @@ Rules:
 - Crop/fodder/farmer workflow is real legacy scope. Build it only if Goat OS
   owns feed production; otherwise define an integration boundary into feed
   inventory/cost analytics.
-- AI may propose, classify, summarize, or triage. It must not silently create
-  canonical truth.
+- AI may propose, classify, summarize, or triage. AI-authored identity
+  suggestions must use `ai_proposal`, remain `proposed` or `needs_review`,
+  include reasons plus evidence/source links, and must never write as
+  `system_rule` or `import_policy`. Governed deterministic automation may use
+  `system_rule`/`import_policy` only under approved policy. AI must not silently
+  create canonical truth.
 - High-risk actions need deterministic rules, evidence IDs, and review gates.
 
 Before editing architecture, check for drift against existing context docs.

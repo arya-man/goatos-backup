@@ -213,7 +213,7 @@ High-risk decisions must store an evidence-backed decision record:
 decision_type
 decision_result
 decision_state: proposed | approved | rejected | needs_review
-decided_by: system_rule | human | ai_proposal
+decided_by: system_rule | human | import_policy | ai_proposal
 policy_version
 source_event_ids
 source_media_ids
@@ -223,6 +223,14 @@ confidence
 reviewer_id
 decided_at
 ```
+
+AI-authored identity suggestions must be recorded as `ai_proposal` and may only
+remain `proposed` or `needs_review`. They must include explainable reasons,
+confidence/model context where applicable, and evidence/source links. AI workers
+must never write as `system_rule` or `import_policy`; those actor types are
+reserved for deterministic governed automation under approved policy. Database
+guards should mirror this boundary for every AI-writable proposal table before
+an AI worker is enabled.
 
 Examples:
 
