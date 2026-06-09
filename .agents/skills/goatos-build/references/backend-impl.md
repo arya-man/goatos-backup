@@ -64,6 +64,13 @@ Rules:
   handwritten pgx for dynamic optional-filter reads. Do not spread new
   hand-written SQL into write-heavy/import/reconciliation paths without either
   generating it or documenting why the shape must remain dynamic.
+- Use both concurrency patterns deliberately. User/admin commands that edit a
+  specific identity aggregate use `row_version` optimistic guards or the command
+  aggregate's `row_version`. Writes that change a goat identity surface bump
+  that goat `row_version` exactly once per transaction for stale-write rejection
+  and future projection/cache invalidation. Counters, import progress, retry
+  attempts, and projections use atomic SQL increments or rebuilds, not
+  row-version compare-and-retry loops.
 - Write commands use repository-owned Postgres transactions behind the module
   port. The app service validates command semantics and idempotency identity;
   the Postgres adapter owns SQL and commits idempotency row, domain write,

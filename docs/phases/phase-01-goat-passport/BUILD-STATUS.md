@@ -539,6 +539,11 @@ attach/retire/dispute/status changes, unmerge when redirect or identifier state
 changes, and create_goat starts with its initial row_version unless follow-up
 mutations happen.
 
+Concurrency pattern split: row_version is for stale human/admin identity
+decisions and aggregate invalidation; import progress, retry counts, dashboard
+projection counters, and other numerical counters use atomic SQL increments or
+bounded rebuilds instead of row-version compare-and-retry loops.
+
 Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
 actor headers are local/dev scaffolding only. They are a deploy gate for shared,
 staging, or production-like environments.

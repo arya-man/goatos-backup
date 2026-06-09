@@ -409,6 +409,27 @@ row_version supports optimistic concurrency for admin edits
 daily task assignment stays in workforce/tasks and must not be modeled as custody
 ```
 
+Concurrency and atomic-update patterns:
+
+```text
+use row_version optimistic concurrency for user/admin decisions that edit a
+specific identity aggregate snapshot
+goat passport, identifier add/retire/dispute, correction resolve, conflict
+resolve, and candidate reject use row_version or the command aggregate's
+row_version to reject stale reviewer actions
+when a write changes a goat identity surface, bump that goat row_version exactly
+once per transaction; this is for stale-write rejection and future
+projection/cache invalidation, not for numerical counting
+append-only ledgers use idempotent inserts keyed by business identity plus
+outbox/event linkage
+progress counters, projection counters, retry attempts, and import run counts
+use atomic SQL updates such as count_value = count_value + n or are rebuilt in
+bounded batches; do not protect hot counters with row_version compare-and-retry
+parallel import/projection workers must not contend on goat_identity_counters
+hot rows; large imports rebuild grouped counter projections instead of issuing
+per-row counter increments
+```
+
 Correction request resolution uses the same optimistic-concurrency rule:
 `POST /admin/identity/correction-requests/{correction_request_id}/resolve`
 must include the current `row_version`. The write is conditional on
