@@ -502,6 +502,15 @@ Foundational seed/reference delete guards:
   foundational rows instead of teaching the row-error classifier to guess around
   preventable reference-data deletion.
 
+Analytics count grain-dimension validator drift:
+  check-contract-drift validates the analytics counts example against a
+  hand-maintained grain -> allowed dimensions table. That table matches the
+  reporting rebuild SQL today, but future grain dimension changes must update
+  both. Add a later hardening test or derived spec that diffs the validator
+  table against backend/internal/reporting/adapters/postgres/sqlc/commands.sql
+  rebuild INSERT column sets, or replace both with one shared declared
+  grain-dimension spec.
+
 Apply retry policy:
   add bounded per-row retry only if apply becomes parallel or real 40001/40P01
   failures appear in operations. Until then, transient/concurrency/unknown

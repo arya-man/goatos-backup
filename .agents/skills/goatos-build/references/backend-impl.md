@@ -388,6 +388,13 @@ not raw count freshness. The old updated_at-order
 `goat_identity_counters_lookup_idx` remains until a later cleanup verifies it is
 unused.
 
+check-contract-drift also validates the analytics counts example against a
+hand-maintained grain -> allowed dimensions table. That table matches the
+reporting rebuild SQL today. If a future slice changes a counter grain's
+dimension columns, update both the reporting rebuild INSERT columns and the
+validator table, or add a derived/diff test that compares the validator table
+against backend/internal/reporting/adapters/postgres/sqlc/commands.sql.
+
 The local rebuild command is backend/cmd/rebuild-identity-counters. It supports
 tenant_id, optional source_import_run_id stamping, and an optional grain subset.
 The rebuild uses grouped SQL per Phase 1 grain, delete+insert replacement per
