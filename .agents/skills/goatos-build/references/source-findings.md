@@ -23,6 +23,8 @@ Rules:
   exists in `docs/archive/planning-history/`, it is not build-canonical.
 - Source facts captured so far include:
   - CBE/CPT/CJB/BLR aliases and old-tag scope.
+  - RFID source snapshot aggregate counts, RFID uniqueness, old-tag duplicate
+    review cases, and import mapping rules.
   - HF/origin/source semantics and shared-pending ownership nuance.
   - status/stage meanings, F2 sex-contamination rule, Warmup, M0.
   - breed/species seed labels and alias requirement.

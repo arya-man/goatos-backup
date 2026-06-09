@@ -66,6 +66,53 @@ more current placement signal because goats shift constantly and RFID DB shed
 association may be stale. The importer should still preserve both pieces of
 evidence and create a review/audit note for the disagreement.
 
+### RFID Source Snapshot
+
+A newer locally reviewed RFID source-of-truth workbook has one combined snapshot
+with these sanitized aggregate facts:
+
+```text
+rows: 1,223
+sheets: Combined
+farms: CBE 629, CPT 594
+RFID: 1,223 present, 1,223 unique, zero duplicate RFID values
+old tag values: 1,051 present
+old tag suffix: 788 present, 263 blank suffixes
+gender: 1,219 present, 4 blank
+age: Adult 728, Kid 495
+kid tags: F2 284, K2 209, K1 2
+adult tag field: blank for adult rows
+```
+
+The workbook supports the RFID-first import design. RFID is the clean import
+anchor. Old tags still require scoped handling and review because the current
+snapshot has duplicate old-tag keys under source scope rules:
+
+```text
+old tag + suffix-or-fallback-scope duplicate keys: 3
+```
+
+Raw duplicate row values are intentionally not committed. Import behavior:
+
+```text
+RFID -> global active RFID identifier
+Old ID -> old_tag identifier value
+Old ID Suffix -> old_tag source scope when present
+blank Old ID Suffix -> fallback/review scope; duplicate fallback keys route to review
+Farm/Shed/Partition -> current location evidence
+Age/Tag -> lifecycle/growth cohort evidence
+Gender -> sex source of truth; blank gender routes to review
+Breed -> breed/source label evidence, preserving exact source spelling
+```
+
+`Farm` and `Old ID Suffix` differ on many rows, so current farm must not replace
+the historic/source old-tag scope. `F2` appears with both male and female gender
+values, so `F2` remains a growth-cohort tag only; sex must come from `Gender`.
+
+The workbook is a current identity/location snapshot, not a birth/death event
+ledger. Births and deaths after the snapshot still require reconciliation from
+forms or event sources, using RFID where available for matching.
+
 ### Holding Farms
 
 `HF` means Holding Farm. A holding farm is a facility at the source where goats
