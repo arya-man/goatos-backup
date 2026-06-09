@@ -357,9 +357,11 @@ RFID source-of-truth canonical apply:
   active RFID conflicts, active same-scope old_tag conflicts, unknown or
   review_required status mappings, unsafe species/breed labels, and changed
   source_row_version_hash route the row to needs_review without creating a goat
-  unexpected per-row apply failures roll back that row's canonical write
-  transaction, mark only that row processing_state=error in a separate short
-  transaction, refresh error_count, and continue to later pending rows; error
+  deterministic SQL data/integrity per-row failures roll back that row's
+  canonical write transaction, mark only that row processing_state=error in a
+  separate short transaction with sanitized SQLSTATE/constraint metadata,
+  refresh error_count, and continue to later pending rows; transient,
+  concurrency, infrastructure, context, and unknown failures abort the run; error
   rows are not auto-retried until an operator promotes them back to pending
   stable apply idempotency derives from tenant, command, source_system,
   source_dataset, source_row_key, and source_row_version_hash; import_run_id is

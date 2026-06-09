@@ -3,7 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -118,6 +119,18 @@ WHERE dg.goat_id = $1 AND d.decision_type = 'create_goat'`, goatID).Scan(&decisi
 		}
 		decisionPayload := queryBytes(t, pool, `SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1`, decisionID)
 		validateDecisionRecord(t, decisionPayload)
+		var decisionRecord map[string]any
+		if err := json.Unmarshal(decisionPayload, &decisionRecord); err != nil {
+			t.Fatal(err)
+		}
+		affectedGoats := decisionRecord["affected_goats"].([]any)
+		if len(affectedGoats) != 1 || affectedGoats[0].(map[string]any)["goat_id"] != goatID {
+			t.Fatalf("decision affected_goats=%#v, want created goat %s", affectedGoats, goatID)
+		}
+		identifierActionRows := decisionRecord["identifier_actions"].([]any)
+		if len(identifierActionRows) != 2 {
+			t.Fatalf("decision identifier_actions=%#v, want 2 attach actions", identifierActionRows)
+		}
 
 		var eventID string
 		var eventRecordedAt time.Time
@@ -184,10 +197,11 @@ WHERE import_run_id = $1`, runID); err != nil {
 		}
 	})
 
-	t.Run("unexpected row failure marks error and continues applying later rows", func(t *testing.T) {
+	t.Run("deterministic row failure marks sanitized error and continues applying later rows", func(t *testing.T) {
+		const failingRFID = "9900000000000000000000009150001"
 		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
 			RowNumber: 2,
-			Raw:       rawRFIDRow("ROLLBACKAPPLY", "CBE", "9900000000000000000000009150001", "Female", "Boer", ""),
+			Raw:       rawRFIDRow("ROLLBACKAPPLY", "CBE", failingRFID, "Female", "Boer", ""),
 		}, {
 			RowNumber: 3,
 			Raw:       rawRFIDRow("AFTERERROR", "CBE", "9900000000000000000000009150002", "Female", "Boer", ""),
@@ -206,7 +220,13 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		repo.afterAuditHook = func(context.Context) error {
 			hookCalls++
 			if hookCalls == 1 {
-				return errors.New("synthetic forced apply rollback")
+				return &pgconn.PgError{
+					Code:           "23514",
+					Message:        "synthetic check failed",
+					Detail:         "synthetic RFID " + failingRFID + " violates apply check",
+					ConstraintName: "synthetic_apply_check",
+					TableName:      "legacy_import_rows",
+				}
 			}
 			return nil
 		}
@@ -223,7 +243,22 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		if result.ErrorCount != 1 || result.AppliedCount != 1 || result.PendingScanned != 2 {
 			t.Fatalf("unexpected isolated-error result: %#v", result)
 		}
-		assertRowState(t, pool, runID, 2, legacy_import.StateError, "synthetic forced apply rollback")
+		assertRowState(t, pool, runID, 2, legacy_import.StateError, "sqlstate=23514")
+		var errorReason string
+		if err := pool.QueryRow(ctx, `
+SELECT COALESCE(error_reason, '')
+FROM legacy_import_rows
+WHERE import_run_id = $1 AND row_number = 2`, runID).Scan(&errorReason); err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{failingRFID, "synthetic RFID", "violates apply check"} {
+			if strings.Contains(errorReason, forbidden) {
+				t.Fatalf("error_reason leaks raw detail %q in %q", forbidden, errorReason)
+			}
+		}
+		if !strings.Contains(errorReason, "constraint=synthetic_apply_check") {
+			t.Fatalf("error_reason=%q, want sanitized constraint metadata", errorReason)
+		}
 		assertRowState(t, pool, runID, 3, legacy_import.StateCreatedGoat, "")
 		if got := countRows(t, pool, `SELECT created_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 1 {
 			t.Fatalf("created_goat_count after isolated error=%d, want 1", got)
@@ -244,6 +279,54 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE normalized_value = 'AFTERERROR' AND status = 'active'`); got != 1 {
 			t.Fatalf("following clean row old_tag identifiers=%d, want 1", got)
 		}
+	})
+
+	t.Run("transient SQL row failure aborts without marking row error", func(t *testing.T) {
+		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
+			RowNumber: 2,
+			Raw:       rawRFIDRow("TRANSIENTAPPLY", "CBE", "9900000000000000000000009160001", "Female", "Boer", ""),
+		}, {
+			RowNumber: 3,
+			Raw:       rawRFIDRow("AFTERTRANSIENT", "CBE", "9900000000000000000000009160002", "Female", "Boer", ""),
+		}})
+		var sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash string
+		if err := pool.QueryRow(ctx, `
+	SELECT source_system, source_dataset, source_row_key, source_row_version_hash
+FROM legacy_import_rows
+WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRowKey, &sourceRowVersionHash); err != nil {
+			t.Fatal(err)
+		}
+		idempotencyKey := stableApplyIdempotencyKey(meshaTenant, sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash)
+		beforeGoats := countRows(t, pool, `SELECT count(*) FROM goats`)
+
+		repo.afterAuditHook = func(context.Context) error {
+			return &pgconn.PgError{
+				Code:    "40001",
+				Message: "synthetic serialization failure",
+				Detail:  "synthetic transient failure should not quarantine row",
+			}
+		}
+		defer func() { repo.afterAuditHook = nil }()
+		_, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:    meshaTenant,
+			ImportRunID: runID,
+			BatchSize:   1,
+			ActorID:     strPtr(applyActorID),
+		})
+		if err == nil || !strings.Contains(err.Error(), "40001") {
+			t.Fatalf("apply err=%v, want transient failure", err)
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StatePending, "")
+		assertRowState(t, pool, runID, 3, legacy_import.StatePending, "")
+		if got := countRows(t, pool, `SELECT error_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 0 {
+			t.Fatalf("error_count after transient failure=%d, want 0", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
+			t.Fatalf("goat rows after transient failure=%d, want %d", got, beforeGoats)
+		}
+		assertZeroRows(t, pool, "idempotency after transient rollback", `SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1`, idempotencyKey)
+		assertZeroRows(t, pool, "transient failed rfid", `SELECT count(*) FROM goat_identifiers WHERE normalized_value = '9900000000000000000000009160001'`)
+		assertZeroRows(t, pool, "transient following rfid not reached", `SELECT count(*) FROM goat_identifiers WHERE normalized_value = '9900000000000000000000009160002'`)
 	})
 
 	t.Run("dry-run previews applyable and review rows without mutation", func(t *testing.T) {

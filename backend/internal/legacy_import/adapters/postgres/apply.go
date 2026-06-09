@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/vgoats/goatos/backend/internal/legacy_import"
@@ -174,6 +175,9 @@ func (r *Repository) ApplyRFIDRows(ctx context.Context, cmd legacy_import.ApplyC
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return nil, err
+				}
+				if !isIsolatableApplyRowError(err) {
+					return nil, fmt.Errorf("apply row %s failed: %w", applyRow.LegacyRowID, err)
 				}
 				if markErr := r.markApplyRowError(ctx, tenantUUID, runUUID, applyRow.LegacyRowID, err); markErr != nil {
 					return nil, fmt.Errorf("apply row %s failed: %v; mark row error failed: %w", applyRow.LegacyRowID, err, markErr)
@@ -366,42 +370,6 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 		return applyOutcome{}, err
 	}
 	decisionUUID := mustUUID(decisionID)
-	decisionRecord, err := importDecisionRecordPayload(importDecisionRecordInput{
-		DecisionID:     decisionID,
-		TenantID:       cmd.TenantID,
-		ActorID:        cmd.ActorID,
-		PolicyVersion:  policy.PolicyVersion,
-		Reason:         plan.Reason,
-		ImportRunID:    cmd.ImportRunID,
-		LegacyRowID:    row.LegacyRowID,
-		SourceSystem:   row.SourceSystem,
-		SourceRowKey:   row.SourceRowKey,
-		IdempotencyKey: idempotencyKey,
-		TraceID:        traceID,
-		CreatedAt:      now,
-	})
-	if err != nil {
-		return applyOutcome{}, err
-	}
-	decisionEvidence, err := json.Marshal(map[string]any{
-		"evidence_refs":   importEvidenceRefs(cmd.ImportRunID, row.LegacyRowID, row.SourceSystem, row.SourceRowKey),
-		"reason":          plan.Reason,
-		"decision_record": json.RawMessage(decisionRecord),
-	})
-	if err != nil {
-		return applyOutcome{}, err
-	}
-	if _, err := qtx.InsertImportIdentityDecision(ctx, importdb.InsertImportIdentityDecisionParams{
-		DecisionID:    decisionUUID,
-		TenantID:      tenantUUID,
-		DecidedBy:     actorUUID,
-		PolicyVersion: policy.PolicyVersion,
-		ReviewerID:    actorUUID,
-		Evidence:      decisionEvidence,
-		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
-	}); err != nil {
-		return applyOutcome{}, err
-	}
 
 	breedUUID, err := nullableUUID(plan.BreedID)
 	if err != nil {
@@ -491,6 +459,45 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 			"identifier_value": plan.OldTag,
 			"action":           "attach",
 		})
+	}
+
+	decisionRecord, err := importDecisionRecordPayload(importDecisionRecordInput{
+		DecisionID:        decisionID,
+		TenantID:          cmd.TenantID,
+		ActorID:           cmd.ActorID,
+		PolicyVersion:     policy.PolicyVersion,
+		Reason:            plan.Reason,
+		ImportRunID:       cmd.ImportRunID,
+		LegacyRowID:       row.LegacyRowID,
+		SourceSystem:      row.SourceSystem,
+		SourceRowKey:      row.SourceRowKey,
+		GoatID:            goatRow.GoatID,
+		IdentifierActions: identifierActions,
+		IdempotencyKey:    idempotencyKey,
+		TraceID:           traceID,
+		CreatedAt:         now,
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	decisionEvidence, err := json.Marshal(map[string]any{
+		"evidence_refs":   importEvidenceRefs(cmd.ImportRunID, row.LegacyRowID, row.SourceSystem, row.SourceRowKey),
+		"reason":          plan.Reason,
+		"decision_record": json.RawMessage(decisionRecord),
+	})
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if _, err := qtx.InsertImportIdentityDecision(ctx, importdb.InsertImportIdentityDecisionParams{
+		DecisionID:    decisionUUID,
+		TenantID:      tenantUUID,
+		DecidedBy:     actorUUID,
+		PolicyVersion: policy.PolicyVersion,
+		ReviewerID:    actorUUID,
+		Evidence:      decisionEvidence,
+		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
+	}); err != nil {
+		return applyOutcome{}, err
 	}
 
 	if err := qtx.InsertGoatOwnershipFromRFIDApply(ctx, importdb.InsertGoatOwnershipFromRFIDApplyParams{
@@ -864,15 +871,47 @@ func stableApplyRequestHash(row pendingApplyRow) string {
 }
 
 func applyUnexpectedErrorReason(err error) string {
-	message := strings.Join(strings.Fields(strings.TrimSpace(err.Error())), " ")
-	if message == "" {
-		return "apply_unexpected_error"
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return "apply_row_error"
 	}
-	const maxMessageLength = 400
-	if len(message) > maxMessageLength {
-		message = message[:maxMessageLength]
+	parts := []string{"apply_row_error"}
+	if code := safeApplyErrorToken(pgErr.Code); code != "" {
+		parts = append(parts, "sqlstate="+code)
 	}
-	return "apply_unexpected_error: " + message
+	if constraint := safeApplyErrorToken(pgErr.ConstraintName); constraint != "" {
+		parts = append(parts, "constraint="+constraint)
+	}
+	if table := safeApplyErrorToken(pgErr.TableName); table != "" {
+		parts = append(parts, "table="+table)
+	}
+	if column := safeApplyErrorToken(pgErr.ColumnName); column != "" {
+		parts = append(parts, "column="+column)
+	}
+	return strings.Join(parts, " ")
+}
+
+func isIsolatableApplyRowError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")
+}
+
+var safeApplyErrorTokenRe = regexp.MustCompile(`[^a-zA-Z0-9_.:-]+`)
+
+func safeApplyErrorToken(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = safeApplyErrorTokenRe.ReplaceAllString(value, "_")
+	const maxTokenLength = 120
+	if len(value) > maxTokenLength {
+		value = value[:maxTokenLength]
+	}
+	return value
 }
 
 func normalizedStatusLabel(value string) string {
@@ -983,18 +1022,20 @@ func importEvidenceRefs(importRunID, legacyRowID, sourceSystem, sourceRowKey str
 }
 
 type importDecisionRecordInput struct {
-	DecisionID     string
-	TenantID       string
-	ActorID        *string
-	PolicyVersion  string
-	Reason         string
-	ImportRunID    string
-	LegacyRowID    string
-	SourceSystem   string
-	SourceRowKey   string
-	IdempotencyKey string
-	TraceID        string
-	CreatedAt      time.Time
+	DecisionID        string
+	TenantID          string
+	ActorID           *string
+	PolicyVersion     string
+	Reason            string
+	ImportRunID       string
+	LegacyRowID       string
+	SourceSystem      string
+	SourceRowKey      string
+	GoatID            string
+	IdentifierActions []map[string]any
+	IdempotencyKey    string
+	TraceID           string
+	CreatedAt         time.Time
 }
 
 func importDecisionRecordPayload(input importDecisionRecordInput) ([]byte, error) {
@@ -1012,8 +1053,8 @@ func importDecisionRecordPayload(input importDecisionRecordInput) ([]byte, error
 			input.LegacyRowID,
 			input.SourceRowKey,
 		},
-		"affected_goats":     []map[string]any{},
-		"identifier_actions": []map[string]any{},
+		"affected_goats":     []map[string]any{{"goat_id": input.GoatID, "role": "affected"}},
+		"identifier_actions": input.IdentifierActions,
 		"evidence": map[string]any{
 			"evidence_refs": importEvidenceRefs(input.ImportRunID, input.LegacyRowID, input.SourceSystem, input.SourceRowKey),
 		},

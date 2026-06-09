@@ -2436,10 +2436,13 @@ breed/species must resolve to a clear active goat breed alias; unsafe or
 non-goat labels such as Anantapur Sheep route to needs_review
 same source_row_key with different source_row_version_hash routes to
 needs_review before canonical creation
-unexpected DB/apply failures for one staged row must not abort the whole import
-run; that row's canonical write transaction rolls back, then a separate short
-transaction marks the row processing_state='error' with a bounded error_reason
-and refreshes legacy_import_runs.error_count
+deterministic SQL data/integrity failures for one staged row (SQLSTATE class
+22/23) must not abort the whole import run; that row's canonical write
+transaction rolls back, then a separate short transaction marks the row
+processing_state='error' with sanitized SQLSTATE/constraint metadata only and
+refreshes legacy_import_runs.error_count
+transient, concurrency, infrastructure, context, and unknown failures abort the
+run instead of quarantining the row
 error rows are not auto-retried by rfid-apply; an operator must inspect/fix and
 promote the row back to pending before retry
 ```
