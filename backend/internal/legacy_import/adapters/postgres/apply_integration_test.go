@@ -282,9 +282,10 @@ WHERE import_run_id = $1 AND row_number = 2`, runID).Scan(&errorReason); err != 
 	})
 
 	t.Run("transient SQL row failure aborts without marking row error", func(t *testing.T) {
+		const transientRFID = "9900000000000000000000009160001"
 		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
 			RowNumber: 2,
-			Raw:       rawRFIDRow("TRANSIENTAPPLY", "CBE", "9900000000000000000000009160001", "Female", "Boer", ""),
+			Raw:       rawRFIDRow("TRANSIENTAPPLY", "CBE", transientRFID, "Female", "Boer", ""),
 		}, {
 			RowNumber: 3,
 			Raw:       rawRFIDRow("AFTERTRANSIENT", "CBE", "9900000000000000000000009160002", "Female", "Boer", ""),
@@ -303,7 +304,7 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 			return &pgconn.PgError{
 				Code:    "40001",
 				Message: "synthetic serialization failure",
-				Detail:  "synthetic transient failure should not quarantine row",
+				Detail:  "synthetic transient failure should not quarantine RFID " + transientRFID,
 			}
 		}
 		defer func() { repo.afterAuditHook = nil }()
@@ -315,6 +316,11 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		})
 		if err == nil || !strings.Contains(err.Error(), "40001") {
 			t.Fatalf("apply err=%v, want transient failure", err)
+		}
+		for _, forbidden := range []string{transientRFID, "synthetic serialization failure", "synthetic transient failure"} {
+			if strings.Contains(err.Error(), forbidden) {
+				t.Fatalf("apply err leaks raw detail %q in %q", forbidden, err.Error())
+			}
 		}
 		assertRowState(t, pool, runID, 2, legacy_import.StatePending, "")
 		assertRowState(t, pool, runID, 3, legacy_import.StatePending, "")

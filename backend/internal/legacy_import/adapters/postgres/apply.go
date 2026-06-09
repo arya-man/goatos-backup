@@ -177,10 +177,10 @@ func (r *Repository) ApplyRFIDRows(ctx context.Context, cmd legacy_import.ApplyC
 					return nil, err
 				}
 				if !isIsolatableApplyRowError(err) {
-					return nil, fmt.Errorf("apply row %s failed: %w", applyRow.LegacyRowID, err)
+					return nil, fmt.Errorf("apply row %s failed: %s", applyRow.LegacyRowID, applyErrorSummary(err))
 				}
 				if markErr := r.markApplyRowError(ctx, tenantUUID, runUUID, applyRow.LegacyRowID, err); markErr != nil {
-					return nil, fmt.Errorf("apply row %s failed: %v; mark row error failed: %w", applyRow.LegacyRowID, err, markErr)
+					return nil, fmt.Errorf("apply row %s failed: %s; mark row error failed: %s", applyRow.LegacyRowID, applyErrorSummary(err), applyErrorSummary(markErr))
 				}
 				result.ErrorCount++
 				continue
@@ -871,6 +871,10 @@ func stableApplyRequestHash(row pendingApplyRow) string {
 }
 
 func applyUnexpectedErrorReason(err error) string {
+	return applyErrorSummary(err)
+}
+
+func applyErrorSummary(err error) string {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
 		return "apply_row_error"
