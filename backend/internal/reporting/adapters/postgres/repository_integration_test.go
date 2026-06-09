@@ -285,6 +285,119 @@ WHERE tenant_id = $1 AND goat_id = '10000000-0000-4000-8000-000000000004'`, mesh
 	})
 }
 
+func TestIdentityCounterRebuildAndIncrementalUpdateSerializeWithDockerPostgres(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	ctx := context.Background()
+	pool := startReportingDB(t, ctx)
+	defer pool.Close()
+
+	seedReportingData(t, pool)
+	baseRepo := NewRepository(pool, 10*time.Second)
+	if _, err := baseRepo.RebuildIdentityCounters(ctx, ports.RebuildIdentityCountersParams{
+		TenantID: meshaTenant,
+		Grains:   domain.AllIdentityCounterGrains,
+	}); err != nil {
+		t.Fatalf("initial rebuild: %v", err)
+	}
+
+	rebuildRepo := NewRepository(pool, 10*time.Second)
+	incrementalRepo := NewRepository(pool, 10*time.Second)
+	rebuildLocked := make(chan struct{})
+	releaseRebuild := make(chan struct{})
+	incrementalLocked := make(chan struct{})
+	var closeRebuildLocked sync.Once
+	var closeIncrementalLocked sync.Once
+
+	rebuildRepo.afterLock = func(context.Context) error {
+		closeRebuildLocked.Do(func() { close(rebuildLocked) })
+		<-releaseRebuild
+		return nil
+	}
+	incrementalRepo.afterLock = func(context.Context) error {
+		closeIncrementalLocked.Do(func() { close(incrementalLocked) })
+		return nil
+	}
+
+	rebuildErrs := make(chan error, 1)
+	go func() {
+		_, err := rebuildRepo.RebuildIdentityCounters(ctx, ports.RebuildIdentityCountersParams{
+			TenantID: meshaTenant,
+			Grains:   domain.AllIdentityCounterGrains,
+		})
+		rebuildErrs <- err
+	}()
+
+	select {
+	case <-rebuildLocked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("rebuild did not acquire advisory lock")
+	}
+
+	// Insert after the rebuild transaction has acquired the advisory lock so the
+	// rebuild's repeatable-read snapshot cannot consume this event before the
+	// incremental worker gets a chance to apply it.
+	createdGoat := "11000000-0000-4000-8000-000000000301"
+	createdEvent := "61000000-0000-4000-8000-000000000301"
+	createdRecorded := time.Date(2026, 6, 9, 12, 45, 0, 0, time.UTC)
+	insertIncrementalGoat(t, pool, createdGoat, meshaTenant, cbePark, cbeShed, "alive", "clean", "healthy")
+	insertIncrementalEvent(t, pool, meshaTenant, createdGoat, createdEvent, "goat.created", createdRecorded)
+
+	type updateOutcome struct {
+		result *domain.IncrementalCounterUpdateResult
+		err    error
+	}
+	updateOutcomes := make(chan updateOutcome, 1)
+	go func() {
+		result, err := incrementalRepo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+			TenantID:                 meshaTenant,
+			Limit:                    10,
+			ProcessedEventsRetention: 30 * 24 * time.Hour,
+		})
+		updateOutcomes <- updateOutcome{result: result, err: err}
+	}()
+
+	select {
+	case <-incrementalLocked:
+		t.Fatal("incremental update acquired advisory lock while rebuild was blocked")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseRebuild)
+
+	select {
+	case <-incrementalLocked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("incremental update did not acquire advisory lock after rebuild released")
+	}
+
+	select {
+	case err := <-rebuildErrs:
+		if err != nil {
+			t.Fatalf("rebuild while incremental waited: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("rebuild did not complete after release")
+	}
+
+	var update updateOutcome
+	select {
+	case update = <-updateOutcomes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("incremental update did not complete after acquiring lock")
+	}
+	if update.err != nil {
+		t.Fatalf("incremental update after rebuild: %v", update.err)
+	}
+	if update.result.ScannedEventCount != 1 || update.result.AppliedEventCount != 1 || update.result.RebuildRequired {
+		t.Fatalf("incremental update should apply one clean goat.created event, got %#v", update.result)
+	}
+	assertCounter(t, pool, domain.GrainTenantLifecycle, `lifecycle_status = 'alive'`, 3)
+	assertProjectionState(t, pool, meshaTenant, createdRecorded, createdEvent, false, "")
+}
+
 func TestIdentityCounterIncrementalWithDockerPostgres(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
