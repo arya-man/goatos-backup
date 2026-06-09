@@ -74,6 +74,19 @@ const exampleChecks = [
   }
 ];
 
+const identityCountAllowedDimensionsByGrain = {
+  tenant_lifecycle: new Set(["tenant_id", "lifecycle_status"]),
+  custodian_lifecycle: new Set(["tenant_id", "custodian_party_id", "lifecycle_status"]),
+  custodian_identity: new Set(["tenant_id", "custodian_party_id", "identity_state"]),
+  park_lifecycle: new Set(["tenant_id", "park_id", "lifecycle_status"]),
+  shed_lifecycle: new Set(["tenant_id", "park_id", "shed_id", "lifecycle_status"]),
+  breed_sex_lifecycle: new Set(["tenant_id", "breed_id", "sex", "lifecycle_status"]),
+  health_status: new Set(["tenant_id", "health_status"]),
+  growth_cohort: new Set(["tenant_id", "growth_cohort_tag"]),
+  management_stage: new Set(["tenant_id", "management_stage"]),
+  reproductive_status: new Set(["tenant_id", "reproductive_status"])
+};
+
 function resolveRepo(...segments) {
   return path.join(repoRoot, ...segments);
 }
@@ -216,11 +229,35 @@ async function validateExamples() {
   return count;
 }
 
+async function validateAnalyticsIdentityCountsExampleSemantics() {
+  const file = "contracts/examples/analytics/identity-counts-response.json";
+  const payload = await readJson(file);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+
+  for (const [index, item] of items.entries()) {
+    if (item.counter_grain !== payload.grain) {
+      throw new Error(`${file} item ${index} counter_grain must match response grain`);
+    }
+
+    const allowed = identityCountAllowedDimensionsByGrain[item.counter_grain];
+    if (!allowed) {
+      throw new Error(`${file} item ${index} uses unsupported counter grain: ${item.counter_grain}`);
+    }
+
+    for (const [dimension, value] of Object.entries(item.dimensions ?? {})) {
+      if (value !== null && !allowed.has(dimension)) {
+        throw new Error(`${file} item ${index} has non-null ${dimension} for ${item.counter_grain}; allowed non-null dimensions are ${[...allowed].join(", ")}`);
+      }
+    }
+  }
+}
+
 async function main() {
   await validateRequiredFiles();
   const jsonSchemaCount = await validateJsonSchemas();
   const openApiCount = await validateOpenApiSpecs();
   const exampleCount = await validateExamples();
+  await validateAnalyticsIdentityCountsExampleSemantics();
 
   console.log(`Validated ${openApiCount} OpenAPI specs, ${jsonSchemaCount} JSON Schemas, and ${exampleCount} example payloads.`);
   console.log("Generated-client drift checks deferred until generated clients exist.");
