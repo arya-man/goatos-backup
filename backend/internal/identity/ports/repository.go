@@ -52,24 +52,6 @@ type ListCandidatesParams struct {
 	Cursor   *string
 }
 
-type CountParams struct {
-	Grain              string
-	TenantID           string
-	CustodianPartyID   *string
-	FarmID             *string
-	ParkID             *string
-	ShedID             *string
-	CohortID           *string
-	LifecycleStatus    *string
-	ReproductiveStatus *string
-	GrowthCohortTag    *string
-	ManagementStage    *string
-	HealthStatus       *string
-	IdentityState      *string
-	BreedID            *string
-	Sex                *string
-}
-
 type CreateCorrectionRequestCommand struct {
 	TenantID             string
 	ActorID              string
@@ -217,7 +199,6 @@ type Repository interface {
 	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]domain.CandidateSummary, *string, error)
-	ListIdentityCounts(ctx context.Context, params CountParams) ([]domain.IdentityCount, domain.Freshness, error)
 	CreateCorrectionRequest(ctx context.Context, cmd CreateCorrectionRequestCommand) (*CreateCorrectionRequestResult, error)
 	ResolveCorrectionRequest(ctx context.Context, cmd ResolveCorrectionRequestCommand) (*ResolveCorrectionRequestResult, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)

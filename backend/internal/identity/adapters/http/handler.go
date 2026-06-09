@@ -44,8 +44,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
 	mux.HandleFunc("POST /admin/identity/correction-requests/{correction_request_id}/resolve", h.ResolveCorrectionRequest)
-
-	mux.HandleFunc("GET /analytics/identity/counts", h.GetIdentityCounts)
 }
 
 func (h *Handler) GetGoatPassport(w http.ResponseWriter, r *http.Request) {
@@ -292,39 +290,6 @@ func (h *Handler) RetireGoatIdentifier(w http.ResponseWriter, r *http.Request) {
 		IdentifierID:   r.PathValue("identifier_id"),
 		RawBody:        body,
 	})
-	respond(w, r, result, err)
-}
-
-func (h *Handler) GetIdentityCounts(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	if headerTenant := tenantID(r); headerTenant != "" && q.Get("tenant_id") != "" && headerTenant != q.Get("tenant_id") {
-		writeError(w, http.StatusForbidden, domain.ErrorEnvelope{
-			Code:        "tenant_scope_mismatch",
-			Message:     "tenant_id query parameter must match the request tenant scope",
-			FieldErrors: []domain.FieldError{{Field: "tenant_id", Code: "scope_mismatch", Message: "tenant_id does not match request tenant scope"}},
-			TraceID:     traceID(r),
-			Retryable:   false,
-		})
-		return
-	}
-	params := ports.CountParams{
-		Grain:              q.Get("grain"),
-		TenantID:           q.Get("tenant_id"),
-		CustodianPartyID:   optionalQuery(q.Get("custodian_party_id")),
-		FarmID:             optionalQuery(q.Get("farm_id")),
-		ParkID:             optionalQuery(q.Get("park_id")),
-		ShedID:             optionalQuery(q.Get("shed_id")),
-		CohortID:           optionalQuery(q.Get("cohort_id")),
-		LifecycleStatus:    optionalQuery(q.Get("lifecycle_status")),
-		ReproductiveStatus: optionalQuery(q.Get("reproductive_status")),
-		GrowthCohortTag:    optionalQuery(q.Get("growth_cohort_tag")),
-		ManagementStage:    optionalQuery(q.Get("management_stage")),
-		HealthStatus:       optionalQuery(q.Get("health_status")),
-		IdentityState:      optionalQuery(q.Get("identity_state")),
-		BreedID:            optionalQuery(q.Get("breed_id")),
-		Sex:                optionalQuery(q.Get("sex")),
-	}
-	result, err := h.service.GetIdentityCounts(r.Context(), params, traceID(r))
 	respond(w, r, result, err)
 }
 

@@ -9,6 +9,7 @@ db_user="postgres"
 out_files=(
   "$repo_root/backend/internal/identity/adapters/postgres/sqlc/schema.sql"
   "$repo_root/backend/internal/legacy_import/adapters/postgres/sqlc/schema.sql"
+  "$repo_root/backend/internal/reporting/adapters/postgres/sqlc/schema.sql"
 )
 
 cleanup() {

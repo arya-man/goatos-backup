@@ -22,6 +22,14 @@ if command -v rg >/dev/null 2>&1; then
     echo "Direct BigQuery access outside legacy adapter allowlist."
     fail=1
   fi
+
+  if rg -n "goat_identity_counters|GoatIdentityCounter" backend/internal/identity \
+    --glob '!**/adapters/postgres/sqlc/schema.sql' \
+    --glob '!**/adapters/postgres/sqlc/models.go' >/tmp/goatos-reporting-boundary-warnings 2>/dev/null; then
+    cat /tmp/goatos-reporting-boundary-warnings
+    echo "Identity package must not own reporting counter projection queries."
+    fail=1
+  fi
 fi
 
 exit "$fail"

@@ -136,7 +136,8 @@ same-scope multiple_matches can attach conflict_id
 cross-scope multiple_matches must not attach a wrong conflict_id
 goat search/list is tenant-scoped and excludes merged goats
 identity conflict list/detail read paths exist
-identity counts read path exists; counters may be empty until projections run
+reporting-owned identity counts read path exists; counters may be empty until
+reporting rebuild or future projection workers run
 request middleware preserves/generates request IDs and trace context
 analytics tenant_id query/header mismatch is rejected
 deferred endpoints return typed not_implemented error envelopes
@@ -149,7 +150,10 @@ dynamic optional-filter reads remain handwritten:
   goat search
   identifier match lookup
   conflict list
-  identity counts
+reporting/adapters/postgres/sqlc owns identity counter projection reads and
+rebuild statements:
+  ListIdentityCounts
+  one grouped insert per Phase 1 counter grain
 sqlc drift check regenerates schema/code and fails on stale generated files
 sqlc query-plan validation covers every generated query.sql read and rejects
 hot-path sequential scans
@@ -411,7 +415,8 @@ contract-defined
 standalone merge command handler
 unmerge command handler/contract
 outbox relay runtime
-projection workers and counter population
+incremental projection workers
+externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 generated client drift checks
@@ -419,14 +424,33 @@ fresh private RFID DB import run
 P8 sales/allocation/promise behavior
 ```
 
-Counter projection sequencing:
+Counter projection rebuild:
 
 ```text
-next counter slice should implement rebuild first in backend/internal/reporting:
-  recompute goat_identity_counters from canonical goats in bounded/grouped
-  queries, set as_of_recorded_at to the canonical snapshot boundary counted by
-  the rebuild (not now()), maintain is_rebuilding freshness, use a safe
-  replacement/upsert strategy, and wire analytics/counts to projection rows only
+backend/internal/reporting owns goat_identity_counters reads and rebuilds.
+/analytics/identity/counts is still the public analytics route, but bootstrap
+wires it to reporting-owned service/repository code; backend/internal/identity
+has a boundary check preventing new goat_identity_counters ownership outside
+generated sqlc schema/model dumps.
+
+The local rebuild CLI is:
+
+  cd backend && go run ./cmd/rebuild-identity-counters \
+    -tenant-id <tenant_uuid> \
+    [-source-import-run-id <import_run_uuid>] \
+    [-grains tenant_lifecycle,health_status]
+
+Rebuild semantics:
+  one repeatable-read transaction per committed tenant rebuild attempt
+  per-tenant advisory lock is taken before validation/rebuild work
+  serialization/deadlock failures retry the whole transaction in a bounded loop
+  as_of_recorded_at is max(goat_identity_events.recorded_at) for the tenant
+  inside the rebuild snapshot; it is null when the tenant has no identity events
+  the rebuild never uses now() or goats.updated_at as freshness watermark
+  each rebuilt tenant+grain deletes stale buckets and inserts the freshly
+  grouped complete result set inside the same transaction
+  is_rebuilding remains false on final rows; externally visible rebuild status
+  is deferred to a future metadata table
 
 incremental counter updates are a later slice:
   consume goat identity events/outbox asynchronously with event_id dedupe, derive
@@ -442,9 +466,9 @@ Phase 1 counter membership is pinned:
   tombstones/redirects; exclude identity_state=inactive from Phase 1 operational
   counts; lifecycle-bearing grains count dead/sold lifecycle_status buckets for
   non-merged, non-inactive goats; non-lifecycle operational grains and
-  custodian_identity count alive goats only; location grains use goats
-  farm/park/shed/cohort cache columns; custodian grains use
-  goats.custodian_party_id.
+  custodian_identity count alive goats only; location grains use only current
+  goats.park_id and goats.shed_id cache columns for Phase 1; no farm_lifecycle
+  or cohort_lifecycle grain exists; custodian grains use goats.custodian_party_id.
 ```
 
 ## Future Ops Hardening Backlog

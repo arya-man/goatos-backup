@@ -360,28 +360,39 @@ create_goat conflict decision fields
 candidate approve canonical mutation semantics
 standalone merge command handler
 unmerge command handler/contract
-projection workers and counter population
+incremental projection workers
+externally visible counter rebuild-status metadata table
 outbox relay/runtime workers
 OpenTelemetry exporters/spans/metrics
 P8 sales/allocation behavior
 ```
 
-Counter projection order:
+Counter projection rebuild:
 
 ```text
-Build counter rebuild before incremental counters. Rebuild belongs in
-backend/internal/reporting, recomputes goat_identity_counters from canonical
-goats via bounded/grouped SQL, writes as_of_recorded_at as the canonical
-snapshot boundary counted by the rebuild (not now()), exposes
-is_rebuilding/freshness to analytics/counts, and never makes dashboard reads
-fall back to raw goats count(*).
+backend/internal/reporting owns goat_identity_counters reads and rebuilds.
+/analytics/identity/counts remains the route, but bootstrap wires it to
+reporting-owned service/repository code. backend/internal/identity must not
+query goat_identity_counters; check-boundaries enforces this outside generated
+sqlc schema/model dumps.
+
+The local rebuild command is backend/cmd/rebuild-identity-counters. It supports
+tenant_id, optional source_import_run_id stamping, and an optional grain subset.
+The rebuild uses grouped SQL per Phase 1 grain, delete+insert replacement per
+tenant+grain, one repeatable-read transaction per committed rebuild attempt,
+and a per-tenant advisory lock. Serialization/deadlock failures retry the whole
+transaction in a bounded loop. The freshness watermark is
+max(goat_identity_events.recorded_at) from the rebuild snapshot, never now() or
+goats.updated_at. If no tenant events exist, the watermark is null. Final rows
+keep is_rebuilding=false; externally visible rebuild status metadata is deferred.
 
 Phase 1 counter membership excludes identity_state=merged and
 identity_state=inactive from all grains. Lifecycle-bearing grains count
 dead/sold lifecycle buckets for non-merged, non-inactive goats. Non-lifecycle
 operational grains and custodian_identity count alive goats only. Location
-grains use goats farm/park/shed/cohort cache columns; custodian grains use
-goats.custodian_party_id.
+grains use only goats.park_id for park_lifecycle and goats.park_id+shed_id for
+shed_lifecycle in Phase 1; no farm_lifecycle or cohort_lifecycle grain exists.
+Custodian grains use goats.custodian_party_id.
 
 Incremental counters are a later async event/outbox consumer with event_id
 dedupe and before/after multi-grain deltas. Projection failures must never roll
@@ -399,7 +410,7 @@ read BUILD-STATUS.md for current Phase 1 state
 run make test
 run make check
 run make sqlc-check for DB query changes
-run make validate-sqlc-plans when adding/changing indexed identity read queries
+run make validate-sqlc-plans when adding/changing indexed identity/reporting reads
 run make validate-migrations for schema-sensitive work
 keep fixtures synthetic
 ```

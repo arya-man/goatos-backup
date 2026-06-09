@@ -1533,10 +1533,25 @@ Rules:
 ```text
 dashboard count APIs read this projection, not the full goats table
 projection is rebuildable from goats + identity/location events
+backend/internal/reporting owns goat_identity_counters reads and rebuilds
+backend/internal/identity must not query goat_identity_counters
+GET /analytics/identity/counts stays as the public route and is wired to
+reporting-owned service/repository code
+local rebuild command recomputes all 10 Phase 1 grains by default and supports
+optional source_import_run_id stamping
 large import runs rebuild counters at import completion in bounded grouped queries
-counter rebuild writes `as_of_recorded_at` as the projection watermark and
-`is_rebuilding` as the freshness flag; the watermark is the canonical snapshot
-boundary counted by the rebuild, not `now()`
+counter rebuild uses one repeatable-read transaction per committed tenant
+rebuild attempt and takes a per-tenant advisory lock before validation/rebuild
+work; serialization/deadlock failures retry the whole transaction in a bounded
+loop
+counter rebuild deletes old tenant+grain buckets and inserts the freshly grouped
+complete result set inside the same transaction, so readers see all-old or all-new
+counter rebuild writes `as_of_recorded_at` as the projection watermark; the
+watermark is max(goat_identity_events.recorded_at) from the rebuild snapshot,
+not `now()` and not goats.updated_at
+if the tenant has no goat_identity_events, as_of_recorded_at is null
+is_rebuilding remains false on final Phase 1 rebuild rows; externally visible
+rebuild status is deferred to a future metadata table
 steady-state incremental updates are a later event/projection consumer, not a
 large-import row-by-row path
 incremental counter updates must be async/event-driven with event_id dedupe and
@@ -1587,9 +1602,14 @@ distributions
 custodian_identity counts only alive, non-merged, non-inactive goats by
 identity_state and therefore includes clean, needs_review, and disputed for the
 currently alive herd in Phase 1
-location grains use the current cache columns on goats (farm_id, park_id,
-shed_id, cohort_id) and do not read historical location ledgers
+location grains use only current goats.park_id for park_lifecycle and
+goats.park_id plus goats.shed_id for shed_lifecycle in Phase 1; farm_id and
+cohort_id exist as cache columns but no farm_lifecycle or cohort_lifecycle grain
+exists
+location grains do not read historical location ledgers
 custodian grains use goats.custodian_party_id as the current custodian cache
+NULL dimensions are valid unknown buckets under the NULLS NOT DISTINCT unique
+index
 ```
 
 Do not materialize arbitrary combinations of all nullable dimensions. New grains

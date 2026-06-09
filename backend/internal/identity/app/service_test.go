@@ -678,10 +678,6 @@ func (f *fakeRepo) ListCandidates(context.Context, ports.ListCandidatesParams) (
 	return []domain.CandidateSummary{candidateSummaryFixture("80000000-0000-4000-8000-000000000001", "proposed", 1)}, nil, nil
 }
 
-func (f *fakeRepo) ListIdentityCounts(context.Context, ports.CountParams) ([]domain.IdentityCount, domain.Freshness, error) {
-	return nil, domain.Freshness{}, nil
-}
-
 func (f *fakeRepo) CreateCorrectionRequest(_ context.Context, cmd ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
 	f.lastCorrectionCmd = cmd
 	if f.correctionErr != nil {

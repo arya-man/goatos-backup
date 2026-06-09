@@ -159,17 +159,6 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if _, err := repo.GetConflict(ctx, secondTenant, "20000000-0000-4000-8000-000000000001"); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("cross-tenant conflict lookup should return ErrNotFound, got %v", err)
 	}
-
-	counts, freshness, err := repo.ListIdentityCounts(ctx, ports.CountParams{
-		Grain:    "tenant_lifecycle",
-		TenantID: meshaTenant,
-	})
-	if err != nil {
-		t.Fatalf("ListIdentityCounts: %v", err)
-	}
-	if len(counts) != 1 || counts[0].CountValue != 2 || freshness.AsOfRecordedAt == nil {
-		t.Fatalf("unexpected counts=%#v freshness=%#v", counts, freshness)
-	}
 }
 
 func applyMigrations(t *testing.T, container string) {
@@ -233,8 +222,6 @@ VALUES
 INSERT INTO identity_conflict_source_records (conflict_id, tenant_id, source_system, source_record_id)
 VALUES ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'synthetic_import', 'synthetic-source-record-1');
 
-INSERT INTO goat_identity_counters (counter_grain, tenant_id, lifecycle_status, count_value, as_of_recorded_at, is_rebuilding)
-VALUES ('tenant_lifecycle', '`+meshaTenant+`', 'alive', 2, now(), false);
 `)
 }
 

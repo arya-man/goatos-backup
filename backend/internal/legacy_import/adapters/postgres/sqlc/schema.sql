@@ -2173,6 +2173,20 @@ CREATE INDEX goat_identity_events_2026_06_tenant_id_event_type_recorded__idx ON 
 
 
 --
+-- Name: goat_identity_events_tenant_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_tenant_recorded_at_idx ON ONLY public.goat_identity_events USING btree (tenant_id, recorded_at DESC);
+
+
+--
+-- Name: goat_identity_events_2026_06_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_06_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_06 USING btree (tenant_id, recorded_at DESC);
+
+
+--
 -- Name: goat_identity_events_2026_07_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2191,6 +2205,13 @@ CREATE INDEX goat_identity_events_2026_07_idempotency_key_idx ON public.goat_ide
 --
 
 CREATE INDEX goat_identity_events_2026_07_tenant_id_event_type_recorded__idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: goat_identity_events_2026_07_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_07_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, recorded_at DESC);
 
 
 --
@@ -2215,6 +2236,13 @@ CREATE INDEX goat_identity_events_2026_08_tenant_id_event_type_recorded__idx ON 
 
 
 --
+-- Name: goat_identity_events_2026_08_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_08_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, recorded_at DESC);
+
+
+--
 -- Name: goat_identity_events_2026_09_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2236,6 +2264,13 @@ CREATE INDEX goat_identity_events_2026_09_tenant_id_event_type_recorded__idx ON 
 
 
 --
+-- Name: goat_identity_events_2026_09_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_09_tenant_id_recorded_at_idx ON public.goat_identity_events_2026_09 USING btree (tenant_id, recorded_at DESC);
+
+
+--
 -- Name: goat_identity_events_default_goat_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2254,6 +2289,13 @@ CREATE INDEX goat_identity_events_default_idempotency_key_idx ON public.goat_ide
 --
 
 CREATE INDEX goat_identity_events_default_tenant_id_event_type_recorded__idx ON public.goat_identity_events_default USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: goat_identity_events_default_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_default_tenant_id_recorded_at_idx ON public.goat_identity_events_default USING btree (tenant_id, recorded_at DESC);
 
 
 --
@@ -2775,6 +2817,13 @@ ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PART
 
 
 --
+-- Name: goat_identity_events_2026_06_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_06_tenant_id_recorded_at_idx;
+
+
+--
 -- Name: goat_identity_events_2026_07_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -2807,6 +2856,13 @@ ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITIO
 --
 
 ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_identity_event_id_re_key;
+
+
+--
+-- Name: goat_identity_events_2026_07_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_recorded_at_idx;
 
 
 --
@@ -2845,6 +2901,13 @@ ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PART
 
 
 --
+-- Name: goat_identity_events_2026_08_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_08_tenant_id_recorded_at_idx;
+
+
+--
 -- Name: goat_identity_events_2026_09_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -2880,6 +2943,13 @@ ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PART
 
 
 --
+-- Name: goat_identity_events_2026_09_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_2026_09_tenant_id_recorded_at_idx;
+
+
+--
 -- Name: goat_identity_events_default_goat_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -2912,6 +2982,13 @@ ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITIO
 --
 
 ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_default_tenant_id_identity_event_id_re_key;
+
+
+--
+-- Name: goat_identity_events_default_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION public.goat_identity_events_default_tenant_id_recorded_at_idx;
 
 
 --

@@ -213,24 +213,6 @@ func (s *Service) GetConflict(ctx context.Context, tenantID, conflictID, traceID
 	return result, nil
 }
 
-func (s *Service) GetIdentityCounts(ctx context.Context, params ports.CountParams, traceID string) (*domain.IdentityCountsResult, error) {
-	if err := requireTenant(params.TenantID); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(params.Grain) == "" {
-		return nil, BadRequest("invalid_grain", "grain is required")
-	}
-	items, freshness, err := s.repo.ListIdentityCounts(ctx, params)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	if len(items) == 0 {
-		msg := "Counters are empty until import/projection jobs populate goat_identity_counters."
-		freshness.Warning = &msg
-	}
-	return &domain.IdentityCountsResult{Grain: params.Grain, Items: items, Freshness: freshness, TraceID: traceID}, nil
-}
-
 func requireTenant(tenantID string) error {
 	if strings.TrimSpace(tenantID) == "" {
 		return Unauthorized("missing_tenant_scope", "tenant scope is required")

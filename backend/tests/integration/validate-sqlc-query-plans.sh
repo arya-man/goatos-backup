@@ -9,6 +9,7 @@ db_user="postgres"
 query_files=(
   "$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql"
   "$repo_root/backend/internal/legacy_import/adapters/postgres/sqlc/query.sql"
+  "$repo_root/backend/internal/reporting/adapters/postgres/sqlc/query.sql"
 )
 
 cleanup() {
@@ -82,6 +83,20 @@ bind_query_params() {
     -e "s/@source_dataset/'rfid_db_first_import'/g" \
     -e "s/@source_row_key/'source_system=legacy_rfid_db|source_dataset=rfid_db_first_import|normalized_old_tag=1900|normalized_park_code=CBE|rfid=RFID_SYNTHETIC_0001'/g" \
     -e "s/@source_row_version_hash/'sha256:0000000000000000000000000000000000000000000000000000000000000000'/g" \
+    -e "s/@counter_grain/'tenant_lifecycle'/g" \
+    -e "s/sqlc.narg('custodian_party_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('farm_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('park_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('shed_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('cohort_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('lifecycle_status')::text/NULL::text/g" \
+    -e "s/sqlc.narg('reproductive_status')::text/NULL::text/g" \
+    -e "s/sqlc.narg('growth_cohort_tag')::text/NULL::text/g" \
+    -e "s/sqlc.narg('management_stage')::text/NULL::text/g" \
+    -e "s/sqlc.narg('health_status')::text/NULL::text/g" \
+    -e "s/sqlc.narg('identity_state')::text/NULL::text/g" \
+    -e "s/sqlc.narg('breed_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('sex')::text/NULL::text/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
     -e "s/sqlc.narg('cursor_row_number')::int/NULL::int/g" \
@@ -124,6 +139,9 @@ forbidden_seq_scan_pattern() {
       ;;
     ListPendingLegacyImportRowsForApply)
       printf '%s\n' 'Seq Scan on legacy_import_rows'
+      ;;
+    ListIdentityCounts)
+      printf '%s\n' 'Seq Scan on goat_identity_counters'
       ;;
     *)
       echo "No sqlc plan expectation registered for generated query: $query_name" >&2

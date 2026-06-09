@@ -192,47 +192,6 @@ type CandidateListResponse struct {
 	TraceID    string             `json:"trace_id"`
 }
 
-type CountDimensions struct {
-	TenantID           string  `json:"tenant_id"`
-	CustodianPartyID   *string `json:"custodian_party_id"`
-	FarmID             *string `json:"farm_id"`
-	ParkID             *string `json:"park_id"`
-	ShedID             *string `json:"shed_id"`
-	CohortID           *string `json:"cohort_id"`
-	LifecycleStatus    *string `json:"lifecycle_status"`
-	ReproductiveStatus *string `json:"reproductive_status"`
-	GrowthCohortTag    *string `json:"growth_cohort_tag"`
-	ManagementStage    *string `json:"management_stage"`
-	HealthStatus       *string `json:"health_status"`
-	IdentityState      *string `json:"identity_state"`
-	BreedID            *string `json:"breed_id"`
-	Sex                *string `json:"sex"`
-}
-
-type IdentityCount struct {
-	CounterGrain      string          `json:"counter_grain"`
-	Dimensions        CountDimensions `json:"dimensions"`
-	CountValue        int64           `json:"count_value"`
-	AsOfRecordedAt    *time.Time      `json:"as_of_recorded_at"`
-	SourceImportRunID *string         `json:"source_import_run_id"`
-	IsRebuilding      bool            `json:"is_rebuilding"`
-	UpdatedAt         time.Time       `json:"updated_at"`
-}
-
-type Freshness struct {
-	AsOfRecordedAt    *time.Time `json:"as_of_recorded_at"`
-	IsRebuilding      bool       `json:"is_rebuilding"`
-	SourceImportRunID *string    `json:"source_import_run_id"`
-	Warning           *string    `json:"warning"`
-}
-
-type IdentityCountsResult struct {
-	Grain     string          `json:"grain"`
-	Items     []IdentityCount `json:"items"`
-	Freshness Freshness       `json:"freshness"`
-	TraceID   string          `json:"trace_id"`
-}
-
 type CorrectionRequest struct {
 	CorrectionRequestID string        `json:"correction_request_id"`
 	RequestType         string        `json:"request_type"`
