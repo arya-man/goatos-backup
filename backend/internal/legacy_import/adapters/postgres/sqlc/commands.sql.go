@@ -1183,6 +1183,29 @@ func (q *Queries) NewUUID(ctx context.Context) (string, error) {
 	return uuid, err
 }
 
+const refreshLegacyImportRunCreatedGoatCount = `-- name: RefreshLegacyImportRunCreatedGoatCount :exec
+UPDATE legacy_import_runs lirun
+SET created_goat_count = (
+  SELECT count(*)::int
+  FROM legacy_import_rows lirow
+  WHERE lirow.tenant_id = $1
+    AND lirow.import_run_id = $2
+    AND lirow.processing_state = 'created_goat'
+)
+WHERE lirun.tenant_id = $1
+  AND lirun.import_run_id = $2
+`
+
+type RefreshLegacyImportRunCreatedGoatCountParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+}
+
+func (q *Queries) RefreshLegacyImportRunCreatedGoatCount(ctx context.Context, arg RefreshLegacyImportRunCreatedGoatCountParams) error {
+	_, err := q.db.Exec(ctx, refreshLegacyImportRunCreatedGoatCount, arg.TenantID, arg.ImportRunID)
+	return err
+}
+
 const resolveBreedAliasForApply = `-- name: ResolveBreedAliasForApply :one
 SELECT
   b.breed_id::text AS breed_id,

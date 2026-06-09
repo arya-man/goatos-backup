@@ -259,6 +259,12 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 		}); err != nil {
 			return applyOutcome{}, err
 		}
+		if err := qtx.RefreshLegacyImportRunCreatedGoatCount(ctx, importdb.RefreshLegacyImportRunCreatedGoatCountParams{
+			TenantID:    tenantUUID,
+			ImportRunID: runUUID,
+		}); err != nil {
+			return applyOutcome{}, err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return applyOutcome{}, err
 		}
@@ -296,7 +302,7 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 		RequestHash:    requestHash,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		outcome, err := replayAppliedRow(ctx, qtx, tenantUUID, rowUUID, idempotencyKey, requestHash)
+		outcome, err := replayAppliedRow(ctx, qtx, tenantUUID, runUUID, rowUUID, idempotencyKey, requestHash)
 		if err != nil {
 			return applyOutcome{}, err
 		}
@@ -564,6 +570,11 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 	}); err != nil {
 		return applyOutcome{}, err
 	}
+	if r.afterAuditHook != nil {
+		if err := r.afterAuditHook(ctx); err != nil {
+			return applyOutcome{}, err
+		}
+	}
 
 	envelope, err := importDomainEventEnvelope(importEventEnvelopeInput{
 		EventID:        eventRow.EventID,
@@ -736,7 +747,7 @@ func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Qu
 	return plan, "", nil
 }
 
-func replayAppliedRow(ctx context.Context, qtx *importdb.Queries, tenantUUID, rowUUID pgtype.UUID, idempotencyKey, requestHash string) (applyOutcome, error) {
+func replayAppliedRow(ctx context.Context, qtx *importdb.Queries, tenantUUID, runUUID, rowUUID pgtype.UUID, idempotencyKey, requestHash string) (applyOutcome, error) {
 	row, err := qtx.GetIdempotencyKey(ctx, idempotencyKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return applyOutcome{}, fmt.Errorf("idempotency key missing during replay")
@@ -755,6 +766,12 @@ func replayAppliedRow(ctx context.Context, qtx *importdb.Queries, tenantUUID, ro
 		TenantID:      tenantUUID,
 		LegacyRowID:   rowUUID,
 		MatchedGoatID: goatUUID,
+	}); err != nil {
+		return applyOutcome{}, err
+	}
+	if err := qtx.RefreshLegacyImportRunCreatedGoatCount(ctx, importdb.RefreshLegacyImportRunCreatedGoatCountParams{
+		TenantID:    tenantUUID,
+		ImportRunID: runUUID,
 	}); err != nil {
 		return applyOutcome{}, err
 	}

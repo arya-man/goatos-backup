@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,7 +143,16 @@ WHERE gie.goat_id = $1 AND gie.event_type = 'goat.created'`, goatID).Scan(&event
 			t.Fatalf("business idempotency key included import_run_id: %s", idempotencyKey)
 		}
 
-		if _, err := pool.Exec(ctx, `UPDATE legacy_import_rows SET processing_state = 'pending', matched_goat_id = NULL WHERE legacy_row_id = $1`, rowID); err != nil {
+		if _, err := pool.Exec(ctx, `
+UPDATE legacy_import_rows
+SET processing_state = 'pending', matched_goat_id = NULL
+WHERE legacy_row_id = $1`, rowID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `
+UPDATE legacy_import_runs
+SET created_goat_count = 0
+WHERE import_run_id = $1`, runID); err != nil {
 			t.Fatal(err)
 		}
 		replay, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{TenantID: meshaTenant, ImportRunID: runID, BatchSize: 1, ActorID: strPtr(applyActorID)})
@@ -151,6 +161,9 @@ WHERE gie.goat_id = $1 AND gie.event_type = 'goat.created'`, goatID).Scan(&event
 		}
 		if replay.ReplayCount != 1 || replay.AppliedCount != 0 {
 			t.Fatalf("unexpected replay result: %#v", replay)
+		}
+		if got := countRows(t, pool, `SELECT created_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 1 {
+			t.Fatalf("created_goat_count after replay=%d, want 1", got)
 		}
 		for label, query := range map[string]string{
 			"goats":              `SELECT count(*) FROM goats WHERE goat_id = $1`,
@@ -169,6 +182,50 @@ WHERE gie.goat_id = $1 AND gie.event_type = 'goat.created'`, goatID).Scan(&event
 				t.Fatalf("%s after replay=%d, want %d", label, got, want)
 			}
 		}
+	})
+
+	t.Run("forced failure rolls back canonical writes and staged row state", func(t *testing.T) {
+		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
+			RowNumber: 2,
+			Raw:       rawRFIDRow("ROLLBACKAPPLY", "CBE", "9900000000000000000000009150001", "Female", "Boer", ""),
+		}})
+		var sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash string
+		if err := pool.QueryRow(ctx, `
+SELECT source_system, source_dataset, source_row_key, source_row_version_hash
+FROM legacy_import_rows
+WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRowKey, &sourceRowVersionHash); err != nil {
+			t.Fatal(err)
+		}
+		idempotencyKey := stableApplyIdempotencyKey(meshaTenant, sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash)
+		beforeGoats := countRows(t, pool, `SELECT count(*) FROM goats`)
+
+		repo.afterAuditHook = func(context.Context) error {
+			return errors.New("synthetic forced apply rollback")
+		}
+		defer func() { repo.afterAuditHook = nil }()
+		_, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:    meshaTenant,
+			ImportRunID: runID,
+			BatchSize:   1,
+			ActorID:     strPtr(applyActorID),
+		})
+		if err == nil {
+			t.Fatal("expected forced apply rollback error")
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StatePending, "")
+		if got := countRows(t, pool, `SELECT created_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 0 {
+			t.Fatalf("created_goat_count after rollback=%d, want 0", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
+			t.Fatalf("goat rows after rollback=%d, before=%d", got, beforeGoats)
+		}
+		assertZeroRows(t, pool, "idempotency after apply rollback", `SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1`, idempotencyKey)
+		assertZeroRows(t, pool, "rfid identifier after apply rollback", `SELECT count(*) FROM goat_identifiers WHERE normalized_value = '9900000000000000000000009150001'`)
+		assertZeroRows(t, pool, "old tag identifier after apply rollback", `SELECT count(*) FROM goat_identifiers WHERE normalized_value = 'ROLLBACKAPPLY'`)
+		assertZeroRows(t, pool, "decision after apply rollback", `SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1`, "rfid-apply:"+rowID)
+		assertZeroRows(t, pool, "event after apply rollback", `SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1`, idempotencyKey)
+		assertZeroRows(t, pool, "outbox after apply rollback", `SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1`, idempotencyKey)
+		assertZeroRows(t, pool, "audit after apply rollback", `SELECT count(*) FROM audit_log WHERE trace_id = $1`, "rfid-apply:"+rowID)
 	})
 
 	t.Run("dry-run previews applyable and review rows without mutation", func(t *testing.T) {
@@ -366,6 +423,13 @@ func validateDomainEventEnvelope(t *testing.T, payload []byte) {
 func validateDecisionRecord(t *testing.T, payload []byte) {
 	t.Helper()
 	validateJSONSchema(t, "decision-record.schema.json", payload)
+}
+
+func assertZeroRows(t *testing.T, pool *pgxpool.Pool, label, query string, args ...any) {
+	t.Helper()
+	if got := countRows(t, pool, query, args...); got != 0 {
+		t.Fatalf("%s rows=%d, want 0", label, got)
+	}
 }
 
 func validateJSONSchema(t *testing.T, schemaName string, payload []byte) {

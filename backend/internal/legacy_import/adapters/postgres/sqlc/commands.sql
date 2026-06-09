@@ -527,3 +527,15 @@ UPDATE legacy_import_runs
 SET created_goat_count = created_goat_count + 1
 WHERE tenant_id = @tenant_id
   AND import_run_id = @import_run_id;
+
+-- name: RefreshLegacyImportRunCreatedGoatCount :exec
+UPDATE legacy_import_runs lirun
+SET created_goat_count = (
+  SELECT count(*)::int
+  FROM legacy_import_rows lirow
+  WHERE lirow.tenant_id = @tenant_id
+    AND lirow.import_run_id = @import_run_id
+    AND lirow.processing_state = 'created_goat'
+)
+WHERE lirun.tenant_id = @tenant_id
+  AND lirun.import_run_id = @import_run_id;
