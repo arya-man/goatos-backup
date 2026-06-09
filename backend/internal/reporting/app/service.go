@@ -24,15 +24,25 @@ func (s *Service) GetIdentityCounts(ctx context.Context, params ports.CountParam
 	if !validGrain(params.Grain) {
 		return nil, BadRequest("invalid_grain", "grain is required and must be a Phase 1 identity counter grain")
 	}
-	items, freshness, err := s.repo.ListIdentityCounts(ctx, params)
+	if params.Limit < 1 || params.Limit > ports.MaxIdentityCountsLimit {
+		return nil, BadRequest("invalid_limit", "limit is required and must be between 1 and 500")
+	}
+	page, err := s.repo.ListIdentityCounts(ctx, params)
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	if len(items) == 0 {
+	if len(page.Items) == 0 {
 		msg := "Counters are empty until reporting rebuild or projection jobs populate goat_identity_counters."
-		freshness.Warning = &msg
+		page.Freshness.Warning = &msg
 	}
-	return &domain.IdentityCountsResult{Grain: params.Grain, Items: items, Freshness: freshness, TraceID: traceID}, nil
+	return &domain.IdentityCountsResult{
+		Grain:      params.Grain,
+		Items:      page.Items,
+		NextCursor: page.NextCursor,
+		HasMore:    page.HasMore,
+		Freshness:  page.Freshness,
+		TraceID:    traceID,
+	}, nil
 }
 
 func (s *Service) RebuildIdentityCounters(ctx context.Context, params ports.RebuildIdentityCountersParams) (*domain.IdentityCounterRebuildResult, error) {
@@ -84,6 +94,9 @@ func mapRepoErr(err error) error {
 	}
 	if errors.Is(err, ports.ErrInvalidFilter) {
 		return BadRequest("invalid_filter", "one or more reporting filters are invalid")
+	}
+	if errors.Is(err, ports.ErrInvalidCursor) {
+		return BadRequest("invalid_cursor", "analytics counts cursor is invalid")
 	}
 	return Internal("reporting repository operation failed")
 }

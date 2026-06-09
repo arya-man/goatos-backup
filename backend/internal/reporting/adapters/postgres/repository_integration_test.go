@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -47,15 +49,16 @@ func TestIdentityCounterRebuildWithDockerPostgres(t *testing.T) {
 	runID := seedImportRun(t, pool, meshaTenant)
 
 	t.Run("analytics reads projection rows only", func(t *testing.T) {
-		items, freshness, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+		page, err := repo.ListIdentityCounts(ctx, ports.CountParams{
 			TenantID: meshaTenant,
 			Grain:    domain.GrainTenantLifecycle,
+			Limit:    100,
 		})
 		if err != nil {
 			t.Fatalf("ListIdentityCounts before rebuild: %v", err)
 		}
-		if len(items) != 0 || freshness.AsOfRecordedAt != nil {
-			t.Fatalf("counts should be empty before rebuild, got items=%#v freshness=%#v", items, freshness)
+		if len(page.Items) != 0 || page.Freshness.AsOfRecordedAt != nil {
+			t.Fatalf("counts should be empty before rebuild, got page=%#v", page)
 		}
 	})
 
@@ -74,9 +77,10 @@ func TestIdentityCounterRebuildWithDockerPostgres(t *testing.T) {
 	if result.AsOfRecordedAt == nil || !result.AsOfRecordedAt.Equal(wantWatermark) {
 		t.Fatalf("watermark=%v want %v", result.AsOfRecordedAt, wantWatermark)
 	}
-	if _, _, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+	if _, err := repo.ListIdentityCounts(ctx, ports.CountParams{
 		TenantID: meshaTenant,
 		Grain:    domain.GrainParkLifecycle,
+		Limit:    100,
 		ParkID:   strPtr("not-a-uuid"),
 	}); !errors.Is(err, ports.ErrInvalidFilter) {
 		t.Fatalf("malformed park_id should fail closed with ErrInvalidFilter, got %v", err)
@@ -129,26 +133,112 @@ WHERE tenant_id = $1 AND goat_id = '10000000-0000-4000-8000-000000000004'`, mesh
 		}); err != nil {
 			t.Fatalf("tenant without events rebuild: %v", err)
 		}
-		allItems, allFreshness, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+		allPage, err := repo.ListIdentityCounts(ctx, ports.CountParams{
 			TenantID: secondTenant,
 			Grain:    domain.GrainHealthStatus,
+			Limit:    100,
 		})
 		if err != nil {
 			t.Fatalf("ListIdentityCounts no-event tenant: %v", err)
 		}
-		if len(allItems) != 1 || allItems[0].AsOfRecordedAt != nil || allFreshness.AsOfRecordedAt != nil {
-			t.Fatalf("no-event watermark should be null, got items=%#v freshness=%#v", allItems, allFreshness)
+		if len(allPage.Items) != 1 || allPage.Items[0].AsOfRecordedAt != nil || allPage.Freshness.AsOfRecordedAt != nil {
+			t.Fatalf("no-event watermark should be null, got page=%#v", allPage)
 		}
-		items, freshness, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+		page, err := repo.ListIdentityCounts(ctx, ports.CountParams{
 			TenantID:     secondTenant,
 			Grain:        domain.GrainHealthStatus,
+			Limit:        100,
 			HealthStatus: strPtr("icu"),
 		})
 		if err != nil {
 			t.Fatalf("ListIdentityCounts empty filter: %v", err)
 		}
-		if len(items) != 0 || freshness.AsOfRecordedAt != nil {
-			t.Fatalf("empty grain filter returned items=%#v freshness=%#v", items, freshness)
+		if len(page.Items) != 0 || page.Freshness.AsOfRecordedAt != nil {
+			t.Fatalf("empty grain filter returned page=%#v", page)
+		}
+	})
+
+	t.Run("identity counts keyset pagination is deterministic", func(t *testing.T) {
+		seedPaginatedGrowthCounters(t, pool)
+		firstPage, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+			TenantID: meshaTenant,
+			Grain:    domain.GrainGrowthCohort,
+			Limit:    3,
+		})
+		if err != nil {
+			t.Fatalf("first page: %v", err)
+		}
+		assertGrowthTags(t, firstPage.Items, []string{"page-A", "page-B", "page-C"})
+		if !firstPage.HasMore || firstPage.NextCursor == nil {
+			t.Fatalf("first page should have next cursor: %#v", firstPage)
+		}
+
+		secondPage, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+			TenantID: meshaTenant,
+			Grain:    domain.GrainGrowthCohort,
+			Limit:    3,
+			Cursor:   firstPage.NextCursor,
+		})
+		if err != nil {
+			t.Fatalf("second page: %v", err)
+		}
+		assertGrowthTags(t, secondPage.Items, []string{"page-D", "page-E"})
+		if secondPage.HasMore || secondPage.NextCursor != nil {
+			t.Fatalf("second page should be terminal: %#v", secondPage)
+		}
+
+		seen := map[string]bool{}
+		for _, item := range append(firstPage.Items, secondPage.Items...) {
+			tag := ""
+			if item.Dimensions.GrowthCohortTag != nil {
+				tag = *item.Dimensions.GrowthCohortTag
+			}
+			if seen[tag] {
+				t.Fatalf("duplicate paginated tag %s", tag)
+			}
+			seen[tag] = true
+		}
+		for _, tag := range []string{"page-A", "page-B", "page-C", "page-D", "page-E"} {
+			if !seen[tag] {
+				t.Fatalf("paginated results skipped %s; seen=%#v", tag, seen)
+			}
+		}
+
+		filteredPage, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+			TenantID:        meshaTenant,
+			Grain:           domain.GrainGrowthCohort,
+			Limit:           10,
+			GrowthCohortTag: strPtr("page-D"),
+		})
+		if err != nil {
+			t.Fatalf("filtered page: %v", err)
+		}
+		assertGrowthTags(t, filteredPage.Items, []string{"page-D"})
+
+		cursor, err := encodeSyntheticCountCursor(999, "90000000-0000-4000-8000-000000000999")
+		if err != nil {
+			t.Fatal(err)
+		}
+		arbitraryCursorPage, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+			TenantID: meshaTenant,
+			Grain:    domain.GrainGrowthCohort,
+			Limit:    3,
+			Cursor:   &cursor,
+		})
+		if err != nil {
+			t.Fatalf("structurally valid arbitrary cursor should be clean: %v", err)
+		}
+		if len(arbitraryCursorPage.Items) == 0 {
+			t.Fatalf("arbitrary high cursor should return clean page, got empty")
+		}
+
+		if _, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+			TenantID: meshaTenant,
+			Grain:    domain.GrainGrowthCohort,
+			Limit:    3,
+			Cursor:   strPtr("not-base64url"),
+		}); !errors.Is(err, ports.ErrInvalidCursor) {
+			t.Fatalf("malformed cursor should fail closed with ErrInvalidCursor, got %v", err)
 		}
 	})
 
@@ -296,6 +386,56 @@ VALUES ('tenant_lifecycle', $1, 'alive', 99, false)
 ON CONFLICT DO NOTHING`, secondTenant); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func seedPaginatedGrowthCounters(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+DELETE FROM goat_identity_counters
+WHERE tenant_id = $1 AND counter_grain = 'growth_cohort';
+`, meshaTenant); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_identity_counters (
+  counter_id, counter_grain, tenant_id, growth_cohort_tag, count_value,
+  as_of_recorded_at, is_rebuilding, updated_at
+) VALUES
+  ('90000000-0000-4000-8000-000000000001', 'growth_cohort', $1, 'page-A', 50, '2026-06-09 12:30:00+00', false, '2026-06-09 12:31:00+00'),
+  ('90000000-0000-4000-8000-000000000002', 'growth_cohort', $1, 'page-B', 50, '2026-06-09 12:30:00+00', false, '2026-06-09 12:31:00+00'),
+  ('90000000-0000-4000-8000-000000000003', 'growth_cohort', $1, 'page-C', 40, '2026-06-09 12:30:00+00', false, '2026-06-09 12:31:00+00'),
+  ('90000000-0000-4000-8000-000000000004', 'growth_cohort', $1, 'page-D', 30, '2026-06-09 12:30:00+00', false, '2026-06-09 12:31:00+00'),
+  ('90000000-0000-4000-8000-000000000005', 'growth_cohort', $1, 'page-E', 30, '2026-06-09 12:30:00+00', false, '2026-06-09 12:31:00+00');
+`, meshaTenant); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertGrowthTags(t *testing.T, items []domain.IdentityCount, want []string) {
+	t.Helper()
+	if len(items) != len(want) {
+		t.Fatalf("items=%d want %d: %#v", len(items), len(want), items)
+	}
+	for i, item := range items {
+		if item.Dimensions.GrowthCohortTag == nil || *item.Dimensions.GrowthCohortTag != want[i] {
+			t.Fatalf("item[%d] tag=%v want %s in %#v", i, item.Dimensions.GrowthCohortTag, want[i], items)
+		}
+	}
+}
+
+func encodeSyntheticCountCursor(countValue int64, counterID string) (string, error) {
+	version := identityCountsCursorVersion
+	payload, err := json.Marshal(countCursorPayload{
+		Version:    &version,
+		CountValue: &countValue,
+		CounterID:  &counterID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
 func assertCounter(t *testing.T, pool *pgxpool.Pool, grain, predicate string, want int64) {

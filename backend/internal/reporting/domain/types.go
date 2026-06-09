@@ -77,10 +77,12 @@ type Freshness struct {
 }
 
 type IdentityCountsResult struct {
-	Grain     string          `json:"grain"`
-	Items     []IdentityCount `json:"items"`
-	Freshness Freshness       `json:"freshness"`
-	TraceID   string          `json:"trace_id"`
+	Grain      string          `json:"grain"`
+	Items      []IdentityCount `json:"items"`
+	NextCursor *string         `json:"next_cursor"`
+	HasMore    bool            `json:"has_more"`
+	Freshness  Freshness       `json:"freshness"`
+	TraceID    string          `json:"trace_id"`
 }
 
 type GrainRebuildResult struct {

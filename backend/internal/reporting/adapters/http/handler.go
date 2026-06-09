@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -36,9 +37,15 @@ func (h *Handler) GetIdentityCounts(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	limit, ok := parseIdentityCountsLimit(w, r, q.Get("limit"))
+	if !ok {
+		return
+	}
 	result, err := h.service.GetIdentityCounts(r.Context(), ports.CountParams{
 		Grain:              q.Get("grain"),
 		TenantID:           q.Get("tenant_id"),
+		Limit:              limit,
+		Cursor:             optionalQuery(q.Get("cursor")),
 		CustodianPartyID:   optionalQuery(q.Get("custodian_party_id")),
 		FarmID:             optionalQuery(q.Get("farm_id")),
 		ParkID:             optionalQuery(q.Get("park_id")),
@@ -54,6 +61,32 @@ func (h *Handler) GetIdentityCounts(w http.ResponseWriter, r *http.Request) {
 		Sex:                optionalQuery(q.Get("sex")),
 	}, traceID(r))
 	respond(w, r, result, err)
+}
+
+func parseIdentityCountsLimit(w http.ResponseWriter, r *http.Request, value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "missing_limit",
+			Message:     "limit query parameter is required",
+			FieldErrors: []domain.FieldError{{Field: "limit", Code: "required", Message: "limit is required"}},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return 0, false
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > ports.MaxIdentityCountsLimit {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_limit",
+			Message:     "limit must be an integer between 1 and 500",
+			FieldErrors: []domain.FieldError{{Field: "limit", Code: "invalid", Message: "limit must be between 1 and 500"}},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return 0, false
+	}
+	return limit, true
 }
 
 func respond(w http.ResponseWriter, r *http.Request, payload any, err error) {

@@ -1,5 +1,6 @@
 -- name: ListIdentityCounts :many
 SELECT
+  counter_id::text AS counter_id,
   counter_grain,
   tenant_id::text AS tenant_id,
   COALESCE(custodian_party_id::text, '')::text AS custodian_party_id,
@@ -36,5 +37,13 @@ WHERE counter_grain = @counter_grain
   AND (sqlc.narg('identity_state')::text IS NULL OR identity_state = sqlc.narg('identity_state')::text)
   AND (sqlc.narg('breed_id')::uuid IS NULL OR breed_id = sqlc.narg('breed_id')::uuid)
   AND (sqlc.narg('sex')::text IS NULL OR sex = sqlc.narg('sex')::text)
-ORDER BY updated_at DESC, counter_id
-LIMIT 100;
+  AND (
+    sqlc.narg('cursor_count_value')::bigint IS NULL
+    OR count_value < sqlc.narg('cursor_count_value')::bigint
+    OR (
+      count_value = sqlc.narg('cursor_count_value')::bigint
+      AND counter_id > sqlc.narg('cursor_counter_id')::uuid
+    )
+  )
+ORDER BY count_value DESC, counter_id ASC
+LIMIT @limit_count;

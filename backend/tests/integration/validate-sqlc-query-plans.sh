@@ -97,6 +97,8 @@ bind_query_params() {
     -e "s/sqlc.narg('identity_state')::text/NULL::text/g" \
     -e "s/sqlc.narg('breed_id')::uuid/NULL::uuid/g" \
     -e "s/sqlc.narg('sex')::text/NULL::text/g" \
+    -e "s/sqlc.narg('cursor_count_value')::bigint/NULL::bigint/g" \
+    -e "s/sqlc.narg('cursor_counter_id')::uuid/NULL::uuid/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
     -e "s/sqlc.narg('cursor_row_number')::int/NULL::int/g" \

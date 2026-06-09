@@ -1,9 +1,13 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +21,7 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
+const identityCountsCursorVersion = 1
 
 type Repository struct {
 	pool      *pgxpool.Pool
@@ -42,37 +47,41 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
-func (r *Repository) ListIdentityCounts(ctx context.Context, params ports.CountParams) ([]domain.IdentityCount, domain.Freshness, error) {
+func (r *Repository) ListIdentityCounts(ctx context.Context, params ports.CountParams) (*ports.CountPage, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
 	tenantUUID, err := uuidParam("tenant_id", params.TenantID)
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
 	}
 	custodianPartyID, err := nullableUUIDParam("custodian_party_id", params.CustodianPartyID)
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
 	}
 	farmID, err := nullableUUIDParam("farm_id", params.FarmID)
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
 	}
 	parkID, err := nullableUUIDParam("park_id", params.ParkID)
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
 	}
 	shedID, err := nullableUUIDParam("shed_id", params.ShedID)
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
 	}
 	cohortID, err := nullableUUIDParam("cohort_id", params.CohortID)
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
 	}
 	breedID, err := nullableUUIDParam("breed_id", params.BreedID)
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
+	}
+	cursorCountValue, cursorCounterID, err := decodeCountCursor(params.Cursor)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := r.queries.ListIdentityCounts(ctx, reportingdb.ListIdentityCountsParams{
 		CounterGrain:       params.Grain,
@@ -90,9 +99,25 @@ func (r *Repository) ListIdentityCounts(ctx context.Context, params ports.CountP
 		IdentityState:      nullableText(params.IdentityState),
 		BreedID:            breedID,
 		Sex:                nullableText(params.Sex),
+		CursorCountValue:   cursorCountValue,
+		CursorCounterID:    cursorCounterID,
+		LimitCount:         int32(params.Limit + 1),
 	})
 	if err != nil {
-		return nil, domain.Freshness{}, err
+		return nil, err
+	}
+
+	hasMore := len(rows) > params.Limit
+	if hasMore {
+		rows = rows[:params.Limit]
+	}
+	var nextCursor *string
+	if hasMore && len(rows) > 0 {
+		cursor, err := encodeCountCursor(rows[len(rows)-1])
+		if err != nil {
+			return nil, err
+		}
+		nextCursor = &cursor
 	}
 
 	items := make([]domain.IdentityCount, 0, len(rows))
@@ -108,7 +133,12 @@ func (r *Repository) ListIdentityCounts(ctx context.Context, params ports.CountP
 		}
 		freshness.IsRebuilding = freshness.IsRebuilding || item.IsRebuilding
 	}
-	return items, freshness, nil
+	return &ports.CountPage{
+		Items:      items,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+		Freshness:  freshness,
+	}, nil
 }
 
 func (r *Repository) RebuildIdentityCounters(ctx context.Context, params ports.RebuildIdentityCountersParams) (*domain.IdentityCounterRebuildResult, error) {
@@ -364,6 +394,60 @@ func emptyStringPtr(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+type countCursorPayload struct {
+	Version    *int    `json:"v"`
+	CountValue *int64  `json:"count_value"`
+	CounterID  *string `json:"counter_id"`
+}
+
+func encodeCountCursor(row reportingdb.ListIdentityCountsRow) (string, error) {
+	version := identityCountsCursorVersion
+	countValue := row.CountValue
+	counterID := row.CounterID
+	payload, err := json.Marshal(countCursorPayload{
+		Version:    &version,
+		CountValue: &countValue,
+		CounterID:  &counterID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeCountCursor(value *string) (pgtype.Int8, pgtype.UUID, error) {
+	if value == nil {
+		return pgtype.Int8{}, pgtype.UUID{}, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(*value)
+	if err != nil {
+		return pgtype.Int8{}, pgtype.UUID{}, fmt.Errorf("%w: cursor must be base64url JSON", ports.ErrInvalidCursor)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var payload countCursorPayload
+	if err := decoder.Decode(&payload); err != nil {
+		return pgtype.Int8{}, pgtype.UUID{}, fmt.Errorf("%w: cursor JSON is invalid", ports.ErrInvalidCursor)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return pgtype.Int8{}, pgtype.UUID{}, fmt.Errorf("%w: cursor JSON has trailing data", ports.ErrInvalidCursor)
+	}
+	if payload.Version == nil || *payload.Version != identityCountsCursorVersion {
+		return pgtype.Int8{}, pgtype.UUID{}, fmt.Errorf("%w: unsupported cursor version", ports.ErrInvalidCursor)
+	}
+	if payload.CountValue == nil || *payload.CountValue < 0 {
+		return pgtype.Int8{}, pgtype.UUID{}, fmt.Errorf("%w: cursor count_value is invalid", ports.ErrInvalidCursor)
+	}
+	if payload.CounterID == nil {
+		return pgtype.Int8{}, pgtype.UUID{}, fmt.Errorf("%w: cursor counter_id is required", ports.ErrInvalidCursor)
+	}
+	var counterID pgtype.UUID
+	if err := counterID.Scan(*payload.CounterID); err != nil {
+		return pgtype.Int8{}, pgtype.UUID{}, fmt.Errorf("%w: cursor counter_id must be a uuid", ports.ErrInvalidCursor)
+	}
+	return pgtype.Int8{Int64: *payload.CountValue, Valid: true}, counterID, nil
 }
 
 func isSerializationRetryable(err error) bool {

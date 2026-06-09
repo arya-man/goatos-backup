@@ -13,6 +13,7 @@ import (
 
 const listIdentityCounts = `-- name: ListIdentityCounts :many
 SELECT
+  counter_id::text AS counter_id,
   counter_grain,
   tenant_id::text AS tenant_id,
   COALESCE(custodian_party_id::text, '')::text AS custodian_party_id,
@@ -49,8 +50,16 @@ WHERE counter_grain = $1
   AND ($13::text IS NULL OR identity_state = $13::text)
   AND ($14::uuid IS NULL OR breed_id = $14::uuid)
   AND ($15::text IS NULL OR sex = $15::text)
-ORDER BY updated_at DESC, counter_id
-LIMIT 100
+  AND (
+    $16::bigint IS NULL
+    OR count_value < $16::bigint
+    OR (
+      count_value = $16::bigint
+      AND counter_id > $17::uuid
+    )
+  )
+ORDER BY count_value DESC, counter_id ASC
+LIMIT $18
 `
 
 type ListIdentityCountsParams struct {
@@ -69,9 +78,13 @@ type ListIdentityCountsParams struct {
 	IdentityState      pgtype.Text
 	BreedID            pgtype.UUID
 	Sex                pgtype.Text
+	CursorCountValue   pgtype.Int8
+	CursorCounterID    pgtype.UUID
+	LimitCount         int32
 }
 
 type ListIdentityCountsRow struct {
+	CounterID          string
 	CounterGrain       string
 	TenantID           string
 	CustodianPartyID   string
@@ -111,6 +124,9 @@ func (q *Queries) ListIdentityCounts(ctx context.Context, arg ListIdentityCounts
 		arg.IdentityState,
 		arg.BreedID,
 		arg.Sex,
+		arg.CursorCountValue,
+		arg.CursorCounterID,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return nil, err
@@ -120,6 +136,7 @@ func (q *Queries) ListIdentityCounts(ctx context.Context, arg ListIdentityCounts
 	for rows.Next() {
 		var i ListIdentityCountsRow
 		if err := rows.Scan(
+			&i.CounterID,
 			&i.CounterGrain,
 			&i.TenantID,
 			&i.CustodianPartyID,

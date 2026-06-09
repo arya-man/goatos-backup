@@ -2124,6 +2124,13 @@ CREATE INDEX goat_identity_counters_lookup_idx ON public.goat_identity_counters 
 
 
 --
+-- Name: goat_identity_counters_page_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_counters_page_idx ON public.goat_identity_counters USING btree (counter_grain, tenant_id, count_value DESC, counter_id);
+
+
+--
 -- Name: goat_identity_counters_rebuild_idx; Type: INDEX; Schema: public; Owner: -
 --
 

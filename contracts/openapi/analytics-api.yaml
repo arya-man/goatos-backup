@@ -30,6 +30,22 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: limit
+          in: query
+          required: true
+          description: Required page size. Values outside 1-500 are rejected, not clamped.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor from a prior response. Structurally invalid cursors return 400.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 500
         - name: custodian_party_id
           in: query
           required: false
@@ -326,6 +342,7 @@ components:
       required:
         - as_of_recorded_at
         - is_rebuilding
+        - source_import_run_id
         - warning
       properties:
         as_of_recorded_at:
@@ -351,6 +368,8 @@ components:
       required:
         - grain
         - items
+        - next_cursor
+        - has_more
         - freshness
         - trace_id
       properties:
@@ -360,6 +379,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/IdentityCount"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        has_more:
+          type: boolean
         freshness:
           $ref: "#/components/schemas/Freshness"
         trace_id:

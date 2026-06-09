@@ -1532,6 +1532,16 @@ Rules:
 
 ```text
 dashboard count APIs read this projection, not the full goats table
+GET /analytics/identity/counts requires a bounded limit and uses keyset
+pagination so counter buckets are never silently truncated
+count reads order by count_value desc, counter_id asc and use an opaque
+base64url cursor carrying cursor version, count_value, and counter_id
+structurally valid cursors are treated as keyset positions and are not checked
+against existing rows; structurally invalid cursors return 400
+count cursors are scoped to the same query shape/projection version and are not
+durable pagination guarantees across rebuilds
+freshness fields report projection freshness/as_of state, not raw table count
+freshness
 projection is rebuildable from goats + identity/location events
 backend/internal/reporting owns goat_identity_counters reads and rebuilds
 backend/internal/identity must not query goat_identity_counters
@@ -1964,7 +1974,7 @@ out-of-scope matches are treated as not visible for operator/mobile response sha
 ### Dashboard/Analytics APIs
 
 ```text
-GET /analytics/identity/counts?grain=&tenant_id=&custodian_party_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&reproductive_status=&growth_cohort_tag=&management_stage=&health_status=&identity_state=&breed_id=&sex=
+GET /analytics/identity/counts?grain=&tenant_id=&limit=&cursor=&custodian_party_id=&farm_id=&park_id=&shed_id=&cohort_id=&lifecycle_status=&reproductive_status=&growth_cohort_tag=&management_stage=&health_status=&identity_state=&breed_id=&sex=
 ```
 
 Count endpoint rules:
@@ -1972,9 +1982,17 @@ Count endpoint rules:
 ```text
 reads goat_identity_counters or governed analytics facade, never raw goats count(*)
 requires explicit grain and scope filters
+requires explicit limit 1..500; missing, malformed, or above-max limits return 400
+uses deterministic keyset pagination ordered count_value desc, counter_id asc
+returns has_more and next_cursor; next_cursor is null when no more rows exist
+valid cursors are query-shape/projection-version scoped and may return
+empty/partial pages after a rebuild; they are not durable cross-rebuild cursors
+structurally valid arbitrary cursor values are allowed as keyset positions
 applies RBAC before reading counter rows
 returns count_value plus as_of_recorded_at, source_import_run_id, and is_rebuilding
 does not support arbitrary dimension combinations outside named materialized grains
+goat_identity_counters_lookup_idx remains for now; review old updated_at-order
+lookup index cleanup only after no read path uses it
 ```
 
 ### Response DTOs

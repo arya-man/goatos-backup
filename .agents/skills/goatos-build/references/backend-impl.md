@@ -376,6 +376,18 @@ reporting-owned service/repository code. backend/internal/identity must not
 query goat_identity_counters; check-boundaries enforces this outside generated
 sqlc schema/model dumps.
 
+The analytics count read is explicitly paginated. Clients must provide `limit`
+1..500 and may provide an opaque base64url JSON cursor. The repository orders
+rows by `count_value DESC, counter_id ASC`, reads `limit+1`, and returns at most
+`limit` rows with `has_more` plus nullable `next_cursor`. Structurally invalid
+cursors fail closed as `invalid_cursor`; structurally valid arbitrary cursor
+values are treated as keyset positions and are not checked against existing
+rows. Cursors are scoped to the same query shape/projection version and are not
+durable across counter rebuilds. Freshness fields describe projection freshness,
+not raw count freshness. The old updated_at-order
+`goat_identity_counters_lookup_idx` remains until a later cleanup verifies it is
+unused.
+
 The local rebuild command is backend/cmd/rebuild-identity-counters. It supports
 tenant_id, optional source_import_run_id stamping, and an optional grain subset.
 The rebuild uses grouped SQL per Phase 1 grain, delete+insert replacement per

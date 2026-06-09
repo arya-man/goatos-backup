@@ -433,6 +433,17 @@ wires it to reporting-owned service/repository code; backend/internal/identity
 has a boundary check preventing new goat_identity_counters ownership outside
 generated sqlc schema/model dumps.
 
+Count reads are paginated and never silently truncated. The endpoint requires
+`limit` 1..500 and accepts optional opaque base64url keyset `cursor` values.
+Rows order by `count_value DESC, counter_id ASC`; the cursor carries version,
+`count_value`, and `counter_id`. Structurally invalid cursors return 400, while
+structurally valid arbitrary positions are accepted and may return empty pages.
+The cursor is scoped to the same query shape/projection version and is not a
+durable cross-rebuild snapshot guarantee. Freshness fields remain projection
+freshness (`as_of_recorded_at`, `source_import_run_id`, `is_rebuilding`), not
+raw count freshness. `goat_identity_counters_lookup_idx` remains for now; old
+updated_at-order lookup cleanup is deferred until usage is reviewed.
+
 The local rebuild CLI is:
 
   cd backend && go run ./cmd/rebuild-identity-counters \
