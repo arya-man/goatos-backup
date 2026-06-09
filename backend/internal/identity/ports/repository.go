@@ -12,6 +12,7 @@ var (
 	ErrIdempotencyConflict = errors.New("idempotency key reused with different request")
 	ErrIdempotencyPending  = errors.New("idempotency key is not completed")
 	ErrWriteConflict       = errors.New("identity write conflict")
+	ErrInvalidCursor       = errors.New("invalid pagination cursor")
 )
 
 type SearchGoatsParams struct {
@@ -43,6 +44,12 @@ type ListConflictsParams struct {
 	Cursor       *string
 	State        *string
 	ConflictType *string
+}
+
+type ListCandidatesParams struct {
+	TenantID string
+	Limit    int
+	Cursor   *string
 }
 
 type CountParams struct {
@@ -161,6 +168,20 @@ type ResolveConflictCommand struct {
 	RowVersion           int
 }
 
+type RejectCandidateCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	CandidateID          string
+	Reason               string
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
 type AdminGoatMutationResult struct {
 	Goat          domain.GoatSummary
 	Identifiers   []domain.GoatIdentifier
@@ -180,6 +201,13 @@ type ResolveConflictResult struct {
 	FirstResultID *string
 }
 
+type RejectCandidateResult struct {
+	Candidate     domain.CandidateSummary
+	Decision      domain.DecisionRecordSummary
+	Replayed      bool
+	FirstResultID *string
+}
+
 type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
@@ -188,11 +216,13 @@ type Repository interface {
 	FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (*string, error)
 	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
+	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]domain.CandidateSummary, *string, error)
 	ListIdentityCounts(ctx context.Context, params CountParams) ([]domain.IdentityCount, domain.Freshness, error)
 	CreateCorrectionRequest(ctx context.Context, cmd CreateCorrectionRequestCommand) (*CreateCorrectionRequestResult, error)
 	ResolveCorrectionRequest(ctx context.Context, cmd ResolveCorrectionRequestCommand) (*ResolveCorrectionRequestResult, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	ResolveConflict(ctx context.Context, cmd ResolveConflictCommand) (*ResolveConflictResult, error)
+	RejectCandidate(ctx context.Context, cmd RejectCandidateCommand) (*RejectCandidateResult, error)
 	Ping(ctx context.Context) error
 }

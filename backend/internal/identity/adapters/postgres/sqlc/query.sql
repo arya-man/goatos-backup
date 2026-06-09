@@ -125,3 +125,24 @@ SELECT source_system, source_record_id
 FROM identity_conflict_source_records
 WHERE tenant_id = @tenant_id AND conflict_id = @conflict_id
 ORDER BY created_at ASC;
+
+-- name: ListIdentityCandidates :many
+SELECT
+  candidate_id::text AS candidate_id,
+  COALESCE(proposed_goat_id::text, '')::text AS proposed_goat_id,
+  COALESCE(candidate_goat_id::text, '')::text AS candidate_goat_id,
+  match_score::float8 AS match_score,
+  match_reasons,
+  state,
+  created_by,
+  row_version,
+  created_at
+FROM identity_match_candidates
+WHERE tenant_id = @tenant_id
+  AND state IN ('proposed', 'needs_review')
+  AND (
+    sqlc.narg('cursor_created_at')::timestamptz IS NULL
+    OR (created_at, candidate_id) < (sqlc.narg('cursor_created_at')::timestamptz, sqlc.narg('cursor_candidate_id')::uuid)
+  )
+ORDER BY created_at DESC, candidate_id DESC
+LIMIT @limit_count;

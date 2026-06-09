@@ -624,11 +624,14 @@ type fakeRepo struct {
 	retireIdentifierErr     error
 	resolveConflictResult   *ports.ResolveConflictResult
 	resolveConflictErr      error
+	rejectCandidateResult   *ports.RejectCandidateResult
+	rejectCandidateErr      error
 	lastCorrectionCmd       ports.CreateCorrectionRequestCommand
 	lastResolveCmd          ports.ResolveCorrectionRequestCommand
 	lastAddIdentifierCmd    ports.AddGoatIdentifierCommand
 	lastRetireIdentifierCmd ports.RetireGoatIdentifierCommand
 	lastResolveConflictCmd  ports.ResolveConflictCommand
+	lastRejectCandidateCmd  ports.RejectCandidateCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -669,6 +672,10 @@ func (f *fakeRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]
 
 func (f *fakeRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
 	return nil, ports.ErrNotFound
+}
+
+func (f *fakeRepo) ListCandidates(context.Context, ports.ListCandidatesParams) ([]domain.CandidateSummary, *string, error) {
+	return []domain.CandidateSummary{candidateSummaryFixture("80000000-0000-4000-8000-000000000001", "proposed", 1)}, nil, nil
 }
 
 func (f *fakeRepo) ListIdentityCounts(context.Context, ports.CountParams) ([]domain.IdentityCount, domain.Freshness, error) {
@@ -820,7 +827,42 @@ func (f *fakeRepo) ResolveConflict(_ context.Context, cmd ports.ResolveConflictC
 	}, nil
 }
 
+func (f *fakeRepo) RejectCandidate(_ context.Context, cmd ports.RejectCandidateCommand) (*ports.RejectCandidateResult, error) {
+	f.lastRejectCandidateCmd = cmd
+	if f.rejectCandidateErr != nil {
+		return nil, f.rejectCandidateErr
+	}
+	if f.rejectCandidateResult != nil {
+		return f.rejectCandidateResult, nil
+	}
+	return &ports.RejectCandidateResult{
+		Candidate: candidateSummaryFixture(cmd.CandidateID, "rejected", cmd.RowVersion+1),
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000301",
+			DecisionType:   "reject_match",
+			DecisionResult: "candidate_rejected",
+			DecisionState:  "rejected",
+			PolicyVersion:  "phase1-manual-correction-review-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+	}, nil
+}
+
 func (f *fakeRepo) Ping(context.Context) error { return nil }
+
+func candidateSummaryFixture(id, state string, rowVersion int) domain.CandidateSummary {
+	return domain.CandidateSummary{
+		CandidateID:     id,
+		ProposedGoatID:  strPtr("10000000-0000-4000-8000-000000000001"),
+		CandidateGoatID: strPtr("10000000-0000-4000-8000-000000000002"),
+		MatchScore:      0.93,
+		MatchReasons:    []string{"synthetic match reason"},
+		State:           state,
+		CreatedBy:       "system_rule",
+		RowVersion:      rowVersion,
+		CreatedAt:       time.Now().UTC(),
+	}
+}
 
 func passport(goatID, displayID, identityState string, mergedInto *string) *domain.GoatPassport {
 	s := summary(goatID, displayID, identityState)

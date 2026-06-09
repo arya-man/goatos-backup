@@ -237,6 +237,37 @@ POST /admin/identity/conflicts/{conflict_id}/resolve
   event-stream visible until a conflict-aggregate event/projection contract is
   defined; projections must read canonical conflict state
   exact replay rebuilds from DB state, not cached response bodies
+
+GET /admin/identity/candidates
+  actionable queue only: proposed and needs_review candidates; approved,
+  rejected, and expired candidates are excluded by default
+  requires bounded limit and uses keyset pagination by created_at desc,
+  candidate_id desc; cursor carries both fields
+  CandidateSummary includes row_version because reject needs optimistic
+  concurrency and there is no candidate-detail endpoint
+
+POST /admin/identity/candidates/{candidate_id}/reject
+  strict JSON rejects old evidence_ids; use typed evidence_refs
+  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, reason,
+  evidence_refs, and candidate row_version
+  stored idempotency key is
+  <tenant_id>:rejectIdentityCandidate:<candidate_id>:<client_key>
+  inserts identity_decisions before the guarded candidate update, then gates the
+  mutation with one conditional update on tenant, candidate,
+  state in proposed/needs_review, and row_version
+  maps to decision_type=reject_match, decision_result=candidate_rejected,
+  decision_state=rejected, policy_version=phase1-manual-correction-review-v1
+  updates identity_match_candidates to rejected, sets reviewed_by/reviewed_at
+  and decision_id, increments candidate row_version, writes audit_log and
+  idempotency completion in one transaction
+  does not mutate goat identity, bump goat row_version, write
+  goat_identity_events, or write outbox_messages
+  exact replay rebuilds from DB state, not cached response bodies
+
+POST /admin/identity/candidates/{candidate_id}/approve
+  remains typed not_implemented until canonical merge/create/identifier
+  mutation semantics are contract-defined; do not mark candidates approved as a
+  decision-only shortcut
 ```
 
 Known backend deferments:
@@ -245,7 +276,7 @@ Known backend deferments:
 auth/RBAC adapter
 legacy import runner
 create_goat conflict decision fields
-candidate approve/reject command handlers
+candidate approve canonical mutation semantics
 standalone merge command handler
 unmerge command handler/contract
 projection workers and counter population

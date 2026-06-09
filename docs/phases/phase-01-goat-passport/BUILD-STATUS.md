@@ -63,6 +63,10 @@ transactional admin identifier retire
 POST /admin/identity/conflicts/{conflict_id}/resolve
 transactional conflict resolve for merge_goats, reject_match,
 request_field_verification, and mark_identifier_disputed
+GET /admin/identity/candidates
+actionable identity candidate queue list
+POST /admin/identity/candidates/{candidate_id}/reject
+transactional candidate rejection decision
 tenant/route-namespaced idempotency key handling
 same-transaction audit_log + optional outbox_messages persistence
 correction_request domain event envelope payloads
@@ -73,6 +77,7 @@ merge_goats, reject_match, request_field_verification, and
 mark_identifier_disputed decision records
 goat.identity.merge_approved domain event envelopes
 goat.identifier.disputed domain event envelopes
+reject candidate decision records
 ```
 
 ## Verified Behaviors
@@ -250,6 +255,34 @@ conflict resolve:
   decision-only reject_match/request_field_verification changes are not
   event-stream visible until a conflict-aggregate event contract/projection
   worker is defined; projections must read canonical conflict state
+candidate review:
+  implements GET /admin/identity/candidates as the actionable queue:
+  proposed and needs_review candidates only; approved/rejected/expired are
+  excluded by default
+  requires bounded limit and uses keyset pagination by created_at desc,
+  candidate_id desc
+  CandidateSummary exposes row_version because reject needs optimistic
+  concurrency and there is no candidate-detail endpoint
+  implements POST /admin/identity/candidates/{candidate_id}/reject
+  rejects unknown JSON fields and old evidence_ids payloads; use typed
+  evidence_refs
+  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, reason,
+  evidence_refs, and candidate row_version
+  stored idempotency key is
+  <tenant_id>:rejectIdentityCandidate:<candidate_id>:<client_key>
+  inserts identity_decisions before the guarded candidate update, then gates
+  the mutation with one conditional update on tenant, candidate,
+  state in proposed/needs_review, and row_version
+  maps to decision_type=reject_match, decision_result=candidate_rejected,
+  decision_state=rejected, policy_version=phase1-manual-correction-review-v1
+  updates identity_match_candidates to rejected, sets reviewed_by/reviewed_at
+  and decision_id, increments candidate row_version, writes audit_log and
+  idempotency completion in one transaction
+  does not mutate goat identity, bump goat row_version, write
+  goat_identity_events, or write outbox_messages
+  exact idempotent replay rebuilds from DB state, not cached response bodies
+  POST /admin/identity/candidates/{candidate_id}/approve remains typed
+  not_implemented until canonical mutation semantics are contract-defined
 ```
 
 ## Temporary Scaffolds
@@ -273,10 +306,11 @@ generated sqlc unless the query shape is intentionally dynamic and documented.
 auth/RBAC adapter
 legacy import runner and source-file ingestion
 remaining admin write handlers except identifier add/retire, correction resolve,
-and built conflict resolve paths
+candidate reject, and built conflict resolve paths
 create_goat conflict decision until required goat creation fields are
 contract-defined
-candidate approve/reject command handlers
+candidate approve canonical mutation until required semantics are
+contract-defined
 standalone merge command handler
 unmerge command handler/contract
 outbox relay runtime

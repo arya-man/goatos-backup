@@ -174,6 +174,24 @@ type ConflictListResult struct {
 	TraceID    string            `json:"trace_id"`
 }
 
+type CandidateSummary struct {
+	CandidateID     string    `json:"candidate_id"`
+	ProposedGoatID  *string   `json:"proposed_goat_id"`
+	CandidateGoatID *string   `json:"candidate_goat_id"`
+	MatchScore      float64   `json:"match_score"`
+	MatchReasons    []string  `json:"match_reasons"`
+	State           string    `json:"state"`
+	CreatedBy       string    `json:"created_by"`
+	RowVersion      int       `json:"row_version"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type CandidateListResponse struct {
+	Items      []CandidateSummary `json:"items"`
+	NextCursor *string            `json:"next_cursor"`
+	TraceID    string             `json:"trace_id"`
+}
+
 type CountDimensions struct {
 	TenantID           string  `json:"tenant_id"`
 	CustodianPartyID   *string `json:"custodian_party_id"`
@@ -293,6 +311,14 @@ type ResolveConflictResponse struct {
 	Decision    DecisionRecordSummary `json:"decision"`
 	Merge       *MergeResult          `json:"merge"`
 	Events      []EventSummary        `json:"events"`
+	Idempotency IdempotencyMeta       `json:"idempotency"`
+	TraceID     string                `json:"trace_id"`
+}
+
+type CandidateDecisionResponse struct {
+	CandidateID string                `json:"candidate_id"`
+	State       string                `json:"state"`
+	Decision    DecisionRecordSummary `json:"decision"`
 	Idempotency IdempotencyMeta       `json:"idempotency"`
 	TraceID     string                `json:"trace_id"`
 }

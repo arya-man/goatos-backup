@@ -71,7 +71,10 @@ bind_query_params() {
     -e "s/@identifier_type/'old_tag'/g" \
     -e "s/@identifier_value/'1900'/g" \
     -e "s/@scope_key/'park:CBE'/g" \
-    -e "s/@conflict_id/'20000000-0000-4000-8000-000000000001'::uuid/g"
+    -e "s/@conflict_id/'20000000-0000-4000-8000-000000000001'::uuid/g" \
+    -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
+    -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
+    -e "s/@limit_count/10/g"
 }
 
 forbidden_seq_scan_pattern() {
@@ -94,6 +97,9 @@ forbidden_seq_scan_pattern() {
       ;;
     ListConflictSourceRecordsByID)
       printf '%s\n' 'Seq Scan on identity_conflict_source_records'
+      ;;
+    ListIdentityCandidates)
+      printf '%s\n' 'Seq Scan on identity_match_candidates'
       ;;
     *)
       echo "No sqlc plan expectation registered for generated query: $query_name" >&2

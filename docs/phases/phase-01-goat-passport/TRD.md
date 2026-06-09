@@ -1034,8 +1034,13 @@ created_by text not null
 reviewed_by uuid null
 reviewed_at timestamptz null
 decision_id uuid null
+row_version int not null default 1
 created_at timestamptz not null
 ```
+
+`row_version` supports optimistic concurrency for candidate review commands.
+`CandidateSummary` must expose it because there is no candidate-detail endpoint
+and reject requires the current candidate row version.
 
 States:
 
@@ -1987,6 +1992,44 @@ depends on `row_version`: candidate approve/reject only when it mutates goat
 identity, correction auto-apply when it applies attach/retire/dispute/status
 changes, unmerge when redirect or identifier state changes, and create_goat
 starts with its initial `row_version` unless follow-up mutations happen.
+
+Candidate review API behavior:
+
+`GET /admin/identity/candidates` returns the actionable queue only:
+`identity_match_candidates.state in ('proposed', 'needs_review')`. It excludes
+approved, rejected, and expired candidates by default, is tenant-scoped, requires
+a bounded `limit`, and uses deterministic keyset pagination ordered by
+`created_at DESC, candidate_id DESC`. The cursor must carry both values needed
+to continue that order. `CandidateSummary` includes `state` and `row_version`.
+
+`ReviewCandidateRequest` uses typed `evidence_refs`; old `evidence_ids` payloads
+are rejected by `additionalProperties=false`. Required fields are `reason`,
+`evidence_refs`, and `row_version`.
+
+`POST /admin/identity/candidates/{candidate_id}/reject` is a decision-only
+candidate state transition. It requires `Idempotency-Key`, temporary
+`X-GoatOS-Tenant-ID`, temporary `X-GoatOS-Actor-ID`, `reason`, typed
+`evidence_refs`, and current candidate `row_version`. The guarded update must
+match tenant, candidate, `state in ('proposed','needs_review')`, and
+`row_version`, then set `state='rejected'`, `reviewed_by=<actor>`,
+`reviewed_at=<decision time>`, `decision_id=<decision>`, and increment
+`identity_match_candidates.row_version` by one.
+
+Candidate reject writes `identity_decisions` before the guarded candidate update
+so `identity_match_candidates.decision_id` can satisfy its FK. The decision maps
+to `decision_type=reject_match`, `decision_result=candidate_rejected`,
+`decision_state=rejected`, `decided_by_type=human`,
+`policy_version=phase1-manual-correction-review-v1`, and preserves typed
+`evidence_refs` in `decision.evidence.evidence_refs`. It writes audit and
+idempotency completion in the same transaction, does not mutate goat identity,
+does not bump goat `row_version`, and does not write `goat_identity_events` or
+`outbox_messages` unless a candidate/conflict aggregate event contract is later
+defined.
+
+`POST /admin/identity/candidates/{candidate_id}/approve` remains typed
+`not_implemented` until canonical mutation semantics are contract-defined. Do
+not mark a candidate approved without applying a defined merge/create/identifier
+mutation.
 
 For `reject_match`, the resolver records a rejected decision, marks the conflict
 `rejected`, and does not mutate goat identity. For

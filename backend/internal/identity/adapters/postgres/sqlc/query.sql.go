@@ -422,3 +422,79 @@ func (q *Queries) ListIdentifiersForGoat(ctx context.Context, arg ListIdentifier
 	}
 	return items, nil
 }
+
+const listIdentityCandidates = `-- name: ListIdentityCandidates :many
+SELECT
+  candidate_id::text AS candidate_id,
+  COALESCE(proposed_goat_id::text, '')::text AS proposed_goat_id,
+  COALESCE(candidate_goat_id::text, '')::text AS candidate_goat_id,
+  match_score::float8 AS match_score,
+  match_reasons,
+  state,
+  created_by,
+  row_version,
+  created_at
+FROM identity_match_candidates
+WHERE tenant_id = $1
+  AND state IN ('proposed', 'needs_review')
+  AND (
+    $2::timestamptz IS NULL
+    OR (created_at, candidate_id) < ($2::timestamptz, $3::uuid)
+  )
+ORDER BY created_at DESC, candidate_id DESC
+LIMIT $4
+`
+
+type ListIdentityCandidatesParams struct {
+	TenantID          pgtype.UUID
+	CursorCreatedAt   pgtype.Timestamptz
+	CursorCandidateID pgtype.UUID
+	LimitCount        int32
+}
+
+type ListIdentityCandidatesRow struct {
+	CandidateID     string
+	ProposedGoatID  string
+	CandidateGoatID string
+	MatchScore      float64
+	MatchReasons    []byte
+	State           string
+	CreatedBy       string
+	RowVersion      int32
+	CreatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) ListIdentityCandidates(ctx context.Context, arg ListIdentityCandidatesParams) ([]ListIdentityCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, listIdentityCandidates,
+		arg.TenantID,
+		arg.CursorCreatedAt,
+		arg.CursorCandidateID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIdentityCandidatesRow
+	for rows.Next() {
+		var i ListIdentityCandidatesRow
+		if err := rows.Scan(
+			&i.CandidateID,
+			&i.ProposedGoatID,
+			&i.CandidateGoatID,
+			&i.MatchScore,
+			&i.MatchReasons,
+			&i.State,
+			&i.CreatedBy,
+			&i.RowVersion,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

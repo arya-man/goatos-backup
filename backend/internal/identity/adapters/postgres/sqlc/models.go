@@ -530,6 +530,7 @@ type IdentityMatchCandidate struct {
 	ReviewedAt      pgtype.Timestamptz
 	DecisionID      pgtype.UUID
 	CreatedAt       pgtype.Timestamptz
+	RowVersion      int32
 }
 
 type LegacyImportPolicy struct {

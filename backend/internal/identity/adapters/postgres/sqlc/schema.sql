@@ -1040,7 +1040,9 @@ CREATE TABLE public.identity_match_candidates (
     reviewed_at timestamp with time zone,
     decision_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT identity_match_candidates_created_by_check CHECK ((created_by = ANY (ARRAY['system_rule'::text, 'human'::text, 'ai_proposal'::text, 'import_policy'::text]))),
+    CONSTRAINT identity_match_candidates_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT identity_match_candidates_score_check CHECK (((match_score >= (0)::numeric) AND (match_score <= (1)::numeric))),
     CONSTRAINT identity_match_candidates_state_check CHECK ((state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text, 'expired'::text])))
 );
@@ -2483,6 +2485,13 @@ CREATE INDEX identity_decision_identifiers_identifier_idx ON public.identity_dec
 --
 
 CREATE INDEX identity_decisions_tenant_type_state_idx ON public.identity_decisions USING btree (tenant_id, decision_type, decision_state, created_at DESC);
+
+
+--
+-- Name: identity_match_candidates_actionable_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX identity_match_candidates_actionable_queue_idx ON public.identity_match_candidates USING btree (tenant_id, created_at DESC, candidate_id DESC) WHERE (state = ANY (ARRAY['proposed'::text, 'needs_review'::text]));
 
 
 --

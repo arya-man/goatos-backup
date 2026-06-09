@@ -315,6 +315,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrWriteConflict) {
 		return Conflict("write_conflict", "identity write cannot be applied with the supplied state or row_version")
 	}
+	if errors.Is(err, ports.ErrInvalidCursor) {
+		return BadRequest("invalid_cursor", "cursor is not valid for this list endpoint")
+	}
 	var appErr *Error
 	if errors.As(err, &appErr) {
 		return appErr

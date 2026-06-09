@@ -209,6 +209,8 @@ run_psql <<'SQL'
 DO $$
 DECLARE
   tenant uuid := '00000000-0000-4000-8000-000000000001';
+  goat_a uuid := '10000000-0000-4000-8000-000000000001';
+  goat_b uuid := '10000000-0000-4000-8000-000000000002';
   correction_id uuid;
   default_row_version integer;
   decision_type text;
@@ -233,6 +235,30 @@ BEGIN
 
   IF default_row_version <> 1 THEN
     RAISE EXCEPTION 'expected correction row_version default 1, got %', default_row_version;
+  END IF;
+
+  INSERT INTO identity_match_candidates (
+    tenant_id,
+    proposed_goat_id,
+    candidate_goat_id,
+    match_score,
+    match_reasons,
+    state,
+    created_by
+  )
+  VALUES (
+    tenant,
+    goat_a,
+    goat_b,
+    0.91,
+    '["synthetic row_version validation"]'::jsonb,
+    'proposed',
+    'system_rule'
+  )
+  RETURNING row_version INTO default_row_version;
+
+  IF default_row_version <> 1 THEN
+    RAISE EXCEPTION 'expected candidate row_version default 1, got %', default_row_version;
   END IF;
 
   FOREACH decision_type IN ARRAY ARRAY[
@@ -268,6 +294,29 @@ BEGIN
   END LOOP;
 END $$;
 SQL
+
+expect_failure "candidate row_version must be positive" "
+INSERT INTO identity_match_candidates (
+  tenant_id,
+  proposed_goat_id,
+  candidate_goat_id,
+  match_score,
+  match_reasons,
+  state,
+  created_by,
+  row_version
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000002',
+  0.91,
+  '[\"synthetic row_version failure\"]'::jsonb,
+  'proposed',
+  'system_rule',
+  0
+);
+"
 
 expect_failure "bad active ownership share total fails at commit" "
 BEGIN;

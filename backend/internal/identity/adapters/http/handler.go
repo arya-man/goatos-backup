@@ -36,9 +36,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}", h.NotImplemented("legacy_import_deferred"))
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows", h.NotImplemented("legacy_import_deferred"))
 	mux.HandleFunc("POST /admin/import-runs", h.NotImplemented("legacy_import_deferred"))
-	mux.HandleFunc("GET /admin/identity/candidates", h.NotImplemented("identity_candidates_deferred"))
-	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/approve", h.NotImplemented("identity_candidates_deferred"))
-	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/reject", h.NotImplemented("identity_candidates_deferred"))
+	mux.HandleFunc("GET /admin/identity/candidates", h.ListCandidates)
+	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/approve", h.ApproveCandidate)
+	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/reject", h.RejectCandidate)
 	mux.HandleFunc("POST /admin/goats", h.NotImplemented("admin_goat_writes_deferred"))
 	mux.HandleFunc("PATCH /admin/goats/{goat_id}", h.NotImplemented("admin_goat_writes_deferred"))
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
@@ -112,6 +112,20 @@ func (h *Handler) GetConflict(w http.ResponseWriter, r *http.Request) {
 	respond(w, r, result, err)
 }
 
+func (h *Handler) ListCandidates(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLimit(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	result, err := h.service.ListCandidates(r.Context(), ports.ListCandidatesParams{
+		TenantID: tenantID(r),
+		Limit:    limit,
+		Cursor:   optionalQuery(q.Get("cursor")),
+	}, traceID(r))
+	respond(w, r, result, err)
+}
+
 func (h *Handler) ResolveConflict(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
@@ -130,6 +144,52 @@ func (h *Handler) ResolveConflict(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
 		ConflictID:     r.PathValue("conflict_id"),
+		RawBody:        body,
+	})
+	respond(w, r, result, err)
+}
+
+func (h *Handler) ApproveCandidate(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.ApproveCandidate(r.Context(), app.ReviewCandidateInput{
+		TenantID:       tenantID(r),
+		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		CandidateID:    r.PathValue("candidate_id"),
+		RawBody:        body,
+	})
+	respond(w, r, result, err)
+}
+
+func (h *Handler) RejectCandidate(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.RejectCandidate(r.Context(), app.ReviewCandidateInput{
+		TenantID:       tenantID(r),
+		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		CandidateID:    r.PathValue("candidate_id"),
 		RawBody:        body,
 	})
 	respond(w, r, result, err)

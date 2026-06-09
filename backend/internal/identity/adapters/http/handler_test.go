@@ -350,6 +350,96 @@ func TestResolveConflictReturnsNonMergeResponse(t *testing.T) {
 	}
 }
 
+func TestListCandidatesReturnsRowVersion(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/identity/candidates?limit=10", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-candidates-list")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.CandidateListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].RowVersion != 1 || response.TraceID != "req-candidates-list" || response.NextCursor == nil {
+		t.Fatalf("unexpected candidate list response: %#v", response)
+	}
+}
+
+func TestRejectCandidateRejectsBadRequestsAndOldEvidenceIDs(t *testing.T) {
+	cases := []struct {
+		name           string
+		actorID        string
+		idempotencyKey string
+		body           string
+		wantCode       string
+	}{
+		{name: "missing idempotency", actorID: "90000000-0000-4000-8000-000000000001", body: validRejectCandidateBody(), wantCode: "missing_idempotency_key"},
+		{name: "invalid actor", actorID: "not-a-uuid", idempotencyKey: "idem-candidate-handler-0001", body: validRejectCandidateBody(), wantCode: "invalid_actor_id"},
+		{name: "unknown field", actorID: "90000000-0000-4000-8000-000000000001", idempotencyKey: "idem-candidate-handler-0002", body: `{"reason":"synthetic","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"row_version":1,"surprise":true}`, wantCode: "invalid_json"},
+		{name: "old evidence ids", actorID: "90000000-0000-4000-8000-000000000001", idempotencyKey: "idem-candidate-handler-0003", body: `{"reason":"synthetic","evidence_ids":["synthetic-row-1"],"row_version":1}`, wantCode: "invalid_json"},
+		{name: "missing evidence refs", actorID: "90000000-0000-4000-8000-000000000001", idempotencyKey: "idem-candidate-handler-0004", body: `{"reason":"synthetic","evidence_refs":[],"row_version":1}`, wantCode: "missing_evidence_refs"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := postRejectCandidate(t, tc.actorID, tc.idempotencyKey, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			var envelope domain.ErrorEnvelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("invalid json: %v", err)
+			}
+			if envelope.Code != tc.wantCode {
+				t.Fatalf("unexpected envelope: %#v", envelope)
+			}
+		})
+	}
+}
+
+func TestRejectCandidateReturnsDecisionAndReplay(t *testing.T) {
+	resultID := "80000000-0000-4000-8000-000000000001"
+	rec := postRejectCandidateWithRepo(t, &handlerRepo{
+		rejectCandidateResult: &ports.RejectCandidateResult{
+			Candidate:     candidateResponseFixture(resultID, "rejected", 2),
+			Decision:      candidateDecisionFixture("50000000-0000-4000-8000-000000000301"),
+			Replayed:      true,
+			FirstResultID: &resultID,
+		},
+	}, "90000000-0000-4000-8000-000000000001", "idem-candidate-handler-0005", validRejectCandidateBody())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.CandidateDecisionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.CandidateID != resultID || response.State != "rejected" || response.Decision.DecisionType != "reject_match" || !response.Idempotency.Replayed {
+		t.Fatalf("unexpected candidate decision response: %#v", response)
+	}
+}
+
+func TestApproveCandidateRemainsNotImplemented(t *testing.T) {
+	rec := postApproveCandidate(t, "90000000-0000-4000-8000-000000000001", "idem-candidate-approve-0001", validRejectCandidateBody())
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if envelope.Code != "candidate_approve_not_implemented" {
+		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
 func TestAddGoatIdentifierRequiresIdempotencyKey(t *testing.T) {
 	rec := postAddGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "", validAddIdentifierBody())
 	if rec.Code != http.StatusBadRequest {
@@ -546,6 +636,47 @@ func postResolveConflictWithRepo(t *testing.T, repo ports.Repository, actorID st
 	return rec
 }
 
+func postRejectCandidate(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return postRejectCandidateWithRepo(t, &handlerRepo{}, actorID, idempotencyKey, body)
+}
+
+func postRejectCandidateWithRepo(t *testing.T, repo ports.Repository, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/reject", strings.NewReader(body))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", actorID)
+	req.Header.Set("X-Request-ID", "req-reject-candidate")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func postApproveCandidate(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve", strings.NewReader(body))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", actorID)
+	req.Header.Set("X-Request-ID", "req-approve-candidate")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
 func postAddGoatIdentifier(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return postAddGoatIdentifierWithRepo(t, &handlerRepo{}, actorID, idempotencyKey, body)
@@ -616,12 +747,17 @@ func validRejectConflictBody() string {
 	return `{"decision_type":"reject_match","decision_result":"candidate_rejected","affected_goat_ids":["10000000-0000-4000-8000-000000000002"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"reason":"synthetic rejection reason","row_version":1}`
 }
 
+func validRejectCandidateBody() string {
+	return `{"reason":"synthetic candidate rejection reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-candidate-row-1","source_system":"synthetic_import"}],"row_version":1}`
+}
+
 type handlerRepo struct {
 	correctionResult       *ports.CreateCorrectionRequestResult
 	resolveResult          *ports.ResolveCorrectionRequestResult
 	addIdentifierResult    *ports.AdminGoatMutationResult
 	retireIdentifierResult *ports.AdminGoatMutationResult
 	resolveConflictResult  *ports.ResolveConflictResult
+	rejectCandidateResult  *ports.RejectCandidateResult
 }
 
 func (handlerRepo) GetGoatByID(context.Context, string, string) (*domain.GoatPassport, error) {
@@ -650,6 +786,11 @@ func (handlerRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]
 
 func (handlerRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
 	return nil, ports.ErrNotFound
+}
+
+func (handlerRepo) ListCandidates(context.Context, ports.ListCandidatesParams) ([]domain.CandidateSummary, *string, error) {
+	next := "eyJjcmVhdGVkX2F0Ijoic3ludGhldGljIiwiY2FuZGlkYXRlX2lkIjoic3ludGhldGljIn0"
+	return []domain.CandidateSummary{candidateResponseFixture("80000000-0000-4000-8000-000000000001", "proposed", 1)}, &next, nil
 }
 
 func (handlerRepo) ListIdentityCounts(context.Context, ports.CountParams) ([]domain.IdentityCount, domain.Freshness, error) {
@@ -722,6 +863,23 @@ func (h handlerRepo) ResolveConflict(_ context.Context, cmd ports.ResolveConflic
 	}, nil
 }
 
+func (h handlerRepo) RejectCandidate(_ context.Context, cmd ports.RejectCandidateCommand) (*ports.RejectCandidateResult, error) {
+	if h.rejectCandidateResult != nil {
+		return h.rejectCandidateResult, nil
+	}
+	return &ports.RejectCandidateResult{
+		Candidate: candidateResponseFixture(cmd.CandidateID, "rejected", cmd.RowVersion+1),
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000301",
+			DecisionType:   "reject_match",
+			DecisionResult: "candidate_rejected",
+			DecisionState:  "rejected",
+			PolicyVersion:  "phase1-manual-correction-review-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+	}, nil
+}
+
 func (handlerRepo) Ping(context.Context) error { return nil }
 
 func strPtr(value string) *string {
@@ -773,6 +931,31 @@ func identifierDecisionFixture(id, decisionType, result string) domain.DecisionR
 		DecisionState:  "approved",
 		PolicyVersion:  "phase1-identifier-v1",
 		CreatedAt:      time.Now().UTC(),
+	}
+}
+
+func candidateDecisionFixture(id string) domain.DecisionRecordSummary {
+	return domain.DecisionRecordSummary{
+		DecisionID:     id,
+		DecisionType:   "reject_match",
+		DecisionResult: "candidate_rejected",
+		DecisionState:  "rejected",
+		PolicyVersion:  "phase1-manual-correction-review-v1",
+		CreatedAt:      time.Now().UTC(),
+	}
+}
+
+func candidateResponseFixture(id, state string, rowVersion int) domain.CandidateSummary {
+	return domain.CandidateSummary{
+		CandidateID:     id,
+		ProposedGoatID:  strPtr("10000000-0000-4000-8000-000000000001"),
+		CandidateGoatID: strPtr("10000000-0000-4000-8000-000000000002"),
+		MatchScore:      0.93,
+		MatchReasons:    []string{"synthetic match reason"},
+		State:           state,
+		CreatedBy:       "system_rule",
+		RowVersion:      rowVersion,
+		CreatedAt:       time.Now().UTC(),
 	}
 }
 
