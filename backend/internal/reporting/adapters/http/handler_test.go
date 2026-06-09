@@ -171,6 +171,10 @@ func (fakeRepo) RebuildIdentityCounters(context.Context, ports.RebuildIdentityCo
 	return nil, nil
 }
 
+func (fakeRepo) UpdateIdentityCounters(context.Context, ports.UpdateIdentityCountersParams) (*domain.IncrementalCounterUpdateResult, error) {
+	return nil, nil
+}
+
 func (fakeRepo) Ping(context.Context) error {
 	return nil
 }

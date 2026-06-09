@@ -285,6 +285,225 @@ WHERE tenant_id = $1 AND goat_id = '10000000-0000-4000-8000-000000000004'`, mesh
 	})
 }
 
+func TestIdentityCounterIncrementalWithDockerPostgres(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	ctx := context.Background()
+	pool := startReportingDB(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 10*time.Second)
+	seedIncrementalReportingBase(t, pool)
+
+	firstGoat := "11000000-0000-4000-8000-000000000001"
+	firstEvent := "61000000-0000-4000-8000-000000000001"
+	firstRecorded := time.Date(2026, 6, 10, 8, 0, 0, 0, time.UTC)
+	insertIncrementalGoat(t, pool, firstGoat, meshaTenant, cbePark, cbeShed, "alive", "clean", "healthy")
+	insertIncrementalEvent(t, pool, meshaTenant, firstGoat, firstEvent, "goat.created", firstRecorded)
+
+	rebuild, err := repo.RebuildIdentityCounters(ctx, ports.RebuildIdentityCountersParams{
+		TenantID: meshaTenant,
+		Grains:   domain.AllIdentityCounterGrains,
+	})
+	if err != nil {
+		t.Fatalf("initial rebuild: %v", err)
+	}
+	if rebuild.AsOfRecordedAt == nil || !rebuild.AsOfRecordedAt.Equal(firstRecorded) {
+		t.Fatalf("rebuild checkpoint=%v want %v", rebuild.AsOfRecordedAt, firstRecorded)
+	}
+	assertProjectionState(t, pool, meshaTenant, firstRecorded, firstEvent, false, "")
+
+	secondGoat := "11000000-0000-4000-8000-000000000002"
+	secondEvent := "61000000-0000-4000-8000-000000000002"
+	secondRecorded := firstRecorded.Add(10 * time.Minute)
+	insertIncrementalGoat(t, pool, secondGoat, meshaTenant, cbePark, cbeShed, "alive", "clean", "healthy")
+	insertIncrementalEvent(t, pool, meshaTenant, secondGoat, secondEvent, "goat.created", secondRecorded)
+
+	result, err := repo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+		TenantID:                 meshaTenant,
+		Limit:                    10,
+		ProcessedEventsRetention: 30 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("incremental created goat: %v", err)
+	}
+	if result.ScannedEventCount != 1 || result.AppliedEventCount != 1 || result.RebuildRequired {
+		t.Fatalf("unexpected created result: %#v", result)
+	}
+	assertCounterForTenant(t, pool, meshaTenant, domain.GrainTenantLifecycle, `lifecycle_status = 'alive'`, 2)
+	assertCounterForTenant(t, pool, meshaTenant, domain.GrainHealthStatus, `health_status = 'healthy'`, 2)
+	assertProjectionState(t, pool, meshaTenant, secondRecorded, secondEvent, false, "")
+	assertProcessedEvent(t, pool, meshaTenant, secondEvent, secondRecorded, "applied")
+
+	page, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+		TenantID: meshaTenant,
+		Grain:    domain.GrainTenantLifecycle,
+		Limit:    100,
+	})
+	if err != nil {
+		t.Fatalf("ListIdentityCounts after incremental: %v", err)
+	}
+	if page.Freshness.AsOfRecordedAt == nil || !page.Freshness.AsOfRecordedAt.Equal(secondRecorded) {
+		t.Fatalf("freshness=%#v want checkpoint %v", page.Freshness, secondRecorded)
+	}
+
+	if _, err := repo.RebuildIdentityCounters(ctx, ports.RebuildIdentityCountersParams{
+		TenantID: meshaTenant,
+		Grains:   domain.AllIdentityCounterGrains,
+	}); err != nil {
+		t.Fatalf("rebuild after incremental: %v", err)
+	}
+	assertCounterForTenant(t, pool, meshaTenant, domain.GrainTenantLifecycle, `lifecycle_status = 'alive'`, 2)
+	assertCounterForTenant(t, pool, meshaTenant, domain.GrainHealthStatus, `health_status = 'healthy'`, 2)
+
+	rewindProjectionState(t, pool, meshaTenant, firstRecorded, firstEvent)
+	result, err = repo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+		TenantID:                 meshaTenant,
+		Limit:                    10,
+		ProcessedEventsRetention: 30 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("duplicate processed event update: %v", err)
+	}
+	if result.ScannedEventCount != 1 || result.SkippedEventCount != 1 || result.AppliedEventCount != 0 {
+		t.Fatalf("duplicate event should skip without reapplying: %#v", result)
+	}
+	assertCounterForTenant(t, pool, meshaTenant, domain.GrainTenantLifecycle, `lifecycle_status = 'alive'`, 2)
+
+	noopEvents := []struct {
+		id        string
+		eventType string
+		recorded  time.Time
+	}{
+		{"61000000-0000-4000-8000-000000000003", "goat.identifier.added", secondRecorded.Add(1 * time.Minute)},
+		{"61000000-0000-4000-8000-000000000004", "goat.identifier.retired", secondRecorded.Add(2 * time.Minute)},
+		{"61000000-0000-4000-8000-000000000005", "goat.identifier.disputed", secondRecorded.Add(3 * time.Minute)},
+	}
+	for _, event := range noopEvents {
+		insertIncrementalEvent(t, pool, meshaTenant, secondGoat, event.id, event.eventType, event.recorded)
+	}
+	result, err = repo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+		TenantID:                 meshaTenant,
+		Limit:                    10,
+		ProcessedEventsRetention: 30 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("identifier noop events: %v", err)
+	}
+	if result.NoopEventCount != 3 || result.AppliedEventCount != 0 || result.RebuildRequired {
+		t.Fatalf("identifier events should be noop: %#v", result)
+	}
+	assertCounterForTenant(t, pool, meshaTenant, domain.GrainTenantLifecycle, `lifecycle_status = 'alive'`, 2)
+	assertProjectionState(t, pool, meshaTenant, noopEvents[2].recorded, noopEvents[2].id, false, "")
+
+	// FK must include recorded_at; same tenant/event_id with the wrong recorded_at is invalid.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_identity_counter_processed_events (
+  tenant_id, event_id, event_recorded_at, event_type, outcome
+) VALUES ($1, $2, $3, 'goat.created', 'noop')`, meshaTenant, secondEvent, secondRecorded.Add(time.Second)); err == nil {
+		t.Fatal("processed event with wrong recorded_at should fail FK")
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE goat_identity_counter_processed_events
+SET processed_at = $1
+WHERE tenant_id = $2 AND event_id = $3`, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), meshaTenant, secondEvent); err != nil {
+		t.Fatal(err)
+	}
+	pruneEvent := "61000000-0000-4000-8000-000000000006"
+	pruneRecorded := noopEvents[2].recorded.Add(time.Minute)
+	insertIncrementalEvent(t, pool, meshaTenant, secondGoat, pruneEvent, "goat.identifier.added", pruneRecorded)
+	result, err = repo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+		TenantID:                 meshaTenant,
+		Limit:                    10,
+		ProcessedEventsRetention: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("retention prune update: %v", err)
+	}
+	if result.PrunedProcessedRows == 0 {
+		t.Fatalf("expected processed-event pruning, got %#v", result)
+	}
+
+	mergeEvent := "61000000-0000-4000-8000-000000000007"
+	mergeRecorded := pruneRecorded.Add(time.Minute)
+	afterMergeGoat := "11000000-0000-4000-8000-000000000003"
+	afterMergeEvent := "61000000-0000-4000-8000-000000000008"
+	insertIncrementalEvent(t, pool, meshaTenant, secondGoat, mergeEvent, "goat.identity.merge_approved", mergeRecorded)
+	insertIncrementalGoat(t, pool, afterMergeGoat, meshaTenant, cbePark, cbeShed, "alive", "clean", "healthy")
+	insertIncrementalEvent(t, pool, meshaTenant, afterMergeGoat, afterMergeEvent, "goat.created", mergeRecorded.Add(time.Minute))
+	result, err = repo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+		TenantID:                 meshaTenant,
+		Limit:                    10,
+		ProcessedEventsRetention: 30 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("merge-required update: %v", err)
+	}
+	if !result.RebuildRequired || result.RebuildReason == nil || *result.RebuildReason != "merge_event_requires_rebuild" || result.ScannedEventCount != 1 {
+		t.Fatalf("merge should require rebuild and stop: %#v", result)
+	}
+	assertProjectionState(t, pool, meshaTenant, pruneRecorded, pruneEvent, true, "merge_event_requires_rebuild")
+	assertCounterForTenant(t, pool, meshaTenant, domain.GrainTenantLifecycle, `lifecycle_status = 'alive'`, 2)
+	if got := countRows(t, pool, `SELECT count(*) FROM goat_identity_counter_processed_events WHERE tenant_id = $1 AND event_id = $2`, meshaTenant, afterMergeEvent); got != 0 {
+		t.Fatalf("event after merge should not process, processed rows=%d", got)
+	}
+	stalePage, err := repo.ListIdentityCounts(ctx, ports.CountParams{
+		TenantID: meshaTenant,
+		Grain:    domain.GrainTenantLifecycle,
+		Limit:    100,
+	})
+	if err != nil {
+		t.Fatalf("ListIdentityCounts stale: %v", err)
+	}
+	if stalePage.Freshness.Warning == nil || *stalePage.Freshness.Warning != "rebuild_required" {
+		t.Fatalf("expected rebuild_required freshness warning, got %#v", stalePage.Freshness)
+	}
+
+	if _, err := repo.RebuildIdentityCounters(ctx, ports.RebuildIdentityCountersParams{
+		TenantID: meshaTenant,
+		Grains:   domain.AllIdentityCounterGrains,
+	}); err != nil {
+		t.Fatalf("rebuild clears required: %v", err)
+	}
+	unknownEvent := "61000000-0000-4000-8000-000000000009"
+	unknownRecorded := mergeRecorded.Add(2 * time.Minute)
+	insertIncrementalEvent(t, pool, meshaTenant, afterMergeGoat, unknownEvent, "goat.future.changed", unknownRecorded)
+	result, err = repo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+		TenantID:                 meshaTenant,
+		Limit:                    10,
+		ProcessedEventsRetention: 30 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("unknown-required update: %v", err)
+	}
+	if !result.RebuildRequired || result.RebuildReason == nil || *result.RebuildReason != "unknown_event_requires_rebuild" {
+		t.Fatalf("unknown event should require rebuild: %#v", result)
+	}
+
+	// A tenant with events but no projection state must not infer a checkpoint.
+	tenantTwoGoat := "11000000-0000-4000-8000-000000000201"
+	tenantTwoEventID := "61000000-0000-4000-8000-000000000201"
+	insertIncrementalGoat(t, pool, tenantTwoGoat, secondTenant, t2Park, "", "alive", "clean", "healthy")
+	insertIncrementalEvent(t, pool, secondTenant, tenantTwoGoat, tenantTwoEventID, "goat.created", firstRecorded)
+	result, err = repo.UpdateIdentityCounters(ctx, ports.UpdateIdentityCountersParams{
+		TenantID:                 secondTenant,
+		Limit:                    10,
+		ProcessedEventsRetention: 30 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("missing second tenant state update: %v", err)
+	}
+	if !result.RebuildRequired || result.RebuildReason == nil || *result.RebuildReason != "missing_projection_checkpoint" {
+		t.Fatalf("missing state with events should require rebuild: %#v", result)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM goat_identity_counters WHERE tenant_id = $1`, secondTenant); got != 0 {
+		t.Fatalf("second tenant should not get counters without rebuild, got %d", got)
+	}
+}
+
 func startReportingDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	container := fmt.Sprintf("goatos-reporting-test-%d", time.Now().UnixNano())
@@ -356,6 +575,66 @@ VALUES
   ($1, '10000000-0000-4000-8000-000000000001', 'goat.created', 1, '2026-06-09 10:00:00+00', '2026-06-09 10:00:00+00', '{}'::jsonb, 'synthetic-reporting-event-1'),
   ($1, '10000000-0000-4000-8000-000000000002', 'goat.identifier.disputed', 1, '2026-06-09 11:00:00+00', '2026-06-09 12:30:00+00', '{}'::jsonb, 'synthetic-reporting-event-2');
 `, meshaTenant); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedIncrementalReportingBase(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ($1, 'Synthetic second tenant', 'active')
+ON CONFLICT DO NOTHING;
+`, secondTenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($1, $2, 'shed', 'CBE-S1', 'Synthetic CBE shed', $3, 'active')
+ON CONFLICT DO NOTHING;
+`, cbeShed, meshaTenant, cbePark); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1, $2, 'park', 'T2P', 'Synthetic tenant 2 park', 'active')
+ON CONFLICT DO NOTHING;
+`, t2Park, secondTenant); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertIncrementalGoat(t *testing.T, pool *pgxpool.Pool, goatID string, tenantID string, parkID string, shedID string, lifecycleStatus string, identityState string, healthStatus string) {
+	t.Helper()
+	var shed any
+	if shedID != "" {
+		shed = shedID
+	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goats (
+  goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
+  reproductive_status, growth_cohort_tag, management_stage, health_status,
+  identity_state, custodian_party_id, current_location_id, park_id, shed_id
+) VALUES (
+  $1, $2, 'goat', 'Boer', $3, 'female', $4,
+  'non_pregnant', 'F2', 'warmup', $5,
+  $6, $7, $8, $8, $9
+)`, goatID, tenantID, boerBreed, lifecycleStatus, healthStatus, identityState, meshaParty, parkID, shed); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertIncrementalEvent(t *testing.T, pool *pgxpool.Pool, tenantID string, goatID string, eventID string, eventType string, recordedAt time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goat_identity_events (
+  identity_event_id, tenant_id, goat_id, event_type, event_version,
+  occurred_at, recorded_at, payload, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 1,
+  $5, $5, '{}'::jsonb, $6
+)`, eventID, tenantID, goatID, eventType, recordedAt, "synthetic-reporting-incremental-"+eventID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -440,13 +719,63 @@ func encodeSyntheticCountCursor(countValue int64, counterID string) (string, err
 
 func assertCounter(t *testing.T, pool *pgxpool.Pool, grain, predicate string, want int64) {
 	t.Helper()
+	assertCounterForTenant(t, pool, meshaTenant, grain, predicate, want)
+}
+
+func assertCounterForTenant(t *testing.T, pool *pgxpool.Pool, tenantID, grain, predicate string, want int64) {
+	t.Helper()
 	var got int64
 	query := fmt.Sprintf(`SELECT COALESCE(sum(count_value), 0)::bigint FROM goat_identity_counters WHERE tenant_id = $1 AND counter_grain = $2 AND %s`, predicate)
-	if err := pool.QueryRow(context.Background(), query, meshaTenant, grain).Scan(&got); err != nil {
+	if err := pool.QueryRow(context.Background(), query, tenantID, grain).Scan(&got); err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
 		t.Fatalf("%s %s count=%d want %d", grain, predicate, got, want)
+	}
+}
+
+func assertProjectionState(t *testing.T, pool *pgxpool.Pool, tenantID string, wantRecordedAt time.Time, wantEventID string, wantRebuildRequired bool, wantReason string) {
+	t.Helper()
+	var gotRecordedAt time.Time
+	var gotEventID string
+	var gotRebuildRequired bool
+	var gotReason string
+	if err := pool.QueryRow(context.Background(), `
+SELECT last_processed_recorded_at, last_processed_event_id::text, rebuild_required, COALESCE(rebuild_reason, '')
+FROM goat_identity_counter_projection_state
+WHERE tenant_id = $1`, tenantID).Scan(&gotRecordedAt, &gotEventID, &gotRebuildRequired, &gotReason); err != nil {
+		t.Fatal(err)
+	}
+	if !gotRecordedAt.Equal(wantRecordedAt) || gotEventID != wantEventID || gotRebuildRequired != wantRebuildRequired || gotReason != wantReason {
+		t.Fatalf("projection state=(%s,%s,%t,%q), want (%s,%s,%t,%q)", gotRecordedAt, gotEventID, gotRebuildRequired, gotReason, wantRecordedAt, wantEventID, wantRebuildRequired, wantReason)
+	}
+}
+
+func assertProcessedEvent(t *testing.T, pool *pgxpool.Pool, tenantID, eventID string, recordedAt time.Time, wantOutcome string) {
+	t.Helper()
+	var gotOutcome string
+	if err := pool.QueryRow(context.Background(), `
+SELECT outcome
+FROM goat_identity_counter_processed_events
+WHERE tenant_id = $1 AND event_id = $2 AND event_recorded_at = $3`, tenantID, eventID, recordedAt).Scan(&gotOutcome); err != nil {
+		t.Fatal(err)
+	}
+	if gotOutcome != wantOutcome {
+		t.Fatalf("processed event %s outcome=%s want %s", eventID, gotOutcome, wantOutcome)
+	}
+}
+
+func rewindProjectionState(t *testing.T, pool *pgxpool.Pool, tenantID string, recordedAt time.Time, eventID string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+UPDATE goat_identity_counter_projection_state
+SET last_processed_recorded_at = $2,
+    last_processed_event_id = $3,
+    rebuild_required = false,
+    rebuild_reason = NULL,
+    updated_at = now()
+WHERE tenant_id = $1`, tenantID, recordedAt, eventID); err != nil {
+		t.Fatal(err)
 	}
 }
 

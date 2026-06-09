@@ -527,6 +527,273 @@ CREATE TABLE public.goat_identifiers (
 
 
 --
+-- Name: goats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goats (
+    goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    display_id text DEFAULT public.next_goat_display_id() NOT NULL,
+    species text DEFAULT 'goat'::text NOT NULL,
+    breed text,
+    breed_id uuid,
+    sex text,
+    approx_dob date,
+    age_band text,
+    lifecycle_status text NOT NULL,
+    reproductive_status text,
+    growth_cohort_tag text,
+    management_stage text,
+    health_status text,
+    identity_state text NOT NULL,
+    custodian_party_id uuid NOT NULL,
+    current_location_id uuid,
+    farm_id uuid,
+    park_id uuid,
+    shed_id uuid,
+    cohort_id uuid,
+    merged_into_goat_id uuid,
+    source_confidence numeric,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
+    CONSTRAINT goats_identity_state_check CHECK ((identity_state = ANY (ARRAY['clean'::text, 'needs_review'::text, 'disputed'::text, 'merged'::text, 'inactive'::text]))),
+    CONSTRAINT goats_merge_redirect_shape_check CHECK ((((identity_state = 'merged'::text) AND (merged_into_goat_id IS NOT NULL) AND (merged_into_goat_id <> goat_id)) OR ((identity_state <> 'merged'::text) AND (merged_into_goat_id IS NULL)))),
+    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT goats_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text])))),
+    CONSTRAINT goats_source_confidence_check CHECK (((source_confidence IS NULL) OR ((source_confidence >= (0)::numeric) AND (source_confidence <= (1)::numeric)))),
+    CONSTRAINT goats_species_check CHECK ((species = 'goat'::text))
+);
+
+
+--
+-- Name: goat_identity_counter_memberships; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.goat_identity_counter_memberships AS
+ SELECT 'tenant_lifecycle'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    g.lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
+UNION ALL
+ SELECT 'custodian_lifecycle'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    g.custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    g.lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
+UNION ALL
+ SELECT 'custodian_identity'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    g.custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    NULL::text AS lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    g.identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
+UNION ALL
+ SELECT 'park_lifecycle'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    g.park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    g.lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
+UNION ALL
+ SELECT 'shed_lifecycle'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    g.park_id,
+    g.shed_id,
+    NULL::uuid AS cohort_id,
+    g.lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
+UNION ALL
+ SELECT 'breed_sex_lifecycle'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    g.lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    g.breed_id,
+    g.sex
+   FROM public.goats g
+  WHERE (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text]))
+UNION ALL
+ SELECT 'health_status'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    NULL::text AS lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    g.health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
+UNION ALL
+ SELECT 'growth_cohort'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    NULL::text AS lifecycle_status,
+    NULL::text AS reproductive_status,
+    g.growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
+UNION ALL
+ SELECT 'management_stage'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    NULL::text AS lifecycle_status,
+    NULL::text AS reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    g.management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])))
+UNION ALL
+ SELECT 'reproductive_status'::text AS counter_grain,
+    g.tenant_id,
+    g.goat_id,
+    NULL::uuid AS custodian_party_id,
+    NULL::uuid AS farm_id,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id,
+    NULL::uuid AS cohort_id,
+    NULL::text AS lifecycle_status,
+    g.reproductive_status,
+    NULL::text AS growth_cohort_tag,
+    NULL::text AS management_stage,
+    NULL::text AS health_status,
+    NULL::text AS identity_state,
+    NULL::uuid AS breed_id,
+    NULL::text AS sex
+   FROM public.goats g
+  WHERE ((g.lifecycle_status = 'alive'::text) AND (g.identity_state <> ALL (ARRAY['merged'::text, 'inactive'::text])));
+
+
+--
+-- Name: goat_identity_counter_processed_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_identity_counter_processed_events (
+    tenant_id uuid NOT NULL,
+    event_id uuid NOT NULL,
+    event_recorded_at timestamp with time zone NOT NULL,
+    event_type text NOT NULL,
+    outcome text NOT NULL,
+    processed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT goat_identity_counter_processed_events_outcome_check CHECK ((outcome = ANY (ARRAY['applied'::text, 'noop'::text])))
+);
+
+
+--
+-- Name: goat_identity_counter_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_identity_counter_projection_state (
+    tenant_id uuid NOT NULL,
+    last_processed_recorded_at timestamp with time zone,
+    last_processed_event_id uuid,
+    rebuild_required boolean DEFAULT false NOT NULL,
+    rebuild_reason text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: goat_identity_counters; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -745,48 +1012,6 @@ CREATE TABLE public.goat_ownership (
     CONSTRAINT goat_ownership_share_bps_check CHECK (((share_bps >= 0) AND (share_bps <= 10000))),
     CONSTRAINT goat_ownership_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'pending_review'::text, 'shared_pending'::text]))),
     CONSTRAINT goat_ownership_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
-);
-
-
---
--- Name: goats; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goats (
-    goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    tenant_id uuid NOT NULL,
-    display_id text DEFAULT public.next_goat_display_id() NOT NULL,
-    species text DEFAULT 'goat'::text NOT NULL,
-    breed text,
-    breed_id uuid,
-    sex text,
-    approx_dob date,
-    age_band text,
-    lifecycle_status text NOT NULL,
-    reproductive_status text,
-    growth_cohort_tag text,
-    management_stage text,
-    health_status text,
-    identity_state text NOT NULL,
-    custodian_party_id uuid NOT NULL,
-    current_location_id uuid,
-    farm_id uuid,
-    park_id uuid,
-    shed_id uuid,
-    cohort_id uuid,
-    merged_into_goat_id uuid,
-    source_confidence numeric,
-    row_version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by uuid,
-    CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
-    CONSTRAINT goats_identity_state_check CHECK ((identity_state = ANY (ARRAY['clean'::text, 'needs_review'::text, 'disputed'::text, 'merged'::text, 'inactive'::text]))),
-    CONSTRAINT goats_merge_redirect_shape_check CHECK ((((identity_state = 'merged'::text) AND (merged_into_goat_id IS NOT NULL) AND (merged_into_goat_id <> goat_id)) OR ((identity_state <> 'merged'::text) AND (merged_into_goat_id IS NULL)))),
-    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text])))),
-    CONSTRAINT goats_source_confidence_check CHECK (((source_confidence IS NULL) OR ((source_confidence >= (0)::numeric) AND (source_confidence <= (1)::numeric)))),
-    CONSTRAINT goats_species_check CHECK ((species = 'goat'::text))
 );
 
 
@@ -1488,6 +1713,22 @@ ALTER TABLE ONLY public.goat_identifiers
 
 
 --
+-- Name: goat_identity_counter_processed_events goat_identity_counter_processed_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_counter_processed_events
+    ADD CONSTRAINT goat_identity_counter_processed_events_pkey PRIMARY KEY (tenant_id, event_id, event_recorded_at);
+
+
+--
+-- Name: goat_identity_counter_projection_state goat_identity_counter_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_counter_projection_state
+    ADD CONSTRAINT goat_identity_counter_projection_state_pkey PRIMARY KEY (tenant_id);
+
+
+--
 -- Name: goat_identity_counters goat_identity_counters_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2110,6 +2351,13 @@ CREATE INDEX goat_identifiers_source_idx ON public.goat_identifiers USING btree 
 
 
 --
+-- Name: goat_identity_counter_processed_events_prune_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_counter_processed_events_prune_idx ON public.goat_identity_counter_processed_events USING btree (tenant_id, processed_at, event_recorded_at);
+
+
+--
 -- Name: goat_identity_counters_grain_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2180,6 +2428,20 @@ CREATE INDEX goat_identity_events_2026_06_tenant_id_event_type_recorded__idx ON 
 
 
 --
+-- Name: goat_identity_events_tenant_recorded_event_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_tenant_recorded_event_idx ON ONLY public.goat_identity_events USING btree (tenant_id, recorded_at, identity_event_id);
+
+
+--
+-- Name: goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_06 USING btree (tenant_id, recorded_at, identity_event_id);
+
+
+--
 -- Name: goat_identity_events_tenant_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2215,6 +2477,13 @@ CREATE INDEX goat_identity_events_2026_07_tenant_id_event_type_recorded__idx ON 
 
 
 --
+-- Name: goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, recorded_at, identity_event_id);
+
+
+--
 -- Name: goat_identity_events_2026_07_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2240,6 +2509,13 @@ CREATE INDEX goat_identity_events_2026_08_idempotency_key_idx ON public.goat_ide
 --
 
 CREATE INDEX goat_identity_events_2026_08_tenant_id_event_type_recorded__idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, recorded_at, identity_event_id);
 
 
 --
@@ -2271,6 +2547,13 @@ CREATE INDEX goat_identity_events_2026_09_tenant_id_event_type_recorded__idx ON 
 
 
 --
+-- Name: goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_2026_09 USING btree (tenant_id, recorded_at, identity_event_id);
+
+
+--
 -- Name: goat_identity_events_2026_09_tenant_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2296,6 +2579,13 @@ CREATE INDEX goat_identity_events_default_idempotency_key_idx ON public.goat_ide
 --
 
 CREATE INDEX goat_identity_events_default_tenant_id_event_type_recorded__idx ON public.goat_identity_events_default USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: goat_identity_events_default_tenant_id_recorded_at_identity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_default_tenant_id_recorded_at_identity_idx ON public.goat_identity_events_default USING btree (tenant_id, recorded_at, identity_event_id);
 
 
 --
@@ -2824,6 +3114,13 @@ ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PART
 
 
 --
+-- Name: goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_06_tenant_id_recorded_at_identity_idx;
+
+
+--
 -- Name: goat_identity_events_2026_06_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -2863,6 +3160,13 @@ ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITIO
 --
 
 ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_identity_event_id_re_key;
+
+
+--
+-- Name: goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_07_tenant_id_recorded_at_identity_idx;
 
 
 --
@@ -2908,6 +3212,13 @@ ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PART
 
 
 --
+-- Name: goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_08_tenant_id_recorded_at_identity_idx;
+
+
+--
 -- Name: goat_identity_events_2026_08_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -2950,6 +3261,13 @@ ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PART
 
 
 --
+-- Name: goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_2026_09_tenant_id_recorded_at_identity_idx;
+
+
+--
 -- Name: goat_identity_events_2026_09_tenant_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -2989,6 +3307,13 @@ ALTER INDEX public.goat_identity_events_tenant_type_recorded_idx ATTACH PARTITIO
 --
 
 ALTER INDEX public.goat_identity_events_tenant_event_recorded_unique ATTACH PARTITION public.goat_identity_events_default_tenant_id_identity_event_id_re_key;
+
+
+--
+-- Name: goat_identity_events_default_tenant_id_recorded_at_identity_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.goat_identity_events_tenant_recorded_event_idx ATTACH PARTITION public.goat_identity_events_default_tenant_id_recorded_at_identity_idx;
 
 
 --
@@ -3216,6 +3541,22 @@ ALTER TABLE ONLY public.goat_identifiers
 
 ALTER TABLE ONLY public.goat_identifiers
     ADD CONSTRAINT goat_identifiers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: goat_identity_counter_processed_events goat_identity_counter_processed_events_event_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_counter_processed_events
+    ADD CONSTRAINT goat_identity_counter_processed_events_event_fk FOREIGN KEY (tenant_id, event_id, event_recorded_at) REFERENCES public.goat_identity_events(tenant_id, identity_event_id, recorded_at);
+
+
+--
+-- Name: goat_identity_counter_projection_state goat_identity_counter_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_counter_projection_state
+    ADD CONSTRAINT goat_identity_counter_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

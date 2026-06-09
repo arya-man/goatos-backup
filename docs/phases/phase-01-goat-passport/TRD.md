@@ -276,6 +276,29 @@ created_at timestamptz not null
 updated_at timestamptz not null
 ```
 
+Reporting support tables:
+
+```text
+goat_identity_counter_projection_state:
+  tenant_id primary key
+  last_processed_recorded_at timestamptz null
+  last_processed_event_id uuid null
+  rebuild_required boolean not null default false
+  rebuild_reason text null
+  updated_at timestamptz not null
+
+goat_identity_counter_processed_events:
+  tenant_id uuid not null
+  event_id uuid not null
+  event_recorded_at timestamptz not null
+  event_type text not null
+  outcome text not null check applied|noop
+  processed_at timestamptz not null
+  primary key (tenant_id, event_id, event_recorded_at)
+  foreign key (tenant_id, event_id, event_recorded_at)
+    references goat_identity_events(tenant_id, identity_event_id, recorded_at)
+```
+
 Rules:
 
 ```text
@@ -1514,7 +1537,7 @@ payload, RFID/tag values, headers, or media/source data
 published rows are kept only for hot replay/debug window, then archived/exported or deleted by scheduler
 relay uses event_id/idempotency_key so retry cannot create a second downstream business event
 real Google Pub/Sub adapter, production worker deployment, event consumers,
-projection workers, incremental counter consumer, and richer DLQ UI are deferred
+frontend event UI, and richer DLQ UI are deferred
 ```
 
 ### `goat_identity_counters`
@@ -1560,9 +1583,9 @@ against existing rows; structurally invalid cursors return 400
 count cursors are scoped to the same query shape/projection version and are not
 durable pagination guarantees across rebuilds
 freshness fields report projection freshness/as_of state, not raw table count
-freshness
 projection is rebuildable from goats + identity/location events
-backend/internal/reporting owns goat_identity_counters reads and rebuilds
+backend/internal/reporting owns goat_identity_counters reads, rebuilds, and
+local incremental counter updates
 backend/internal/identity must not query goat_identity_counters
 GET /analytics/identity/counts stays as the public route and is wired to
 reporting-owned service/repository code
@@ -1579,19 +1602,38 @@ counter rebuild writes `as_of_recorded_at` as the projection watermark; the
 watermark is max(goat_identity_events.recorded_at) from the rebuild snapshot,
 not `now()` and not goats.updated_at
 if the tenant has no goat_identity_events, as_of_recorded_at is null
+successful rebuild writes goat_identity_counter_projection_state with the
+checkpoint (recorded_at + event_id) under the same advisory lock
 is_rebuilding remains false on final Phase 1 rebuild rows; externally visible
-rebuild status is deferred to a future metadata table
-steady-state incremental updates are a later event/projection consumer, not a
-large-import row-by-row path
-incremental counter updates must be async/event-driven with event_id dedupe and
-must not roll back canonical goat writes if a projection update fails; the
-`count_value >= 0` check means projection underflow/drift must be isolated in
-the projection worker, not allowed to abort a valid goat mutation
-incremental deltas require before/after dimension snapshots because a goat
-change can affect multiple counter grains
-incremental workers must include a drift-detection trigger, such as scheduled
-rebuild plus bounded reconciliation checks, because high-side drift is otherwise
-silent
+rebuild status metadata beyond rebuild_required is deferred to a future metadata
+table
+local steady-state incremental updates are event-driven, not a large-import
+row-by-row path
+local incremental command backend/cmd/update-identity-counters scans
+goat_identity_events ordered by recorded_at asc, identity_event_id asc after the
+projection checkpoint
+incremental processed-event dedupe uses tenant_id + event_id + event_recorded_at
+so partition-aware event identity is preserved
+goat.created increments all matching Phase 1 grain buckets from the shared
+goat_identity_counter_memberships view
+goat.identifier.added, goat.identifier.retired, and goat.identifier.disputed are
+noops for counters and only advance the checkpoint
+goat.identity.merge_approved and unknown event types mark
+goat_identity_counter_projection_state.rebuild_required=true and stop before
+later events are processed
+missing projection state with counters or events marks rebuild_required; tenants
+with no counters and no events get an empty projection state
+analytics freshness.warning surfaces rebuild_required and dashboards still must
+not fall back to raw goats scans
+processed-event retention pruning is bounded by tenant and checkpoint
+projection failures must not roll back canonical goat writes; the
+`count_value >= 0` check means projection underflow/drift is isolated in the
+projection worker, not allowed to abort a valid goat mutation
+future richer incremental deltas require before/after dimension snapshots because
+a goat change can affect multiple counter grains
+production incremental workers must include a drift-detection trigger, such as
+scheduled rebuild plus bounded reconciliation checks, because high-side drift is
+otherwise silent
 parallel import workers must not contend on hot counter rows
 dashboard/API responses include as_of_recorded_at and is_rebuilding
 if counters are stale/rebuilding, dashboards show freshness state and still must not fall back to raw table scans
@@ -2669,6 +2711,8 @@ goat_identity_counters(tenant_id, health_status)
 goat_identity_counters(tenant_id, growth_cohort_tag)
 goat_identity_counters(tenant_id, management_stage)
 goat_identity_counters(tenant_id, reproductive_status)
+goat_identity_events(tenant_id, recorded_at asc, identity_event_id asc)
+goat_identity_counter_processed_events(tenant_id, processed_at, event_recorded_at)
 user_scope_grants(user_id, role, scope_type, scope_id, status)
 audit_log(resource_type, resource_id, created_at)
 idempotency_keys(expires_at)
@@ -2744,7 +2788,8 @@ merged-goat redirect behavior
 permission checks
 counter projection update rules
 counter rebuild watermark protocol and safe replacement strategy
-incremental counter event_id dedupe and before/after delta semantics
+incremental counter checkpoint, event_id+recorded_at dedupe, noops, rebuild-required, and retention semantics
+future before/after delta semantics for richer counter event types
 RBAC scope filtering
 audit log write rules
 outbox write/envelope validation rules

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/reporting/domain"
 	"github.com/vgoats/goatos/backend/internal/reporting/ports"
@@ -12,6 +13,8 @@ import (
 type Service struct {
 	repo ports.Repository
 }
+
+const MaxIncrementalCounterUpdateLimit = 5000
 
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo}
@@ -31,7 +34,7 @@ func (s *Service) GetIdentityCounts(ctx context.Context, params ports.CountParam
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	if len(page.Items) == 0 {
+	if len(page.Items) == 0 && page.Freshness.Warning == nil {
 		msg := "Counters are empty until reporting rebuild or projection jobs populate goat_identity_counters."
 		page.Freshness.Warning = &msg
 	}
@@ -67,6 +70,27 @@ func (s *Service) RebuildIdentityCounters(ctx context.Context, params ports.Rebu
 		return nil, mapRepoErr(err)
 	}
 	return result, nil
+}
+
+func (s *Service) UpdateIdentityCounters(ctx context.Context, params ports.UpdateIdentityCountersParams) (*domain.IncrementalCounterUpdateResult, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	if params.Limit < 1 || params.Limit > MaxIncrementalCounterUpdateLimit {
+		return nil, BadRequest("invalid_limit", "incremental counter update limit is required and must be between 1 and 5000")
+	}
+	if params.ProcessedEventsRetention < 0 {
+		return nil, BadRequest("invalid_retention", "processed event retention must not be negative")
+	}
+	result, err := s.repo.UpdateIdentityCounters(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return result, nil
+}
+
+func DefaultProcessedEventsRetention() time.Duration {
+	return 30 * 24 * time.Hour
 }
 
 func requireTenant(tenantID string) error {

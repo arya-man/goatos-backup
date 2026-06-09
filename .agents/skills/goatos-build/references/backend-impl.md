@@ -16,6 +16,8 @@ Current backend shape:
 ```text
 backend/cmd/api                 process entrypoint and graceful shutdown
 backend/cmd/outbox-relay        Phase 1 local/dev outbox relay one-shot CLI
+backend/cmd/rebuild-identity-counters Phase 1 reporting counter rebuild CLI
+backend/cmd/update-identity-counters  Phase 1 local incremental counter update CLI
 backend/cmd/rfid-import         Phase 1 RFID workbook staging CLI
 backend/cmd/rfid-apply          Phase 1 RFID staged-row canonical apply CLI
 backend/internal/bootstrap      explicit constructor wiring
@@ -23,6 +25,7 @@ backend/internal/platform       shared platform adapters
 backend/internal/identity       Phase 1 Goat Passport module
 backend/internal/legacy_import  Phase 1 import staging and reconciliation inputs
 backend/internal/outbox         Phase 1 local/dev outbox relay foundation
+backend/internal/reporting      Phase 1 analytics count reads/rebuild/incremental updates
 ```
 
 Identity module layout:
@@ -225,8 +228,7 @@ Rules:
   exhausted. Logging/no-op publisher logs safe metadata only and never raw
   payloads, RFID/tag values, headers, source rows, media URLs, or PII.
 - Real Google Pub/Sub publishing, production worker deployment, event
-  consumers, projection workers, incremental counter consumer, frontend event
-  UI, and richer DLQ operations remain deferred.
+  consumers, frontend event UI, and richer DLQ operations remain deferred.
 
 Phase 1 read behaviors already built:
 
@@ -435,8 +437,11 @@ tenant+grain, one repeatable-read transaction per committed rebuild attempt,
 and a per-tenant advisory lock. Serialization/deadlock failures retry the whole
 transaction in a bounded loop. The freshness watermark is
 max(goat_identity_events.recorded_at) from the rebuild snapshot, never now() or
-goats.updated_at. If no tenant events exist, the watermark is null. Final rows
-keep is_rebuilding=false; externally visible rebuild status metadata is deferred.
+goats.updated_at. If no tenant events exist, the watermark is null. Successful
+rebuild writes goat_identity_counter_projection_state with the checkpoint
+(recorded_at + event_id) under the same advisory lock. Final rows keep
+is_rebuilding=false; richer externally visible rebuild status metadata is
+deferred.
 
 Phase 1 counter membership excludes identity_state=merged and
 identity_state=inactive from all grains. Lifecycle-bearing grains count
@@ -446,13 +451,27 @@ grains use only goats.park_id for park_lifecycle and goats.park_id+shed_id for
 shed_lifecycle in Phase 1; no farm_lifecycle or cohort_lifecycle grain exists.
 Custodian grains use goats.custodian_party_id.
 
-Incremental counters are a later async event/outbox consumer with event_id
-dedupe and before/after multi-grain deltas. Projection failures must never roll
-back canonical identity writes; the counter table's count_value >= 0 check is a
-projection concern, not a reason to abort a valid goat mutation. Large imports
-rebuild counters instead of doing per-row counter increments. Incremental
-workers need drift detection, such as scheduled rebuild plus bounded
-reconciliation checks.
+The local incremental command is backend/cmd/update-identity-counters. It scans
+goat_identity_events ordered by recorded_at ASC, identity_event_id ASC after the
+projection checkpoint and uses goat_identity_counter_processed_events for
+event_id+recorded_at dedupe. Processed counter events must FK to
+goat_identity_events on the full partition-aware identity
+(tenant_id, identity_event_id, recorded_at), not event_id alone. goat.created
+increments the same Phase 1 grain memberships as rebuild through the shared
+goat_identity_counter_memberships view. goat.identifier.added, goat.identifier.retired, and
+goat.identifier.disputed are noops that advance the checkpoint. merge_approved
+or unknown event types set projection_state.rebuild_required=true and stop
+before later events are processed; analytics freshness then returns
+warning=rebuild_required. Missing projection state with counters or events also
+requires rebuild; tenants with no counters and no events get an empty state.
+Processed-event retention pruning is tenant/checkpoint bounded.
+
+Production async worker deployment, Pub/Sub consumer wiring, before/after
+multi-grain deltas for richer event types, and drift automation remain
+deferred. Projection failures must never roll back canonical identity writes;
+the counter table's count_value >= 0 check is a projection concern, not a reason
+to abort a valid goat mutation. Large imports rebuild counters instead of doing
+per-row counter increments.
 ```
 
 Before extending this backend:

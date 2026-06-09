@@ -231,6 +231,43 @@ type GoatIdentityCounter struct {
 	UpdatedAt          pgtype.Timestamptz
 }
 
+type GoatIdentityCounterMembership struct {
+	CounterGrain       string
+	TenantID           pgtype.UUID
+	GoatID             pgtype.UUID
+	CustodianPartyID   pgtype.UUID
+	FarmID             pgtype.UUID
+	ParkID             pgtype.UUID
+	ShedID             pgtype.UUID
+	CohortID           pgtype.UUID
+	LifecycleStatus    string
+	ReproductiveStatus pgtype.Text
+	GrowthCohortTag    pgtype.Text
+	ManagementStage    pgtype.Text
+	HealthStatus       pgtype.Text
+	IdentityState      pgtype.Text
+	BreedID            pgtype.UUID
+	Sex                pgtype.Text
+}
+
+type GoatIdentityCounterProcessedEvent struct {
+	TenantID        pgtype.UUID
+	EventID         pgtype.UUID
+	EventRecordedAt pgtype.Timestamptz
+	EventType       string
+	Outcome         string
+	ProcessedAt     pgtype.Timestamptz
+}
+
+type GoatIdentityCounterProjectionState struct {
+	TenantID                pgtype.UUID
+	LastProcessedRecordedAt pgtype.Timestamptz
+	LastProcessedEventID    pgtype.UUID
+	RebuildRequired         bool
+	RebuildReason           pgtype.Text
+	UpdatedAt               pgtype.Timestamptz
+}
+
 type GoatIdentityEvent struct {
 	IdentityEventID pgtype.UUID
 	TenantID        pgtype.UUID

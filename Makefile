@@ -1,4 +1,4 @@
-.PHONY: check guardrails test sqlc-generate sqlc-check validate-migrations validate-sqlc-plans rebuild-identity-counters
+.PHONY: check guardrails test sqlc-generate sqlc-check validate-migrations validate-sqlc-plans rebuild-identity-counters update-identity-counters
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh
@@ -27,3 +27,7 @@ validate-sqlc-plans:
 rebuild-identity-counters:
 	@if [ -z "$(TENANT_ID)" ]; then echo "TENANT_ID is required"; exit 1; fi
 	cd backend && go run ./cmd/rebuild-identity-counters -tenant-id "$(TENANT_ID)" $(if $(SOURCE_IMPORT_RUN_ID),-source-import-run-id "$(SOURCE_IMPORT_RUN_ID)") $(if $(GRAINS),-grains "$(GRAINS)")
+
+update-identity-counters:
+	@if [ -z "$(TENANT_ID)" ]; then echo "TENANT_ID is required"; exit 1; fi
+	cd backend && go run ./cmd/update-identity-counters -tenant-id "$(TENANT_ID)" $(if $(LIMIT),-limit "$(LIMIT)") $(if $(PROCESSED_EVENTS_RETENTION),-processed-events-retention "$(PROCESSED_EVENTS_RETENTION)")

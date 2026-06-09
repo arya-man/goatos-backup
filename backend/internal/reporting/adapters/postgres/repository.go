@@ -23,6 +23,20 @@ import (
 const defaultQueryTimeout = 3 * time.Second
 const identityCountsCursorVersion = 1
 
+const (
+	counterEventGoatCreated          = "goat.created"
+	counterEventIdentifierAdded      = "goat.identifier.added"
+	counterEventIdentifierRetired    = "goat.identifier.retired"
+	counterEventIdentifierDisputed   = "goat.identifier.disputed"
+	counterEventMergeApproved        = "goat.identity.merge_approved"
+	counterOutcomeApplied            = "applied"
+	counterOutcomeNoop               = "noop"
+	rebuildReasonMissingCheckpoint   = "missing_projection_checkpoint"
+	rebuildReasonMergeApproved       = "merge_event_requires_rebuild"
+	rebuildReasonUnknownEvent        = "unknown_event_requires_rebuild"
+	rebuildReasonCreatedNotCountable = "goat_created_not_countable"
+)
+
 type Repository struct {
 	pool      *pgxpool.Pool
 	queries   *reportingdb.Queries
@@ -133,6 +147,18 @@ func (r *Repository) ListIdentityCounts(ctx context.Context, params ports.CountP
 		}
 		freshness.IsRebuilding = freshness.IsRebuilding || item.IsRebuilding
 	}
+	state, err := r.queries.GetIdentityCounterProjectionState(ctx, tenantUUID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if err == nil {
+		if state.RebuildRequired {
+			msg := "rebuild_required"
+			freshness.Warning = &msg
+		} else {
+			freshness.AsOfRecordedAt = pgTimePtr(state.LastProcessedRecordedAt)
+		}
+	}
 	return &ports.CountPage{
 		Items:      items,
 		NextCursor: nextCursor,
@@ -207,7 +233,7 @@ func (r *Repository) rebuildIdentityCountersOnce(ctx context.Context, params por
 		}
 	}
 
-	watermark, err := qtx.MaxGoatIdentityEventRecordedAtForTenant(ctx, tenantUUID)
+	checkpoint, err := qtx.MaxGoatIdentityEventCheckpointForTenant(ctx, tenantUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +241,7 @@ func (r *Repository) rebuildIdentityCountersOnce(ctx context.Context, params por
 	result := &domain.IdentityCounterRebuildResult{
 		TenantID:          params.TenantID,
 		SourceImportRunID: params.SourceImportRunID,
-		AsOfRecordedAt:    pgTimePtr(watermark),
+		AsOfRecordedAt:    pgTimePtr(checkpoint.RecordedAt),
 		Grains:            make([]domain.GrainRebuildResult, 0, len(params.Grains)),
 	}
 	for _, grain := range params.Grains {
@@ -226,7 +252,7 @@ func (r *Repository) rebuildIdentityCountersOnce(ctx context.Context, params por
 		if err != nil {
 			return nil, err
 		}
-		inserted, err := r.insertGrain(ctx, qtx, grain, tenantUUID, watermark, sourceRunUUID)
+		inserted, err := r.insertGrain(ctx, qtx, grain, tenantUUID, checkpoint.RecordedAt, sourceRunUUID)
 		if err != nil {
 			return nil, err
 		}
@@ -236,6 +262,13 @@ func (r *Repository) rebuildIdentityCountersOnce(ctx context.Context, params por
 			InsertedRows: inserted,
 		})
 	}
+	if err := qtx.UpsertProjectionStateAfterRebuild(ctx, reportingdb.UpsertProjectionStateAfterRebuildParams{
+		TenantID:                tenantUUID,
+		LastProcessedRecordedAt: checkpoint.RecordedAt,
+		LastProcessedEventID:    checkpoint.EventID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -244,81 +277,276 @@ func (r *Repository) rebuildIdentityCountersOnce(ctx context.Context, params por
 }
 
 func (r *Repository) insertGrain(ctx context.Context, qtx *reportingdb.Queries, grain string, tenantUUID pgtype.UUID, watermark pgtype.Timestamptz, sourceRunUUID pgtype.UUID) (int64, error) {
-	params := grainParams{
+	return qtx.InsertIdentityCountersByGrain(ctx, reportingdb.InsertIdentityCountersByGrainParams{
 		TenantID:          tenantUUID,
 		AsOfRecordedAt:    watermark,
 		SourceImportRunID: sourceRunUUID,
+		CounterGrain:      grain,
+	})
+}
+
+func (r *Repository) UpdateIdentityCounters(ctx context.Context, params ports.UpdateIdentityCountersParams) (*domain.IncrementalCounterUpdateResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam("tenant_id", params.TenantID)
+	if err != nil {
+		return nil, err
 	}
-	switch grain {
-	case domain.GrainTenantLifecycle:
-		return qtx.InsertTenantLifecycleCounters(ctx, reportingdb.InsertTenantLifecycleCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	qtx := r.queries.WithTx(tx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, params.TenantID); err != nil {
+		return nil, err
+	}
+	if r.afterLock != nil {
+		if err := r.afterLock(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	exists, err := qtx.TenantExists(ctx, tenantUUID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ports.ErrNotFound
+	}
+
+	result := &domain.IncrementalCounterUpdateResult{TenantID: params.TenantID}
+	state, stateExists, err := r.loadProjectionState(ctx, qtx, tenantUUID)
+	if err != nil {
+		return nil, err
+	}
+	if !stateExists {
+		ready, err := r.initializeMissingProjectionState(ctx, qtx, tenantUUID, result)
+		if err != nil {
+			return nil, err
+		}
+		if !ready {
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			committed = true
+			return result, nil
+		}
+		state = projectionState{}
+	}
+	if state.RebuildRequired {
+		result.RebuildRequired = true
+		result.RebuildReason = state.RebuildReason
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		committed = true
+		return result, nil
+	}
+
+	events, err := qtx.ListIdentityEventsAfterCheckpoint(ctx, reportingdb.ListIdentityEventsAfterCheckpointParams{
+		TenantID:                tenantUUID,
+		LastProcessedRecordedAt: state.LastProcessedRecordedAt,
+		LastProcessedEventID:    state.LastProcessedEventID,
+		LimitCount:              int32(params.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	currentRecordedAt := state.LastProcessedRecordedAt
+	currentEventID := state.LastProcessedEventID
+	for _, event := range events {
+		result.ScannedEventCount++
+		eventID, err := uuidParam("event_id", event.EventID)
+		if err != nil {
+			return nil, err
+		}
+		goatID, err := uuidParam("goat_id", event.GoatID)
+		if err != nil {
+			return nil, err
+		}
+
+		switch event.EventType {
+		case counterEventGoatCreated:
+			applied, err := qtx.ApplyCreatedGoatCounterEvent(ctx, reportingdb.ApplyCreatedGoatCounterEventParams{
+				TenantID:        tenantUUID,
+				GoatID:          goatID,
+				EventID:         eventID,
+				EventRecordedAt: event.RecordedAt,
+				EventType:       event.EventType,
+			})
+			if err != nil {
+				return nil, err
+			}
+			if applied.MembershipRows == 0 {
+				reason := rebuildReasonCreatedNotCountable
+				if err := markProjectionRebuildRequired(ctx, qtx, tenantUUID, currentRecordedAt, currentEventID, reason); err != nil {
+					return nil, err
+				}
+				result.RebuildRequired = true
+				result.RebuildReason = &reason
+				if err := tx.Commit(ctx); err != nil {
+					return nil, err
+				}
+				committed = true
+				return result, nil
+			}
+			if applied.ProcessedRows == 0 {
+				result.SkippedEventCount++
+				currentRecordedAt = event.RecordedAt
+				currentEventID = eventID
+				if err := qtx.AdvanceProjectionState(ctx, advanceProjectionParams(tenantUUID, currentRecordedAt, currentEventID)); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			result.AppliedEventCount++
+			currentRecordedAt = event.RecordedAt
+			currentEventID = eventID
+			if err := qtx.AdvanceProjectionState(ctx, advanceProjectionParams(tenantUUID, currentRecordedAt, currentEventID)); err != nil {
+				return nil, err
+			}
+		case counterEventIdentifierAdded, counterEventIdentifierRetired, counterEventIdentifierDisputed:
+			inserted, err := qtx.InsertProcessedCounterEvent(ctx, reportingdb.InsertProcessedCounterEventParams{
+				TenantID:        tenantUUID,
+				EventID:         eventID,
+				EventRecordedAt: event.RecordedAt,
+				EventType:       event.EventType,
+				Outcome:         counterOutcomeNoop,
+			})
+			if err != nil {
+				return nil, err
+			}
+			if inserted == 0 {
+				result.SkippedEventCount++
+			} else {
+				result.NoopEventCount++
+			}
+			currentRecordedAt = event.RecordedAt
+			currentEventID = eventID
+			if err := qtx.AdvanceProjectionState(ctx, advanceProjectionParams(tenantUUID, currentRecordedAt, currentEventID)); err != nil {
+				return nil, err
+			}
+		case counterEventMergeApproved:
+			reason := rebuildReasonMergeApproved
+			if err := markProjectionRebuildRequired(ctx, qtx, tenantUUID, currentRecordedAt, currentEventID, reason); err != nil {
+				return nil, err
+			}
+			result.RebuildRequired = true
+			result.RebuildReason = &reason
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			committed = true
+			return result, nil
+		default:
+			reason := rebuildReasonUnknownEvent
+			if err := markProjectionRebuildRequired(ctx, qtx, tenantUUID, currentRecordedAt, currentEventID, reason); err != nil {
+				return nil, err
+			}
+			result.RebuildRequired = true
+			result.RebuildReason = &reason
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			committed = true
+			return result, nil
+		}
+	}
+
+	if params.ProcessedEventsRetention > 0 && currentRecordedAt.Valid {
+		pruned, err := qtx.PruneProcessedCounterEvents(ctx, reportingdb.PruneProcessedCounterEventsParams{
+			TenantID:             tenantUUID,
+			ProcessedBefore:      pgtype.Timestamptz{Time: time.Now().UTC().Add(-params.ProcessedEventsRetention), Valid: true},
+			CheckpointRecordedAt: currentRecordedAt,
 		})
-	case domain.GrainCustodianLife:
-		return qtx.InsertCustodianLifecycleCounters(ctx, reportingdb.InsertCustodianLifecycleCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainCustodianIdent:
-		return qtx.InsertCustodianIdentityCounters(ctx, reportingdb.InsertCustodianIdentityCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainParkLifecycle:
-		return qtx.InsertParkLifecycleCounters(ctx, reportingdb.InsertParkLifecycleCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainShedLifecycle:
-		return qtx.InsertShedLifecycleCounters(ctx, reportingdb.InsertShedLifecycleCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainBreedSexLife:
-		return qtx.InsertBreedSexLifecycleCounters(ctx, reportingdb.InsertBreedSexLifecycleCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainHealthStatus:
-		return qtx.InsertHealthStatusCounters(ctx, reportingdb.InsertHealthStatusCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainGrowthCohort:
-		return qtx.InsertGrowthCohortCounters(ctx, reportingdb.InsertGrowthCohortCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainManagementStage:
-		return qtx.InsertManagementStageCounters(ctx, reportingdb.InsertManagementStageCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	case domain.GrainReproductiveStat:
-		return qtx.InsertReproductiveStatusCounters(ctx, reportingdb.InsertReproductiveStatusCountersParams{
-			AsOfRecordedAt:    params.AsOfRecordedAt,
-			SourceImportRunID: params.SourceImportRunID,
-			TenantID:          params.TenantID,
-		})
-	default:
-		return 0, fmt.Errorf("unsupported reporting grain %q", grain)
+		if err != nil {
+			return nil, err
+		}
+		result.PrunedProcessedRows = pruned
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	committed = true
+	return result, nil
+}
+
+type projectionState struct {
+	LastProcessedRecordedAt pgtype.Timestamptz
+	LastProcessedEventID    pgtype.UUID
+	RebuildRequired         bool
+	RebuildReason           *string
+}
+
+func (r *Repository) loadProjectionState(ctx context.Context, qtx *reportingdb.Queries, tenantUUID pgtype.UUID) (projectionState, bool, error) {
+	row, err := qtx.GetIdentityCounterProjectionState(ctx, tenantUUID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return projectionState{}, false, nil
+	}
+	if err != nil {
+		return projectionState{}, false, err
+	}
+	var eventID pgtype.UUID
+	if row.LastProcessedEventID != "" {
+		if err := eventID.Scan(row.LastProcessedEventID); err != nil {
+			return projectionState{}, false, err
+		}
+	}
+	return projectionState{
+		LastProcessedRecordedAt: row.LastProcessedRecordedAt,
+		LastProcessedEventID:    eventID,
+		RebuildRequired:         row.RebuildRequired,
+		RebuildReason:           pgTextPtr(row.RebuildReason),
+	}, true, nil
+}
+
+func (r *Repository) initializeMissingProjectionState(ctx context.Context, qtx *reportingdb.Queries, tenantUUID pgtype.UUID, result *domain.IncrementalCounterUpdateResult) (bool, error) {
+	hasCounters, err := qtx.HasIdentityCountersForTenant(ctx, tenantUUID)
+	if err != nil {
+		return false, err
+	}
+	hasEvents, err := qtx.HasGoatIdentityEventsForTenant(ctx, tenantUUID)
+	if err != nil {
+		return false, err
+	}
+	if !hasCounters && !hasEvents {
+		return true, qtx.InsertEmptyProjectionState(ctx, tenantUUID)
+	}
+	reason := rebuildReasonMissingCheckpoint
+	if err := markProjectionRebuildRequired(ctx, qtx, tenantUUID, pgtype.Timestamptz{}, pgtype.UUID{}, reason); err != nil {
+		return false, err
+	}
+	result.RebuildRequired = true
+	result.RebuildReason = &reason
+	return false, nil
+}
+
+func advanceProjectionParams(tenantUUID pgtype.UUID, recordedAt pgtype.Timestamptz, eventID pgtype.UUID) reportingdb.AdvanceProjectionStateParams {
+	return reportingdb.AdvanceProjectionStateParams{
+		TenantID:                tenantUUID,
+		LastProcessedRecordedAt: recordedAt,
+		LastProcessedEventID:    eventID,
 	}
 }
 
-type grainParams struct {
-	TenantID          pgtype.UUID
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
+func markProjectionRebuildRequired(ctx context.Context, qtx *reportingdb.Queries, tenantUUID pgtype.UUID, recordedAt pgtype.Timestamptz, eventID pgtype.UUID, reason string) error {
+	return qtx.MarkProjectionRebuildRequired(ctx, reportingdb.MarkProjectionRebuildRequiredParams{
+		TenantID:                tenantUUID,
+		LastProcessedRecordedAt: recordedAt,
+		LastProcessedEventID:    eventID,
+		RebuildReason:           pgtype.Text{String: reason, Valid: true},
+	})
 }
 
 func identityCountFromSQLC(row reportingdb.ListIdentityCountsRow) domain.IdentityCount {

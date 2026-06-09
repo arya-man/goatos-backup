@@ -11,6 +11,41 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getIdentityCounterProjectionState = `-- name: GetIdentityCounterProjectionState :one
+SELECT
+  tenant_id::text AS tenant_id,
+  last_processed_recorded_at,
+  COALESCE(last_processed_event_id::text, '')::text AS last_processed_event_id,
+  rebuild_required,
+  rebuild_reason,
+  updated_at
+FROM goat_identity_counter_projection_state
+WHERE tenant_id = $1
+`
+
+type GetIdentityCounterProjectionStateRow struct {
+	TenantID                string
+	LastProcessedRecordedAt pgtype.Timestamptz
+	LastProcessedEventID    string
+	RebuildRequired         bool
+	RebuildReason           pgtype.Text
+	UpdatedAt               pgtype.Timestamptz
+}
+
+func (q *Queries) GetIdentityCounterProjectionState(ctx context.Context, tenantID pgtype.UUID) (GetIdentityCounterProjectionStateRow, error) {
+	row := q.db.QueryRow(ctx, getIdentityCounterProjectionState, tenantID)
+	var i GetIdentityCounterProjectionStateRow
+	err := row.Scan(
+		&i.TenantID,
+		&i.LastProcessedRecordedAt,
+		&i.LastProcessedEventID,
+		&i.RebuildRequired,
+		&i.RebuildReason,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listIdentityCounts = `-- name: ListIdentityCounts :many
 SELECT
   counter_id::text AS counter_id,
@@ -157,6 +192,74 @@ func (q *Queries) ListIdentityCounts(ctx context.Context, arg ListIdentityCounts
 			&i.SourceImportRunID,
 			&i.IsRebuilding,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIdentityEventsAfterCheckpoint = `-- name: ListIdentityEventsAfterCheckpoint :many
+SELECT
+  identity_event_id::text AS event_id,
+  tenant_id::text AS tenant_id,
+  goat_id::text AS goat_id,
+  event_type,
+  recorded_at
+FROM goat_identity_events
+WHERE tenant_id = $1
+  AND (
+    $2::timestamptz IS NULL
+    OR recorded_at > $2::timestamptz
+    OR (
+      recorded_at = $2::timestamptz
+      AND $3::uuid IS NOT NULL
+      AND identity_event_id > $3::uuid
+    )
+  )
+ORDER BY recorded_at ASC, identity_event_id ASC
+LIMIT $4
+`
+
+type ListIdentityEventsAfterCheckpointParams struct {
+	TenantID                pgtype.UUID
+	LastProcessedRecordedAt pgtype.Timestamptz
+	LastProcessedEventID    pgtype.UUID
+	LimitCount              int32
+}
+
+type ListIdentityEventsAfterCheckpointRow struct {
+	EventID    string
+	TenantID   string
+	GoatID     string
+	EventType  string
+	RecordedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListIdentityEventsAfterCheckpoint(ctx context.Context, arg ListIdentityEventsAfterCheckpointParams) ([]ListIdentityEventsAfterCheckpointRow, error) {
+	rows, err := q.db.Query(ctx, listIdentityEventsAfterCheckpoint,
+		arg.TenantID,
+		arg.LastProcessedRecordedAt,
+		arg.LastProcessedEventID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIdentityEventsAfterCheckpointRow
+	for rows.Next() {
+		var i ListIdentityEventsAfterCheckpointRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.TenantID,
+			&i.GoatID,
+			&i.EventType,
+			&i.RecordedAt,
 		); err != nil {
 			return nil, err
 		}

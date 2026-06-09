@@ -200,8 +200,39 @@ BEGIN
   IF audit_partition <> 'audit_log_default' THEN
     RAISE EXCEPTION 'expected default audit partition, got %', audit_partition;
   END IF;
+
+  INSERT INTO goat_identity_counter_processed_events (
+    tenant_id,
+    event_id,
+    event_recorded_at,
+    event_type,
+    outcome
+  )
+  VALUES (
+    tenant,
+    '60000000-0000-4000-8000-000000000001',
+    '2026-06-15 08:00:01+00',
+    'goat.created',
+    'noop'
+  );
 END $$;
 SQL
+
+expect_failure "processed counter event FK includes recorded_at" "
+INSERT INTO goat_identity_counter_processed_events (
+  tenant_id,
+  event_id,
+  event_recorded_at,
+  event_type,
+  outcome
+) VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '60000000-0000-4000-8000-000000000001',
+  '2026-06-15 08:00:02+00',
+  'goat.created',
+  'noop'
+);
+"
 
 run_psql <<'SQL'
 \echo 'Running correction resolve schema checks'

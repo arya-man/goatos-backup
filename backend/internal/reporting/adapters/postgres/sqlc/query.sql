@@ -47,3 +47,35 @@ WHERE counter_grain = @counter_grain
   )
 ORDER BY count_value DESC, counter_id ASC
 LIMIT @limit_count;
+
+-- name: GetIdentityCounterProjectionState :one
+SELECT
+  tenant_id::text AS tenant_id,
+  last_processed_recorded_at,
+  COALESCE(last_processed_event_id::text, '')::text AS last_processed_event_id,
+  rebuild_required,
+  rebuild_reason,
+  updated_at
+FROM goat_identity_counter_projection_state
+WHERE tenant_id = @tenant_id;
+
+-- name: ListIdentityEventsAfterCheckpoint :many
+SELECT
+  identity_event_id::text AS event_id,
+  tenant_id::text AS tenant_id,
+  goat_id::text AS goat_id,
+  event_type,
+  recorded_at
+FROM goat_identity_events
+WHERE tenant_id = @tenant_id
+  AND (
+    sqlc.narg('last_processed_recorded_at')::timestamptz IS NULL
+    OR recorded_at > sqlc.narg('last_processed_recorded_at')::timestamptz
+    OR (
+      recorded_at = sqlc.narg('last_processed_recorded_at')::timestamptz
+      AND sqlc.narg('last_processed_event_id')::uuid IS NOT NULL
+      AND identity_event_id > sqlc.narg('last_processed_event_id')::uuid
+    )
+  )
+ORDER BY recorded_at ASC, identity_event_id ASC
+LIMIT @limit_count;

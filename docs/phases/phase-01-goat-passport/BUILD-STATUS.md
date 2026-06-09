@@ -30,6 +30,7 @@ backend/migrations/postgres/000005_phase_1_conflict_resolve_support.sql
 backend/migrations/postgres/000006_phase_1_candidate_review_support.sql
 backend/migrations/postgres/000007_phase_1_reporting_counter_rebuild_support.sql
 backend/migrations/postgres/000008_phase_1_reporting_counts_pagination.sql
+backend/migrations/postgres/000009_phase_1_reporting_incremental_counters.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -39,6 +40,8 @@ Go backend read foundation:
 ```text
 backend/cmd/api
 backend/cmd/outbox-relay
+backend/cmd/rebuild-identity-counters
+backend/cmd/update-identity-counters
 backend/internal/bootstrap
 backend/internal/platform/logger
 backend/internal/platform/httpmiddleware
@@ -49,6 +52,8 @@ backend/internal/identity/ports
 backend/internal/identity/adapters/http
 backend/internal/identity/adapters/postgres
 backend/internal/identity/adapters/postgres/sqlc
+backend/internal/reporting
+backend/internal/reporting/adapters/postgres/sqlc
 backend/sqlc.yaml
 tools/sqlc/
 ```
@@ -157,6 +162,8 @@ merged goat child writes blocked
 goat hard delete blocked
 tenant-scoped child/location/decision/outbox/user-scope mismatches rejected
 monthly event/audit partitions and default backstop route rows
+reporting processed counter events use a partition-aware
+(tenant_id, event_id, event_recorded_at) FK to goat_identity_events
 ```
 
 Go read/API behaviors:
@@ -175,8 +182,8 @@ same-scope multiple_matches can attach conflict_id
 cross-scope multiple_matches must not attach a wrong conflict_id
 goat search/list is tenant-scoped and excludes merged goats
 identity conflict list/detail read paths exist
-reporting-owned identity counts read path exists; counters may be empty until
-reporting rebuild or future projection workers run
+reporting-owned identity counts read path exists; counters are populated by
+reporting rebuild and the local incremental counter update worker
 request middleware preserves/generates request IDs and trace context
 analytics tenant_id query/header mismatch is rejected
 deferred endpoints return typed not_implemented error envelopes
@@ -189,10 +196,12 @@ dynamic optional-filter reads remain handwritten:
   goat search
   identifier match lookup
   conflict list
-reporting/adapters/postgres/sqlc owns identity counter projection reads and
-rebuild statements:
+reporting/adapters/postgres/sqlc owns identity counter projection reads,
+rebuild, and local incremental update statements:
   ListIdentityCounts
-  one grouped insert per Phase 1 counter grain
+  ListIdentityEventsAfterCheckpoint
+  shared grouped insert per Phase 1 counter grain
+  created-goat incremental counter upsert with processed-event dedupe
 sqlc drift check regenerates schema/code and fails on stale generated files
 sqlc query-plan validation covers every generated query.sql read and rejects
 hot-path sequential scans
@@ -455,7 +464,7 @@ standalone merge command handler
 unmerge command handler/contract
 real Google Pub/Sub outbox publisher and production worker deployment
 frontend event/DLQ UI
-incremental projection workers
+production async projection worker deployment and Pub/Sub consumer wiring
 externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
@@ -500,17 +509,35 @@ Rebuild semantics:
   the rebuild never uses now() or goats.updated_at as freshness watermark
   each rebuilt tenant+grain deletes stale buckets and inserts the freshly
   grouped complete result set inside the same transaction
-  is_rebuilding remains false on final rows; externally visible rebuild status
-  is deferred to a future metadata table
+  after successful rebuild, goat_identity_counter_projection_state stores the
+  checkpoint (recorded_at + event_id) under the same advisory lock
+  is_rebuilding remains false on final rows; richer externally visible rebuild
+  status is deferred to a future metadata table
 
-incremental counter updates are a later slice:
-  consume goat identity events/outbox asynchronously with event_id dedupe, derive
-  multi-grain before/after deltas, and isolate projection failures from
-  canonical goat writes. The counter table's count_value >= 0 check must never
-  roll back a valid goat mutation, so do not put incremental projection updates
-  in the identity write transaction. Do not update large-import counters
-  row-by-row. Include a drift trigger such as scheduled rebuild plus bounded
-  reconciliation checks.
+The local incremental update CLI is:
+
+  cd backend && go run ./cmd/update-identity-counters \
+    -tenant-id <tenant_uuid> \
+    [-limit 500] \
+    [-processed-events-retention 720h]
+
+  or: make update-identity-counters TENANT_ID=<tenant_uuid>
+
+Incremental update semantics:
+  processes goat_identity_events ordered by recorded_at ASC, identity_event_id ASC
+  uses goat_identity_counter_processed_events for event_id+recorded_at dedupe
+  goat.created increments the same 10 Phase 1 grains as rebuild from the shared
+  goat_identity_counter_memberships view
+  goat.identifier.added/retired/disputed are noops that advance the checkpoint
+  goat.identity.merge_approved and unknown event types mark rebuild_required and
+  stop before later events are processed
+  missing projection state with counters or events marks rebuild_required; a
+  tenant with no counters and no events gets an empty projection state
+  freshness.warning surfaces rebuild_required on analytics reads
+  processed-event retention pruning is bounded by tenant and checkpoint
+  projection failures remain outside canonical identity write transactions
+  production async worker deployment, Pub/Sub consumer wiring, before/after
+  deltas for richer event types, and drift automation remain deferred
 
 Phase 1 counter membership is pinned:
   exclude identity_state=merged from all grains because merged goats are
@@ -699,9 +726,8 @@ staging, or production-like environments.
 
 Outbox relay is a standalone local/dev CLI foundation. It is not run as an API
 server goroutine and does not include real cloud publishing. Production
-deployment, Google Pub/Sub adapter, event consumers, projection workers,
-incremental counter consumer, rebuild-status metadata, and richer DLQ operations
-remain deferred.
+deployment, Google Pub/Sub adapter, event consumers, production projection
+workers, rebuild-status metadata, and richer DLQ operations remain deferred.
 ```
 
 ## Validation Commands

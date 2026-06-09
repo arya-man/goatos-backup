@@ -97,3 +97,14 @@ type IdentityCounterRebuildResult struct {
 	AsOfRecordedAt    *time.Time           `json:"as_of_recorded_at"`
 	Grains            []GrainRebuildResult `json:"grains"`
 }
+
+type IncrementalCounterUpdateResult struct {
+	TenantID            string  `json:"tenant_id"`
+	ScannedEventCount   int     `json:"scanned_event_count"`
+	AppliedEventCount   int     `json:"applied_event_count"`
+	NoopEventCount      int     `json:"noop_event_count"`
+	SkippedEventCount   int     `json:"skipped_event_count"`
+	RebuildRequired     bool    `json:"rebuild_required"`
+	RebuildReason       *string `json:"rebuild_reason"`
+	PrunedProcessedRows int64   `json:"pruned_processed_rows"`
+}

@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/reporting/domain"
 )
@@ -48,8 +49,15 @@ type RebuildIdentityCountersParams struct {
 	SourceImportRunID *string
 }
 
+type UpdateIdentityCountersParams struct {
+	TenantID                 string
+	Limit                    int
+	ProcessedEventsRetention time.Duration
+}
+
 type Repository interface {
 	ListIdentityCounts(ctx context.Context, params CountParams) (*CountPage, error)
 	RebuildIdentityCounters(ctx context.Context, params RebuildIdentityCountersParams) (*domain.IdentityCounterRebuildResult, error)
+	UpdateIdentityCounters(ctx context.Context, params UpdateIdentityCountersParams) (*domain.IncrementalCounterUpdateResult, error)
 	Ping(ctx context.Context) error
 }

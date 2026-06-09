@@ -99,6 +99,8 @@ bind_query_params() {
     -e "s/sqlc.narg('sex')::text/NULL::text/g" \
     -e "s/sqlc.narg('cursor_count_value')::bigint/NULL::bigint/g" \
     -e "s/sqlc.narg('cursor_counter_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('last_processed_recorded_at')::timestamptz/'2026-06-09T12:00:00Z'::timestamptz/g" \
+    -e "s/sqlc.narg('last_processed_event_id')::uuid/'60000000-0000-4000-8000-000000000001'::uuid/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
     -e "s/sqlc.narg('cursor_row_number')::int/NULL::int/g" \
@@ -144,6 +146,12 @@ forbidden_seq_scan_pattern() {
       ;;
     ListIdentityCounts)
       printf '%s\n' 'Seq Scan on goat_identity_counters'
+      ;;
+    GetIdentityCounterProjectionState)
+      printf '%s\n' 'Seq Scan on goat_identity_counter_projection_state'
+      ;;
+    ListIdentityEventsAfterCheckpoint)
+      printf '%s\n' 'Seq Scan on goat_identity_events'
       ;;
     *)
       echo "No sqlc plan expectation registered for generated query: $query_name" >&2

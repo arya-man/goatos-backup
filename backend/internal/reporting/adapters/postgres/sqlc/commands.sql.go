@@ -11,6 +11,173 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advanceProjectionState = `-- name: AdvanceProjectionState :exec
+UPDATE goat_identity_counter_projection_state
+SET last_processed_recorded_at = $1,
+    last_processed_event_id = $2,
+    rebuild_required = false,
+    rebuild_reason = NULL,
+    updated_at = now()
+WHERE tenant_id = $3
+  AND rebuild_required = false
+`
+
+type AdvanceProjectionStateParams struct {
+	LastProcessedRecordedAt pgtype.Timestamptz
+	LastProcessedEventID    pgtype.UUID
+	TenantID                pgtype.UUID
+}
+
+func (q *Queries) AdvanceProjectionState(ctx context.Context, arg AdvanceProjectionStateParams) error {
+	_, err := q.db.Exec(ctx, advanceProjectionState, arg.LastProcessedRecordedAt, arg.LastProcessedEventID, arg.TenantID)
+	return err
+}
+
+const applyCreatedGoatCounterEvent = `-- name: ApplyCreatedGoatCounterEvent :one
+WITH membership AS (
+  SELECT
+    m.counter_grain,
+    m.tenant_id,
+    m.custodian_party_id,
+    m.farm_id,
+    m.park_id,
+    m.shed_id,
+    m.cohort_id,
+    m.lifecycle_status,
+    m.reproductive_status,
+    m.growth_cohort_tag,
+    m.management_stage,
+    m.health_status,
+    m.identity_state,
+    m.breed_id,
+    m.sex
+  FROM goat_identity_counter_memberships m
+  WHERE m.tenant_id = $1
+    AND m.goat_id = $2
+),
+inserted_event AS (
+  INSERT INTO goat_identity_counter_processed_events (
+    tenant_id,
+    event_id,
+    event_recorded_at,
+    event_type,
+    outcome,
+    processed_at
+  )
+  SELECT
+    $1,
+    $3,
+    $4,
+    $5,
+    'applied',
+    now()
+  WHERE EXISTS (SELECT 1 FROM membership)
+  ON CONFLICT DO NOTHING
+  RETURNING 1
+),
+upserted_counters AS (
+  INSERT INTO goat_identity_counters (
+    counter_grain,
+    tenant_id,
+    custodian_party_id,
+    farm_id,
+    park_id,
+    shed_id,
+    cohort_id,
+    lifecycle_status,
+    reproductive_status,
+    growth_cohort_tag,
+    management_stage,
+    health_status,
+    identity_state,
+    breed_id,
+    sex,
+    count_value,
+    as_of_recorded_at,
+    source_import_run_id,
+    is_rebuilding,
+    updated_at
+  )
+  SELECT
+    m.counter_grain,
+    m.tenant_id,
+    m.custodian_party_id,
+    m.farm_id,
+    m.park_id,
+    m.shed_id,
+    m.cohort_id,
+    m.lifecycle_status,
+    m.reproductive_status,
+    m.growth_cohort_tag,
+    m.management_stage,
+    m.health_status,
+    m.identity_state,
+    m.breed_id,
+    m.sex,
+    1,
+    $4,
+    NULL,
+    false,
+    now()
+  FROM membership m
+  WHERE EXISTS (SELECT 1 FROM inserted_event)
+  ON CONFLICT (
+    counter_grain,
+    tenant_id,
+    custodian_party_id,
+    farm_id,
+    park_id,
+    shed_id,
+    cohort_id,
+    lifecycle_status,
+    reproductive_status,
+    growth_cohort_tag,
+    management_stage,
+    health_status,
+    identity_state,
+    breed_id,
+    sex
+  ) DO UPDATE
+  SET count_value = goat_identity_counters.count_value + EXCLUDED.count_value,
+      as_of_recorded_at = EXCLUDED.as_of_recorded_at,
+      source_import_run_id = NULL,
+      is_rebuilding = false,
+      updated_at = now()
+  RETURNING 1
+)
+SELECT
+  (SELECT count(*) FROM membership)::bigint AS membership_rows,
+  (SELECT count(*) FROM inserted_event)::bigint AS processed_rows,
+  (SELECT count(*) FROM upserted_counters)::bigint AS counter_rows
+`
+
+type ApplyCreatedGoatCounterEventParams struct {
+	TenantID        pgtype.UUID
+	GoatID          pgtype.UUID
+	EventID         pgtype.UUID
+	EventRecordedAt pgtype.Timestamptz
+	EventType       string
+}
+
+type ApplyCreatedGoatCounterEventRow struct {
+	MembershipRows int64
+	ProcessedRows  int64
+	CounterRows    int64
+}
+
+func (q *Queries) ApplyCreatedGoatCounterEvent(ctx context.Context, arg ApplyCreatedGoatCounterEventParams) (ApplyCreatedGoatCounterEventRow, error) {
+	row := q.db.QueryRow(ctx, applyCreatedGoatCounterEvent,
+		arg.TenantID,
+		arg.GoatID,
+		arg.EventID,
+		arg.EventRecordedAt,
+		arg.EventType,
+	)
+	var i ApplyCreatedGoatCounterEventRow
+	err := row.Scan(&i.MembershipRows, &i.ProcessedRows, &i.CounterRows)
+	return i, err
+}
+
 const deleteIdentityCountersByGrain = `-- name: DeleteIdentityCountersByGrain :execrows
 DELETE FROM goat_identity_counters
 WHERE tenant_id = $1
@@ -30,348 +197,77 @@ func (q *Queries) DeleteIdentityCountersByGrain(ctx context.Context, arg DeleteI
 	return result.RowsAffected(), nil
 }
 
-const insertBreedSexLifecycleCounters = `-- name: InsertBreedSexLifecycleCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
-  breed_id,
-  sex,
-  lifecycle_status,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'breed_sex_lifecycle',
-  g.tenant_id,
-  g.breed_id,
-  g.sex,
-  g.lifecycle_status,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.breed_id, g.sex, g.lifecycle_status
+const hasGoatIdentityEventsForTenant = `-- name: HasGoatIdentityEventsForTenant :one
+SELECT EXISTS (
+  SELECT 1
+  FROM goat_identity_events
+  WHERE tenant_id = $1
+)::bool
 `
 
-type InsertBreedSexLifecycleCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
+func (q *Queries) HasGoatIdentityEventsForTenant(ctx context.Context, tenantID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasGoatIdentityEventsForTenant, tenantID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
-func (q *Queries) InsertBreedSexLifecycleCounters(ctx context.Context, arg InsertBreedSexLifecycleCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertBreedSexLifecycleCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+const hasIdentityCountersForTenant = `-- name: HasIdentityCountersForTenant :one
+SELECT EXISTS (
+  SELECT 1
+  FROM goat_identity_counters
+  WHERE tenant_id = $1
+)::bool
+`
+
+func (q *Queries) HasIdentityCountersForTenant(ctx context.Context, tenantID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasIdentityCountersForTenant, tenantID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
-const insertCustodianIdentityCounters = `-- name: InsertCustodianIdentityCounters :execrows
+const insertEmptyProjectionState = `-- name: InsertEmptyProjectionState :exec
+INSERT INTO goat_identity_counter_projection_state (
+  tenant_id,
+  last_processed_recorded_at,
+  last_processed_event_id,
+  rebuild_required,
+  rebuild_reason,
+  updated_at
+) VALUES (
+  $1,
+  NULL,
+  NULL,
+  false,
+  NULL,
+  now()
+)
+ON CONFLICT (tenant_id) DO NOTHING
+`
+
+func (q *Queries) InsertEmptyProjectionState(ctx context.Context, tenantID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, insertEmptyProjectionState, tenantID)
+	return err
+}
+
+const insertIdentityCountersByGrain = `-- name: InsertIdentityCountersByGrain :execrows
 INSERT INTO goat_identity_counters (
   counter_grain,
   tenant_id,
   custodian_party_id,
-  identity_state,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'custodian_identity',
-  g.tenant_id,
-  g.custodian_party_id,
-  g.identity_state,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.lifecycle_status = 'alive'
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.custodian_party_id, g.identity_state
-`
-
-type InsertCustodianIdentityCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
-}
-
-func (q *Queries) InsertCustodianIdentityCounters(ctx context.Context, arg InsertCustodianIdentityCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertCustodianIdentityCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertCustodianLifecycleCounters = `-- name: InsertCustodianLifecycleCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
-  custodian_party_id,
-  lifecycle_status,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'custodian_lifecycle',
-  g.tenant_id,
-  g.custodian_party_id,
-  g.lifecycle_status,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.custodian_party_id, g.lifecycle_status
-`
-
-type InsertCustodianLifecycleCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
-}
-
-func (q *Queries) InsertCustodianLifecycleCounters(ctx context.Context, arg InsertCustodianLifecycleCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertCustodianLifecycleCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertGrowthCohortCounters = `-- name: InsertGrowthCohortCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
-  growth_cohort_tag,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'growth_cohort',
-  g.tenant_id,
-  g.growth_cohort_tag,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.lifecycle_status = 'alive'
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.growth_cohort_tag
-`
-
-type InsertGrowthCohortCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
-}
-
-func (q *Queries) InsertGrowthCohortCounters(ctx context.Context, arg InsertGrowthCohortCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertGrowthCohortCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertHealthStatusCounters = `-- name: InsertHealthStatusCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
-  health_status,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'health_status',
-  g.tenant_id,
-  g.health_status,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.lifecycle_status = 'alive'
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.health_status
-`
-
-type InsertHealthStatusCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
-}
-
-func (q *Queries) InsertHealthStatusCounters(ctx context.Context, arg InsertHealthStatusCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertHealthStatusCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertManagementStageCounters = `-- name: InsertManagementStageCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
-  management_stage,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'management_stage',
-  g.tenant_id,
-  g.management_stage,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.lifecycle_status = 'alive'
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.management_stage
-`
-
-type InsertManagementStageCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
-}
-
-func (q *Queries) InsertManagementStageCounters(ctx context.Context, arg InsertManagementStageCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertManagementStageCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertParkLifecycleCounters = `-- name: InsertParkLifecycleCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
-  park_id,
-  lifecycle_status,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'park_lifecycle',
-  g.tenant_id,
-  g.park_id,
-  g.lifecycle_status,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.park_id, g.lifecycle_status
-`
-
-type InsertParkLifecycleCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
-}
-
-func (q *Queries) InsertParkLifecycleCounters(ctx context.Context, arg InsertParkLifecycleCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertParkLifecycleCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertReproductiveStatusCounters = `-- name: InsertReproductiveStatusCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
-  reproductive_status,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'reproductive_status',
-  g.tenant_id,
-  g.reproductive_status,
-  count(*)::bigint,
-  $1,
-  $2::uuid,
-  false,
-  now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.lifecycle_status = 'alive'
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.reproductive_status
-`
-
-type InsertReproductiveStatusCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
-}
-
-func (q *Queries) InsertReproductiveStatusCounters(ctx context.Context, arg InsertReproductiveStatusCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertReproductiveStatusCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const insertShedLifecycleCounters = `-- name: InsertShedLifecycleCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
-  tenant_id,
+  farm_id,
   park_id,
   shed_id,
+  cohort_id,
   lifecycle_status,
+  reproductive_status,
+  growth_cohort_tag,
+  management_stage,
+  health_status,
+  identity_state,
+  breed_id,
+  sex,
   count_value,
   as_of_recorded_at,
   source_import_run_id,
@@ -379,87 +275,197 @@ INSERT INTO goat_identity_counters (
   updated_at
 )
 SELECT
-  'shed_lifecycle',
-  g.tenant_id,
-  g.park_id,
-  g.shed_id,
-  g.lifecycle_status,
+  m.counter_grain,
+  m.tenant_id,
+  m.custodian_party_id,
+  m.farm_id,
+  m.park_id,
+  m.shed_id,
+  m.cohort_id,
+  m.lifecycle_status,
+  m.reproductive_status,
+  m.growth_cohort_tag,
+  m.management_stage,
+  m.health_status,
+  m.identity_state,
+  m.breed_id,
+  m.sex,
   count(*)::bigint,
   $1,
   $2::uuid,
   false,
   now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.park_id, g.shed_id, g.lifecycle_status
+FROM goat_identity_counter_memberships m
+WHERE m.tenant_id = $3
+  AND m.counter_grain = $4
+GROUP BY
+  m.counter_grain,
+  m.tenant_id,
+  m.custodian_party_id,
+  m.farm_id,
+  m.park_id,
+  m.shed_id,
+  m.cohort_id,
+  m.lifecycle_status,
+  m.reproductive_status,
+  m.growth_cohort_tag,
+  m.management_stage,
+  m.health_status,
+  m.identity_state,
+  m.breed_id,
+  m.sex
 `
 
-type InsertShedLifecycleCountersParams struct {
+type InsertIdentityCountersByGrainParams struct {
 	AsOfRecordedAt    pgtype.Timestamptz
 	SourceImportRunID pgtype.UUID
 	TenantID          pgtype.UUID
+	CounterGrain      string
 }
 
-func (q *Queries) InsertShedLifecycleCounters(ctx context.Context, arg InsertShedLifecycleCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertShedLifecycleCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
+func (q *Queries) InsertIdentityCountersByGrain(ctx context.Context, arg InsertIdentityCountersByGrainParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertIdentityCountersByGrain,
+		arg.AsOfRecordedAt,
+		arg.SourceImportRunID,
+		arg.TenantID,
+		arg.CounterGrain,
+	)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const insertTenantLifecycleCounters = `-- name: InsertTenantLifecycleCounters :execrows
-INSERT INTO goat_identity_counters (
-  counter_grain,
+const insertProcessedCounterEvent = `-- name: InsertProcessedCounterEvent :execrows
+INSERT INTO goat_identity_counter_processed_events (
   tenant_id,
-  lifecycle_status,
-  count_value,
-  as_of_recorded_at,
-  source_import_run_id,
-  is_rebuilding,
-  updated_at
-)
-SELECT
-  'tenant_lifecycle',
-  g.tenant_id,
-  g.lifecycle_status,
-  count(*)::bigint,
+  event_id,
+  event_recorded_at,
+  event_type,
+  outcome,
+  processed_at
+) VALUES (
   $1,
-  $2::uuid,
-  false,
+  $2,
+  $3,
+  $4,
+  $5,
   now()
-FROM goats g
-WHERE g.tenant_id = $3
-  AND g.identity_state NOT IN ('merged', 'inactive')
-GROUP BY g.tenant_id, g.lifecycle_status
+)
+ON CONFLICT DO NOTHING
 `
 
-type InsertTenantLifecycleCountersParams struct {
-	AsOfRecordedAt    pgtype.Timestamptz
-	SourceImportRunID pgtype.UUID
-	TenantID          pgtype.UUID
+type InsertProcessedCounterEventParams struct {
+	TenantID        pgtype.UUID
+	EventID         pgtype.UUID
+	EventRecordedAt pgtype.Timestamptz
+	EventType       string
+	Outcome         string
 }
 
-func (q *Queries) InsertTenantLifecycleCounters(ctx context.Context, arg InsertTenantLifecycleCountersParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertTenantLifecycleCounters, arg.AsOfRecordedAt, arg.SourceImportRunID, arg.TenantID)
+func (q *Queries) InsertProcessedCounterEvent(ctx context.Context, arg InsertProcessedCounterEventParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertProcessedCounterEvent,
+		arg.TenantID,
+		arg.EventID,
+		arg.EventRecordedAt,
+		arg.EventType,
+		arg.Outcome,
+	)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const maxGoatIdentityEventRecordedAtForTenant = `-- name: MaxGoatIdentityEventRecordedAtForTenant :one
-SELECT max(recorded_at)::timestamptz AS as_of_recorded_at
-FROM goat_identity_events
-WHERE tenant_id = $1
+const markProjectionRebuildRequired = `-- name: MarkProjectionRebuildRequired :exec
+INSERT INTO goat_identity_counter_projection_state (
+  tenant_id,
+  last_processed_recorded_at,
+  last_processed_event_id,
+  rebuild_required,
+  rebuild_reason,
+  updated_at
+) VALUES (
+  $1,
+  $2::timestamptz,
+  $3::uuid,
+  true,
+  $4,
+  now()
+)
+ON CONFLICT (tenant_id) DO UPDATE
+SET rebuild_required = true,
+    rebuild_reason = EXCLUDED.rebuild_reason,
+    updated_at = now()
 `
 
-func (q *Queries) MaxGoatIdentityEventRecordedAtForTenant(ctx context.Context, tenantID pgtype.UUID) (pgtype.Timestamptz, error) {
-	row := q.db.QueryRow(ctx, maxGoatIdentityEventRecordedAtForTenant, tenantID)
-	var as_of_recorded_at pgtype.Timestamptz
-	err := row.Scan(&as_of_recorded_at)
-	return as_of_recorded_at, err
+type MarkProjectionRebuildRequiredParams struct {
+	TenantID                pgtype.UUID
+	LastProcessedRecordedAt pgtype.Timestamptz
+	LastProcessedEventID    pgtype.UUID
+	RebuildReason           pgtype.Text
+}
+
+func (q *Queries) MarkProjectionRebuildRequired(ctx context.Context, arg MarkProjectionRebuildRequiredParams) error {
+	_, err := q.db.Exec(ctx, markProjectionRebuildRequired,
+		arg.TenantID,
+		arg.LastProcessedRecordedAt,
+		arg.LastProcessedEventID,
+		arg.RebuildReason,
+	)
+	return err
+}
+
+const maxGoatIdentityEventCheckpointForTenant = `-- name: MaxGoatIdentityEventCheckpointForTenant :one
+WITH max_recorded AS (
+  SELECT max(recorded_at)::timestamptz AS recorded_at
+  FROM goat_identity_events
+  WHERE tenant_id = $1
+)
+SELECT
+  max_recorded.recorded_at,
+  (
+    SELECT gie.identity_event_id
+    FROM goat_identity_events gie
+    WHERE gie.tenant_id = $1
+      AND gie.recorded_at = max_recorded.recorded_at
+    ORDER BY gie.identity_event_id DESC
+    LIMIT 1
+  ) AS event_id
+FROM max_recorded
+`
+
+type MaxGoatIdentityEventCheckpointForTenantRow struct {
+	RecordedAt pgtype.Timestamptz
+	EventID    pgtype.UUID
+}
+
+func (q *Queries) MaxGoatIdentityEventCheckpointForTenant(ctx context.Context, tenantID pgtype.UUID) (MaxGoatIdentityEventCheckpointForTenantRow, error) {
+	row := q.db.QueryRow(ctx, maxGoatIdentityEventCheckpointForTenant, tenantID)
+	var i MaxGoatIdentityEventCheckpointForTenantRow
+	err := row.Scan(&i.RecordedAt, &i.EventID)
+	return i, err
+}
+
+const pruneProcessedCounterEvents = `-- name: PruneProcessedCounterEvents :execrows
+DELETE FROM goat_identity_counter_processed_events
+WHERE tenant_id = $1
+  AND processed_at < $2
+  AND event_recorded_at < $3
+`
+
+type PruneProcessedCounterEventsParams struct {
+	TenantID             pgtype.UUID
+	ProcessedBefore      pgtype.Timestamptz
+	CheckpointRecordedAt pgtype.Timestamptz
+}
+
+func (q *Queries) PruneProcessedCounterEvents(ctx context.Context, arg PruneProcessedCounterEventsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pruneProcessedCounterEvents, arg.TenantID, arg.ProcessedBefore, arg.CheckpointRecordedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const sourceImportRunBelongsToTenant = `-- name: SourceImportRunBelongsToTenant :one
@@ -496,4 +502,39 @@ func (q *Queries) TenantExists(ctx context.Context, tenantID pgtype.UUID) (bool,
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const upsertProjectionStateAfterRebuild = `-- name: UpsertProjectionStateAfterRebuild :exec
+INSERT INTO goat_identity_counter_projection_state (
+  tenant_id,
+  last_processed_recorded_at,
+  last_processed_event_id,
+  rebuild_required,
+  rebuild_reason,
+  updated_at
+) VALUES (
+  $1,
+  $2::timestamptz,
+  $3::uuid,
+  false,
+  NULL,
+  now()
+)
+ON CONFLICT (tenant_id) DO UPDATE
+SET last_processed_recorded_at = EXCLUDED.last_processed_recorded_at,
+    last_processed_event_id = EXCLUDED.last_processed_event_id,
+    rebuild_required = false,
+    rebuild_reason = NULL,
+    updated_at = now()
+`
+
+type UpsertProjectionStateAfterRebuildParams struct {
+	TenantID                pgtype.UUID
+	LastProcessedRecordedAt pgtype.Timestamptz
+	LastProcessedEventID    pgtype.UUID
+}
+
+func (q *Queries) UpsertProjectionStateAfterRebuild(ctx context.Context, arg UpsertProjectionStateAfterRebuildParams) error {
+	_, err := q.db.Exec(ctx, upsertProjectionStateAfterRebuild, arg.TenantID, arg.LastProcessedRecordedAt, arg.LastProcessedEventID)
+	return err
 }
