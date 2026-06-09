@@ -169,6 +169,32 @@ validate_generated_query_plan() {
 $sql"
 }
 
+validate_outbox_claim_plan() {
+  explain_must_use_index "ClaimPendingOutboxMessages" 'Seq Scan on outbox_messages' "EXPLAIN (COSTS OFF)
+SELECT
+  outbox_id::text,
+  tenant_id::text,
+  event_id::text,
+  event_type,
+  schema_version,
+  aggregate_type,
+  aggregate_id::text,
+  topic,
+  headers,
+  payload,
+  idempotency_key,
+  trace_id,
+  attempt_count,
+  created_at,
+  updated_at
+FROM outbox_messages
+WHERE status = 'pending'
+  AND (next_attempt_at IS NULL OR next_attempt_at <= '2026-06-09T12:00:00Z'::timestamptz)
+ORDER BY created_at, outbox_id
+LIMIT 10
+FOR UPDATE SKIP LOCKED"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -203,4 +229,6 @@ if [ "$checked_count" -ne "$declared_count" ]; then
   exit 1
 fi
 
-echo "Validated $checked_count generated sqlc query plans"
+validate_outbox_claim_plan
+
+echo "Validated $checked_count generated sqlc query plans and 1 hand-written outbox query plan"
