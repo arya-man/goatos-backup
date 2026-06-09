@@ -161,7 +161,7 @@ paths:
       tags:
         - Identity Candidates
       operationId: listIdentityCandidates
-      summary: List proposed identity match candidates.
+      summary: List actionable identity match candidates.
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
