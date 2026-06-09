@@ -377,9 +377,10 @@ is_rebuilding/freshness to analytics/counts, and never makes dashboard reads
 fall back to raw goats count(*).
 
 Phase 1 counter membership excludes identity_state=merged and
-identity_state=inactive from all grains. Dead/sold lifecycle buckets are counted
-only for non-merged, non-inactive goats. Location grains use goats
-farm/park/shed/cohort cache columns; custodian grains use
+identity_state=inactive from all grains. Lifecycle-bearing grains count
+dead/sold lifecycle buckets for non-merged, non-inactive goats. Non-lifecycle
+operational grains and custodian_identity count alive goats only. Location
+grains use goats farm/park/shed/cohort cache columns; custodian grains use
 goats.custodian_party_id.
 
 Incremental counters are a later async event/outbox consumer with event_id

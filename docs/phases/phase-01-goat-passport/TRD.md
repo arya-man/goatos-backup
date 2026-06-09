@@ -1577,13 +1577,16 @@ all counter rebuild queries exclude goats with identity_state='merged' because
 merged goats are tombstones/redirects and would double-count the survivor
 all counter rebuild queries exclude goats with identity_state='inactive' because
 inactive is not a current canonical herd member for Phase 1 operational counts
-non-merged, non-inactive goats are counted in lifecycle grains by their
-lifecycle_status value, including dead or sold buckets when those values are
-present
-custodian_identity counts only non-merged, non-inactive goats by identity_state
-and therefore includes clean, needs_review, and disputed in Phase 1; inactive
-remains excluded unless a later phase explicitly changes the inactive exclusion
-rule
+lifecycle-bearing grains (tenant_lifecycle, custodian_lifecycle,
+park_lifecycle, shed_lifecycle, breed_sex_lifecycle) count all non-merged,
+non-inactive goats by lifecycle_status, including dead and sold buckets
+non-lifecycle operational grains (health_status, growth_cohort,
+management_stage, reproductive_status) count only alive, non-merged,
+non-inactive goats; dead/sold goats do not appear in these current-state
+distributions
+custodian_identity counts only alive, non-merged, non-inactive goats by
+identity_state and therefore includes clean, needs_review, and disputed for the
+currently alive herd in Phase 1
 location grains use the current cache columns on goats (farm_id, park_id,
 shed_id, cohort_id) and do not read historical location ledgers
 custodian grains use goats.custodian_party_id as the current custodian cache

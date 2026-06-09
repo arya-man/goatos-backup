@@ -440,9 +440,11 @@ incremental counter updates are a later slice:
 Phase 1 counter membership is pinned:
   exclude identity_state=merged from all grains because merged goats are
   tombstones/redirects; exclude identity_state=inactive from Phase 1 operational
-  counts; count dead/sold lifecycle_status buckets only for non-merged,
-  non-inactive goats; location grains use goats farm/park/shed/cohort cache
-  columns; custodian grains use goats.custodian_party_id.
+  counts; lifecycle-bearing grains count dead/sold lifecycle_status buckets for
+  non-merged, non-inactive goats; non-lifecycle operational grains and
+  custodian_identity count alive goats only; location grains use goats
+  farm/park/shed/cohort cache columns; custodian grains use
+  goats.custodian_party_id.
 ```
 
 ## Future Ops Hardening Backlog
