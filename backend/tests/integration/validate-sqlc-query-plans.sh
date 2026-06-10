@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+source "$repo_root/tools/postgres-ci.sh"
+
 container_name="goatos-sqlc-plan-validation-$$"
 image="${GOATOS_SQLC_POSTGRES_IMAGE:-${GOATOS_POSTGRES_IMAGE:-postgres:16.9-alpine}}"
 db_name="goatos"
@@ -18,7 +20,7 @@ cleanup() {
 trap cleanup EXIT
 
 run_psql() {
-  docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -U "$db_user" -d "$db_name" "$@"
+  postgres_ci_psql "$container_name" "$db_user" "$db_name" "$@"
 }
 
 apply_goose_up() {
@@ -208,14 +210,7 @@ docker run --rm --name "$container_name" \
   -e POSTGRES_DB="$db_name" \
   -d "$image" >/dev/null
 
-for _ in $(seq 1 60); do
-  if docker exec "$container_name" pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
-
-docker exec "$container_name" pg_isready -U "$db_user" -d "$db_name" >/dev/null
+postgres_ci_wait_ready "$container_name" "$db_user" "$db_name"
 
 while IFS= read -r migration; do
   apply_goose_up "$migration"
