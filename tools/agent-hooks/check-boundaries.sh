@@ -149,9 +149,10 @@ if command -v rg >/dev/null 2>&1; then
 else
   # rg is not available: fall back to grep for the guards that support it.
   # Secret/token scan and admin-web/BigQuery guards are rg-only; they are skipped
-  # with a warning so the run is not a vacuous pass.
-  echo "WARNING: rg (ripgrep) not found. Secret and BigQuery guards skipped; slog.New/recover guards use grep fallback." >&2
+  # with a warning, then fail closed so the run is not a vacuous pass.
+  echo "ERROR: rg (ripgrep) not found. Secret and BigQuery guards cannot run; slog.New/recover guards use grep fallback." >&2
   echo "  Install ripgrep (brew install ripgrep) for full boundary enforcement." >&2
+  fail=1
 
   # slog.New guard — grep fallback (excludes observability package and test files).
   if [ -d "backend" ]; then
