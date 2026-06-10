@@ -621,6 +621,15 @@ rebuilding/stale warning if a large import is still settling
 Dashboard pages must never fall back to raw dashboard BigQuery, Sheets, local
 CSV, or full-herd API fetches when a projection is stale.
 
+Current frontend readiness status:
+
+```text
+apps/admin-web has a buildable Phase 1 shell with disabled placeholders.
+The executable legacy BigQuery/Sheets routes have been removed from that copy.
+Generated Goat OS API client plumbing exists for the next real screen slice.
+Full data-bound admin screens are not complete yet.
+```
+
 ### Workflow 6: Resolve Tagless Or Field-Dirty Goat
 
 ```text

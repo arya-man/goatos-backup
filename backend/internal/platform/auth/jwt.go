@@ -40,6 +40,44 @@ type Claims struct {
 	NotBefore time.Time
 }
 
+func MintHS256Token(cfg Config, subject, tenantID string, ttl time.Duration) (string, error) {
+	verifier, err := NewHS256Verifier(cfg)
+	if err != nil {
+		return "", err
+	}
+	subject = strings.TrimSpace(subject)
+	tenantID = strings.TrimSpace(tenantID)
+	if !isUUID(subject) || !isUUID(tenantID) {
+		return "", ErrInvalidToken
+	}
+	if ttl <= 0 || ttl > verifier.maxTTL {
+		return "", ErrInvalidMaxTTL
+	}
+	now := verifier.now().UTC()
+	header := map[string]any{
+		"alg": AlgorithmHS256,
+		"typ": "JWT",
+	}
+	payload := map[string]any{
+		"iss":       verifier.issuer,
+		"aud":       verifier.audience,
+		"sub":       subject,
+		"tenant_id": tenantID,
+		"exp":       now.Add(ttl).Unix(),
+		"nbf":       now.Add(-1 * time.Minute).Unix(),
+	}
+	headerSegment, err := encodeSegment(header)
+	if err != nil {
+		return "", err
+	}
+	payloadSegment, err := encodeSegment(payload)
+	if err != nil {
+		return "", err
+	}
+	signed := headerSegment + "." + payloadSegment
+	return signed + "." + base64.RawURLEncoding.EncodeToString(signHS256([]byte(signed), verifier.secret)), nil
+}
+
 type HS256Verifier struct {
 	issuer   string
 	audience string
@@ -173,6 +211,14 @@ func decodeSegment(segment string, dst any, disallowUnknown bool) error {
 		dec.DisallowUnknownFields()
 	}
 	return dec.Decode(dst)
+}
+
+func encodeSegment(src any) (string, error) {
+	raw, err := json.Marshal(src)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func parseAudience(raw json.RawMessage, expected string) (string, error) {

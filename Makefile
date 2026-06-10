@@ -1,4 +1,4 @@
-.PHONY: check guardrails test sqlc-generate sqlc-check validate-migrations validate-sqlc-plans rebuild-identity-counters update-identity-counters
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans rebuild-identity-counters update-identity-counters
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh
@@ -6,6 +6,13 @@ guardrails:
 
 test:
 	@if [ -f backend/go.mod ]; then cd backend && go test ./...; fi
+
+api-client-generate:
+	@if [ ! -d packages/api-client/node_modules ]; then npm --prefix packages/api-client ci --no-audit --no-fund; fi
+	npm --prefix packages/api-client run generate
+
+api-client-check: api-client-generate
+	git diff --exit-code -- packages/api-client/src/generated
 
 sqlc-generate:
 	bash tools/sqlc/dump-schema.sh

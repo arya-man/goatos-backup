@@ -260,7 +260,6 @@ async function main() {
   await validateAnalyticsIdentityCountsExampleSemantics();
 
   console.log(`Validated ${openApiCount} OpenAPI specs, ${jsonSchemaCount} JSON Schemas, and ${exampleCount} example payloads.`);
-  console.log("Generated-client drift checks deferred until generated clients exist.");
 }
 
 main().catch((error) => {

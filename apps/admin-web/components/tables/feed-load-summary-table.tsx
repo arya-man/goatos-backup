@@ -39,8 +39,8 @@ function isDurationMismatch(r: FeedLoadSummaryRecord): boolean {
 
 /**
  * Preferred display order for feed groups.
- * Matching is done case-insensitively on partial names since BigQuery
- * returns INITCAP values (e.g. "Concentrate", "Masoor Dhal Bhusa").
+ * Matching is done case-insensitively on partial names because imported source
+ * data can have slight naming differences.
  */
 function feedSortOrder(name: string): number {
   const n = name.toLowerCase();

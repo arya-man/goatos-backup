@@ -6,8 +6,8 @@ import { QueryProvider } from "@/lib/query-provider";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "CEO Dashboard",
-  description: "CEO Dashboard",
+  title: "Goat OS Admin",
+  description: "Goat OS Phase 1 admin readiness shell",
 };
 
 export default function RootLayout({

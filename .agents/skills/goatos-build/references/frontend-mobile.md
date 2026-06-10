@@ -17,4 +17,13 @@ Rules:
 - Current live dashboard URLs keep running until the new Goat OS dashboards validate against them.
 - Operators use Android task/form app, not BI dashboards.
 - App code depends on generated clients and adapters, not direct vendor SDK calls.
+- `packages/api-client` is the generated OpenAPI TypeScript client package for
+  app/admin/analytics APIs. Admin-web and future mobile screens must use it
+  through small app adapters instead of hand-copying DTOs.
+- `apps/admin-web` is currently a Phase 1 readiness shell: disabled tabs only,
+  generated-client import smoke, and no data fetches until real screen slices
+  land.
+- Do not reintroduce executable `apps/admin-web/app/api/*` BigQuery/Sheets
+  routes or `lib/bigquery.ts`. Deleted legacy route code is available in git
+  history if needed as reference.
 - No microfrontends until separate teams/release cadences justify them.

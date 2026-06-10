@@ -1,92 +1,54 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
-import logoImg from "@/lib/logo.png";
-import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  HeartPulse,
-  Baby,
-  TrendingUp,
-  Wheat,
-  Receipt,
-  Briefcase,
-  Building2,
-  Stethoscope,
-  Syringe,
-  ShoppingCart,
-  ArrowLeftRight,
-  Users,
-  Milk,
-  ClipboardList,
+  Activity,
+  BadgeCheck,
+  DatabaseZap,
+  FileSearch,
+  GitBranch,
   PanelLeftClose,
   PanelLeft,
+  Search,
   X,
 } from "lucide-react";
 import { useSidebar } from "./sidebar-context";
 
-const livestockItems = [
-  { icon: LayoutDashboard, label: "Counts", href: "/counts/overall" },
-  { icon: HeartPulse, label: "Mortality", href: "/mortality" },
-  { icon: Baby, label: "Births", href: "/births" },
-  { icon: TrendingUp, label: "Fattening", href: "/fattening" },
-];
-
-const operationsItems = [
-  { icon: Wheat, label: "Feed", href: "/feed" },
-  { icon: Receipt, label: "Sales", href: "/sales" },
-  { icon: Briefcase, label: "MIS", href: "/mis" },
-  { icon: Building2, label: "Infra", href: "/infra" },
-  { icon: Stethoscope, label: "Goats Health", href: "/goats-health" },
-  { icon: Syringe, label: "Vaccination", href: "/vaccination" },
-  { icon: ShoppingCart, label: "Purchase Cost", href: "/purchase-cost" },
-  { icon: ArrowLeftRight, label: "Shiftings", href: "/shiftings" },
-  { icon: Users, label: "Parent Stock", href: "/parent-stock" },
-  { icon: Milk, label: "Milk", href: "/milking-mothers" },
-  { icon: ClipboardList, label: "Summary", href: "/summary" },
+const phaseOneItems = [
+  { icon: Search, label: "Herd Search" },
+  { icon: BadgeCheck, label: "Goat Passport" },
+  { icon: DatabaseZap, label: "Import Runs" },
+  { icon: FileSearch, label: "Dirty Data Review" },
+  { icon: GitBranch, label: "Corrections" },
+  { icon: Activity, label: "Analytics Counts" },
 ];
 
 export function AppSidebar() {
-  const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
   const { mobileOpen, setMobileOpen } = useSidebar();
-
-  const isActive = (href: string) => {
-    if (href === "/counts/overall") {
-      return pathname.startsWith("/counts");
-    }
-    return pathname === href || pathname.startsWith(href + "/");
-  };
 
   const renderItem = (item: {
     icon: React.ElementType;
     label: string;
-    href: string;
   }) => {
     const Icon = item.icon;
-    const active = isActive(item.href);
 
     return (
-      <Link
-        key={item.href}
-        href={item.href}
+      <button
+        key={item.label}
+        type="button"
+        disabled
         title={!expanded ? item.label : undefined}
         onClick={() => setMobileOpen(false)}
-        className={`flex items-center gap-3 rounded-lg transition-colors ${
+        className={`flex cursor-not-allowed items-center gap-3 rounded-lg opacity-60 transition-colors ${
           expanded ? "px-3 h-10" : "justify-center w-10 h-10"
-        } ${
-          active
-            ? "bg-[rgba(20,241,217,0.08)] text-[#14F1D9]"
-            : "text-[#8899AA] hover:text-[#14F1D9] hover:bg-[rgba(20,241,217,0.05)]"
-        }`}
+        } text-[#8899AA]`}
       >
         <Icon size={20} className="shrink-0" />
         {expanded && (
           <span className="text-xs font-medium truncate">{item.label}</span>
         )}
-      </Link>
+      </button>
     );
   };
 
@@ -99,9 +61,11 @@ export function AppSidebar() {
       {/* Logo + collapse toggle */}
       <div className={`mb-6 flex items-center ${expanded ? "justify-between" : "justify-center"}`}>
         <div className="flex items-center gap-2 shrink-0">
-          <Image src={logoImg} alt="VGoat" width={36} height={36} className="rounded-full" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#14F1D9] text-xs font-black text-[#0F1115]">
+            GO
+          </div>
           {expanded && (
-            <span className="text-sm font-bold text-[#14F1D9]">VGoat</span>
+            <span className="text-sm font-bold text-[#14F1D9]">Goat OS</span>
           )}
         </div>
         {expanded && (
@@ -122,7 +86,7 @@ export function AppSidebar() {
       </div>
 
       {expanded && (
-        <p className="text-xs font-bold text-[#14F1D9] mb-4 text-center w-full">CEO Dashboard</p>
+        <p className="text-xs font-bold text-[#14F1D9] mb-4 text-center w-full">Phase 1 Admin</p>
       )}
 
       {/* Collapse toggle when collapsed (desktop only) */}
@@ -136,17 +100,8 @@ export function AppSidebar() {
         </button>
       )}
 
-      {/* Livestock section */}
       <div className={`flex flex-col gap-1 ${expanded ? "" : "items-center"}`}>
-        {livestockItems.map(renderItem)}
-      </div>
-
-      {/* Separator */}
-      <hr className={`my-3 border-[#334155] ${expanded ? "" : "w-8"}`} />
-
-      {/* Operations section */}
-      <div className={`flex flex-col gap-1 ${expanded ? "" : "items-center"}`}>
-        {operationsItems.map(renderItem)}
+        {phaseOneItems.map(renderItem)}
       </div>
 
       {/* Spacer */}

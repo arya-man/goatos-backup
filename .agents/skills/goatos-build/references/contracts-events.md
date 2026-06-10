@@ -34,5 +34,5 @@ Rules:
   reason. AI suggestions are proposals, never direct truth.
 - Consumers must be idempotent.
 - Replay and DLQ repair are part of the contract, not afterthoughts.
-- Contract drift check becomes real when generated clients exist: contract
-  change without regenerated clients must fail CI.
+- Generated-client drift is active for `packages/api-client`: contract changes
+  without regenerated OpenAPI TypeScript clients must fail CI.

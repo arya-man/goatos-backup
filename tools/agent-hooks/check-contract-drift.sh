@@ -24,3 +24,9 @@ if [ ! -d "$validator_dir/node_modules" ]; then
 fi
 
 npm --prefix "$validator_dir" run validate
+
+if [ -f "packages/api-client/package.json" ]; then
+  make api-client-check
+else
+  echo "Generated-client drift checks deferred until generated clients exist."
+fi

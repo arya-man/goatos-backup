@@ -97,6 +97,43 @@ func TestNewHS256VerifierRejectsNegativeMaxTTL(t *testing.T) {
 	}
 }
 
+func TestMintHS256TokenUsesVerifierRules(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	cfg := Config{
+		Issuer:   testIssuer,
+		Audience: testAudience,
+		Secret:   []byte(testSecret),
+		MaxTTL:   time.Hour,
+		Now:      func() time.Time { return now },
+	}
+	token, err := MintHS256Token(cfg, testSubject, testTenant, 30*time.Minute)
+	if err != nil {
+		t.Fatalf("MintHS256Token: %v", err)
+	}
+	verifier, err := NewHS256Verifier(cfg)
+	if err != nil {
+		t.Fatalf("NewHS256Verifier: %v", err)
+	}
+	claims, err := verifier.Verify(token)
+	if err != nil {
+		t.Fatalf("Verify minted token: %v", err)
+	}
+	if claims.Subject != testSubject || claims.TenantID != testTenant {
+		t.Fatalf("claims = %#v", claims)
+	}
+}
+
+func TestMintHS256TokenRejectsTTLAboveMax(t *testing.T) {
+	if _, err := MintHS256Token(Config{
+		Issuer:   testIssuer,
+		Audience: testAudience,
+		Secret:   []byte(testSecret),
+		MaxTTL:   time.Hour,
+	}, testSubject, testTenant, 2*time.Hour); err == nil {
+		t.Fatal("expected ttl above max to be rejected")
+	}
+}
+
 func newTestVerifier(t *testing.T, now time.Time, secret string) *HS256Verifier {
 	t.Helper()
 	verifier, err := NewHS256Verifier(Config{

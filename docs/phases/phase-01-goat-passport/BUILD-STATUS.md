@@ -17,6 +17,9 @@ contracts/jsonschema/domain-event-envelope.schema.json
 contracts/jsonschema/decision-record.schema.json
 contracts/examples/
 tools/contract-validation/
+packages/api-client
+make api-client-generate
+make api-client-check
 ```
 
 Database foundation:
@@ -129,9 +132,36 @@ operator+verifier grants authorize verifier-only review permissions, while
 admin-only routes still require an active admin role.
 
 dev_headers mode is retained only as an explicit local-development escape hatch:
-GOATOS_AUTH_MODE=dev_headers plus GOATOS_DEV_HEADERS_ALLOW=true, refused for
-staging/prod-looking GOATOS_ENV values, with a loud warning. It still uses the
-same DB-backed grant checks after reading local headers.
+GOATOS_AUTH_MODE=dev_headers plus GOATOS_DEV_HEADERS_ALLOW=true, allowed only
+when GOATOS_ENV is exactly local, dev, or test, with a loud warning. It still
+uses the same DB-backed grant checks after reading local headers.
+backend/cmd/mint-dev-token mints bootstrap HS256 local/dev tokens using the
+same backend/internal/platform/auth signing and validation rules as the API
+verifier. backend/cmd/seed-dev-grant inserts explicit active tenant-scope
+user_scope_grants only against local database targets; it is not a migration and
+does not silently grant admin. backend/tests/integration/smoke-auth-local.sh
+uses one shared GOATOS_AUTH_* config for the API, token minting, local grant
+seed, and admin-web generated-client smoke.
+```
+
+Frontend readiness foundation:
+
+```text
+packages/api-client generates OpenAPI TypeScript types from app-api,
+admin-api, and analytics-api. apps/admin-web imports @goatos/api-client through
+its local file dependency and package-lock.json.
+
+check-contract-drift now validates OpenAPI/JSON Schema/examples and then runs
+make api-client-check, so generated-client drift is no longer deferred.
+
+apps/admin-web is a buildable Phase 1 readiness shell only. It shows disabled
+placeholder tabs for Herd Search, Goat Passport, Import Runs, Dirty Data Review,
+Corrections, and Analytics Counts. It does not fetch herd data and does not wire
+501/incomplete endpoints.
+
+Executable legacy BigQuery/Sheets routes were removed from apps/admin-web:
+app/api/*, lib/bigquery.ts, CSV data-loader, and the legacy route pages/hooks
+that fetched those app/api routes are no longer in the Next build.
 ```
 
 Outbox relay foundation:
@@ -575,7 +605,6 @@ production async projection worker deployment and Pub/Sub consumer wiring
 externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
-generated client drift checks
 fresh private RFID DB import run
 P8 sales/allocation/promise behavior
 ```
@@ -831,6 +860,10 @@ Bearer auth/RBAC is now the API default. The remaining deploy gate is
 production-grade authentication infrastructure: IdP/JWKS, secret management,
 token lifecycle, rate limiting, TLS, and operations runbooks.
 
+Admin-web now has the Phase 1 readiness foundation: generated client plumbing,
+local dev token/grant helpers, local auth smoke, and a buildable disabled shell.
+Full data-bound frontend screens remain deferred.
+
 Outbox relay is a standalone local/dev CLI foundation. It is not run as an API
 server goroutine and does not include real cloud publishing. Production
 deployment, Google Pub/Sub adapter, event consumers, production projection
@@ -844,9 +877,13 @@ Current expected checks:
 ```text
 make test
 make check
+make api-client-check
 PATH="/path/to/pinned/sqlc/bin:$PATH" make sqlc-check
 make validate-sqlc-plans
 make validate-migrations
+npm --prefix apps/admin-web run typecheck
+npm --prefix apps/admin-web run build
+backend/tests/integration/smoke-auth-local.sh
 ./tools/agent-hooks/check-boundaries.sh
 ./tools/agent-hooks/check-contract-drift.sh
 git diff --check

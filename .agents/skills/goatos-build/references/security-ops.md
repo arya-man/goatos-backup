@@ -17,3 +17,10 @@ Rules:
 - Enforce prod read-only for agents through IAM, not markdown promises.
 - Separate dev/stg/prod projects, DBs, datasets, service accounts, and secrets.
 - Customer/investor-facing data is sanitized read-model data, not raw operational truth.
+- `backend/cmd/mint-dev-token` and `backend/cmd/seed-dev-grant` are local/dev
+  bootstrap helpers only. They must not become production issuance or grant
+  management surfaces.
+- Dev grant seeding is never a migration; it requires explicit role input and
+  must refuse production/staging-looking or non-local DB targets.
+- Local auth smoke uses one shared `GOATOS_AUTH_*` config across backend,
+  token minting, grant seed, and admin-web generated-client smoke.

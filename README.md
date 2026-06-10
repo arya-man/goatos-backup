@@ -72,6 +72,9 @@ Completed so far:
 - Analytics count projection foundation.
 - Rebuild and incremental counter update workers.
 - Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
+- Generated OpenAPI TypeScript client package and drift gate.
+- Admin-web Phase 1 readiness shell with executable BigQuery/Sheets routes removed.
+- Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Contract validation and migration validation.
 - Docker-backed backend tests for core invariants.
 
@@ -89,7 +92,7 @@ Still pending before Phase 1 is usable end-to-end:
 
 - Production identity-provider/login integration: JWKS/asymmetric token
   verification, sessions, key rotation, revocation, and secret management.
-- Frontend screens for admin users.
+- Data-bound frontend screens for admin users.
 - Real production event publishing.
 - Running the real private RFID/source workbooks safely.
 - Operational review screens for dirty data.
@@ -151,7 +154,7 @@ Current status:
 
 ```text
 Backend foundation mostly built.
-Frontend/auth/data-run still pending.
+Frontend screens, production auth, and real data-run still pending.
 ```
 
 ### Phase 2: SOP Tasks And Vaccination
@@ -350,10 +353,10 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Add production identity-provider integration later: JWKS/asymmetric token
+1. Build Phase 1 data-bound frontend screens on the generated API client.
+2. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.
-2. Build Phase 1 frontend screens.
 3. Run controlled real RFID/source data import.
 4. Add review screens for dirty/duplicate goat records.
 5. Start Phase 2 vaccination task workflow.
@@ -405,6 +408,6 @@ Docker-backed Postgres integration tests
 
 Goat OS Phase 1 is building the trusted goat identity foundation.
 
-The backend foundation is strong and progressing well, but the product is not
-user-ready until auth, frontend screens, and production deployment pieces are
-completed.
+The backend foundation is strong and progressing well, and admin-web plumbing is
+ready for real screens. The product is not user-ready until data-bound frontend
+screens, production auth, and production deployment pieces are completed.

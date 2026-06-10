@@ -133,6 +133,8 @@ Purpose:
 ```text
 Make sure agents did not edit across forbidden boundaries.
 Make sure OpenAPI/JSON Schema/contracts/examples still validate.
+Make sure generated OpenAPI TypeScript clients are regenerated.
+Make sure admin-web does not reintroduce direct BigQuery access.
 ```
 
 If this fails, it usually means:

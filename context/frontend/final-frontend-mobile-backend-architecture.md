@@ -220,6 +220,20 @@ target:
   React page -> analytics-client -> analytics-api -> Cube metric -> BigQuery/Tinybird underneath
 ```
 
+Current Goat OS admin-web readiness foundation:
+
+```text
+apps/admin-web
+  buildable Next shell with disabled Phase 1 tabs
+  no executable app/api BigQuery or Sheets routes
+  no lib/bigquery.ts data path
+  imports @goatos/api-client from packages/api-client
+
+packages/api-client
+  generated OpenAPI TypeScript types for app/admin/analytics APIs
+  generated-client drift is part of the contract guardrail flow
+```
+
 For mobile:
 
 ```text
@@ -373,16 +387,13 @@ Keep the current dashboard UI and swap the data source underneath it.
 
 Sequence:
 
-1. Create a typed `analytics-client` package with the same response shapes current pages expect.
-2. Move current `/api/*` route response contracts into named DTOs.
-3. Add an `AnalyticsGateway` abstraction in the dashboard server layer.
-4. Implement adapters in this order:
-   - existing BigQuery adapter, to keep current UI running
-   - Goat OS analytics API adapter
-   - Cube/Tinybird-backed production adapter
-5. Replace direct `queryBigQuery` calls route by route.
-6. Gate routes and API responses by server-side auth/RBAC.
-7. Merge CEO/investor logic into one app shell with role-filtered nav and sanitized datasets.
+1. Keep reusable visual shell/components from the copied dashboard app.
+2. Generate TypeScript clients from Goat OS app/admin/analytics OpenAPI.
+3. Build real Phase 1 tabs against the generated client package.
+4. Keep disabled placeholders for incomplete endpoints instead of wiring stubs
+   into UI flows.
+5. Gate routes and API responses by server-side auth/RBAC.
+6. Merge CEO/investor logic into one app shell with role-filtered nav and sanitized datasets.
 
 Do not change every chart at once. The win is moving data access behind contracts, then cutting pages over safely.
 

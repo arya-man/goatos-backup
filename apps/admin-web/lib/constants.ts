@@ -257,10 +257,6 @@ export function getShedCapacity(shed: string): number {
   return SHED_CAPACITIES[shed] ?? 15;
 }
 
-// ── BigQuery toggle ──
-
-export const USE_BIGQUERY = process.env.NEXT_PUBLIC_USE_BIGQUERY === "true";
-
 // ── Feed name display overrides ──
 const FEED_NAME_OVERRIDES: Record<string, string> = {
   "uht milk": "UHT Milk",

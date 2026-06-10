@@ -164,6 +164,8 @@ OpenAPI owns request/response contracts for app/admin/analytics APIs
 JSON Schema owns event envelopes, decision records, import policies, and DLQ
 repair payloads
 generated clients are committed or generated in CI before frontend/mobile use
+once generated clients exist, contract drift checks must regenerate them and
+fail on diff
 ```
 
 gRPC/protobuf decision:
@@ -1922,9 +1924,35 @@ lifetimes, key rotation, refresh-token policy, and revocation/session handling.
 
 The dev-header escape hatch is unsafe and must be hard to enable accidentally.
 It requires `GOATOS_AUTH_MODE=dev_headers` plus `GOATOS_DEV_HEADERS_ALLOW=true`,
-emits a loud startup warning, and refuses staging/production-looking
-configuration. Normal bearer mode ignores/overwrites `X-GoatOS-Tenant-ID` and
-`X-GoatOS-Actor-ID`.
+emits a loud startup warning, and is allowed only when `GOATOS_ENV` is exactly
+`local`, `dev`, or `test`. Normal bearer mode ignores/overwrites
+`X-GoatOS-Tenant-ID` and `X-GoatOS-Actor-ID`.
+
+Local bootstrap helpers:
+
+```text
+backend/cmd/mint-dev-token
+  local/dev HS256 bearer token minting only
+  reads GOATOS_AUTH_HS256_SECRET, GOATOS_AUTH_ISSUER,
+  GOATOS_AUTH_AUDIENCE, and GOATOS_AUTH_MAX_TOKEN_TTL
+  reuses backend/internal/platform/auth signing/verifier validation rules
+  prints only the token by default and never prints secrets
+
+backend/cmd/seed-dev-grant
+  local/dev tenant-scope grant helper only
+  inserts user_scope_grants with scope_type=tenant and scope_id=tenant_id
+  requires explicit tenant-id, user-id, and role
+  refuses production/staging-looking targets and non-local DB hosts
+```
+
+`user_scope_grants` must not be seeded by migrations. Local grant bootstrap is
+an operator/dev action so production grant state is explicit and auditable.
+
+The shared local auth smoke must use one `GOATOS_AUTH_*` config for the backend,
+`mint-dev-token`, local grant seeding, and admin-web client smoke. It must run
+only against a local Docker/dev database, call `GET /goats/search?limit=10`, and
+prove the granted user receives 200 while a valid token without a matching grant
+receives 403.
 
 HTTP auth/RBAC covers network API requests. Local/system CLIs such as
 `rfid-import`, `rfid-apply`, `outbox-relay`, `rebuild-identity-counters`, and
@@ -2304,7 +2332,10 @@ Generated-client readiness:
 
 ```text
 OpenAPI must include schemas for every request/response.
-TypeScript clients are generated before frontend/mobile work starts.
+TypeScript clients are generated in packages/api-client before frontend/mobile
+screen work starts.
+apps/admin-web and future mobile code import Goat OS APIs from generated
+clients/adapters, not hand-copied DTOs.
 Contract fixtures cover success, validation error, permission error, conflict,
 and idempotent replay.
 ```
