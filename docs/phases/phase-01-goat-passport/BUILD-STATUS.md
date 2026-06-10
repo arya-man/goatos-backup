@@ -463,6 +463,21 @@ verifier only; production IdP/JWKS/asymmetric verification remains deferred.
 Bearer-mode startup must fail if issuer/audience are missing or the HS256 secret
 is missing/weak. `dev_headers` mode, if retained, must require an explicit
 local-only opt-in and must refuse staging/production-looking configuration.
+Role and permissions must come from the active `user_scope_grants` row for the
+token `sub`; token role claims are not authority. Analytics count reads must use
+the token tenant as the DB tenant filter, with query `tenant_id` only as an
+optional equality assertion.
+
+The auth/RBAC implementation must use an explicit route-to-permission registry
+with a fail-closed default. Only `/healthz` and `/readyz` are unauthenticated.
+`adminListCorrectionRequests` must move to
+`GET /admin/identity/correction-requests` before route permissions are enforced;
+`GET /identity/correction-requests` remains the app own/visible correction list.
+
+Actor attribution must come from the token `sub` in bearer mode. Production
+handlers must stop reading `X-GoatOS-Actor-ID` for write audit/decision actors.
+Existing handler tests using old GoatOS headers must be updated to minted test
+tokens or explicitly scoped dev-header-mode tests so `make test` remains green.
 
 Tenant-scope RBAC is broader than the final intended scope model. Tenant-wide
 admin/verifier grants can act across the tenant until custodian/farm/park/shed

@@ -1838,14 +1838,40 @@ retireGoatIdentifier                -> goat.write_identity
 getIdentityCounts                   -> analytics.identity.read
 ```
 
+Contract correction required before implementation:
+
+```text
+app-api owns GET /identity/correction-requests as listCorrectionRequests
+admin-api must move adminListCorrectionRequests to GET /admin/identity/correction-requests
+one method+path cannot have two different permissions in one ServeMux
+```
+
+The API router must use an explicit route-to-permission registry. A protected
+route missing from that registry must fail closed, not pass through. The only
+unauthenticated API routes are:
+
+```text
+GET /healthz
+GET /readyz
+```
+
 Phase 1 auth/RBAC scope:
 
 ```text
 signed bearer token proves user identity
-Goat OS DB grant proves tenant membership and role authority
-role grants endpoint permissions
+Goat OS DB grant for token sub proves tenant membership and role authority
+role and permissions come from user_scope_grants, never from token role claims
 tenant_id from the token is the request tenant
 X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are local/dev scaffolds only
+```
+
+Analytics tenant handling:
+
+```text
+getIdentityCounts derives CountParams.TenantID from the token context
+tenant_id query param is only an optional assertion and must equal token tenant
+if tenant_id is omitted, use the token tenant
+q.Get("tenant_id") must not reach the reporting repository as authority
 ```
 
 HS256 bearer verification is only a bootstrap verifier for local/shared-dev
@@ -1867,6 +1893,23 @@ If it exists, it must require an explicit local-only opt-in such as
 startup warning, and must refuse to start in staging/production-looking
 configuration. Normal bearer mode ignores `X-GoatOS-Tenant-ID` and
 `X-GoatOS-Actor-ID`.
+
+Middleware construction:
+
+```text
+bootstrap.NewAPI validates required bearer auth configuration
+middleware constructors take validated verifier/authorizer dependencies
+middleware constructors do not read env or terminate tests
+handler tests build a test verifier with an in-test secret or explicitly opt into dev_headers
+```
+
+Bearer mode actor rule:
+
+```text
+actor_id for writes is token sub from context
+X-GoatOS-Actor-ID must not be read by production handlers in bearer mode
+audit, decision, and correction actor fields use the token sub
+```
 
 Phase 1 RBAC is an internal goat-ops realm. Do not map investor, buyer, donor,
 partner, franchise, lending, or external customer users into
@@ -2135,6 +2178,7 @@ POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire
 
 POST /identity/correction-requests
 GET  /identity/correction-requests
+GET  /admin/identity/correction-requests
 POST /admin/identity/correction-requests/{correction_request_id}/resolve
 ```
 

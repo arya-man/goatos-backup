@@ -86,6 +86,18 @@ Rules:
   secret is missing/weak. The dev-header escape hatch, if retained, must require
   explicit local-only opt-in and refuse staging/production-looking
   configuration.
+- Role and permissions must come from the active `user_scope_grants` row for
+  the token `sub`; token role claims are not authority. Bearer-mode write actor
+  attribution must use token `sub`, not `X-GoatOS-Actor-ID`.
+- The auth middleware must be backed by an explicit route-to-permission
+  registry with fail-closed default. Only `/healthz` and `/readyz` are
+  unauthenticated. The duplicate correction-list contract path must be fixed:
+  app `listCorrectionRequests` stays `GET /identity/correction-requests`, while
+  admin `adminListCorrectionRequests` moves to
+  `GET /admin/identity/correction-requests`.
+- Analytics count reads use token tenant as the DB tenant filter. Query
+  `tenant_id` is only an optional equality assertion and must not become
+  repository authority.
 - Tenant-scope RBAC is broader than final intended scope. Tenant-wide
   admin/verifier grants can act across all goats in the tenant until
   custodian/farm/park/shed/cohort filtering lands.

@@ -348,12 +348,16 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Finish Auth/RBAC deploy gate.
-2. Build Phase 1 frontend screens.
-3. Run controlled real RFID/source data import.
-4. Add review screens for dirty/duplicate goat records.
-5. Start Phase 2 vaccination task workflow.
-6. Later connect hardware feeding panel data under Phase 5/9.
+1. Add bearer auth plus tenant-scope RBAC so APIs no longer trust local/dev
+   headers.
+2. Add production identity-provider integration later: JWKS/asymmetric token
+   verification, login/session handling, key rotation, revocation, and secret
+   management.
+3. Build Phase 1 frontend screens.
+4. Run controlled real RFID/source data import.
+5. Add review screens for dirty/duplicate goat records.
+6. Start Phase 2 vaccination task workflow.
+7. Later connect hardware feeding panel data under Phase 5/9.
 
 ## Build Principle
 
