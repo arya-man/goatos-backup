@@ -1,6 +1,7 @@
 # GitHub Workflows
 
-This runbook explains the GitHub Actions workflows in plain language.
+This runbook explains the GitHub Actions workflows for project and engineering
+review.
 
 If a new workflow is added, or an existing workflow changes, update this file in
 the same style: what it does, when it runs, what machine/service it uses, and
@@ -28,7 +29,7 @@ workflow.
 
 The CI guardrail makes sure a commit did not quietly break Goat OS.
 
-In plain language, it asks:
+The checks are:
 
 ```text
 Can the backend compile?
@@ -270,7 +271,12 @@ This keeps the guardrail strict while reducing random CI flakes.
 
 ## Local Equivalents
 
-Before pushing backend or workflow changes, run the narrowest relevant checks.
+Before committing, run the narrowest relevant checks for the files changed.
+
+Backend, schema, sqlc, migration, CI, and workflow changes should run the
+affected build/test/validation commands locally before commit. Documentation-only
+changes do not need the full database validation suite every time, but they
+should still run whitespace and any relevant agent/contract guardrails.
 
 Common full guardrail set:
 
@@ -302,7 +308,7 @@ When adding or changing workflows:
 
 ```text
 1. Update this runbook.
-2. Explain the workflow in plain language.
+2. Explain the workflow clearly for project and engineering review.
 3. List when it runs.
 4. List what external systems it starts or calls.
 5. List common failure meanings.

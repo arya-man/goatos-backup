@@ -17,7 +17,7 @@ should eventually live in one governed Goat OS backend.
 Goat OS is not just a dashboard. It is the core system of record for Mesha's
 goat operations.
 
-In plain language:
+In short:
 
 - Every goat gets one permanent Goat OS passport.
 - RFID, old tag, breed, sex, age, status, location, ownership, and custody are

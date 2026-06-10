@@ -64,14 +64,15 @@ Morning README update expectation:
   reflects the latest pushed project status before moving deep into new
   implementation work.
 - If phase progress, shipped backend/frontend pieces, deploy gates, real-data
-  import status, or next-step priorities changed, update `README.md` in plain
-  CEO-readable language and push it.
+  import status, or next-step priorities changed, update `README.md` with
+  executive status wording and push it.
 - Be precise: do not call Phase 1 shippable until auth/RBAC, frontend screens,
   production event egress, and real data-run gaps are actually closed.
 
 Workflow documentation expectation:
 
 - If GitHub Actions workflows or CI guardrail scripts change, update
-  `docs/runbooks/github-workflows.md` in plain language in the same change.
+  `docs/runbooks/github-workflows.md` with clear project-facing wording in the
+  same change.
 - The runbook must explain what each workflow does, when it runs, what temporary
   services it starts, and what common failures mean.
