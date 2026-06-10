@@ -351,6 +351,20 @@ func TestAnomalyReportGroupsEscapeSpreadsheetFormulaCells(t *testing.T) {
 	}
 }
 
+func TestSafeCSVCellEscapesFormulaPrefixesAfterWhitespace(t *testing.T) {
+	cases := map[string]string{
+		"\t=1+1":      "'=1+1",
+		"\r+SUM(A:A)": "'+SUM(A:A)",
+		"\n-42":       "'-42",
+		" @cmd":       "'@cmd",
+	}
+	for input, want := range cases {
+		if got := safeCSVCell(input); got != want {
+			t.Fatalf("safeCSVCell(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
 func anomalyReportRow(t *testing.T, rowNumber int, reason string, raw map[string]string) AnomalyReportInputRow {
 	t.Helper()
 	rawPayload, err := json.Marshal(raw)
