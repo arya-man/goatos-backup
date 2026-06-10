@@ -56,24 +56,30 @@ Do not place Goat OS projects under those folders.
 
 ## Current State
 
-The three Goat OS projects exist and are active.
+The three Goat OS projects exist and are active under the `goat-os` folder.
 
-Billing is not linked yet. The current CLI account can create projects/folders,
-but does not currently see a billing account:
+Billing is linked for all three Goat OS projects.
 
-```bash
-gcloud billing accounts list
+```text
+Billing account: 01FEDE-96BCB3-76D992
+Billing display name: My Billing Account
+
+goatos-dev   billingEnabled: true
+goatos-stg   billingEnabled: true
+goatos-prod  billingEnabled: true
 ```
 
-returns no visible billing accounts.
+`goatos-prod` was linked after Google granted additional billing project quota
+on 2026-06-10.
 
-## Billing Next Step
+## Billing Commands
 
-An owner/admin of the billing account must grant this account access:
+Use these only when a new Goat OS project needs billing linked to the same
+account.
 
 ```bash
 USER_EMAIL=ravi@mesha.sg
-BILLING_ACCOUNT_ID=PASTE_BILLING_ACCOUNT_ID_HERE
+BILLING_ACCOUNT_ID=01FEDE-96BCB3-76D992
 
 gcloud billing accounts add-iam-policy-binding "$BILLING_ACCOUNT_ID" \
   --member="user:$USER_EMAIL" \
@@ -84,18 +90,12 @@ gcloud billing accounts add-iam-policy-binding "$BILLING_ACCOUNT_ID" \
   --role="roles/billing.viewer"
 ```
 
-After billing is visible, link all three projects:
+Link a project:
 
 ```bash
-BILLING_ACCOUNT_ID=PASTE_BILLING_ACCOUNT_ID_HERE
+BILLING_ACCOUNT_ID=01FEDE-96BCB3-76D992
 
-gcloud billing projects link goatos-dev \
-  --billing-account="$BILLING_ACCOUNT_ID"
-
-gcloud billing projects link goatos-stg \
-  --billing-account="$BILLING_ACCOUNT_ID"
-
-gcloud billing projects link goatos-prod \
+gcloud billing projects link PROJECT_ID \
   --billing-account="$BILLING_ACCOUNT_ID"
 ```
 
@@ -134,6 +134,15 @@ gcloud projects describe goatos-stg \
 
 gcloud projects describe goatos-prod \
   --format="yaml(projectId,name,lifecycleState,parent)"
+```
+
+Verify billing:
+
+```bash
+for project in goatos-dev goatos-stg goatos-prod; do
+  gcloud billing projects describe "$project" \
+    --format="yaml(projectId,billingAccountName,billingEnabled)"
+done
 ```
 
 ## Resource Plan After Billing
