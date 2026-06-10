@@ -260,22 +260,94 @@ func TestAnomalyReportGroupsContextGenderAndMaskedOldTagScope(t *testing.T) {
 			"Old ID":        "OLDSECRET202",
 			"Old ID Suffix": "CBE",
 		}),
+		anomalyReportRow(t, 8, "duplicate_old_tag_same_scope", map[string]string{
+			"Tag":           "",
+			"Breed":         "Boer",
+			"Gender":        "Female",
+			"Farm":          "CBE",
+			"Shed":          "S1",
+			"Partition":     "P1",
+			"RFID":          "9900000000000000001234567890555",
+			"Old ID":        "1901",
+			"Old ID Suffix": "CBE",
+		}),
 	}
 	report := BuildAnomalyReport(rows, AnomalyReportOptions{})
 	assertContextGroup(t, report.Groups, "blank_old_tag_suffix", "CBE", "S1", "P1", 1)
 	assertGroup(t, report.Groups, "source_gender_label", "blank_gender", "", 1)
-	foundMaskedScope := false
+	refs := map[string]bool{}
 	for _, group := range report.Groups {
 		if group.GroupType != "masked_old_tag_scope" {
 			continue
 		}
-		foundMaskedScope = true
-		if group.Scope != "park:CBE" || !strings.HasPrefix(group.OldTagRef, "*") || strings.Contains(group.OldTagRef, "OLDSECRET202") {
+		if group.Scope != "park:CBE" || !strings.HasPrefix(group.OldTagRef, "sha256:") || strings.Contains(group.OldTagRef, "OLDSECRET202") || strings.Contains(group.OldTagRef, "1901") || group.OldTagRef == "****" {
 			t.Fatalf("bad duplicate old-tag group: %#v", group)
 		}
+		refs[group.OldTagRef] = true
 	}
-	if !foundMaskedScope {
-		t.Fatalf("masked duplicate old-tag group not found: %#v", report.Groups)
+	if len(refs) != 2 {
+		t.Fatalf("duplicate old-tag refs=%#v, want two stable non-reversible refs", refs)
+	}
+}
+
+func TestAnomalyReportGroupsEscapeSpreadsheetFormulaCells(t *testing.T) {
+	rows := []AnomalyReportInputRow{
+		anomalyReportRow(t, 9, "unknown_status_mapping", map[string]string{
+			"Tag":       "=1+1",
+			"Breed":     "Boer",
+			"Gender":    "Female",
+			"Farm":      "CBE",
+			"Shed":      "S1",
+			"Partition": "P1",
+			"RFID":      longRFID,
+			"Old ID":    "OLDSECRET300",
+		}),
+		anomalyReportRow(t, 10, "species_or_breed_requires_review", map[string]string{
+			"Tag":       "",
+			"Breed":     "+SUM(A1:A2)",
+			"Gender":    "Female",
+			"Farm":      "CBE",
+			"Shed":      "S1",
+			"Partition": "P1",
+			"RFID":      "9900000000000000001234567890444",
+			"Old ID":    "OLDSECRET301",
+		}),
+		anomalyReportRow(t, 11, "blank_old_tag_suffix", map[string]string{
+			"Tag":       "",
+			"Breed":     "Boer",
+			"Gender":    "Female",
+			"Farm":      "-Farm",
+			"Shed":      "@Shed",
+			"Partition": "=Partition",
+			"RFID":      "9900000000000000001234567890333",
+			"Old ID":    "OLDSECRET302",
+		}),
+	}
+	report := BuildAnomalyReport(rows, AnomalyReportOptions{})
+	_, _, groups, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
+		ImportRunID: "11111111-1111-4111-8111-444444444444",
+		SourceType:  SourceTypeLocalXLSX,
+		SourceLabel: "Synthetic",
+		SheetName:   "Combined",
+	}, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(groups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := readCSVRows(t, data)
+	if len(records) < 4 {
+		t.Fatalf("group csv records=%d, want header plus grouped rows", len(records))
+	}
+	assertCSVCellPresent(t, records, "'=1+1")
+	assertCSVCellPresent(t, records, "'+SUM(A1:A2)")
+	assertCSVCellPresent(t, records, "'-Farm")
+	assertCSVCellPresent(t, records, "'@Shed")
+	assertCSVCellPresent(t, records, "'=Partition")
+	for _, dangerous := range []string{"=1+1", "+SUM(A1:A2)", "-Farm", "@Shed", "=Partition"} {
+		assertCSVCellAbsent(t, records, dangerous)
 	}
 }
 
@@ -343,4 +415,27 @@ func readCSVRows(t *testing.T, data []byte) [][]string {
 		t.Fatal(err)
 	}
 	return rows
+}
+
+func assertCSVCellPresent(t *testing.T, records [][]string, want string) {
+	t.Helper()
+	for _, record := range records {
+		for _, cell := range record {
+			if cell == want {
+				return
+			}
+		}
+	}
+	t.Fatalf("CSV cell %q not found in %#v", want, records)
+}
+
+func assertCSVCellAbsent(t *testing.T, records [][]string, forbidden string) {
+	t.Helper()
+	for _, record := range records {
+		for _, cell := range record {
+			if cell == forbidden {
+				t.Fatalf("CSV cell %q was not escaped in %#v", forbidden, records)
+			}
+		}
+	}
 }

@@ -165,7 +165,7 @@ func addAnomalyGroup(report *AnomalyReport, reason string, raw safeReportFields,
 		report.addGroup(AnomalyReportGroup{
 			GroupType:  "masked_old_tag_scope",
 			ReasonCode: reason,
-			OldTagRef:  maskIdentifier(normalized.oldTag, false),
+			OldTagRef:  scopedIdentifierRef(normalized.oldTag, normalized.oldTagScope),
 			Scope:      normalized.oldTagScope,
 		})
 	}
@@ -267,7 +267,7 @@ func writeAnomalyDetails(path string, opts AnomalyReportOptions, details []Anoma
 		return err
 	}
 	for _, detail := range details {
-		if err := writer.Write([]string{
+		if err := writeSafeCSVRow(writer, []string{
 			opts.SourceType,
 			opts.SourceLabel,
 			opts.SheetName,
@@ -305,7 +305,7 @@ func writeAnomalySummary(path string, opts AnomalyReportOptions, summary map[str
 	}
 	sort.Strings(reasons)
 	for _, reason := range reasons {
-		if err := writer.Write([]string{opts.SourceType, opts.SourceLabel, opts.SheetName, opts.ImportRunID, reason, fmt.Sprint(summary[reason])}); err != nil {
+		if err := writeSafeCSVRow(writer, []string{opts.SourceType, opts.SourceLabel, opts.SheetName, opts.ImportRunID, reason, fmt.Sprint(summary[reason])}); err != nil {
 			return err
 		}
 	}
@@ -340,7 +340,7 @@ func writeAnomalyGroups(path string, opts AnomalyReportOptions, groups []Anomaly
 		return err
 	}
 	for _, group := range groups {
-		if err := writer.Write([]string{
+		if err := writeSafeCSVRow(writer, []string{
 			opts.SourceType,
 			opts.SourceLabel,
 			opts.SheetName,
@@ -361,6 +361,14 @@ func writeAnomalyGroups(path string, opts AnomalyReportOptions, groups []Anomaly
 		}
 	}
 	return writer.Error()
+}
+
+func writeSafeCSVRow(writer *csv.Writer, fields []string) error {
+	safe := make([]string, len(fields))
+	for i, field := range fields {
+		safe[i] = safeCSVCell(field)
+	}
+	return writer.Write(safe)
 }
 
 type normalizedReportFields struct {
@@ -477,6 +485,28 @@ func sourceRowKeyRef(value string) string {
 	}
 	sum := sha256.Sum256([]byte(value))
 	return "sha256:" + hex.EncodeToString(sum[:8])
+}
+
+func scopedIdentifierRef(value, scope string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(value + "\x00" + strings.TrimSpace(scope)))
+	return "sha256:" + hex.EncodeToString(sum[:8])
+}
+
+func safeCSVCell(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	switch value[0] {
+	case '=', '+', '-', '@':
+		return "'" + value
+	default:
+		return value
+	}
 }
 
 func stringField(payload map[string]any, key string) string {

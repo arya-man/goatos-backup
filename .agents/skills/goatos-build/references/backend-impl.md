@@ -319,8 +319,11 @@ Rules:
   through the safe source-label whitelist `Tag`, `Breed`, `Gender`, `Farm`,
   `Shed`, and `Partition`, falling back to normalized fields for those same
   labels when raw data is absent. They must never serialize full raw_payload,
-  raw row JSON, raw RFID, or raw old-tag values. Breed review groups are a human
-  gate for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
+  raw row JSON, raw RFID, or raw old-tag values. Grouped CSV cells must be
+  spreadsheet-formula safe because humans open these files in spreadsheet
+  tools. Duplicate old-tag groups use stable non-reversible old-tag/scope refs
+  rather than raw values or short masks. Breed review groups are a human gate
+  for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
   groups are context for a future RFID-only creation policy decision, not a
   Phase 1 apply behavior change.
 - The import loop is repeatable, not one-time. Existing source-row identity is

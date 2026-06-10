@@ -2740,6 +2740,9 @@ evidence. Grouped review summaries may read raw_payload only through the safe
 source-label whitelist Tag, Breed, Gender, Farm, Shed, and Partition, falling
 back to normalized fields for those same labels when raw is absent. They never
 emit full raw_payload, raw row JSON, raw RFID, or raw old-tag values.
+Grouped CSV cells are spreadsheet-formula safe. duplicate_old_tag_same_scope
+groups use stable non-reversible old-tag/scope refs instead of raw values or
+short masks, so short old-tag labels do not collapse into one bucket.
 species_or_breed_requires_review groups are for human alias-vs-exclusion
 decisions, not auto-aliasing. blank_old_tag_suffix groups are context for a
 future RFID-only creation policy decision, not a Phase 1 apply behavior change.
