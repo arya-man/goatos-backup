@@ -59,6 +59,10 @@ Do:
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
 - Treat million-goat scale as a hard requirement: chunk jobs, use idempotency, avoid full-herd scans, bound goroutines, and keep media/analytics off operational API hot paths.
 - Add observability for new APIs/workers: latency, errors, DB pressure, queue lag, DLQ, and media failures.
+- Keep committed project docs role-based rather than person-based. Use labels
+  such as data owner, reviewer, operator, CEO/internal admin, or vendor instead
+  of individual names unless a legal/contract artifact explicitly requires a
+  named person.
 
 Do not:
 
@@ -69,6 +73,9 @@ Do not:
 - Do not add unbounded goroutines, full-table/full-herd API scans, direct media proxying through APIs, or dashboard raw BigQuery scans.
 - Do not use direct gRPC for browser/React Native product clients without a new written ADR.
 - Do not duplicate architecture decisions across random docs.
+- Do not put individual staff/founder/vendor names into PRDs, TRDs, runbooks,
+  prompts committed as docs, status files, or skill references when a role label
+  is enough.
 
 Validation expectation:
 
