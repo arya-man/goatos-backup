@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -38,14 +40,24 @@ type Service struct {
 	publisher ports.Publisher
 	validator *EnvelopeValidator
 	config    Config
+	log       *slog.Logger
 }
 
-func NewService(repo ports.Repository, publisher ports.Publisher, validator *EnvelopeValidator, config Config) *Service {
+// NewService constructs the outbox relay service.
+// log may be nil; slog.Default() is used in that case.
+func NewService(repo ports.Repository, publisher ports.Publisher, validator *EnvelopeValidator, config Config, log ...*slog.Logger) *Service {
+	var l *slog.Logger
+	if len(log) > 0 && log[0] != nil {
+		l = log[0]
+	} else {
+		l = slog.Default()
+	}
 	return &Service{
 		repo:      repo,
 		publisher: publisher,
 		validator: validator,
 		config:    normalizeConfig(config),
+		log:       l,
 	}
 }
 
@@ -121,7 +133,15 @@ func (s *Service) processMessage(ctx context.Context, message domain.Message, re
 
 func (s *Service) publishSafely(ctx context.Context, message domain.Message) (err error) {
 	defer func() {
-		if recovered := recover(); recovered != nil {
+		if p := recover(); p != nil {
+			stack := string(debug.Stack())
+			s.log.ErrorContext(ctx, "outbox_publisher_panic",
+				slog.Any("panic", p),
+				slog.String("stack", stack),
+				slog.String("outbox_id", message.OutboxID),
+				slog.String("event_type", message.EventType),
+				slog.String("trace_id", derefString(message.TraceID)),
+			)
 			err = ports.RetryablePublishError(errors.New("publisher panic"))
 		}
 	}()
@@ -176,6 +196,13 @@ func normalizeConfig(config Config) Config {
 		config.Now = time.Now
 	}
 	return config
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func sanitizeError(kind string) string {

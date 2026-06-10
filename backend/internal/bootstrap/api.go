@@ -75,10 +75,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	identityService := identityapp.NewService(identityRepo)
-	identityHandler := identityhttp.NewHandler(identityService)
+	identityHandler := identityhttp.NewHandler(identityService, log)
 	reportingRepo := reportingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	reportingService := reportingapp.NewService(reportingRepo)
-	reportingHandler := reportinghttp.NewHandler(reportingService)
+	reportingHandler := reportinghttp.NewHandler(reportingService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authz, err := buildAuthMiddleware(cfg.Auth, verifier, grantSource, log)
 	if err != nil {
@@ -100,7 +100,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	identityhttp.Register(mux, identityHandler)
 	reportinghttp.Register(mux, reportingHandler)
 
-	handler := httpmiddleware.RequestContext(log)(authz.Wrap(mux))
+	// PanicRecovery is outermost so it catches panics in auth and RequestContext.
+	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(authz.Wrap(mux)))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,

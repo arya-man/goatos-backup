@@ -22,10 +22,56 @@ void XLSX;
 EOF
   if rg -n "$admin_web_data_pattern" "$tmpdir/apps/admin-web/lib" >/dev/null 2>&1; then
     echo "Boundary self-test passed: synthetic admin-web direct data access was detected."
-    exit 0
+  else
+    echo "Boundary self-test failed: synthetic admin-web direct data access was not detected."
+    exit 1
   fi
-  echo "Boundary self-test failed: synthetic admin-web direct data access was not detected."
-  exit 1
+
+  # Self-test for slog.New guard: create a synthetic violation outside the observability package.
+  mkdir -p "$tmpdir/backend/internal/somepackage"
+  cat >"$tmpdir/backend/internal/somepackage/fake.go" <<'EOF'
+package somepackage
+
+import (
+  "log/slog"
+  "os"
+)
+
+func bad() *slog.Logger {
+  return slog.New(slog.NewJSONHandler(os.Stdout, nil))
+}
+EOF
+  if rg -n "slog\.New\(" "$tmpdir/backend/internal/somepackage" \
+      --glob '!*_test.go' >/dev/null 2>&1; then
+    echo "slog.New guard self-test passed: synthetic violation detected."
+  else
+    echo "slog.New guard self-test failed: synthetic violation NOT detected."
+    exit 1
+  fi
+
+  # Self-test for recover() guard: create a synthetic silent panic swallow.
+  mkdir -p "$tmpdir/backend/internal/pkg"
+  cat >"$tmpdir/backend/internal/pkg/noLog.go" <<'EOF'
+package pkg
+
+func silentPanic() {
+  defer func() {
+    if p := recover(); p != nil {
+      _ = p // silent swallow — no log call
+    }
+  }()
+}
+EOF
+  if rg -n "recover\(\)" "$tmpdir/backend/internal/pkg/noLog.go" \
+      --glob '!*_test.go' >/dev/null 2>&1; then
+    echo "recover() guard self-test passed: recover() without log detected."
+  else
+    echo "recover() guard self-test failed: synthetic recover() not detected."
+    exit 1
+  fi
+
+  echo "All boundary self-tests passed."
+  exit 0
 fi
 
 if command -v rg >/dev/null 2>&1; then
@@ -67,6 +113,38 @@ if command -v rg >/dev/null 2>&1; then
     cat /tmp/goatos-reporting-boundary-warnings
     echo "Identity package must not own reporting counter projection queries."
     fail=1
+  fi
+
+  # Guard: slog.New must only appear in platform/observability and test files.
+  # All other backend Go code must use observability.New instead.
+  if [ -d "backend" ]; then
+    if rg -n "slog\.New\(" backend \
+        --glob '*.go' \
+        --glob '!*_test.go' \
+        --glob '!backend/internal/platform/observability/**' \
+        2>/dev/null | grep -v '//'; then
+      echo "slog.New() used outside platform/observability in non-test backend Go code."
+      echo "Use observability.New(observability.Config{...}) instead."
+      fail=1
+    fi
+  fi
+
+  # Guard: every recover() block in non-test backend Go code must have a log call
+  # in the same file. A recover() without logging silently swallows panics.
+  # This is a file-level check: if a file has recover() and no ErrorContext/Error
+  # call anywhere in the file, flag it.
+  if [ -d "backend" ]; then
+    while IFS= read -r gofile; do
+      # Skip test files.
+      case "$gofile" in *_test.go) continue ;; esac
+      if grep -qE '\brecover\(\)' "$gofile"; then
+        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b' "$gofile"; then
+          echo "$gofile: recover() block found with no log.Error/ErrorContext call in file."
+          echo "  recover() blocks must log the panic value before suppressing or converting it."
+          fail=1
+        fi
+      fi
+    done < <(find backend -name '*.go' -not -name '*_test.go' 2>/dev/null)
   fi
 fi
 

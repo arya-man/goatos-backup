@@ -1,0 +1,93 @@
+package httpmiddleware
+
+import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestPanicRecoveryReturns500Envelope(t *testing.T) {
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+
+	// A handler that panics.
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("test panic value")
+	})
+
+	// Wire: PanicRecovery -> RequestContext -> panicHandler
+	handler := PanicRecovery(log)(RequestContext(log)(panicHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/search", nil)
+	req.Header.Set("X-Request-ID", "req-panic-test")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("body is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if envelope["code"] != "panic_recovered" {
+		t.Errorf("expected code=panic_recovered, got %v", envelope["code"])
+	}
+	if envelope["trace_id"] == nil || envelope["trace_id"] == "" {
+		t.Errorf("expected trace_id in envelope, got: %v", envelope["trace_id"])
+	}
+}
+
+func TestPanicRecoveryLogsStackAndPanicValue(t *testing.T) {
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("sentinel panic payload")
+	})
+
+	handler := PanicRecovery(log)(RequestContext(log)(panicHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	logOut := logBuf.String()
+	if !strings.Contains(logOut, "http_panic") {
+		t.Errorf("expected http_panic log entry, got: %s", logOut)
+	}
+	if !strings.Contains(logOut, "sentinel panic payload") {
+		t.Errorf("expected panic value in log, got: %s", logOut)
+	}
+	if !strings.Contains(logOut, "goroutine") {
+		t.Errorf("expected stack trace (goroutine...) in log, got: %s", logOut)
+	}
+}
+
+func TestPanicRecoveryDoesNotFireOnNormalRequests(t *testing.T) {
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+
+	normalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := PanicRecovery(log)(RequestContext(log)(normalHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if strings.Contains(logBuf.String(), "http_panic") {
+		t.Errorf("unexpected http_panic log on normal request: %s", logBuf.String())
+	}
+}

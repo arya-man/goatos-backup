@@ -59,6 +59,17 @@ Do:
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
 - Treat million-goat scale as a hard requirement: chunk jobs, use idempotency, avoid full-herd scans, bound goroutines, and keep media/analytics off operational API hot paths.
 - Add observability for new APIs/workers: latency, errors, DB pressure, queue lag, DLQ, and media failures.
+- Goat identifiers (RFID, old tag, breed, farm, shed, partition) are operational
+  livestock business data, NOT PII. Log them in diagnostics so a failure is
+  traceable to the exact goat/row. The only logging redaction rule is secrets:
+  never log credentials, tokens, or service-account JSON. Repo hygiene is
+  separate and still applies: do not commit raw private source files or row
+  dumps to git.
+- Construct backend loggers via `backend/internal/platform/observability`
+  (env sink `GOATOS_OBS_SINK`: `stdout_json`/`otlp`/`gcm`); do not hand-roll
+  `slog.New` in new code. Log once at boundaries with trace/request/tenant/
+  import_run_id context, and recover-and-log panics at goroutine edges. See
+  `docs/decisions/observability.md`.
 - Keep committed project docs role-based rather than person-based. Use labels
   such as data owner, reviewer, operator, CEO/internal admin, or vendor instead
   of individual names unless a legal/contract artifact explicitly requires a

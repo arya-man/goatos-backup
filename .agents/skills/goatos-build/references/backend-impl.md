@@ -357,6 +357,27 @@ Rules:
 - Real Google Pub/Sub publishing, production worker deployment, event
   consumers, frontend event UI, and richer DLQ operations remain deferred.
 
+Observability and logging:
+
+- Construct every backend `*slog.Logger` via
+  `backend/internal/platform/observability` (`observability.New`). Do not
+  hand-roll `slog.New`/`slog.NewJSONHandler` in `cmd/`, `bootstrap/`, or
+  `internal/` outside that package. `tools/agent-hooks/check-boundaries.sh`
+  enforces this and that no `recover()` block omits a log call.
+- Sink is env-selected via `GOATOS_OBS_SINK`: `stdout_json` (default, local),
+  `otlp` (OTLP over HTTP, not gRPC per the go-backend-stack ADR), or `gcm`.
+  OTLP/gcm are Phase 1 stubs that still emit `stdout_json`; a real OTLP-HTTP
+  exporter can be wired in `observability.New` without touching callers.
+- Log once at boundaries, not at every `if err != nil`: HTTP 5xx logs
+  server-side with trace_id/request_id/tenant before writing the envelope; the
+  outermost recovery middleware logs panic + stack and returns a 500 envelope;
+  worker/CLI loops log errors with `import_run_id` context. Wrap propagating
+  errors with `%w` so the boundary log carries the full chain.
+- Goat identifiers (RFID, old tag, breed, farm) are business data, not PII —
+  log them so failures are traceable to the exact goat/row. The only redaction
+  rule is secrets: never log credentials, tokens, or service-account JSON.
+- See `docs/decisions/observability.md` and `docs/runbooks/observability.md`.
+
 Phase 1 read behaviors already built:
 
 ```text

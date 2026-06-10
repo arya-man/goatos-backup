@@ -14,6 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/legacy_import"
 	importpg "github.com/vgoats/goatos/backend/internal/legacy_import/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -49,7 +50,7 @@ func main() {
 	flag.BoolVar(&includeSensitive, "include-sensitive", false, "Include raw RFID/old tag values in local report output")
 	flag.Parse()
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	log := observability.New(observability.Config{Service: "rfid-import"})
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

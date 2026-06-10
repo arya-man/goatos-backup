@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,10 +17,18 @@ import (
 
 type Handler struct {
 	service *app.Service
+	log     *slog.Logger
 }
 
-func NewHandler(service *app.Service) *Handler {
-	return &Handler{service: service}
+// NewHandler creates a Handler. If log is nil, slog.Default() is used.
+func NewHandler(service *app.Service, log ...*slog.Logger) *Handler {
+	var l *slog.Logger
+	if len(log) > 0 && log[0] != nil {
+		l = log[0]
+	} else {
+		l = slog.Default()
+	}
+	return &Handler{service: service, log: l}
 }
 
 func Register(mux *http.ServeMux, h *Handler) {
@@ -49,7 +58,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 
 func (h *Handler) GetGoatPassport(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetGoatPassport(r.Context(), tenantID(r), r.PathValue("goat_id"), traceID(r))
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +80,7 @@ func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
 		Status:         optionalQuery(q.Get("status")),
 	}
 	result, err := h.service.SearchGoats(r.Context(), params, traceID(r))
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) ResolveIdentifier(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +95,7 @@ func (h *Handler) ResolveIdentifier(w http.ResponseWriter, r *http.Request) {
 		LocationID:      optionalQuery(q.Get("location_id")),
 	}
 	result, err := h.service.ResolveIdentifier(r.Context(), params, traceID(r))
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) ListConflicts(w http.ResponseWriter, r *http.Request) {
@@ -103,12 +112,12 @@ func (h *Handler) ListConflicts(w http.ResponseWriter, r *http.Request) {
 		ConflictType: optionalQuery(q.Get("conflict_type")),
 	}
 	result, err := h.service.ListConflicts(r.Context(), params, traceID(r))
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) GetConflict(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetConflict(r.Context(), tenantID(r), r.PathValue("conflict_id"), traceID(r))
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) ListCandidates(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +131,7 @@ func (h *Handler) ListCandidates(w http.ResponseWriter, r *http.Request) {
 		Limit:    limit,
 		Cursor:   optionalQuery(q.Get("cursor")),
 	}, traceID(r))
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) ResolveConflict(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +154,7 @@ func (h *Handler) ResolveConflict(w http.ResponseWriter, r *http.Request) {
 		ConflictID:     r.PathValue("conflict_id"),
 		RawBody:        body,
 	})
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) ApproveCandidate(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +177,7 @@ func (h *Handler) ApproveCandidate(w http.ResponseWriter, r *http.Request) {
 		CandidateID:    r.PathValue("candidate_id"),
 		RawBody:        body,
 	})
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) RejectCandidate(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +200,7 @@ func (h *Handler) RejectCandidate(w http.ResponseWriter, r *http.Request) {
 		CandidateID:    r.PathValue("candidate_id"),
 		RawBody:        body,
 	})
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) CreateCorrectionRequest(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +223,7 @@ func (h *Handler) CreateCorrectionRequest(w http.ResponseWriter, r *http.Request
 		RawBody:        body,
 	})
 	if err != nil {
-		respond(w, r, nil, err)
+		h.respond(w, r, nil, err)
 		return
 	}
 	status := http.StatusCreated
@@ -244,7 +253,7 @@ func (h *Handler) ResolveCorrectionRequest(w http.ResponseWriter, r *http.Reques
 		CorrectionRequestID: r.PathValue("correction_request_id"),
 		RawBody:             body,
 	})
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) AddGoatIdentifier(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +276,7 @@ func (h *Handler) AddGoatIdentifier(w http.ResponseWriter, r *http.Request) {
 		GoatID:         r.PathValue("goat_id"),
 		RawBody:        body,
 	})
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) RetireGoatIdentifier(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +300,7 @@ func (h *Handler) RetireGoatIdentifier(w http.ResponseWriter, r *http.Request) {
 		IdentifierID:   r.PathValue("identifier_id"),
 		RawBody:        body,
 	})
-	respond(w, r, result, err)
+	h.respond(w, r, result, err)
 }
 
 func (h *Handler) NotImplemented(code string) http.HandlerFunc {
@@ -332,7 +341,7 @@ func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return limit, true
 }
 
-func respond(w http.ResponseWriter, r *http.Request, payload any, err error) {
+func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, err error) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		envelope := domain.ErrorEnvelope{
@@ -348,6 +357,18 @@ func respond(w http.ResponseWriter, r *http.Request, payload any, err error) {
 			envelope.Code = appErr.Code
 			envelope.Message = appErr.Message
 			envelope.Retryable = appErr.Retryable
+		}
+		// Log server-side for 5xx only; 4xx are client errors and are not
+		// logged to avoid error spam on validation failures.
+		if status >= http.StatusInternalServerError {
+			h.log.ErrorContext(r.Context(), "http_5xx",
+				slog.String("error", err.Error()),
+				slog.String("trace_id", httpmiddleware.TraceIDFromContext(r.Context())),
+				slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+				slog.String("tenant_id", httpmiddleware.TenantIDFromContext(r.Context())),
+				slog.String("route", r.Method+" "+r.URL.Path),
+				slog.Int("status", status),
+			)
 		}
 		writeError(w, status, envelope)
 		return

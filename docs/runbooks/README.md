@@ -8,6 +8,7 @@ Current runbooks:
 - [Google Cloud environments](google-cloud-environments.md)
 - [Local full-stack rehearsal](local-full-stack-rehearsal.md)
 - [Local Docker storage](local-docker-storage.md)
+- [Observability](observability.md)
 
 Initial required runbooks:
 

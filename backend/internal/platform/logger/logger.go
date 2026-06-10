@@ -1,26 +1,15 @@
+// Package logger is a thin shim kept for backwards compatibility.
+// New code must use platform/observability.New directly.
 package logger
 
 import (
 	"log/slog"
-	"os"
-	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 )
 
 // New returns the process logger used by API commands and middleware.
+// Deprecated: call observability.New instead for new entrypoints.
 func New(level string) *slog.Logger {
-	var slogLevel slog.Level
-	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "debug":
-		slogLevel = slog.LevelDebug
-	case "warn", "warning":
-		slogLevel = slog.LevelWarn
-	case "error":
-		slogLevel = slog.LevelError
-	default:
-		slogLevel = slog.LevelInfo
-	}
-
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slogLevel,
-	}))
+	return observability.New(observability.Config{Level: level})
 }

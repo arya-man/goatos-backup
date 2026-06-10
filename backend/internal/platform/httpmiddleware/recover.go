@@ -1,0 +1,103 @@
+package httpmiddleware
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"runtime/debug"
+	"strings"
+)
+
+// PanicRecovery is the outermost HTTP middleware. It catches any panic that
+// escapes inner handlers or middleware (including auth and RequestContext),
+// logs the panic value and full stack trace with trace_id and request_id,
+// then writes a 500 JSON envelope carrying trace_id so the caller can
+// correlate to server logs.
+//
+// Wire it BEFORE RequestContext and auth so that panics in those layers are
+// also caught.
+//
+// Trace ID extraction strategy: because PanicRecovery sits outside
+// RequestContext in the chain, r.Context() does not have the trace/request IDs
+// set by RequestContext when a panic fires inside an inner handler. We fall
+// back in order:
+//
+//  1. TraceIDFromContext(r.Context()) — set when panic happens after
+//     RequestContext has stored the value.
+//  2. The X-Request-ID response header — RequestContext writes this before
+//     calling the inner handler, so it is present even when the panic fires
+//     deep in the handler.
+//  3. The X-Request-ID request header — present for all inbound requests that
+//     set it; empty string when not set.
+func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
+	if log == nil {
+		log = slog.Default()
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if p := recover(); p != nil {
+					stack := string(debug.Stack())
+					// Resolve trace/request IDs using the fallback chain.
+					traceID := resolveTraceID(r, w)
+					requestID := resolveRequestID(r, w)
+					log.ErrorContext(r.Context(), "http_panic",
+						slog.Any("panic", p),
+						slog.String("stack", stack),
+						slog.String("trace_id", traceID),
+						slog.String("request_id", requestID),
+						slog.String("method", r.Method),
+						slog.String("path", r.URL.Path),
+					)
+					// Attempt to write a 500 envelope. If headers have already
+					// been flushed, this is a no-op; the log above is the
+					// authoritative record.
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusInternalServerError)
+					envelope := map[string]any{
+						"code":         "panic_recovered",
+						"message":      fmt.Sprintf("internal server error: %v", p),
+						"field_errors": []any{},
+						"trace_id":     traceID,
+						"retryable":    false,
+					}
+					_ = json.NewEncoder(w).Encode(envelope)
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// resolveTraceID extracts the trace ID using the three-stage fallback:
+// context value → response header X-Request-ID → request header X-Request-ID.
+func resolveTraceID(r *http.Request, w http.ResponseWriter) string {
+	if v := TraceIDFromContext(r.Context()); v != "" {
+		return v
+	}
+	// RequestContext writes X-Request-ID to the response before calling next.
+	// This is available in the response headers even after a downstream panic.
+	if v := strings.TrimSpace(w.Header().Get(headerRequestID)); v != "" {
+		return v
+	}
+	// Last resort: the raw inbound header.
+	if v := strings.TrimSpace(r.Header.Get(headerRequestID)); v != "" {
+		return v
+	}
+	return ""
+}
+
+// resolveRequestID mirrors resolveTraceID but returns the request-scoped ID.
+func resolveRequestID(r *http.Request, w http.ResponseWriter) string {
+	if v := RequestIDFromContext(r.Context()); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(w.Header().Get(headerRequestID)); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(r.Header.Get(headerRequestID)); v != "" {
+		return v
+	}
+	return ""
+}

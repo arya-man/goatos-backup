@@ -25,7 +25,7 @@ Then load only the references needed for the task from the table below.
 | --- | --- |
 | `references/repo-structure.md` | Creating/scaffolding `goatos/`, moving docs, setting up `.claude`, `.agents`, `AGENTS.md`, `CLAUDE.md`, or deciding where files live |
 | `references/architecture.md` | Reviewing or changing contexts, modules, boundaries, ports/adapters, backend shape, or AI authority rules |
-| `references/backend-impl.md` | Extending/reviewing built Go backend code, Phase 1 identity read APIs, backend package patterns, request middleware, tenant-scoped queries, sqlc follow-up, RFID import/apply operations, source discovery, local full-stack rehearsal, anomaly reports, or local import runbooks |
+| `references/backend-impl.md` | Extending/reviewing built Go backend code, Phase 1 identity read APIs, backend package patterns, request middleware, tenant-scoped queries, sqlc follow-up, RFID import/apply operations, source discovery, local full-stack rehearsal, anomaly reports, local import runbooks, observability and logging, panic recovery, or log sinks |
 | `references/forms-sop.md` | Working on SOP forms, form DSL, builder/editor, native runner, task engine, verification flow, or Slack-form replacement |
 | `references/contracts-events.md` | Adding/changing OpenAPI, JSON Schema, protobuf, event envelope, decision records, generated clients, or contract drift checks |
 | `references/frontend-mobile.md` | Reusing existing dashboard/mobile UI, changing admin-web/operator-mobile, role-aware dashboard, RBAC UI visibility, or app data adapters |

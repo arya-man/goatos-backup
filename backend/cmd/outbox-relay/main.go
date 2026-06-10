@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,6 +12,7 @@ import (
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	outboxlogging "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher/logging"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -55,14 +55,14 @@ func run(args []string) error {
 		return err
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := observability.New(observability.Config{Service: "outbox-relay"})
 	repo := outboxpg.NewRepository(pool, pgCfg.QueryTimeout)
 	publisher := outboxlogging.NewPublisher(logger)
 	service := outboxapp.NewService(repo, publisher, validator, outboxapp.Config{
 		Limit:        cfg.Limit,
 		MaxAttempts:  cfg.MaxAttempts,
 		LeaseTimeout: cfg.LeaseTimeout,
-	})
+	}, logger)
 
 	result, err := service.RunOnce(ctx)
 	if err != nil {
