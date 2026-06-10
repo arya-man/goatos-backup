@@ -166,6 +166,42 @@ app/api/*, lib/bigquery.ts, CSV data-loader, and the legacy route pages/hooks
 that fetched those app/api routes are no longer in the Next build.
 ```
 
+Local Docker storage safety:
+
+```text
+docs/runbooks/local-docker-storage.md
+tools/dev/docker-storage-report.sh
+tools/dev/docker-cleanup-goatos.sh
+tools/dev/test-docker-storage-scripts.sh
+make docker-storage-report
+make docker-cleanup-goatos-dry-run
+make docker-cleanup-goatos-execute
+make docker-storage-scripts-test
+
+Local Docker is the default daily dev path for Docker Postgres, tests, and small
+synthetic data. GCP setup is not required for normal coding. goatos-dev Cloud
+SQL comes later for explicit cloud rehearsal. goatos-stg later holds the
+persistent 1M benchmark dataset. Local 1M tests are temporary only:
+create explicit temp volume -> run test -> export summary/report -> delete temp
+volume.
+
+Permanent local dev Postgres volume name:
+goatos_dev_pg_data
+
+Only these temp volume prefixes are cleanup-eligible:
+goatos_tmp_
+goatos_test_
+goatos_bench_tmp_
+
+The cleanup script is dry-run by default, never runs docker volume prune, never
+deletes global build cache/images, skips goatos_dev_pg_data, and skips
+unclassified volumes. Docker Desktop for Mac may keep host-side Docker.raw/VM
+disk space allocated after in-Docker deletes; use Docker Desktop disk
+usage/reclaim/reset workflow if macOS still reports the disk as full.
+
+Future cloud defaults are asia-south1 Mumbai, never US by default.
+```
+
 Outbox relay foundation:
 
 ```text

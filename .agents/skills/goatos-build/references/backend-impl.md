@@ -114,6 +114,17 @@ Rules:
   `rfid-apply`, `outbox-relay`, `rebuild-identity-counters`, and
   `update-identity-counters`) remain operator-trusted entrypoints outside HTTP
   auth, but must still require explicit tenant input and keep SQL tenant-scoped.
+- Local Docker is the default daily development path for Docker Postgres, tests,
+  and small synthetic data; GCP is not required for normal coding. `goatos-dev`
+  Cloud SQL later serves explicit cloud rehearsal, while `goatos-stg` later
+  holds the persistent 1M benchmark dataset. Local 1M tests must be temporary
+  volume runs only. Permanent local DB volume name is `goatos_dev_pg_data`; temp
+  test/benchmark volumes use `goatos_tmp_`, `goatos_test_`, or
+  `goatos_bench_tmp_`. Cleanup tooling must skip unclassified volumes, never
+  run blind `docker volume prune`, and must not silently prune machine-wide
+  Docker build cache/images. On Docker Desktop for Mac, deleting Docker
+  resources may not immediately shrink the host-side Docker.raw/VM disk image.
+  Future Goat OS cloud defaults are `asia-south1` Mumbai, never US by default.
 - Tenant-scope RBAC is broader than final intended scope. Tenant-wide
   admin/verifier grants can act across all goats in the tenant until
   custodian/farm/park/shed/cohort filtering lands.

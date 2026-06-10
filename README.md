@@ -75,6 +75,8 @@ Completed so far:
 - Generated OpenAPI TypeScript client package and drift gate.
 - Admin-web Phase 1 readiness shell with executable BigQuery/Sheets routes removed.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
+- Local Docker storage runbook plus read-only report and guarded Goat OS temp
+  volume cleanup tooling.
 - Contract validation and migration validation.
 - Docker-backed backend tests for core invariants.
 
@@ -104,6 +106,29 @@ Important:
 Backend foundation is built.
 User-facing product is not complete yet.
 ```
+
+## Local Development Storage
+
+Daily Goat OS development runs locally with Docker Postgres, tests, and small
+synthetic data. GCP is not required for normal coding. Future `goatos-dev`
+Cloud SQL is for explicit cloud rehearsal, and future `goatos-stg` Cloud SQL is
+where the persistent 1M-goat benchmark belongs. Local 1M tests must be
+temporary: create an explicit temp volume, run the test, export the summary, and
+delete the temp volume.
+
+Use the local Docker storage runbook before large local tests:
+
+```text
+docs/runbooks/local-docker-storage.md
+```
+
+On Docker Desktop for Mac, deleting Docker containers/images/volumes frees space
+inside Docker's Linux VM first. The host-side `Docker.raw` or VM disk image may
+still need Docker Desktop reclaim/reset workflow before macOS shows the space as
+available.
+
+Later Goat OS cloud defaults are Mumbai-first (`asia-south1`), never US by
+default.
 
 ## What "Without Sheets Or Firebase" Means
 

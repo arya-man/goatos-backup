@@ -6,6 +6,7 @@ Current runbooks:
 
 - [GitHub workflows](github-workflows.md)
 - [Google Cloud environments](google-cloud-environments.md)
+- [Local Docker storage](local-docker-storage.md)
 
 Initial required runbooks:
 
