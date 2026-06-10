@@ -24,6 +24,10 @@ Rules:
 - Media storage/egress is a first-class cost line.
 - Legacy BigQuery/dashboard table catalog is now captured in the analytics doc
   as parity-test and metric-inventory seed material. It is not operational truth.
+- AI analyst work is blocked until canonical dbt marts, Cube metrics, dashboard
+  parity tests, an analytics skill, offline evals, and provenance/freshness
+  footers exist. AI uses Cube first, curated marts second, and raw SQL only for
+  debugging or migration investigation.
 - Promise-risk dashboards must include delivery-date eligibility, unresolved
   identity, feed-clearance, promised-weight risk, price-audit failure,
   replacement availability, and open-promise sweeper output.

@@ -83,6 +83,50 @@ dbt:
   no metric definitions that duplicate Cube.
 ```
 
+## AI Analyst Readiness
+
+The AI analyst must not be a raw warehouse chatbot. It becomes useful only after
+the governed analytics layer exists.
+
+Required before enabling AI analyst answers for CEO, investor, or operating
+decisions:
+
+```text
+canonical dbt marts:
+  clean facts, dimensions, snapshots, and dashboard marts exist.
+
+Cube metrics:
+  official KPI definitions live in Cube with grain, joins, filters, ownership,
+  freshness, and valid-value notes.
+
+legacy dashboard parity:
+  old dashboard queries and BigQuery table names are converted into metric
+  inventory and parity tests, not copied as new truth.
+
+analytics skill:
+  the agent is instructed to use Cube first, curated marts second, and raw SQL
+  only for debugging or migration investigation.
+
+offline evals:
+  fixed questions for active herd, mortality, feed cost, ADG, procurement cost,
+  promise risk, vaccination compliance, and sales margin are checked against
+  blessed snapshots or dashboards.
+
+provenance footer:
+  every answer reports source tier, freshness, owner, and whether the answer is
+  official, exploratory, or raw/debug.
+```
+
+Rules:
+
+```text
+AI cannot define official metrics.
+AI cannot query raw operational Postgres for official KPI answers.
+AI cannot treat legacy dashboard SQL as authoritative.
+AI can draft metric docs, column descriptions, and eval cases for human review.
+Leadership-bound answers need governed metrics or explicit human sign-off.
+```
+
 ## Event Flow
 
 ```text
