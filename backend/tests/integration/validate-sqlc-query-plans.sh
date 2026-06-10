@@ -205,6 +205,20 @@ LIMIT 10
 FOR UPDATE SKIP LOCKED"
 }
 
+validate_auth_grant_lookup_plan() {
+  explain_must_use_index "ActiveTenantRoles" 'Seq Scan on user_scope_grants' "EXPLAIN (COSTS OFF)
+SELECT role
+FROM user_scope_grants
+WHERE user_id = '90000000-0000-4000-8000-000000000001'::uuid
+  AND tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND scope_type = 'tenant'
+  AND scope_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND status = 'active'
+  AND valid_from <= now()
+  AND (valid_to IS NULL OR valid_to > now())
+ORDER BY role"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -233,5 +247,6 @@ if [ "$checked_count" -ne "$declared_count" ]; then
 fi
 
 validate_outbox_claim_plan
+validate_auth_grant_lookup_plan
 
-echo "Validated $checked_count generated sqlc query plans and 1 hand-written outbox query plan"
+echo "Validated $checked_count generated sqlc query plans and 2 hand-written query plans"
