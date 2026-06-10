@@ -53,6 +53,7 @@ func New(cfg Config) *slog.Logger {
 	sink := strings.ToLower(strings.TrimSpace(coalesce(cfg.Sink, os.Getenv("GOATOS_OBS_SINK"), "stdout_json")))
 	env := coalesce(cfg.Env, os.Getenv("GOATOS_ENV"), "local")
 	version := coalesce(cfg.Version, "dev")
+	otlpEndpoint := strings.TrimSpace(os.Getenv("GOATOS_OTLP_ENDPOINT"))
 
 	w := cfg.W
 	if w == nil {
@@ -69,11 +70,20 @@ func New(cfg Config) *slog.Logger {
 		handler = slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level})
 	}
 
-	return slog.New(handler).With(
+	log := slog.New(handler).With(
 		slog.String("service", coalesce(cfg.Service, "goatos")),
 		slog.String("version", version),
 		slog.String("env", env),
 	)
+	if sink == "otlp" || sink == "gcm" {
+		log.Warn("observability_sink_not_implemented",
+			slog.String("requested_sink", sink),
+			slog.String("fallback_sink", "stdout_json"),
+			slog.String("otlp_endpoint", otlpEndpoint),
+			slog.String("next_step", "wire a real OTLP-HTTP exporter before expecting logs to ship outside stdout"),
+		)
+	}
+	return log
 }
 
 func resolveLevel(raw string) slog.Level {

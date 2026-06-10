@@ -76,6 +76,33 @@ func TestPanicRecoveryLogsStackAndPanicValue(t *testing.T) {
 	}
 }
 
+func TestPanicRecoveryDoesNotAppendEnvelopeAfterResponseStarted(t *testing.T) {
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("partial response"))
+		panic("panic after write")
+	})
+	handler := PanicRecovery(log)(RequestContext(log)(panicHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Request-ID", "req-panic-after-write")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want original started response status 200", rec.Code)
+	}
+	if got := rec.Body.String(); got != "partial response" {
+		t.Fatalf("body=%q, want only partial response without appended envelope", got)
+	}
+	logOut := logBuf.String()
+	if !strings.Contains(logOut, "http_panic") || !strings.Contains(logOut, "panic after write") {
+		t.Fatalf("panic was not logged with value: %s", logOut)
+	}
+}
+
 func TestPanicRecoveryDoesNotFireOnNormalRequests(t *testing.T) {
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logBuf, nil))

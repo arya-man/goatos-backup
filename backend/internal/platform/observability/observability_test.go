@@ -51,10 +51,21 @@ func TestNewDefaultsToStdoutJSON(t *testing.T) {
 
 func TestNewSinkOTLPFallsBackToJSON(t *testing.T) {
 	var buf bytes.Buffer
+	t.Setenv("GOATOS_OTLP_ENDPOINT", "https://collector.example.test/v1/logs")
 	log := New(Config{Service: "svc", Sink: "otlp", W: &buf})
 	log.Info("otlp_sink")
-	if !strings.Contains(buf.String(), `"msg":"otlp_sink"`) {
-		t.Errorf("expected structured JSON output, got: %s", buf.String())
+	lines := logLines(t, buf.String())
+	if len(lines) != 2 {
+		t.Fatalf("log lines=%d, want startup warning plus message:\n%s", len(lines), buf.String())
+	}
+	if lines[0]["msg"] != "observability_sink_not_implemented" {
+		t.Fatalf("first log msg=%v, want startup warning", lines[0]["msg"])
+	}
+	if lines[0]["requested_sink"] != "otlp" || lines[0]["fallback_sink"] != "stdout_json" || lines[0]["otlp_endpoint"] != "https://collector.example.test/v1/logs" {
+		t.Fatalf("bad otlp warning fields: %#v", lines[0])
+	}
+	if lines[1]["msg"] != "otlp_sink" {
+		t.Errorf("expected structured JSON output, got: %#v", lines[1])
 	}
 }
 
@@ -62,8 +73,15 @@ func TestNewSinkGCMFallsBackToJSON(t *testing.T) {
 	var buf bytes.Buffer
 	log := New(Config{Service: "svc", Sink: "gcm", W: &buf})
 	log.Info("gcm_sink")
-	if !strings.Contains(buf.String(), `"msg":"gcm_sink"`) {
-		t.Errorf("expected structured JSON output, got: %s", buf.String())
+	lines := logLines(t, buf.String())
+	if len(lines) != 2 {
+		t.Fatalf("log lines=%d, want startup warning plus message:\n%s", len(lines), buf.String())
+	}
+	if lines[0]["msg"] != "observability_sink_not_implemented" || lines[0]["requested_sink"] != "gcm" {
+		t.Fatalf("bad gcm warning fields: %#v", lines[0])
+	}
+	if lines[1]["msg"] != "gcm_sink" {
+		t.Errorf("expected structured JSON output, got: %#v", lines[1])
 	}
 }
 
@@ -76,4 +94,21 @@ func TestNewCoalesceVersionDefault(t *testing.T) {
 	if m["version"] != "dev" {
 		t.Errorf("expected default version=dev, got %v", m["version"])
 	}
+}
+
+func logLines(t *testing.T, raw string) []map[string]any {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	out := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("log line is not valid JSON: %v\nline: %s\nall output:\n%s", err, line, raw)
+		}
+		out = append(out, m)
+	}
+	return out
 }

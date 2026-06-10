@@ -35,12 +35,13 @@ func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tracker := &panicResponseTracker{ResponseWriter: w}
 			defer func() {
 				if p := recover(); p != nil {
 					stack := string(debug.Stack())
 					// Resolve trace/request IDs using the fallback chain.
-					traceID := resolveTraceID(r, w)
-					requestID := resolveRequestID(r, w)
+					traceID := resolveTraceID(r, tracker)
+					requestID := resolveRequestID(r, tracker)
 					log.ErrorContext(r.Context(), "http_panic",
 						slog.Any("panic", p),
 						slog.String("stack", stack),
@@ -49,11 +50,11 @@ func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
 						slog.String("method", r.Method),
 						slog.String("path", r.URL.Path),
 					)
-					// Attempt to write a 500 envelope. If headers have already
-					// been flushed, this is a no-op; the log above is the
-					// authoritative record.
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusInternalServerError)
+					if tracker.started {
+						return
+					}
+					tracker.Header().Set("Content-Type", "application/json")
+					tracker.WriteHeader(http.StatusInternalServerError)
 					envelope := map[string]any{
 						"code":         "panic_recovered",
 						"message":      "internal server error",
@@ -61,12 +62,31 @@ func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
 						"trace_id":     traceID,
 						"retryable":    false,
 					}
-					_ = json.NewEncoder(w).Encode(envelope)
+					_ = json.NewEncoder(tracker).Encode(envelope)
 				}
 			}()
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(tracker, r)
 		})
 	}
+}
+
+type panicResponseTracker struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *panicResponseTracker) WriteHeader(status int) {
+	w.started = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *panicResponseTracker) Write(data []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *panicResponseTracker) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 // resolveTraceID extracts the trace ID using the three-stage fallback:
