@@ -157,6 +157,61 @@ goatos-prod
 Keep service accounts, buckets, databases, Pub/Sub topics, and secrets separate
 per project.
 
+## Staging Benchmark Model
+
+`goatos-stg` is the scale rehearsal environment. Its benchmark dataset is a
+fixed 1M-goat synthetic/legacy-shaped baseline, not an ever-growing import log.
+
+Operating model:
+
+```text
+1. Load the 1M benchmark baseline once.
+2. Snapshot or otherwise preserve the clean baseline.
+3. Stop Cloud SQL when not testing.
+4. Start Cloud SQL only for rehearsals.
+5. For read/query/counter tests, run directly against the clean baseline.
+6. For destructive write/load tests, use a clone or delete only that run's
+   delta after the test.
+7. Do not append another 1M rows on top of the baseline for each rehearsal.
+```
+
+Cost model:
+
+```text
+Fixed 1M text-only benchmark
+  -> stable storage cost while stopped
+  -> no running CPU/RAM charge while Cloud SQL is stopped
+
+Running about 40 hours/month
+  -> storage/backups all month
+  -> compute only for those 40 running hours
+```
+
+Expected rough monthly `goatos-stg` range with no fake media and controlled
+logs:
+
+```text
+Stopped storage/backups floor:  low tens to low hundreds USD/month
+40 hours running compute:       tens to a few hundred USD/month
+Expected normal range:          roughly low hundreds USD/month
+```
+
+This estimate is a planning range, not a committed budget. Confirm actual spend
+with billing reports after the first benchmark load.
+
+Rules that keep the benchmark cost stable:
+
+- The benchmark remains exactly 1M goats unless a deliberate new scale target is
+  approved.
+- Do not keep appending event/audit/outbox/import rows from repeated write
+  rehearsals onto the baseline.
+- Avoid fake media in the 1M benchmark. Use tiny placeholders or metadata-only
+  rows unless media throughput is the test target.
+- Keep PITR and backup retention low/off for disposable mock benchmark data.
+- Add a budget alert for `goatos-stg` before running large rehearsals.
+- If a write test needs to mutate heavily, prefer clone -> test -> delete clone
+  so the baseline stays clean.
+
 ## Guardrails
 
 - Verify account, organization, folder, project, and repo before every cloud
