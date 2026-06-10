@@ -513,10 +513,20 @@ RFID source-of-truth staging:
   staging does not mutate goats, goat_identifiers, goat_identity_events,
   outbox_messages, counters, candidates, conflicts, or correction requests
   anomaly reports are local ignored CSV artifacts under
-  .codex-goatos-render/import-reports by default; they group actual emitted
-  reason codes from error_reason and processing_reasons, mask RFID/old-tag
-  values by default, and hash source_row_key references because source keys can
-  contain source identifiers
+  .codex-goatos-render/import-reports by default; the final rehearsal report is
+  generated after rfid-apply so it includes staging reasons and apply-stage
+  review reasons such as unknown_status_mapping and
+  species_or_breed_requires_review
+  reports group actual emitted reason codes from error_reason and
+  processing_reasons, mask RFID/old-tag values by default, and hash
+  source_row_key references because source keys can contain source identifiers
+  grouped review summaries read raw_payload only through safe source-label
+  fields Tag, Breed, Gender, Farm, Shed, and Partition, falling back to
+  normalized fields for those same labels; they never emit full raw_payload,
+  raw row JSON, raw RFID, or raw old-tag values
+  species_or_breed_requires_review groups are for human alias-vs-exclusion
+  decisions, not auto-aliasing; blank_old_tag_suffix groups support a future
+  RFID-only creation policy decision and do not change Phase 1 apply behavior
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
 RFID source-of-truth canonical apply:

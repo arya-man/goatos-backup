@@ -120,27 +120,44 @@ if [ -z "$import_run_id" ] || [ "$import_run_id" = "$import_output" ]; then
   exit 1
 fi
 
-report_output="$(
-  cd "$repo_root/backend"
-  go run ./cmd/rfid-import --anomaly-report --tenant-id "$tenant_id" --import-run-id "$import_run_id" --sheet Combined --source-name "Synthetic RFID smoke staging" --output-dir "$report_dir"
-)"
-if [[ "$report_output" != *"anomaly_report_details="* ]]; then
-  echo "anomaly report did not write paths: $report_output" >&2
-  exit 1
-fi
-if rg -n "990000000000000000" "$report_dir" >/dev/null 2>&1; then
-  echo "anomaly report leaked raw synthetic RFID prefix" >&2
-  exit 1
-fi
-if ! rg -n "duplicate_rfid_in_workbook|missing_rfid|blank_gender" "$report_dir" >/dev/null 2>&1; then
-  echo "anomaly report did not include expected actual reason codes" >&2
-  exit 1
-fi
-
 (
   cd "$repo_root/backend"
   go run ./cmd/rfid-apply --tenant-id "$tenant_id" --import-run-id "$import_run_id" --actor-id "$granted_user_id"
 ) >/dev/null
+
+report_output="$(
+  cd "$repo_root/backend"
+  go run ./cmd/rfid-import --anomaly-report --tenant-id "$tenant_id" --import-run-id "$import_run_id" --sheet Combined --source-name "Synthetic RFID smoke final review" --output-dir "$report_dir"
+)"
+if [[ "$report_output" != *"anomaly_report_details="* || "$report_output" != *"anomaly_report_summary="* || "$report_output" != *"anomaly_report_groups="* ]]; then
+  echo "final anomaly report did not write all report paths: $report_output" >&2
+  exit 1
+fi
+details_path="$(sed -E 's/.*anomaly_report_details=([^ ]+).*/\1/' <<<"$report_output")"
+summary_path="$(sed -E 's/.*anomaly_report_summary=([^ ]+).*/\1/' <<<"$report_output")"
+groups_path="$(sed -E 's/.*anomaly_report_groups=([^ ]+).*/\1/' <<<"$report_output")"
+for report_path in "$details_path" "$summary_path" "$groups_path"; do
+  if [ ! -s "$report_path" ]; then
+    echo "final anomaly report path missing or empty: $report_path" >&2
+    exit 1
+  fi
+done
+if rg -n "990000000000000000" "$details_path" "$summary_path" "$groups_path" >/dev/null 2>&1; then
+  echo "final anomaly report leaked raw synthetic RFID prefix" >&2
+  exit 1
+fi
+if ! rg -n "duplicate_rfid_in_workbook|missing_rfid|blank_gender" "$details_path" "$summary_path" "$groups_path" >/dev/null 2>&1; then
+  echo "final anomaly report did not include expected staging reason codes" >&2
+  exit 1
+fi
+if ! rg -n "unknown_status_mapping|species_or_breed_requires_review" "$details_path" "$summary_path" "$groups_path" >/dev/null 2>&1; then
+  echo "final anomaly report did not include an apply-stage review reason" >&2
+  exit 1
+fi
+if ! rg -n "source_status_label|source_breed_label" "$groups_path" >/dev/null 2>&1; then
+  echo "final anomaly grouped summary did not include an apply-stage grouped bucket" >&2
+  exit 1
+fi
 
 (
   cd "$repo_root/backend"
@@ -189,4 +206,4 @@ GOATOS_API_BASE_URL="http://127.0.0.1:$api_port" GOATOS_BEARER_TOKEN="$granted_t
 GOATOS_API_BASE_URL="http://127.0.0.1:$api_port" GOATOS_BEARER_TOKEN="$granted_token" \
   npm --prefix "$repo_root/apps/admin-web" run build >/dev/null
 
-echo "Local full-stack smoke passed: source discovery, fixture import/apply, masked anomaly report, counter rebuild, bearer auth, and admin-web build are wired through local Docker Postgres."
+echo "Local full-stack smoke passed: source discovery, fixture import/apply, final masked anomaly report, counter rebuild, bearer auth, and admin-web build are wired through local Docker Postgres."

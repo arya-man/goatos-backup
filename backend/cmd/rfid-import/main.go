@@ -206,11 +206,11 @@ func writeAnomalyReport(ctx context.Context, repo *importpg.Repository, opts ano
 		IncludeSensitive: opts.includeSensitive,
 	}
 	report := legacy_import.BuildAnomalyReport(rows, reportOptions)
-	detailsPath, summaryPath, err := legacy_import.WriteAnomalyReportCSV(opts.outputDir, reportOptions, report)
+	detailsPath, summaryPath, groupsPath, err := legacy_import.WriteAnomalyReportCSV(opts.outputDir, reportOptions, report)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("anomaly_report_details=%s anomaly_report_summary=%s anomaly_rows=%d reason_codes=%d\n", detailsPath, summaryPath, len(report.Details), len(report.Summary))
+	fmt.Printf("anomaly_report_details=%s anomaly_report_summary=%s anomaly_report_groups=%s anomaly_rows=%d reason_codes=%d grouped_rows=%d\n", detailsPath, summaryPath, groupsPath, len(report.Details), len(report.Summary), len(report.Groups))
 	return nil
 }
 

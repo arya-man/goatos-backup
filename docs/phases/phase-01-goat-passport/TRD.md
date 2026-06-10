@@ -2730,10 +2730,19 @@ dry-run writes a completed legacy_import_runs row and aggregate counts only; it
 does not insert legacy_import_rows
 real staging writes a running legacy_import_runs row, inserts rows in bounded
 batches, then marks the run completed or failed
-sanitized anomaly reports are local ignored CSV artifacts; they group actual
-error_reason and processing_reasons codes, mask RFID/old-tag values by default,
-and hash source_row_key references because source_row_key can contain source
-identifier evidence
+sanitized anomaly reports are local ignored CSV artifacts; the final rehearsal
+report is generated after rfid-apply so it includes staging reasons and
+apply-stage review reasons such as unknown_status_mapping and
+species_or_breed_requires_review. Reports group actual error_reason and
+processing_reasons codes, mask RFID/old-tag values by default, and hash
+source_row_key references because source_row_key can contain source identifier
+evidence. Grouped review summaries may read raw_payload only through the safe
+source-label whitelist Tag, Breed, Gender, Farm, Shed, and Partition, falling
+back to normalized fields for those same labels when raw is absent. They never
+emit full raw_payload, raw row JSON, raw RFID, or raw old-tag values.
+species_or_breed_requires_review groups are for human alias-vs-exclusion
+decisions, not auto-aliasing. blank_old_tag_suffix groups are context for a
+future RFID-only creation policy decision, not a Phase 1 apply behavior change.
 created_goat_count, updated_goat_count, and conflict_count remain 0 during
 staging; canonical apply updates created_goat_count for rows it creates
 ```
@@ -2767,8 +2776,9 @@ Local full-stack rehearsal:
 
 ```text
 Use docs/runbooks/local-full-stack-rehearsal.md for the repeatable local path:
-local XLSX export -> discovery -> dry-run -> staging -> anomaly report ->
-rfid-apply -> counter rebuild -> backend API smoke -> admin-web typecheck/build.
+local XLSX export -> discovery -> dry-run -> staging -> rfid-apply -> final
+anomaly/review report -> counter rebuild -> backend API smoke -> admin-web
+typecheck/build.
 DB-writing local rehearsal CLIs use backend/internal/platform/localtarget and
 must reject non-local/staging/prod/Cloud SQL database targets.
 Frontend/admin-web must consume backend APIs only and must not import Google

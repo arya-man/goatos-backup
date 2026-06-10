@@ -177,6 +177,7 @@ SELECT
   source_row_key,
   processing_state,
   error_reason,
+  raw_payload,
   normalized_payload
 FROM legacy_import_rows
 WHERE tenant_id = $1
@@ -199,6 +200,7 @@ ORDER BY row_number, legacy_row_id`, tenantID, runID)
 			&row.SourceRowKey,
 			&row.ProcessingState,
 			&errorReason,
+			&row.RawPayload,
 			&row.NormalizedPayload,
 		); err != nil {
 			return nil, err

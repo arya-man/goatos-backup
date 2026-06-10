@@ -303,8 +303,11 @@ Rules:
 - Google Sheet live export/import is not implemented in Phase 1. Operators must
   export to local XLSX and use `rfid-import --source-type=local_xlsx`; the
   `google_sheet` discovery path returns a skipped status.
-- Anomaly/review reports must use actual emitted reason codes from
-  `legacy_import` staging/apply data, such as `malformed_rfid`,
+- Anomaly/review reports must be generated after `rfid-apply` for the final
+  local rehearsal handoff so they include both staging reasons and apply-stage
+  review reasons such as `unknown_status_mapping` and
+  `species_or_breed_requires_review`. They must use actual emitted reason codes
+  from `legacy_import` data, such as `malformed_rfid`,
   `duplicate_rfid_in_workbook`, `missing_rfid`,
   `duplicate_old_tag_same_scope`, `blank_old_tag_suffix`,
   `tagless_identity_evidence`, `blank_gender`, `unknown_gender`, and
@@ -312,6 +315,14 @@ Rules:
   are not implemented. Reports belong under ignored local output paths, must
   mask sensitive identifiers by default, and must not emit raw source_row_key
   values because source keys can include RFID/old-tag evidence.
+- Anomaly grouped summaries may read `legacy_import_rows.raw_payload` only
+  through the safe source-label whitelist `Tag`, `Breed`, `Gender`, `Farm`,
+  `Shed`, and `Partition`, falling back to normalized fields for those same
+  labels when raw data is absent. They must never serialize full raw_payload,
+  raw row JSON, raw RFID, or raw old-tag values. Breed review groups are a human
+  gate for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
+  groups are context for a future RFID-only creation policy decision, not a
+  Phase 1 apply behavior change.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

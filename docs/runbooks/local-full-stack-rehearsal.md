@@ -7,14 +7,14 @@ The local path is:
 
 ```text
 local XLSX export
+  -> local Docker Postgres
   -> source discovery
   -> RFID import staging
-  -> local Docker Postgres
   -> RFID apply
+  -> final sanitized review report
   -> identity counter rebuild
   -> backend APIs
   -> admin-web build/client smoke
-  -> sanitized anomaly report
 ```
 
 ## Safety Rules
@@ -108,7 +108,7 @@ go run ./cmd/rfid-import \
 It must not insert `legacy_import_rows` and must not mutate canonical goats,
 identifiers, events, outbox, counters, conflicts, candidates, or corrections.
 
-## Stage And Report
+## Stage
 
 Stage the local XLSX:
 
@@ -121,7 +121,20 @@ go run ./cmd/rfid-import \
 
 The CLI prints `import_run_id=<uuid>`.
 
-Write a sanitized local anomaly report:
+## Apply
+
+Apply clean staged rows:
+
+```bash
+go run ./cmd/rfid-apply \
+  --tenant-id <tenant_uuid> \
+  --import-run-id <import_run_id> \
+  --actor-id <actor_uuid>
+```
+
+## Final Review Report
+
+Write the final sanitized local review report after `rfid-apply`:
 
 ```bash
 go run ./cmd/rfid-import \
@@ -133,20 +146,24 @@ go run ./cmd/rfid-import \
 ```
 
 The report uses actual emitted reason codes from `legacy_import_rows.error_reason`
-and `normalized_payload.processing_reasons`. It masks RFID and old-tag values by
-default and writes only to ignored local output paths. Do not use
-`--include-sensitive` unless the output stays local and uncommitted.
+and `normalized_payload.processing_reasons`, including apply-stage review reasons
+such as `unknown_status_mapping` and `species_or_breed_requires_review`. It
+writes row details, reason-code summary, and grouped review-summary CSVs.
+Grouped summaries use only safe source labels (`Tag`, `Breed`, `Gender`,
+`Farm`, `Shed`, and `Partition`) and never write raw RFID, old-tag, full row
+JSON, or full `raw_payload`.
 
-## Apply And Rebuild
+`species_or_breed_requires_review` groups are a human gate for deciding whether a
+label should become a breed alias or an exclusion; the report does not
+auto-alias. `blank_old_tag_suffix` groups show safe Farm/Shed/Partition context;
+RFID-only goat creation for those rows is a future policy decision, not part of
+this rehearsal slice.
 
-Apply clean staged rows:
+The report masks RFID and old-tag values by default and writes only to ignored
+local output paths. Do not use `--include-sensitive` unless the output stays
+local and uncommitted; grouped summaries remain aggregate/safe-label only.
 
-```bash
-go run ./cmd/rfid-apply \
-  --tenant-id <tenant_uuid> \
-  --import-run-id <import_run_id> \
-  --actor-id <actor_uuid>
-```
+## Rebuild Counters
 
 Rebuild Phase 1 identity counters:
 
@@ -166,9 +183,9 @@ backend/tests/integration/smoke-auth-local.sh
 ```
 
 It starts Docker Postgres, applies migrations, discovers the synthetic Shape 2
-fixture, verifies Google Sheet skip behavior, dry-runs, stages, writes a masked
-anomaly report, applies rows, rebuilds counters, starts the API, checks
-authenticated API access, and typechecks/builds admin-web.
+fixture, verifies Google Sheet skip behavior, dry-runs, stages, applies clean
+rows, writes the final masked review report, rebuilds counters, starts the API,
+checks authenticated API access, and typechecks/builds admin-web.
 
 ## Repeatable Fresh Export Loop
 

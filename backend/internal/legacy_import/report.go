@@ -19,6 +19,7 @@ type AnomalyReportInputRow struct {
 	SourceRowKey      string
 	ProcessingState   string
 	ErrorReason       *string
+	RawPayload        json.RawMessage
 	NormalizedPayload json.RawMessage
 }
 
@@ -45,15 +46,31 @@ type AnomalyReportEntry struct {
 type AnomalyReport struct {
 	Details []AnomalyReportEntry
 	Summary map[string]int
+	Groups  []AnomalyReportGroup
+}
+
+type AnomalyReportGroup struct {
+	GroupType  string
+	ReasonCode string
+	Count      int
+	LabelField string
+	LabelValue string
+	Farm       string
+	Shed       string
+	Partition  string
+	OldTagRef  string
+	Scope      string
+	ReviewNote string
 }
 
 func BuildAnomalyReport(rows []AnomalyReportInputRow, opts AnomalyReportOptions) AnomalyReport {
 	report := AnomalyReport{Summary: map[string]int{}}
 	for _, row := range rows {
 		payload := normalizedPayloadFields(row.NormalizedPayload)
+		raw := safeRawPayloadFields(row.RawPayload, payload)
 		rfid := maskIdentifier(payload.rfid, opts.IncludeSensitive)
 		oldTag := maskIdentifier(payload.oldTag, opts.IncludeSensitive)
-		sourceRef := sourceRowKeyRef(row.SourceRowKey, opts.IncludeSensitive)
+		sourceRef := sourceRowKeyRef(row.SourceRowKey)
 		reasons := rowAnomalyReasons(row.ErrorReason, payload.processingReasons)
 		reasonCodes := make([]string, 0, len(reasons))
 		for reason := range reasons {
@@ -73,6 +90,7 @@ func BuildAnomalyReport(rows []AnomalyReportInputRow, opts AnomalyReportOptions)
 				OldTag:          oldTag,
 			})
 			report.Summary[reason]++
+			addAnomalyGroup(&report, reason, raw, payload)
 		}
 	}
 	sort.SliceStable(report.Details, func(i, j int) bool {
@@ -81,7 +99,102 @@ func BuildAnomalyReport(rows []AnomalyReportInputRow, opts AnomalyReportOptions)
 		}
 		return report.Details[i].ReasonCode < report.Details[j].ReasonCode
 	})
+	sort.SliceStable(report.Groups, func(i, j int) bool {
+		left := report.Groups[i]
+		right := report.Groups[j]
+		if left.ReasonCode != right.ReasonCode {
+			return left.ReasonCode < right.ReasonCode
+		}
+		if left.GroupType != right.GroupType {
+			return left.GroupType < right.GroupType
+		}
+		if left.LabelValue != right.LabelValue {
+			return left.LabelValue < right.LabelValue
+		}
+		if left.Farm != right.Farm {
+			return left.Farm < right.Farm
+		}
+		if left.Shed != right.Shed {
+			return left.Shed < right.Shed
+		}
+		if left.Partition != right.Partition {
+			return left.Partition < right.Partition
+		}
+		if left.Scope != right.Scope {
+			return left.Scope < right.Scope
+		}
+		return left.OldTagRef < right.OldTagRef
+	})
 	return report
+}
+
+func addAnomalyGroup(report *AnomalyReport, reason string, raw safeReportFields, normalized normalizedReportFields) {
+	switch reason {
+	case "unknown_status_mapping":
+		report.addGroup(AnomalyReportGroup{
+			GroupType:  "source_status_label",
+			ReasonCode: reason,
+			LabelField: "Tag",
+			LabelValue: raw.tag,
+		})
+	case "species_or_breed_requires_review":
+		report.addGroup(AnomalyReportGroup{
+			GroupType:  "source_breed_label",
+			ReasonCode: reason,
+			LabelField: "Breed",
+			LabelValue: raw.breed,
+			ReviewNote: "Decide whether each label is a goat breed alias or an exclusion; do not auto-alias from this report alone.",
+		})
+	case "blank_old_tag_suffix":
+		report.addGroup(AnomalyReportGroup{
+			GroupType:  "safe_context",
+			ReasonCode: reason,
+			Farm:       raw.farm,
+			Shed:       raw.shed,
+			Partition:  raw.partition,
+			ReviewNote: "RFID-only creation for blank old-tag suffix rows is a future policy decision, not part of this report.",
+		})
+	case "blank_gender", "unknown_gender":
+		report.addGroup(AnomalyReportGroup{
+			GroupType:  "source_gender_label",
+			ReasonCode: reason,
+			LabelField: "Gender",
+			LabelValue: raw.gender,
+		})
+	case "duplicate_old_tag_same_scope":
+		report.addGroup(AnomalyReportGroup{
+			GroupType:  "masked_old_tag_scope",
+			ReasonCode: reason,
+			OldTagRef:  maskIdentifier(normalized.oldTag, false),
+			Scope:      normalized.oldTagScope,
+		})
+	}
+}
+
+func (r *AnomalyReport) addGroup(group AnomalyReportGroup) {
+	group.LabelValue = strings.TrimSpace(group.LabelValue)
+	group.Farm = strings.TrimSpace(group.Farm)
+	group.Shed = strings.TrimSpace(group.Shed)
+	group.Partition = strings.TrimSpace(group.Partition)
+	group.OldTagRef = strings.TrimSpace(group.OldTagRef)
+	group.Scope = strings.TrimSpace(group.Scope)
+	for i := range r.Groups {
+		existing := &r.Groups[i]
+		if existing.GroupType == group.GroupType &&
+			existing.ReasonCode == group.ReasonCode &&
+			existing.LabelField == group.LabelField &&
+			existing.LabelValue == group.LabelValue &&
+			existing.Farm == group.Farm &&
+			existing.Shed == group.Shed &&
+			existing.Partition == group.Partition &&
+			existing.OldTagRef == group.OldTagRef &&
+			existing.Scope == group.Scope {
+			existing.Count++
+			return
+		}
+	}
+	group.Count = 1
+	r.Groups = append(r.Groups, group)
 }
 
 func rowAnomalyReasons(errorReason *string, processingReasons []string) map[string]string {
@@ -111,26 +224,30 @@ func addAnomalyReason(reasons map[string]string, reason, origin string) {
 	}
 }
 
-func WriteAnomalyReportCSV(outputDir string, opts AnomalyReportOptions, report AnomalyReport) (detailsPath string, summaryPath string, err error) {
+func WriteAnomalyReportCSV(outputDir string, opts AnomalyReportOptions, report AnomalyReport) (detailsPath string, summaryPath string, groupsPath string, err error) {
 	if strings.TrimSpace(outputDir) == "" {
 		outputDir = filepath.Join(".codex-goatos-render", "import-reports")
 	}
 	if strings.TrimSpace(opts.ImportRunID) == "" {
-		return "", "", fmt.Errorf("import_run_id is required for anomaly report")
+		return "", "", "", fmt.Errorf("import_run_id is required for anomaly report")
 	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	base := safeFilename(opts.ImportRunID)
 	detailsPath = filepath.Join(outputDir, "anomalies-"+base+".csv")
 	summaryPath = filepath.Join(outputDir, "anomaly-summary-"+base+".csv")
+	groupsPath = filepath.Join(outputDir, "anomaly-groups-"+base+".csv")
 	if err := writeAnomalyDetails(detailsPath, opts, report.Details); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if err := writeAnomalySummary(summaryPath, opts, report.Summary); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return detailsPath, summaryPath, nil
+	if err := writeAnomalyGroups(groupsPath, opts, report.Groups); err != nil {
+		return "", "", "", err
+	}
+	return detailsPath, summaryPath, groupsPath, nil
 }
 
 func writeAnomalyDetails(path string, opts AnomalyReportOptions, details []AnomalyReportEntry) error {
@@ -195,9 +312,67 @@ func writeAnomalySummary(path string, opts AnomalyReportOptions, summary map[str
 	return writer.Error()
 }
 
+func writeAnomalyGroups(path string, opts AnomalyReportOptions, groups []AnomalyReportGroup) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	if err := writer.Write([]string{
+		"source_type",
+		"source_label",
+		"sheet",
+		"import_run_id",
+		"group_type",
+		"reason_code",
+		"count",
+		"label_field",
+		"label_value",
+		"farm",
+		"shed",
+		"partition",
+		"old_tag_ref",
+		"scope",
+		"review_note",
+	}); err != nil {
+		return err
+	}
+	for _, group := range groups {
+		if err := writer.Write([]string{
+			opts.SourceType,
+			opts.SourceLabel,
+			opts.SheetName,
+			opts.ImportRunID,
+			group.GroupType,
+			group.ReasonCode,
+			fmt.Sprint(group.Count),
+			group.LabelField,
+			group.LabelValue,
+			group.Farm,
+			group.Shed,
+			group.Partition,
+			group.OldTagRef,
+			group.Scope,
+			group.ReviewNote,
+		}); err != nil {
+			return err
+		}
+	}
+	return writer.Error()
+}
+
 type normalizedReportFields struct {
 	rfid              string
 	oldTag            string
+	oldTagScope       string
+	tag               string
+	breed             string
+	gender            string
+	farm              string
+	shed              string
+	partition         string
 	processingReasons []string
 }
 
@@ -212,12 +387,41 @@ func normalizedPayloadFields(data []byte) normalizedReportFields {
 			stringField(payload, "normalized_old_tag"),
 			stringField(payload, "old_tag_id"),
 		),
+		oldTagScope: oldTagScope(payload),
+		tag:         stringField(payload, "tag"),
+		breed:       stringField(payload, "breed"),
+		gender:      stringField(payload, "gender"),
+		farm:        stringField(payload, "farm"),
+		shed:        stringField(payload, "shed"),
+		partition:   stringField(payload, "partition"),
 	}
 	for _, item := range anySlice(payload["processing_reasons"]) {
 		if reason, ok := item.(string); ok && strings.TrimSpace(reason) != "" {
 			fields.processingReasons = append(fields.processingReasons, strings.TrimSpace(reason))
 		}
 	}
+	return fields
+}
+
+type safeReportFields struct {
+	tag       string
+	breed     string
+	gender    string
+	farm      string
+	shed      string
+	partition string
+}
+
+func safeRawPayloadFields(rawData []byte, normalized normalizedReportFields) safeReportFields {
+	fields := safeReportFields{}
+	var raw map[string]any
+	_ = json.Unmarshal(rawData, &raw)
+	fields.tag = safeLabel(firstNonEmpty(anyString(raw["Tag"]), normalized.tag))
+	fields.breed = safeLabel(firstNonEmpty(anyString(raw["Breed"]), normalized.breed))
+	fields.gender = safeLabel(firstNonEmpty(anyString(raw["Gender"]), normalized.gender))
+	fields.farm = safeLabel(firstNonEmpty(anyString(raw["Farm"]), normalized.farm))
+	fields.shed = safeLabel(firstNonEmpty(anyString(raw["Shed"]), normalized.shed))
+	fields.partition = safeLabel(firstNonEmpty(anyString(raw["Partition"]), normalized.partition))
 	return fields
 }
 
@@ -266,13 +470,10 @@ func safeFilename(value string) string {
 	return b.String()
 }
 
-func sourceRowKeyRef(value string, includeSensitive bool) string {
+func sourceRowKeyRef(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
-	}
-	if includeSensitive {
-		return value
 	}
 	sum := sha256.Sum256([]byte(value))
 	return "sha256:" + hex.EncodeToString(sum[:8])
@@ -281,6 +482,56 @@ func sourceRowKeyRef(value string, includeSensitive bool) string {
 func stringField(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func anyString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
+	default:
+		return ""
+	}
+}
+
+func safeLabel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			b.WriteByte(' ')
+		case r < 0x20:
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := strings.Join(strings.Fields(b.String()), " ")
+	if len(out) > 120 {
+		return out[:120]
+	}
+	return out
+}
+
+func oldTagScope(payload map[string]any) string {
+	if parkCode := stringField(payload, "normalized_park_code"); parkCode != "" {
+		return "park:" + parkCode
+	}
+	for _, item := range anySlice(payload["identifier_candidates"]) {
+		candidate, ok := item.(map[string]any)
+		if !ok || stringField(candidate, "identifier_type") != "old_tag" {
+			continue
+		}
+		if scope := stringField(candidate, "scope_key"); scope != "" {
+			return scope
+		}
+	}
+	return ""
 }
 
 func anySlice(value any) []any {
