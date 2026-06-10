@@ -28,6 +28,25 @@ Current repos:
 - `website/` - public MESHA site; business-context reference only, out of Goat OS core.
 - `slack-automation-scripts/` - legacy Slack/Sheets/App Script automation.
 
+Organization boundaries:
+
+- Mesha/VGoats, Heva, and Slice are separate businesses and must never be
+  mixed in GitHub or Google Cloud operations.
+- Goat OS belongs to Mesha/VGoats. Google Cloud work for Goat OS targets the
+  `vgoats.com` organization and future `goatos-dev`, `goatos-stg`, and
+  `goatos-prod` projects.
+- Do not use Heva projects/orgs, Slice projects/orgs, or `hevaplatform` for
+  Goat OS work.
+- Do not modify or replace the legacy `goatos-sheets` project while creating
+  Goat OS projects.
+- Before any cloud/GitHub command that creates, updates, deletes, grants IAM,
+  links billing, deploys, or changes configuration, verify and state the active
+  account, organization, folder, project, and target repo. If the target is not
+  Mesha/VGoats for Goat OS work, stop and correct context first.
+- Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
+  folder, or directly under the org if folder creation is not available. Do not
+  create Goat OS resources inside `system-gsuite` or `apps-script`.
+
 Do:
 
 - Keep architecture facts in `context/`.
