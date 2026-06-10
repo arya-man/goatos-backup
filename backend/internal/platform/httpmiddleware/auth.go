@@ -55,7 +55,7 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 			return nil, ErrInvalidAuthConfig
 		}
 	case AuthModeDevHeaders:
-		if !cfg.DevHeadersAllowed || !devHeadersEnvironmentAllowed(cfg.Environment) {
+		if !cfg.DevHeadersAllowed || !DevHeadersEnvironmentAllowed(cfg.Environment) {
 			return nil, ErrInvalidAuthConfig
 		}
 		log.Warn("dev header auth enabled; never use outside local development")
@@ -145,7 +145,10 @@ func isPublicHealthRoute(r *http.Request) bool {
 	return r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/readyz")
 }
 
-func devHeadersEnvironmentAllowed(env string) bool {
+// DevHeadersEnvironmentAllowed is the exact allowlist for the local/dev header
+// auth escape hatch. It is exported so bootstrap config validation and the
+// middleware cannot drift.
+func DevHeadersEnvironmentAllowed(env string) bool {
 	env = strings.ToLower(strings.TrimSpace(env))
 	return env == "local" || env == "dev" || env == "test"
 }

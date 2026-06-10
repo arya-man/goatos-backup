@@ -126,7 +126,7 @@ func buildAuthVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error) {
 			MaxTTL:   cfg.MaxTokenTTL,
 		})
 	case httpmiddleware.AuthModeDevHeaders:
-		if !cfg.DevHeadersAllowed || !devHeadersEnvironmentAllowed(cfg.Environment) {
+		if !cfg.DevHeadersAllowed || !httpmiddleware.DevHeadersEnvironmentAllowed(cfg.Environment) {
 			return nil, httpmiddleware.ErrInvalidAuthConfig
 		}
 		return nil, nil
@@ -145,11 +145,6 @@ func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, 
 		DevHeadersAllowed: cfg.DevHeadersAllowed,
 		Environment:       cfg.Environment,
 	}, verifier, grants, log)
-}
-
-func devHeadersEnvironmentAllowed(env string) bool {
-	env = strings.ToLower(strings.TrimSpace(env))
-	return env == "local" || env == "dev" || env == "test"
 }
 
 func authMaxTokenTTLFromEnv() time.Duration {
