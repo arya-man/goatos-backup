@@ -460,6 +460,9 @@ Phase 1 permissions:
 The next auth/RBAC slice should implement signed bearer auth plus active
 tenant-scope `user_scope_grants` checks for these roles. HS256 is a bootstrap
 verifier only; production IdP/JWKS/asymmetric verification remains deferred.
+The bootstrap HS256 verifier should use Go standard-library primitives
+(`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing); if a JWT library
+is introduced, `go.mod` and `go.sum` must be committed with it.
 Bearer-mode startup must fail if issuer/audience are missing or the HS256 secret
 is missing/weak. `dev_headers` mode, if retained, must require an explicit
 local-only opt-in and must refuse staging/production-looking configuration.
@@ -470,9 +473,21 @@ optional equality assertion.
 
 The auth/RBAC implementation must use an explicit route-to-permission registry
 with a fail-closed default. Only `/healthz` and `/readyz` are unauthenticated.
+Identity/admin/app handlers and reporting/analytics handlers must share that
+registry; `analytics.identity.read` must not be enforced from a divergent
+analytics-only permission table.
 `adminListCorrectionRequests` must move to
 `GET /admin/identity/correction-requests` before route permissions are enforced;
 `GET /identity/correction-requests` remains the app own/visible correction list.
+
+`import.run.view` on `verifier` is deliberate so identity reviewers can inspect
+import provenance while triaging dirty identity data. It does not grant import
+run creation or canonical import apply.
+
+HTTP auth/RBAC does not cover local/system CLIs (`rfid-import`, `rfid-apply`,
+`outbox-relay`, `rebuild-identity-counters`, `update-identity-counters`). Those
+entrypoints remain operator-trusted, but must still take explicit tenant input
+and keep database writes tenant-scoped.
 
 Actor attribution must come from the token `sub` in bearer mode. Production
 handlers must stop reading `X-GoatOS-Actor-ID` for write audit/decision actors.

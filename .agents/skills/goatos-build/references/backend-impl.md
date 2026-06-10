@@ -82,6 +82,12 @@ Rules:
   `import.run.manage`; import run reads use `import.run.view`. HS256 is a
   bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
   deferred.
+- Verifier access to `import.run.view` is deliberate: identity reviewers need
+  import provenance while triaging dirty data. It does not grant import run
+  creation or canonical import apply.
+- The bootstrap HS256 verifier should use Go standard-library primitives
+  (`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing). If a JWT
+  library is added, commit the matching `go.mod` and `go.sum` changes.
 - Bearer-mode startup must fail if issuer/audience are missing or the HS256
   secret is missing/weak. The dev-header escape hatch, if retained, must require
   explicit local-only opt-in and refuse staging/production-looking
@@ -95,9 +101,16 @@ Rules:
   app `listCorrectionRequests` stays `GET /identity/correction-requests`, while
   admin `adminListCorrectionRequests` moves to
   `GET /admin/identity/correction-requests`.
+- Identity/admin/app handlers and reporting/analytics handlers must consume the
+  same permission registry package. Do not maintain a separate analytics-only
+  table for `analytics.identity.read`.
 - Analytics count reads use token tenant as the DB tenant filter. Query
   `tenant_id` is only an optional equality assertion and must not become
   repository authority.
+- HTTP auth/RBAC covers network API requests. Local/system CLIs (`rfid-import`,
+  `rfid-apply`, `outbox-relay`, `rebuild-identity-counters`, and
+  `update-identity-counters`) remain operator-trusted entrypoints outside HTTP
+  auth, but must still require explicit tenant input and keep SQL tenant-scoped.
 - Tenant-scope RBAC is broader than final intended scope. Tenant-wide
   admin/verifier grants can act across all goats in the tenant until
   custodian/farm/park/shed/cohort filtering lands.

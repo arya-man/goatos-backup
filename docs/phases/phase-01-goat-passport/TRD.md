@@ -1806,6 +1806,10 @@ ceo_internal
   analytics.identity.read
 ```
 
+`import.run.view` on `verifier` is intentional: identity reviewers need import
+provenance and dirty-row context when triaging conflicts, candidates, and
+corrections. It does not grant import run creation or canonical import apply.
+
 Endpoint permission mapping:
 
 ```text
@@ -1855,6 +1859,10 @@ GET /healthz
 GET /readyz
 ```
 
+Identity/admin/app handlers and reporting/analytics handlers must consume the
+same permission registry package. Do not maintain a separate analytics-only
+permission table for `analytics.identity.read`.
+
 Phase 1 auth/RBAC scope:
 
 ```text
@@ -1879,6 +1887,11 @@ Phase 1 API hardening. Production authentication requires a real IdP and
 asymmetric verification such as RS256/ES256/JWKS with issuer and audience
 validation.
 
+The bootstrap HS256 verifier should use Go standard-library primitives
+(`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing). Do not add a JWT
+dependency unless `go.mod` and `go.sum` are updated and the alg-confusion tests
+remain green.
+
 Bearer-mode startup must fail if required auth config is missing or weak:
 
 ```text
@@ -1893,6 +1906,12 @@ If it exists, it must require an explicit local-only opt-in such as
 startup warning, and must refuse to start in staging/production-looking
 configuration. Normal bearer mode ignores `X-GoatOS-Tenant-ID` and
 `X-GoatOS-Actor-ID`.
+
+HTTP auth/RBAC covers network API requests. Local/system CLIs such as
+`rfid-import`, `rfid-apply`, `outbox-relay`, `rebuild-identity-counters`, and
+`update-identity-counters` remain operator-trusted entrypoints outside HTTP
+auth, but they must still require explicit tenant input and keep SQL
+tenant-scoped.
 
 Middleware construction:
 
