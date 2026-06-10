@@ -1806,6 +1806,17 @@ ceo_internal
   analytics.identity.read
 ```
 
+Multi-grant semantics:
+
+```text
+users can hold multiple active tenant-scope grants
+permissions are the union of active matching tenant grant roles
+authorize when any active matching tenant grant role confers the required permission
+operator+verifier can access verifier-only review routes
+admin-only routes still require an active admin grant
+revoked, inactive, expired, future-valid, and missing grants contribute no permissions
+```
+
 `import.run.view` on `verifier` is intentional: identity reviewers need import
 provenance and dirty-row context when triaging conflicts, candidates, and
 corrections. It does not grant import run creation or canonical import apply.
@@ -1900,7 +1911,14 @@ Bearer-mode startup must fail if required auth config is missing or weak:
 GOATOS_AUTH_HS256_SECRET must be at least 32 bytes
 GOATOS_AUTH_ISSUER must be set
 GOATOS_AUTH_AUDIENCE must be set
+GOATOS_AUTH_MAX_TOKEN_TTL defaults to 24h and must parse as a positive Go duration when set
 ```
+
+Bearer tokens whose `exp` is farther in the future than
+`GOATOS_AUTH_MAX_TOKEN_TTL` are rejected. This is a bootstrap HS256 blast-radius
+control so accidentally long-lived tokens do not linger indefinitely. It is not
+final production revocation; production auth still requires issuer-managed token
+lifetimes, key rotation, refresh-token policy, and revocation/session handling.
 
 The dev-header escape hatch is unsafe and must be hard to enable accidentally.
 It requires `GOATOS_AUTH_MODE=dev_headers` plus `GOATOS_DEV_HEADERS_ALLOW=true`,

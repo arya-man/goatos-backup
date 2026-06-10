@@ -109,6 +109,9 @@ base64url, and JSON parsing. The server pins expected alg=HS256 and rejects
 alg=none, wrong alg, wrong secret, malformed tokens, missing sub/tenant,
 wrong issuer/audience, expired tokens, and future nbf tokens. Extra token role
 claims are ignored; they are not authorization authority.
+Tokens whose exp is more than the configured max TTL in the future are rejected;
+the default max TTL is 24h. This caps bootstrap HS256 blast radius only and is
+not a substitute for production revocation/rotation infrastructure.
 
 Bearer middleware attaches tenant_id from token tenant_id and actor/user_id
 from token sub. Normal bearer mode overwrites/ignores X-GoatOS-Tenant-ID and
@@ -120,6 +123,10 @@ status=active, valid_from<=now, and valid_to null or future. Revoked, inactive,
 expired, future, and missing grants deny live. Route permissions are enforced by
 the shared backend/internal/permissions registry and fail closed for protected
 routes not in the registry.
+Multiple active tenant grants are unioned: if any active matching tenant grant
+role confers the required permission, the request is authorized. For example,
+operator+verifier grants authorize verifier-only review permissions, while
+admin-only routes still require an active admin role.
 
 dev_headers mode is retained only as an explicit local-development escape hatch:
 GOATOS_AUTH_MODE=dev_headers plus GOATOS_DEV_HEADERS_ALLOW=true, refused for
@@ -498,6 +505,9 @@ Role and permissions must come from the active `user_scope_grants` row for the
 token `sub`; token role claims are not authority. Analytics count reads must use
 the token tenant as the DB tenant filter, with query `tenant_id` only as an
 optional equality assertion.
+When a user has multiple active tenant grants, permissions are the union of
+those active grant roles. A user with operator and verifier grants can use
+verifier-only review routes; admin-only routes still require admin.
 
 The auth/RBAC implementation must use an explicit route-to-permission registry
 with a fail-closed default. Only `/healthz` and `/readyz` are unauthenticated.

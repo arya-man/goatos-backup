@@ -80,3 +80,12 @@ func TestCreateImportRunIsAdminOnly(t *testing.T) {
 		t.Fatal("verifier authorized for admin-only import management")
 	}
 }
+
+func TestMultipleActiveGrantRolesUnionPermissions(t *testing.T) {
+	if RolesAuthorize([]string{RoleOperator}, []string{GoatReviewIdentity}, false) {
+		t.Fatal("operator alone should not review identity")
+	}
+	if !RolesAuthorize([]string{RoleOperator, RoleVerifier}, []string{GoatReviewIdentity}, false) {
+		t.Fatal("operator+verifier should authorize verifier-only identity review")
+	}
+}

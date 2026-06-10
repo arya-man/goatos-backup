@@ -99,6 +99,21 @@ func TestBearerAuthIgnoresForgedRoleClaim(t *testing.T) {
 	assertAuthErrorCode(t, rec, "permission_denied")
 }
 
+func TestBearerAuthRejectsTokenBeyondMaxTTL(t *testing.T) {
+	mw := testBearerMiddlewareWithTTL(t, fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleOperator}}}, 30*time.Minute)
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertAuthErrorCode(t, rec, "invalid_bearer_token")
+}
+
 func TestAuthRunsBeforeNotImplementedStubs(t *testing.T) {
 	mw := testBearerMiddleware(t, fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleVerifier}}})
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -188,10 +203,16 @@ func (f fakeGrantSource) activeTenantRoles(userID, tenantID string) ([]string, e
 
 func testBearerMiddleware(t *testing.T, grants fakeGrantSource) *AuthMiddleware {
 	t.Helper()
+	return testBearerMiddlewareWithTTL(t, grants, 24*time.Hour)
+}
+
+func testBearerMiddlewareWithTTL(t *testing.T, grants fakeGrantSource, maxTTL time.Duration) *AuthMiddleware {
+	t.Helper()
 	verifier, err := platformauth.NewHS256Verifier(platformauth.Config{
 		Issuer:   authTestIssuer,
 		Audience: authTestAudience,
 		Secret:   []byte(authTestSecret),
+		MaxTTL:   maxTTL,
 		Now:      func() time.Time { return time.Unix(1_700_000_000, 0).UTC() },
 	})
 	if err != nil {

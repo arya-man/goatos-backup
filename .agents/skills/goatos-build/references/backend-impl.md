@@ -89,11 +89,16 @@ Rules:
 - The bootstrap HS256 verifier uses Go standard-library primitives
   (`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing). Bearer-mode
   startup fails if issuer/audience are missing or the HS256 secret is
-  missing/weak. The dev-header escape hatch requires explicit local-only opt-in
-  and refuses staging/production-looking configuration.
+  missing/weak. Tokens whose `exp` is farther than the configured max TTL are
+  rejected; the default max TTL is 24h. This is a bootstrap blast-radius cap,
+  not production revocation. The dev-header escape hatch requires explicit
+  local-only opt-in and refuses staging/production-looking configuration.
 - Role and permissions must come from the active `user_scope_grants` row for
   the token `sub`; token role claims are not authority. Bearer-mode write actor
   attribution must use token `sub`, not `X-GoatOS-Actor-ID`.
+- Multiple active tenant grants are unioned for authorization. If any active
+  matching tenant grant role confers the required permission, the request is
+  authorized; admin-only routes still require an active admin role.
 - The auth middleware is backed by an explicit route-to-permission registry with
   fail-closed default. Only `/healthz` and `/readyz` are unauthenticated. The
   correction-list contract paths are split: app `listCorrectionRequests` stays

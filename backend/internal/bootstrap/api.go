@@ -32,6 +32,7 @@ type AuthConfig struct {
 	Issuer            string
 	Audience          string
 	HS256Secret       string
+	MaxTokenTTL       time.Duration
 	DevHeadersAllowed bool
 	Environment       string
 }
@@ -54,6 +55,7 @@ func ConfigFromEnv() Config {
 			Issuer:            os.Getenv("GOATOS_AUTH_ISSUER"),
 			Audience:          os.Getenv("GOATOS_AUTH_AUDIENCE"),
 			HS256Secret:       os.Getenv("GOATOS_AUTH_HS256_SECRET"),
+			MaxTokenTTL:       authMaxTokenTTLFromEnv(),
 			DevHeadersAllowed: strings.EqualFold(os.Getenv("GOATOS_DEV_HEADERS_ALLOW"), "true"),
 			Environment:       os.Getenv("GOATOS_ENV"),
 		},
@@ -121,6 +123,7 @@ func buildAuthVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error) {
 			Issuer:   cfg.Issuer,
 			Audience: cfg.Audience,
 			Secret:   []byte(cfg.HS256Secret),
+			MaxTTL:   cfg.MaxTokenTTL,
 		})
 	case httpmiddleware.AuthModeDevHeaders:
 		if !cfg.DevHeadersAllowed || productionLike(cfg.Environment) {
@@ -147,4 +150,19 @@ func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, 
 func productionLike(env string) bool {
 	env = strings.ToLower(strings.TrimSpace(env))
 	return strings.Contains(env, "prod") || strings.Contains(env, "staging") || strings.Contains(env, "stage")
+}
+
+func authMaxTokenTTLFromEnv() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("GOATOS_AUTH_MAX_TOKEN_TTL"))
+	if raw == "" {
+		return platformauth.DefaultMaxTokenTTL
+	}
+	ttl, err := time.ParseDuration(raw)
+	if err != nil {
+		return -1
+	}
+	if ttl <= 0 {
+		return -1
+	}
+	return ttl
 }

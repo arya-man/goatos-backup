@@ -176,6 +176,8 @@ Phase 1 RBAC is for internal Goat OS goat-ops users only.
 The Phase 1 backend API gate is signed bearer authentication plus active
 tenant-scope `user_scope_grants`; token role claims and GoatOS dev headers are
 not production authorization authority.
+Bootstrap HS256 tokens are capped by a default 24h max TTL to limit blast
+radius until production IdP/JWKS, rotation, and revocation are implemented.
 
 The Phase 1 backend role set is:
 

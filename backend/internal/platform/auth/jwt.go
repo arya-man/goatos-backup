@@ -12,19 +12,22 @@ import (
 )
 
 const (
-	AlgorithmHS256 = "HS256"
-	minSecretBytes = 32
+	AlgorithmHS256     = "HS256"
+	DefaultMaxTokenTTL = 24 * time.Hour
+	minSecretBytes     = 32
 )
 
 var (
-	ErrInvalidToken = errors.New("invalid token")
-	ErrWeakSecret   = errors.New("auth secret must be at least 32 bytes")
+	ErrInvalidToken  = errors.New("invalid token")
+	ErrInvalidMaxTTL = errors.New("auth max token ttl must be positive")
+	ErrWeakSecret    = errors.New("auth secret must be at least 32 bytes")
 )
 
 type Config struct {
 	Issuer   string
 	Audience string
 	Secret   []byte
+	MaxTTL   time.Duration
 	Now      func() time.Time
 }
 
@@ -41,6 +44,7 @@ type HS256Verifier struct {
 	issuer   string
 	audience string
 	secret   []byte
+	maxTTL   time.Duration
 	now      func() time.Time
 }
 
@@ -53,6 +57,13 @@ func NewHS256Verifier(cfg Config) (*HS256Verifier, error) {
 	if cfg.Issuer == "" || cfg.Audience == "" {
 		return nil, fmt.Errorf("%w: missing issuer or audience", ErrInvalidToken)
 	}
+	maxTTL := cfg.MaxTTL
+	if maxTTL == 0 {
+		maxTTL = DefaultMaxTokenTTL
+	}
+	if maxTTL < 0 {
+		return nil, ErrInvalidMaxTTL
+	}
 	now := cfg.Now
 	if now == nil {
 		now = time.Now
@@ -61,6 +72,7 @@ func NewHS256Verifier(cfg Config) (*HS256Verifier, error) {
 		issuer:   cfg.Issuer,
 		audience: cfg.Audience,
 		secret:   append([]byte(nil), cfg.Secret...),
+		maxTTL:   maxTTL,
 		now:      now,
 	}, nil
 }
@@ -93,7 +105,7 @@ func (v *HS256Verifier) Verify(token string) (Claims, error) {
 	if err := decodeSegment(parts[1], &payload, false); err != nil {
 		return Claims{}, ErrInvalidToken
 	}
-	claims, err := payload.validate(v.issuer, v.audience, v.now())
+	claims, err := payload.validate(v.issuer, v.audience, v.now(), v.maxTTL)
 	if err != nil {
 		return Claims{}, err
 	}
@@ -109,7 +121,7 @@ type rawClaims struct {
 	NotBefore json.RawMessage `json:"nbf"`
 }
 
-func (c rawClaims) validate(issuer, audience string, now time.Time) (Claims, error) {
+func (c rawClaims) validate(issuer, audience string, now time.Time, maxTTL time.Duration) (Claims, error) {
 	subject := strings.TrimSpace(c.Subject)
 	tenantID := strings.TrimSpace(c.TenantID)
 	if !isUUID(subject) || !isUUID(tenantID) {
@@ -128,6 +140,9 @@ func (c rawClaims) validate(issuer, audience string, now time.Time) (Claims, err
 	}
 	exp := time.Unix(expUnix, 0).UTC()
 	if !now.Before(exp) {
+		return Claims{}, ErrInvalidToken
+	}
+	if exp.After(now.Add(maxTTL)) {
 		return Claims{}, ErrInvalidToken
 	}
 	nbfUnix, err := parseNumericDate(c.NotBefore)
