@@ -98,8 +98,10 @@ go run ./cmd/mint-dev-token \
   -ttl 30m
 ```
 
-`seed-dev-grant` refuses production/staging-looking targets and non-local
-database hosts. It is not a migration and does not silently create admin grants.
+`seed-dev-grant` requires `GOATOS_ENV` to be exactly `local`, `dev`, or `test`.
+It refuses production/staging-looking targets and non-local database hosts,
+including Cloud SQL-style Unix socket paths. It is not a migration and does not
+silently create admin grants.
 
 ## Auth Smoke
 

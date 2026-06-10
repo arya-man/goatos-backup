@@ -20,7 +20,8 @@ Rules:
 - `backend/cmd/mint-dev-token` and `backend/cmd/seed-dev-grant` are local/dev
   bootstrap helpers only. They must not become production issuance or grant
   management surfaces.
-- Dev grant seeding is never a migration; it requires explicit role input and
-  must refuse production/staging-looking or non-local DB targets.
+- Dev grant seeding is never a migration; it requires explicit role input,
+  requires `GOATOS_ENV` to be exactly `local`, `dev`, or `test`, and must refuse
+  production/staging-looking, non-local, or Cloud SQL-style socket DB targets.
 - Local auth smoke uses one shared `GOATOS_AUTH_*` config across backend,
   token minting, grant seed, and admin-web generated-client smoke.

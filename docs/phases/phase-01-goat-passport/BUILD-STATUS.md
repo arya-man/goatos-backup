@@ -138,10 +138,12 @@ uses the same DB-backed grant checks after reading local headers.
 backend/cmd/mint-dev-token mints bootstrap HS256 local/dev tokens using the
 same backend/internal/platform/auth signing and validation rules as the API
 verifier. backend/cmd/seed-dev-grant inserts explicit active tenant-scope
-user_scope_grants only against local database targets; it is not a migration and
-does not silently grant admin. backend/tests/integration/smoke-auth-local.sh
-uses one shared GOATOS_AUTH_* config for the API, token minting, local grant
-seed, and admin-web generated-client smoke.
+user_scope_grants only when GOATOS_ENV is exactly local, dev, or test and the
+database target is local. It rejects production/staging-looking targets, remote
+hosts, and Cloud SQL-style Unix socket paths; it is not a migration and does not
+silently grant admin. backend/tests/integration/smoke-auth-local.sh uses one
+shared GOATOS_AUTH_* config for the API, token minting, local grant seed, and
+admin-web generated-client smoke.
 ```
 
 Frontend readiness foundation:

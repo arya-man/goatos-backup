@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "Goat OS Admin",
-  description: "Goat OS Phase 1 admin readiness shell",
+  description: "Goat OS admin console",
 };
 
 export default function RootLayout({

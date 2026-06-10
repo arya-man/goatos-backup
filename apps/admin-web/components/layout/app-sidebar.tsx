@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useSidebar } from "./sidebar-context";
 
-const phaseOneItems = [
+const navItems = [
   { icon: Search, label: "Herd Search" },
   { icon: BadgeCheck, label: "Goat Passport" },
   { icon: DatabaseZap, label: "Import Runs" },
@@ -86,7 +86,7 @@ export function AppSidebar() {
       </div>
 
       {expanded && (
-        <p className="text-xs font-bold text-[#14F1D9] mb-4 text-center w-full">Phase 1 Admin</p>
+        <p className="text-xs font-bold text-[#14F1D9] mb-4 text-center w-full">Operations</p>
       )}
 
       {/* Collapse toggle when collapsed (desktop only) */}
@@ -101,7 +101,7 @@ export function AppSidebar() {
       )}
 
       <div className={`flex flex-col gap-1 ${expanded ? "" : "items-center"}`}>
-        {phaseOneItems.map(renderItem)}
+        {navItems.map(renderItem)}
       </div>
 
       {/* Spacer */}

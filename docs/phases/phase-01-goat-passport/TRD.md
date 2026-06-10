@@ -1942,7 +1942,8 @@ backend/cmd/seed-dev-grant
   local/dev tenant-scope grant helper only
   inserts user_scope_grants with scope_type=tenant and scope_id=tenant_id
   requires explicit tenant-id, user-id, and role
-  refuses production/staging-looking targets and non-local DB hosts
+  requires GOATOS_ENV to be exactly local, dev, or test
+  refuses production/staging-looking targets and non-local DB hosts, including Cloud SQL-style Unix socket paths
 ```
 
 `user_scope_grants` must not be seeded by migrations. Local grant bootstrap is

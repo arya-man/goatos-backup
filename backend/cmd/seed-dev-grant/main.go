@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -59,7 +60,7 @@ func validateLocalTarget(env, databaseURL string) error {
 	if strings.Contains(env, "prod") || strings.Contains(env, "stage") || strings.Contains(dbLower, "prod") || strings.Contains(dbLower, "stage") {
 		return fmt.Errorf("refusing to seed grants for production/staging-looking target")
 	}
-	if env != "" && env != "local" && env != "dev" && env != "test" {
+	if env != "local" && env != "dev" && env != "test" {
 		return fmt.Errorf("GOATOS_ENV must be local, dev, or test for seed-dev-grant")
 	}
 	cfg, err := pgxpool.ParseConfig(databaseURL)
@@ -74,14 +75,32 @@ func validateLocalTarget(env, databaseURL string) error {
 
 func isLocalHost(host string) bool {
 	host = strings.TrimSpace(strings.Trim(host, "[]"))
-	if host == "" || strings.HasPrefix(host, "/") {
+	if host == "" {
 		return true
+	}
+	if strings.HasPrefix(host, "/") {
+		return isAllowedLocalSocketHost(host)
 	}
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func isAllowedLocalSocketHost(host string) bool {
+	socketHost := path.Clean(host)
+	allowedDirs := [...]string{
+		"/tmp",
+		"/private/tmp",
+		"/var/run/postgresql",
+	}
+	for _, dir := range allowedDirs {
+		if socketHost == dir || strings.HasPrefix(socketHost, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func validRole(role string) bool {
