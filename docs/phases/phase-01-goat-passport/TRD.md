@@ -1772,6 +1772,8 @@ goat.view_dirty_data
 goat.review_identity
 goat.write_identity
 analytics.identity.read
+import.run.manage
+import.run.view
 ```
 
 Role permissions:
@@ -1787,6 +1789,7 @@ verifier
   goat.review_identity
   goat.write_identity
   analytics.identity.read
+  import.run.view
 
 park_head
   goat.read
@@ -1812,6 +1815,10 @@ getGoatTimeline                     -> goat.read
 resolveIdentifier                   -> goat.read
 createCorrectionRequest             -> correction.create
 listCorrectionRequests              -> correction.create for the app own/visible correction list; endpoint remains deferred until scoped list semantics are implemented
+
+createImportRun                     -> import.run.manage, admin only
+getImportRun                        -> import.run.view
+listImportRunRows                   -> import.run.view
 
 listIdentityConflicts               -> goat.view_dirty_data
 getIdentityConflict                 -> goat.view_dirty_data
@@ -1846,12 +1853,33 @@ Phase 1 API hardening. Production authentication requires a real IdP and
 asymmetric verification such as RS256/ES256/JWKS with issuer and audience
 validation.
 
+Bearer-mode startup must fail if required auth config is missing or weak:
+
+```text
+GOATOS_AUTH_HS256_SECRET must be at least 32 bytes
+GOATOS_AUTH_ISSUER must be set
+GOATOS_AUTH_AUDIENCE must be set
+```
+
+The dev-header escape hatch is unsafe and must be hard to enable accidentally.
+If it exists, it must require an explicit local-only opt-in such as
+`GOATOS_AUTH_MODE=dev_headers` plus an additional allow flag, must emit a loud
+startup warning, and must refuse to start in staging/production-looking
+configuration. Normal bearer mode ignores `X-GoatOS-Tenant-ID` and
+`X-GoatOS-Actor-ID`.
+
 Phase 1 RBAC is an internal goat-ops realm. Do not map investor, buyer, donor,
 partner, franchise, lending, or external customer users into
 `user_scope_grants`. Investor/reduced dashboards belong to a later sanitized
 analytics or commerce realm. Legacy procurement roles such as procurement head,
 procurement manager, and procurement assistant manager belong to procurement
 and workforce phases, not to this Goat Passport identity role set.
+
+Tenant-scope RBAC is broader than the final intended scope model. A tenant-wide
+`verifier` or `admin` can act across all goats in the tenant until the
+custodian/farm/park/shed/cohort filtering slice lands. This is acceptable only
+as a Phase 1 deploy-gate foundation and must be tightened before broader
+multi-scope rollout.
 
 Rules:
 

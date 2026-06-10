@@ -453,11 +453,21 @@ Phase 1 permissions:
   goat.review_identity
   goat.write_identity
   analytics.identity.read
+  import.run.manage
+  import.run.view
 ```
 
 The next auth/RBAC slice should implement signed bearer auth plus active
 tenant-scope `user_scope_grants` checks for these roles. HS256 is a bootstrap
 verifier only; production IdP/JWKS/asymmetric verification remains deferred.
+Bearer-mode startup must fail if issuer/audience are missing or the HS256 secret
+is missing/weak. `dev_headers` mode, if retained, must require an explicit
+local-only opt-in and must refuse staging/production-looking configuration.
+
+Tenant-scope RBAC is broader than the final intended scope model. Tenant-wide
+admin/verifier grants can act across the tenant until custodian/farm/park/shed
+and cohort filters are implemented. Treat that as a known Phase 1 limitation,
+not the final RBAC shape.
 
 Investor/reduced dashboards are not Phase 1 goat-ops roles. Investor, buyer,
 donor, partner, franchise, lending, external customer, procurement, health,

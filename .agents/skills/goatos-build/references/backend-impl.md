@@ -76,10 +76,19 @@ Rules:
   contracts are explicitly extended.
 - Phase 1 permissions are `goat.read`, `correction.create`,
   `goat.view_dirty_data`, `goat.review_identity`, `goat.write_identity`, and
-  `analytics.identity.read`. The next auth/RBAC slice should enforce these from
-  signed bearer identity plus active tenant-scope `user_scope_grants`. HS256 is
-  a bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
+  `analytics.identity.read`, plus `import.run.manage` and `import.run.view`.
+  The next auth/RBAC slice should enforce these from signed bearer identity plus
+  active tenant-scope `user_scope_grants`. `createImportRun` is admin-only via
+  `import.run.manage`; import run reads use `import.run.view`. HS256 is a
+  bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
   deferred.
+- Bearer-mode startup must fail if issuer/audience are missing or the HS256
+  secret is missing/weak. The dev-header escape hatch, if retained, must require
+  explicit local-only opt-in and refuse staging/production-looking
+  configuration.
+- Tenant-scope RBAC is broader than final intended scope. Tenant-wide
+  admin/verifier grants can act across all goats in the tenant until
+  custodian/farm/park/shed/cohort filtering lands.
 - Analytics `tenant_id` query scope must not conflict with the temporary tenant
   header while that header exists.
 - Request middleware preserves `X-Request-ID` and `traceparent`, generates a
