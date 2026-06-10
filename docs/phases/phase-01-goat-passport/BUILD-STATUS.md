@@ -436,6 +436,34 @@ Replace it with the auth/RBAC adapter before deploy-like environments.
 X-GoatOS-Actor-ID is the temporary local/dev actor scaffold for writes until
 auth/RBAC lands. It must parse as uuid and is not production authentication.
 
+Phase 1 RBAC role boundary is pinned:
+
+```text
+internal goat-ops roles:
+  admin
+  verifier
+  park_head
+  operator
+  ceo_internal
+
+Phase 1 permissions:
+  goat.read
+  correction.create
+  goat.view_dirty_data
+  goat.review_identity
+  goat.write_identity
+  analytics.identity.read
+```
+
+The next auth/RBAC slice should implement signed bearer auth plus active
+tenant-scope `user_scope_grants` checks for these roles. HS256 is a bootstrap
+verifier only; production IdP/JWKS/asymmetric verification remains deferred.
+
+Investor/reduced dashboards are not Phase 1 goat-ops roles. Investor, buyer,
+donor, partner, franchise, lending, external customer, procurement, health,
+workforce, and device-specific roles belong to later realms/phases unless a
+future migration explicitly extends the contracts and DB role checks.
+
 The identity Postgres repository still has handwritten pgx for dynamic
 optional-filter reads. New write-heavy/import/reconciliation SQL should use
 generated sqlc unless the query shape is intentionally dynamic and documented.

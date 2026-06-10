@@ -1753,6 +1753,106 @@ created_by uuid null
 created_at timestamptz not null
 ```
 
+Phase 1 internal goat-ops roles:
+
+```text
+admin
+verifier
+park_head
+operator
+ceo_internal
+```
+
+Phase 1 permissions:
+
+```text
+goat.read
+correction.create
+goat.view_dirty_data
+goat.review_identity
+goat.write_identity
+analytics.identity.read
+```
+
+Role permissions:
+
+```text
+admin
+  all Phase 1 permissions
+
+verifier
+  goat.read
+  correction.create
+  goat.view_dirty_data
+  goat.review_identity
+  goat.write_identity
+  analytics.identity.read
+
+park_head
+  goat.read
+  correction.create
+  analytics.identity.read
+
+operator
+  goat.read
+  correction.create
+
+ceo_internal
+  goat.read
+  goat.view_dirty_data
+  analytics.identity.read
+```
+
+Endpoint permission mapping:
+
+```text
+searchGoats                         -> goat.read
+getGoatPassport                     -> goat.read
+getGoatTimeline                     -> goat.read
+resolveIdentifier                   -> goat.read
+createCorrectionRequest             -> correction.create
+listCorrectionRequests              -> correction.create for the app own/visible correction list; endpoint remains deferred until scoped list semantics are implemented
+
+listIdentityConflicts               -> goat.view_dirty_data
+getIdentityConflict                 -> goat.view_dirty_data
+listIdentityCandidates              -> goat.view_dirty_data
+adminListCorrectionRequests         -> goat.review_identity
+
+resolveCorrectionRequest            -> goat.review_identity
+resolveIdentityConflict             -> goat.review_identity
+approveIdentityCandidate            -> goat.review_identity
+rejectIdentityCandidate             -> goat.review_identity
+
+createAdminGoat                     -> goat.write_identity
+updateAdminGoat                     -> goat.write_identity
+addGoatIdentifier                   -> goat.write_identity
+retireGoatIdentifier                -> goat.write_identity
+
+getIdentityCounts                   -> analytics.identity.read
+```
+
+Phase 1 auth/RBAC scope:
+
+```text
+signed bearer token proves user identity
+Goat OS DB grant proves tenant membership and role authority
+role grants endpoint permissions
+tenant_id from the token is the request tenant
+X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are local/dev scaffolds only
+```
+
+HS256 bearer verification is only a bootstrap verifier for local/shared-dev
+Phase 1 API hardening. Production authentication requires a real IdP and
+asymmetric verification such as RS256/ES256/JWKS with issuer and audience
+validation.
+
+Phase 1 RBAC is an internal goat-ops realm. Do not map investor, buyer, donor,
+partner, franchise, lending, or external customer users into
+`user_scope_grants`. Investor/reduced dashboards belong to a later sanitized
+analytics or commerce realm. Legacy procurement roles such as procurement head,
+procurement manager, and procurement assistant manager belong to procurement
+and workforce phases, not to this Goat Passport identity role set.
+
 Rules:
 
 ```text

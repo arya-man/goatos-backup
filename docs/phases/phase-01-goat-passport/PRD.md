@@ -170,6 +170,53 @@ CEO/internal user
   sees herd counts and passport-level truth in dashboards
 ```
 
+### Phase 1 Access Boundary
+
+Phase 1 RBAC is for internal Goat OS goat-ops users only.
+
+The Phase 1 backend role set is:
+
+```text
+admin
+verifier
+park_head
+operator
+ceo_internal
+```
+
+These roles cover the current Goat Passport workflows:
+
+```text
+admin
+  central identity/data authority; can import, review, resolve, and mutate
+  Phase 1 goat identity data
+
+verifier
+  reviews evidence, dirty data, duplicate candidates, conflicts, and correction
+  requests
+
+park_head
+  can see and request identity corrections for the park-level operating view
+
+operator
+  can search/scan goats and submit correction requests from field work
+
+ceo_internal
+  internal executive visibility over governed passport and identity-count truth
+```
+
+Investor, buyer, donor, partner, lending, franchise, procurement, health,
+workforce, and device-specific roles are not Phase 1 goat-ops API roles.
+
+Existing investor/reduced dashboards are migration references for sanitized
+views. They must not receive internal goat-ops grants through Phase 1
+`user_scope_grants`. Investor/customer access belongs to a later commerce or
+sanitized analytics realm with its own contracts and data filters.
+
+Legacy procurement roles such as procurement head, procurement manager, and
+assistant procurement manager are also not Phase 1 identity roles. They map to
+later procurement/workforce phases, not to this Goat Passport RBAC slice.
+
 ## Existing Legacy Pieces
 
 Already present:

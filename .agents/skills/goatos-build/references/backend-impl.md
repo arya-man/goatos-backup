@@ -69,6 +69,17 @@ Rules:
   `limit` values.
 - `X-GoatOS-Tenant-ID` is a local/dev placeholder until auth/RBAC lands. It is
   not production authentication.
+- Phase 1 RBAC is the internal goat-ops realm only. The DB-enforced role set is
+  `admin`, `verifier`, `park_head`, `operator`, and `ceo_internal`. Investor,
+  buyer, donor, partner, franchise, lending, procurement, health, workforce, and
+  device-specific roles are later realm/phase work unless the schema and
+  contracts are explicitly extended.
+- Phase 1 permissions are `goat.read`, `correction.create`,
+  `goat.view_dirty_data`, `goat.review_identity`, `goat.write_identity`, and
+  `analytics.identity.read`. The next auth/RBAC slice should enforce these from
+  signed bearer identity plus active tenant-scope `user_scope_grants`. HS256 is
+  a bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
+  deferred.
 - Analytics `tenant_id` query scope must not conflict with the temporary tenant
   header while that header exists.
 - Request middleware preserves `X-Request-ID` and `traceparent`, generates a
