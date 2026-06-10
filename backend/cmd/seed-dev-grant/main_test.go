@@ -27,12 +27,23 @@ func TestValidateLocalTargetRejectsRemoteHost(t *testing.T) {
 	if err := validateLocalTarget("local", "postgres://postgres:goatos@192.0.2.10:5432/goatos?sslmode=disable"); err == nil {
 		t.Fatal("remote host accepted")
 	}
+	if err := validateLocalTarget("local", "postgres://postgres:goatos@goatos-stg.internal:5432/goatos?sslmode=disable"); err == nil {
+		t.Fatal("staging-looking remote host accepted")
+	}
+}
+
+func TestValidateLocalTargetRejectsCloudSQLSocketURL(t *testing.T) {
+	databaseURL := "user=postgres password=goatos dbname=goatos host=/cloudsql/project:region:instance sslmode=disable"
+	if err := validateLocalTarget("local", databaseURL); err == nil {
+		t.Fatal("cloud sql socket database URL accepted")
+	}
 }
 
 func TestIsLocalHostAllowsOnlyKnownLocalSocketDirs(t *testing.T) {
 	allowed := []string{
 		"/tmp/.s.PGSQL.5432",
 		"/private/tmp/.s.PGSQL.5432",
+		"/run/postgresql/.s.PGSQL.5432",
 		"/var/run/postgresql/.s.PGSQL.5432",
 	}
 	for _, host := range allowed {

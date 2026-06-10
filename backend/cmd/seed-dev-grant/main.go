@@ -93,6 +93,7 @@ func isAllowedLocalSocketHost(host string) bool {
 	allowedDirs := [...]string{
 		"/tmp",
 		"/private/tmp",
+		"/run/postgresql",
 		"/var/run/postgresql",
 	}
 	for _, dir := range allowedDirs {
