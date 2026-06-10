@@ -47,6 +47,18 @@ legacy_import/adapters/postgres repository for staging and RFID apply SQL
 legacy_import/adapters/postgres/sqlc generated import policy/staging/apply SQL
 ```
 
+Local import rehearsal routing:
+
+```text
+docs/runbooks/local-full-stack-rehearsal.md  local Phase 1 import/API/admin-web rehearsal flow once added
+docs/runbooks/local-docker-storage.md        local Docker storage safety and cleanup rules
+backend/cmd/rfid-import                      RFID workbook staging CLI
+backend/cmd/rfid-apply                       staged RFID canonical apply CLI
+backend/cmd/rebuild-identity-counters        local/reporting counter rebuild after apply
+backend/internal/legacy_import/xlsx.go       workbook parser and sheet-selection behavior
+backend/internal/legacy_import/normalize.go  emitted staging/review/error reason codes
+```
+
 Outbox module layout:
 
 ```text
@@ -264,6 +276,35 @@ Rules:
 - Import fixtures committed to git must stay synthetic `.xlsx` files only. Do
   not commit raw private workbook rows, RFID values, local paths, screenshots,
   names, media URLs, or PII.
+- Phase 1 local full-stack rehearsal routes source data through backend import
+  tooling into local Postgres first. Frontend must read Goat OS backend APIs
+  only; it must never read Sheets, Apps Script, XLSX files, CSV exports, or
+  Google SDKs directly.
+- Current RFID workbook parser/normalizer accepts the Shape-2 source headers:
+  `Farm`, `Old ID`, `Old ID Suffix`, `RFID`, `Age`, `Gender`, `Breed`, `Tag`,
+  `Shed`, and `Partition`. Shape-1 RFID headers such as `Origin Farm`,
+  `Old Tag ID`, and `Shed Tag` are recognized source evidence but require a
+  separate mapping extension before import.
+- Source discovery must classify source shape before import. Operational
+  counting/feed/health/death/shifting/dashboard Sheets must not be fed into the
+  Phase 1 RFID identity importer.
+- When sheet-by-name selection is added, the parser must resolve workbook sheet
+  names through `workbook.xml` and `workbook.xml.rels`; do not assume tab order
+  equals `sheetN.xml` order. An explicit missing sheet must fail clearly, not
+  silently fall back to the first sheet.
+- Anomaly/review reports must use actual emitted reason codes from
+  `legacy_import` staging/apply data, such as `malformed_rfid`,
+  `duplicate_rfid_in_workbook`, `missing_rfid`,
+  `duplicate_old_tag_same_scope`, `blank_old_tag_suffix`,
+  `tagless_identity_evidence`, `blank_gender`, `unknown_gender`, and
+  `source_row_changed`. Do not invent report buckets or imply validations that
+  are not implemented. Reports belong under ignored local output paths and must
+  mask sensitive identifiers by default.
+- The import loop is repeatable, not one-time. Existing source-row identity is
+  `source_row_key`; existing content-change detection is
+  `source_row_version_hash`. Do not build a parallel dedupe state machine.
+  Re-imports with the same key/hash are idempotent; same key/different hash is
+  review-driven; new keys stage as new source rows.
 - Future AI suggestion workers are proposer-only. They must write
   `ai_proposal` records that remain `proposed` or `needs_review`, include
   reasons plus evidence/source links, and must never write as `system_rule` or
