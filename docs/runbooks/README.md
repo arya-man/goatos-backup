@@ -5,6 +5,7 @@ Operational runbooks live here.
 Current runbooks:
 
 - [GitHub workflows](github-workflows.md)
+- [Google Cloud environments](google-cloud-environments.md)
 
 Initial required runbooks:
 
