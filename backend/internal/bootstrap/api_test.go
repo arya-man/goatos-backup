@@ -42,6 +42,13 @@ func TestBuildAuthVerifierRejectsUnknownModeAndProdDevHeaders(t *testing.T) {
 	}
 	if _, err := buildAuthVerifier(AuthConfig{
 		Mode:              httpmiddleware.AuthModeDevHeaders,
+		Environment:       "local-prod",
+		DevHeadersAllowed: true,
+	}); err == nil {
+		t.Fatal("dev headers accepted non-allowlisted environment")
+	}
+	if _, err := buildAuthVerifier(AuthConfig{
+		Mode:              httpmiddleware.AuthModeDevHeaders,
 		Environment:       "local",
 		DevHeadersAllowed: true,
 	}); err != nil {

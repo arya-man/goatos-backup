@@ -26,6 +26,8 @@ const (
 	expiredUser          = "90000000-0000-4000-8000-000000000004"
 	futureUser           = "90000000-0000-4000-8000-000000000005"
 	unionUser            = "90000000-0000-4000-8000-000000000006"
+	parkScopeUser        = "90000000-0000-4000-8000-000000000007"
+	cbeLocation          = "00000000-0000-4000-8000-000000003001"
 )
 
 func TestGrantSourceReadsOnlyLiveTenantScopeGrants(t *testing.T) {
@@ -54,7 +56,8 @@ VALUES
   ('`+meshaTenant+`', '`+expiredUser+`', 'admin', 'tenant', '`+meshaTenant+`', 'active', now() - interval '2 hours', now() - interval '1 hour'),
   ('`+meshaTenant+`', '`+futureUser+`', 'admin', 'tenant', '`+meshaTenant+`', 'active', now() + interval '1 hour', NULL),
   ('`+meshaTenant+`', '`+unionUser+`', 'operator', 'tenant', '`+meshaTenant+`', 'active', now() - interval '1 hour', NULL),
-  ('`+meshaTenant+`', '`+unionUser+`', 'verifier', 'tenant', '`+meshaTenant+`', 'active', now() - interval '1 hour', NULL);
+  ('`+meshaTenant+`', '`+unionUser+`', 'verifier', 'tenant', '`+meshaTenant+`', 'active', now() - interval '1 hour', NULL),
+  ('`+meshaTenant+`', '`+parkScopeUser+`', 'admin', 'park', '`+cbeLocation+`', 'active', now() - interval '1 hour', NULL);
 `)
 
 	pool := openPool(t, ctx, container)
@@ -68,7 +71,7 @@ VALUES
 	if len(roles) != 1 || roles[0] != "verifier" {
 		t.Fatalf("active roles = %#v", roles)
 	}
-	for _, userID := range []string{revokedUser, inactiveUser, expiredUser, futureUser, "90000000-0000-4000-8000-000000000099"} {
+	for _, userID := range []string{revokedUser, inactiveUser, expiredUser, futureUser, parkScopeUser, "90000000-0000-4000-8000-000000000099"} {
 		roles, err := source.ActiveTenantRoles(ctx, userID, meshaTenant)
 		if err != nil {
 			t.Fatalf("ActiveTenantRoles(%s): %v", userID, err)

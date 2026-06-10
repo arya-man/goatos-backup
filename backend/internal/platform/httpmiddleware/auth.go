@@ -55,7 +55,7 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 			return nil, ErrInvalidAuthConfig
 		}
 	case AuthModeDevHeaders:
-		if !cfg.DevHeadersAllowed || productionLike(cfg.Environment) {
+		if !cfg.DevHeadersAllowed || !devHeadersEnvironmentAllowed(cfg.Environment) {
 			return nil, ErrInvalidAuthConfig
 		}
 		log.Warn("dev header auth enabled; never use outside local development")
@@ -145,9 +145,9 @@ func isPublicHealthRoute(r *http.Request) bool {
 	return r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/readyz")
 }
 
-func productionLike(env string) bool {
+func devHeadersEnvironmentAllowed(env string) bool {
 	env = strings.ToLower(strings.TrimSpace(env))
-	return strings.Contains(env, "prod") || strings.Contains(env, "staging") || strings.Contains(env, "stage")
+	return env == "local" || env == "dev" || env == "test"
 }
 
 type authErrorEnvelope struct {

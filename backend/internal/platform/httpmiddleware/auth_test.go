@@ -163,7 +163,10 @@ func TestAuthFailsClosedForUnregisteredProtectedRoute(t *testing.T) {
 
 func TestDevHeadersRequireExplicitLocalOptIn(t *testing.T) {
 	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "prod", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
-		t.Fatal("dev_headers accepted prod-looking environment")
+		t.Fatal("dev_headers accepted prod environment")
+	}
+	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "not-production", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
+		t.Fatal("dev_headers accepted non-allowlisted environment")
 	}
 	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "local", DevHeadersAllowed: false}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
 		t.Fatal("dev_headers accepted missing allow flag")
@@ -173,6 +176,12 @@ func TestDevHeadersRequireExplicitLocalOptIn(t *testing.T) {
 	}
 	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "local", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err != nil {
 		t.Fatalf("dev_headers local opt-in rejected: %v", err)
+	}
+	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "dev", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err != nil {
+		t.Fatalf("dev_headers dev opt-in rejected: %v", err)
+	}
+	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "test", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err != nil {
+		t.Fatalf("dev_headers test opt-in rejected: %v", err)
 	}
 }
 

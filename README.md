@@ -71,6 +71,7 @@ Completed so far:
 - Local outbox relay foundation.
 - Analytics count projection foundation.
 - Rebuild and incremental counter update workers.
+- Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
 - Contract validation and migration validation.
 - Docker-backed backend tests for core invariants.
 
@@ -86,7 +87,8 @@ Phase 1 is **not shippable to users yet**.
 
 Still pending before Phase 1 is usable end-to-end:
 
-- Auth/RBAC: real login, roles, and permissions.
+- Production identity-provider/login integration: JWKS/asymmetric token
+  verification, sessions, key rotation, revocation, and secret management.
 - Frontend screens for admin users.
 - Real production event publishing.
 - Running the real private RFID/source workbooks safely.
@@ -348,16 +350,14 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Add bearer auth plus tenant-scope RBAC so APIs no longer trust local/dev
-   headers.
-2. Add production identity-provider integration later: JWKS/asymmetric token
+1. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.
-3. Build Phase 1 frontend screens.
-4. Run controlled real RFID/source data import.
-5. Add review screens for dirty/duplicate goat records.
-6. Start Phase 2 vaccination task workflow.
-7. Later connect hardware feeding panel data under Phase 5/9.
+2. Build Phase 1 frontend screens.
+3. Run controlled real RFID/source data import.
+4. Add review screens for dirty/duplicate goat records.
+5. Start Phase 2 vaccination task workflow.
+6. Later connect hardware feeding panel data under Phase 5/9.
 
 ## Build Principle
 
