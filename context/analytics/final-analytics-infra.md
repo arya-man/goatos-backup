@@ -107,10 +107,25 @@ analytics skill:
   the agent is instructed to use Cube first, curated marts second, and raw SQL
   only for debugging or migration investigation.
 
+analytics reference docs:
+  per-domain docs exist for the agent's knowledge path. Each doc names the
+  canonical metrics, dimensions, key tables, grain, join keys, required filters,
+  freshness rules, gotchas, and common query patterns.
+
+analyst workflow skill:
+  a separate workflow guide exists for analytics answers: clarify the question,
+  find governed sources, compile/query, review assumptions, and return
+  provenance. Do not merge workflow guidance into metric definitions.
+
 offline evals:
   fixed questions for active herd, mortality, feed cost, ADG, procurement cost,
   promise risk, vaccination compliance, and sales margin are checked against
   blessed snapshots or dashboards.
+
+eval telemetry:
+  every eval run records skill version, git SHA, model ID, per-assertion
+  pass/fail, token count, latency, and result timestamp. Stakeholder corrections
+  become candidate eval cases after human review.
 
 provenance footer:
   every answer reports source tier, freshness, owner, and whether the answer is
@@ -125,6 +140,54 @@ AI cannot query raw operational Postgres for official KPI answers.
 AI cannot treat legacy dashboard SQL as authoritative.
 AI can draft metric docs, column descriptions, and eval cases for human review.
 Leadership-bound answers need governed metrics or explicit human sign-off.
+Data-model changes must update the matching analytics reference docs and evals.
+CI should eventually enforce that dbt/Cube changes touch the related analytics
+skill/reference files or explicitly justify why not.
+```
+
+Reference doc template for each analytics domain:
+
+```text
+Quick reference:
+  canonical metric names and when to use them.
+
+Dimensions:
+  allowed cuts, valid values, aliases, and default filters.
+
+Key tables/marts:
+  grain, primary keys, join keys, partition/freshness columns, owner.
+
+Required hygiene:
+  tenant/scope filters, date windows, deleted/merged/excluded-state rules,
+  safe division, and cost guardrails.
+
+Gotchas:
+  similarly named tables, legacy naming traps, stale/deprecated sources, and
+  source-specific caveats.
+
+Common query patterns:
+  worked patterns for the domain's normal questions.
+
+Cross-references:
+  related dashboards, source docs, Cube metrics, dbt models, and eval cases.
+```
+
+Analytics answer review:
+
+```text
+For official or leadership-bound answers, run an adversarial review pass over
+metric choice, grain, filters, date window, joins, freshness, and exclusions.
+This review may be a second agent later, but it must be bounded by latency and
+cost budgets before becoming a default product behavior.
+```
+
+Slack correction harvesting:
+
+```text
+Slack and WhatsApp corrections are useful source material, not automatic truth.
+A future analytics-maintenance worker can watch approved channels for correction
+language, draft reference-doc or eval-case changes, and route them to the metric
+owner. It must never silently change metric definitions or canonical data.
 ```
 
 ## Event Flow
@@ -193,6 +256,35 @@ Existing dashboards and Sheets/BigQuery code are analytics references only. They
 must not become the Goat OS operational backend, but their table/view names are
 useful seed material for dbt marts, Cube metrics, dashboard parity checks, and
 migration QA.
+
+Legacy distillation inputs:
+
+```text
+goatos/apps/admin-web/app/api:
+  52 copied legacy dashboard API route files. First source for SQL inventory,
+  parity tests, and dashboard rewiring because it lives inside the Goat OS repo.
+
+dashboard/app/api:
+  52 live dashboard API route files. Use for cross-checking the copied snapshot,
+  not as a write target.
+
+vgoats-dashboard/app/api:
+  34 legacy dashboard API route files. Use after admin-web/dashboard coverage to
+  fill any missing investor or alternate-dashboard metrics.
+
+slack-automation-scripts/Dashboard Charts - BigQuery Mapping.docx:
+  chart-to-BigQuery mapping with metric, dimension, source, and filter notes.
+  Distill into metric inventory and reference docs; do not keep it as the
+  governed definition.
+
+source-material/goatOS.docx:
+  legacy schema/table/grain notes and lineage inventory. Distill useful grain,
+  ownership, and lineage facts after review; do not commit private/raw content.
+
+General/Goats and Parks plus Slack operating docs:
+  business terminology, breed/location/status gotchas, and correction patterns.
+  Distill into domain reference docs and eval cases with human review.
+```
 
 Legacy BigQuery project observed:
 
