@@ -2,6 +2,10 @@
 
 Operational runbooks live here.
 
+Current runbooks:
+
+- [GitHub workflows](github-workflows.md)
+
 Initial required runbooks:
 
 - rotate Slack tokens

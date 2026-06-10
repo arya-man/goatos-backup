@@ -68,3 +68,10 @@ Morning README update expectation:
   CEO-readable language and push it.
 - Be precise: do not call Phase 1 shippable until auth/RBAC, frontend screens,
   production event egress, and real data-run gaps are actually closed.
+
+Workflow documentation expectation:
+
+- If GitHub Actions workflows or CI guardrail scripts change, update
+  `docs/runbooks/github-workflows.md` in plain language in the same change.
+- The runbook must explain what each workflow does, when it runs, what temporary
+  services it starts, and what common failures mean.
