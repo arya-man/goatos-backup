@@ -73,6 +73,10 @@ case "${1:-}" in
         exit 0
         ;;
       rm)
+        if [ "${FAKE_DOCKER_FAIL_VOLUME:-}" = "${3:-}" ]; then
+          echo "fake volume in use: ${3:-}" >&2
+          exit 1
+        fi
         exit 0
         ;;
     esac
@@ -86,7 +90,7 @@ chmod +x "$fake_docker"
 
 run_cleanup_with_fake_docker() {
   : > "$fake_log"
-  FAKE_DOCKER_LOG="$fake_log" DOCKER_CLEANUP_GOATOS_DOCKER_BIN="$fake_docker" "$cleanup_script" "$@"
+  FAKE_DOCKER_LOG="$fake_log" DOCKER_CLEANUP_GOATOS_DOCKER_BIN="$fake_docker" "$cleanup_script" "$@" 2>&1
 }
 
 dry_run_output="$(run_cleanup_with_fake_docker --delete-volumes)"
@@ -102,6 +106,20 @@ execute_output="$(run_cleanup_with_fake_docker --execute --delete-volumes)"
 assert_contains "$execute_output" "docker volume rm goatos_tmp_alpha"
 assert_contains "$execute_output" "docker volume rm goatos_test_beta"
 assert_contains "$execute_output" "docker volume rm goatos_bench_tmp_gamma"
+assert_contains "$(cat "$fake_log")" "volume rm goatos_tmp_alpha"
+assert_contains "$(cat "$fake_log")" "volume rm goatos_test_beta"
+assert_contains "$(cat "$fake_log")" "volume rm goatos_bench_tmp_gamma"
+assert_not_contains "$(cat "$fake_log")" "volume rm goatos_dev_pg_data"
+assert_not_contains "$(cat "$fake_log")" "volume rm goatos_current_work"
+assert_not_contains "$(cat "$fake_log")" "volume rm other_volume"
+
+if failed_output="$(FAKE_DOCKER_FAIL_VOLUME=goatos_test_beta run_cleanup_with_fake_docker --execute --delete-volumes)"; then
+  echo "expected cleanup to fail when fake docker rejects a temp volume" >&2
+  printf '%s\n' "$failed_output" >&2
+  exit 1
+fi
+assert_contains "$failed_output" "Failed to delete classified Goat OS temp volume: goatos_test_beta"
+assert_contains "$failed_output" "One or more classified Goat OS temp volumes could not be deleted."
 assert_contains "$(cat "$fake_log")" "volume rm goatos_tmp_alpha"
 assert_contains "$(cat "$fake_log")" "volume rm goatos_test_beta"
 assert_contains "$(cat "$fake_log")" "volume rm goatos_bench_tmp_gamma"

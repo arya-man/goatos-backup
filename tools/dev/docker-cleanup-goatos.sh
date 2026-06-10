@@ -191,8 +191,17 @@ fi
 
 echo
 echo "Deleting classified Goat OS temp volumes:"
+delete_failed=false
 while IFS= read -r volume; do
   [ -n "$volume" ] || continue
   echo "docker volume rm $volume"
-  "$DOCKER_BIN" volume rm "$volume"
+  if ! "$DOCKER_BIN" volume rm "$volume"; then
+    echo "Failed to delete classified Goat OS temp volume: $volume" >&2
+    delete_failed=true
+  fi
 done <<< "$deletable_volumes"
+
+if [ "$delete_failed" = true ]; then
+  echo "One or more classified Goat OS temp volumes could not be deleted." >&2
+  exit 1
+fi
