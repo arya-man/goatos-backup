@@ -57,3 +57,14 @@ Validation expectation:
 - At phase closeout, compare code/contracts/migrations/tests against PRD/TRD and
   update context/skills/agent references if implementation changed the truth.
 - For docs-only edits, run greps for stale terms when the user has explicitly banned wording.
+
+Morning README update expectation:
+
+- For Goat OS work sessions that start in the morning, check whether `README.md`
+  reflects the latest pushed project status before moving deep into new
+  implementation work.
+- If phase progress, shipped backend/frontend pieces, deploy gates, real-data
+  import status, or next-step priorities changed, update `README.md` in plain
+  CEO-readable language and push it.
+- Be precise: do not call Phase 1 shippable until auth/RBAC, frontend screens,
+  production event egress, and real data-run gaps are actually closed.
