@@ -45,6 +45,8 @@ paths:
                 $ref: "#/components/schemas/ImportRunResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
   /admin/import-runs/{import_run_id}:
@@ -62,6 +64,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ImportRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
   /admin/import-runs/{import_run_id}/rows:
@@ -81,6 +85,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ImportRunRowsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
   /admin/identity/conflicts:
@@ -109,6 +115,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConflictListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
   /admin/identity/conflicts/{conflict_id}:
@@ -126,6 +134,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConflictDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
   /admin/identity/conflicts/{conflict_id}/resolve:
@@ -152,6 +162,8 @@ paths:
                 $ref: "#/components/schemas/ResolveConflictResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
@@ -172,6 +184,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CandidateListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
   /admin/identity/candidates/{candidate_id}/approve:
@@ -198,6 +212,8 @@ paths:
                 $ref: "#/components/schemas/CandidateDecisionResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
@@ -228,6 +244,8 @@ paths:
                 $ref: "#/components/schemas/CandidateDecisionResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
@@ -259,6 +277,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminGoatResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /admin/goats/{goat_id}:
     patch:
       tags:
@@ -281,6 +301,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminGoatResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/WriteConflict"
   /admin/goats/{goat_id}/identifiers:
@@ -305,6 +327,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminGoatResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/WriteConflict"
   /admin/goats/{goat_id}/identifiers/{identifier_id}/retire:
@@ -330,9 +354,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminGoatResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/WriteConflict"
-  /identity/correction-requests:
+  /admin/identity/correction-requests:
     get:
       tags:
         - Correction Requests
@@ -348,6 +374,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CorrectionRequestListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /admin/identity/correction-requests/{correction_request_id}/resolve:
     post:
       tags:
@@ -370,6 +398,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CorrectionRequestResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/WriteConflict"
 components:
@@ -448,6 +478,12 @@ components:
   responses:
     BadRequest:
       description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Missing or invalid bearer token.
       content:
         application/json:
           schema:

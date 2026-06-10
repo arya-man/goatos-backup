@@ -43,6 +43,9 @@ backend/cmd/outbox-relay
 backend/cmd/rebuild-identity-counters
 backend/cmd/update-identity-counters
 backend/internal/bootstrap
+backend/internal/permissions
+backend/internal/permissions/adapters/postgres
+backend/internal/platform/auth
 backend/internal/platform/logger
 backend/internal/platform/httpmiddleware
 backend/internal/platform/postgres
@@ -87,6 +90,41 @@ mark_identifier_disputed decision records
 goat.identity.merge_approved domain event envelopes
 goat.identifier.disputed domain event envelopes
 reject candidate decision records
+```
+
+HTTP auth/RBAC foundation:
+
+```text
+backend/internal/platform/auth
+backend/internal/platform/httpmiddleware/auth.go
+backend/internal/permissions
+backend/internal/permissions/adapters/postgres
+
+API bootstrap defaults to bearer auth when GOATOS_AUTH_MODE is empty.
+Bearer mode requires GOATOS_AUTH_ISSUER, GOATOS_AUTH_AUDIENCE, and
+GOATOS_AUTH_HS256_SECRET with at least 32 bytes.
+
+The bootstrap verifier is HS256 only and uses standard-library HMAC-SHA256,
+base64url, and JSON parsing. The server pins expected alg=HS256 and rejects
+alg=none, wrong alg, wrong secret, malformed tokens, missing sub/tenant,
+wrong issuer/audience, expired tokens, and future nbf tokens. Extra token role
+claims are ignored; they are not authorization authority.
+
+Bearer middleware attaches tenant_id from token tenant_id and actor/user_id
+from token sub. Normal bearer mode overwrites/ignores X-GoatOS-Tenant-ID and
+X-GoatOS-Actor-ID. Only GET /healthz and GET /readyz bypass auth.
+
+Authorization uses active tenant-scope rows in user_scope_grants:
+user_id=sub, tenant_id=token tenant, scope_type=tenant, scope_id=tenant_id,
+status=active, valid_from<=now, and valid_to null or future. Revoked, inactive,
+expired, future, and missing grants deny live. Route permissions are enforced by
+the shared backend/internal/permissions registry and fail closed for protected
+routes not in the registry.
+
+dev_headers mode is retained only as an explicit local-development escape hatch:
+GOATOS_AUTH_MODE=dev_headers plus GOATOS_DEV_HEADERS_ALLOW=true, refused for
+staging/prod-looking GOATOS_ENV values, with a loud warning. It still uses the
+same DB-backed grant checks after reading local headers.
 ```
 
 Outbox relay foundation:
@@ -207,7 +245,7 @@ sqlc query-plan validation covers every generated query.sql read and rejects
 hot-path sequential scans
 correction request create:
   requires Idempotency-Key
-  requires temporary X-GoatOS-Actor-ID uuid
+  requires authenticated actor uuid
   rejects unknown JSON fields
   supports goat-linked and goatless requests
   validates goat-linked tenant ownership
@@ -218,7 +256,7 @@ correction request create:
   persisted outbox payload validates against domain-event-envelope JSON Schema
 correction request resolve:
   requires Idempotency-Key
-  requires temporary X-GoatOS-Actor-ID uuid
+  requires authenticated actor uuid
   rejects unknown JSON fields and old evidence_ids payloads
   requires typed evidence_refs and current row_version
   allows open/assigned/needs_field_check -> approved/rejected/closed or needs_field_check
@@ -239,7 +277,7 @@ correction request resolve:
   does not directly mutate goat identity and does not write goat_identity_events
 admin identifier add/retire:
   requires Idempotency-Key
-  requires temporary X-GoatOS-Actor-ID uuid
+  requires authenticated actor uuid
   rejects unknown JSON fields and old evidence_ids payloads
   requires typed evidence_refs, scope_key for add, and current goat row_version
   normalizes RFID by trim + uppercase; other identifier values are trimmed
@@ -276,8 +314,7 @@ conflict resolve:
   rejects unknown JSON fields and old evidence_ids payloads
   validates exact decision_type/decision_result pairs
   requires typed evidence_refs, affected_goat_ids, identifier_actions, reason,
-  current conflict row_version, Idempotency-Key, and temporary
-  X-GoatOS-Actor-ID uuid
+  current conflict row_version, Idempotency-Key, and authenticated actor uuid
   requires survivor_goat_id only for merge_goats and rejects it for non-merge
   decisions
   adds identity_conflicts.row_version via migration 000005 and uses a single
@@ -339,7 +376,7 @@ candidate review:
   implements POST /admin/identity/candidates/{candidate_id}/reject
   rejects unknown JSON fields and old evidence_ids payloads; use typed
   evidence_refs
-  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, reason,
+  requires Idempotency-Key, authenticated actor, reason,
   evidence_refs, and candidate row_version
   stored idempotency key is
   <tenant_id>:rejectIdentityCandidate:<candidate_id>:<client_key>
@@ -426,15 +463,15 @@ RFID source-of-truth canonical apply:
   identity_decision_events stores the exact goat_identity_events.recorded_at
 ```
 
-## Temporary Scaffolds
+## Auth And RBAC Scope
 
 ```text
-X-GoatOS-Tenant-ID is a local/dev tenant-scope placeholder.
-It is not production authentication or authorization.
-Replace it with the auth/RBAC adapter before deploy-like environments.
+X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are no longer production API
+authority. Bearer mode derives tenant and actor from the signed token and
+overwrites these headers before handlers run.
 
-X-GoatOS-Actor-ID is the temporary local/dev actor scaffold for writes until
-auth/RBAC lands. It must parse as uuid and is not production authentication.
+The headers remain only for explicit local dev_headers mode and direct handler
+unit tests below the auth middleware.
 
 Phase 1 RBAC role boundary is pinned:
 
@@ -457,15 +494,6 @@ Phase 1 permissions:
   import.run.view
 ```
 
-The next auth/RBAC slice should implement signed bearer auth plus active
-tenant-scope `user_scope_grants` checks for these roles. HS256 is a bootstrap
-verifier only; production IdP/JWKS/asymmetric verification remains deferred.
-The bootstrap HS256 verifier should use Go standard-library primitives
-(`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing); if a JWT library
-is introduced, `go.mod` and `go.sum` must be committed with it.
-Bearer-mode startup must fail if issuer/audience are missing or the HS256 secret
-is missing/weak. `dev_headers` mode, if retained, must require an explicit
-local-only opt-in and must refuse staging/production-looking configuration.
 Role and permissions must come from the active `user_scope_grants` row for the
 token `sub`; token role claims are not authority. Analytics count reads must use
 the token tenant as the DB tenant filter, with query `tenant_id` only as an
@@ -489,10 +517,9 @@ HTTP auth/RBAC does not cover local/system CLIs (`rfid-import`, `rfid-apply`,
 entrypoints remain operator-trusted, but must still take explicit tenant input
 and keep database writes tenant-scoped.
 
-Actor attribution must come from the token `sub` in bearer mode. Production
-handlers must stop reading `X-GoatOS-Actor-ID` for write audit/decision actors.
-Existing handler tests using old GoatOS headers must be updated to minted test
-tokens or explicitly scoped dev-header-mode tests so `make test` remains green.
+Actor attribution comes from the token `sub` in bearer mode. Write audit,
+decision, correction, and idempotency actor fields use the authenticated actor
+from request context; old actor headers cannot override a bearer token.
 
 Tenant-scope RBAC is broader than the final intended scope model. Tenant-wide
 admin/verifier grants can act across the tenant until custodian/farm/park/shed
@@ -519,7 +546,9 @@ AI-worker migration should add a candidate CHECK mirroring
 ## Deferred Work
 
 ```text
-auth/RBAC adapter
+production IdP/JWKS/asymmetric auth, token issuance, rotation, revocation,
+refresh tokens, Secret Manager wiring, rate limiting, clock skew policy, TLS
+termination, and leaked-secret runbook
 AI suggestion worker and candidate-state DB hardening
 remaining admin write handlers except identifier add/retire, correction resolve,
 candidate reject, and built conflict resolve paths
@@ -788,9 +817,9 @@ decisions and aggregate invalidation; import progress, retry counts, dashboard
 projection counters, and other numerical counters use atomic SQL increments or
 bounded rebuilds instead of row-version compare-and-retry loops.
 
-Until auth/RBAC lands, write endpoints using X-GoatOS-Tenant-ID or temporary
-actor headers are local/dev scaffolding only. They are a deploy gate for shared,
-staging, or production-like environments.
+Bearer auth/RBAC is now the API default. The remaining deploy gate is
+production-grade authentication infrastructure: IdP/JWKS, secret management,
+token lifecycle, rate limiting, TLS, and operations runbooks.
 
 Outbox relay is a standalone local/dev CLI foundation. It is not run as an API
 server goroutine and does not include real cloud publishing. Production

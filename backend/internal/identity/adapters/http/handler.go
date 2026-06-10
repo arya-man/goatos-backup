@@ -43,6 +43,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PATCH /admin/goats/{goat_id}", h.NotImplemented("admin_goat_writes_deferred"))
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
+	mux.HandleFunc("GET /admin/identity/correction-requests", h.NotImplemented("admin_correction_requests_deferred"))
 	mux.HandleFunc("POST /admin/identity/correction-requests/{correction_request_id}/resolve", h.ResolveCorrectionRequest)
 }
 
@@ -138,7 +139,7 @@ func (h *Handler) ResolveConflict(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.ResolveConflict(r.Context(), app.ResolveConflictInput{
 		TenantID:       tenantID(r),
-		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
 		ConflictID:     r.PathValue("conflict_id"),
@@ -161,7 +162,7 @@ func (h *Handler) ApproveCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.ApproveCandidate(r.Context(), app.ReviewCandidateInput{
 		TenantID:       tenantID(r),
-		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
 		CandidateID:    r.PathValue("candidate_id"),
@@ -184,7 +185,7 @@ func (h *Handler) RejectCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.RejectCandidate(r.Context(), app.ReviewCandidateInput{
 		TenantID:       tenantID(r),
-		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
 		CandidateID:    r.PathValue("candidate_id"),
@@ -207,7 +208,7 @@ func (h *Handler) CreateCorrectionRequest(w http.ResponseWriter, r *http.Request
 	}
 	result, err := h.service.CreateCorrectionRequest(r.Context(), app.CreateCorrectionRequestInput{
 		TenantID:       tenantID(r),
-		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
 		RawBody:        body,
@@ -237,7 +238,7 @@ func (h *Handler) ResolveCorrectionRequest(w http.ResponseWriter, r *http.Reques
 	}
 	result, err := h.service.ResolveCorrectionRequest(r.Context(), app.ResolveCorrectionRequestInput{
 		TenantID:            tenantID(r),
-		ActorID:             r.Header.Get("X-GoatOS-Actor-ID"),
+		ActorID:             actorID(r),
 		IdempotencyKey:      r.Header.Get("Idempotency-Key"),
 		TraceID:             traceID(r),
 		CorrectionRequestID: r.PathValue("correction_request_id"),
@@ -260,7 +261,7 @@ func (h *Handler) AddGoatIdentifier(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.AddGoatIdentifier(r.Context(), app.AddGoatIdentifierInput{
 		TenantID:       tenantID(r),
-		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
 		GoatID:         r.PathValue("goat_id"),
@@ -283,7 +284,7 @@ func (h *Handler) RetireGoatIdentifier(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.RetireGoatIdentifier(r.Context(), app.RetireGoatIdentifierInput{
 		TenantID:       tenantID(r),
-		ActorID:        r.Header.Get("X-GoatOS-Actor-ID"),
+		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
 		GoatID:         r.PathValue("goat_id"),
@@ -369,6 +370,10 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func tenantID(r *http.Request) string {
 	return httpmiddleware.TenantIDFromContext(r.Context())
+}
+
+func actorID(r *http.Request) string {
+	return httpmiddleware.ActorIDFromContext(r.Context())
 }
 
 func traceID(r *http.Request) string {

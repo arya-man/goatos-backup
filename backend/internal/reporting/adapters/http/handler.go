@@ -27,7 +27,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 
 func (h *Handler) GetIdentityCounts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if headerTenant := tenantID(r); headerTenant != "" && q.Get("tenant_id") != "" && headerTenant != q.Get("tenant_id") {
+	requestTenant := tenantID(r)
+	if requestTenant != "" && q.Get("tenant_id") != "" && requestTenant != q.Get("tenant_id") {
 		writeError(w, http.StatusForbidden, domain.ErrorEnvelope{
 			Code:        "tenant_scope_mismatch",
 			Message:     "tenant_id query parameter must match the request tenant scope",
@@ -43,7 +44,7 @@ func (h *Handler) GetIdentityCounts(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.GetIdentityCounts(r.Context(), ports.CountParams{
 		Grain:              q.Get("grain"),
-		TenantID:           q.Get("tenant_id"),
+		TenantID:           requestTenant,
 		Limit:              limit,
 		Cursor:             optionalQuery(q.Get("cursor")),
 		CustodianPartyID:   optionalQuery(q.Get("custodian_party_id")),

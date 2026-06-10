@@ -155,7 +155,7 @@ func validateWriteHeaders(rawTenantID, rawActorID, rawClientKey string) (tenantI
 	}
 	actorID = strings.TrimSpace(rawActorID)
 	if !uuidPattern.MatchString(actorID) {
-		return "", "", "", BadRequest("invalid_actor_id", "X-GoatOS-Actor-ID must be a valid UUID")
+		return "", "", "", BadRequest("invalid_actor_id", "authenticated actor must be a valid UUID")
 	}
 	clientKey = strings.TrimSpace(rawClientKey)
 	if clientKey == "" {

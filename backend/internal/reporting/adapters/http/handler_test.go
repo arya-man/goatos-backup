@@ -64,6 +64,24 @@ func TestAnalyticsInvalidFilterReturnsBadRequestEnvelope(t *testing.T) {
 	}
 }
 
+func TestAnalyticsUsesRequestTenantAsRepositoryAuthority(t *testing.T) {
+	var got ports.CountParams
+	handler := analyticsHandler(fakeRepo{capture: &got})
+	req := httptest.NewRequest(http.MethodGet, "/analytics/identity/counts?grain=tenant_lifecycle&limit=50", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-authority")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got.TenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("repo tenant = %q", got.TenantID)
+	}
+}
+
 func TestAnalyticsCountsLimitValidation(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -161,9 +179,13 @@ func analyticsHandler(repo fakeRepo) http.Handler {
 
 type fakeRepo struct {
 	listErr error
+	capture *ports.CountParams
 }
 
-func (f fakeRepo) ListIdentityCounts(context.Context, ports.CountParams) (*ports.CountPage, error) {
+func (f fakeRepo) ListIdentityCounts(_ context.Context, params ports.CountParams) (*ports.CountPage, error) {
+	if f.capture != nil {
+		*f.capture = params
+	}
 	return &ports.CountPage{Items: []domain.IdentityCount{}}, f.listErr
 }
 

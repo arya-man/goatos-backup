@@ -64,7 +64,7 @@ func (s *Service) CreateCorrectionRequest(ctx context.Context, input CreateCorre
 	}
 	actorID := strings.TrimSpace(input.ActorID)
 	if !uuidPattern.MatchString(actorID) {
-		return nil, BadRequest("invalid_actor_id", "X-GoatOS-Actor-ID must be a valid UUID")
+		return nil, BadRequest("invalid_actor_id", "authenticated actor must be a valid UUID")
 	}
 	clientKey := strings.TrimSpace(input.IdempotencyKey)
 	if clientKey == "" {
@@ -125,7 +125,7 @@ func (s *Service) ResolveCorrectionRequest(ctx context.Context, input ResolveCor
 	}
 	actorID := strings.TrimSpace(input.ActorID)
 	if !uuidPattern.MatchString(actorID) {
-		return nil, BadRequest("invalid_actor_id", "X-GoatOS-Actor-ID must be a valid UUID")
+		return nil, BadRequest("invalid_actor_id", "authenticated actor must be a valid UUID")
 	}
 	clientKey := strings.TrimSpace(input.IdempotencyKey)
 	if clientKey == "" {

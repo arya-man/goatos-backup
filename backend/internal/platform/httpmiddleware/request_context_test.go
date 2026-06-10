@@ -22,6 +22,9 @@ func TestRequestContextPreservesIncomingIDs(t *testing.T) {
 		if got := TenantIDFromContext(r.Context()); got != "00000000-0000-4000-8000-000000000001" {
 			t.Fatalf("tenant id = %q", got)
 		}
+		if got := ActorIDFromContext(r.Context()); got != "90000000-0000-4000-8000-000000000001" {
+			t.Fatalf("actor id = %q", got)
+		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -29,6 +32,7 @@ func TestRequestContextPreservesIncomingIDs(t *testing.T) {
 	req.Header.Set("X-Request-ID", "req-123")
 	req.Header.Set("traceparent", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", "90000000-0000-4000-8000-000000000001")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

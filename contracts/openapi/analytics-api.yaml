@@ -138,6 +138,8 @@ paths:
                 $ref: "#/components/schemas/IdentityCountsResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
 components:
@@ -149,6 +151,12 @@ components:
   responses:
     BadRequest:
       description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Missing or invalid bearer token.
       content:
         application/json:
           schema:

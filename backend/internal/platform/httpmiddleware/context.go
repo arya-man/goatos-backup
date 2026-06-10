@@ -8,6 +8,7 @@ const (
 	requestIDKey contextKey = "request_id"
 	traceIDKey   contextKey = "trace_id"
 	tenantIDKey  contextKey = "tenant_id"
+	actorIDKey   contextKey = "actor_id"
 )
 
 // RequestIDFromContext returns the request ID attached by RequestContext.
@@ -28,7 +29,18 @@ func TenantIDFromContext(ctx context.Context) string {
 	return v
 }
 
+// ActorIDFromContext returns the authenticated actor attached to the request.
+func ActorIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(actorIDKey).(string)
+	return v
+}
+
 // WithTenantID attaches a tenant scope to a context.
 func WithTenantID(ctx context.Context, tenantID string) context.Context {
 	return context.WithValue(ctx, tenantIDKey, tenantID)
+}
+
+// WithActorID attaches an actor/user scope to a context.
+func WithActorID(ctx context.Context, actorID string) context.Context {
+	return context.WithValue(ctx, actorIDKey, actorID)
 }

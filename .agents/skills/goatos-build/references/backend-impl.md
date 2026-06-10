@@ -67,8 +67,9 @@ Rules:
 - Postgres adapters must satisfy module-owned ports and keep SQL tenant-scoped.
 - Do not scan the full herd in API paths. Use indexed lookup paths and bounded
   `limit` values.
-- `X-GoatOS-Tenant-ID` is a local/dev placeholder until auth/RBAC lands. It is
-  not production authentication.
+- API bootstrap defaults to bearer auth. `X-GoatOS-Tenant-ID` and
+  `X-GoatOS-Actor-ID` are local/dev placeholders only and are overwritten by
+  bearer auth before handlers run.
 - Phase 1 RBAC is the internal goat-ops realm only. The DB-enforced role set is
   `admin`, `verifier`, `park_head`, `operator`, and `ceo_internal`. Investor,
   buyer, donor, partner, franchise, lending, procurement, health, workforce, and
@@ -77,30 +78,27 @@ Rules:
 - Phase 1 permissions are `goat.read`, `correction.create`,
   `goat.view_dirty_data`, `goat.review_identity`, `goat.write_identity`, and
   `analytics.identity.read`, plus `import.run.manage` and `import.run.view`.
-  The next auth/RBAC slice should enforce these from signed bearer identity plus
-  active tenant-scope `user_scope_grants`. `createImportRun` is admin-only via
+  These are enforced from signed bearer identity plus active tenant-scope
+  `user_scope_grants`. `createImportRun` is admin-only via
   `import.run.manage`; import run reads use `import.run.view`. HS256 is a
   bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
   deferred.
 - Verifier access to `import.run.view` is deliberate: identity reviewers need
   import provenance while triaging dirty data. It does not grant import run
   creation or canonical import apply.
-- The bootstrap HS256 verifier should use Go standard-library primitives
-  (`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing). If a JWT
-  library is added, commit the matching `go.mod` and `go.sum` changes.
-- Bearer-mode startup must fail if issuer/audience are missing or the HS256
-  secret is missing/weak. The dev-header escape hatch, if retained, must require
-  explicit local-only opt-in and refuse staging/production-looking
-  configuration.
+- The bootstrap HS256 verifier uses Go standard-library primitives
+  (`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing). Bearer-mode
+  startup fails if issuer/audience are missing or the HS256 secret is
+  missing/weak. The dev-header escape hatch requires explicit local-only opt-in
+  and refuses staging/production-looking configuration.
 - Role and permissions must come from the active `user_scope_grants` row for
   the token `sub`; token role claims are not authority. Bearer-mode write actor
   attribution must use token `sub`, not `X-GoatOS-Actor-ID`.
-- The auth middleware must be backed by an explicit route-to-permission
-  registry with fail-closed default. Only `/healthz` and `/readyz` are
-  unauthenticated. The duplicate correction-list contract path must be fixed:
-  app `listCorrectionRequests` stays `GET /identity/correction-requests`, while
-  admin `adminListCorrectionRequests` moves to
-  `GET /admin/identity/correction-requests`.
+- The auth middleware is backed by an explicit route-to-permission registry with
+  fail-closed default. Only `/healthz` and `/readyz` are unauthenticated. The
+  correction-list contract paths are split: app `listCorrectionRequests` stays
+  `GET /identity/correction-requests`, while admin `adminListCorrectionRequests`
+  is `GET /admin/identity/correction-requests`.
 - Identity/admin/app handlers and reporting/analytics handlers must consume the
   same permission registry package. Do not maintain a separate analytics-only
   table for `analytics.identity.read`.
@@ -114,8 +112,8 @@ Rules:
 - Tenant-scope RBAC is broader than final intended scope. Tenant-wide
   admin/verifier grants can act across all goats in the tenant until
   custodian/farm/park/shed/cohort filtering lands.
-- Analytics `tenant_id` query scope must not conflict with the temporary tenant
-  header while that header exists.
+- Analytics `tenant_id` query scope must not conflict with the authenticated
+  token tenant; the query value is only an optional equality assertion.
 - Request middleware preserves `X-Request-ID` and `traceparent`, generates a
   request ID when missing, and logs method/path/status/duration with slog.
 - Full OpenTelemetry exporters/spans/metrics are deferred, but the request
@@ -140,15 +138,16 @@ Rules:
   `<tenant_id>:createCorrectionRequest:<client_key>`, request_hash includes
   canonical JSON body + command + route + tenant, exact replay re-fetches the
   correction request, and same key/different body is a conflict.
-- Temporary `X-GoatOS-Actor-ID` is required for write scaffolding until
-  auth/RBAC lands. It must parse as uuid and is local/dev only.
+- Bearer mode supplies the write actor from token `sub` in request context.
+  `X-GoatOS-Actor-ID` remains a local/dev handler-test scaffold only and cannot
+  override bearer context.
 - Correction request create supports goat-linked and goatless requests. It does
   not create goat_identity_events because it is a review input, not canonical
   goat identity mutation. It writes a `correction_request` outbox event envelope
   in the same transaction.
 - POST `/admin/identity/correction-requests/{correction_request_id}/resolve`
   is the first admin write pattern. It requires `Idempotency-Key`,
-  temporary `X-GoatOS-Actor-ID`, typed `evidence_refs`, `reason`, and
+  authenticated actor, typed `evidence_refs`, `reason`, and
   `row_version`. The stored key is
   `<tenant_id>:resolveCorrectionRequest:<client_key>`, and request_hash includes
   tenant, command, route, correction_request_id, and canonical JSON body.
@@ -172,7 +171,7 @@ Rules:
 - POST `/admin/goats/{goat_id}/identifiers` and
   `/admin/goats/{goat_id}/identifiers/{identifier_id}/retire` are the first
   canonical goat identity mutation commands. They require `Idempotency-Key`,
-  temporary `X-GoatOS-Actor-ID`, typed `evidence_refs`, and goat `row_version`.
+  authenticated actor, typed `evidence_refs`, and goat `row_version`.
   Add also requires `scope_key`; RFID values are trim + uppercase normalized,
   while other identifier values are trimmed.
 - Identifier add/retire uses one transaction for idempotency row, goat
@@ -349,7 +348,7 @@ POST /admin/identity/conflicts/{conflict_id}/resolve
   create_goat + new_goat_required remains typed not_implemented until the
   contract defines required goat creation fields
   strict JSON rejects old evidence_ids; use typed evidence_refs
-  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, affected goat IDs,
+  requires Idempotency-Key, authenticated actor, affected goat IDs,
   identifier actions array, reason, and conflict row_version
   survivor goat is required only for merge_goats and rejected for non-merge
   decisions
@@ -407,7 +406,7 @@ GET /admin/identity/candidates
 
 POST /admin/identity/candidates/{candidate_id}/reject
   strict JSON rejects old evidence_ids; use typed evidence_refs
-  requires Idempotency-Key, temporary X-GoatOS-Actor-ID, reason,
+  requires Idempotency-Key, authenticated actor, reason,
   evidence_refs, and candidate row_version
   stored idempotency key is
   <tenant_id>:rejectIdentityCandidate:<candidate_id>:<client_key>
@@ -432,7 +431,7 @@ POST /admin/identity/candidates/{candidate_id}/approve
 Known backend deferments:
 
 ```text
-auth/RBAC adapter
+production IdP/JWKS/asymmetric auth and token lifecycle
 AI suggestion worker and candidate-state DB hardening
 dirty staged-row conflict/candidate creation and auto-link reconciliation
 create_goat conflict decision fields

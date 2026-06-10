@@ -1866,11 +1866,13 @@ permission table for `analytics.identity.read`.
 Phase 1 auth/RBAC scope:
 
 ```text
+API bootstrap defaults to bearer auth when GOATOS_AUTH_MODE is empty
 signed bearer token proves user identity
 Goat OS DB grant for token sub proves tenant membership and role authority
 role and permissions come from user_scope_grants, never from token role claims
 tenant_id from the token is the request tenant
-X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are local/dev scaffolds only
+X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are local/dev scaffolds only and are
+ignored/overwritten in bearer mode
 ```
 
 Analytics tenant handling:
@@ -1887,7 +1889,7 @@ Phase 1 API hardening. Production authentication requires a real IdP and
 asymmetric verification such as RS256/ES256/JWKS with issuer and audience
 validation.
 
-The bootstrap HS256 verifier should use Go standard-library primitives
+The bootstrap HS256 verifier uses Go standard-library primitives
 (`crypto/hmac`, `crypto/sha256`, JSON, and base64url parsing). Do not add a JWT
 dependency unless `go.mod` and `go.sum` are updated and the alg-confusion tests
 remain green.
@@ -1901,10 +1903,9 @@ GOATOS_AUTH_AUDIENCE must be set
 ```
 
 The dev-header escape hatch is unsafe and must be hard to enable accidentally.
-If it exists, it must require an explicit local-only opt-in such as
-`GOATOS_AUTH_MODE=dev_headers` plus an additional allow flag, must emit a loud
-startup warning, and must refuse to start in staging/production-looking
-configuration. Normal bearer mode ignores `X-GoatOS-Tenant-ID` and
+It requires `GOATOS_AUTH_MODE=dev_headers` plus `GOATOS_DEV_HEADERS_ALLOW=true`,
+emits a loud startup warning, and refuses staging/production-looking
+configuration. Normal bearer mode ignores/overwrites `X-GoatOS-Tenant-ID` and
 `X-GoatOS-Actor-ID`.
 
 HTTP auth/RBAC covers network API requests. Local/system CLIs such as
@@ -2380,7 +2381,7 @@ are rejected by `additionalProperties=false`. Required fields are `reason`,
 
 `POST /admin/identity/candidates/{candidate_id}/reject` is a decision-only
 candidate state transition. It requires `Idempotency-Key`, temporary
-`X-GoatOS-Tenant-ID`, temporary `X-GoatOS-Actor-ID`, `reason`, typed
+`X-GoatOS-Tenant-ID`, authenticated actor, `reason`, typed
 `evidence_refs`, and current candidate `row_version`. The guarded update must
 match tenant, candidate, `state in ('proposed','needs_review')`, and
 `row_version`, then set `state='rejected'`, `reviewed_by=<actor>`,

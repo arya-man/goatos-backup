@@ -5,11 +5,15 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
+	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	reportinghttp "github.com/vgoats/goatos/backend/internal/reporting/adapters/http"
@@ -20,6 +24,16 @@ import (
 type Config struct {
 	HTTPAddr string
 	Postgres platformpg.Config
+	Auth     AuthConfig
+}
+
+type AuthConfig struct {
+	Mode              string
+	Issuer            string
+	Audience          string
+	HS256Secret       string
+	DevHeadersAllowed bool
+	Environment       string
 }
 
 type API struct {
@@ -35,10 +49,23 @@ func ConfigFromEnv() Config {
 	return Config{
 		HTTPAddr: addr,
 		Postgres: platformpg.ConfigFromEnv(),
+		Auth: AuthConfig{
+			Mode:              os.Getenv("GOATOS_AUTH_MODE"),
+			Issuer:            os.Getenv("GOATOS_AUTH_ISSUER"),
+			Audience:          os.Getenv("GOATOS_AUTH_AUDIENCE"),
+			HS256Secret:       os.Getenv("GOATOS_AUTH_HS256_SECRET"),
+			DevHeadersAllowed: strings.EqualFold(os.Getenv("GOATOS_DEV_HEADERS_ALLOW"), "true"),
+			Environment:       os.Getenv("GOATOS_ENV"),
+		},
 	}
 }
 
 func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
+	verifier, err := buildAuthVerifier(cfg.Auth)
+	if err != nil {
+		return nil, err
+	}
+
 	pool, err := platformpg.Connect(ctx, cfg.Postgres)
 	if err != nil {
 		return nil, err
@@ -50,6 +77,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	reportingRepo := reportingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	reportingService := reportingapp.NewService(reportingRepo)
 	reportingHandler := reportinghttp.NewHandler(reportingService)
+	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
+	authz, err := buildAuthMiddleware(cfg.Auth, verifier, grantSource, log)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -65,7 +98,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	identityhttp.Register(mux, identityHandler)
 	reportinghttp.Register(mux, reportingHandler)
 
-	handler := httpmiddleware.RequestContext(log)(mux)
+	handler := httpmiddleware.RequestContext(log)(authz.Wrap(mux))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
@@ -75,4 +108,43 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Server: server,
 		Close:  pool.Close,
 	}, nil
+}
+
+func buildAuthVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error) {
+	mode := strings.TrimSpace(cfg.Mode)
+	if mode == "" {
+		mode = httpmiddleware.AuthModeBearer
+	}
+	switch mode {
+	case httpmiddleware.AuthModeBearer:
+		return platformauth.NewHS256Verifier(platformauth.Config{
+			Issuer:   cfg.Issuer,
+			Audience: cfg.Audience,
+			Secret:   []byte(cfg.HS256Secret),
+		})
+	case httpmiddleware.AuthModeDevHeaders:
+		if !cfg.DevHeadersAllowed || productionLike(cfg.Environment) {
+			return nil, httpmiddleware.ErrInvalidAuthConfig
+		}
+		return nil, nil
+	default:
+		return nil, httpmiddleware.ErrInvalidAuthConfig
+	}
+}
+
+func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
+	mode := strings.TrimSpace(cfg.Mode)
+	if mode == "" {
+		mode = httpmiddleware.AuthModeBearer
+	}
+	return httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
+		Mode:              mode,
+		DevHeadersAllowed: cfg.DevHeadersAllowed,
+		Environment:       cfg.Environment,
+	}, verifier, grants, log)
+}
+
+func productionLike(env string) bool {
+	env = strings.ToLower(strings.TrimSpace(env))
+	return strings.Contains(env, "prod") || strings.Contains(env, "staging") || strings.Contains(env, "stage")
 }

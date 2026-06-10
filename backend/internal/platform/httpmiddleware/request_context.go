@@ -13,14 +13,15 @@ import (
 const (
 	headerRequestID = "X-Request-ID"
 	headerTrace     = "traceparent"
-	// X-GoatOS-Tenant-ID is a local-development placeholder until auth/RBAC
-	// derives tenant scope from a verified identity. Do not deploy shared
-	// environments that trust this header as authority.
+	// X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are local-development
+	// placeholders. The API bootstrap defaults to bearer auth, which overwrites
+	// both values from a verified token before handlers run.
 	headerTenantID = "X-GoatOS-Tenant-ID"
+	headerActorID  = "X-GoatOS-Actor-ID"
 )
 
 // RequestContext preserves inbound request/trace IDs, generates missing IDs,
-// records the tenant scope placeholder, and logs HTTP request outcomes.
+// records local-development tenant/actor placeholders, and logs HTTP outcomes.
 func RequestContext(log *slog.Logger) func(http.Handler) http.Handler {
 	if log == nil {
 		log = slog.Default()
@@ -40,12 +41,16 @@ func RequestContext(log *slog.Logger) func(http.Handler) http.Handler {
 			}
 
 			tenantID := strings.TrimSpace(r.Header.Get(headerTenantID))
+			actorID := strings.TrimSpace(r.Header.Get(headerActorID))
 
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, requestIDKey, requestID)
 			ctx = context.WithValue(ctx, traceIDKey, traceID)
 			if tenantID != "" {
 				ctx = WithTenantID(ctx, tenantID)
+			}
+			if actorID != "" {
+				ctx = WithActorID(ctx, actorID)
 			}
 
 			w.Header().Set(headerRequestID, requestID)

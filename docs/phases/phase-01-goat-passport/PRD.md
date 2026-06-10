@@ -173,6 +173,9 @@ CEO/internal user
 ### Phase 1 Access Boundary
 
 Phase 1 RBAC is for internal Goat OS goat-ops users only.
+The Phase 1 backend API gate is signed bearer authentication plus active
+tenant-scope `user_scope_grants`; token role claims and GoatOS dev headers are
+not production authorization authority.
 
 The Phase 1 backend role set is:
 
