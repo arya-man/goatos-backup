@@ -51,7 +51,14 @@ func (i *Importer) ImportRFIDWorkbook(ctx context.Context, cmd ImportCommand) (*
 		return nil, errors.New("read input workbook failed")
 	}
 	sourceHash := hashBytes(data)
-	workbookRows, err := ParseXLSX(data)
+	discovery, err := DiscoverXLSXSource(data, cmd.SheetName)
+	if err != nil {
+		return nil, err
+	}
+	if !discovery.Importable {
+		return nil, fmt.Errorf("source workbook is not importable: classification=%s", discovery.Classification)
+	}
+	workbookRows, err := ParseXLSXSheet(data, cmd.SheetName)
 	if err != nil {
 		return nil, err
 	}

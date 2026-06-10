@@ -22,6 +22,7 @@ backend/cmd/rfid-import         Phase 1 RFID workbook staging CLI
 backend/cmd/rfid-apply          Phase 1 RFID staged-row canonical apply CLI
 backend/internal/bootstrap      explicit constructor wiring
 backend/internal/platform       shared platform adapters
+backend/internal/platform/localtarget local/dev database target guard for DB-writing rehearsal CLIs
 backend/internal/identity       Phase 1 Goat Passport module
 backend/internal/legacy_import  Phase 1 import staging and reconciliation inputs
 backend/internal/outbox         Phase 1 local/dev outbox relay foundation
@@ -125,7 +126,12 @@ Rules:
 - HTTP auth/RBAC covers network API requests. Local/system CLIs (`rfid-import`,
   `rfid-apply`, `outbox-relay`, `rebuild-identity-counters`, and
   `update-identity-counters`) remain operator-trusted entrypoints outside HTTP
-  auth, but must still require explicit tenant input and keep SQL tenant-scoped.
+  auth, but DB-writing local rehearsal commands must use
+  `backend/internal/platform/localtarget`, require explicit tenant input, and
+  keep SQL tenant-scoped. The local target guard allows only `GOATOS_ENV=local`
+  or `dev` for import/apply/counter rehearsal commands and rejects
+  production/staging-looking database URLs, remote DB hosts, and Cloud SQL Unix
+  sockets.
 - Local Docker is the default daily development path for Docker Postgres, tests,
   and small synthetic data; GCP is not required for normal coding. `goatos-dev`
   Cloud SQL later serves explicit cloud rehearsal, while `goatos-stg` later
@@ -223,11 +229,16 @@ Rules:
 - `backend/internal/legacy_import` owns import staging and reconciliation
   inputs. Do not route staging writes through identity adapters, and do not let
   `cmd` write `legacy_import_*` tables directly.
-- The RFID import CLI loads approved policy `phase1-rfid-db-import-v1`; source
-  system/dataset, source key recipe/version, hash recipe/version, identifier
-  policy version, and normalizer version come from that DB policy row.
+- The RFID import CLI supports source discovery, sheet-by-name selection,
+  dry-run, real staging, and sanitized anomaly reports. It loads approved policy
+  `phase1-rfid-db-import-v1`; source system/dataset, source key recipe/version,
+  hash recipe/version, identifier policy version, and normalizer version come
+  from that DB policy row.
 - RFID workbook imports parse `.xlsx` cells as text/raw values. Never coerce
   RFID or old-tag-like fields through float conversion.
+- `ParseXLSXSheet` resolves explicit sheet names through `xl/workbook.xml` and
+  `xl/_rels/workbook.xml.rels`; explicit missing sheets fail clearly. Do not
+  assume visible tab order equals `sheetN.xml` file order.
 - Dry-run imports write only `legacy_import_runs` aggregate counts. Real staging
   writes `legacy_import_rows` in bounded batches and does not mutate canonical
   goats, identifiers, events, outbox, counters, candidates, conflicts, or
@@ -285,21 +296,22 @@ Rules:
   `Shed`, and `Partition`. Shape-1 RFID headers such as `Origin Farm`,
   `Old Tag ID`, and `Shed Tag` are recognized source evidence but require a
   separate mapping extension before import.
-- Source discovery must classify source shape before import. Operational
-  counting/feed/health/death/shifting/dashboard Sheets must not be fed into the
-  Phase 1 RFID identity importer.
-- When sheet-by-name selection is added, the parser must resolve workbook sheet
-  names through `workbook.xml` and `workbook.xml.rels`; do not assume tab order
-  equals `sheetN.xml` order. An explicit missing sheet must fail clearly, not
-  silently fall back to the first sheet.
+- Source discovery classifies Shape 2 as importable, recognizes Shape 1 as
+  blocked until mapping extension, and rejects operational/unknown source
+  shapes before staging. Operational counting/feed/health/death/shifting/
+  dashboard Sheets must not be fed into the Phase 1 RFID identity importer.
+- Google Sheet live export/import is not implemented in Phase 1. Operators must
+  export to local XLSX and use `rfid-import --source-type=local_xlsx`; the
+  `google_sheet` discovery path returns a skipped status.
 - Anomaly/review reports must use actual emitted reason codes from
   `legacy_import` staging/apply data, such as `malformed_rfid`,
   `duplicate_rfid_in_workbook`, `missing_rfid`,
   `duplicate_old_tag_same_scope`, `blank_old_tag_suffix`,
   `tagless_identity_evidence`, `blank_gender`, `unknown_gender`, and
   `source_row_changed`. Do not invent report buckets or imply validations that
-  are not implemented. Reports belong under ignored local output paths and must
-  mask sensitive identifiers by default.
+  are not implemented. Reports belong under ignored local output paths, must
+  mask sensitive identifiers by default, and must not emit raw source_row_key
+  values because source keys can include RFID/old-tag evidence.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

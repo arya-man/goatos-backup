@@ -66,6 +66,9 @@ Completed so far:
 - Candidate review/reject flow.
 - RFID workbook staging and safe import foundation.
 - Clean RFID rows can be applied into canonical goat records.
+- Local full-stack rehearsal for source discovery, dry-run, staging, masked
+  anomaly report, RFID apply, counter rebuild, backend API smoke, and admin-web
+  build against Docker Postgres.
 - Audit log and decision records.
 - Domain events and outbox foundation.
 - Local outbox relay foundation.
@@ -120,6 +123,12 @@ Use the local Docker storage runbook before large local tests:
 
 ```text
 docs/runbooks/local-docker-storage.md
+```
+
+Use the local full-stack rehearsal runbook before touching real RFID exports:
+
+```text
+docs/runbooks/local-full-stack-rehearsal.md
 ```
 
 On Docker Desktop for Mac, deleting Docker containers/images/volumes frees space

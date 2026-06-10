@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/legacy_import"
 	importpg "github.com/vgoats/goatos/backend/internal/legacy_import/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -36,7 +37,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := platformpg.Connect(ctx, platformpg.ConfigFromEnv())
+	cfg := platformpg.ConfigFromEnv()
+	if err := localtarget.ValidateLocalDatabaseTarget("rfid-apply", os.Getenv("GOATOS_ENV"), cfg.DatabaseURL, "local", "dev"); err != nil {
+		log.Error("unsafe_database_target", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	pool, err := platformpg.Connect(ctx, cfg)
 	if err != nil {
 		log.Error("connect_postgres", slog.String("error", err.Error()))
 		os.Exit(1)

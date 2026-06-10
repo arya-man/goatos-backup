@@ -28,6 +28,10 @@ var requiredWorkbookColumns = []string{
 }
 
 func ParseXLSX(data []byte) ([]WorkbookRow, error) {
+	return ParseXLSXSheet(data, "")
+}
+
+func ParseXLSXSheet(data []byte, sheetName string) ([]WorkbookRow, error) {
 	if len(data) == 0 {
 		return nil, errors.New("workbook is empty")
 	}
@@ -40,13 +44,13 @@ func ParseXLSX(data []byte) ([]WorkbookRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	sheetPath, err := firstSheetPath(reader)
+	sheetPath, err := worksheetPath(reader, sheetName)
 	if err != nil {
 		return nil, err
 	}
 	sheetBytes, err := readZipFile(reader, sheetPath)
 	if err != nil {
-		return nil, fmt.Errorf("read first worksheet: %w", err)
+		return nil, fmt.Errorf("read worksheet %q: %w", displaySheetName(sheetName), err)
 	}
 	return parseWorksheet(sheetBytes, sharedStrings)
 }
@@ -95,10 +99,70 @@ func readSharedStrings(reader *zip.Reader) ([]string, error) {
 	return stringsOut, nil
 }
 
-func firstSheetPath(reader *zip.Reader) (string, error) {
+type workbookSheet struct {
+	Name string
+	RID  string
+}
+
+func worksheetPath(reader *zip.Reader, sheetName string) (string, error) {
+	sheetName = strings.TrimSpace(sheetName)
+	sheets, err := workbookSheets(reader)
+	if err != nil {
+		if sheetName == "" {
+			return "xl/worksheets/sheet1.xml", nil
+		}
+		return "", err
+	}
+	if len(sheets) == 0 {
+		if sheetName == "" {
+			return "xl/worksheets/sheet1.xml", nil
+		}
+		return "", fmt.Errorf("sheet %q not found", sheetName)
+	}
+
+	selected := sheets[0]
+	if sheetName != "" {
+		found := false
+		trimmedMatches := 0
+		for _, sheet := range sheets {
+			if sheet.Name == sheetName {
+				selected = sheet
+				found = true
+				break
+			}
+			if strings.TrimSpace(sheet.Name) == sheetName {
+				selected = sheet
+				found = true
+				trimmedMatches++
+			}
+		}
+		if found && trimmedMatches > 1 {
+			return "", fmt.Errorf("sheet %q matches multiple workbook sheets after trimming whitespace; available sheets: %s", sheetName, strings.Join(sheetNames(sheets), ", "))
+		}
+		if !found {
+			return "", fmt.Errorf("sheet %q not found; available sheets: %s", sheetName, strings.Join(sheetNames(sheets), ", "))
+		}
+	}
+	if selected.RID == "" {
+		if sheetName == "" {
+			return "xl/worksheets/sheet1.xml", nil
+		}
+		return "", fmt.Errorf("sheet %q has no workbook relationship", sheetName)
+	}
+	resolved, err := worksheetPathForRID(reader, selected.RID)
+	if err != nil {
+		if sheetName == "" {
+			return "xl/worksheets/sheet1.xml", nil
+		}
+		return "", err
+	}
+	return resolved, nil
+}
+
+func workbookSheets(reader *zip.Reader) ([]workbookSheet, error) {
 	workbook, err := readZipFile(reader, "xl/workbook.xml")
 	if err != nil {
-		return "xl/worksheets/sheet1.xml", nil
+		return nil, err
 	}
 	var wb struct {
 		Sheets []struct {
@@ -106,13 +170,20 @@ func firstSheetPath(reader *zip.Reader) (string, error) {
 			RID  string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
 		} `xml:"sheets>sheet"`
 	}
-	if err := xml.Unmarshal(workbook, &wb); err != nil || len(wb.Sheets) == 0 || wb.Sheets[0].RID == "" {
-		return "xl/worksheets/sheet1.xml", nil
+	if err := xml.Unmarshal(workbook, &wb); err != nil {
+		return nil, fmt.Errorf("parse workbook sheets: %w", err)
 	}
+	sheets := make([]workbookSheet, 0, len(wb.Sheets))
+	for _, sheet := range wb.Sheets {
+		sheets = append(sheets, workbookSheet{Name: sheet.Name, RID: sheet.RID})
+	}
+	return sheets, nil
+}
 
+func worksheetPathForRID(reader *zip.Reader, rid string) (string, error) {
 	relsData, err := readZipFile(reader, "xl/_rels/workbook.xml.rels")
 	if err != nil {
-		return "xl/worksheets/sheet1.xml", nil
+		return "", err
 	}
 	var rels struct {
 		Relationships []struct {
@@ -121,10 +192,10 @@ func firstSheetPath(reader *zip.Reader) (string, error) {
 		} `xml:"Relationship"`
 	}
 	if err := xml.Unmarshal(relsData, &rels); err != nil {
-		return "xl/worksheets/sheet1.xml", nil
+		return "", fmt.Errorf("parse workbook relationships: %w", err)
 	}
 	for _, rel := range rels.Relationships {
-		if rel.ID == wb.Sheets[0].RID && rel.Target != "" {
+		if rel.ID == rid && rel.Target != "" {
 			target := strings.TrimPrefix(rel.Target, "/")
 			if strings.HasPrefix(target, "xl/") {
 				return path.Clean(target), nil
@@ -132,7 +203,22 @@ func firstSheetPath(reader *zip.Reader) (string, error) {
 			return path.Clean("xl/" + target), nil
 		}
 	}
-	return "xl/worksheets/sheet1.xml", nil
+	return "", fmt.Errorf("worksheet relationship %q not found", rid)
+}
+
+func sheetNames(sheets []workbookSheet) []string {
+	names := make([]string, 0, len(sheets))
+	for _, sheet := range sheets {
+		names = append(names, sheet.Name)
+	}
+	return names
+}
+
+func displaySheetName(sheetName string) string {
+	if strings.TrimSpace(sheetName) == "" {
+		return "first sheet"
+	}
+	return strings.TrimSpace(sheetName)
 }
 
 type inlineStringXML struct {
@@ -161,17 +247,10 @@ func parseWorksheet(data []byte, sharedStrings []string) ([]WorkbookRow, error) 
 		return nil, fmt.Errorf("parse worksheet: %w", err)
 	}
 	if len(ws.Rows) == 0 {
-		return nil, errors.New("workbook first worksheet has no rows")
+		return nil, errors.New("worksheet has no rows")
 	}
 
-	header := map[int]string{}
-	for _, cell := range ws.Rows[0].Cells {
-		name := strings.TrimSpace(cellValue(cell, sharedStrings))
-		if name == "" {
-			continue
-		}
-		header[columnIndex(cell.Ref)] = name
-	}
+	header := headerFromRow(ws.Rows[0], sharedStrings)
 	if err := validateHeaders(header); err != nil {
 		return nil, err
 	}
@@ -203,6 +282,39 @@ func parseWorksheet(data []byte, sharedStrings []string) ([]WorkbookRow, error) 
 		}
 	}
 	return rows, nil
+}
+
+func worksheetHeaders(data []byte, sharedStrings []string) ([]string, error) {
+	var ws worksheetXML
+	if err := xml.Unmarshal(data, &ws); err != nil {
+		return nil, fmt.Errorf("parse worksheet: %w", err)
+	}
+	if len(ws.Rows) == 0 {
+		return nil, errors.New("worksheet has no rows")
+	}
+	header := headerFromRow(ws.Rows[0], sharedStrings)
+	cols := make([]int, 0, len(header))
+	for col := range header {
+		cols = append(cols, col)
+	}
+	sort.Ints(cols)
+	out := make([]string, 0, len(cols))
+	for _, col := range cols {
+		out = append(out, header[col])
+	}
+	return out, nil
+}
+
+func headerFromRow(row rowXML, sharedStrings []string) map[int]string {
+	header := map[int]string{}
+	for _, cell := range row.Cells {
+		name := strings.TrimSpace(cellValue(cell, sharedStrings))
+		if name == "" {
+			continue
+		}
+		header[columnIndex(cell.Ref)] = name
+	}
+	return header
 }
 
 func cellValue(cell cellXML, sharedStrings []string) string {

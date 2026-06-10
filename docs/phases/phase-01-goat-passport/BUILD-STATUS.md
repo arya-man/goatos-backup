@@ -51,6 +51,7 @@ backend/internal/permissions/adapters/postgres
 backend/internal/platform/auth
 backend/internal/platform/logger
 backend/internal/platform/httpmiddleware
+backend/internal/platform/localtarget
 backend/internal/platform/postgres
 backend/internal/identity/domain
 backend/internal/identity/app
@@ -469,8 +470,16 @@ candidate review:
   POST /admin/identity/candidates/{candidate_id}/approve remains typed
   not_implemented until canonical mutation semantics are contract-defined
 RFID source-of-truth staging:
-  CLI requires input workbook path and tenant_id; optional dry-run, batch-size,
-  started-by actor UUID, source-name, and policy-version are supported
+  CLI supports source discovery, sheet-by-name selection, dry-run staging
+  preview, real staging, and sanitized anomaly report generation for local
+  rehearsal
+  CLI requires input workbook path and tenant_id for import; optional --sheet,
+  dry-run, batch-size, started-by actor UUID, source-name, and policy-version
+  are supported
+  local DB-writing import/apply/counter commands share the
+  backend/internal/platform/localtarget guard: GOATOS_ENV must be local/dev and
+  DATABASE_URL must point to loopback or approved local socket paths, never
+  production/staging-looking hosts or Cloud SQL sockets
   source_system and source_dataset come from the approved
   legacy_import_policies row, not CLI flags
   policy phase1-rfid-db-import-v1 must exist and be approved before importing
@@ -478,6 +487,12 @@ RFID source-of-truth staging:
   null so local absolute paths are not persisted
   dry-run writes one completed legacy_import_runs row with aggregate counts only
   and writes no legacy_import_rows
+  source discovery classifies Shape 2 RFID headers as importable, recognizes
+  Shape 1 RFID headers as blocked until mapping extension, and rejects
+  operational/unknown source shapes before staging
+  Google Sheet live export/import is deliberately skipped in Phase 1 local
+  rehearsal; operators must export to a local XLSX and run the backend import
+  pipeline
   real staging writes legacy_import_runs as running -> completed or failed and
   inserts legacy_import_rows in bounded batches
   source_row_key uses policy source_key_recipe fields in order:
@@ -497,6 +512,11 @@ RFID source-of-truth staging:
   only from the Gender column
   staging does not mutate goats, goat_identifiers, goat_identity_events,
   outbox_messages, counters, candidates, conflicts, or correction requests
+  anomaly reports are local ignored CSV artifacts under
+  .codex-goatos-render/import-reports by default; they group actual emitted
+  reason codes from error_reason and processing_reasons, mask RFID/old-tag
+  values by default, and hash source_row_key references because source keys can
+  contain source identifiers
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
 RFID source-of-truth canonical apply:

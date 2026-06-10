@@ -11,6 +11,8 @@ db_user="postgres"
 api_port="${GOATOS_AUTH_SMOKE_API_PORT:-18080}"
 api_log="$(mktemp "${TMPDIR:-/tmp}/goatos-auth-smoke-api.XXXXXX.log")"
 api_pid=""
+report_dir="$(mktemp -d "${TMPDIR:-/tmp}/goatos-import-report.XXXXXX")"
+fixture="$repo_root/backend/internal/legacy_import/testdata/synthetic_rfid_import.xlsx"
 
 tenant_id="00000000-0000-4000-8000-000000000001"
 granted_user_id="90000000-0000-4000-8000-000000000101"
@@ -23,6 +25,7 @@ cleanup() {
   fi
   docker rm -f "$container_name" >/dev/null 2>&1 || true
   rm -f "$api_log"
+  rm -rf "$report_dir"
 }
 trap cleanup EXIT
 
@@ -79,6 +82,71 @@ export GOATOS_AUTH_MAX_TOKEN_TTL="24h"
 export GOATOS_HTTP_ADDR="127.0.0.1:$api_port"
 export DATABASE_URL="postgres://postgres:goatos@127.0.0.1:$db_port/$db_name?sslmode=disable"
 
+discover_output="$(
+  cd "$repo_root/backend"
+  go run ./cmd/rfid-import --discover --input "$fixture" --sheet Combined
+)"
+if [[ "$discover_output" != *"classification=importable_shape_2"* || "$discover_output" != *"importable=true"* ]]; then
+  echo "source discovery did not classify synthetic Shape 2 fixture as importable: $discover_output" >&2
+  exit 1
+fi
+
+google_skip_output="$(
+  cd "$repo_root/backend"
+  go run ./cmd/rfid-import --discover --source-type google_sheet
+)"
+if [[ "$google_skip_output" != *"classification=google_sheet_export_skipped"* || "$google_skip_output" != *"google_sheet_export_built=false"* ]]; then
+  echo "google sheet discovery did not skip cleanly: $google_skip_output" >&2
+  exit 1
+fi
+
+dry_run_output="$(
+  cd "$repo_root/backend"
+  go run ./cmd/rfid-import --input "$fixture" --sheet Combined --tenant-id "$tenant_id" --dry-run --source-name "Synthetic RFID smoke dry run"
+)"
+dry_run_id="$(sed -E 's/.*import_run_id=([^ ]+).*/\1/' <<<"$dry_run_output")"
+if [ "$(run_psql -Atc "SELECT count(*) FROM legacy_import_rows WHERE import_run_id = '$dry_run_id'")" != "0" ]; then
+  echo "dry-run import staged rows unexpectedly: $dry_run_output" >&2
+  exit 1
+fi
+
+import_output="$(
+  cd "$repo_root/backend"
+  go run ./cmd/rfid-import --input "$fixture" --sheet Combined --tenant-id "$tenant_id" --source-name "Synthetic RFID smoke staging"
+)"
+import_run_id="$(sed -E 's/.*import_run_id=([^ ]+).*/\1/' <<<"$import_output")"
+if [ -z "$import_run_id" ] || [ "$import_run_id" = "$import_output" ]; then
+  echo "failed to parse import_run_id from: $import_output" >&2
+  exit 1
+fi
+
+report_output="$(
+  cd "$repo_root/backend"
+  go run ./cmd/rfid-import --anomaly-report --tenant-id "$tenant_id" --import-run-id "$import_run_id" --sheet Combined --source-name "Synthetic RFID smoke staging" --output-dir "$report_dir"
+)"
+if [[ "$report_output" != *"anomaly_report_details="* ]]; then
+  echo "anomaly report did not write paths: $report_output" >&2
+  exit 1
+fi
+if rg -n "990000000000000000" "$report_dir" >/dev/null 2>&1; then
+  echo "anomaly report leaked raw synthetic RFID prefix" >&2
+  exit 1
+fi
+if ! rg -n "duplicate_rfid_in_workbook|missing_rfid|blank_gender" "$report_dir" >/dev/null 2>&1; then
+  echo "anomaly report did not include expected actual reason codes" >&2
+  exit 1
+fi
+
+(
+  cd "$repo_root/backend"
+  go run ./cmd/rfid-apply --tenant-id "$tenant_id" --import-run-id "$import_run_id" --actor-id "$granted_user_id"
+) >/dev/null
+
+(
+  cd "$repo_root/backend"
+  go run ./cmd/rebuild-identity-counters --tenant-id "$tenant_id" --source-import-run-id "$import_run_id"
+) >/dev/null
+
 (
   cd "$repo_root/backend"
   go run ./cmd/api
@@ -118,4 +186,7 @@ expect_status "valid token without grant" "$denied_token" "403"
 GOATOS_API_BASE_URL="http://127.0.0.1:$api_port" GOATOS_BEARER_TOKEN="$granted_token" \
   npm --prefix "$repo_root/apps/admin-web" run typecheck >/dev/null
 
-echo "Auth smoke passed: bearer token, local tenant grant, and admin-web client import are wired to one shared GOATOS_AUTH_* config."
+GOATOS_API_BASE_URL="http://127.0.0.1:$api_port" GOATOS_BEARER_TOKEN="$granted_token" \
+  npm --prefix "$repo_root/apps/admin-web" run build >/dev/null
+
+echo "Local full-stack smoke passed: source discovery, fixture import/apply, masked anomaly report, counter rebuild, bearer auth, and admin-web build are wired through local Docker Postgres."

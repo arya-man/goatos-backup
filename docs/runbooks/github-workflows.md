@@ -134,7 +134,14 @@ Purpose:
 Make sure agents did not edit across forbidden boundaries.
 Make sure OpenAPI/JSON Schema/contracts/examples still validate.
 Make sure generated OpenAPI TypeScript clients are regenerated.
-Make sure admin-web does not reintroduce direct BigQuery access.
+Make sure admin-web does not reintroduce direct BigQuery, Google Sheets,
+Apps Script, direct Sheet CSV export, or XLSX live-data access.
+```
+
+The admin-web direct data-source pattern has a local self-test:
+
+```text
+bash tools/agent-hooks/check-boundaries.sh --self-test
 ```
 
 If this fails, it usually means:
@@ -143,6 +150,7 @@ If this fails, it usually means:
 contract drift
 missing regenerated example/client artifact
 boundary rule violation
+admin-web direct data-source access instead of Goat OS backend API access
 ```
 
 ### Step 4: Large File Guard

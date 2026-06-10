@@ -161,6 +161,59 @@ func (r *Repository) InsertRows(ctx context.Context, rows []legacy_import.Staged
 	return inserted, nil
 }
 
+func (r *Repository) ListAnomalyReportRows(ctx context.Context, tenantIDValue, importRunIDValue string) ([]legacy_import.AnomalyReportInputRow, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantID, runID, err := tenantRunUUIDs(tenantIDValue, importRunIDValue)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  row_number,
+  source_system,
+  source_dataset,
+  source_row_key,
+  processing_state,
+  error_reason,
+  normalized_payload
+FROM legacy_import_rows
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND processing_state IN ('needs_review', 'error')
+ORDER BY row_number, legacy_row_id`, tenantID, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []legacy_import.AnomalyReportInputRow{}
+	for rows.Next() {
+		var row legacy_import.AnomalyReportInputRow
+		var errorReason pgtype.Text
+		if err := rows.Scan(
+			&row.RowNumber,
+			&row.SourceSystem,
+			&row.SourceDataset,
+			&row.SourceRowKey,
+			&row.ProcessingState,
+			&errorReason,
+			&row.NormalizedPayload,
+		); err != nil {
+			return nil, err
+		}
+		if errorReason.Valid {
+			row.ErrorReason = &errorReason.String
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *Repository) insertRowBatch(ctx context.Context, rows []legacy_import.StagedRow) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

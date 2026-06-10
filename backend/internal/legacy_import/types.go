@@ -18,6 +18,7 @@ const (
 
 type ImportCommand struct {
 	InputPath     string
+	SheetName     string
 	TenantID      string
 	DryRun        bool
 	BatchSize     int
@@ -37,6 +38,24 @@ type ImportResult struct {
 	ErrorCount    int
 	RowsInserted  int
 	StateCounts   map[string]int
+}
+
+const (
+	SourceClassificationImportableShape2         = "importable_shape_2"
+	SourceClassificationRecognizedShape1NeedsMap = "recognized_rfid_shape_1_needs_mapping"
+	SourceClassificationOperationalOrUnknown     = "operational_or_unknown_source"
+)
+
+type SourceDiscoveryResult struct {
+	SourceType             string   `json:"source_type"`
+	Classification         string   `json:"classification"`
+	Importable             bool     `json:"importable"`
+	TargetSheet            string   `json:"target_sheet,omitempty"`
+	SheetNames             []string `json:"sheet_names,omitempty"`
+	Headers                []string `json:"headers,omitempty"`
+	MissingRequiredHeaders []string `json:"missing_required_headers,omitempty"`
+	RecommendedNextStep    string   `json:"recommended_next_step,omitempty"`
+	GoogleSheetExportBuilt bool     `json:"google_sheet_export_built"`
 }
 
 type ApplyCommand struct {

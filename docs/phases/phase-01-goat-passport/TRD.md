@@ -2713,10 +2713,14 @@ backend/internal/legacy_import owns workbook parsing, source-key/hash creation,
 row-state classification, and staging orchestration
 backend/internal/legacy_import/adapters/postgres owns legacy_import_runs and
 legacy_import_rows persistence; cmd must not write those tables directly
-the runner supports .xlsx only in this slice
+the runner supports local .xlsx only in this slice; live Google Sheets export is
+deferred and discovery returns a skipped status for source_type=google_sheet
 required CLI flags: input workbook path, tenant_id
-optional CLI flags: dry-run, batch-size, started-by actor UUID, source-name,
-policy-version defaulting to phase1-rfid-db-import-v1
+optional CLI flags: sheet name, dry-run, batch-size, started-by actor UUID,
+source-name, policy-version defaulting to phase1-rfid-db-import-v1
+source discovery runs before import and classifies Shape 2 as importable,
+Shape 1 as recognized but not importable until mapping extension, and
+operational/unknown sources as rejected before staging
 source_system and source_dataset always come from the approved policy row
 the runner validates the policy exists and status=approved before import
 source_file_hash is sha256 over workbook bytes
@@ -2726,6 +2730,10 @@ dry-run writes a completed legacy_import_runs row and aggregate counts only; it
 does not insert legacy_import_rows
 real staging writes a running legacy_import_runs row, inserts rows in bounded
 batches, then marks the run completed or failed
+sanitized anomaly reports are local ignored CSV artifacts; they group actual
+error_reason and processing_reasons codes, mask RFID/old-tag values by default,
+and hash source_row_key references because source_row_key can contain source
+identifier evidence
 created_goat_count, updated_goat_count, and conflict_count remain 0 during
 staging; canonical apply updates created_goat_count for rows it creates
 ```
@@ -2753,6 +2761,19 @@ clean staged rows use processing_state=pending
 review rows use processing_state=needs_review
 hard malformed/unparseable rows use processing_state=error with error_reason
 do not invent processing states such as staged, anomaly, or review
+```
+
+Local full-stack rehearsal:
+
+```text
+Use docs/runbooks/local-full-stack-rehearsal.md for the repeatable local path:
+local XLSX export -> discovery -> dry-run -> staging -> anomaly report ->
+rfid-apply -> counter rebuild -> backend API smoke -> admin-web typecheck/build.
+DB-writing local rehearsal CLIs use backend/internal/platform/localtarget and
+must reject non-local/staging/prod/Cloud SQL database targets.
+Frontend/admin-web must consume backend APIs only and must not import Google
+Sheets, Apps Script, BigQuery, direct CSV exports, or XLSX readers for live
+data.
 ```
 
 Source key and hash implementation:

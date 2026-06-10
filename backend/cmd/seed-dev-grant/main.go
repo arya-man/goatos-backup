@@ -4,14 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
 	"os"
-	"path"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 )
 
 func main() {
@@ -52,56 +51,11 @@ RETURNING grant_id::text
 }
 
 func validateLocalTarget(env, databaseURL string) error {
-	env = strings.ToLower(strings.TrimSpace(env))
-	dbLower := strings.ToLower(databaseURL)
-	if databaseURL == "" {
-		return fmt.Errorf("DATABASE_URL is required")
-	}
-	if strings.Contains(env, "prod") || strings.Contains(env, "stage") || strings.Contains(dbLower, "prod") || strings.Contains(dbLower, "stage") {
-		return fmt.Errorf("refusing to seed grants for production/staging-looking target")
-	}
-	if env != "local" && env != "dev" && env != "test" {
-		return fmt.Errorf("GOATOS_ENV must be local, dev, or test for seed-dev-grant")
-	}
-	cfg, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		return fmt.Errorf("parse DATABASE_URL: %w", err)
-	}
-	if !isLocalHost(cfg.ConnConfig.Host) {
-		return fmt.Errorf("refusing to seed grants against non-local database host %q", cfg.ConnConfig.Host)
-	}
-	return nil
+	return localtarget.ValidateLocalDatabaseTarget("seed-dev-grant", env, databaseURL, "local", "dev", "test")
 }
 
 func isLocalHost(host string) bool {
-	host = strings.TrimSpace(strings.Trim(host, "[]"))
-	if host == "" {
-		return true
-	}
-	if strings.HasPrefix(host, "/") {
-		return isAllowedLocalSocketHost(host)
-	}
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-func isAllowedLocalSocketHost(host string) bool {
-	socketHost := path.Clean(host)
-	allowedDirs := [...]string{
-		"/tmp",
-		"/private/tmp",
-		"/run/postgresql",
-		"/var/run/postgresql",
-	}
-	for _, dir := range allowedDirs {
-		if socketHost == dir || strings.HasPrefix(socketHost, dir+"/") {
-			return true
-		}
-	}
-	return false
+	return localtarget.IsLocalHost(host)
 }
 
 func validRole(role string) bool {

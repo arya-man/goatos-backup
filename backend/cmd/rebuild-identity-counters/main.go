@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	reportingpg "github.com/vgoats/goatos/backend/internal/reporting/adapters/postgres"
 	reportingapp "github.com/vgoats/goatos/backend/internal/reporting/app"
@@ -32,6 +33,9 @@ func main() {
 	defer cancel()
 
 	cfg := platformpg.ConfigFromEnv()
+	if err := localtarget.ValidateLocalDatabaseTarget("rebuild-identity-counters", os.Getenv("GOATOS_ENV"), cfg.DatabaseURL, "local", "dev"); err != nil {
+		fatal(err)
+	}
 	pool, err := platformpg.Connect(ctx, cfg)
 	if err != nil {
 		fatal(err)

@@ -73,6 +73,12 @@ wrong goat. Phase 1 is the foundation.
 - Prepare the identity layer for RFID, camera/FaceID suggestions, and device
   observations later.
 
+Current Phase 1 implementation status: the rehearsal path is local XLSX export
+first. Source discovery classifies the RFID workbook shape before staging; live
+Google Sheets import is deferred until a concrete Sheet source and credentials
+are supplied and reviewed. Admin-web must consume Goat OS backend APIs, not
+Sheets, Apps Script, direct XLSX/CSV, or BigQuery.
+
 ## Architecture Guarantees
 
 Phase 1 must be built in the same Goat OS architecture as every later phase.
