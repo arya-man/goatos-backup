@@ -2,7 +2,6 @@ package httpmiddleware
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -57,7 +56,7 @@ func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
 					w.WriteHeader(http.StatusInternalServerError)
 					envelope := map[string]any{
 						"code":         "panic_recovered",
-						"message":      fmt.Sprintf("internal server error: %v", p),
+						"message":      "internal server error",
 						"field_errors": []any{},
 						"trace_id":     traceID,
 						"retryable":    false,

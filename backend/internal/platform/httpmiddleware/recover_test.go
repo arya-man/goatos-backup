@@ -39,8 +39,14 @@ func TestPanicRecoveryReturns500Envelope(t *testing.T) {
 	if envelope["code"] != "panic_recovered" {
 		t.Errorf("expected code=panic_recovered, got %v", envelope["code"])
 	}
+	if envelope["message"] != "internal server error" {
+		t.Errorf("expected generic message, got %v", envelope["message"])
+	}
 	if envelope["trace_id"] == nil || envelope["trace_id"] == "" {
 		t.Errorf("expected trace_id in envelope, got: %v", envelope["trace_id"])
+	}
+	if strings.Contains(rec.Body.String(), "test panic value") {
+		t.Fatalf("panic response leaked panic value: %s", rec.Body.String())
 	}
 }
 
