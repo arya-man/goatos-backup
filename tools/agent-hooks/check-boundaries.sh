@@ -146,6 +146,41 @@ if command -v rg >/dev/null 2>&1; then
       fi
     done < <(find backend -name '*.go' -not -name '*_test.go' 2>/dev/null)
   fi
+else
+  # rg is not available: fall back to grep for the guards that support it.
+  # Secret/token scan and admin-web/BigQuery guards are rg-only; they are skipped
+  # with a warning so the run is not a vacuous pass.
+  echo "WARNING: rg (ripgrep) not found. Secret and BigQuery guards skipped; slog.New/recover guards use grep fallback." >&2
+  echo "  Install ripgrep (brew install ripgrep) for full boundary enforcement." >&2
+
+  # slog.New guard — grep fallback (excludes observability package and test files).
+  if [ -d "backend" ]; then
+    while IFS= read -r gofile; do
+      case "$gofile" in
+        *_test.go) continue ;;
+        */platform/observability/*) continue ;;
+      esac
+      if grep -n 'slog\.New(' "$gofile" 2>/dev/null | grep -v '//' >/dev/null 2>&1; then
+        echo "$gofile: slog.New() used outside platform/observability."
+        echo "Use observability.New(observability.Config{...}) instead."
+        fail=1
+      fi
+    done < <(find backend -name '*.go' -not -name '*_test.go' 2>/dev/null)
+  fi
+
+  # recover() guard — grep-based (same as the rg branch above).
+  if [ -d "backend" ]; then
+    while IFS= read -r gofile; do
+      case "$gofile" in *_test.go) continue ;; esac
+      if grep -qE '\brecover\(\)' "$gofile"; then
+        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b' "$gofile"; then
+          echo "$gofile: recover() block found with no log.Error/ErrorContext call in file."
+          echo "  recover() blocks must log the panic value before suppressing or converting it."
+          fail=1
+        fi
+      fi
+    done < <(find backend -name '*.go' -not -name '*_test.go' 2>/dev/null)
+  fi
 fi
 
 exit "$fail"

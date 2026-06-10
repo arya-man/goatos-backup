@@ -134,12 +134,18 @@ func TestIdentity4xxDoesNotLogServerSide(t *testing.T) {
 	}
 }
 
-// TestIdentityHandlerNoRFIDInLog verifies that the HTTP boundary log lines do
-// not include raw RFID or old-tag values from request bodies.
-// The logger logs err, trace_id, route, status — not request body content.
-func TestIdentityHandlerNoRFIDInLog(t *testing.T) {
-	fakeRFID := "FAKE-RFID-TEST-VALUE-001"
-	fakeOldTag := "FAKE-OLD-TAG-TEST-XYZ"
+// TestIdentityHandlerDoesNotEchoRawRequestBody verifies that the HTTP boundary
+// log lines do not reproduce the raw JSON request body verbatim.  The boundary
+// logger records err, trace_id, route, and status — structured fields only, not
+// a body echo.
+//
+// NOTE on data-classification: goat identifiers (RFID, old tag, breed, farm)
+// are business data, NOT PII.  They SHOULD appear in log output when they come
+// from a service error message or from structured context fields attached to the
+// logger.  This test only asserts that the handler does not echo the raw body
+// bytes; it does not assert that identifiers are hidden from logs.
+func TestIdentityHandlerDoesNotEchoRawRequestBody(t *testing.T) {
+	rawBodySentinel := "RAW-BODY-SENTINEL-SHOULD-NOT-BE-ECHOED-XYZ"
 
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
@@ -148,22 +154,20 @@ func TestIdentityHandlerNoRFIDInLog(t *testing.T) {
 	Register(mux, NewHandler(newFakeService(errRepo{err: errors.New("db error")}), log))
 	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(mux))
 
-	// Body contains fake RFID/old-tag; handler must not log body content.
-	body := `{"identifier_type":"rfid","identifier_value":"` + fakeRFID + `","scope_key":"global:rfid","old_tag":"` + fakeOldTag + `","evidence_refs":[],"row_version":1}`
+	// Body contains a sentinel value that would only appear in logs if the
+	// handler echoes the raw request body — which it must not do.
+	body := `{"identifier_type":"rfid","identifier_value":"` + rawBodySentinel + `","scope_key":"global:rfid","evidence_refs":[],"row_version":1}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers", strings.NewReader(body))
 	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
 	req.Header.Set("X-GoatOS-Actor-ID", "00000000-0000-4000-8000-000000000099")
-	req.Header.Set("X-Request-ID", "req-masking-test")
+	req.Header.Set("X-Request-ID", "req-body-echo-test")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	logOut := logBuf.String()
-	if strings.Contains(logOut, fakeRFID) {
-		t.Errorf("log must not contain raw RFID %q; got: %s", fakeRFID, logOut)
-	}
-	if strings.Contains(logOut, fakeOldTag) {
-		t.Errorf("log must not contain raw old-tag %q; got: %s", fakeOldTag, logOut)
+	if strings.Contains(logOut, rawBodySentinel) {
+		t.Errorf("HTTP boundary log must not echo raw request body; found sentinel %q in: %s", rawBodySentinel, logOut)
 	}
 }
 
