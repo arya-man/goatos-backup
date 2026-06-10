@@ -53,29 +53,22 @@ func BuildAnomalyReport(rows []AnomalyReportInputRow, opts AnomalyReportOptions)
 		payload := normalizedPayloadFields(row.NormalizedPayload)
 		rfid := maskIdentifier(payload.rfid, opts.IncludeSensitive)
 		oldTag := maskIdentifier(payload.oldTag, opts.IncludeSensitive)
-		for _, reason := range splitReasonCodes(row.ErrorReason) {
-			report.Details = append(report.Details, AnomalyReportEntry{
-				RowNumber:       row.RowNumber,
-				ProcessingState: row.ProcessingState,
-				ReasonCode:      reason,
-				ReasonOrigin:    "error_reason",
-				SourceSystem:    row.SourceSystem,
-				SourceDataset:   row.SourceDataset,
-				SourceRowKeyRef: sourceRowKeyRef(row.SourceRowKey, opts.IncludeSensitive),
-				RFID:            rfid,
-				OldTag:          oldTag,
-			})
-			report.Summary[reason]++
+		sourceRef := sourceRowKeyRef(row.SourceRowKey, opts.IncludeSensitive)
+		reasons := rowAnomalyReasons(row.ErrorReason, payload.processingReasons)
+		reasonCodes := make([]string, 0, len(reasons))
+		for reason := range reasons {
+			reasonCodes = append(reasonCodes, reason)
 		}
-		for _, reason := range payload.processingReasons {
+		sort.Strings(reasonCodes)
+		for _, reason := range reasonCodes {
 			report.Details = append(report.Details, AnomalyReportEntry{
 				RowNumber:       row.RowNumber,
 				ProcessingState: row.ProcessingState,
 				ReasonCode:      reason,
-				ReasonOrigin:    "processing_reasons",
+				ReasonOrigin:    reasons[reason],
 				SourceSystem:    row.SourceSystem,
 				SourceDataset:   row.SourceDataset,
-				SourceRowKeyRef: sourceRowKeyRef(row.SourceRowKey, opts.IncludeSensitive),
+				SourceRowKeyRef: sourceRef,
 				RFID:            rfid,
 				OldTag:          oldTag,
 			})
@@ -89,6 +82,33 @@ func BuildAnomalyReport(rows []AnomalyReportInputRow, opts AnomalyReportOptions)
 		return report.Details[i].ReasonCode < report.Details[j].ReasonCode
 	})
 	return report
+}
+
+func rowAnomalyReasons(errorReason *string, processingReasons []string) map[string]string {
+	out := map[string]string{}
+	for _, reason := range splitReasonCodes(errorReason) {
+		addAnomalyReason(out, reason, "error_reason")
+	}
+	for _, reason := range processingReasons {
+		addAnomalyReason(out, reason, "processing_reasons")
+	}
+	return out
+}
+
+func addAnomalyReason(reasons map[string]string, reason, origin string) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return
+	}
+	existing := reasons[reason]
+	switch existing {
+	case "":
+		reasons[reason] = origin
+	case origin:
+		return
+	default:
+		reasons[reason] = existing + "+" + origin
+	}
 }
 
 func WriteAnomalyReportCSV(outputDir string, opts AnomalyReportOptions, report AnomalyReport) (detailsPath string, summaryPath string, err error) {

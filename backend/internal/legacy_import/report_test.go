@@ -77,3 +77,31 @@ func TestWriteAnomalyReportCSVDoesNotWriteRawIdentifiersByDefault(t *testing.T) 
 		}
 	}
 }
+
+func TestAnomalyReportDedupesSameReasonPerRowAcrossOrigins(t *testing.T) {
+	errorReason := "source_row_changed"
+	payload, err := json.Marshal(map[string]any{
+		"rfid":               longRFID,
+		"normalized_old_tag": "1900",
+		"processing_reasons": []string{"source_row_changed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := BuildAnomalyReport([]AnomalyReportInputRow{{
+		RowNumber:         8,
+		ProcessingState:   StateNeedsReview,
+		ErrorReason:       &errorReason,
+		NormalizedPayload: payload,
+	}}, AnomalyReportOptions{})
+
+	if got := report.Summary["source_row_changed"]; got != 1 {
+		t.Fatalf("source_row_changed count=%d, want 1", got)
+	}
+	if len(report.Details) != 1 {
+		t.Fatalf("details=%#v, want one deduped row", report.Details)
+	}
+	if report.Details[0].ReasonOrigin != "error_reason+processing_reasons" {
+		t.Fatalf("origin=%q, want both origins preserved", report.Details[0].ReasonOrigin)
+	}
+}
