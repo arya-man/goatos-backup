@@ -78,6 +78,36 @@ func TestPanicRecoveryLogsStackAndPanicValue(t *testing.T) {
 	}
 }
 
+func TestPanicRecoveryUsesTraceparentForPanicTraceID(t *testing.T) {
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+	handler := PanicRecovery(log)(RequestContext(log)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("traceparent panic")
+	})))
+
+	traceparent := "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Request-ID", "req-traceparent-panic")
+	req.Header.Set("traceparent", traceparent)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	logOut := logBuf.String()
+	if !strings.Contains(logOut, `"trace_id":"`+traceparent+`"`) {
+		t.Fatalf("panic logs did not use inbound traceparent as trace_id: %s", logOut)
+	}
+	if rec.Header().Get("traceparent") != traceparent {
+		t.Fatalf("response traceparent=%q, want %q", rec.Header().Get("traceparent"), traceparent)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("body is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if envelope["trace_id"] != traceparent {
+		t.Fatalf("envelope trace_id=%v, want %q", envelope["trace_id"], traceparent)
+	}
+}
+
 func panicSentinelHandler(http.ResponseWriter, *http.Request) {
 	panic("sentinel panic payload")
 }

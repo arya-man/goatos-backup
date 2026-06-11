@@ -127,14 +127,23 @@ func (w *panicResponseTracker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return conn, rw, err
 }
 
-// resolveTraceID extracts the trace ID using the three-stage fallback:
-// context value → response header X-Request-ID → request header X-Request-ID.
+// resolveTraceID extracts the trace ID using the fallback chain:
+// context value → response/request traceparent → response/request X-Request-ID.
 func resolveTraceID(r *http.Request, w http.ResponseWriter) string {
 	if v := TraceIDFromContext(r.Context()); v != "" {
 		return v
 	}
-	// RequestContext writes X-Request-ID to the response before calling next.
-	// This is available in the response headers even after a downstream panic.
+	// RequestContext echoes an inbound traceparent to the response before
+	// calling next. Prefer that W3C trace over the request ID fallback so panic
+	// logs correlate with successful request logs.
+	if v := strings.TrimSpace(w.Header().Get(headerTrace)); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(r.Header.Get(headerTrace)); v != "" {
+		return v
+	}
+	// RequestContext always writes X-Request-ID to the response before calling
+	// next. This remains available even after a downstream panic.
 	if v := strings.TrimSpace(w.Header().Get(headerRequestID)); v != "" {
 		return v
 	}
