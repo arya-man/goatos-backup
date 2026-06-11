@@ -173,7 +173,8 @@ Verifier
   checks identity evidence while reviewing proof
 
 CEO/internal user
-  sees herd counts and passport-level truth in dashboards
+  is the internal product owner/admin for Goat OS Phase 1, with full product
+  authority to view and act across internal goat-ops workflows
 ```
 
 ### Phase 1 Access Boundary
@@ -213,7 +214,9 @@ operator
   can search/scan goats and submit correction requests from field work
 
 ceo_internal
-  internal executive visibility over governed passport and identity-count truth
+  full Goat OS product admin for Phase 1 API actions; this role is equivalent
+  to product-admin authority inside Goat OS and is not Google Cloud, IAM,
+  billing, or repository administration
 ```
 
 Investor, buyer, donor, partner, lending, franchise, procurement, health,
@@ -696,7 +699,8 @@ Verifier
   view identity evidence needed for proof verification
 
 CEO/internal
-  read dashboards and passport data by granted scope
+  full Goat OS product-admin access to internal Phase 1 workflows by granted
+  tenant scope
 ```
 
 Search and lookup must enforce scope before showing details. A user without

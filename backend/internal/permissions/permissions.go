@@ -35,7 +35,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		GoatRead: {}, CorrectionCreate: {},
 	},
 	RoleCEOInternal: {
-		GoatRead: {}, GoatViewDirtyData: {}, AnalyticsIdentityRead: {},
+		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
+		GoatWriteIdentity: {}, AnalyticsIdentityRead: {}, ImportRunManage: {}, ImportRunView: {},
 	},
 }
 
@@ -58,7 +59,7 @@ func RolesAuthorize(roles []string, required []string, adminOnly bool) bool {
 	}
 	if adminOnly {
 		for _, role := range roles {
-			if role == RoleAdmin {
+			if isProductAdminRole(role) {
 				return true
 			}
 		}
@@ -77,4 +78,8 @@ func RolesAuthorize(roles []string, required []string, adminOnly bool) bool {
 		}
 	}
 	return true
+}
+
+func isProductAdminRole(role string) bool {
+	return role == RoleAdmin || role == RoleCEOInternal
 }

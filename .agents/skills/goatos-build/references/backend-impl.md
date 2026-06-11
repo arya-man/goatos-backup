@@ -96,10 +96,13 @@ Rules:
   `goat.view_dirty_data`, `goat.review_identity`, `goat.write_identity`, and
   `analytics.identity.read`, plus `import.run.manage` and `import.run.view`.
   These are enforced from signed bearer identity plus active tenant-scope
-  `user_scope_grants`. `createImportRun` is admin-only via
+  `user_scope_grants`. `createImportRun` is product-admin-only via
   `import.run.manage`; import run reads use `import.run.view`. HS256 is a
   bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
   deferred.
+- `ceo_internal` is the full Goat OS product-admin role for Phase 1 internal
+  product actions, equivalent to `admin` for product/API permissions. This does
+  not grant Google Cloud, IAM, billing, GitHub, or repository administration.
 - Verifier access to `import.run.view` is deliberate: identity reviewers need
   import provenance while triaging dirty data. It does not grant import run
   creation or canonical import apply.
@@ -115,7 +118,8 @@ Rules:
   attribution must use token `sub`, not `X-GoatOS-Actor-ID`.
 - Multiple active tenant grants are unioned for authorization. If any active
   matching tenant grant role confers the required permission, the request is
-  authorized; admin-only routes still require an active admin role.
+  authorized; product-admin-only routes require an active `admin` or
+  `ceo_internal` role.
 - The auth middleware is backed by an explicit route-to-permission registry with
   fail-closed default. Only `/healthz` and `/readyz` are unauthenticated. The
   correction-list contract paths are split: app `listCorrectionRequests` stays
@@ -386,7 +390,11 @@ Rules:
   with needs_review 512 and error 0. Remaining open-review reason occurrences
   are species_or_breed_requires_review 504, blank_old_tag_suffix 160,
   blank_gender 4, and duplicate_old_tag_same_scope 4; the 160 blank-suffix rows
-  also fail breed/species review. C-lite suffix derivation from
+  also fail breed/species review. The local SSR proof rendered real herd rows, a
+  real goat passport, the 711 tenant_lifecycle alive counter, and the static
+  import-review baseline through admin-web. The real local DB had 0 conflicts
+  and 0 candidates, so Data Quality rendered an honest empty state while backend
+  tests cover populated conflict/candidate read paths. C-lite suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction
   or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.

@@ -133,7 +133,7 @@ routes not in the registry.
 Multiple active tenant grants are unioned: if any active matching tenant grant
 role confers the required permission, the request is authorized. For example,
 operator+verifier grants authorize verifier-only review permissions, while
-admin-only routes still require an active admin role.
+product-admin-only routes require an active `admin` or `ceo_internal` role.
 
 dev_headers mode is retained only as an explicit local-development escape hatch:
 GOATOS_AUTH_MODE=dev_headers plus GOATOS_DEV_HEADERS_ALLOW=true, allowed only
@@ -591,6 +591,14 @@ RFID source-of-truth staging:
   blank_gender 4, and duplicate_old_tag_same_scope 4; reason counts are
   occurrences because the 160 remaining blank-suffix rows also fail the
   breed/species gate.
+  Phase 1 local end-to-end proof passed after this run: normal apply produced
+  created_goat 436, needs_review 787, and error 0; guarded RFID-only apply
+  produced created_goat 711, needs_review 512, and error 0; the
+  tenant_lifecycle alive counter was 711. SSR admin-web rendered the overview,
+  real herd rows, a real goat passport, the 711 alive count, and the static
+  import-review baseline. The real local DB had 0 conflicts and 0 candidates,
+  so Data Quality rendered an honest empty state; backend repository/handler
+  tests cover populated conflict and candidate list paths separately.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
@@ -668,13 +676,23 @@ Phase 1 permissions:
   import.run.view
 ```
 
+Product-admin decision:
+
+```text
+ceo_internal is a full Goat OS product-admin role for Phase 1 internal API
+actions, equivalent to admin for product permissions. This is app/product
+authorization only; it does not grant Google Cloud, IAM, billing, GitHub, or
+repository administration.
+```
+
 Role and permissions must come from the active `user_scope_grants` row for the
 token `sub`; token role claims are not authority. Analytics count reads must use
 the token tenant as the DB tenant filter, with query `tenant_id` only as an
 optional equality assertion.
 When a user has multiple active tenant grants, permissions are the union of
 those active grant roles. A user with operator and verifier grants can use
-verifier-only review routes; admin-only routes still require admin.
+verifier-only review routes; product-admin-only routes require `admin` or
+`ceo_internal`.
 
 The auth/RBAC implementation must use an explicit route-to-permission registry
 with a fail-closed default. Only `/healthz` and `/readyz` are unauthenticated.

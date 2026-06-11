@@ -1804,9 +1804,19 @@ operator
 
 ceo_internal
   goat.read
+  correction.create
   goat.view_dirty_data
+  goat.review_identity
+  goat.write_identity
   analytics.identity.read
+  import.run.manage
+  import.run.view
 ```
+
+`ceo_internal` is the Goat OS product-admin role for Phase 1 internal product
+actions. It intentionally has the same Phase 1 product permissions as `admin`
+inside Goat OS. This is app authorization only and does not grant Google Cloud,
+IAM, billing, GitHub, or repository administration.
 
 Multi-grant semantics:
 
@@ -1815,7 +1825,7 @@ users can hold multiple active tenant-scope grants
 permissions are the union of active matching tenant grant roles
 authorize when any active matching tenant grant role confers the required permission
 operator+verifier can access verifier-only review routes
-admin-only routes still require an active admin grant
+product-admin-only routes require an active `admin` or `ceo_internal` grant
 revoked, inactive, expired, future-valid, and missing grants contribute no permissions
 ```
 
@@ -1833,7 +1843,7 @@ resolveIdentifier                   -> goat.read
 createCorrectionRequest             -> correction.create
 listCorrectionRequests              -> correction.create for the app own/visible correction list; endpoint remains deferred until scoped list semantics are implemented
 
-createImportRun                     -> import.run.manage, admin only
+createImportRun                     -> import.run.manage, product-admin only
 getImportRun                        -> import.run.view
 listImportRunRows                   -> import.run.view
 
@@ -2630,7 +2640,7 @@ verifier
   goat.read and identity evidence view
 
 ceo_internal
-  goat.read and dashboard access by grant
+  full Goat OS product-admin access by granted tenant scope
 ```
 
 Enforcement notes:

@@ -89,6 +89,14 @@ Completed so far:
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
   local baseline is 711 created goats, with remaining review rows grouped for
   cleanup/non-goat handling.
+- Phase 1 local end-to-end proof has passed against the local backend and
+  SSR-first admin-web: normal apply produced 436 created goats and 787 review
+  rows; guarded RFID-only apply produced 711 created goats, 512 review rows, and
+  0 errors; `tenant_lifecycle` shows 711 alive goats; herd search, goat passport,
+  identity counts, and the static import-review baseline rendered through
+  admin-web. The real local DB had no conflicts or candidates, so Data Quality
+  rendered an honest empty state while backend conflict/candidate list coverage
+  proves those read paths separately.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
 - Contract validation and migration validation.
@@ -411,12 +419,16 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Build Phase 1 data-bound frontend screens on the generated API client.
-2. Add production identity-provider integration later: JWKS/asymmetric token
+1. Build live Import Review row APIs and UI so messy RFID rows are always
+   visible in the app, not only through local CSV exports.
+2. Decide and implement terminal disposition for confirmed non-goat rows so
+   they do not stay forever in actionable goat-review queues.
+3. Close Phase 1 local scope honestly: list remaining stubs that move to later
+   phases, keep the 711-goat proof reproducible, and keep admin-web SSR proof
+   green.
+4. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.
-3. Run controlled real RFID/source data import.
-4. Add review screens for dirty/duplicate goat records.
 5. Start Phase 2 vaccination task workflow.
 6. Later connect hardware feeding panel data under Phase 5/9.
 

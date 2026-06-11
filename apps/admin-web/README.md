@@ -130,6 +130,11 @@ go run ./cmd/seed-dev-grant \
   -role ceo_internal
 ```
 
+`ceo_internal` is the intended local role for the internal admin surface. The
+product decision is that it is a full Goat OS product-admin role for Phase 1 API
+actions, not a read-only dashboard role. That is app authorization only; it does
+not imply Google Cloud, IAM, billing, GitHub, or repository administration.
+
 Mint a local dev token:
 
 ```bash

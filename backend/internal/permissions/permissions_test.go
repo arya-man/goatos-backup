@@ -16,7 +16,9 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleOperator, GoatRead, true},
 		{RoleOperator, AnalyticsIdentityRead, false},
 		{RoleCEOInternal, GoatViewDirtyData, true},
-		{RoleCEOInternal, GoatWriteIdentity, false},
+		{RoleCEOInternal, GoatWriteIdentity, true},
+		{RoleCEOInternal, ImportRunManage, true},
+		{RoleCEOInternal, ImportRunView, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.role+"/"+tt.permission, func(t *testing.T) {
@@ -68,7 +70,7 @@ func TestRouteRegistryFailsClosedForUnknownRoute(t *testing.T) {
 	}
 }
 
-func TestCreateImportRunIsAdminOnly(t *testing.T) {
+func TestCreateImportRunIsProductAdminOnly(t *testing.T) {
 	route, ok := Match("POST", "/admin/import-runs")
 	if !ok {
 		t.Fatal("create import run route missing")
@@ -76,8 +78,11 @@ func TestCreateImportRunIsAdminOnly(t *testing.T) {
 	if !route.AdminOnly || !RolesAuthorize([]string{RoleAdmin}, route.Permissions, route.AdminOnly) {
 		t.Fatalf("admin route not admin-authorized: %#v", route)
 	}
+	if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+		t.Fatal("ceo_internal should be authorized as Goat OS product admin")
+	}
 	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
-		t.Fatal("verifier authorized for admin-only import management")
+		t.Fatal("verifier authorized for product-admin-only import management")
 	}
 }
 
