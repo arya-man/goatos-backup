@@ -2855,6 +2855,13 @@ CREATE INDEX legacy_import_rows_matched_goat_idx ON public.legacy_import_rows US
 
 
 --
+-- Name: legacy_import_rows_processing_reasons_gin_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_import_rows_processing_reasons_gin_idx ON public.legacy_import_rows USING gin (((normalized_payload -> 'processing_reasons'::text)));
+
+
+--
 -- Name: legacy_import_rows_rfid_apply_candidates_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2862,10 +2869,24 @@ CREATE INDEX legacy_import_rows_rfid_apply_candidates_idx ON public.legacy_impor
 
 
 --
+-- Name: legacy_import_rows_run_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_import_rows_run_keyset_idx ON public.legacy_import_rows USING btree (tenant_id, import_run_id, row_number, legacy_row_id);
+
+
+--
 -- Name: legacy_import_rows_run_state_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX legacy_import_rows_run_state_idx ON public.legacy_import_rows USING btree (import_run_id, processing_state, row_number);
+
+
+--
+-- Name: legacy_import_rows_run_state_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_import_rows_run_state_keyset_idx ON public.legacy_import_rows USING btree (tenant_id, import_run_id, processing_state, row_number, legacy_row_id);
 
 
 --

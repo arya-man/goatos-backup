@@ -281,3 +281,56 @@ type CandidateDecisionResponse struct {
 	Idempotency IdempotencyMeta       `json:"idempotency"`
 	TraceID     string                `json:"trace_id"`
 }
+
+type ImportRunSummary struct {
+	RowsProcessed         int  `json:"rows_processed"`
+	GoatsCreated          int  `json:"goats_created"`
+	IdentifiersAdded      *int `json:"identifiers_added"`
+	CleanMatches          *int `json:"clean_matches"`
+	DuplicatesFound       *int `json:"duplicates_found"`
+	MissingRequiredFields *int `json:"missing_required_fields"`
+	ConflictsOpened       int  `json:"conflicts_opened"`
+	RowsNeedingReview     int  `json:"rows_needing_review"`
+	ErrorCount            int  `json:"error_count"`
+}
+
+type ImportRun struct {
+	ImportRunID   string           `json:"import_run_id"`
+	SourceSystem  string           `json:"source_system"`
+	SourceDataset string           `json:"source_dataset"`
+	PolicyVersion string           `json:"policy_version"`
+	Status        string           `json:"status"`
+	DryRun        bool             `json:"dry_run"`
+	Summary       ImportRunSummary `json:"summary"`
+	CreatedAt     time.Time        `json:"created_at"`
+	CompletedAt   *time.Time       `json:"completed_at"`
+}
+
+type ImportRunResponse struct {
+	ImportRun ImportRun `json:"import_run"`
+	TraceID   string    `json:"trace_id"`
+}
+
+type ImportRunRow struct {
+	ImportRowID     string   `json:"import_row_id"`
+	SourceRecordID  *string  `json:"source_record_id"`
+	RowNumber       int      `json:"row_number"`
+	RowState        string   `json:"row_state"`
+	ReviewReasons   []string `json:"review_reasons"`
+	RFID            *string  `json:"rfid"`
+	OldTag          *string  `json:"old_tag"`
+	Breed           *string  `json:"breed"`
+	Gender          *string  `json:"gender"`
+	Farm            *string  `json:"farm"`
+	Shed            *string  `json:"shed"`
+	Partition       *string  `json:"partition"`
+	SourceRowKeyRef *string  `json:"source_row_key_ref"`
+	MatchedGoatID   *string  `json:"matched_goat_id"`
+	ErrorReason     *string  `json:"error_reason"`
+}
+
+type ImportRunRowsResponse struct {
+	Items      []ImportRunRow `json:"items"`
+	NextCursor *string        `json:"next_cursor"`
+	TraceID    string         `json:"trace_id"`
+}

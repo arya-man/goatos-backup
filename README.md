@@ -82,8 +82,9 @@ Completed so far:
 - Admin-web upgraded to the frozen Next 16 / React 19 / Tailwind 4 framework
   baseline before real screens were added.
 - SSR-first admin-web screens for herd search, goat passport, identity counts,
-  live read-only conflicts/candidates queues, and honest placeholders for
-  import rows, corrections, admin goat writes, and timeline.
+  live read-only conflicts/candidates queues, live Import Review summary/rows
+  when an import run id is provided, and honest placeholders for corrections,
+  admin goat writes, timeline, import-run creation, and review/fix actions.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
@@ -93,10 +94,10 @@ Completed so far:
   SSR-first admin-web: normal apply produced 436 created goats and 787 review
   rows; guarded RFID-only apply produced 711 created goats, 512 review rows, and
   0 errors; `tenant_lifecycle` shows 711 alive goats; herd search, goat passport,
-  identity counts, and the static import-review baseline rendered through
-  admin-web. The real local DB had no conflicts or candidates, so Data Quality
-  rendered an honest empty state while backend conflict/candidate list coverage
-  proves those read paths separately.
+  identity counts, and read-only Import Review rendered through admin-web. The
+  real local DB had no conflicts or candidates, so Data Quality rendered an
+  honest empty state while backend conflict/candidate list coverage proves those
+  read paths separately.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
 - Contract validation and migration validation.
@@ -116,9 +117,9 @@ Still pending before Phase 1 is usable end-to-end:
 
 - Production identity-provider/login integration: JWKS/asymmetric token
   verification, sessions, key rotation, revocation, and secret management.
-- Import-run row APIs, correction request admin APIs, admin goat write APIs, and
-  goat timeline screens are still contract stubs or honest placeholders unless
-  explicitly re-scoped to a later phase.
+- Correction request admin list APIs, admin goat write APIs, import-run create,
+  review/fix actions, and goat timeline screens are still contract stubs or
+  honest placeholders unless explicitly re-scoped to a later phase.
 - Real production event publishing.
 - Operational review/action screens for dirty data.
 - Deployment setup for shared/staging/prod environments.
@@ -419,14 +420,12 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Build live Import Review row APIs and UI so messy RFID rows are always
-   visible in the app, not only through local CSV exports.
-2. Decide and implement terminal disposition for confirmed non-goat rows so
+1. Decide and implement terminal disposition for confirmed non-goat rows so
    they do not stay forever in actionable goat-review queues.
-3. Close Phase 1 local scope honestly: list remaining stubs that move to later
+2. Close Phase 1 local scope honestly: list remaining stubs that move to later
    phases, keep the 711-goat proof reproducible, and keep admin-web SSR proof
    green.
-4. Add production identity-provider integration later: JWKS/asymmetric token
+3. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.
 5. Start Phase 2 vaccination task workflow.

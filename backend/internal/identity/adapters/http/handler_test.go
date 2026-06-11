@@ -87,6 +87,86 @@ func TestNotImplementedUsesErrorEnvelope(t *testing.T) {
 	}
 }
 
+func TestGetImportRunContractShape(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/import-runs/30000000-0000-4000-8000-000000000001", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-import-run")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.ImportRunResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.ImportRun.ImportRunID == "" || response.ImportRun.Summary.RowsProcessed != 1223 || response.ImportRun.Summary.CleanMatches != nil {
+		t.Fatalf("unexpected import run response: %#v", response.ImportRun)
+	}
+	if response.TraceID != "req-import-run" {
+		t.Fatalf("unexpected trace id: %s", response.TraceID)
+	}
+}
+
+func TestListImportRunRowsContractShapeAndLimit(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/import-runs/30000000-0000-4000-8000-000000000001/rows?limit=500&processing_state=needs_review&reason_code=blank_old_tag_suffix", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-import-rows")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.ImportRunRowsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(response.Items) != 1 {
+		t.Fatalf("expected one row, got %#v", response.Items)
+	}
+	row := response.Items[0]
+	if row.RowState != "needs_review" || len(row.ReviewReasons) != 1 || row.RFID == nil || *row.RFID != "RFID-SYNTHETIC-0042" {
+		t.Fatalf("unexpected row: %#v", row)
+	}
+	if response.NextCursor == nil {
+		t.Fatalf("expected next cursor")
+	}
+
+	badReq := httptest.NewRequest(http.MethodGet, "/admin/import-runs/30000000-0000-4000-8000-000000000001/rows?limit=501", nil)
+	badReq.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	badRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("limit status = %d body=%s", badRec.Code, badRec.Body.String())
+	}
+}
+
+func TestCreateImportRunRemainsNotImplemented(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/import-runs", strings.NewReader(`{}`))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateCorrectionRequestRequiresIdempotencyKey(t *testing.T) {
 	rec := postCorrectionRequest(t, "90000000-0000-4000-8000-000000000001", "", validCorrectionBody())
 	if rec.Code != http.StatusBadRequest {
@@ -769,6 +849,15 @@ func (handlerRepo) ListCandidates(context.Context, ports.ListCandidatesParams) (
 	return []domain.CandidateSummary{candidateResponseFixture("80000000-0000-4000-8000-000000000001", "proposed", 1)}, &next, nil
 }
 
+func (handlerRepo) GetImportRun(context.Context, string, string) (*domain.ImportRun, error) {
+	return importRunResponseFixture("30000000-0000-4000-8000-000000000001"), nil
+}
+
+func (handlerRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
+	next := "eyJ2ZXJzaW9uIjoxLCJyb3dfbnVtYmVyIjo0MiwiaW1wb3J0X3Jvd19pZCI6IjcwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSJ9"
+	return []domain.ImportRunRow{importRunRowResponseFixture("70000000-0000-4000-8000-000000000001")}, &next, nil
+}
+
 func (h handlerRepo) CreateCorrectionRequest(context.Context, ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
 	if h.correctionResult != nil {
 		return h.correctionResult, nil
@@ -928,6 +1017,47 @@ func candidateResponseFixture(id, state string, rowVersion int) domain.Candidate
 		CreatedBy:       "system_rule",
 		RowVersion:      rowVersion,
 		CreatedAt:       time.Now().UTC(),
+	}
+}
+
+func importRunResponseFixture(id string) *domain.ImportRun {
+	now := time.Now().UTC()
+	return &domain.ImportRun{
+		ImportRunID:   id,
+		SourceSystem:  "legacy_rfid_db",
+		SourceDataset: "rfid_db_first_import",
+		PolicyVersion: "phase1-rfid-db-import-v1",
+		Status:        "completed",
+		DryRun:        false,
+		Summary: domain.ImportRunSummary{
+			RowsProcessed:     1223,
+			GoatsCreated:      711,
+			ConflictsOpened:   0,
+			RowsNeedingReview: 512,
+			ErrorCount:        0,
+		},
+		CreatedAt:   now.Add(-10 * time.Minute),
+		CompletedAt: &now,
+	}
+}
+
+func importRunRowResponseFixture(id string) domain.ImportRunRow {
+	return domain.ImportRunRow{
+		ImportRowID:     id,
+		SourceRecordID:  strPtr("source-record-synthetic-1"),
+		RowNumber:       42,
+		RowState:        "needs_review",
+		ReviewReasons:   []string{"blank_old_tag_suffix"},
+		RFID:            strPtr("RFID-SYNTHETIC-0042"),
+		OldTag:          strPtr("1900"),
+		Breed:           strPtr("Sirohi"),
+		Gender:          strPtr("Female"),
+		Farm:            strPtr("Synthetic farm"),
+		Shed:            strPtr("Synthetic shed"),
+		Partition:       strPtr("Synthetic partition"),
+		SourceRowKeyRef: strPtr("sha256:synthetic"),
+		MatchedGoatID:   nil,
+		ErrorReason:     nil,
 	}
 }
 

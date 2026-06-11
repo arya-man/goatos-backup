@@ -100,6 +100,13 @@ Rules:
   `import.run.manage`; import run reads use `import.run.view`. HS256 is a
   bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
   deferred.
+- GET `/admin/import-runs/{import_run_id}` and
+  `/admin/import-runs/{import_run_id}/rows` are live read-only Phase 1 Import
+  Review APIs. They are tenant/run scoped, keyset-paginated for rows, enforce a
+  max row limit of 500, support `processing_state` and `reason_code` filters,
+  expose only whitelisted normalized review fields, and return nullable
+  "not tracked" summary metrics instead of fake zeroes. `POST /admin/import-runs`
+  and all review/fix/import write actions remain deferred.
 - `ceo_internal` is the full Goat OS product-admin role for Phase 1 internal
   product actions, equivalent to `admin` for product/API permissions. This does
   not grant Google Cloud, IAM, billing, GitHub, or repository administration.

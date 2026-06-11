@@ -2259,6 +2259,25 @@ GET  /admin/identity/correction-requests
 POST /admin/identity/correction-requests/{correction_request_id}/resolve
 ```
 
+Import Review read semantics:
+
+```text
+GET /admin/import-runs/{import_run_id} returns the tenant-scoped run summary.
+rows_processed maps to legacy_import_runs.row_count.
+goats_created maps to legacy_import_runs.created_goat_count.
+error_count maps to legacy_import_runs.error_count.
+conflicts_opened maps to legacy_import_runs.conflict_count.
+rows_needing_review is derived from legacy_import_rows where processing_state=needs_review.
+metrics not tracked by Phase 1 import/apply return null, not fake zeroes.
+
+GET /admin/import-runs/{import_run_id}/rows is read-only, tenant/import-run
+scoped, keyset-paginated by row_number and legacy_row_id, and bounded to limit
+<=500. It supports processing_state and reason_code filters. reason_code
+matches error_reason or normalized_payload.processing_reasons. Reason buckets
+can overlap, so reason counts must never be presented as summing to total rows.
+Rows return whitelisted review fields only and never return raw_payload.
+```
+
 ### App APIs
 
 ```text

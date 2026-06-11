@@ -285,6 +285,77 @@ func (q *Queries) GetGoatByID(ctx context.Context, arg GetGoatByIDParams) (GetGo
 	return i, err
 }
 
+const getImportRunByID = `-- name: GetImportRunByID :one
+SELECT
+  r.import_run_id::text AS import_run_id,
+  r.source_system,
+  r.source_dataset,
+  r.policy_version,
+  r.status,
+  r.dry_run,
+  r.row_count,
+  r.created_goat_count,
+  r.updated_goat_count,
+  r.conflict_count,
+  r.error_count,
+  COALESCE((
+    SELECT count(*)::int
+    FROM legacy_import_rows row
+    WHERE row.tenant_id = r.tenant_id
+      AND row.import_run_id = r.import_run_id
+      AND row.processing_state = 'needs_review'
+  ), 0)::int AS rows_needing_review,
+  r.started_at,
+  r.completed_at
+FROM legacy_import_runs r
+WHERE r.tenant_id = $1
+  AND r.import_run_id = $2
+`
+
+type GetImportRunByIDParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+}
+
+type GetImportRunByIDRow struct {
+	ImportRunID       string
+	SourceSystem      string
+	SourceDataset     string
+	PolicyVersion     string
+	Status            string
+	DryRun            bool
+	RowCount          int32
+	CreatedGoatCount  int32
+	UpdatedGoatCount  int32
+	ConflictCount     int32
+	ErrorCount        int32
+	RowsNeedingReview int32
+	StartedAt         pgtype.Timestamptz
+	CompletedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) GetImportRunByID(ctx context.Context, arg GetImportRunByIDParams) (GetImportRunByIDRow, error) {
+	row := q.db.QueryRow(ctx, getImportRunByID, arg.TenantID, arg.ImportRunID)
+	var i GetImportRunByIDRow
+	err := row.Scan(
+		&i.ImportRunID,
+		&i.SourceSystem,
+		&i.SourceDataset,
+		&i.PolicyVersion,
+		&i.Status,
+		&i.DryRun,
+		&i.RowCount,
+		&i.CreatedGoatCount,
+		&i.UpdatedGoatCount,
+		&i.ConflictCount,
+		&i.ErrorCount,
+		&i.RowsNeedingReview,
+		&i.StartedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const listConflictGoatsByID = `-- name: ListConflictGoatsByID :many
 SELECT goat_id::text AS goat_id
 FROM identity_conflict_goats
@@ -488,6 +559,130 @@ func (q *Queries) ListIdentityCandidates(ctx context.Context, arg ListIdentityCa
 			&i.CreatedBy,
 			&i.RowVersion,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listImportRunRows = `-- name: ListImportRunRows :many
+SELECT
+  legacy_row_id::text AS import_row_id,
+  COALESCE(source_record_id, '')::text AS source_record_id,
+  row_number,
+  processing_state AS row_state,
+  source_row_key,
+  COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
+  COALESCE(error_reason, '')::text AS error_reason,
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
+  COALESCE(normalized_payload->>'breed', '')::text AS breed,
+  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition,
+  COALESCE(ARRAY(
+    SELECT reason
+    FROM (
+      SELECT error_reason AS reason
+      WHERE error_reason IS NOT NULL AND error_reason <> ''
+      UNION
+      SELECT jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof(normalized_payload->'processing_reasons') = 'array'
+          THEN normalized_payload->'processing_reasons'
+          ELSE '[]'::jsonb
+        END
+      ) AS reason
+    ) reasons
+    WHERE reason IS NOT NULL AND reason <> ''
+  ), ARRAY[]::text[])::text[] AS review_reasons
+FROM legacy_import_rows
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND (
+    $3::text IS NULL
+    OR processing_state = $3::text
+  )
+  AND (
+    $4::text IS NULL
+    OR error_reason = $4::text
+    OR (normalized_payload -> 'processing_reasons') ? $4::text
+  )
+  AND (
+    $5::int IS NULL
+    OR (row_number, legacy_row_id) > ($5::int, $6::uuid)
+  )
+ORDER BY row_number ASC, legacy_row_id ASC
+LIMIT $7
+`
+
+type ListImportRunRowsParams struct {
+	TenantID          pgtype.UUID
+	ImportRunID       pgtype.UUID
+	ProcessingState   pgtype.Text
+	ReasonCode        pgtype.Text
+	CursorRowNumber   pgtype.Int4
+	CursorLegacyRowID pgtype.UUID
+	LimitCount        int32
+}
+
+type ListImportRunRowsRow struct {
+	ImportRowID    string
+	SourceRecordID string
+	RowNumber      int32
+	RowState       string
+	SourceRowKey   string
+	MatchedGoatID  string
+	ErrorReason    string
+	Rfid           string
+	OldTag         string
+	Breed          string
+	Gender         string
+	Farm           string
+	Shed           string
+	Partition      string
+	ReviewReasons  []string
+}
+
+func (q *Queries) ListImportRunRows(ctx context.Context, arg ListImportRunRowsParams) ([]ListImportRunRowsRow, error) {
+	rows, err := q.db.Query(ctx, listImportRunRows,
+		arg.TenantID,
+		arg.ImportRunID,
+		arg.ProcessingState,
+		arg.ReasonCode,
+		arg.CursorRowNumber,
+		arg.CursorLegacyRowID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListImportRunRowsRow
+	for rows.Next() {
+		var i ListImportRunRowsRow
+		if err := rows.Scan(
+			&i.ImportRowID,
+			&i.SourceRecordID,
+			&i.RowNumber,
+			&i.RowState,
+			&i.SourceRowKey,
+			&i.MatchedGoatID,
+			&i.ErrorReason,
+			&i.Rfid,
+			&i.OldTag,
+			&i.Breed,
+			&i.Gender,
+			&i.Farm,
+			&i.Shed,
+			&i.Partition,
+			&i.ReviewReasons,
 		); err != nil {
 			return nil, err
 		}

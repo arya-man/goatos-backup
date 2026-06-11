@@ -37,6 +37,7 @@ backend/migrations/postgres/000009_phase_1_reporting_incremental_counters.sql
 backend/migrations/postgres/000010_phase_1_rfid_plain_status_mappings.sql
 backend/migrations/postgres/000011_phase_1_rfid_breed_cross_mappings.sql
 backend/migrations/postgres/000012_phase_1_rfid_blank_suffix_apply_candidates.sql
+backend/migrations/postgres/000013_phase_1_import_review_read_indexes.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -161,11 +162,13 @@ check-contract-drift now validates OpenAPI/JSON Schema/examples and then runs
 make api-client-check, so generated-client drift is no longer deferred.
 
 apps/admin-web is now the Phase 1 SSR-first read-only admin demo surface. It
-fetches herd search, goat passport, identity counts, and read-only data-quality
-queues through backend APIs using server-side bearer auth. Import Review still
-shows the static local baseline and clearly labels it non-live until import-run
-row APIs land; corrections, admin goat writes, and timeline remain honest
-placeholders or backend 501/deferred paths.
+fetches herd search, goat passport, identity counts, read-only data-quality
+queues, and live Import Review summary/row data through backend APIs using
+server-side bearer auth. Import Review requires an import_run_id, is read-only,
+shows nullable/untracked metrics as "Not tracked", and does not read CSVs,
+local files, Sheets, App Script, BigQuery, or operational DBs directly.
+Corrections, admin goat writes, timeline, import-run create, and review/fix
+actions remain honest placeholders or backend 501/deferred paths.
 
 Executable legacy BigQuery/Sheets routes were removed from apps/admin-web:
 app/api/*, lib/bigquery.ts, CSV data-loader, and the legacy route pages/hooks
@@ -777,15 +780,10 @@ P8 sales/allocation/promise behavior
 This order is intentional and should not be inferred from conversation memory:
 
 ```text
-1. Build the local read-only admin demo UI before mutating non-goat review state.
-   The UI should show clean goats, passport detail, review buckets, reviewer CSV
-   export locations, identity counts, and a separate confirmed non-goat bucket.
-   Admin-web is now on the frozen Next 16 / React 19 / Tailwind 4 framework
-   baseline from the frontend architecture doc, so the next UI slice should wire
-   dev auth and @goatos/api-client before adding real data views, use SSR-first
-   route modules, lazy-load heavy tables/charts, and keep feature modules
-   standalone-capable inside the admin surface. The same slice should add a
-   boundary guard so feature modules cannot deep-import one another's internals.
+1. Keep the local read-only admin demo reproducible before mutating non-goat
+   review state. The UI now shows clean goats, passport detail, review buckets,
+   live Import Review rows, identity counts, and honest empty states where the
+   local DB has no conflicts/candidates. Review/fix actions are still deferred.
 
 2. Add a local demo runner/runbook that reproduces the real Shape-2 rehearsal:
    import, apply with the explicit RFID-only blank-suffix flag, rebuild counters,

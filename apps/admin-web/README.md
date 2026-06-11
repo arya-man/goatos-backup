@@ -10,7 +10,8 @@ The current console provides:
 - `@goatos/api-client` imports from `../../packages/api-client`;
 - the executable legacy BigQuery/Sheets API routes are removed;
 - read-only herd search, goat passport, identity counts, conflict/candidate
-  queues, and local import-review baseline screens.
+  queues, and live Import Review summary/row screens when an import run id is
+  provided.
 
 ## Framework Baseline
 
@@ -178,3 +179,17 @@ apps/admin-web/lib/bigquery.ts
 The old live dashboard repos remain untouched. Git history is the reference for
 deleted legacy routes; new admin screens must call Goat OS app/admin/analytics
 APIs through generated clients.
+
+## Import Review
+
+`/import-review` is read-only. Provide `import_run_id` as a query parameter to
+load the live import run summary and staged row list from backend APIs:
+
+```text
+/import-review?import_run_id=<import-run-uuid>
+```
+
+The row table is keyset-paginated, supports `processing_state` and `reason_code`
+filters, and shows only whitelisted review fields. Nullable run metrics that are
+not tracked by Phase 1 import/apply are rendered as "Not tracked." Create,
+review, fix, correction, and canonical write actions are still deferred.

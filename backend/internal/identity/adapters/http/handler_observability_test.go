@@ -47,6 +47,12 @@ func (r errRepo) GetConflict(context.Context, string, string) (*domain.ConflictD
 func (r errRepo) ListCandidates(context.Context, ports.ListCandidatesParams) ([]domain.CandidateSummary, *string, error) {
 	return nil, nil, r.err
 }
+func (r errRepo) GetImportRun(context.Context, string, string) (*domain.ImportRun, error) {
+	return nil, r.err
+}
+func (r errRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
+	return nil, nil, r.err
+}
 func (r errRepo) CreateCorrectionRequest(context.Context, ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
 	return nil, r.err
 }

@@ -146,3 +146,80 @@ WHERE tenant_id = @tenant_id
   )
 ORDER BY created_at DESC, candidate_id DESC
 LIMIT @limit_count;
+
+-- name: GetImportRunByID :one
+SELECT
+  r.import_run_id::text AS import_run_id,
+  r.source_system,
+  r.source_dataset,
+  r.policy_version,
+  r.status,
+  r.dry_run,
+  r.row_count,
+  r.created_goat_count,
+  r.updated_goat_count,
+  r.conflict_count,
+  r.error_count,
+  COALESCE((
+    SELECT count(*)::int
+    FROM legacy_import_rows row
+    WHERE row.tenant_id = r.tenant_id
+      AND row.import_run_id = r.import_run_id
+      AND row.processing_state = 'needs_review'
+  ), 0)::int AS rows_needing_review,
+  r.started_at,
+  r.completed_at
+FROM legacy_import_runs r
+WHERE r.tenant_id = @tenant_id
+  AND r.import_run_id = @import_run_id;
+
+-- name: ListImportRunRows :many
+SELECT
+  legacy_row_id::text AS import_row_id,
+  COALESCE(source_record_id, '')::text AS source_record_id,
+  row_number,
+  processing_state AS row_state,
+  source_row_key,
+  COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
+  COALESCE(error_reason, '')::text AS error_reason,
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
+  COALESCE(normalized_payload->>'breed', '')::text AS breed,
+  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition,
+  COALESCE(ARRAY(
+    SELECT reason
+    FROM (
+      SELECT error_reason AS reason
+      WHERE error_reason IS NOT NULL AND error_reason <> ''
+      UNION
+      SELECT jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof(normalized_payload->'processing_reasons') = 'array'
+          THEN normalized_payload->'processing_reasons'
+          ELSE '[]'::jsonb
+        END
+      ) AS reason
+    ) reasons
+    WHERE reason IS NOT NULL AND reason <> ''
+  ), ARRAY[]::text[])::text[] AS review_reasons
+FROM legacy_import_rows
+WHERE tenant_id = @tenant_id
+  AND import_run_id = @import_run_id
+  AND (
+    sqlc.narg('processing_state')::text IS NULL
+    OR processing_state = sqlc.narg('processing_state')::text
+  )
+  AND (
+    sqlc.narg('reason_code')::text IS NULL
+    OR error_reason = sqlc.narg('reason_code')::text
+    OR (normalized_payload -> 'processing_reasons') ? sqlc.narg('reason_code')::text
+  )
+  AND (
+    sqlc.narg('cursor_row_number')::int IS NULL
+    OR (row_number, legacy_row_id) > (sqlc.narg('cursor_row_number')::int, sqlc.narg('cursor_legacy_row_id')::uuid)
+  )
+ORDER BY row_number ASC, legacy_row_id ASC
+LIMIT @limit_count;

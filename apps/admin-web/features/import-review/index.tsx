@@ -1,65 +1,236 @@
-import { DatabaseZap, FileWarning } from "lucide-react";
-import { EmptyPanel, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
+import { AlertTriangle, FileWarning, Rows3 } from "lucide-react";
+import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
+import { dateTime, dash, shortId } from "@/lib/format";
+import { boundedInt, hrefWithParam, one, type RouteSearchParams } from "@/lib/search-params";
+import { getImportRun, listImportRunRows, type ImportRowState } from "@/lib/api/server";
 
-const localBaseline = [
-  ["created_goat", 711],
-  ["needs_review", 512],
-  ["species_or_breed_requires_review", 504],
-  ["blank_old_tag_suffix", 160],
-  ["blank_gender", 4],
-  ["duplicate_old_tag_same_scope", 4],
+const rowStates: ImportRowState[] = ["pending", "auto_linked", "created_goat", "needs_review", "rejected", "error"];
+const reasonOptions = [
+  "blank_old_tag_suffix",
+  "species_or_breed_requires_review",
+  "blank_gender",
+  "duplicate_old_tag_same_scope",
+  "unknown_status_mapping",
+  "rfid_already_linked",
 ] as const;
 
-export function ImportReviewPage() {
+export async function ImportReviewPage({ searchParams }: { searchParams: RouteSearchParams }) {
+  const importRunId = one(searchParams, "import_run_id")?.trim();
+  const limit = boundedInt(one(searchParams, "limit"), 50, 1, 500);
+  const processingState = normalizeRowState(one(searchParams, "processing_state"));
+  const reasonCode = normalizeReason(one(searchParams, "reason_code"));
+
+  if (!importRunId) {
+    return (
+      <>
+        <PageHeader
+          eyebrow="Import Review"
+          title="RFID Import Review"
+          description="Live import run rows are available when an import run id is provided."
+        />
+        <Panel title="Select import run">
+          <form className="grid gap-3 md:grid-cols-[1fr_auto]" action="/import-review">
+            <label>
+              <span className="text-xs uppercase text-[#93a4b8]">import_run_id</span>
+              <input
+                name="import_run_id"
+                placeholder="00000000-0000-4000-8000-000000000000"
+                className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 font-mono text-sm text-white outline-none focus:border-[#14f1d9]"
+              />
+            </label>
+            <div className="flex items-end">
+              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Open</button>
+            </div>
+          </form>
+          <div className="mt-4">
+            <EmptyPanel message="Select or provide an import run id to load live review rows." />
+          </div>
+        </Panel>
+      </>
+    );
+  }
+
+  const [summary, rows] = await Promise.all([
+    getImportRun(importRunId),
+    listImportRunRows({
+      importRunId,
+      limit,
+      cursor: one(searchParams, "cursor"),
+      processing_state: processingState,
+      reason_code: reasonCode,
+    }),
+  ]);
+
   return (
     <>
       <PageHeader
         eyebrow="Import Review"
         title="RFID Import Review"
-        description="Import run read endpoints and review-row APIs are not exposed to admin-web yet. This page keeps the local rehearsal baseline separate from live analytics."
+        description="Live read-only view of staged import rows and messy-data review reasons. Write and fix actions remain disabled."
       />
-      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <Panel title="Last local rehearsal baseline" description="Static local baseline, not a live API or reviewer CSV read.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {localBaseline.map(([label, value]) => (
-              <StatPill key={label} label={label} value={value} tone={label === "created_goat" ? "good" : "warn"} />
-            ))}
-          </div>
-        </Panel>
-        <Panel title="Live import screens">
-          <div className="space-y-3">
-            <Placeholder icon={<DatabaseZap className="h-5 w-5 text-[#14f1d9]" aria-hidden="true" />} title="Import run summary" />
-            <Placeholder icon={<FileWarning className="h-5 w-5 text-[#facc15]" aria-hidden="true" />} title="Import rows and review buckets" />
-            <Placeholder icon={<DatabaseZap className="h-5 w-5 text-[#14f1d9]" aria-hidden="true" />} title="Create import run" />
-          </div>
-        </Panel>
-      </div>
-      <div className="mt-5">
-        <Panel title="Evidence path">
-          <ValueList
-            values={[
-              ["Reviewer CSVs", "Generated locally by CLI and not read by this UI"],
-              ["Canonical records", "Created only by backend import/apply workers"],
-              ["Corrections", "Correction list/admin screens are not implemented in this read-only slice"],
-              ["Goat writes", "Create/update screens are not implemented in this read-only slice"],
-            ]}
-          />
-        </Panel>
-      </div>
+
+      {!summary.ok ? (
+        <ErrorPanel error={summary.error} />
+      ) : (
+        <div className="space-y-5">
+          <Panel title="Import run summary" description="Reason buckets can overlap; counts by reason do not necessarily sum to rows needing review.">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <StatPill label="rows processed" value={summary.data.import_run.summary.rows_processed} />
+              <StatPill label="goats created" value={summary.data.import_run.summary.goats_created} tone="good" />
+              <StatPill label="needs review" value={summary.data.import_run.summary.rows_needing_review} tone="warn" />
+              <StatPill label="errors" value={summary.data.import_run.summary.error_count} tone={summary.data.import_run.summary.error_count > 0 ? "warn" : "neutral"} />
+            </div>
+            <div className="mt-4">
+              <ValueList
+                values={[
+                  ["import run", <Mono key="run">{summary.data.import_run.import_run_id}</Mono>],
+                  ["status", summary.data.import_run.status],
+                  ["source", `${summary.data.import_run.source_system} · ${summary.data.import_run.source_dataset}`],
+                  ["policy", summary.data.import_run.policy_version],
+                  ["started", dateTime(summary.data.import_run.created_at)],
+                  ["completed", dateTime(summary.data.import_run.completed_at)],
+                  ["identifiers added", tracked(summary.data.import_run.summary.identifiers_added)],
+                  ["clean matches", tracked(summary.data.import_run.summary.clean_matches)],
+                  ["duplicates found", tracked(summary.data.import_run.summary.duplicates_found)],
+                  ["missing required fields", tracked(summary.data.import_run.summary.missing_required_fields)],
+                  ["conflicts opened", summary.data.import_run.summary.conflicts_opened],
+                  ["trace", summary.data.trace_id],
+                ]}
+              />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Review rows"
+            description="Rows are tenant-scoped and keyset-paginated. Filters query backend indexes; no CSV or local files are read by the UI."
+            action={
+              <div className="flex items-center gap-2 text-xs text-[#93a4b8]">
+                <Rows3 className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
+                limit {limit}
+              </div>
+            }
+          >
+            <form className="mb-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action="/import-review">
+              <input type="hidden" name="import_run_id" value={importRunId} />
+              <Select name="processing_state" label="State" defaultValue={processingState ?? ""} options={rowStates} />
+              <Select name="reason_code" label="Reason" defaultValue={reasonCode ?? ""} options={reasonOptions} />
+              <Field name="limit" label="Limit" defaultValue={String(limit)} min="1" max="500" />
+              <div className="flex items-end">
+                <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
+              </div>
+            </form>
+
+            {!rows.ok ? (
+              <ErrorPanel error={rows.error} />
+            ) : rows.data.items.length === 0 ? (
+              <EmptyPanel message="No import rows returned for this query." />
+            ) : (
+              <div className="space-y-3">
+                {rows.data.items.map((row) => (
+                  <div key={row.import_row_id} className="rounded-md border border-[#293241] bg-[#10141b] p-3">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 font-semibold text-white">
+                          <FileWarning className="h-4 w-4 text-[#facc15]" aria-hidden="true" />
+                          Row {row.row_number}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#c7d1dc]">
+                          <span className="rounded border border-[#334155] px-2 py-1">{row.row_state}</span>
+                          {row.review_reasons.map((reason) => (
+                            <span key={reason} className="rounded border border-[#a16207] px-2 py-1 text-[#facc15]">
+                              {reason}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="text-xs text-[#93a4b8]">
+                        <Mono>{row.source_row_key_ref ?? row.import_row_id}</Mono>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                      <Cell label="RFID" value={row.rfid} />
+                      <Cell label="Old tag" value={row.old_tag} />
+                      <Cell label="Breed" value={row.breed} />
+                      <Cell label="Gender" value={row.gender} />
+                      <Cell label="Farm" value={row.farm} />
+                      <Cell label="Shed" value={row.shed} />
+                      <Cell label="Partition" value={row.partition} />
+                      <Cell label="Matched goat" value={shortId(row.matched_goat_id)} />
+                    </div>
+                    {row.error_reason ? (
+                      <div className="mt-3 flex items-start gap-2 rounded-md border border-[#7f1d1d] bg-[#1d1214] p-2 text-sm text-[#fecaca]">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        {row.error_reason}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+                <NextPageLink href={hrefWithParam("/import-review", searchParams, "cursor", rows.data.next_cursor)} />
+                <div className="text-xs text-[#93a4b8]">Trace {rows.data.trace_id}</div>
+              </div>
+            )}
+          </Panel>
+        </div>
+      )}
     </>
   );
 }
 
-function Placeholder({ icon, title }: { icon: React.ReactNode; title: string }) {
+function tracked(value: number | null): string | number {
+  return value === null ? "Not tracked" : value;
+}
+
+function normalizeRowState(value: string | undefined): ImportRowState | undefined {
+  if (!value) return undefined;
+  return rowStates.includes(value as ImportRowState) ? (value as ImportRowState) : undefined;
+}
+
+function normalizeReason(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+function Cell({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-dashed border-[#334155] bg-[#10141b] p-4">
-      <div className="flex items-center gap-2 font-semibold text-white">
-        {icon}
-        {title}
-      </div>
-      <div className="mt-2">
-        <EmptyPanel message="No live read endpoint is wired for this screen yet." />
-      </div>
+    <div className="rounded-md border border-[#293241] bg-[#0f1115] p-2">
+      <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
+      <div className="mt-1 break-words text-[#f8fafc]">{dash(value)}</div>
     </div>
+  );
+}
+
+function Field({ name, label, defaultValue, min, max }: { name: string; label: string; defaultValue: string; min: string; max: string }) {
+  return (
+    <label>
+      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
+      <input
+        name={name}
+        type="number"
+        min={min}
+        max={max}
+        defaultValue={defaultValue}
+        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+      />
+    </label>
+  );
+}
+
+function Select({ name, label, defaultValue, options }: { name: string; label: string; defaultValue: string; options: readonly string[] }) {
+  return (
+    <label>
+      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
+      <select
+        name={name}
+        defaultValue={defaultValue}
+        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+      >
+        <option value="">Any</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

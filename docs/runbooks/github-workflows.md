@@ -245,6 +245,8 @@ Dump schema for sqlc.
 Regenerate sqlc code.
 Assert generated code matches committed code.
 Validate important SQL query plans.
+Validate hand-written hot-path plans such as outbox claim, auth grant lookup,
+and Import Review reason filtering.
 Exercise migration invariants.
 Reject whitespace errors.
 ```
@@ -259,6 +261,7 @@ validate-sqlc-plans failed
   query no longer uses expected index
   new sqlc query lacks plan expectation
   hot apply/read query introduced an avoidable Sort
+  Import Review reason filter is not using the JSONB reason index
 
 validate-migrations failed
   migration does not apply cleanly

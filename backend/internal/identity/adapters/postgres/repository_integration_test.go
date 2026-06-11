@@ -26,6 +26,8 @@ const (
 	cbeLocation          = "00000000-0000-4000-8000-000000003001"
 	cptLocation          = "00000000-0000-4000-8000-000000003002"
 	t2Location           = "00000000-0000-4000-8000-000000003101"
+	importRunID          = "30000000-0000-4000-8000-000000000001"
+	secondTenantRunID    = "30000000-0000-4000-8000-000000000002"
 )
 
 func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
@@ -159,6 +161,63 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if _, err := repo.GetConflict(ctx, secondTenant, "20000000-0000-4000-8000-000000000001"); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("cross-tenant conflict lookup should return ErrNotFound, got %v", err)
 	}
+
+	runSummary, err := repo.GetImportRun(ctx, meshaTenant, importRunID)
+	if err != nil {
+		t.Fatalf("GetImportRun: %v", err)
+	}
+	if runSummary.Summary.RowsProcessed != 3 ||
+		runSummary.Summary.GoatsCreated != 1 ||
+		runSummary.Summary.RowsNeedingReview != 2 ||
+		runSummary.Summary.ErrorCount != 1 ||
+		runSummary.Summary.CleanMatches != nil {
+		t.Fatalf("unexpected import run summary: %#v", runSummary.Summary)
+	}
+	if _, err := repo.GetImportRun(ctx, secondTenant, importRunID); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-tenant import run lookup should return ErrNotFound, got %v", err)
+	}
+
+	importRows, next, err := repo.ListImportRunRows(ctx, ports.ListImportRunRowsParams{TenantID: meshaTenant, ImportRunID: importRunID, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListImportRunRows first page: %v", err)
+	}
+	if len(importRows) != 2 || next == nil || importRows[0].RowNumber != 1 || importRows[1].RowNumber != 2 {
+		t.Fatalf("unexpected first import row page rows=%#v next=%v", importRows, next)
+	}
+	if importRows[1].SourceRowKeyRef == nil || !strings.HasPrefix(*importRows[1].SourceRowKeyRef, "sha256:") {
+		t.Fatalf("expected source row key ref, got %#v", importRows[1].SourceRowKeyRef)
+	}
+	if len(importRows[1].ReviewReasons) != 1 || importRows[1].ReviewReasons[0] != "blank_old_tag_suffix" {
+		t.Fatalf("expected de-duped reasons, got %#v", importRows[1].ReviewReasons)
+	}
+	importRows, next, err = repo.ListImportRunRows(ctx, ports.ListImportRunRowsParams{TenantID: meshaTenant, ImportRunID: importRunID, Limit: 2, Cursor: next})
+	if err != nil {
+		t.Fatalf("ListImportRunRows second page: %v", err)
+	}
+	if len(importRows) != 1 || next != nil || importRows[0].RowNumber != 3 {
+		t.Fatalf("unexpected second import row page rows=%#v next=%v", importRows, next)
+	}
+
+	state := "needs_review"
+	importRows, _, err = repo.ListImportRunRows(ctx, ports.ListImportRunRowsParams{TenantID: meshaTenant, ImportRunID: importRunID, Limit: 10, ProcessingState: &state})
+	if err != nil {
+		t.Fatalf("ListImportRunRows state filter: %v", err)
+	}
+	if len(importRows) != 2 {
+		t.Fatalf("expected 2 needs_review rows, got %#v", importRows)
+	}
+
+	reason := "blank_old_tag_suffix"
+	importRows, _, err = repo.ListImportRunRows(ctx, ports.ListImportRunRowsParams{TenantID: meshaTenant, ImportRunID: importRunID, Limit: 10, ReasonCode: &reason})
+	if err != nil {
+		t.Fatalf("ListImportRunRows reason filter: %v", err)
+	}
+	if len(importRows) != 1 || importRows[0].RowNumber != 2 {
+		t.Fatalf("expected only blank suffix row, got %#v", importRows)
+	}
+	if _, _, err := repo.ListImportRunRows(ctx, ports.ListImportRunRowsParams{TenantID: meshaTenant, ImportRunID: importRunID, Limit: 10, Cursor: strPtr("not-a-valid-cursor")}); !errors.Is(err, ports.ErrInvalidCursor) {
+		t.Fatalf("invalid import row cursor should return ErrInvalidCursor, got %v", err)
+	}
 }
 
 func applyMigrations(t *testing.T, container string) {
@@ -221,6 +280,103 @@ VALUES
 
 INSERT INTO identity_conflict_source_records (conflict_id, tenant_id, source_system, source_record_id)
 VALUES ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'synthetic_import', 'synthetic-source-record-1');
+
+INSERT INTO legacy_import_runs (import_run_id, tenant_id, source_name, source_system, source_dataset, policy_version, dry_run, status, row_count, created_goat_count, error_count)
+VALUES
+  ('`+importRunID+`', '`+meshaTenant+`', 'Synthetic import', 'legacy_rfid_db', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', false, 'completed', 3, 1, 1),
+  ('`+secondTenantRunID+`', '`+secondTenant+`', 'Synthetic tenant 2 import', 'legacy_rfid_db', 'rfid_db_first_import', 'phase1-rfid-db-import-v1', false, 'completed', 1, 0, 0);
+
+INSERT INTO legacy_import_rows (
+  legacy_row_id,
+  tenant_id,
+  import_run_id,
+  row_number,
+  source_system,
+  source_dataset,
+  source_record_id,
+  source_row_key,
+  source_key_recipe_version,
+  source_row_version_hash,
+  hash_recipe_version,
+  raw_payload,
+  normalized_payload,
+  processing_state,
+  matched_goat_id,
+  error_reason
+)
+VALUES
+  (
+    '70000000-0000-4000-8000-000000000001',
+    '`+meshaTenant+`',
+    '`+importRunID+`',
+    1,
+    'legacy_rfid_db',
+    'rfid_db_first_import',
+    'synthetic-row-1',
+    'source-row-key-created-1',
+    'phase1-rfid-source-key-v1',
+    'sha256:created1',
+    'phase1-rfid-row-hash-v1',
+    '{"Tag":"F2","Breed":"Sirohi","Gender":"Female","RFID":"RFID-SYNTHETIC-001","Old ID":"1900","Farm":"Farm A","Shed":"Shed A","Partition":"P1"}'::jsonb,
+    '{"tag":"F2","breed":"Sirohi","gender":"Female","rfid":"RFID-SYNTHETIC-001","normalized_old_tag":"1900","farm":"Farm A","shed":"Shed A","partition":"P1","processing_reasons":[]}'::jsonb,
+    'created_goat',
+    '10000000-0000-4000-8000-000000000001',
+    NULL
+  ),
+  (
+    '70000000-0000-4000-8000-000000000002',
+    '`+meshaTenant+`',
+    '`+importRunID+`',
+    2,
+    'legacy_rfid_db',
+    'rfid_db_first_import',
+    NULL,
+    'source-row-key-review-2',
+    'phase1-rfid-source-key-v1',
+    'sha256:review2',
+    'phase1-rfid-row-hash-v1',
+    '{"Tag":"F2","Breed":"Sirohi","Gender":"Female","RFID":"RFID-SYNTHETIC-002","Old ID":"1901","Farm":"Farm A","Shed":"Shed B","Partition":"P2"}'::jsonb,
+    '{"tag":"F2","breed":"Sirohi","gender":"Female","rfid":"RFID-SYNTHETIC-002","normalized_old_tag":"1901","farm":"Farm A","shed":"Shed B","partition":"P2","processing_reasons":["blank_old_tag_suffix","blank_old_tag_suffix"]}'::jsonb,
+    'needs_review',
+    NULL,
+    'blank_old_tag_suffix'
+  ),
+  (
+    '70000000-0000-4000-8000-000000000003',
+    '`+meshaTenant+`',
+    '`+importRunID+`',
+    3,
+    'legacy_rfid_db',
+    'rfid_db_first_import',
+    'synthetic-row-3',
+    'source-row-key-review-3',
+    'phase1-rfid-source-key-v1',
+    'sha256:review3',
+    'phase1-rfid-row-hash-v1',
+    '{"Tag":"F2","Breed":"Anantapur Sheep","Gender":"Female","RFID":"RFID-SYNTHETIC-003","Old ID":"1902","Farm":"Farm B","Shed":"Shed C","Partition":"P3"}'::jsonb,
+    '{"tag":"F2","breed":"Anantapur Sheep","gender":"Female","rfid":"RFID-SYNTHETIC-003","normalized_old_tag":"1902","farm":"Farm B","shed":"Shed C","partition":"P3","processing_reasons":["species_or_breed_requires_review"]}'::jsonb,
+    'needs_review',
+    NULL,
+    NULL
+  ),
+  (
+    '70000000-0000-4000-8000-000000000101',
+    '`+secondTenant+`',
+    '`+secondTenantRunID+`',
+    1,
+    'legacy_rfid_db',
+    'rfid_db_first_import',
+    'synthetic-row-tenant-2',
+    'source-row-key-tenant-2',
+    'phase1-rfid-source-key-v1',
+    'sha256:tenant2',
+    'phase1-rfid-row-hash-v1',
+    '{"Tag":"F2","Breed":"Sirohi","Gender":"Female","RFID":"RFID-SYNTHETIC-101","Old ID":"1900","Farm":"Farm Z","Shed":"Shed Z","Partition":"P9"}'::jsonb,
+    '{"tag":"F2","breed":"Sirohi","gender":"Female","rfid":"RFID-SYNTHETIC-101","normalized_old_tag":"1900","farm":"Farm Z","shed":"Shed Z","partition":"P9","processing_reasons":[]}'::jsonb,
+    'created_goat',
+    '10000000-0000-4000-8000-000000000101',
+    NULL
+  );
 
 `)
 }

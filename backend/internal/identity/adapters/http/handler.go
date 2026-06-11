@@ -42,8 +42,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /admin/identity/conflicts", h.ListConflicts)
 	mux.HandleFunc("GET /admin/identity/conflicts/{conflict_id}", h.GetConflict)
 	mux.HandleFunc("POST /admin/identity/conflicts/{conflict_id}/resolve", h.ResolveConflict)
-	mux.HandleFunc("GET /admin/import-runs/{import_run_id}", h.NotImplemented("legacy_import_deferred"))
-	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows", h.NotImplemented("legacy_import_deferred"))
+	mux.HandleFunc("GET /admin/import-runs/{import_run_id}", h.GetImportRun)
+	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows", h.ListImportRunRows)
 	mux.HandleFunc("POST /admin/import-runs", h.NotImplemented("legacy_import_deferred"))
 	mux.HandleFunc("GET /admin/identity/candidates", h.ListCandidates)
 	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/approve", h.ApproveCandidate)
@@ -130,6 +130,28 @@ func (h *Handler) ListCandidates(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID(r),
 		Limit:    limit,
 		Cursor:   optionalQuery(q.Get("cursor")),
+	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) GetImportRun(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetImportRun(r.Context(), tenantID(r), r.PathValue("import_run_id"), traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) ListImportRunRows(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLimitWithMax(w, r, 500)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	result, err := h.service.ListImportRunRows(r.Context(), ports.ListImportRunRowsParams{
+		TenantID:        tenantID(r),
+		ImportRunID:     r.PathValue("import_run_id"),
+		Limit:           limit,
+		Cursor:          optionalQuery(q.Get("cursor")),
+		ProcessingState: optionalQuery(q.Get("processing_state")),
+		ReasonCode:      optionalQuery(q.Get("reason_code")),
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }
@@ -316,6 +338,10 @@ func (h *Handler) NotImplemented(code string) http.HandlerFunc {
 }
 
 func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
+	return parseLimitWithMax(w, r, 100)
+}
+
+func parseLimitWithMax(w http.ResponseWriter, r *http.Request, maxLimit int) (int, bool) {
 	raw := strings.TrimSpace(r.URL.Query().Get("limit"))
 	if raw == "" {
 		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
@@ -328,11 +354,12 @@ func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 		return 0, false
 	}
 	limit, err := strconv.Atoi(raw)
-	if err != nil || limit < 1 || limit > 100 {
+	if err != nil || limit < 1 || limit > maxLimit {
+		message := "limit must be between 1 and " + strconv.Itoa(maxLimit)
 		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
 			Code:        "invalid_limit",
-			Message:     "limit must be an integer between 1 and 100",
-			FieldErrors: []domain.FieldError{{Field: "limit", Code: "invalid", Message: "limit must be between 1 and 100"}},
+			Message:     "limit must be an integer between 1 and " + strconv.Itoa(maxLimit),
+			FieldErrors: []domain.FieldError{{Field: "limit", Code: "invalid", Message: message}},
 			TraceID:     traceID(r),
 			Retryable:   false,
 		})

@@ -87,6 +87,41 @@ func TestBearerAuthRunsBeforeRealNotImplementedStub(t *testing.T) {
 	}
 }
 
+func TestImportReviewRoutesRequireImportRunView(t *testing.T) {
+	paths := []string{
+		"/admin/import-runs/30000000-0000-4000-8000-000000000001",
+		"/admin/import-runs/30000000-0000-4000-8000-000000000001/rows?limit=10",
+	}
+	allowedRoles := []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier}
+	deniedRoles := []string{permissions.RoleOperator, permissions.RoleParkHead}
+
+	for _, role := range allowedRoles {
+		handler := authWrappedIdentityMux(t, grantSourceForRoles(role))
+		for _, path := range paths {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("role %s path %s status=%d body=%s", role, path, rec.Code, rec.Body.String())
+			}
+		}
+	}
+
+	for _, role := range deniedRoles {
+		handler := authWrappedIdentityMux(t, grantSourceForRoles(role))
+		for _, path := range paths {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("role %s path %s status=%d body=%s", role, path, rec.Code, rec.Body.String())
+			}
+		}
+	}
+}
+
 func authWrappedIdentityMux(t *testing.T, grants permissions.GrantSource) http.Handler {
 	t.Helper()
 	verifier, err := platformauth.NewHS256Verifier(platformauth.Config{

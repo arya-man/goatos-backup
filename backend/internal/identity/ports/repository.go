@@ -52,6 +52,15 @@ type ListCandidatesParams struct {
 	Cursor   *string
 }
 
+type ListImportRunRowsParams struct {
+	TenantID        string
+	ImportRunID     string
+	Limit           int
+	Cursor          *string
+	ProcessingState *string
+	ReasonCode      *string
+}
+
 type CreateCorrectionRequestCommand struct {
 	TenantID             string
 	ActorID              string
@@ -199,6 +208,8 @@ type Repository interface {
 	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]domain.CandidateSummary, *string, error)
+	GetImportRun(ctx context.Context, tenantID, importRunID string) (*domain.ImportRun, error)
+	ListImportRunRows(ctx context.Context, params ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error)
 	CreateCorrectionRequest(ctx context.Context, cmd CreateCorrectionRequestCommand) (*CreateCorrectionRequestResult, error)
 	ResolveCorrectionRequest(ctx context.Context, cmd ResolveCorrectionRequestCommand) (*ResolveCorrectionRequestResult, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)

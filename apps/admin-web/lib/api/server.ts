@@ -27,8 +27,11 @@ export type IdentityCountsResponse = AnalyticsApiComponents["schemas"]["Identity
 export type ConflictListResponse = AdminApiComponents["schemas"]["ConflictListResponse"];
 export type ConflictDetailResponse = AdminApiComponents["schemas"]["ConflictDetailResponse"];
 export type CandidateListResponse = AdminApiComponents["schemas"]["CandidateListResponse"];
+export type ImportRunResponse = AdminApiComponents["schemas"]["ImportRunResponse"];
+export type ImportRunRowsResponse = AdminApiComponents["schemas"]["ImportRunRowsResponse"];
 export type ConflictState = AdminApiComponents["schemas"]["ConflictState"];
 export type ConflictType = AdminApiComponents["schemas"]["ConflictType"];
+export type ImportRowState = AdminApiComponents["schemas"]["ImportRowState"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -87,6 +90,14 @@ export type ConflictSearchParams = {
 export type CandidateSearchParams = {
   limit: number;
   cursor?: string;
+};
+
+export type ImportRunRowsParams = {
+  importRunId: string;
+  limit: number;
+  cursor?: string;
+  processing_state?: ImportRowState;
+  reason_code?: string;
 };
 
 function getServerConfig(requireTenant = false): ApiResult<ServerConfig> {
@@ -207,6 +218,38 @@ export async function listCandidates(params: CandidateSearchParams): Promise<Api
     client.request<CandidateListResponse>("/admin/identity/candidates", {
       cache: "no-store",
       query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getImportRun(importRunId: string): Promise<ApiResult<ImportRunResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/import-runs/${encodeURIComponent(importRunId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<ImportRunResponse>(path, { cache: "no-store" }));
+}
+
+export async function listImportRunRows(params: ImportRunRowsParams): Promise<ApiResult<ImportRunRowsResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/import-runs/${encodeURIComponent(params.importRunId)}/rows` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<ImportRunRowsResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({
+        limit: params.limit,
+        cursor: params.cursor,
+        processing_state: params.processing_state,
+        reason_code: params.reason_code,
+      }),
     }),
   );
 }

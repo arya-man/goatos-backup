@@ -111,6 +111,8 @@ bind_query_params() {
     -e "s/sqlc.narg('last_processed_event_id')::uuid/'60000000-0000-4000-8000-000000000001'::uuid/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('processing_state')::text/NULL::text/g" \
+    -e "s/sqlc.narg('reason_code')::text/NULL::text/g" \
     -e "s/sqlc.narg('cursor_row_number')::int/NULL::int/g" \
     -e "s/sqlc.narg('cursor_legacy_row_id')::uuid/NULL::uuid/g" \
     -e "s/@limit_count/10/g"
@@ -139,6 +141,12 @@ forbidden_seq_scan_pattern() {
       ;;
     ListIdentityCandidates)
       printf '%s\n' 'Seq Scan on identity_match_candidates'
+      ;;
+    GetImportRunByID)
+      printf '%s\n' 'Seq Scan on (legacy_import_runs|legacy_import_rows)'
+      ;;
+    ListImportRunRows)
+      printf '%s\n' 'Seq Scan on legacy_import_rows'
       ;;
     GetApprovedLegacyImportPolicy)
       printf '%s\n' 'Seq Scan on legacy_import_policies'
@@ -182,7 +190,7 @@ validate_generated_query_plan() {
   fi
 
   case "$query_name" in
-    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy)
+    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy|ListImportRunRows)
       explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
 $sql" '(Sort|Incremental Sort)'
       ;;
@@ -233,6 +241,27 @@ WHERE user_id = '90000000-0000-4000-8000-000000000001'::uuid
 ORDER BY role"
 }
 
+validate_import_run_reason_filter_plan() {
+  explain_must_use_index "ListImportRunRowsReasonFilter" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
+SELECT legacy_row_id
+FROM legacy_import_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND import_run_id = '30000000-0000-4000-8000-000000000001'::uuid
+  AND (normalized_payload -> 'processing_reasons') ? 'blank_old_tag_suffix'
+LIMIT 10"
+}
+
+validate_import_run_state_filter_plan() {
+  explain_must_use_index "ListImportRunRowsStateFilter" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
+SELECT legacy_row_id
+FROM legacy_import_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND import_run_id = '30000000-0000-4000-8000-000000000001'::uuid
+  AND processing_state = 'needs_review'
+ORDER BY row_number, legacy_row_id
+LIMIT 10" '(Sort|Incremental Sort)'
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -262,5 +291,7 @@ fi
 
 validate_outbox_claim_plan
 validate_auth_grant_lookup_plan
+validate_import_run_reason_filter_plan
+validate_import_run_state_filter_plan
 
-echo "Validated $checked_count generated sqlc query plans and 2 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 4 hand-written query plans"

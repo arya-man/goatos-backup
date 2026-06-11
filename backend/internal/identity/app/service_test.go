@@ -678,6 +678,14 @@ func (f *fakeRepo) ListCandidates(context.Context, ports.ListCandidatesParams) (
 	return []domain.CandidateSummary{candidateSummaryFixture("80000000-0000-4000-8000-000000000001", "proposed", 1)}, nil, nil
 }
 
+func (f *fakeRepo) GetImportRun(context.Context, string, string) (*domain.ImportRun, error) {
+	return nil, ports.ErrNotFound
+}
+
+func (f *fakeRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
+	return []domain.ImportRunRow{}, nil, nil
+}
+
 func (f *fakeRepo) CreateCorrectionRequest(_ context.Context, cmd ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
 	f.lastCorrectionCmd = cmd
 	if f.correctionErr != nil {

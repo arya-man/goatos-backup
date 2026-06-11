@@ -364,26 +364,38 @@ export interface components {
         ImportRunSummary: {
             rows_processed: number;
             goats_created: number;
-            identifiers_added: number;
-            clean_matches: number;
-            duplicates_found: number;
-            missing_required_fields: number;
+            identifiers_added: number | null;
+            clean_matches: number | null;
+            duplicates_found: number | null;
+            missing_required_fields: number | null;
             conflicts_opened: number;
             rows_needing_review: number;
             error_count: number;
         };
         ImportRunResponse: {
             import_run: components["schemas"]["ImportRun"];
-            idempotency: components["schemas"]["IdempotencyMeta"];
             trace_id: string;
         };
+        /** @enum {string} */
+        ImportRowState: "pending" | "auto_linked" | "created_goat" | "needs_review" | "rejected" | "error";
         ImportRunRow: {
             /** Format: uuid */
             import_row_id: string;
-            source_record_id: string;
-            /** @enum {string} */
-            row_state: "staged" | "clean" | "needs_review" | "conflict" | "error";
+            row_number: number;
+            source_record_id: string | null;
+            row_state: components["schemas"]["ImportRowState"];
             review_reasons: string[];
+            rfid: string | null;
+            old_tag: string | null;
+            breed: string | null;
+            gender: string | null;
+            farm: string | null;
+            shed: string | null;
+            partition: string | null;
+            source_row_key_ref: string | null;
+            /** Format: uuid */
+            matched_goat_id: string | null;
+            error_reason: string | null;
         };
         ImportRunRowsResponse: {
             items: components["schemas"]["ImportRunRow"][];
@@ -752,6 +764,8 @@ export interface operations {
             query: {
                 limit: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
+                processing_state?: components["schemas"]["ImportRowState"];
+                reason_code?: string;
             };
             header?: never;
             path: {

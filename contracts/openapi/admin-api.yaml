@@ -78,6 +78,18 @@ paths:
         - $ref: "#/components/parameters/ImportRunId"
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
+        - name: processing_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ImportRowState"
+        - name: reason_code
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
       responses:
         "200":
           description: Import run rows.
@@ -906,16 +918,24 @@ components:
           type: integer
           minimum: 0
         identifiers_added:
-          type: integer
+          type:
+            - integer
+            - "null"
           minimum: 0
         clean_matches:
-          type: integer
+          type:
+            - integer
+            - "null"
           minimum: 0
         duplicates_found:
-          type: integer
+          type:
+            - integer
+            - "null"
           minimum: 0
         missing_required_fields:
-          type: integer
+          type:
+            - integer
+            - "null"
           minimum: 0
         conflicts_opened:
           type: integer
@@ -931,47 +951,112 @@ components:
       additionalProperties: false
       required:
         - import_run
-        - idempotency
         - trace_id
       properties:
         import_run:
           $ref: "#/components/schemas/ImportRun"
-        idempotency:
-          $ref: "#/components/schemas/IdempotencyMeta"
         trace_id:
           type: string
           minLength: 1
           maxLength: 200
+    ImportRowState:
+      type: string
+      enum:
+        - pending
+        - auto_linked
+        - created_goat
+        - needs_review
+        - rejected
+        - error
     ImportRunRow:
       type: object
       additionalProperties: false
       required:
         - import_row_id
+        - row_number
         - source_record_id
         - row_state
         - review_reasons
+        - rfid
+        - old_tag
+        - breed
+        - gender
+        - farm
+        - shed
+        - partition
+        - source_row_key_ref
+        - matched_goat_id
+        - error_reason
       properties:
         import_row_id:
           type: string
           format: uuid
+        row_number:
+          type: integer
+          minimum: 1
         source_record_id:
-          type: string
-          minLength: 1
-          maxLength: 200
+          type:
+            - string
+            - "null"
+          maxLength: 500
         row_state:
-          type: string
-          enum:
-            - staged
-            - clean
-            - needs_review
-            - conflict
-            - error
+          $ref: "#/components/schemas/ImportRowState"
         review_reasons:
           type: array
           items:
             type: string
             minLength: 1
             maxLength: 200
+        rfid:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        old_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        breed:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        gender:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        farm:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        shed:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        partition:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        source_row_key_ref:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        matched_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        error_reason:
+          type:
+            - string
+            - "null"
+          maxLength: 500
     ImportRunRowsResponse:
       type: object
       additionalProperties: false
