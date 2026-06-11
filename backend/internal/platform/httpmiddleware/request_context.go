@@ -1,10 +1,14 @@
 package httpmiddleware
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -59,34 +63,84 @@ func RequestContext(log *slog.Logger) func(http.Handler) http.Handler {
 			}
 
 			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-			next.ServeHTTP(rec, r.WithContext(ctx))
+			defer func() {
+				if p := recover(); p != nil {
+					if !rec.started {
+						rec.status = http.StatusInternalServerError
+					}
+					logHTTPRequest(log, ctx, requestID, traceID, r.Method, r.URL.Path, rec.status, time.Since(start))
+					panic(p)
+				}
+				logHTTPRequest(log, ctx, requestID, traceID, r.Method, r.URL.Path, rec.status, time.Since(start))
+			}()
 
-			log.InfoContext(ctx, "http_request",
-				slog.String("request_id", requestID),
-				slog.String("trace_id", traceID),
-				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
-				slog.Int("status", rec.status),
-				slog.Duration("duration", time.Since(start)),
-			)
+			next.ServeHTTP(rec, r.WithContext(ctx))
 		})
 	}
 }
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status  int
+	started bool
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
-	r.status = status
+	if !r.started {
+		r.status = status
+		r.started = true
+	}
 	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Write(data []byte) (int, error) {
+	if !r.started {
+		r.status = http.StatusOK
+		r.started = true
+	}
+	return r.ResponseWriter.Write(data)
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
+func (r *statusRecorder) FlushError() error {
+	err := http.NewResponseController(r.ResponseWriter).Flush()
+	if err == nil && !r.started {
+		r.status = http.StatusOK
+		r.started = true
+	}
+	return err
+}
+
+func (r *statusRecorder) Flush() {
+	_ = r.FlushError()
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := http.NewResponseController(r.ResponseWriter).Hijack()
+	if err == nil {
+		r.started = true
+	}
+	return conn, rw, err
+}
+
+func logHTTPRequest(log *slog.Logger, ctx context.Context, requestID, traceID, method, path string, status int, duration time.Duration) {
+	log.InfoContext(ctx, "http_request",
+		slog.String("request_id", requestID),
+		slog.String("trace_id", traceID),
+		slog.String("method", method),
+		slog.String("path", path),
+		slog.Int("status", status),
+		slog.Duration("duration", duration),
+	)
 }
 
 func generateID() string {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return hex.EncodeToString([]byte(time.Now().Format(time.RFC3339Nano)))
+	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
+		panic(fmt.Errorf("generate request id: %w", err))
 	}
 	return hex.EncodeToString(b[:])
 }

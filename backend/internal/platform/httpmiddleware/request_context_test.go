@@ -1,6 +1,8 @@
 package httpmiddleware
 
 import (
+	"crypto/rand"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -67,4 +69,62 @@ func TestRequestContextGeneratesMissingRequestID(t *testing.T) {
 	if rec.Header().Get("X-Request-ID") == "" {
 		t.Fatal("response missing generated request id")
 	}
+}
+
+func TestRequestContextLogsPanickedRequestsAndRepanics(t *testing.T) {
+	var logs strings.Builder
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := RequestContext(log)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("boom")
+	}))
+
+	defer func() {
+		if p := recover(); p == nil {
+			t.Fatal("expected panic to propagate to outer recovery middleware")
+		}
+		out := logs.String()
+		if !strings.Contains(out, `"msg":"http_request"`) || !strings.Contains(out, `"status":500`) {
+			t.Fatalf("panicked request did not emit status/latency log: %s", out)
+		}
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/search", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+}
+
+func TestRequestContextAllowsResponseControllerFlush(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := RequestContext(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Fatalf("flush through statusRecorder failed: %v", err)
+		}
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/stream", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if !rec.Flushed {
+		t.Fatal("expected underlying recorder to be flushed")
+	}
+}
+
+func TestGenerateIDPanicsWhenCryptoRandFails(t *testing.T) {
+	original := rand.Reader
+	rand.Reader = failingReader{}
+	defer func() { rand.Reader = original }()
+
+	defer func() {
+		if p := recover(); p == nil {
+			t.Fatal("expected generateID to fail hard when crypto/rand fails")
+		}
+	}()
+	_ = generateID()
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("entropy unavailable")
 }

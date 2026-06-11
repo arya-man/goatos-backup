@@ -36,8 +36,8 @@ file survives.
 
 The outermost HTTP recovery middleware logs error + stack + trace_id and
 returns a 500 envelope. Worker/outbox panics are logged with stack before
-retry. A `recover()` that does not log is rejected by
-`tools/agent-hooks/check-boundaries.sh`.
+retry. A `recover()` that neither logs nor re-panics to an outer logger is
+rejected by `tools/agent-hooks/check-boundaries.sh`.
 
 ## Rules
 

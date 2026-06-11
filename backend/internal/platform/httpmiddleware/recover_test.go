@@ -36,8 +36,8 @@ func TestPanicRecoveryReturns500Envelope(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("body is not valid JSON: %v\nbody: %s", err, rec.Body.String())
 	}
-	if envelope["code"] != "panic_recovered" {
-		t.Errorf("expected code=panic_recovered, got %v", envelope["code"])
+	if envelope["code"] != "internal_error" {
+		t.Errorf("expected code=internal_error, got %v", envelope["code"])
 	}
 	if envelope["message"] != "internal server error" {
 		t.Errorf("expected generic message, got %v", envelope["message"])
@@ -99,6 +99,38 @@ func TestPanicRecoveryDoesNotAppendEnvelopeAfterResponseStarted(t *testing.T) {
 	}
 	logOut := logBuf.String()
 	if !strings.Contains(logOut, "http_panic") || !strings.Contains(logOut, "panic after write") {
+		t.Fatalf("panic was not logged with value: %s", logOut)
+	}
+}
+
+func TestPanicRecoveryDoesNotAppendEnvelopeAfterFlush(t *testing.T) {
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Fatalf("flush failed: %v", err)
+		}
+		panic("panic after flush")
+	})
+	handler := PanicRecovery(log)(RequestContext(log)(panicHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Request-ID", "req-panic-after-flush")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want original flushed response status 200", rec.Code)
+	}
+	if rec.Body.String() != "" {
+		t.Fatalf("body=%q, want no appended envelope after flush", rec.Body.String())
+	}
+	if !rec.Flushed {
+		t.Fatal("expected response to be flushed")
+	}
+	logOut := logBuf.String()
+	if !strings.Contains(logOut, "http_panic") || !strings.Contains(logOut, "panic after flush") {
 		t.Fatalf("panic was not logged with value: %s", logOut)
 	}
 }

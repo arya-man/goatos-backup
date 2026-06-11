@@ -47,8 +47,8 @@ Logging discipline (enforced by `tools/agent-hooks/check-boundaries.sh`):
   request_id + trace_id + tenant_id + import_run_id. Do not log-and-return at
   every `if err != nil`; wrap with `%w` and let it surface once.
 - recover + log at every goroutine edge (HTTP middleware, worker loops): a
-  `recover()` must log the panic before suppressing or converting it. The guard
-  fails any `recover()` block whose file has no log call.
+  `recover()` must log the panic before suppressing/converting it, or re-panic
+  to an outer boundary that logs it. The guard fails silent swallow patterns.
 
 ## Data classification (important)
 

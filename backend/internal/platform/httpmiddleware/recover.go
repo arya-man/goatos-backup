@@ -1,8 +1,10 @@
 package httpmiddleware
 
 import (
+	"bufio"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -56,7 +58,7 @@ func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
 					tracker.Header().Set("Content-Type", "application/json")
 					tracker.WriteHeader(http.StatusInternalServerError)
 					envelope := map[string]any{
-						"code":         "panic_recovered",
+						"code":         "internal_error",
 						"message":      "internal server error",
 						"field_errors": []any{},
 						"trace_id":     traceID,
@@ -87,6 +89,26 @@ func (w *panicResponseTracker) Write(data []byte) (int, error) {
 
 func (w *panicResponseTracker) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
+}
+
+func (w *panicResponseTracker) FlushError() error {
+	err := http.NewResponseController(w.ResponseWriter).Flush()
+	if err == nil {
+		w.started = true
+	}
+	return err
+}
+
+func (w *panicResponseTracker) Flush() {
+	_ = w.FlushError()
+}
+
+func (w *panicResponseTracker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil {
+		w.started = true
+	}
+	return conn, rw, err
 }
 
 // resolveTraceID extracts the trace ID using the three-stage fallback:

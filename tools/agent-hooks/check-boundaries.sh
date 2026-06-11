@@ -150,18 +150,17 @@ if command -v rg >/dev/null 2>&1; then
     fi
   fi
 
-  # Guard: every recover() block in non-test backend Go code must have a log call
-  # in the same file. A recover() without logging silently swallows panics.
-  # This is a file-level check: if a file has recover() and no ErrorContext/Error
-  # call anywhere in the file, flag it.
+  # Guard: recover() in non-test backend Go code must either log the panic or
+  # re-panic so an outer boundary can log it. A recover() that does neither
+  # silently swallows panics. This is a conservative file-level check.
   if [ -d "backend" ]; then
     while IFS= read -r gofile; do
       # Skip test files.
       case "$gofile" in *_test.go) continue ;; esac
       if grep -qE '\brecover\(\)' "$gofile"; then
-        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b' "$gofile"; then
-          echo "$gofile: recover() block found with no log.Error/ErrorContext call in file."
-          echo "  recover() blocks must log the panic value before suppressing or converting it."
+        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\bpanic\(' "$gofile"; then
+          echo "$gofile: recover() block found with no log.Error/ErrorContext call or re-panic in file."
+          echo "  recover() blocks must log the panic value before suppressing/converting it, or re-panic to an outer logger."
           fail=1
         fi
       fi
@@ -201,9 +200,9 @@ else
     while IFS= read -r gofile; do
       case "$gofile" in *_test.go) continue ;; esac
       if grep -qE '\brecover\(\)' "$gofile"; then
-        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b' "$gofile"; then
-          echo "$gofile: recover() block found with no log.Error/ErrorContext call in file."
-          echo "  recover() blocks must log the panic value before suppressing or converting it."
+        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\bpanic\(' "$gofile"; then
+          echo "$gofile: recover() block found with no log.Error/ErrorContext call or re-panic in file."
+          echo "  recover() blocks must log the panic value before suppressing/converting it, or re-panic to an outer logger."
           fail=1
         fi
       fi

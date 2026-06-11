@@ -364,7 +364,8 @@ Observability and logging:
   hand-roll `slog.New`/`slog.NewJSONHandler` in `cmd/`, `bootstrap/`, or
   `internal/` outside that package. `tools/agent-hooks/check-boundaries.sh`
   enforces this, rejects package-level `slog.Error`/`Info`/`Warn`/`Debug` calls
-  in product code, and checks that no `recover()` block omits a log call.
+  in product code, and checks that `recover()` blocks either log or re-panic to
+  an outer logger.
 - Sink is env-selected via `GOATOS_OBS_SINK`: `stdout_json` (default, local),
   `otlp` (OTLP over HTTP, not gRPC per the go-backend-stack ADR), or `gcm`.
   OTLP/gcm are Phase 1 stubs that still emit `stdout_json`; startup logs warn
