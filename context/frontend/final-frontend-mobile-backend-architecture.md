@@ -52,7 +52,10 @@ The weakness is data coupling:
 - Some fallback data is local CSV via `papaparse`.
 - Table names and dataset routing are embedded in frontend repo code.
 - There is no real auth/RBAC boundary in the dashboard app itself.
-- CEO and investor dashboards are separate deployed apps even though the better product shape is one role-aware shell.
+- CEO and investor dashboards are separate deployed apps today. Goat OS keeps
+  that surface separation as an intentional boundary, but removes duplicated
+  data access and shared logic by moving them behind typed Goat OS APIs and
+  shared packages.
 
 Keep:
 
@@ -66,7 +69,9 @@ Replace:
 
 - Direct BigQuery calls from Next routes.
 - CSV fallback as product data source.
-- Separate CEO/investor builds as the long-term model.
+- Duplicated CEO/investor codebases that copy data logic and route structure.
+  Intentional surface deploys stay valid when they consume shared packages and
+  typed Goat OS APIs.
 - Any unauthenticated dashboard/API access.
 
 ### React Native Operator App
@@ -418,7 +423,10 @@ Sequence:
 4. Keep disabled placeholders for incomplete endpoints instead of wiring stubs
    into UI flows.
 5. Gate routes and API responses by server-side auth/RBAC.
-6. Merge CEO/investor logic into one app shell with role-filtered nav and sanitized datasets.
+6. Build CEO/internal views inside the internal admin surface, and keep
+   investor/external views as their own surface when cadence or security differs.
+   Both surfaces must share typed packages, generated clients, and governed
+   analytics APIs instead of copying data logic.
 
 Do not change every chart at once. The win is moving data access behind contracts, then cutting pages over safely.
 
