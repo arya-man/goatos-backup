@@ -535,7 +535,9 @@ RFID source-of-truth staging:
   is a goat breed alias candidate, blank_old_tag_suffix is recommended for a
   later RFID-only creation policy with guardrails, and blank_gender plus
   duplicate same-scope old_tag rows remain blocked pending source correction or
-  explicit reviewed policy
+  explicit reviewed policy; the review also treats 190 Anantapur Sheep rows as a
+  source-integrity signal and says later work must keep them out of goat
+  creation through breed/species semantics
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
 RFID source-of-truth canonical apply:
@@ -686,6 +688,8 @@ approved RFID mapping/policy build from the local data mapping review:
 F2/K2 legacy_status_mappings, breed/species decisions for the reviewed labels,
 blank_old_tag_suffix RFID-only creation policy if approved, and source cleanup
 or reviewed policy for blank_gender plus duplicate same-scope old_tag rows
+after F2/K2 mappings alone, the expected local rehearsal target is roughly 582
+created goats while 190 non-goat rows remain intentionally blocked
 P8 sales/allocation/promise behavior
 ```
 

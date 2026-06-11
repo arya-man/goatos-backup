@@ -37,6 +37,19 @@ Final review reasons:
 | `blank_gender` | 4 | staging |
 | `duplicate_old_tag_same_scope` | 4 | staging |
 
+Projected yield after only the approved plain `F2`/`K2` status mappings:
+
+| Bucket | Count |
+| --- | ---: |
+| Current canonical goats created | 145 |
+| Additional rows expected to clear status mapping | 437 |
+| Projected canonical goats after F2/K2 mapping | 582 |
+| Non-goat rows expected to stay blocked | 190 |
+| Remaining Sirohi breed review rows | 8 |
+| Remaining blank old-tag suffix policy rows | 435 |
+| Remaining blank gender rows | 4 |
+| Remaining duplicate same-scope old-tag rows | 4 |
+
 ## Status Mapping Review
 
 Grouped source Tag/status labels:
@@ -69,12 +82,23 @@ Grouped source Breed labels:
 | `Anantapur Sheep` | 190 | non-goat/exclusion | Keep out of goat creation. The current reference model treats this label as sheep, so it must resolve through breed/species semantics before any apply behavior changes. |
 | `Sirohi` | 8 | goat breed alias candidate | Human review should approve whether this becomes a canonical goat breed row or an alias to an existing canonical breed. Do not auto-alias in this slice. |
 
+Source-integrity signal:
+
+- `Anantapur Sheep` accounts for 190 of the 198 breed review rows.
+- A goat-passport import source containing this many non-goat rows is not just a
+  breed-alias gap; it is a source-integrity issue.
+- The current species gate is doing the right thing by keeping these rows out of
+  goat creation.
+- Later implementation should decide whether non-goat rows are classified during
+  source discovery/staging or left to the apply-stage breed/species gate. Either
+  way, the pipeline must not be loosened to admit them as goats.
+
 Implementation note for the later build slice:
 
 - The real model is `breeds` plus `breed_aliases`.
 - `breed_aliases.normalized_alias` is the lookup key.
 - Exclusion must resolve through breed/species semantics, not a hidden freeform
-  exclusion list.
+  exclusion list or a goat alias.
 
 ## Blank Old-Tag Suffix
 
@@ -143,7 +167,8 @@ Recommendation:
 1. Add approved `legacy_status_mappings` rows for plain `F2` and `K2`.
 2. Add approved breed/species decisions:
    - keep `Anantapur Sheep` out of goat creation through breed/species
-     semantics;
+     semantics and decide whether that classification belongs at discovery,
+     staging, or apply;
    - review and add `Sirohi` as a goat breed/alias only after human approval.
 3. Implement the blank old-tag suffix RFID-only creation policy if approved.
 4. Keep blank gender and duplicate same-scope old tags blocked pending source
