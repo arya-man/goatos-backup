@@ -44,8 +44,10 @@ Logging discipline (enforced by `tools/agent-hooks/check-boundaries.sh`):
   product code for the same reason: they bypass service/version/env fields and
   sink selection.
 - Log once at boundaries (HTTP 5xx, CLI top, worker loops) with err +
-  request_id + trace_id + tenant_id + import_run_id. Do not log-and-return at
-  every `if err != nil`; wrap with `%w` and let it surface once.
+  request_id + trace_id + tenant_id + import_run_id. HTTP handlers use
+  `backend/internal/platform/httpresponse.WriteError` for 5xx cause logging
+  before writing the envelope. Do not log-and-return at every `if err != nil`;
+  wrap with `%w` and let it surface once.
 - recover + log at every goroutine edge (HTTP middleware, worker loops): a
   `recover()` must log the panic before suppressing/converting it, or re-panic
   to an outer boundary that logs it. The guard fails silent swallow patterns.

@@ -1,7 +1,6 @@
 package reportinghttp
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -9,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/reporting/app"
 	"github.com/vgoats/goatos/backend/internal/reporting/domain"
 	"github.com/vgoats/goatos/backend/internal/reporting/ports"
@@ -116,22 +116,17 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, e
 			envelope.Message = appErr.Message
 			envelope.Retryable = appErr.Retryable
 		}
-		// Log server-side for 5xx only; 4xx are client errors and are not
-		// logged to avoid error spam on validation failures.
-		if status >= http.StatusInternalServerError {
-			h.log.ErrorContext(r.Context(), "http_5xx",
-				slog.String("error", err.Error()),
-				slog.String("trace_id", httpmiddleware.TraceIDFromContext(r.Context())),
-				slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
-				slog.String("tenant_id", httpmiddleware.TenantIDFromContext(r.Context())),
-				slog.String("route", r.Method+" "+r.URL.Path),
-				slog.Int("status", status),
-			)
-		}
-		writeError(w, status, envelope)
+		writeHandlerError(w, r, h.log, status, envelope, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, payload)
+}
+
+func writeHandlerError(w http.ResponseWriter, r *http.Request, log *slog.Logger, status int, envelope domain.ErrorEnvelope, cause error) {
+	if envelope.FieldErrors == nil {
+		envelope.FieldErrors = []domain.FieldError{}
+	}
+	httpresponse.WriteError(w, r, log, status, envelope, cause)
 }
 
 func writeError(w http.ResponseWriter, status int, envelope domain.ErrorEnvelope) {
@@ -142,9 +137,7 @@ func writeError(w http.ResponseWriter, status int, envelope domain.ErrorEnvelope
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	httpresponse.WriteJSON(w, status, payload)
 }
 
 func tenantID(r *http.Request) string {

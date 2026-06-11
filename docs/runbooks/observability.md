@@ -47,3 +47,6 @@ rejected by `tools/agent-hooks/check-boundaries.sh`.
   service-account JSON.
 - Construct loggers via `backend/internal/platform/observability`, never
   hand-rolled `slog.New` or package-level `slog.Error`/`Info`/`Warn`/`Debug`.
+- HTTP handlers should write error envelopes through
+  `backend/internal/platform/httpresponse.WriteError`; it centralizes 5xx cause
+  logging and keeps 4xx validation noise out of server error logs.

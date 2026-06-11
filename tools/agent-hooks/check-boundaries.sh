@@ -44,6 +44,10 @@ func bad() *slog.Logger {
 func badPackageLevel() {
   slog.Error("bad")
 }
+
+func bad5xxLog() {
+  slog.Default().Error("http_5xx")
+}
 EOF
   if rg -n "slog\.New\(" "$tmpdir/backend/internal/somepackage" \
       --glob '!*_test.go' >/dev/null 2>&1; then
@@ -57,6 +61,13 @@ EOF
     echo "package-level slog guard self-test passed: synthetic violation detected."
   else
     echo "package-level slog guard self-test failed: synthetic violation NOT detected."
+    exit 1
+  fi
+  if rg -n '"http_5xx"' "$tmpdir/backend/internal/somepackage" \
+      --glob '!*_test.go' >/dev/null 2>&1; then
+    echo "http_5xx guard self-test passed: synthetic violation detected."
+  else
+    echo "http_5xx guard self-test failed: synthetic violation NOT detected."
     exit 1
   fi
 
@@ -148,6 +159,15 @@ if command -v rg >/dev/null 2>&1; then
       echo "Use a logger instance from observability.New(observability.Config{...}) instead."
       fail=1
     fi
+    if rg -n '"http_5xx"' backend \
+        --glob '*.go' \
+        --glob '!*_test.go' \
+        --glob '!backend/internal/platform/httpresponse/**' \
+        2>/dev/null | grep -v '//'; then
+      echo "http_5xx logging must be centralized in platform/httpresponse."
+      echo "Use httpresponse.WriteError(...) instead of hand-rolled 5xx logging."
+      fail=1
+    fi
   fi
 
   # Guard: recover() in non-test backend Go code must either log the panic or
@@ -192,6 +212,16 @@ else
         echo "Use a logger instance from observability.New(observability.Config{...}) instead."
         fail=1
       fi
+      case "$gofile" in
+        */platform/httpresponse/*) ;;
+        *)
+          if grep -n '"http_5xx"' "$gofile" 2>/dev/null | grep -v '//' >/dev/null 2>&1; then
+            echo "$gofile: http_5xx logging must be centralized in platform/httpresponse."
+            echo "Use httpresponse.WriteError(...) instead of hand-rolled 5xx logging."
+            fail=1
+          fi
+          ;;
+      esac
     done < <(find backend -name '*.go' -not -name '*_test.go' 2>/dev/null)
   fi
 

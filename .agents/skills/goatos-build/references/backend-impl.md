@@ -373,10 +373,11 @@ Observability and logging:
   configured plus the sanitized scheme/host, never the full URL. Unknown sink
   values warn and fall back to `stdout_json` so typos are visible.
 - Log once at boundaries, not at every `if err != nil`: HTTP 5xx logs
-  server-side with trace_id/request_id/tenant before writing the envelope; the
-  outermost recovery middleware logs panic + stack and returns a 500 envelope;
-  worker/CLI loops log errors with `import_run_id` context. Wrap propagating
-  errors with `%w` so the boundary log carries the full chain.
+  server-side with trace_id/request_id/tenant through
+  `backend/internal/platform/httpresponse.WriteError` before writing the
+  envelope; the outermost recovery middleware logs panic + stack and returns a
+  500 envelope; worker/CLI loops log errors with `import_run_id` context. Wrap
+  propagating errors with `%w` so the boundary log carries the full chain.
 - Goat identifiers (RFID, old tag, breed, farm) are business data, not PII —
   log them so failures are traceable to the exact goat/row. The only redaction
   rule is secrets: never log credentials, tokens, or service-account JSON.
