@@ -35,6 +35,7 @@ backend/migrations/postgres/000007_phase_1_reporting_counter_rebuild_support.sql
 backend/migrations/postgres/000008_phase_1_reporting_counts_pagination.sql
 backend/migrations/postgres/000009_phase_1_reporting_incremental_counters.sql
 backend/migrations/postgres/000010_phase_1_rfid_plain_status_mappings.sql
+backend/migrations/postgres/000011_phase_1_rfid_breed_cross_mappings.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -535,13 +536,13 @@ RFID source-of-truth staging:
   approved plain F2/K2 status mappings. The follow-up local rerun cleared
   unknown_status_mapping from 437 to 0, raised created_goat from 145 to 383,
   left error at 0, and redistributed 199 rows to the downstream
-  species_or_breed_requires_review bucket. The current breed/species grouping
-  has 397 rows across 11 labels: Anantapur Sheep and Sirohi are
-  already-classified, while nine crossbreed labels are new/needs-decision.
-  Those 34 crossbreed rows are recoverable goat-cross rows, not species
-  exclusions; the pending decision is how Phase 1 represents goat crosses, not
-  whether they belong in Goat Passport. Do not collapse crossbreed labels to a
-  single parent breed or normalize ordering without approval.
+  species_or_breed_requires_review bucket. Migration 000011 implements Sirohi
+  and the approved goat-cross labels as active goat breed/alias mappings using
+  the Phase 1 crossbreed-as-breed-row simplification. The follow-up rerun raised
+  created_goat from 383 to 436, left error at 0, and reduced
+  species_or_breed_requires_review from 397 to 344. The remaining breed/species
+  bucket is Anantapur Sheep only and must stay out of goat creation through
+  breed/species semantics.
   blank_old_tag_suffix is recommended for a later RFID-only creation policy
   with guardrails, and blank_gender plus duplicate same-scope old_tag rows
   remain blocked pending source correction or explicit reviewed policy.
@@ -692,10 +693,10 @@ externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
-breed/species decisions for the reviewed labels, including explicit
-representation for newly surfaced recoverable goat-cross labels; guarded
-blank_old_tag_suffix RFID-only creation policy if approved; and source cleanup
-or reviewed policy for blank_gender plus duplicate same-scope old_tag rows
+guarded blank_old_tag_suffix RFID-only creation policy if approved; source
+cleanup or reviewed policy for blank_gender plus duplicate same-scope old_tag
+rows; and optional earlier source classification for Anantapur Sheep while
+keeping it out of goat creation
 P8 sales/allocation/promise behavior
 ```
 

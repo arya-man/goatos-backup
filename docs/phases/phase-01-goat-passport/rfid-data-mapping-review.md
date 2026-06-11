@@ -1,12 +1,13 @@
 # RFID Data Mapping Review
 
-Status: reviewed from the local post-apply anomaly report; approved plain
-`F2`/`K2` status mappings are implemented by migration `000010`.
+Status: reviewed from local post-apply anomaly reports; approved plain
+`F2`/`K2` status mappings are implemented by migration `000010`, and approved
+Sirohi plus goat-cross breed mappings are implemented by migration `000011`.
 
 This report summarizes the first real Shape-2 RFID data rehearsal after
-staging, apply, and final anomaly-report generation, then records the local
-rerun after adding only the approved plain `F2`/`K2` status mappings. No
-canonical import/apply behavior changed.
+staging, apply, and final anomaly-report generation, then records local reruns
+after the approved status and breed/species mapping migrations. No canonical
+import/apply behavior changed.
 
 Safety scope:
 
@@ -96,33 +97,63 @@ Sex override decision:
 
 ## Species And Breed Review
 
-Current grouped source Breed labels after the plain `F2`/`K2` mapping rerun:
+Migration `000011_phase_1_rfid_breed_cross_mappings.sql` implements the
+approved goat breed and goat-cross mappings. It does not change apply logic:
+rows recover only through the normal breed alias resolution path.
 
-| Source Breed label | Count | Classification status | Proposed classification | Recommendation |
-| --- | ---: | --- | --- | --- |
-| `Anantapur Sheep` | 344 | already-classified | non-goat/species exclusion | Keep out of goat creation. The current reference model treats this label as sheep, so it must resolve through breed/species semantics before any apply behavior changes. |
-| `Sirohi` | 19 | already-classified | goat breed/alias candidate pending approval | Human review should approve whether this becomes a canonical goat breed row or an alias to an existing canonical breed. Do not auto-alias in this slice. |
-| `Beetal x Malai` | 4 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Beetal x Sojat` | 12 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Boer x Beetal` | 1 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Boer x Malai` | 1 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Boer x Sirohi` | 1 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Boer x Sojat` | 2 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Malai x Beetal` | 4 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Malai x Sojat` | 8 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
-| `Sojat x Malai` | 1 | new/needs-decision | recoverable goat-cross representation required | Decide how Phase 1 represents this goat-cross label: explicit canonical crossbreed breed row/alias, or a later compound-breed evidence model. Do not collapse to one parent breed or normalize ordering without approval. |
+Phase 1 crossbreed simplification:
 
-The grouped labels reconcile to 397 rows: 363 rows are in already-classified
-labels (`Anantapur Sheep` and `Sirohi`), and 34 rows are newly surfaced
-crossbreed labels needing a breed/species policy decision.
+- The current schema stores one `breed_id` per goat.
+- Approved goat crosses are represented as canonical breed rows for Phase 1.
+- Richer parentage or compound-breed modeling is deferred.
+- Crossbreed labels are not collapsed to one parent breed.
+- Reverse-order source labels point to the same canonical unordered crossbreed
+  row where both source orderings appear.
 
-The 34 crossbreed rows are goat-breed crosses, not exclusion candidates. They
-are recoverable goat rows once Phase 1 approves how to represent crossbreeds.
-The decision is representation, not whether they belong in Goat Passport.
+Implemented breed/crossbreed source labels from the post-F2/K2 grouped report:
+
+| Source Breed label | Count before 000011 | Classification status | Canonical Phase 1 target |
+| --- | ---: | --- | --- |
+| `Sirohi` | 19 | implemented | `Sirohi` active goat breed |
+| `Beetal x Malai` | 4 | implemented | `Beetal x Malai` active goat crossbreed |
+| `Malai x Beetal` | 4 | implemented | `Beetal x Malai` active goat crossbreed |
+| `Beetal x Sojat` | 12 | implemented | `Beetal x Sojat` active goat crossbreed |
+| `Boer x Beetal` | 1 | implemented | `Boer x Beetal` active goat crossbreed |
+| `Boer x Malai` | 1 | implemented | `Boer x Malai` active goat crossbreed |
+| `Boer x Sirohi` | 1 | implemented | `Boer x Sirohi` active goat crossbreed |
+| `Boer x Sojat` | 2 | implemented | `Boer x Sojat` active goat crossbreed |
+| `Malai x Sojat` | 8 | implemented | `Malai x Sojat` active goat crossbreed |
+| `Sojat x Malai` | 1 | implemented | `Malai x Sojat` active goat crossbreed |
+
+`000011` recovered 53 rows from the breed/species review bucket.
+
+Rerun after approved breed/crossbreed mapping:
+
+| State | After F2/K2 | After 000011 | Delta |
+| --- | ---: | ---: | ---: |
+| `created_goat` | 383 | 436 | +53 |
+| `needs_review` | 840 | 787 | -53 |
+| `error` | 0 | 0 | 0 |
+
+Reason-code delta:
+
+| Reason code | After F2/K2 | After 000011 | Delta |
+| --- | ---: | ---: | ---: |
+| `unknown_status_mapping` | 0 | 0 | 0 |
+| `species_or_breed_requires_review` | 397 | 344 | -53 |
+| `blank_old_tag_suffix` | 435 | 435 | 0 |
+| `blank_gender` | 4 | 4 | 0 |
+| `duplicate_old_tag_same_scope` | 4 | 4 | 0 |
+
+The remaining `species_or_breed_requires_review` group is:
+
+| Source Breed label | Count after 000011 | Classification status | Recommendation |
+| --- | ---: | --- | --- |
+| `Anantapur Sheep` | 344 | already-classified | Keep out of goat creation through breed/species semantics. |
 
 Source-integrity signal:
 
-- `Anantapur Sheep` accounts for 344 of the 397 breed review rows.
+- `Anantapur Sheep` accounts for all 344 remaining breed/species review rows.
 - A goat-passport import source containing this many non-goat rows is not just a
   breed-alias gap; it is a source-integrity issue.
 - The current species gate is doing the right thing by keeping these rows out of
@@ -136,10 +167,7 @@ Implementation note for the later build slice:
 - The real model is `breeds` plus `breed_aliases`.
 - `breed_aliases.normalized_alias` is the lookup key.
 - The current canonical goat row stores one `breed_id`, so a crossbreed label
-  must not be aliased to only one parent breed. If Phase 1 uses the current
-  model, approved goat-cross labels should resolve to explicit crossbreed
-  canonical breed rows/aliases; otherwise keep them temporarily blocked until a
-  compound-breed evidence model exists.
+  must not be aliased to only one parent breed.
 - Exclusion must resolve through breed/species semantics, not a hidden freeform
   exclusion list or a goat alias.
 
@@ -207,20 +235,9 @@ Recommendation:
 
 ## Next Data Slices
 
-1. Add approved breed/species decisions:
-   - keep `Anantapur Sheep` out of goat creation through breed/species
-     semantics and decide whether that classification belongs at discovery,
-     staging, or apply;
-   - review and add `Sirohi` as a goat breed/alias only after human approval.
-2. Decide how Phase 1 should represent crossbreed labels such as `Beetal x
-   Sojat`, `Malai x Sojat`, and the other newly surfaced crossbreed labels.
-   These are recoverable goat-cross rows, not species exclusions; do not map
-   them to a single parent breed or normalize ordering without approval.
-3. Implement the blank old-tag suffix RFID-only creation policy if approved.
-4. Keep blank gender and duplicate same-scope old tags blocked pending source
+1. Decide whether `Anantapur Sheep` should be classified during source
+   discovery/staging or left to the apply-stage breed/species gate; either way,
+   keep it out of goat creation.
+2. Implement the blank old-tag suffix RFID-only creation policy if approved.
+3. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.
-
-If `Sirohi` and the 34 goat-cross rows are approved and no later apply gate
-surfaces for those rows, the local created-goat count should move from 383
-toward roughly 436, while the 344 `Anantapur Sheep` rows remain correctly out
-of goat creation.

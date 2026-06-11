@@ -332,15 +332,16 @@ Rules:
   plain F2/K2 `legacy_status_mappings`. The follow-up local rerun cleared
   `unknown_status_mapping` from 437 to 0, raised `created_goat` from 145 to
   383, kept `error` at 0, and redistributed 199 rows to downstream
-  `species_or_breed_requires_review`. The current breed/species grouping has
-  397 rows across 11 labels: Anantapur Sheep and Sirohi are already-classified,
-  while nine crossbreed labels are new/needs-decision. Treat the 344 Anantapur
-  Sheep rows as a source-integrity signal: the species gate is doing the right
-  thing, and later work must not loosen the pipeline to admit them as goats.
-  The 34 crossbreed rows are recoverable goat-cross rows, not species
-  exclusions; next data work must decide representation, not inclusion. Do not
-  collapse crossbreed labels to one parent breed or normalize ordering without
-  approval. Further data work includes a guarded RFID-only creation policy
+  `species_or_breed_requires_review`. Migration
+  `000011_phase_1_rfid_breed_cross_mappings.sql` implements Sirohi and the
+  approved goat-cross labels as active goat breed/alias mappings. It uses the
+  Phase 1 crossbreed-as-breed-row simplification because goats currently store
+  one `breed_id`; richer parentage/compound-breed modeling is deferred. The
+  follow-up local rerun raised `created_goat` from 383 to 436, kept `error` at
+  0, and reduced `species_or_breed_requires_review` from 397 to 344. The
+  remaining breed/species bucket is Anantapur Sheep only; later work may
+  classify it earlier in discovery/staging, but must keep it out of goat
+  creation. Further data work includes a guarded RFID-only creation policy
   decision for blank old-tag suffix rows, and source correction or reviewed
   policy for blank_gender plus duplicate same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is

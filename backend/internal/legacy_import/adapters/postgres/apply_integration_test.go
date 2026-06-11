@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,11 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/vgoats/goatos/backend/internal/legacy_import"
+	importdb "github.com/vgoats/goatos/backend/internal/legacy_import/adapters/postgres/sqlc"
 )
 
 const (
@@ -34,6 +37,92 @@ func TestRFIDApplyWithDockerPostgres(t *testing.T) {
 
 	repo := NewRepository(pool, 10*time.Second)
 	applier := legacy_import.NewApplier(repo)
+
+	t.Run("approved RFID breed aliases resolve through apply normalization", func(t *testing.T) {
+		q := importdb.New(pool)
+		parentBreeds := map[string]bool{
+			"Malai":  true,
+			"Beetal": true,
+			"Sojat":  true,
+			"Boer":   true,
+		}
+		for parent := range parentBreeds {
+			if got := countRows(t, pool, `SELECT count(*) FROM breeds WHERE species = 'goat' AND canonical_name = $1 AND status = 'active'`, parent); got != 1 {
+				t.Fatalf("active parent breed %s rows=%d, want 1", parent, got)
+			}
+		}
+
+		expected := map[string]string{
+			"Sirohi":         "Sirohi",
+			"Beetal x Malai": "Beetal x Malai",
+			"Malai x Beetal": "Beetal x Malai",
+			"Beetal x Sojat": "Beetal x Sojat",
+			"Boer x Beetal":  "Boer x Beetal",
+			"Boer x Malai":   "Boer x Malai",
+			"Boer x Sirohi":  "Boer x Sirohi",
+			"Boer x Sojat":   "Boer x Sojat",
+			"Malai x Sojat":  "Malai x Sojat",
+			"Sojat x Malai":  "Malai x Sojat",
+		}
+		resolvedIDs := map[string]string{}
+		for rawLabel, wantCanonical := range expected {
+			normalized := normalizedBreedAlias(rawLabel)
+			row, err := q.ResolveBreedAliasForApply(ctx, importdb.ResolveBreedAliasForApplyParams{
+				NormalizedAlias: normalized,
+				SourceSystem:    textParam("legacy_rfid_db"),
+			})
+			if err != nil {
+				t.Fatalf("ResolveBreedAliasForApply(%q -> %q): %v", rawLabel, normalized, err)
+			}
+			if row.CanonicalName != wantCanonical {
+				t.Fatalf("ResolveBreedAliasForApply(%q) canonical=%q, want %q", rawLabel, row.CanonicalName, wantCanonical)
+			}
+			if strings.Contains(rawLabel, " x ") && parentBreeds[row.CanonicalName] {
+				t.Fatalf("crossbreed %q resolved to parent breed %q", rawLabel, row.CanonicalName)
+			}
+			resolvedIDs[rawLabel] = row.BreedID
+		}
+		if resolvedIDs["Beetal x Malai"] != resolvedIDs["Malai x Beetal"] {
+			t.Fatalf("reverse aliases Beetal x Malai/Malai x Beetal resolved to different breed_id")
+		}
+		if resolvedIDs["Malai x Sojat"] != resolvedIDs["Sojat x Malai"] {
+			t.Fatalf("reverse aliases Malai x Sojat/Sojat x Malai resolved to different breed_id")
+		}
+
+		if _, err := q.ResolveBreedAliasForApply(ctx, importdb.ResolveBreedAliasForApplyParams{
+			NormalizedAlias: normalizedBreedAlias("Anantapur Sheep"),
+			SourceSystem:    textParam("legacy_rfid_db"),
+		}); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("Anantapur Sheep resolve err=%v, want pgx.ErrNoRows", err)
+		}
+
+		migrationPath := filepath.Join(repoRoot(t), "backend", "migrations", "postgres", "000011_phase_1_rfid_breed_cross_mappings.sql")
+		sqlBytes, err := os.ReadFile(migrationPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, extractGooseUp(string(sqlBytes))); err != nil {
+			t.Fatalf("reapply 000011 up migration: %v", err)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM breed_aliases
+WHERE source_system = 'legacy_rfid_db'
+  AND normalized_alias IN (
+    'sirohi',
+    'beetal_x_malai',
+    'malai_x_beetal',
+    'beetal_x_sojat',
+    'boer_x_beetal',
+    'boer_x_malai',
+    'boer_x_sirohi',
+    'boer_x_sojat',
+    'malai_x_sojat',
+    'sojat_x_malai'
+  )`); got != 10 {
+			t.Fatalf("approved RFID breed alias rows=%d, want 10 after idempotent reapply", got)
+		}
+	})
 
 	t.Run("clean pending row creates canonical goat identity ledger event outbox and audit", func(t *testing.T) {
 		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
