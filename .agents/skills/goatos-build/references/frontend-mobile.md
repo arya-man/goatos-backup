@@ -37,6 +37,11 @@ Rules:
 - Prefer Next.js SSR/server components, route-level loading, dynamic imports for
   heavy charts/tables, backend pagination, and backend-shaped summaries. Do not
   client-render and ship every dashboard module up front.
+- Stack rules: use TanStack Query only for client-interactive API views; use
+  Zustand only for local UI state, never canonical goat/backend data or tokens;
+  treat shadcn-style components as local source components; dynamically import
+  Recharts when heavy; defer Auth.js until production web sessions are designed.
+  Phase 1 bearer/dev tokens stay server-side and backend RBAC remains authority.
 - When a second web surface lands, prefer Next.js Multi-Zones or separate Next
   apps routed by path/domain for independent surface deploys. Use Module
   Federation only after an explicit decision that runtime module-into-host

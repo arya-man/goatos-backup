@@ -103,6 +103,11 @@ It refuses production/staging-looking targets and non-local database hosts,
 including Cloud SQL-style Unix socket paths. It is not a migration and does not
 silently create admin grants.
 
+When admin-web calls the backend, the bearer token must stay server-side. Do not
+put local dev tokens in browser code, localStorage, public env vars, rendered
+HTML, or query params. Client components receive rendered data or call server
+adapters, not the backend with raw bearer credentials.
+
 ## Auth Smoke
 
 The local smoke starts Docker Postgres, applies migrations, starts the backend,

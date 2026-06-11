@@ -200,6 +200,42 @@ Use the modern Next App Router stack:
 - backend pagination and shaped summaries instead of client-side full-herd
   transforms.
 
+Client library rules for Goat OS web surfaces:
+
+```text
+Next.js App Router
+  owns routing, SSR, Server Components, Route Handlers, and Turbopack builds
+
+React
+  owns component composition and small interactive client islands
+
+Tailwind CSS
+  owns styling tokens/utilities
+
+shadcn-style components
+  are local source components, not a runtime framework dependency
+
+TanStack Query
+  is for client-interactive API views that need refetching, pagination controls,
+  or optimistic UI. It is not the default data-loading path for read-heavy SSR
+  pages; fetch those on the server first.
+
+Zustand
+  may hold local UI state only: selected tab, open drawer, temporary filters,
+  chart/table view mode. Do not store canonical goat lists, passports, auth
+  tokens, or backend truth in Zustand.
+
+Recharts
+  is for chart components and must be dynamically imported when it would bloat
+  the initial route.
+
+Auth.js
+  is deferred until production web sessions are designed. Phase 1 local UI uses
+  backend bearer auth/dev tokens server-side only. Auth.js must not replace
+  backend RBAC or `user_scope_grants`; it can only become a web session adapter
+  in front of the same backend authority.
+```
+
 `investor-web-shadow` is a migration safety surface, not a forever architecture
 decision. It lets the team validate the investor/reduced dashboard separately
 while current live URLs continue running. After parity is proven, investor can
