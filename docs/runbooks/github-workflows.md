@@ -119,7 +119,28 @@ GitHub installs the Go version declared by:
 backend/go.mod
 ```
 
-### Step 3: Agent Guardrails
+### Step 3: Install Guardrail Tools
+
+Commands:
+
+```text
+sudo apt-get update
+sudo apt-get install -y ripgrep
+rg --version
+```
+
+Purpose:
+
+```text
+Install ripgrep for boundary checks that scan secrets, direct data-source
+access, forbidden logging patterns, and module ownership violations.
+```
+
+`check-boundaries.sh` fails closed when `rg` is missing. If this step fails, the
+runner cannot enforce the full boundary guard; fix the package install before
+trusting the CI result.
+
+### Step 4: Agent Guardrails
 
 Commands:
 
@@ -153,7 +174,7 @@ boundary rule violation
 admin-web direct data-source access instead of Goat OS backend API access
 ```
 
-### Step 4: Large File Guard
+### Step 5: Large File Guard
 
 Purpose:
 
@@ -164,7 +185,7 @@ Prevent accidental commits of private workbooks, media, dumps, or other huge fil
 If this fails, inspect the listed file. Do not commit raw private RFID workbooks,
 private source rows, media, or local data dumps.
 
-### Step 5: Go Tests
+### Step 6: Go Tests
 
 Command:
 
@@ -183,7 +204,7 @@ Exercise Docker-backed Postgres tests where available.
 
 If this fails, the backend code or tests are broken.
 
-### Step 6: Install Pinned sqlc
+### Step 7: Install Pinned sqlc
 
 Command:
 
@@ -200,7 +221,7 @@ Avoid "works on my machine" generated-code drift.
 
 If this fails, GitHub could not install the pinned sqlc version.
 
-### Step 7: SQL And Migration Validation
+### Step 8: SQL And Migration Validation
 
 Commands:
 

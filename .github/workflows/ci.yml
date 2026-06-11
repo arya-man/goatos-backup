@@ -16,6 +16,11 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      - name: Install guardrail tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          rg --version
       - name: Agent guardrails
         run: |
           bash tools/agent-hooks/check-boundaries.sh
