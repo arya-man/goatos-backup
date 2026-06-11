@@ -161,6 +161,10 @@ Source-integrity signal:
 - Later implementation should decide whether non-goat rows are classified during
   source discovery/staging or left to the apply-stage breed/species gate. Either
   way, the pipeline must not be loosened to admit them as goats.
+- Confirmed non-goat rows should not remain indefinitely in an actionable
+  human-review queue. A later review-ops/apply-semantics slice should decide
+  whether these rows become terminal `rejected` rows at apply time or are
+  excluded earlier during source discovery/staging.
 
 Implementation note for the later build slice:
 

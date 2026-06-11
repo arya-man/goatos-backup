@@ -542,7 +542,9 @@ RFID source-of-truth staging:
   created_goat from 383 to 436, left error at 0, and reduced
   species_or_breed_requires_review from 397 to 344. The remaining breed/species
   bucket is Anantapur Sheep only and must stay out of goat creation through
-  breed/species semantics.
+  breed/species semantics. Confirmed non-goat rows should not stay forever in
+  an actionable review queue; a later review-ops/apply-semantics slice should
+  decide terminal rejected disposition versus earlier source classification.
   blank_old_tag_suffix is recommended for a later RFID-only creation policy
   with guardrails, and blank_gender plus duplicate same-scope old_tag rows
   remain blocked pending source correction or explicit reviewed policy.
@@ -696,7 +698,8 @@ approved RFID mapping/policy build from the local data mapping review:
 guarded blank_old_tag_suffix RFID-only creation policy if approved; source
 cleanup or reviewed policy for blank_gender plus duplicate same-scope old_tag
 rows; and optional earlier source classification for Anantapur Sheep while
-keeping it out of goat creation
+keeping it out of goat creation; terminal rejected disposition for confirmed
+non-goat rows so actionable review queues do not carry permanent non-goat noise
 P8 sales/allocation/promise behavior
 ```
 

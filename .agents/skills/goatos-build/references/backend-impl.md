@@ -341,7 +341,10 @@ Rules:
   0, and reduced `species_or_breed_requires_review` from 397 to 344. The
   remaining breed/species bucket is Anantapur Sheep only; later work may
   classify it earlier in discovery/staging, but must keep it out of goat
-  creation. Further data work includes a guarded RFID-only creation policy
+  creation. Do not let confirmed non-goat rows stay indefinitely in an
+  actionable review queue; a later review-ops/apply-semantics slice should
+  choose terminal rejected disposition versus earlier source classification.
+  Further data work includes a guarded RFID-only creation policy
   decision for blank old-tag suffix rows, and source correction or reviewed
   policy for blank_gender plus duplicate same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is
