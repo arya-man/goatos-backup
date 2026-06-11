@@ -182,8 +182,12 @@ Purpose:
 Prevent accidental commits of private workbooks, media, dumps, or other huge files.
 ```
 
-If this fails, inspect the listed file. Do not commit raw private RFID workbooks,
-private source rows, media, or local data dumps.
+The guard checks Git-tracked files only. It intentionally ignores untracked
+runtime artifacts created during CI, such as `node_modules`, while still
+catching large files committed to the repository.
+
+If this fails, inspect the listed tracked file. Do not commit raw private RFID
+workbooks, private source rows, media, or local data dumps.
 
 ### Step 6: Go Tests
 

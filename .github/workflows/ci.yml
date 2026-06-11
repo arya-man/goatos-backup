@@ -27,11 +27,17 @@ jobs:
           bash tools/agent-hooks/check-contract-drift.sh
       - name: Large file guard
         run: |
-          found="$(find . -type f -size +5M \
-            -not -path './.git/*' \
-            -not -name 'package-lock.json' \
-            -not -name 'pnpm-lock.yaml' \
-            -print)"
+          found="$(
+            while IFS= read -r -d '' file; do
+              [ -f "$file" ] || continue
+              case "$(basename "$file")" in
+                package-lock.json|pnpm-lock.yaml) continue ;;
+              esac
+              if [ "$(wc -c <"$file")" -gt 5242880 ]; then
+                printf './%s\n' "$file"
+              fi
+            done < <(git ls-files -z)
+          )"
           if [ -n "$found" ]; then
             echo "$found"
             echo "Files above 5MB need an explicit storage decision."
