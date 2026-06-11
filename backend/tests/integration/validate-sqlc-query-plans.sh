@@ -273,6 +273,9 @@ validate_import_run_generated_reason_filter_plan() {
     unset PLAN_REASON_CODE
   fi
 
+  # This intentionally guards the Phase 1 local ordered-keyset shape. When the
+  # staging/1M sparse-reason strategy lands, revise this no-Sort assertion if
+  # the chosen reason-keyset or GIN-bitmap plan legitimately needs a sort.
   explain_must_use_index "ListImportRunRowsGeneratedReasonFilter" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
 $sql" '(Sort|Incremental Sort)'
 }

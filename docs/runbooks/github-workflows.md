@@ -265,6 +265,11 @@ validate-sqlc-plans failed
   Import Review generated reason-filter query lost its ordered indexed path
   Import Review JSONB reason probe is not using the GIN reason index
 
+The Import Review generated reason-filter no-Sort check is the Phase 1 local
+ordered-keyset proof. When the staging/1M sparse-reason strategy lands, revise
+that assertion if the chosen reason-keyset or GIN-bitmap plan legitimately
+needs a sort.
+
 validate-migrations failed
   migration does not apply cleanly
   schema invariant test failed

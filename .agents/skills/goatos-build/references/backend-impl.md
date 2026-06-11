@@ -112,7 +112,10 @@ Rules:
   GIN usability probe. Phase 1 accepts the current ordered keyset plan with a
   residual reason predicate for local review queues; before staging/1M sparse
   reason-filter use, add a reason-keyset/materialized reason strategy or prove
-  the residual scan stays bounded.
+  the residual scan stays bounded. The current no-Sort plan guard is part of
+  the local ordered-keyset proof and should be revised if the later sparse-reason
+  plan legitimately uses a GIN bitmap scan plus sort or another reason-keyset
+  shape.
 - `ceo_internal` is the full Goat OS product-admin role for Phase 1 internal
   product actions, equivalent to `admin` for product/API permissions. This does
   not grant Google Cloud, IAM, billing, GitHub, or repository administration.

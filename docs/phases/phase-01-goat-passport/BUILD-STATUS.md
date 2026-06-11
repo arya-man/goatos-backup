@@ -175,7 +175,10 @@ non-null reason_code plus the JSONB GIN reason probe. The current Phase 1 shape
 uses ordered keyset pagination and may apply reason_code as a residual predicate;
 this is acceptable for local review queues, but staging/1M sparse reason-filter
 use needs a reason-keyset/materialized reason strategy or fresh proof that the
-residual scan remains bounded.
+residual scan remains bounded. The current validator's no-Sort assertion belongs
+to the local ordered-keyset proof and must be revised if the later sparse-reason
+plan legitimately uses a GIN bitmap scan plus sort or another reason-keyset
+shape.
 
 Executable legacy BigQuery/Sheets routes were removed from apps/admin-web:
 app/api/*, lib/bigquery.ts, CSV data-loader, and the legacy route pages/hooks
