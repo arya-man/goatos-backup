@@ -563,11 +563,14 @@ RFID source-of-truth staging:
   and the approved goat-cross labels as active goat breed/alias mappings using
   the Phase 1 crossbreed-as-breed-row simplification. The follow-up rerun raised
   created_goat from 383 to 436, left error at 0, and reduced
-  species_or_breed_requires_review from 397 to 344. The remaining breed/species
-  bucket is Anantapur Sheep only and must stay out of goat creation through
-  breed/species semantics. Confirmed non-goat rows should not stay forever in
-  an actionable review queue; a later review-ops/apply-semantics slice should
-  decide terminal rejected disposition versus earlier source classification.
+  species_or_breed_requires_review from 397 to 344. At that point the remaining
+  breed/species bucket was Anantapur Sheep only and had to stay out of goat
+  creation through breed/species semantics. After the `000012` blank-suffix
+  opt-in run, the confirmed non-goat disposition scope is 504 breed/species
+  review rows because 160 blank-suffix rows also hit the same gate. Confirmed
+  non-goat rows should not stay forever in an actionable review queue; a later
+  review-ops/apply-semantics slice should decide terminal rejected disposition
+  versus earlier source classification.
   blank_old_tag_suffix policy review recommended guarded RFID-only creation
   without old_tag identifier creation. Migration 000012 adds the supporting
   apply-candidate index and `rfid-apply --allow-rfid-only-blank-suffix`
@@ -734,8 +737,9 @@ approved RFID mapping/policy build from the local data mapping review:
 source cleanup or reviewed policy for blank_gender plus duplicate same-scope
 old_tag rows; optional earlier source classification for Anantapur Sheep while
 keeping it out of goat creation;
-terminal rejected disposition for confirmed non-goat rows so actionable review
-queues do not carry permanent non-goat noise
+terminal rejected disposition for the 504 current confirmed non-goat
+breed/species review rows so actionable review queues do not carry permanent
+non-goat noise
 P8 sales/allocation/promise behavior
 ```
 
@@ -756,8 +760,8 @@ This order is intentional and should not be inferred from conversation memory:
 3. Do Phase 1 closeout docs after the demo path is reproducible.
 
 4. Treat terminal non-goat disposition as a separate canonical-state slice unless
-   it becomes required before closeout. The demo UI may label confirmed non-goats
-   from current review reasons without changing their state.
+   it becomes required before closeout. The demo UI may label the current 504
+   confirmed non-goat breed/species review rows without changing their state.
 ```
 
 The terminal non-goat slice is not mechanical. It must choose and document the

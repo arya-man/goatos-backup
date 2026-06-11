@@ -367,12 +367,15 @@ Rules:
   Phase 1 crossbreed-as-breed-row simplification because goats currently store
   one `breed_id`; richer parentage/compound-breed modeling is deferred. The
   follow-up local rerun raised `created_goat` from 383 to 436, kept `error` at
-  0, and reduced `species_or_breed_requires_review` from 397 to 344. The
-  remaining breed/species bucket is Anantapur Sheep only; later work may
-  classify it earlier in discovery/staging, but must keep it out of goat
-  creation. Do not let confirmed non-goat rows stay indefinitely in an
-  actionable review queue; a later review-ops/apply-semantics slice should
-  choose terminal rejected disposition versus earlier source classification.
+  0, and reduced `species_or_breed_requires_review` from 397 to 344. At that
+  point the remaining breed/species bucket was Anantapur Sheep only. After the
+  `000012` blank-suffix opt-in run, the confirmed non-goat disposition scope is
+  504 breed/species review rows because 160 blank-suffix rows also hit the same
+  gate. Later work may classify confirmed non-goats earlier in
+  discovery/staging, but must keep them out of goat creation. Do not let
+  confirmed non-goat rows stay indefinitely in an actionable review queue; a
+  later review-ops/apply-semantics slice should choose terminal rejected
+  disposition versus earlier source classification.
   The blank old-tag suffix policy decision recommended guarded RFID-only goat
   creation without creating an old_tag identifier: maximum possible additional
   goats is 435. Migration

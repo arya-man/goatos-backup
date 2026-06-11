@@ -278,8 +278,10 @@ Post-implementation open-review reason occurrences:
 
 Reason-code counts are occurrences, not distinct row counts. The 160 remaining
 `blank_old_tag_suffix` rows also fail breed/species review, so they appear in
-both buckets. The counter rebuild reported `tenant_lifecycle=alive` count 711,
-matching `created_goat`.
+both buckets. The current non-goat disposition scope is therefore 504
+breed/species review rows: the earlier 344 confirmed non-goat rows plus 160
+blank-suffix rows that also hit the same non-goat/species gate. The counter
+rebuild reported `tenant_lifecycle=alive` count 711, matching `created_goat`.
 
 Why B is a policy problem, not just source cleanup:
 
@@ -379,8 +381,10 @@ Recommendation:
 
 ## Next Data Slices
 
-1. Decide whether `Anantapur Sheep` should be classified during source
+1. Decide whether confirmed non-goat rows should be classified during source
    discovery/staging or left to the apply-stage breed/species gate; either way,
-   keep it out of goat creation.
+   keep them out of goat creation. The post-`000012` scope is 504
+   breed/species review rows, including 160 rows that also carry
+   `blank_old_tag_suffix`.
 2. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.
