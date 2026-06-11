@@ -63,18 +63,8 @@ func RequestContext(log *slog.Logger) func(http.Handler) http.Handler {
 			}
 
 			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-			defer func() {
-				if p := recover(); p != nil {
-					if !rec.started {
-						rec.status = http.StatusInternalServerError
-					}
-					logHTTPRequest(log, ctx, requestID, traceID, r.Method, r.URL.Path, rec.status, time.Since(start))
-					panic(p)
-				}
-				logHTTPRequest(log, ctx, requestID, traceID, r.Method, r.URL.Path, rec.status, time.Since(start))
-			}()
-
 			next.ServeHTTP(rec, r.WithContext(ctx))
+			logHTTPRequest(log, ctx, requestID, traceID, r.Method, r.URL.Path, rec.status, time.Since(start))
 		})
 	}
 }

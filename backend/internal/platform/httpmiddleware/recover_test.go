@@ -54,11 +54,7 @@ func TestPanicRecoveryLogsStackAndPanicValue(t *testing.T) {
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
 
-	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		panic("sentinel panic payload")
-	})
-
-	handler := PanicRecovery(log)(RequestContext(log)(panicHandler))
+	handler := PanicRecovery(log)(RequestContext(log)(http.HandlerFunc(panicSentinelHandler)))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -71,9 +67,19 @@ func TestPanicRecoveryLogsStackAndPanicValue(t *testing.T) {
 	if !strings.Contains(logOut, "sentinel panic payload") {
 		t.Errorf("expected panic value in log, got: %s", logOut)
 	}
+	if !strings.Contains(logOut, "panicSentinelHandler") {
+		t.Errorf("expected original handler frame in stack, got: %s", logOut)
+	}
 	if !strings.Contains(logOut, "goroutine") {
 		t.Errorf("expected stack trace (goroutine...) in log, got: %s", logOut)
 	}
+	if !strings.Contains(logOut, `"msg":"http_request"`) || !strings.Contains(logOut, `"status":500`) {
+		t.Errorf("expected panic request-line status log, got: %s", logOut)
+	}
+}
+
+func panicSentinelHandler(http.ResponseWriter, *http.Request) {
+	panic("sentinel panic payload")
 }
 
 func TestPanicRecoveryDoesNotAppendEnvelopeAfterResponseStarted(t *testing.T) {

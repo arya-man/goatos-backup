@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"time"
 )
 
 // PanicRecovery is the outermost HTTP middleware. It catches any panic that
@@ -37,13 +38,19 @@ func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tracker := &panicResponseTracker{ResponseWriter: w}
+			start := time.Now()
+			tracker := &panicResponseTracker{ResponseWriter: w, status: http.StatusOK}
 			defer func() {
 				if p := recover(); p != nil {
 					stack := string(debug.Stack())
 					// Resolve trace/request IDs using the fallback chain.
 					traceID := resolveTraceID(r, tracker)
 					requestID := resolveRequestID(r, tracker)
+					status := tracker.status
+					if !tracker.started {
+						status = http.StatusInternalServerError
+					}
+					logHTTPRequest(log, r.Context(), requestID, traceID, r.Method, r.URL.Path, status, time.Since(start))
 					log.ErrorContext(r.Context(), "http_panic",
 						slog.Any("panic", p),
 						slog.String("stack", stack),
@@ -75,15 +82,22 @@ func PanicRecovery(log *slog.Logger) func(http.Handler) http.Handler {
 type panicResponseTracker struct {
 	http.ResponseWriter
 	started bool
+	status  int
 }
 
 func (w *panicResponseTracker) WriteHeader(status int) {
-	w.started = true
+	if !w.started {
+		w.started = true
+		w.status = status
+	}
 	w.ResponseWriter.WriteHeader(status)
 }
 
 func (w *panicResponseTracker) Write(data []byte) (int, error) {
-	w.started = true
+	if !w.started {
+		w.started = true
+		w.status = http.StatusOK
+	}
 	return w.ResponseWriter.Write(data)
 }
 
@@ -95,6 +109,7 @@ func (w *panicResponseTracker) FlushError() error {
 	err := http.NewResponseController(w.ResponseWriter).Flush()
 	if err == nil {
 		w.started = true
+		w.status = http.StatusOK
 	}
 	return err
 }
@@ -107,6 +122,7 @@ func (w *panicResponseTracker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	conn, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
 	if err == nil {
 		w.started = true
+		w.status = http.StatusOK
 	}
 	return conn, rw, err
 }

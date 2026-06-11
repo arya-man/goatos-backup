@@ -71,28 +71,6 @@ func TestRequestContextGeneratesMissingRequestID(t *testing.T) {
 	}
 }
 
-func TestRequestContextLogsPanickedRequestsAndRepanics(t *testing.T) {
-	var logs strings.Builder
-	log := slog.New(slog.NewJSONHandler(&logs, nil))
-	handler := RequestContext(log)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		panic("boom")
-	}))
-
-	defer func() {
-		if p := recover(); p == nil {
-			t.Fatal("expected panic to propagate to outer recovery middleware")
-		}
-		out := logs.String()
-		if !strings.Contains(out, `"msg":"http_request"`) || !strings.Contains(out, `"status":500`) {
-			t.Fatalf("panicked request did not emit status/latency log: %s", out)
-		}
-	}()
-
-	req := httptest.NewRequest(http.MethodGet, "/goats/search", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-}
-
 func TestRequestContextAllowsResponseControllerFlush(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler := RequestContext(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
