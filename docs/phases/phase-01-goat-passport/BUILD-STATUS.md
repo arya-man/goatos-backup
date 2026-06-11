@@ -739,6 +739,32 @@ queues do not carry permanent non-goat noise
 P8 sales/allocation/promise behavior
 ```
 
+## Near-Term Phase 1 Closure Order
+
+This order is intentional and should not be inferred from conversation memory:
+
+```text
+1. Build the local read-only admin demo UI before mutating non-goat review state.
+   The UI should show clean goats, passport detail, review buckets, reviewer CSV
+   export locations, identity counts, and a separate confirmed non-goat bucket.
+   It must wire dev auth and @goatos/api-client before adding real data views.
+
+2. Add a local demo runner/runbook that reproduces the real Shape-2 rehearsal:
+   import, apply with the explicit RFID-only blank-suffix flag, rebuild counters,
+   generate reviewer CSVs, start backend/admin-web, and print final counts/URLs.
+
+3. Do Phase 1 closeout docs after the demo path is reproducible.
+
+4. Treat terminal non-goat disposition as a separate canonical-state slice unless
+   it becomes required before closeout. The demo UI may label confirmed non-goats
+   from current review reasons without changing their state.
+```
+
+The terminal non-goat slice is not mechanical. It must choose and document the
+mechanism first: terminal `rejected` at apply/review time versus earlier
+source-discovery or staging exclusion. It must remain auditable, reversible by a
+future correction path, and must not silently drop source rows.
+
 Counter projection rebuild:
 
 ```text

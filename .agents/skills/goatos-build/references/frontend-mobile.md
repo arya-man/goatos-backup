@@ -20,10 +20,17 @@ Rules:
 - `packages/api-client` is the generated OpenAPI TypeScript client package for
   app/admin/analytics APIs. Admin-web and future mobile screens must use it
   through small app adapters instead of hand-copying DTOs.
-- `apps/admin-web` is currently a Phase 1 readiness shell: disabled tabs only,
-  generated-client import smoke, and no data fetches until real screen slices
-  land.
+- `apps/admin-web` is currently a Phase 1 readiness shell. The next Phase 1 UI
+  slice should turn it into the composition shell for read-only demo screens
+  backed by `@goatos/api-client`.
+- Use a module-first frontend architecture: admin-web is the shell, shared UI
+  components live in packages, and major product areas such as goat passport,
+  import review, and analytics counts should be standalone-capable feature
+  modules that can run inside the shell and be exercised independently during
+  development/demo.
+- Phase 1 should not add runtime module federation or separately deployed
+  microfrontends unless explicitly approved. The immediate goal is clean module
+  boundaries and standalone-capable development, not deployment complexity.
 - Do not reintroduce executable `apps/admin-web/app/api/*` BigQuery/Sheets
   routes or `lib/bigquery.ts`. Deleted legacy route code is available in git
   history if needed as reference.
-- No microfrontends until separate teams/release cadences justify them.

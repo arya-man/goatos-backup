@@ -78,6 +78,10 @@ Completed so far:
 - Generated OpenAPI TypeScript client package and drift gate.
 - Admin-web Phase 1 readiness shell with executable BigQuery/Sheets routes removed.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
+- Real local RFID rehearsal against the Shape-2 source path now creates canonical
+  goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
+  local baseline is 711 created goats, with remaining review rows grouped for
+  cleanup/non-goat handling.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
 - Contract validation and migration validation.
@@ -97,11 +101,20 @@ Still pending before Phase 1 is usable end-to-end:
 
 - Production identity-provider/login integration: JWKS/asymmetric token
   verification, sessions, key rotation, revocation, and secret management.
-- Data-bound frontend screens for admin users.
+- Data-bound read-only frontend screens for admin users, built as
+  standalone-capable feature modules inside the admin-web shell.
 - Real production event publishing.
-- Running the real private RFID/source workbooks safely.
 - Operational review screens for dirty data.
 - Deployment setup for shared/staging/prod environments.
+
+Immediate Phase 1 demo order:
+
+```text
+1. Build read-only admin demo screens using dev auth and @goatos/api-client.
+2. Add a local demo runner/runbook for import -> apply -> counters -> reports -> UI.
+3. Close Phase 1 docs honestly.
+4. Handle terminal non-goat disposition as a separate state-change slice if needed.
+```
 
 Important:
 
