@@ -535,11 +535,12 @@ RFID source-of-truth staging:
   approved plain F2/K2 status mappings. The follow-up local rerun cleared
   unknown_status_mapping from 437 to 0, raised created_goat from 145 to 383,
   left error at 0, and redistributed 199 rows to the downstream
-  species_or_breed_requires_review bucket. Anantapur Sheep remains classified
-  for non-goat/species exclusion review, Sirohi remains a goat breed alias
-  candidate, blank_old_tag_suffix is recommended for a later RFID-only creation
-  policy with guardrails, and blank_gender plus duplicate same-scope old_tag
-  rows remain blocked pending source correction or explicit reviewed policy.
+  species_or_breed_requires_review bucket. The current breed/species grouping
+  has 397 rows across 11 labels: Anantapur Sheep and Sirohi are
+  already-classified, while nine crossbreed labels are new/needs-decision.
+  blank_old_tag_suffix is recommended for a later RFID-only creation policy
+  with guardrails, and blank_gender plus duplicate same-scope old_tag rows
+  remain blocked pending source correction or explicit reviewed policy.
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
 RFID source-of-truth canonical apply:
@@ -687,9 +688,10 @@ externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
-breed/species decisions for the reviewed labels, blank_old_tag_suffix RFID-only
-creation policy if approved, and source cleanup or reviewed policy for
-blank_gender plus duplicate same-scope old_tag rows
+breed/species decisions for the reviewed labels including newly surfaced
+crossbreed labels, blank_old_tag_suffix RFID-only creation policy if approved,
+and source cleanup or reviewed policy for blank_gender plus duplicate same-scope
+old_tag rows
 P8 sales/allocation/promise behavior
 ```
 

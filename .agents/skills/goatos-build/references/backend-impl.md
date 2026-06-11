@@ -332,12 +332,15 @@ Rules:
   plain F2/K2 `legacy_status_mappings`. The follow-up local rerun cleared
   `unknown_status_mapping` from 437 to 0, raised `created_goat` from 145 to
   383, kept `error` at 0, and redistributed 199 rows to downstream
-  `species_or_breed_requires_review`. Treat the 190 Anantapur Sheep rows as a
-  source-integrity signal: the species gate is doing the right thing, and later
-  work must not loosen the pipeline to admit them as goats. Next data work is
-  breed/species review for Anantapur Sheep and Sirohi, a guarded RFID-only
-  creation policy decision for blank old-tag suffix rows, and source correction
-  or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.
+  `species_or_breed_requires_review`. The current breed/species grouping has
+  397 rows across 11 labels: Anantapur Sheep and Sirohi are already-classified,
+  while nine crossbreed labels are new/needs-decision. Treat the 344 Anantapur
+  Sheep rows as a source-integrity signal: the species gate is doing the right
+  thing, and later work must not loosen the pipeline to admit them as goats.
+  Next data work is breed/species review for the newly surfaced crossbreed
+  labels, a guarded RFID-only creation policy decision for blank old-tag suffix
+  rows, and source correction or reviewed policy for blank_gender plus duplicate
+  same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

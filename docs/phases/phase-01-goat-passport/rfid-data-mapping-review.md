@@ -96,16 +96,29 @@ Sex override decision:
 
 ## Species And Breed Review
 
-Grouped source Breed labels:
+Current grouped source Breed labels after the plain `F2`/`K2` mapping rerun:
 
-| Source Breed label | Count | Proposed classification | Recommendation |
-| --- | ---: | --- | --- |
-| `Anantapur Sheep` | 190 | non-goat/exclusion | Keep out of goat creation. The current reference model treats this label as sheep, so it must resolve through breed/species semantics before any apply behavior changes. |
-| `Sirohi` | 8 | goat breed alias candidate | Human review should approve whether this becomes a canonical goat breed row or an alias to an existing canonical breed. Do not auto-alias in this slice. |
+| Source Breed label | Count | Classification status | Proposed classification | Recommendation |
+| --- | ---: | --- | --- | --- |
+| `Anantapur Sheep` | 344 | already-classified | non-goat/species exclusion | Keep out of goat creation. The current reference model treats this label as sheep, so it must resolve through breed/species semantics before any apply behavior changes. |
+| `Sirohi` | 19 | already-classified | goat breed/alias candidate pending approval | Human review should approve whether this becomes a canonical goat breed row or an alias to an existing canonical breed. Do not auto-alias in this slice. |
+| `Beetal x Malai` | 4 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Beetal x Sojat` | 12 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Boer x Beetal` | 1 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Boer x Malai` | 1 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Boer x Sirohi` | 1 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Boer x Sojat` | 2 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Malai x Beetal` | 4 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Malai x Sojat` | 8 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+| `Sojat x Malai` | 1 | new/needs-decision | crossbreed label decision required | Decide whether Phase 1 represents crossbreed labels as explicit aliases, compound breed evidence, or keeps them blocked. Do not auto-collapse ordering. |
+
+The grouped labels reconcile to 397 rows: 363 rows are in already-classified
+labels (`Anantapur Sheep` and `Sirohi`), and 34 rows are newly surfaced
+crossbreed labels needing a breed/species policy decision.
 
 Source-integrity signal:
 
-- `Anantapur Sheep` accounts for 190 of the 198 breed review rows.
+- `Anantapur Sheep` accounts for 344 of the 397 breed review rows.
 - A goat-passport import source containing this many non-goat rows is not just a
   breed-alias gap; it is a source-integrity issue.
 - The current species gate is doing the right thing by keeping these rows out of
@@ -190,6 +203,8 @@ Recommendation:
      semantics and decide whether that classification belongs at discovery,
      staging, or apply;
    - review and add `Sirohi` as a goat breed/alias only after human approval.
-2. Implement the blank old-tag suffix RFID-only creation policy if approved.
-3. Keep blank gender and duplicate same-scope old tags blocked pending source
+2. Decide how Phase 1 should represent crossbreed labels such as `Beetal x
+   Sojat`, `Malai x Sojat`, and the other newly surfaced crossbreed labels.
+3. Implement the blank old-tag suffix RFID-only creation policy if approved.
+4. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.
