@@ -170,6 +170,13 @@ local files, Sheets, App Script, BigQuery, or operational DBs directly.
 Corrections, admin goat writes, timeline, import-run create, and review/fix
 actions remain honest placeholders or backend 501/deferred paths.
 
+Import Review plan validation covers the generated row-list query with a
+non-null reason_code plus the JSONB GIN reason probe. The current Phase 1 shape
+uses ordered keyset pagination and may apply reason_code as a residual predicate;
+this is acceptable for local review queues, but staging/1M sparse reason-filter
+use needs a reason-keyset/materialized reason strategy or fresh proof that the
+residual scan remains bounded.
+
 Executable legacy BigQuery/Sheets routes were removed from apps/admin-web:
 app/api/*, lib/bigquery.ts, CSV data-loader, and the legacy route pages/hooks
 that fetched those app/api routes are no longer in the Next build.
@@ -600,10 +607,13 @@ RFID source-of-truth staging:
   created_goat 436, needs_review 787, and error 0; guarded RFID-only apply
   produced created_goat 711, needs_review 512, and error 0; the
   tenant_lifecycle alive counter was 711. SSR admin-web rendered the overview,
-  real herd rows, a real goat passport, the 711 alive count, and the static
-  import-review baseline. The real local DB had 0 conflicts and 0 candidates,
-  so Data Quality rendered an honest empty state; backend repository/handler
-  tests cover populated conflict and candidate list paths separately.
+  real herd rows, a real goat passport, and the 711 alive count. Live Import
+  Review rendering was separately proven against a real local run at the
+  post-status-mapping stage, so the final closeout rehearsal must re-run the
+  full migration-plus-RFID-only sequence and verify Import Review against the
+  711/512 run. The real local DB had 0 conflicts and 0 candidates, so Data
+  Quality rendered an honest empty state; backend repository/handler tests cover
+  populated conflict and candidate list paths separately.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate

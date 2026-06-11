@@ -246,7 +246,8 @@ Regenerate sqlc code.
 Assert generated code matches committed code.
 Validate important SQL query plans.
 Validate hand-written hot-path plans such as outbox claim, auth grant lookup,
-and Import Review reason filtering.
+Import Review state filtering, the real generated Import Review reason-filter
+shape, and the JSONB reason-index probe.
 Exercise migration invariants.
 Reject whitespace errors.
 ```
@@ -261,7 +262,8 @@ validate-sqlc-plans failed
   query no longer uses expected index
   new sqlc query lacks plan expectation
   hot apply/read query introduced an avoidable Sort
-  Import Review reason filter is not using the JSONB reason index
+  Import Review generated reason-filter query lost its ordered indexed path
+  Import Review JSONB reason probe is not using the GIN reason index
 
 validate-migrations failed
   migration does not apply cleanly

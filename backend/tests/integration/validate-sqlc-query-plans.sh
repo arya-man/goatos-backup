@@ -77,6 +77,11 @@ extract_query() {
 }
 
 bind_query_params() {
+  local processing_state="${PLAN_PROCESSING_STATE:-NULL::text}"
+  local reason_code="${PLAN_REASON_CODE:-NULL::text}"
+  local cursor_row_number="${PLAN_CURSOR_ROW_NUMBER:-NULL::int}"
+  local cursor_legacy_row_id="${PLAN_CURSOR_LEGACY_ROW_ID:-NULL::uuid}"
+
   sed \
     -e "s/@tenant_id/'00000000-0000-4000-8000-000000000001'::uuid/g" \
     -e "s/@goat_id/'10000000-0000-4000-8000-000000000001'::uuid/g" \
@@ -111,10 +116,10 @@ bind_query_params() {
     -e "s/sqlc.narg('last_processed_event_id')::uuid/'60000000-0000-4000-8000-000000000001'::uuid/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
-    -e "s/sqlc.narg('processing_state')::text/NULL::text/g" \
-    -e "s/sqlc.narg('reason_code')::text/NULL::text/g" \
-    -e "s/sqlc.narg('cursor_row_number')::int/NULL::int/g" \
-    -e "s/sqlc.narg('cursor_legacy_row_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('processing_state')::text/${processing_state}/g" \
+    -e "s/sqlc.narg('reason_code')::text/${reason_code}/g" \
+    -e "s/sqlc.narg('cursor_row_number')::int/${cursor_row_number}/g" \
+    -e "s/sqlc.narg('cursor_legacy_row_id')::uuid/${cursor_legacy_row_id}/g" \
     -e "s/@limit_count/10/g"
 }
 
@@ -241,14 +246,35 @@ WHERE user_id = '90000000-0000-4000-8000-000000000001'::uuid
 ORDER BY role"
 }
 
-validate_import_run_reason_filter_plan() {
-  explain_must_use_index "ListImportRunRowsReasonFilter" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
+validate_import_run_reason_gin_probe_plan() {
+  explain_must_use_index "ListImportRunRowsReasonGINProbe" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
 SELECT legacy_row_id
 FROM legacy_import_rows
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND import_run_id = '30000000-0000-4000-8000-000000000001'::uuid
   AND (normalized_payload -> 'processing_reasons') ? 'blank_old_tag_suffix'
 LIMIT 10"
+}
+
+validate_import_run_generated_reason_filter_plan() {
+  local sql
+  local old_reason_set=0
+  local old_reason=""
+
+  if [ "${PLAN_REASON_CODE+x}" ]; then
+    old_reason_set=1
+    old_reason="$PLAN_REASON_CODE"
+  fi
+  PLAN_REASON_CODE="'blank_old_tag_suffix'::text"
+  sql="$(extract_query "$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql" "ListImportRunRows" | bind_query_params)"
+  if [ "$old_reason_set" -eq 1 ]; then
+    PLAN_REASON_CODE="$old_reason"
+  else
+    unset PLAN_REASON_CODE
+  fi
+
+  explain_must_use_index "ListImportRunRowsGeneratedReasonFilter" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
+$sql" '(Sort|Incremental Sort)'
 }
 
 validate_import_run_state_filter_plan() {
@@ -291,7 +317,8 @@ fi
 
 validate_outbox_claim_plan
 validate_auth_grant_lookup_plan
-validate_import_run_reason_filter_plan
+validate_import_run_reason_gin_probe_plan
+validate_import_run_generated_reason_filter_plan
 validate_import_run_state_filter_plan
 
-echo "Validated $checked_count generated sqlc query plans and 4 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 5 hand-written query plans"

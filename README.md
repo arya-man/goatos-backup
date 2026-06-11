@@ -94,10 +94,13 @@ Completed so far:
   SSR-first admin-web: normal apply produced 436 created goats and 787 review
   rows; guarded RFID-only apply produced 711 created goats, 512 review rows, and
   0 errors; `tenant_lifecycle` shows 711 alive goats; herd search, goat passport,
-  identity counts, and read-only Import Review rendered through admin-web. The
-  real local DB had no conflicts or candidates, so Data Quality rendered an
-  honest empty state while backend conflict/candidate list coverage proves those
-  read paths separately.
+  and identity counts rendered through admin-web. Read-only Import Review
+  summary/rows were then proven against a separate real local run at the
+  post-status-mapping stage; the final closeout rehearsal must re-run the full
+  migration-plus-RFID-only sequence and verify Import Review against the 711/512
+  run. The real local DB had no conflicts or candidates, so Data Quality
+  rendered an honest empty state while backend conflict/candidate list coverage
+  proves those read paths separately.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
 - Contract validation and migration validation.

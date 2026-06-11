@@ -107,6 +107,12 @@ Rules:
   expose only whitelisted normalized review fields, and return nullable
   "not tracked" summary metrics instead of fake zeroes. `POST /admin/import-runs`
   and all review/fix/import write actions remain deferred.
+- Import Review query-plan validation now checks both the real generated
+  `ListImportRunRows` shape with a non-null `reason_code` and a separate JSONB
+  GIN usability probe. Phase 1 accepts the current ordered keyset plan with a
+  residual reason predicate for local review queues; before staging/1M sparse
+  reason-filter use, add a reason-keyset/materialized reason strategy or prove
+  the residual scan stays bounded.
 - `ceo_internal` is the full Goat OS product-admin role for Phase 1 internal
   product actions, equivalent to `admin` for product/API permissions. This does
   not grant Google Cloud, IAM, billing, GitHub, or repository administration.
@@ -398,10 +404,13 @@ Rules:
   are species_or_breed_requires_review 504, blank_old_tag_suffix 160,
   blank_gender 4, and duplicate_old_tag_same_scope 4; the 160 blank-suffix rows
   also fail breed/species review. The local SSR proof rendered real herd rows, a
-  real goat passport, the 711 tenant_lifecycle alive counter, and the static
-  import-review baseline through admin-web. The real local DB had 0 conflicts
-  and 0 candidates, so Data Quality rendered an honest empty state while backend
-  tests cover populated conflict/candidate read paths. C-lite suffix derivation from
+  real goat passport, and the 711 tenant_lifecycle alive counter through
+  admin-web. Live Import Review rendering was separately proven against a real
+  local run at the post-status-mapping stage; final closeout must re-run the
+  full migration-plus-RFID-only sequence and verify Import Review against the
+  711/512 run. The real local DB had 0 conflicts and 0 candidates, so Data
+  Quality rendered an honest empty state while backend tests cover populated
+  conflict/candidate read paths. C-lite suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction
   or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.
