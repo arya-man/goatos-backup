@@ -118,7 +118,11 @@ Still pending before Phase 1 is usable end-to-end:
 
 - Production identity-provider/login integration: JWKS/asymmetric token
   verification, sessions, key rotation, revocation, and secret management.
-- Correction request admin list APIs, admin goat write APIs, import-run create,
+- The remaining typed `not_implemented` endpoints are:
+  `GET /goats/{goat_id}/timeline`, `GET /identity/correction-requests`,
+  `GET /admin/identity/correction-requests`, `POST /admin/import-runs`,
+  `POST /admin/goats`, and `PATCH /admin/goats/{goat_id}`.
+- Correction request list APIs, admin goat write APIs, import-run create,
   review/fix actions, and goat timeline screens are still contract stubs or
   honest placeholders unless explicitly re-scoped to a later phase.
 - Real production event publishing.
@@ -423,9 +427,9 @@ Recommended next execution order:
 
 1. Decide and implement terminal disposition for confirmed non-goat rows so
    they do not stay forever in actionable goat-review queues.
-2. Close Phase 1 local scope honestly: list remaining stubs that move to later
-   phases, keep the 711-goat proof reproducible, and keep the Mesha admin-web
-   SSR proof green.
+2. Keep the local Phase 1 proof reproducible while moving remaining stubs to
+   their explicit later-phase slices: correction/write workflows, import-run
+   create, goat timeline, production auth, cloud deployment, and event egress.
 3. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.

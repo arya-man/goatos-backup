@@ -27,6 +27,10 @@ Rules:
   Review, and data quality queues. The visible shell uses Mesha branding; Goat
   OS and VGoat labels are internal/legacy labels and must not appear in rendered
   admin-web UI copy.
+- Fresh local closeout proof on June 12, 2026 rendered the Mesha admin-web
+  against the real 711/512 RFID import run: overview, counts, herd search, a
+  real goat passport, live Import Review rows, and an honest Data Quality empty
+  state because that local DB had no conflicts or candidates.
 - Admin-web is upgraded from the copied dashboard's Next 14 / React 18 stack to
   the frozen framework baseline in
   `context/frontend/final-frontend-mobile-backend-architecture.md`: Next

@@ -2278,6 +2278,43 @@ can overlap, so reason counts must never be presented as summing to total rows.
 Rows return whitelisted review fields only and never return raw_payload.
 ```
 
+Phase 1 local closeout status:
+
+```text
+Fresh local Docker Postgres proof with all migrations through 000013:
+  normal RFID apply -> created_goat 436, needs_review 787, error 0
+  guarded --allow-rfid-only-blank-suffix apply -> created_goat 711, needs_review 512, error 0
+  remaining review reason occurrences:
+    species_or_breed_requires_review 504
+    blank_old_tag_suffix 160
+    blank_gender 4
+    duplicate_old_tag_same_scope 4
+  tenant_lifecycle alive counter = 711
+  Mesha admin-web SSR routes verified against the final run:
+    /
+    /counts
+    /herd
+    /goats/{goat_id}
+    /import-review?import_run_id=<final_run_id>
+    /data-quality
+```
+
+This proves the local identity/import/read/admin-demo spine only. Production
+auth/IdP, cloud deployment, Pub/Sub/event egress, terminal non-goat disposition,
+richer messy-data search, correction/write workflows, and non-Phase-1 legacy
+modules remain deferred.
+
+Remaining typed not_implemented endpoints:
+
+```text
+GET /goats/{goat_id}/timeline
+GET /identity/correction-requests
+GET /admin/identity/correction-requests
+POST /admin/import-runs
+POST /admin/goats
+PATCH /admin/goats/{goat_id}
+```
+
 ### App APIs
 
 ```text

@@ -212,6 +212,37 @@ go run ./cmd/rebuild-identity-counters \
   --source-import-run-id <import_run_id>
 ```
 
+## Real Shape 2 Closeout Expectations
+
+For the current real Shape 2 `Combined` source and migrations through 000013,
+a fresh local run must reconcile exactly:
+
+```text
+normal rfid-apply:
+  created_goat = 436
+  needs_review = 787
+  error = 0
+
+rfid-apply --allow-rfid-only-blank-suffix:
+  created_goat = 711
+  needs_review = 512
+  error = 0
+
+remaining review reason occurrences:
+  species_or_breed_requires_review = 504
+  blank_old_tag_suffix = 160
+  blank_gender = 4
+  duplicate_old_tag_same_scope = 4
+
+rebuild-identity-counters:
+  tenant_lifecycle alive = 711
+```
+
+If these numbers differ on a fresh local database, stop and investigate before
+using the result as a Phase 1 proof. Usual causes are wrong sheet, changed
+source export, stale database, missing migration, or skipping the explicit
+RFID-only blank-suffix apply flag.
+
 ## Backend And Admin-Web Smoke
 
 The integrated local smoke script exercises the full local path with synthetic

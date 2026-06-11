@@ -231,6 +231,30 @@ Legacy procurement roles such as procurement head, procurement manager, and
 assistant procurement manager are also not Phase 1 identity roles. They map to
 later procurement/workforce phases, not to this Goat Passport RBAC slice.
 
+### Phase 1 Local Closeout Status
+
+The local Phase 1 identity/import/read/admin-demo spine is proven against the
+real Shape-2 RFID source: normal apply produces 436 created goats and 787 review
+rows; guarded RFID-only blank-suffix apply produces 711 created goats, 512
+review rows, and 0 errors; `tenant_lifecycle` shows 711 alive goats. The Mesha
+admin-web renders the overview, counts, herd search, a real goat passport, live
+Import Review rows for that final run, and an honest Data Quality empty state
+when the real local DB has no conflicts or candidates.
+
+This is a local proof, not production/staging completion. Production auth/IdP,
+cloud deployment, Pub/Sub/event egress, terminal non-goat disposition, richer
+messy-data search, correction/write workflows, and non-Phase-1 legacy modules
+remain deferred. The remaining typed not_implemented endpoints are:
+
+```text
+GET /goats/{goat_id}/timeline
+GET /identity/correction-requests
+GET /admin/identity/correction-requests
+POST /admin/import-runs
+POST /admin/goats
+PATCH /admin/goats/{goat_id}
+```
+
 ## Existing Legacy Pieces
 
 Already present:

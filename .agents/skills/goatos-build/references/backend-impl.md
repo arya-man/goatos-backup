@@ -407,13 +407,13 @@ Rules:
   are species_or_breed_requires_review 504, blank_old_tag_suffix 160,
   blank_gender 4, and duplicate_old_tag_same_scope 4; the 160 blank-suffix rows
   also fail breed/species review. The local SSR proof rendered real herd rows, a
-  real goat passport, and the 711 tenant_lifecycle alive counter through
-  admin-web. Live Import Review rendering was separately proven against a real
-  local run at the post-status-mapping stage; final closeout must re-run the
-  full migration-plus-RFID-only sequence and verify Import Review against the
-  711/512 run. The real local DB had 0 conflicts and 0 candidates, so Data
-  Quality rendered an honest empty state while backend tests cover populated
-  conflict/candidate read paths. C-lite suffix derivation from
+  real goat passport, the 711 tenant_lifecycle alive counter, and live Import
+  Review summary/rows against the same 711/512 run through admin-web. Fresh
+  local closeout proof on June 12, 2026 reproduced this from a clean Docker
+  Postgres database with all migrations through 000013. The real local DB had 0
+  conflicts and 0 candidates, so Data Quality rendered an honest empty state
+  while backend tests cover populated conflict/candidate read paths. C-lite
+  suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction
   or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.
@@ -631,6 +631,12 @@ POST /admin/identity/candidates/{candidate_id}/approve
 Known backend deferments:
 
 ```text
+GET /goats/{goat_id}/timeline
+GET /identity/correction-requests
+GET /admin/identity/correction-requests
+POST /admin/import-runs
+POST /admin/goats
+PATCH /admin/goats/{goat_id}
 production IdP/JWKS/asymmetric auth and token lifecycle
 AI suggestion worker and candidate-state DB hardening
 dirty staged-row conflict/candidate creation and auto-link reconciliation

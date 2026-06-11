@@ -620,6 +620,12 @@ RFID source-of-truth staging:
   conflicts and 0 candidates, so Data Quality rendered an honest empty state;
   backend repository/handler tests cover populated conflict and candidate list
   paths separately.
+  Fresh local closeout proof on June 12, 2026 reproduced the same numbers from
+  a clean Docker Postgres database with all migrations through 000013, then
+  rendered `/`, `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and
+  `/data-quality` through the Mesha admin-web against that final run. The bearer
+  token was absent from captured HTML, client/static bundle, backend logs, and
+  admin-web logs.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
@@ -801,11 +807,14 @@ This order is intentional and should not be inferred from conversation memory:
    live Import Review rows, identity counts, and honest empty states where the
    local DB has no conflicts/candidates. Review/fix actions are still deferred.
 
-2. Add a local demo runner/runbook that reproduces the real Shape-2 rehearsal:
-   import, apply with the explicit RFID-only blank-suffix flag, rebuild counters,
-   generate reviewer CSVs, start backend/admin-web, and print final counts/URLs.
+2. Keep the local runbook and proof reproducible: fresh Docker Postgres, all
+   migrations, real Shape-2 import, normal apply, explicit RFID-only
+   blank-suffix apply, counter rebuild, Mesha admin-web SSR routes, and token
+   leak checks must continue to reproduce 711/512/0.
 
-3. Do Phase 1 closeout docs after the demo path is reproducible.
+3. Keep deferred endpoint/action lists honest while moving review/write,
+   correction, import-run create, goat timeline, production auth, cloud deploy,
+   and event-egress work into later scoped slices.
 
 4. Treat terminal non-goat disposition as a separate canonical-state slice unless
    it becomes required before closeout. The demo UI may label the current 504
@@ -1072,6 +1081,22 @@ Admin-web now has the Phase 1 Mesha-style read-only demo surface: generated
 client plumbing, local dev token/grant helpers, local auth smoke, server-side
 bearer adapters, live identity-read screens, live Import Review rows, and
 disabled placeholders for write/review actions that remain deferred.
+
+Remaining typed not_implemented endpoint surface:
+
+```text
+GET /goats/{goat_id}/timeline
+GET /identity/correction-requests
+GET /admin/identity/correction-requests
+POST /admin/import-runs
+POST /admin/goats
+PATCH /admin/goats/{goat_id}
+```
+
+These are explicitly outside the proven local Phase 1 identity/import/read/admin
+demo spine. They remain deferred with correction/write workflows, richer
+messy-data search, non-goat terminal disposition, production auth/IdP, cloud
+deployment, and production Pub/Sub/event egress.
 
 Outbox relay is a standalone local/dev CLI foundation. It is not run as an API
 server goroutine and does not include real cloud publishing. Production
