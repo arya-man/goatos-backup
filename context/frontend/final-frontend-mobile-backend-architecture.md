@@ -195,6 +195,14 @@ dashboard versions; if a future latest-version upgrade has a peer/runtime
 compatibility issue, pin the latest compatible version here and in BUILD-STATUS
 with the reason.
 
+This is an intentionally current-stack posture. Every new frontend dependency,
+shadcn/Radix-style component pull, copied legacy component, or chart/table
+library must be verified against Next 16, React 19, TypeScript 6, and Tailwind 4
+before it lands. If the latest package does not compose cleanly, record the
+latest compatible pin and the reason in this section, BUILD-STATUS, and the
+admin-web README. `lucide-react` `1.17.0` is intentional: it is the current 1.x
+line and is part of the frozen icon baseline.
+
 Use the modern Next App Router stack:
 
 - Server Components and server-side data loading for read-heavy dashboard pages.

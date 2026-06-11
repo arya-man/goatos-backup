@@ -168,6 +168,15 @@ Corrections, and Analytics Counts. It does not fetch herd data and does not wire
 Executable legacy BigQuery/Sheets routes were removed from apps/admin-web:
 app/api/*, lib/bigquery.ts, CSV data-loader, and the legacy route pages/hooks
 that fetched those app/api routes are no longer in the Next build.
+
+apps/admin-web is pinned to the current framework baseline before real Phase 1
+screens: Next 16.2.9, React 19.2.7, React DOM 19.2.7, Tailwind 4.3.0, React
+Query 5.101.0, lucide-react 1.17.0, Recharts 3.8.1, TypeScript 6.0.3, and
+ESLint 9.39.4 with eslint-config-next 16.2.9. ESLint 9.39.4 is the latest
+compatible ESLint 9 line; ESLint 10 currently crashes inside the Next 16 React
+lint plugin stack. Any new frontend dependency/component pull must be verified
+against Next 16, React 19, TypeScript 6, and Tailwind 4, with compatible-version
+exceptions documented instead of silently downgrading the stack.
 ```
 
 Local Docker storage safety:

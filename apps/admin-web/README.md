@@ -31,6 +31,14 @@ ESLint is pinned to the latest compatible 9.x release because ESLint 10 crashes
 inside the current Next 16 React lint plugin stack. Upgrade that only after the
 Next/React lint plugins support it cleanly.
 
+This app intentionally tracks the current Next/React/Tailwind line. Every new
+frontend dependency, shadcn/Radix-style component, copied legacy component, or
+chart/table package must be checked against Next 16, React 19, TypeScript 6, and
+Tailwind 4 before it lands. If the latest package does not compose cleanly, pin
+the latest compatible version and document the exception in the frontend
+architecture doc, BUILD-STATUS, and this README. `lucide-react` `1.17.0` is the
+intentional current 1.x icon baseline.
+
 ## Run The Shell
 
 ```bash

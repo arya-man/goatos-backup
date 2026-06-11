@@ -29,6 +29,12 @@ Rules:
   16.2.9, React 19.2.7, React DOM 19.2.7, Tailwind 4.3.0, React Query 5.101.0,
   lucide 1.17.0, Recharts 3.8.1, and matching TypeScript/types/ESLint tooling.
   Do not silently build new screens on the old framework stack.
+- Treat the frontend baseline as intentionally current. Every new frontend
+  dependency, shadcn/Radix-style component, copied legacy component, or chart
+  package must be checked against Next 16, React 19, TypeScript 6, and Tailwind
+  4 before landing. If the latest package is not compatible, document the
+  latest compatible pin and reason in the canonical frontend doc, BUILD-STATUS,
+  and admin-web README.
 - Use surface-level microfrontend discipline, not one giant dashboard bundle:
   admin/internal, investor/external, operator/device, and public/partner are the
   real surface boundaries. Phase 1 builds the admin surface now, with feature
