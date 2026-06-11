@@ -522,6 +522,20 @@ RFID source-of-truth staging:
   reports group actual emitted reason codes from error_reason and
   processing_reasons, mask RFID/old-tag values by default, and hash
   source_row_key references because source keys can contain source identifiers
+  rfid-import --anomaly-report also writes a reviewer-focused CSV pack under a
+  per-run reviewer-<import_run_id>/ subdirectory:
+  review-summary.csv, needs-review-rows.csv,
+  non-goat-exclusion-candidates.csv, blank-old-tag-suffix.csv,
+  blank-gender.csv, duplicate-old-tag-same-scope.csv, and README.txt
+  non-goat-exclusion-candidates.csv carries confirmed non-goat breed/species
+  labels such as Anantapur Sheep so they are visible for exclusion review; the
+  tool does not duplicate those same sheep rows into a breed/species issue file
+  future non-confirmed breed/species labels emit
+  breed/species-needs-classification.csv instead
+  reviewer_action and reviewer_notes columns are scratch-only; Goat OS does not
+  ingest edited reviewer CSVs yet. Corrections re-enter through the source
+  workbook or a future approved correction overlay, then normal import/apply is
+  rerun
   grouped review summaries read raw_payload only through safe source-label
   fields Tag, Breed, Gender, Farm, Shed, and Partition, falling back to
   normalized fields for those same labels; they never emit full raw_payload,

@@ -67,8 +67,8 @@ Completed so far:
 - RFID workbook staging and safe import foundation.
 - Clean RFID rows can be applied into canonical goat records.
 - Local full-stack rehearsal for source discovery, dry-run, staging, masked
-  anomaly report, RFID apply, counter rebuild, backend API smoke, and admin-web
-  build against Docker Postgres.
+  anomaly/reviewer CSV exports, RFID apply, counter rebuild, backend API smoke,
+  and admin-web build against Docker Postgres.
 - Audit log and decision records.
 - Domain events and outbox foundation.
 - Local outbox relay foundation.

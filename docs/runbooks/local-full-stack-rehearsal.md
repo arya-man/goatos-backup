@@ -148,20 +148,42 @@ go run ./cmd/rfid-import \
 The report uses actual emitted reason codes from `legacy_import_rows.error_reason`
 and `normalized_payload.processing_reasons`, including apply-stage review reasons
 such as `unknown_status_mapping` and `species_or_breed_requires_review`. It
-writes row details, reason-code summary, and grouped review-summary CSVs.
+writes the existing row details, reason-code summary, and grouped review-summary
+CSVs at the report root, plus a reviewer-focused CSV pack under a per-run
+`reviewer-<import_run_id>/` subdirectory:
+
+- `reviewer-<import_run_id>/review-summary.csv`
+- `reviewer-<import_run_id>/needs-review-rows.csv`
+- `reviewer-<import_run_id>/non-goat-exclusion-candidates.csv`
+- `reviewer-<import_run_id>/blank-old-tag-suffix.csv`
+- `reviewer-<import_run_id>/blank-gender.csv`
+- `reviewer-<import_run_id>/duplicate-old-tag-same-scope.csv`
+- `reviewer-<import_run_id>/README.txt`
+
 Grouped summaries use only safe source labels (`Tag`, `Breed`, `Gender`,
 `Farm`, `Shed`, and `Partition`) and never write raw RFID, old-tag, full row
 JSON, or full `raw_payload`.
 
-`species_or_breed_requires_review` groups are a human gate for deciding whether a
-label should become a breed alias or an exclusion; the report does not
-auto-alias. `blank_old_tag_suffix` groups show safe Farm/Shed/Partition context;
-RFID-only goat creation for those rows is a future policy decision, not part of
-this rehearsal slice.
+The current `species_or_breed_requires_review` bucket is Anantapur Sheep only, so
+those rows are exported to `non-goat-exclusion-candidates.csv` and should be
+confirmed as non-goat exclusions, not created as goats. The tool does not emit a
+duplicate breed/species issue file for those sheep rows. If a future import has a
+breed/species review label that is not a confirmed non-goat label, the tool emits
+`breed/species-needs-classification.csv` for that classification work.
+`blank_old_tag_suffix` rows show safe Farm/Shed/Partition context; RFID-only goat
+creation for those rows is a future policy decision, not part of this rehearsal
+slice. `blank_gender` and `duplicate_old_tag_same_scope` rows remain source
+correction or explicit reviewed-policy work.
 
-The report masks RFID and old-tag values by default and writes only to ignored
-local output paths. Do not use `--include-sensitive` unless the output stays
-local and uncommitted; grouped summaries remain aggregate/safe-label only.
+The reviewer CSVs are export-only. `reviewer_action` and `reviewer_notes` are
+scratch columns for the data team; Goat OS does not ingest edited review CSVs
+yet. Corrections must re-enter through the source workbook, or a future approved
+correction overlay, and then the normal Shape-2 import/apply flow must be rerun.
+
+The report masks RFID and hashes old-tag/source-row references by default and
+writes only to ignored local output paths. Internal cleanup usually needs
+`--include-sensitive`, but use it only when the output stays local and
+uncommitted; committed docs/examples must use masked or aggregate data only.
 
 ## Rebuild Counters
 

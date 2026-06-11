@@ -5,6 +5,8 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -60,7 +62,7 @@ func TestWriteAnomalyReportCSVDoesNotWriteRawIdentifiersByDefault(t *testing.T) 
 		ErrorReason:       &errorReason,
 		NormalizedPayload: payload,
 	}}, AnomalyReportOptions{})
-	details, summary, groups, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
+	details, summary, groups, _, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
 		ImportRunID: "11111111-1111-4111-8111-111111111111",
 		SourceType:  SourceTypeLocalXLSX,
 		SourceLabel: "Synthetic",
@@ -134,7 +136,7 @@ func TestAnomalyReportKeepsSourceRowKeyHashedWithIncludeSensitive(t *testing.T) 
 	if got := report.Details[0].SourceRowKeyRef; !strings.HasPrefix(got, "sha256:") || strings.Contains(got, longRFID) || strings.Contains(got, rawOldTag) {
 		t.Fatalf("source_row_key_ref leaked identifier evidence: %q", got)
 	}
-	details, _, _, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
+	details, _, _, _, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
 		ImportRunID:      "11111111-1111-4111-8111-333333333333",
 		SourceType:       SourceTypeLocalXLSX,
 		SourceLabel:      "Synthetic",
@@ -202,7 +204,7 @@ func TestAnomalyReportGroupsPostApplyReasonsAndSafeLabels(t *testing.T) {
 	assertGroup(t, report.Groups, "source_status_label", "unknown_status_mapping", "Mystery Status", 2)
 	assertGroup(t, report.Groups, "source_breed_label", "species_or_breed_requires_review", "Synthetic Mystery Breed", 1)
 
-	_, _, groups, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
+	_, _, groups, _, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
 		ImportRunID: "11111111-1111-4111-8111-222222222222",
 		SourceType:  SourceTypeLocalXLSX,
 		SourceLabel: "Synthetic",
@@ -324,7 +326,7 @@ func TestAnomalyReportGroupsEscapeSpreadsheetFormulaCells(t *testing.T) {
 		}),
 	}
 	report := BuildAnomalyReport(rows, AnomalyReportOptions{})
-	_, _, groups, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
+	_, _, groups, _, err := WriteAnomalyReportCSV(t.TempDir(), AnomalyReportOptions{
 		ImportRunID: "11111111-1111-4111-8111-444444444444",
 		SourceType:  SourceTypeLocalXLSX,
 		SourceLabel: "Synthetic",
@@ -347,6 +349,208 @@ func TestAnomalyReportGroupsEscapeSpreadsheetFormulaCells(t *testing.T) {
 	assertCSVCellPresent(t, records, "'@Shed")
 	assertCSVCellPresent(t, records, "'=Partition")
 	for _, dangerous := range []string{"=1+1", "+SUM(A1:A2)", "-Farm", "@Shed", "=Partition"} {
+		assertCSVCellAbsent(t, records, dangerous)
+	}
+}
+
+func TestWriteAnomalyReportCSVWritesReviewerFocusedFiles(t *testing.T) {
+	rows := []AnomalyReportInputRow{
+		anomalyReportRow(t, 12, "species_or_breed_requires_review", map[string]string{
+			"Breed":     "Anantapur Sheep",
+			"Gender":    "Female",
+			"Farm":      "CBE",
+			"Shed":      "S1",
+			"Partition": "P1",
+			"RFID":      longRFID,
+			"Old ID":    "OLDSECRET400",
+		}),
+		anomalyReportRow(t, 13, "blank_old_tag_suffix", map[string]string{
+			"Breed":     "Boer",
+			"Gender":    "Female",
+			"Farm":      "CBE",
+			"Shed":      "S2",
+			"Partition": "P2",
+			"RFID":      "9900000000000000001234567890222",
+			"Old ID":    "OLDSECRET401",
+		}),
+		anomalyReportRow(t, 14, "blank_gender", map[string]string{
+			"Breed":     "Boer",
+			"Gender":    "",
+			"Farm":      "CBE",
+			"Shed":      "S3",
+			"Partition": "P3",
+			"RFID":      "9900000000000000001234567890111",
+			"Old ID":    "OLDSECRET402",
+		}),
+		anomalyReportRow(t, 15, "duplicate_old_tag_same_scope", map[string]string{
+			"Breed":         "Boer",
+			"Gender":        "Female",
+			"Farm":          "CBE",
+			"Shed":          "S4",
+			"Partition":     "P4",
+			"RFID":          "9900000000000000001234567890000",
+			"Old ID":        "OLDSECRET403",
+			"Old ID Suffix": "CBE",
+		}),
+	}
+	report := BuildAnomalyReport(rows, AnomalyReportOptions{})
+	dir := t.TempDir()
+	_, _, _, reviewerDir, err := WriteAnomalyReportCSV(dir, AnomalyReportOptions{
+		ImportRunID: "11111111-1111-4111-8111-555555555555",
+		SourceType:  SourceTypeLocalXLSX,
+		SourceLabel: "Synthetic",
+		SheetName:   "Combined",
+	}, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{
+		"review-summary.csv",
+		"needs-review-rows.csv",
+		"non-goat-exclusion-candidates.csv",
+		"blank-old-tag-suffix.csv",
+		"blank-gender.csv",
+		"duplicate-old-tag-same-scope.csv",
+		"README.txt",
+	} {
+		if _, err := os.Stat(filepath.Join(reviewerDir, filename)); err != nil {
+			t.Fatalf("%s not generated: %v", filename, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(reviewerDir, "breed", "species-needs-classification.csv")); !os.IsNotExist(err) {
+		t.Fatalf("breed/species-needs-classification.csv generated for all confirmed non-goat rows: %v", err)
+	}
+	nonGoatRows := readCSVFile(t, filepath.Join(reviewerDir, "non-goat-exclusion-candidates.csv"))
+	assertCSVCellPresent(t, nonGoatRows, "Anantapur Sheep")
+	assertCSVCellPresent(t, nonGoatRows, "If source_breed is Anantapur Sheep, confirm non-goat exclusion and do not create goat; otherwise classify goat breed/species before import.")
+
+	needsRows := readCSVFile(t, filepath.Join(reviewerDir, "needs-review-rows.csv"))
+	if got := len(needsRows) - 1; got != len(report.Details) {
+		t.Fatalf("needs-review-rows count=%d, want details=%d", got, len(report.Details))
+	}
+	summaryRows := readCSVFile(t, filepath.Join(reviewerDir, "review-summary.csv"))
+	if got := sumCSVCounts(t, summaryRows, "count"); got != len(report.Details) {
+		t.Fatalf("review-summary total=%d, want details=%d", got, len(report.Details))
+	}
+}
+
+func TestReviewerCSVCreatesBreedClassificationOnlyForUnknownBreed(t *testing.T) {
+	rows := []AnomalyReportInputRow{
+		anomalyReportRow(t, 16, "species_or_breed_requires_review", map[string]string{
+			"Breed":  "Synthetic Mystery Breed",
+			"Gender": "Female",
+			"Farm":   "CBE",
+			"RFID":   longRFID,
+			"Old ID": "OLDSECRET500",
+		}),
+	}
+	report := BuildAnomalyReport(rows, AnomalyReportOptions{})
+	dir := t.TempDir()
+	_, _, _, reviewerDir, err := WriteAnomalyReportCSV(dir, AnomalyReportOptions{
+		ImportRunID: "11111111-1111-4111-8111-666666666666",
+		SourceType:  SourceTypeLocalXLSX,
+		SourceLabel: "Synthetic",
+		SheetName:   "Combined",
+	}, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	classificationRows := readCSVFile(t, filepath.Join(reviewerDir, "breed", "species-needs-classification.csv"))
+	assertCSVCellPresent(t, classificationRows, "Synthetic Mystery Breed")
+	nonGoatRows := readCSVFile(t, filepath.Join(reviewerDir, "non-goat-exclusion-candidates.csv"))
+	if got := len(nonGoatRows); got != 1 {
+		t.Fatalf("non-goat rows=%d, want header only for unknown breed", got)
+	}
+}
+
+func TestReviewerCSVDefaultMasksIdentifiersAndSensitiveModeIncludesThem(t *testing.T) {
+	rawOldTag := "OLDSECRET600"
+	rows := []AnomalyReportInputRow{
+		anomalyReportRow(t, 17, "blank_gender", map[string]string{
+			"Breed":  "Boer",
+			"Gender": "",
+			"Farm":   "CBE",
+			"RFID":   longRFID,
+			"Old ID": rawOldTag,
+		}),
+	}
+	defaultReport := BuildAnomalyReport(rows, AnomalyReportOptions{})
+	defaultDir := t.TempDir()
+	_, _, _, defaultReviewerDir, err := WriteAnomalyReportCSV(defaultDir, AnomalyReportOptions{
+		ImportRunID: "11111111-1111-4111-8111-777777777777",
+		SourceType:  SourceTypeLocalXLSX,
+		SourceLabel: "Synthetic",
+		SheetName:   "Combined",
+	}, defaultReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultData, err := os.ReadFile(filepath.Join(defaultReviewerDir, "needs-review-rows.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultText := string(defaultData)
+	if strings.Contains(defaultText, longRFID) || strings.Contains(defaultText, rawOldTag) {
+		t.Fatalf("default reviewer CSV leaked identifiers:\n%s", defaultText)
+	}
+	if !strings.Contains(defaultText, "rfid_masked") || !strings.Contains(defaultText, "old_tag_ref") {
+		t.Fatalf("default reviewer CSV missing masked/hash headers:\n%s", defaultText)
+	}
+
+	sensitiveReport := BuildAnomalyReport(rows, AnomalyReportOptions{IncludeSensitive: true})
+	sensitiveDir := t.TempDir()
+	_, _, _, sensitiveReviewerDir, err := WriteAnomalyReportCSV(sensitiveDir, AnomalyReportOptions{
+		ImportRunID:      "11111111-1111-4111-8111-888888888888",
+		SourceType:       SourceTypeLocalXLSX,
+		SourceLabel:      "Synthetic",
+		SheetName:        "Combined",
+		IncludeSensitive: true,
+	}, sensitiveReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sensitiveData, err := os.ReadFile(filepath.Join(sensitiveReviewerDir, "needs-review-rows.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sensitiveText := string(sensitiveData)
+	if !strings.Contains(sensitiveText, longRFID) || !strings.Contains(sensitiveText, rawOldTag) {
+		t.Fatalf("sensitive reviewer CSV did not include identifiers:\n%s", sensitiveText)
+	}
+	if !strings.Contains(sensitiveText, "rfid") || !strings.Contains(sensitiveText, "old_tag") {
+		t.Fatalf("sensitive reviewer CSV missing raw identifier headers:\n%s", sensitiveText)
+	}
+}
+
+func TestReviewerCSVEscapesFormulaCells(t *testing.T) {
+	rows := []AnomalyReportInputRow{
+		anomalyReportRow(t, 18, "blank_old_tag_suffix", map[string]string{
+			"Tag":       "=tag",
+			"Breed":     "+breed",
+			"Gender":    "@gender",
+			"Farm":      "-farm",
+			"Shed":      "=shed",
+			"Partition": "+partition",
+			"RFID":      longRFID,
+			"Old ID":    "OLDSECRET700",
+		}),
+	}
+	report := BuildAnomalyReport(rows, AnomalyReportOptions{})
+	dir := t.TempDir()
+	_, _, _, reviewerDir, err := WriteAnomalyReportCSV(dir, AnomalyReportOptions{
+		ImportRunID: "11111111-1111-4111-8111-999999999999",
+		SourceType:  SourceTypeLocalXLSX,
+		SourceLabel: "Synthetic",
+		SheetName:   "Combined",
+	}, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := readCSVFile(t, filepath.Join(reviewerDir, "blank-old-tag-suffix.csv"))
+	for _, want := range []string{"'=tag", "'+breed", "'@gender", "'-farm", "'=shed", "'+partition"} {
+		assertCSVCellPresent(t, records, want)
+	}
+	for _, dangerous := range []string{"=tag", "+breed", "@gender", "-farm", "=shed", "+partition"} {
 		assertCSVCellAbsent(t, records, dangerous)
 	}
 }
@@ -429,6 +633,44 @@ func readCSVRows(t *testing.T, data []byte) [][]string {
 		t.Fatal(err)
 	}
 	return rows
+}
+
+func readCSVFile(t *testing.T, path string) [][]string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return readCSVRows(t, data)
+}
+
+func sumCSVCounts(t *testing.T, records [][]string, columnName string) int {
+	t.Helper()
+	if len(records) == 0 {
+		t.Fatal("missing CSV header")
+	}
+	column := -1
+	for i, header := range records[0] {
+		if header == columnName {
+			column = i
+			break
+		}
+	}
+	if column < 0 {
+		t.Fatalf("column %q not found in header %#v", columnName, records[0])
+	}
+	total := 0
+	for _, record := range records[1:] {
+		if column >= len(record) {
+			t.Fatalf("record too short for count column: %#v", record)
+		}
+		count, err := strconv.Atoi(record[column])
+		if err != nil {
+			t.Fatalf("parse count %q: %v", record[column], err)
+		}
+		total += count
+	}
+	return total
 }
 
 func assertCSVCellPresent(t *testing.T, records [][]string, want string) {

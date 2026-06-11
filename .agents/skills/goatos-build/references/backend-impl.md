@@ -315,6 +315,16 @@ Rules:
   are not implemented. Reports belong under ignored local output paths, must
   mask sensitive identifiers by default, and must not emit raw source_row_key
   values because source keys can include RFID/old-tag evidence.
+- `rfid-import --anomaly-report` keeps the existing detail, reason summary, and
+  grouped summary CSVs at the report root, and also emits reviewer-friendly CSVs
+  under a per-run `reviewer-<import_run_id>/` subdirectory:
+  `review-summary.csv`, `needs-review-rows.csv`,
+  `non-goat-exclusion-candidates.csv`, `blank-old-tag-suffix.csv`,
+  `blank-gender.csv`, `duplicate-old-tag-same-scope.csv`, and `README.txt`.
+  These files are export-only; `reviewer_action` and `reviewer_notes` are
+  scratch columns and are not ingested by Goat OS. Corrections must go back
+  through the source workbook, or a future approved correction overlay, followed
+  by the normal Shape-2 import/apply flow.
 - Anomaly grouped summaries may read `legacy_import_rows.raw_payload` only
   through the safe source-label whitelist `Tag`, `Breed`, `Gender`, `Farm`,
   `Shed`, and `Partition`, falling back to normalized fields for those same
@@ -326,6 +336,11 @@ Rules:
   for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
   groups are context for a future RFID-only creation policy decision, not a
   Phase 1 apply behavior change.
+- While `species_or_breed_requires_review` is confirmed to be Anantapur Sheep
+  only, those rows belong in `non-goat-exclusion-candidates.csv`; do not emit a
+  duplicate breed/species issue file with the same sheep rows. If future imports
+  contain non-confirmed breed/species labels again, emit
+  `breed/species-needs-classification.csv` for that classification work.
 - The first local post-apply RFID mapping review is captured in
   `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`. Migration
   `000010_phase_1_rfid_plain_status_mappings.sql` implements only the approved

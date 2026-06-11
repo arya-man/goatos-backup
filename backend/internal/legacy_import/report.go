@@ -41,6 +41,13 @@ type AnomalyReportEntry struct {
 	SourceRowKeyRef string
 	RFID            string
 	OldTag          string
+	OldTagRef       string
+	Farm            string
+	Shed            string
+	Partition       string
+	SourceStatus    string
+	SourceBreed     string
+	SourceGender    string
 }
 
 type AnomalyReport struct {
@@ -70,6 +77,7 @@ func BuildAnomalyReport(rows []AnomalyReportInputRow, opts AnomalyReportOptions)
 		raw := safeRawPayloadFields(row.RawPayload, payload)
 		rfid := maskIdentifier(payload.rfid, opts.IncludeSensitive)
 		oldTag := maskIdentifier(payload.oldTag, opts.IncludeSensitive)
+		oldTagRef := scopedIdentifierRef(payload.oldTag, payload.oldTagScope)
 		sourceRef := sourceRowKeyRef(row.SourceRowKey)
 		reasons := rowAnomalyReasons(row.ErrorReason, payload.processingReasons)
 		reasonCodes := make([]string, 0, len(reasons))
@@ -88,6 +96,13 @@ func BuildAnomalyReport(rows []AnomalyReportInputRow, opts AnomalyReportOptions)
 				SourceRowKeyRef: sourceRef,
 				RFID:            rfid,
 				OldTag:          oldTag,
+				OldTagRef:       oldTagRef,
+				Farm:            raw.farm,
+				Shed:            raw.shed,
+				Partition:       raw.partition,
+				SourceStatus:    raw.tag,
+				SourceBreed:     raw.breed,
+				SourceGender:    raw.gender,
 			})
 			report.Summary[reason]++
 			addAnomalyGroup(&report, reason, raw, payload)
@@ -224,30 +239,34 @@ func addAnomalyReason(reasons map[string]string, reason, origin string) {
 	}
 }
 
-func WriteAnomalyReportCSV(outputDir string, opts AnomalyReportOptions, report AnomalyReport) (detailsPath string, summaryPath string, groupsPath string, err error) {
+func WriteAnomalyReportCSV(outputDir string, opts AnomalyReportOptions, report AnomalyReport) (detailsPath string, summaryPath string, groupsPath string, reviewerDir string, err error) {
 	if strings.TrimSpace(outputDir) == "" {
 		outputDir = filepath.Join(".codex-goatos-render", "import-reports")
 	}
 	if strings.TrimSpace(opts.ImportRunID) == "" {
-		return "", "", "", fmt.Errorf("import_run_id is required for anomaly report")
+		return "", "", "", "", fmt.Errorf("import_run_id is required for anomaly report")
 	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	base := safeFilename(opts.ImportRunID)
 	detailsPath = filepath.Join(outputDir, "anomalies-"+base+".csv")
 	summaryPath = filepath.Join(outputDir, "anomaly-summary-"+base+".csv")
 	groupsPath = filepath.Join(outputDir, "anomaly-groups-"+base+".csv")
+	reviewerDir = filepath.Join(outputDir, "reviewer-"+base)
 	if err := writeAnomalyDetails(detailsPath, opts, report.Details); err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	if err := writeAnomalySummary(summaryPath, opts, report.Summary); err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	if err := writeAnomalyGroups(groupsPath, opts, report.Groups); err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
-	return detailsPath, summaryPath, groupsPath, nil
+	if err := writeReviewerCSVPack(reviewerDir, opts, report); err != nil {
+		return "", "", "", "", err
+	}
+	return detailsPath, summaryPath, groupsPath, reviewerDir, nil
 }
 
 func writeAnomalyDetails(path string, opts AnomalyReportOptions, details []AnomalyReportEntry) error {
@@ -361,6 +380,256 @@ func writeAnomalyGroups(path string, opts AnomalyReportOptions, groups []Anomaly
 		}
 	}
 	return writer.Error()
+}
+
+func writeReviewerCSVPack(outputDir string, opts AnomalyReportOptions, report AnomalyReport) error {
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+	if err := writeReviewSummary(filepath.Join(outputDir, "review-summary.csv"), opts, report.Summary); err != nil {
+		return err
+	}
+	focused := []struct {
+		filename string
+		filter   func(AnomalyReportEntry) bool
+	}{
+		{
+			filename: "needs-review-rows.csv",
+			filter: func(AnomalyReportEntry) bool {
+				return true
+			},
+		},
+		{
+			filename: "non-goat-exclusion-candidates.csv",
+			filter: func(entry AnomalyReportEntry) bool {
+				return isNonGoatExclusionCandidate(entry)
+			},
+		},
+		{
+			filename: "blank-old-tag-suffix.csv",
+			filter: func(entry AnomalyReportEntry) bool {
+				return entry.ReasonCode == "blank_old_tag_suffix"
+			},
+		},
+		{
+			filename: "blank-gender.csv",
+			filter: func(entry AnomalyReportEntry) bool {
+				return entry.ReasonCode == "blank_gender" || entry.ReasonCode == "unknown_gender"
+			},
+		},
+		{
+			filename: "duplicate-old-tag-same-scope.csv",
+			filter: func(entry AnomalyReportEntry) bool {
+				return entry.ReasonCode == "duplicate_old_tag_same_scope"
+			},
+		},
+	}
+	for _, item := range focused {
+		if err := writeFocusedReviewRows(filepath.Join(outputDir, item.filename), opts, report.Details, item.filter); err != nil {
+			return err
+		}
+	}
+	classificationRows := filterAnomalyEntries(report.Details, func(entry AnomalyReportEntry) bool {
+		return entry.ReasonCode == "species_or_breed_requires_review" && !isConfirmedNonGoatBreedLabel(entry.SourceBreed)
+	})
+	if len(classificationRows) > 0 {
+		breedDir := filepath.Join(outputDir, "breed")
+		if err := os.MkdirAll(breedDir, 0755); err != nil {
+			return err
+		}
+		if err := writeFocusedReviewRows(filepath.Join(breedDir, "species-needs-classification.csv"), opts, classificationRows, func(AnomalyReportEntry) bool {
+			return true
+		}); err != nil {
+			return err
+		}
+	}
+	return writeReviewerInstructions(filepath.Join(outputDir, "README.txt"), opts)
+}
+
+func writeReviewSummary(path string, opts AnomalyReportOptions, summary map[string]int) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	if err := writer.Write([]string{"source_type", "source_label", "sheet", "import_run_id", "reason_code", "count", "suggested_action", "focused_file"}); err != nil {
+		return err
+	}
+	reasons := make([]string, 0, len(summary))
+	for reason := range summary {
+		reasons = append(reasons, reason)
+	}
+	sort.Strings(reasons)
+	for _, reason := range reasons {
+		if err := writeSafeCSVRow(writer, []string{
+			opts.SourceType,
+			opts.SourceLabel,
+			opts.SheetName,
+			opts.ImportRunID,
+			reason,
+			fmt.Sprint(summary[reason]),
+			suggestedAction(reason),
+			focusedFilename(reason),
+		}); err != nil {
+			return err
+		}
+	}
+	return writer.Error()
+}
+
+func writeFocusedReviewRows(path string, opts AnomalyReportOptions, details []AnomalyReportEntry, filter func(AnomalyReportEntry) bool) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	identifierHeader := "rfid_masked"
+	oldTagHeader := "old_tag_ref"
+	if opts.IncludeSensitive {
+		identifierHeader = "rfid"
+		oldTagHeader = "old_tag"
+	}
+	if err := writer.Write([]string{
+		"source_type",
+		"source_label",
+		"sheet",
+		"import_run_id",
+		"row_number",
+		"processing_state",
+		"reason_code",
+		"reason_origin",
+		"farm",
+		"shed",
+		"partition",
+		"source_status",
+		"source_breed",
+		"source_gender",
+		"source_row_key_ref",
+		identifierHeader,
+		oldTagHeader,
+		"suggested_action",
+		"reviewer_action",
+		"reviewer_notes",
+	}); err != nil {
+		return err
+	}
+	for _, detail := range details {
+		if filter != nil && !filter(detail) {
+			continue
+		}
+		oldTag := detail.OldTagRef
+		if opts.IncludeSensitive {
+			oldTag = detail.OldTag
+		}
+		if err := writeSafeCSVRow(writer, []string{
+			opts.SourceType,
+			opts.SourceLabel,
+			opts.SheetName,
+			opts.ImportRunID,
+			fmt.Sprint(detail.RowNumber),
+			detail.ProcessingState,
+			detail.ReasonCode,
+			detail.ReasonOrigin,
+			detail.Farm,
+			detail.Shed,
+			detail.Partition,
+			detail.SourceStatus,
+			detail.SourceBreed,
+			detail.SourceGender,
+			detail.SourceRowKeyRef,
+			detail.RFID,
+			oldTag,
+			suggestedAction(detail.ReasonCode),
+			"",
+			"",
+		}); err != nil {
+			return err
+		}
+	}
+	return writer.Error()
+}
+
+func writeReviewerInstructions(path string, opts AnomalyReportOptions) error {
+	lines := []string{
+		"RFID import reviewer report",
+		"",
+		"This folder is generated after rfid-apply, so reason codes reflect post-apply review outcomes.",
+		"Existing anomaly detail, reason summary, and grouped summary CSVs are still written for audit and reconciliation.",
+		"",
+		"Reviewer CSVs are export-only. Goat OS does not ingest reviewer_action or reviewer_notes yet.",
+		"Apply corrections in the source workbook, or in a future approved correction overlay, then rerun the normal Shape-2 import/apply flow.",
+		"",
+		"Default CSVs mask RFID and hash old-tag/source-row references. Internal cleanup usually needs --include-sensitive.",
+		"Never commit generated reports or private source data.",
+		"",
+		"non-goat-exclusion-candidates.csv contains confirmed non-goat labels such as Anantapur Sheep; confirm exclusion and do not create goats.",
+		"blank-old-tag-suffix.csv is for source correction or a future RFID-only creation policy decision.",
+		"blank-gender.csv is for source correction or an explicit reviewed sex policy.",
+		"duplicate-old-tag-same-scope.csv is for source correction, conflict review, or merge review.",
+	}
+	if opts.IncludeSensitive {
+		lines = append(lines, "", "Sensitive mode was used for this report; keep these files local-only.")
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+}
+
+func filterAnomalyEntries(details []AnomalyReportEntry, filter func(AnomalyReportEntry) bool) []AnomalyReportEntry {
+	out := []AnomalyReportEntry{}
+	for _, detail := range details {
+		if filter(detail) {
+			out = append(out, detail)
+		}
+	}
+	return out
+}
+
+func isNonGoatExclusionCandidate(entry AnomalyReportEntry) bool {
+	return entry.ReasonCode == "species_or_breed_requires_review" && isConfirmedNonGoatBreedLabel(entry.SourceBreed)
+}
+
+func isConfirmedNonGoatBreedLabel(label string) bool {
+	switch strings.ToLower(strings.Join(strings.Fields(label), " ")) {
+	case "anantapur sheep":
+		return true
+	default:
+		return false
+	}
+}
+
+func focusedFilename(reason string) string {
+	switch reason {
+	case "species_or_breed_requires_review":
+		return "non-goat-exclusion-candidates.csv or breed/species-needs-classification.csv"
+	case "blank_old_tag_suffix":
+		return "blank-old-tag-suffix.csv"
+	case "blank_gender", "unknown_gender":
+		return "blank-gender.csv"
+	case "duplicate_old_tag_same_scope":
+		return "duplicate-old-tag-same-scope.csv"
+	default:
+		return "needs-review-rows.csv"
+	}
+}
+
+func suggestedAction(reason string) string {
+	switch reason {
+	case "species_or_breed_requires_review":
+		return "If source_breed is Anantapur Sheep, confirm non-goat exclusion and do not create goat; otherwise classify goat breed/species before import."
+	case "blank_old_tag_suffix":
+		return "Choose future RFID-only creation policy or correct source old-tag suffix before import."
+	case "blank_gender":
+		return "Correct source gender or apply an explicit reviewed sex policy before import."
+	case "unknown_gender":
+		return "Correct source gender label or approve a reviewed sex mapping before import."
+	case "duplicate_old_tag_same_scope":
+		return "Correct source old tag or complete conflict/merge review before import."
+	default:
+		return "Review source data, correct upstream, and rerun import/apply."
+	}
 }
 
 func writeSafeCSVRow(writer *csv.Writer, fields []string) error {
