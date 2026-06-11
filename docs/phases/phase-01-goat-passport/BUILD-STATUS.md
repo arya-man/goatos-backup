@@ -36,6 +36,7 @@ backend/migrations/postgres/000008_phase_1_reporting_counts_pagination.sql
 backend/migrations/postgres/000009_phase_1_reporting_incremental_counters.sql
 backend/migrations/postgres/000010_phase_1_rfid_plain_status_mappings.sql
 backend/migrations/postgres/000011_phase_1_rfid_breed_cross_mappings.sql
+backend/migrations/postgres/000012_phase_1_rfid_blank_suffix_apply_candidates.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -255,8 +256,14 @@ parses .xlsx rows as raw text, normalizes RFID/old tag/scope/status evidence,
 and stages legacy_import_runs plus legacy_import_rows only.
 
 RFID apply runner reads completed non-dry-run staging runs and creates canonical
-goats only for safe pending rows. It writes identity_decisions, goats,
-goat_identifiers, ownership, custody history, goat_identity_events,
+goats only for safe rows. By default it uses the original pending-only apply
+path. With explicit `--allow-rfid-only-blank-suffix`, it also scans candidate
+rows whose staged review evidence contains `blank_old_tag_suffix`; Go re-locks
+each row and only applies rows whose complete reason set is exactly
+`blank_old_tag_suffix`. Successful rows create the goat plus primary RFID,
+create no old_tag identifier, and preserve unresolved old-tag source evidence
+on the import row and decision/audit trail. It writes identity_decisions,
+goats, goat_identifiers, ownership, custody history, goat_identity_events,
 identity_decision_* join rows, audit_log, outbox_messages, idempotency
 completion, and legacy row/run state in one transaction per applied row.
 ```
@@ -510,6 +517,8 @@ RFID source-of-truth staging:
   duplicate old_tag within the same normalized park/scope routes affected rows
   to needs_review; the same old_tag in different scopes remains allowed
   blank Old ID Suffix, blank Gender, and RFID-less rows route to needs_review
+  during staging; only the explicit RFID apply flag can later process rows
+  whose complete reason set is exactly blank_old_tag_suffix
   F2/F2-Male/F2-Female/Fattening map only to growth/status context; sex comes
   only from the Gender column
   staging does not mutate goats, goat_identifiers, goat_identity_events,
@@ -543,8 +552,8 @@ RFID source-of-truth staging:
   grouped CSV cells are spreadsheet-formula safe; duplicate old-tag groups use
   stable non-reversible old-tag/scope refs instead of raw values or short masks
   species_or_breed_requires_review groups are for human alias-vs-exclusion
-  decisions, not auto-aliasing; blank_old_tag_suffix groups support a future
-  RFID-only creation policy decision and do not change Phase 1 apply behavior
+  decisions, not auto-aliasing; blank_old_tag_suffix groups support the
+  opt-in RFID-only creation policy and do not imply suffix derivation
   docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md captures the
   local post-apply mapping review. Migration 000010 implements only the
   approved plain F2/K2 status mappings. The follow-up local rerun cleared
@@ -559,10 +568,17 @@ RFID source-of-truth staging:
   breed/species semantics. Confirmed non-goat rows should not stay forever in
   an actionable review queue; a later review-ops/apply-semantics slice should
   decide terminal rejected disposition versus earlier source classification.
-  blank_old_tag_suffix policy review recommends guarded RFID-only creation
-  without old_tag identifier creation: maximum possible additional goats is 435,
-  but current CSV evidence estimates 27 immediate additional goats before DB
-  conflict checks, with 408 likely still routing to existing review buckets.
+  blank_old_tag_suffix policy review recommended guarded RFID-only creation
+  without old_tag identifier creation. Migration 000012 adds the supporting
+  apply-candidate index and `rfid-apply --allow-rfid-only-blank-suffix`
+  implements it behind an explicit flag. Maximum possible additional goats is
+  435. The implementation dry-run and real local rehearsal both produced 711
+  created goats total, 275 above the post-000011 baseline of 436, with
+  needs_review 512 and error 0. Remaining open-review reason occurrences are
+  species_or_breed_requires_review 504, blank_old_tag_suffix 160,
+  blank_gender 4, and duplicate_old_tag_same_scope 4; reason counts are
+  occurrences because the 160 remaining blank-suffix rows also fail the
+  breed/species gate.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
@@ -715,10 +731,9 @@ externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
-implementation of the approved guarded blank_old_tag_suffix RFID-only creation
-policy with dry-run first; source cleanup or reviewed policy for blank_gender
-plus duplicate same-scope old_tag rows; and optional earlier source
-classification for Anantapur Sheep while keeping it out of goat creation;
+source cleanup or reviewed policy for blank_gender plus duplicate same-scope
+old_tag rows; optional earlier source classification for Anantapur Sheep while
+keeping it out of goat creation;
 terminal rejected disposition for confirmed non-goat rows so actionable review
 queues do not carry permanent non-goat noise
 P8 sales/allocation/promise behavior

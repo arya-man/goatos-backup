@@ -132,6 +132,22 @@ go run ./cmd/rfid-apply \
   --actor-id <actor_uuid>
 ```
 
+After the guarded blank old-tag suffix policy is approved for a local run, use
+the explicit opt-in flag:
+
+```bash
+go run ./cmd/rfid-apply \
+  --tenant-id <tenant_uuid> \
+  --import-run-id <import_run_id> \
+  --actor-id <actor_uuid> \
+  --allow-rfid-only-blank-suffix
+```
+
+Default apply remains pending-only. The opt-in path creates RFID-only goats only
+when `blank_old_tag_suffix` is the row's complete staged reason set and all
+apply-time gates pass; it creates no `old_tag` identifier and does not derive a
+scope from Farm/Shed/Partition.
+
 ## Final Review Report
 
 Write the final sanitized local review report after `rfid-apply`:
@@ -170,10 +186,11 @@ confirmed as non-goat exclusions, not created as goats. The tool does not emit a
 duplicate breed/species issue file for those sheep rows. If a future import has a
 breed/species review label that is not a confirmed non-goat label, the tool emits
 `breed/species-needs-classification.csv` for that classification work.
-`blank_old_tag_suffix` rows show safe Farm/Shed/Partition context; RFID-only goat
-creation for those rows is a future policy decision, not part of this rehearsal
-slice. `blank_gender` and `duplicate_old_tag_same_scope` rows remain source
-correction or explicit reviewed-policy work.
+`blank_old_tag_suffix` rows show safe Farm/Shed/Partition context. RFID-only goat
+creation for those rows is available only through the explicit
+`rfid-apply --allow-rfid-only-blank-suffix` flag after a dry-run confirms the
+redistribution. `blank_gender` and `duplicate_old_tag_same_scope` rows remain
+source correction or explicit reviewed-policy work.
 
 The reviewer CSVs are export-only. `reviewer_action` and `reviewer_notes` are
 scratch columns for the data team; Goat OS does not ingest edited review CSVs

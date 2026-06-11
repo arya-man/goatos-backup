@@ -27,6 +27,8 @@ const (
 	rfidApplyEventSchemaRef = "contracts/jsonschema/domain-event-envelope.schema.json"
 	rfidApplySchemaVersion  = "1.0.0"
 	rfidApplyTopic          = "identity.events"
+
+	blankOldTagSuffixReason = "blank_old_tag_suffix"
 )
 
 type pendingApplyRow struct {
@@ -40,6 +42,7 @@ type pendingApplyRow struct {
 	RawPayload           []byte
 	NormalizedPayload    []byte
 	ProcessingState      string
+	ErrorReason          pgtype.Text
 }
 
 type applyPlan struct {
@@ -131,29 +134,33 @@ func (r *Repository) ApplyRFIDRows(ctx context.Context, cmd legacy_import.ApplyC
 	var cursorRow pgtype.Int4
 	var cursorID pgtype.UUID
 	for {
-		rows, err := r.queries.ListPendingLegacyImportRowsForApply(ctx, importdb.ListPendingLegacyImportRowsForApplyParams{
-			TenantID:          tenantUUID,
-			ImportRunID:       runUUID,
-			CursorRowNumber:   cursorRow,
-			CursorLegacyRowID: cursorID,
-			LimitCount:        int32(cmd.BatchSize),
-		})
+		rows, err := r.listRFIDApplyRows(ctx, tenantUUID, runUUID, cursorRow, cursorID, int32(cmd.BatchSize), cmd.AllowRFIDOnlyBlankSuffix)
 		if err != nil {
 			return nil, err
 		}
 		if len(rows) == 0 {
 			break
 		}
-		for _, row := range rows {
-			applyRow := pendingRowFromList(row)
+		for _, applyRow := range rows {
 			result.PendingScanned++
-			cursorRow = pgtype.Int4{Int32: row.RowNumber, Valid: true}
-			if err := cursorID.Scan(row.LegacyRowID); err != nil {
+			cursorRow = pgtype.Int4{Int32: applyRow.RowNumber, Valid: true}
+			if err := cursorID.Scan(applyRow.LegacyRowID); err != nil {
 				return nil, err
 			}
 
 			if cmd.DryRun {
-				plan, reason, err := r.evaluatePendingApplyRow(ctx, r.queries, tenantUUID, policy, applyRow)
+				mode := classifyApplyCandidate(applyRow, cmd.AllowRFIDOnlyBlankSuffix)
+				if mode == applyCandidateIneligible {
+					reason := firstApplyReason(applyReasonSet(applyRow))
+					if reason != "" {
+						result.ReviewCount++
+						result.ReviewReasons[reason]++
+					} else {
+						result.SkippedCount++
+					}
+					continue
+				}
+				plan, reason, err := r.evaluatePendingApplyRow(ctx, r.queries, tenantUUID, policy, applyRow, mode == applyCandidateRFIDOnlyBlankSuffix)
 				if err != nil {
 					return nil, err
 				}
@@ -204,6 +211,41 @@ func (r *Repository) ApplyRFIDRows(ctx context.Context, cmd legacy_import.ApplyC
 	}
 	sort.Strings(result.CreatedGoatIDs)
 	return result, nil
+}
+
+func (r *Repository) listRFIDApplyRows(ctx context.Context, tenantUUID, runUUID pgtype.UUID, cursorRow pgtype.Int4, cursorID pgtype.UUID, limit int32, includeBlankSuffixCandidates bool) ([]pendingApplyRow, error) {
+	if includeBlankSuffixCandidates {
+		rows, err := r.queries.ListRFIDApplyCandidateRowsForBlankSuffixPolicy(ctx, importdb.ListRFIDApplyCandidateRowsForBlankSuffixPolicyParams{
+			TenantID:          tenantUUID,
+			ImportRunID:       runUUID,
+			CursorRowNumber:   cursorRow,
+			CursorLegacyRowID: cursorID,
+			LimitCount:        limit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out := make([]pendingApplyRow, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, pendingRowFromBlankSuffixPolicyList(row))
+		}
+		return out, nil
+	}
+	rows, err := r.queries.ListPendingLegacyImportRowsForApply(ctx, importdb.ListPendingLegacyImportRowsForApplyParams{
+		TenantID:          tenantUUID,
+		ImportRunID:       runUUID,
+		CursorRowNumber:   cursorRow,
+		CursorLegacyRowID: cursorID,
+		LimitCount:        limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pendingApplyRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, pendingRowFromList(row))
+	}
+	return out, nil
 }
 
 func (r *Repository) resolveMeshaParty(ctx context.Context) (string, error) {
@@ -284,7 +326,8 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 		return applyOutcome{}, err
 	}
 	row := pendingRowFromLock(locked)
-	if row.ProcessingState != legacy_import.StatePending {
+	mode := classifyApplyCandidate(row, cmd.AllowRFIDOnlyBlankSuffix)
+	if mode == applyCandidateIneligible {
 		return applyOutcome{}, nil
 	}
 
@@ -322,7 +365,7 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 		return applyOutcome{}, err
 	}
 
-	plan, reviewReason, err := r.evaluatePendingApplyRow(ctx, qtx, tenantUUID, policy, row)
+	plan, reviewReason, err := r.evaluatePendingApplyRow(ctx, qtx, tenantUUID, policy, row, mode == applyCandidateRFIDOnlyBlankSuffix)
 	if err != nil {
 		return applyOutcome{}, err
 	}
@@ -689,8 +732,8 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 	return applyOutcome{applied: true, goatID: goatRow.GoatID}, nil
 }
 
-func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Queries, tenantUUID pgtype.UUID, policy legacy_import.Policy, row pendingApplyRow) (applyPlan, string, error) {
-	if row.ProcessingState != legacy_import.StatePending {
+func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Queries, tenantUUID pgtype.UUID, policy legacy_import.Policy, row pendingApplyRow, allowRFIDOnlyBlankSuffix bool) (applyPlan, string, error) {
+	if row.ProcessingState != legacy_import.StatePending && !(allowRFIDOnlyBlankSuffix && row.ProcessingState == legacy_import.StateNeedsReview) {
 		return applyPlan{}, "", nil
 	}
 	if changed, err := q.HasLegacyImportRowWithDifferentHash(ctx, importdb.HasLegacyImportRowWithDifferentHashParams{
@@ -709,7 +752,7 @@ func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Qu
 	if err := json.Unmarshal(row.NormalizedPayload, &payload); err != nil {
 		return applyPlan{}, "", fmt.Errorf("decode normalized payload: %w", err)
 	}
-	if reasons := stringSlice(payload["processing_reasons"]); len(reasons) > 0 {
+	if reasons := stringSlice(payload["processing_reasons"]); len(reasons) > 0 && !(allowRFIDOnlyBlankSuffix && stringSliceOnlyReason(reasons, blankOldTagSuffixReason)) {
 		return applyPlan{}, "normalized_payload_has_review_reasons", nil
 	}
 	rfid := strings.TrimSpace(stringValue(payload["rfid"]))
@@ -734,6 +777,9 @@ func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Qu
 		AgeBand:         optionalString(payload["age"]),
 		LifecycleStatus: "alive",
 		Reason:          "Imported from approved Phase 1 RFID DB staging row.",
+	}
+	if allowRFIDOnlyBlankSuffix {
+		plan.Reason = "Imported from approved Phase 1 RFID DB staging row with unresolved old-tag suffix; RFID-only policy applied."
 	}
 
 	tag := strings.TrimSpace(stringValue(payload["tag"]))
@@ -840,6 +886,23 @@ func pendingRowFromList(row importdb.ListPendingLegacyImportRowsForApplyRow) pen
 		RawPayload:           row.RawPayload,
 		NormalizedPayload:    row.NormalizedPayload,
 		ProcessingState:      row.ProcessingState,
+		ErrorReason:          row.ErrorReason,
+	}
+}
+
+func pendingRowFromBlankSuffixPolicyList(row importdb.ListRFIDApplyCandidateRowsForBlankSuffixPolicyRow) pendingApplyRow {
+	return pendingApplyRow{
+		LegacyRowID:          row.LegacyRowID,
+		RowNumber:            row.RowNumber,
+		SourceSystem:         row.SourceSystem,
+		SourceDataset:        row.SourceDataset,
+		SourceRecordID:       row.SourceRecordID,
+		SourceRowKey:         row.SourceRowKey,
+		SourceRowVersionHash: row.SourceRowVersionHash,
+		RawPayload:           row.RawPayload,
+		NormalizedPayload:    row.NormalizedPayload,
+		ProcessingState:      row.ProcessingState,
+		ErrorReason:          row.ErrorReason,
 	}
 }
 
@@ -855,7 +918,85 @@ func pendingRowFromLock(row importdb.LockLegacyImportRowForApplyRow) pendingAppl
 		RawPayload:           row.RawPayload,
 		NormalizedPayload:    row.NormalizedPayload,
 		ProcessingState:      row.ProcessingState,
+		ErrorReason:          row.ErrorReason,
 	}
+}
+
+type applyCandidateMode int
+
+const (
+	applyCandidateIneligible applyCandidateMode = iota
+	applyCandidatePending
+	applyCandidateRFIDOnlyBlankSuffix
+)
+
+func classifyApplyCandidate(row pendingApplyRow, allowRFIDOnlyBlankSuffix bool) applyCandidateMode {
+	switch row.ProcessingState {
+	case legacy_import.StatePending:
+		return applyCandidatePending
+	case legacy_import.StateNeedsReview:
+		if allowRFIDOnlyBlankSuffix && reasonSetOnly(applyReasonSet(row), blankOldTagSuffixReason) {
+			return applyCandidateRFIDOnlyBlankSuffix
+		}
+		return applyCandidateIneligible
+	default:
+		return applyCandidateIneligible
+	}
+}
+
+func applyReasonSet(row pendingApplyRow) map[string]struct{} {
+	reasons := map[string]struct{}{}
+	if row.ErrorReason.Valid {
+		addApplyReason(reasons, row.ErrorReason.String)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(row.NormalizedPayload, &payload); err == nil {
+		for _, reason := range stringSlice(payload["processing_reasons"]) {
+			addApplyReason(reasons, reason)
+		}
+	}
+	return reasons
+}
+
+func addApplyReason(reasons map[string]struct{}, reason string) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return
+	}
+	for _, part := range strings.FieldsFunc(reason, func(r rune) bool { return r == ',' || r == ';' }) {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			reasons[part] = struct{}{}
+		}
+	}
+}
+
+func reasonSetOnly(reasons map[string]struct{}, expected string) bool {
+	if len(reasons) != 1 {
+		return false
+	}
+	_, ok := reasons[expected]
+	return ok
+}
+
+func firstApplyReason(reasons map[string]struct{}) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	values := make([]string, 0, len(reasons))
+	for reason := range reasons {
+		values = append(values, reason)
+	}
+	sort.Strings(values)
+	return values[0]
+}
+
+func stringSliceOnlyReason(reasons []string, expected string) bool {
+	set := map[string]struct{}{}
+	for _, reason := range reasons {
+		addApplyReason(set, reason)
+	}
+	return reasonSetOnly(set, expected)
 }
 
 func stableApplyIdempotencyKey(tenantID, sourceSystem, sourceDataset, sourceRowKey, sourceRowVersionHash string) string {

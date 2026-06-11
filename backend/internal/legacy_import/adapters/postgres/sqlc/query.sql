@@ -65,5 +65,37 @@ WHERE tenant_id = @tenant_id
     sqlc.narg('cursor_row_number')::int IS NULL
     OR (row_number, legacy_row_id) > (sqlc.narg('cursor_row_number')::int, sqlc.narg('cursor_legacy_row_id')::uuid)
   )
-ORDER BY row_number, legacy_row_id
+ORDER BY row_number, legacy_import_rows.legacy_row_id
+LIMIT @limit_count;
+
+-- name: ListRFIDApplyCandidateRowsForBlankSuffixPolicy :many
+SELECT
+  legacy_row_id::text AS legacy_row_id,
+  row_number,
+  source_system,
+  source_dataset,
+  source_record_id,
+  source_row_key,
+  source_key_recipe_version,
+  source_row_version_hash,
+  hash_recipe_version,
+  raw_payload,
+  normalized_payload,
+  processing_state,
+  error_reason
+FROM legacy_import_rows
+WHERE tenant_id = @tenant_id
+  AND import_run_id = @import_run_id
+  AND (
+    processing_state = 'pending'
+    OR (
+      processing_state = 'needs_review'
+      AND normalized_payload @> '{"processing_reasons":["blank_old_tag_suffix"]}'::jsonb
+    )
+  )
+  AND (
+    sqlc.narg('cursor_row_number')::int IS NULL
+    OR (row_number, legacy_row_id) > (sqlc.narg('cursor_row_number')::int, sqlc.narg('cursor_legacy_row_id')::uuid)
+  )
+ORDER BY row_number, legacy_import_rows.legacy_row_id
 LIMIT @limit_count;

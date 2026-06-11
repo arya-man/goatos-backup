@@ -286,6 +286,146 @@ WHERE import_run_id = $1`, runID); err != nil {
 		}
 	})
 
+	t.Run("blank old tag suffix requires opt in and creates RFID-only goat", func(t *testing.T) {
+		const rfid = "9900000000000000000000009120001"
+		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
+			RowNumber: 2,
+			Raw:       rawRFIDRow("RFIDONLYBLANK", "", rfid, "Female", "Boer", "Fattening"),
+		}})
+		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "blank_old_tag_suffix")
+		beforeGoats := countRows(t, pool, `SELECT count(*) FROM goats`)
+
+		blocked, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:    meshaTenant,
+			ImportRunID: runID,
+			BatchSize:   1,
+			ActorID:     strPtr(applyActorID),
+		})
+		if err != nil {
+			t.Fatalf("apply without blank suffix opt-in: %v", err)
+		}
+		if blocked.PendingScanned != 0 || blocked.AppliedCount != 0 || blocked.ReviewCount != 0 {
+			t.Fatalf("unexpected non-opt-in result: %#v", blocked)
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "blank_old_tag_suffix")
+		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
+			t.Fatalf("non-opt-in apply mutated goats: before=%d after=%d", beforeGoats, got)
+		}
+
+		var rawBefore, normalizedBefore []byte
+		if err := pool.QueryRow(ctx, `
+SELECT raw_payload, normalized_payload
+FROM legacy_import_rows
+WHERE legacy_row_id = $1`, rowID).Scan(&rawBefore, &normalizedBefore); err != nil {
+			t.Fatal(err)
+		}
+		dryRun, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:                 meshaTenant,
+			ImportRunID:              runID,
+			DryRun:                   true,
+			BatchSize:                1,
+			ActorID:                  strPtr(applyActorID),
+			AllowRFIDOnlyBlankSuffix: true,
+		})
+		if err != nil {
+			t.Fatalf("dry-run with blank suffix opt-in: %v", err)
+		}
+		if dryRun.PendingScanned != 1 || dryRun.AppliedCount != 1 || dryRun.ReviewCount != 0 {
+			t.Fatalf("unexpected blank suffix dry-run result: %#v", dryRun)
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "blank_old_tag_suffix")
+		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
+			t.Fatalf("blank suffix dry-run mutated goats: before=%d after=%d", beforeGoats, got)
+		}
+
+		applied, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:                 meshaTenant,
+			ImportRunID:              runID,
+			BatchSize:                1,
+			ActorID:                  strPtr(applyActorID),
+			AllowRFIDOnlyBlankSuffix: true,
+		})
+		if err != nil {
+			t.Fatalf("apply with blank suffix opt-in: %v", err)
+		}
+		if applied.AppliedCount != 1 || applied.ReviewCount != 0 || len(applied.CreatedGoatIDs) != 1 {
+			t.Fatalf("unexpected blank suffix apply result: %#v", applied)
+		}
+		goatID := applied.CreatedGoatIDs[0]
+		assertRowState(t, pool, runID, 2, legacy_import.StateCreatedGoat, "")
+		if got := countRows(t, pool, `SELECT count(*) FROM legacy_import_rows WHERE legacy_row_id = $1 AND matched_goat_id = $2`, rowID, goatID); got != 1 {
+			t.Fatalf("matched_goat_id rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND identifier_type = 'rfid' AND normalized_value = $2 AND scope_key = 'global' AND status = 'active' AND is_primary_for_goat`, goatID, rfid); got != 1 {
+			t.Fatalf("rfid-only goat RFID identifiers=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND identifier_type = 'old_tag'`, goatID); got != 0 {
+			t.Fatalf("rfid-only goat old_tag identifiers=%d, want 0", got)
+		}
+		var rawAfter, normalizedAfter []byte
+		if err := pool.QueryRow(ctx, `
+SELECT raw_payload, normalized_payload
+FROM legacy_import_rows
+WHERE legacy_row_id = $1`, rowID).Scan(&rawAfter, &normalizedAfter); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(rawBefore, rawAfter) || !bytes.Equal(normalizedBefore, normalizedAfter) {
+			t.Fatalf("blank suffix apply modified source evidence")
+		}
+		decisionPayload := queryBytes(t, pool, `
+SELECT d.evidence->'decision_record'
+FROM identity_decisions d
+JOIN identity_decision_goats dg ON dg.tenant_id = d.tenant_id AND dg.decision_id = d.decision_id
+WHERE dg.goat_id = $1`, goatID)
+		var decisionRecord map[string]any
+		if err := json.Unmarshal(decisionPayload, &decisionRecord); err != nil {
+			t.Fatal(err)
+		}
+		identifierActions := decisionRecord["identifier_actions"].([]any)
+		if len(identifierActions) != 1 || identifierActions[0].(map[string]any)["identifier_type"] != "rfid" {
+			t.Fatalf("blank suffix decision identifier_actions=%#v, want RFID-only attach", identifierActions)
+		}
+		reportRows, err := repo.ListAnomalyReportRows(ctx, meshaTenant, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(reportRows) != 0 {
+			t.Fatalf("created blank suffix row still appears in anomaly report: %#v", reportRows)
+		}
+
+		if _, err := pool.Exec(ctx, `
+UPDATE legacy_import_rows
+SET processing_state = 'needs_review', matched_goat_id = NULL, error_reason = NULL
+WHERE legacy_row_id = $1`, rowID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `
+UPDATE legacy_import_runs
+SET created_goat_count = 0
+WHERE import_run_id = $1`, runID); err != nil {
+			t.Fatal(err)
+		}
+		replay, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:                 meshaTenant,
+			ImportRunID:              runID,
+			BatchSize:                1,
+			ActorID:                  strPtr(applyActorID),
+			AllowRFIDOnlyBlankSuffix: true,
+		})
+		if err != nil {
+			t.Fatalf("blank suffix replay: %v", err)
+		}
+		if replay.ReplayCount != 1 || replay.AppliedCount != 0 {
+			t.Fatalf("unexpected blank suffix replay result: %#v", replay)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goats WHERE goat_id = $1`, goatID); got != 1 {
+			t.Fatalf("goat rows after blank suffix replay=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT created_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 1 {
+			t.Fatalf("created_goat_count after blank suffix replay=%d, want 1", got)
+		}
+	})
+
 	t.Run("deterministic row failure marks sanitized error and continues applying later rows", func(t *testing.T) {
 		const failingRFID = "9900000000000000000000009150001"
 		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
@@ -442,6 +582,41 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		}
 		assertRowState(t, pool, runID, 2, legacy_import.StatePending, "")
 		assertRowState(t, pool, runID, 3, legacy_import.StatePending, "")
+	})
+
+	t.Run("blank suffix opt in keeps mixed reasons and downstream gates in review", func(t *testing.T) {
+		insertApplyBaselineGoat(t, pool, "BLANKRFIDBASE", "park:CBE", "9900000000000000000000009250004")
+		runID, _ := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{
+			{RowNumber: 2, Raw: rawRFIDRow("BLANKEXTRA", "", "9900000000000000000000009250001", "", "Boer", "Fattening")},
+			{RowNumber: 3, Raw: rawRFIDRow("BLANKSTATUS", "", "9900000000000000000000009250002", "Female", "Boer", "Mystery")},
+			{RowNumber: 4, Raw: rawRFIDRow("BLANKSHEEP", "", "9900000000000000000000009250003", "Female", "Anantapur Sheep", "Fattening")},
+			{RowNumber: 5, Raw: rawRFIDRow("BLANKRFID", "", "9900000000000000000000009250004", "Female", "Boer", "Fattening")},
+			{RowNumber: 6, Raw: rawRFIDRow("BLANKCLEAN", "CBE", "9900000000000000000000009250005", "Female", "Boer", "Fattening")},
+		})
+		result, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:                 meshaTenant,
+			ImportRunID:              runID,
+			BatchSize:                2,
+			ActorID:                  strPtr(applyActorID),
+			AllowRFIDOnlyBlankSuffix: true,
+		})
+		if err != nil {
+			t.Fatalf("blank suffix guarded apply: %v", err)
+		}
+		if result.PendingScanned != 5 || result.AppliedCount != 1 || result.ReviewCount != 3 || result.SkippedCount != 1 {
+			t.Fatalf("unexpected guarded blank suffix result: %#v", result)
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "blank_gender")
+		assertRowState(t, pool, runID, 3, legacy_import.StateNeedsReview, "unknown_status_mapping")
+		assertRowState(t, pool, runID, 4, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
+		assertRowState(t, pool, runID, 5, legacy_import.StateNeedsReview, "rfid_already_linked")
+		assertRowState(t, pool, runID, 6, legacy_import.StateCreatedGoat, "")
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE normalized_value = 'BLANKEXTRA' OR normalized_value = 'BLANKSTATUS' OR normalized_value = 'BLANKSHEEP' OR normalized_value = 'BLANKRFID'`); got != 0 {
+			t.Fatalf("guarded blank suffix review rows created old_tag identifiers=%d, want 0", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE normalized_value = 'BLANKCLEAN' AND scope_key = 'park:CBE' AND status = 'active'`); got != 1 {
+			t.Fatalf("normal pending old_tag identifiers=%d, want 1", got)
+		}
 	})
 
 	t.Run("unsafe rows route to review and old tag different scope still applies", func(t *testing.T) {

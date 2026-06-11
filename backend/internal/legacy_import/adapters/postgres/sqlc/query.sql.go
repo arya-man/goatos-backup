@@ -171,7 +171,7 @@ WHERE tenant_id = $1
     $3::int IS NULL
     OR (row_number, legacy_row_id) > ($3::int, $4::uuid)
   )
-ORDER BY row_number, legacy_row_id
+ORDER BY row_number, legacy_import_rows.legacy_row_id
 LIMIT $5
 `
 
@@ -214,6 +214,103 @@ func (q *Queries) ListPendingLegacyImportRowsForApply(ctx context.Context, arg L
 	var items []ListPendingLegacyImportRowsForApplyRow
 	for rows.Next() {
 		var i ListPendingLegacyImportRowsForApplyRow
+		if err := rows.Scan(
+			&i.LegacyRowID,
+			&i.RowNumber,
+			&i.SourceSystem,
+			&i.SourceDataset,
+			&i.SourceRecordID,
+			&i.SourceRowKey,
+			&i.SourceKeyRecipeVersion,
+			&i.SourceRowVersionHash,
+			&i.HashRecipeVersion,
+			&i.RawPayload,
+			&i.NormalizedPayload,
+			&i.ProcessingState,
+			&i.ErrorReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRFIDApplyCandidateRowsForBlankSuffixPolicy = `-- name: ListRFIDApplyCandidateRowsForBlankSuffixPolicy :many
+SELECT
+  legacy_row_id::text AS legacy_row_id,
+  row_number,
+  source_system,
+  source_dataset,
+  source_record_id,
+  source_row_key,
+  source_key_recipe_version,
+  source_row_version_hash,
+  hash_recipe_version,
+  raw_payload,
+  normalized_payload,
+  processing_state,
+  error_reason
+FROM legacy_import_rows
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND (
+    processing_state = 'pending'
+    OR (
+      processing_state = 'needs_review'
+      AND normalized_payload @> '{"processing_reasons":["blank_old_tag_suffix"]}'::jsonb
+    )
+  )
+  AND (
+    $3::int IS NULL
+    OR (row_number, legacy_row_id) > ($3::int, $4::uuid)
+  )
+ORDER BY row_number, legacy_import_rows.legacy_row_id
+LIMIT $5
+`
+
+type ListRFIDApplyCandidateRowsForBlankSuffixPolicyParams struct {
+	TenantID          pgtype.UUID
+	ImportRunID       pgtype.UUID
+	CursorRowNumber   pgtype.Int4
+	CursorLegacyRowID pgtype.UUID
+	LimitCount        int32
+}
+
+type ListRFIDApplyCandidateRowsForBlankSuffixPolicyRow struct {
+	LegacyRowID            string
+	RowNumber              int32
+	SourceSystem           string
+	SourceDataset          string
+	SourceRecordID         pgtype.Text
+	SourceRowKey           string
+	SourceKeyRecipeVersion string
+	SourceRowVersionHash   string
+	HashRecipeVersion      string
+	RawPayload             []byte
+	NormalizedPayload      []byte
+	ProcessingState        string
+	ErrorReason            pgtype.Text
+}
+
+func (q *Queries) ListRFIDApplyCandidateRowsForBlankSuffixPolicy(ctx context.Context, arg ListRFIDApplyCandidateRowsForBlankSuffixPolicyParams) ([]ListRFIDApplyCandidateRowsForBlankSuffixPolicyRow, error) {
+	rows, err := q.db.Query(ctx, listRFIDApplyCandidateRowsForBlankSuffixPolicy,
+		arg.TenantID,
+		arg.ImportRunID,
+		arg.CursorRowNumber,
+		arg.CursorLegacyRowID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRFIDApplyCandidateRowsForBlankSuffixPolicyRow
+	for rows.Next() {
+		var i ListRFIDApplyCandidateRowsForBlankSuffixPolicyRow
 		if err := rows.Scan(
 			&i.LegacyRowID,
 			&i.RowNumber,

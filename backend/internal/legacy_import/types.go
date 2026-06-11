@@ -59,12 +59,13 @@ type SourceDiscoveryResult struct {
 }
 
 type ApplyCommand struct {
-	TenantID      string
-	ImportRunID   string
-	DryRun        bool
-	BatchSize     int
-	ActorID       *string
-	PolicyVersion string
+	TenantID                 string
+	ImportRunID              string
+	DryRun                   bool
+	BatchSize                int
+	ActorID                  *string
+	PolicyVersion            string
+	AllowRFIDOnlyBlankSuffix bool
 }
 
 type ApplyResult struct {

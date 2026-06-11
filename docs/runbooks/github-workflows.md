@@ -258,6 +258,7 @@ sqlc-check failed
 validate-sqlc-plans failed
   query no longer uses expected index
   new sqlc query lacks plan expectation
+  hot apply/read query introduced an avoidable Sort
 
 validate-migrations failed
   migration does not apply cleanly

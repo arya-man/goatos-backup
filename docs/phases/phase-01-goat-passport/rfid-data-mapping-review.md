@@ -1,13 +1,14 @@
 # RFID Data Mapping Review
 
 Status: reviewed from local post-apply anomaly reports; approved plain
-`F2`/`K2` status mappings are implemented by migration `000010`, and approved
-Sirohi plus goat-cross breed mappings are implemented by migration `000011`.
+`F2`/`K2` status mappings are implemented by migration `000010`, approved
+Sirohi plus goat-cross breed mappings are implemented by migration `000011`,
+and guarded RFID-only blank-suffix apply is implemented by migration `000012`
+plus `rfid-apply --allow-rfid-only-blank-suffix`.
 
 This report summarizes the first real Shape-2 RFID data rehearsal after
 staging, apply, and final anomaly-report generation, then records local reruns
-after the approved status and breed/species mapping migrations. No canonical
-import/apply behavior changed.
+after the approved status, breed/species, and blank-suffix policy migrations.
 
 Safety scope:
 
@@ -240,14 +241,45 @@ Policy options:
 | C | Require source cleanup before import. | Highest old-tag fidelity, but slow/manual and blocks 36% of the workbook. |
 | C-lite | Derive suffix from Farm/Shed/Partition only when provably one-to-one. | Rejected for this workbook because Partition and Shed are not one-to-one with suffix context. |
 
-Recommendation: choose option B for a later policy build, with guardrails.
+Implemented policy: option B is available behind the explicit
+`rfid-apply --allow-rfid-only-blank-suffix` flag, with guardrails.
 
-Estimate under option B:
+Pre-implementation estimate under option B:
 
 - Maximum possible additional goats: 435.
-- Realistic estimated additional goats from current CSV evidence: 27.
-- Likely remaining review/non-goat rows even under B: 408.
-- Exact created/review counts must be confirmed by an implementation dry-run.
+- Estimated immediate additional goats from CSV evidence: 27.
+- Estimated remaining review/non-goat rows even under B: 408.
+- The implementation dry-run superseded this estimate with exact DB-gate
+  results.
+
+Implementation dry-run and real apply with migration `000012`:
+
+| Result | Count |
+| --- | ---: |
+| Total staged rows | 1223 |
+| `created_goat` | 711 |
+| `needs_review` | 512 |
+| `error` | 0 |
+| Additional goats over post-`000011` baseline | 275 |
+
+The `--allow-rfid-only-blank-suffix` dry-run and real apply both scanned 1215
+candidate rows, applied 711, routed 504 to review, and had 0 errors. The
+remaining 8 rows were the original blank-gender and duplicate-old-tag staging
+reviews; they were not apply candidates and remained blocked.
+
+Post-implementation open-review reason occurrences:
+
+| Reason code | Count |
+| --- | ---: |
+| `species_or_breed_requires_review` | 504 |
+| `blank_old_tag_suffix` | 160 |
+| `blank_gender` | 4 |
+| `duplicate_old_tag_same_scope` | 4 |
+
+Reason-code counts are occurrences, not distinct row counts. The 160 remaining
+`blank_old_tag_suffix` rows also fail breed/species review, so they appear in
+both buckets. The counter rebuild reported `tenant_lifecycle=alive` count 711,
+matching `created_goat`.
 
 Why B is a policy problem, not just source cleanup:
 
@@ -273,7 +305,7 @@ Why B is a policy problem, not just source cleanup:
 - Keep duplicate, malformed, or ambiguous old-tag rows blocked.
 - Do not derive an old-tag scope from Farm, Shed, or Partition in this slice.
 
-Required later implementation tests:
+Implemented tests:
 
 - A row with only `blank_old_tag_suffix`, valid unique RFID, mapped status,
   active goat breed, and known Gender creates a goat plus primary RFID.
@@ -286,6 +318,21 @@ Required later implementation tests:
 - The decision record, import row, and audit/evidence trail preserve unresolved
   old-tag source evidence without emitting raw row data in committed docs.
 - Dry-run reports the exact created/review redistribution before mutation.
+- Created RFID-only rows are removed from open anomaly/reviewer reports.
+
+Implementation notes:
+
+- Default `rfid-apply` remains unchanged and only scans `pending` rows.
+- The opt-in flag uses a separate widened static sqlc query and a partial
+  `(import_run_id, row_number, legacy_row_id)` index over pending rows plus
+  coarse blank-suffix candidates.
+- The Go transaction re-locks the row and applies only if the complete reason
+  set is exactly `blank_old_tag_suffix`; rows with any additional staged reason
+  remain in review.
+- Created RFID-only rows create no `old_tag` identifier and do not derive scope
+  from Farm/Shed/Partition.
+- At staging/production scale, build the supporting large-table index
+  concurrently/out-of-band rather than inside a single long transaction.
 
 Risks and rollback:
 
@@ -293,13 +340,14 @@ Risks and rollback:
   Mitigation: no old-tag identifier is created, and unresolved evidence remains
   attached to the import row/decision trail for later correction.
 - Risk: some rows may still fail downstream gates after unblocking. Mitigation:
-  implementation must dry-run first and treat redistribution to existing review
-  buckets as expected, not as an error.
+  implementation dry-run runs first and treats redistribution to existing
+  review buckets as expected, not as an error.
 - Rollback before apply is a normal code revert. Rollback after apply requires
   correction/merge/retire workflows for created goats; do not use destructive
   deletes.
 
-No apply behavior changes in this slice.
+The post-implementation local rehearsal records the exact result: 275
+additional RFID-only goats over the post-`000011` baseline, with no errors.
 
 ## Blank Gender
 
@@ -331,11 +379,8 @@ Recommendation:
 
 ## Next Data Slices
 
-1. Implement the guarded blank old-tag suffix RFID-only creation policy with a
-   dry-run first. Expected immediate yield from current evidence is 27, not the
-   upper bound 435.
-2. Decide whether `Anantapur Sheep` should be classified during source
+1. Decide whether `Anantapur Sheep` should be classified during source
    discovery/staging or left to the apply-stage breed/species gate; either way,
    keep it out of goat creation.
-3. Keep blank gender and duplicate same-scope old tags blocked pending source
+2. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.

@@ -2855,6 +2855,13 @@ CREATE INDEX legacy_import_rows_matched_goat_idx ON public.legacy_import_rows US
 
 
 --
+-- Name: legacy_import_rows_rfid_apply_candidates_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_import_rows_rfid_apply_candidates_idx ON public.legacy_import_rows USING btree (import_run_id, row_number, legacy_row_id) WHERE ((processing_state = 'pending'::text) OR ((processing_state = 'needs_review'::text) AND (normalized_payload @> '{"processing_reasons": ["blank_old_tag_suffix"]}'::jsonb)));
+
+
+--
 -- Name: legacy_import_rows_run_state_idx; Type: INDEX; Schema: public; Owner: -
 --
 

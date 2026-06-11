@@ -36,6 +36,7 @@ explain_must_use_index() {
   local label="$1"
   local forbidden="$2"
   local sql="$3"
+  local extra_forbidden="${4:-}"
   local plan
 
   plan="$(
@@ -53,6 +54,11 @@ explain_must_use_index() {
   if ! grep -E '(Index Scan|Index Only Scan|Bitmap Index Scan)' <<<"$plan" >/dev/null; then
     echo "$plan"
     echo "Expected indexed plan in $label" >&2
+    exit 1
+  fi
+  if [ -n "$extra_forbidden" ] && grep -E "$extra_forbidden" <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Unexpected plan node in $label matching: $extra_forbidden" >&2
     exit 1
   fi
   echo "Indexed plan observed: $label"
@@ -143,7 +149,7 @@ forbidden_seq_scan_pattern() {
     GetLegacyImportRunForApply)
       printf '%s\n' 'Seq Scan on legacy_import_runs'
       ;;
-    ListPendingLegacyImportRowsForApply)
+    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy)
       printf '%s\n' 'Seq Scan on legacy_import_rows'
       ;;
     ListIdentityCounts)
@@ -175,8 +181,16 @@ validate_generated_query_plan() {
     exit 1
   fi
 
-  explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
+  case "$query_name" in
+    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy)
+      explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
+$sql" '(Sort|Incremental Sort)'
+      ;;
+    *)
+      explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
 $sql"
+      ;;
+  esac
 }
 
 validate_outbox_claim_plan() {

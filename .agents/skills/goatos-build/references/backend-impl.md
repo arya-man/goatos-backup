@@ -252,10 +252,13 @@ Rules:
   spreadsheet row numbers. Row version hashes use deterministic fixed-order
   serialization from the policy hash recipe.
 - `backend/cmd/rfid-apply` applies only completed non-dry-run RFID staging
-  runs. It processes bounded batches of `legacy_import_rows` where
+  runs. By default it processes bounded batches of `legacy_import_rows` where
   `processing_state='pending'`, uses the approved import policy and Mesha org
   party from DB, and leaves needs_review/error/rejected/created_goat/auto_linked
-  rows untouched.
+  rows untouched. The explicit flag `--allow-rfid-only-blank-suffix` widens the
+  scan to rows containing `blank_old_tag_suffix`, then the Go transaction
+  re-locks the row and only applies it if the complete reason set is exactly
+  `blank_old_tag_suffix`.
 - RFID apply creates canonical goats only for safe clean rows. One row
   transaction writes the import-policy `create_goat` decision, DB-generated
   goat, active primary RFID, optional active primary old_tag in
@@ -263,6 +266,12 @@ Rules:
   custody history with `reason=first_rfid_import`, `goat.created` event,
   decision join rows, audit row, outbox row, idempotency completion, and
   legacy row/run state.
+- When `--allow-rfid-only-blank-suffix` is enabled, rows whose only staged
+  review reason is `blank_old_tag_suffix` may create a goat plus primary RFID
+  with no `old_tag` identifier. The importer must not derive old-tag scope from
+  Farm, Shed, or Partition. Unresolved old-tag evidence remains in raw/normalized
+  import payloads and the decision/audit evidence trail; created rows no longer
+  appear in open anomaly/reviewer reports.
 - RFID apply routes unsafe rows to `needs_review` without goat creation:
   duplicate active RFID, duplicate active old_tag in the same scope, unknown or
   review-required status mapping, unsafe/non-goat breed or species labels, and
@@ -339,8 +348,8 @@ Rules:
   tools. Duplicate old-tag groups use stable non-reversible old-tag/scope refs
   rather than raw values or short masks. Breed review groups are a human gate
   for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
-  groups are context for a future RFID-only creation policy decision, not a
-  Phase 1 apply behavior change.
+  groups support the explicit RFID-only apply flag and do not imply suffix
+  derivation.
 - While `species_or_breed_requires_review` is confirmed to be Anantapur Sheep
   only, those rows belong in `non-goat-exclusion-candidates.csv`; do not emit a
   duplicate breed/species issue file with the same sheep rows. If future imports
@@ -364,15 +373,20 @@ Rules:
   creation. Do not let confirmed non-goat rows stay indefinitely in an
   actionable review queue; a later review-ops/apply-semantics slice should
   choose terminal rejected disposition versus earlier source classification.
-  The blank old-tag suffix policy decision recommends guarded RFID-only goat
+  The blank old-tag suffix policy decision recommended guarded RFID-only goat
   creation without creating an old_tag identifier: maximum possible additional
-  goats is 435, but current CSV evidence estimates 27 immediate additional
-  goats before DB conflict checks, with 408 likely still routing to existing
-  review buckets. C-lite suffix derivation from Farm/Shed/Partition is rejected
-  because Partition and Shed are not one-to-one with suffix context. Further
-  data work includes implementing that RFID-only policy with dry-run first, and
-  source correction or reviewed policy for blank_gender plus duplicate
-  same-scope old_tag rows.
+  goats is 435. Migration
+  `000012_phase_1_rfid_blank_suffix_apply_candidates.sql` and
+  `rfid-apply --allow-rfid-only-blank-suffix` implement the policy behind an
+  explicit opt-in. The implementation dry-run and real local rehearsal both
+  produced 711 created goats total, 275 above the post-000011 baseline of 436,
+  with needs_review 512 and error 0. Remaining open-review reason occurrences
+  are species_or_breed_requires_review 504, blank_old_tag_suffix 160,
+  blank_gender 4, and duplicate_old_tag_same_scope 4; the 160 blank-suffix rows
+  also fail breed/species review. C-lite suffix derivation from
+  Farm/Shed/Partition remains rejected because Partition and Shed are not
+  one-to-one with suffix context. Further data work includes source correction
+  or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

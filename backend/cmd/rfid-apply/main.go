@@ -25,6 +25,7 @@ func main() {
 	var batchSize int
 	var actorID string
 	var policyVersion string
+	var allowRFIDOnlyBlankSuffix bool
 
 	flag.StringVar(&tenantID, "tenant-id", "", "Tenant UUID")
 	flag.StringVar(&importRunID, "import-run-id", "", "Completed legacy import run UUID")
@@ -32,6 +33,7 @@ func main() {
 	flag.IntVar(&batchSize, "batch-size", legacy_import.DefaultBatchSize, "Apply batch size")
 	flag.StringVar(&actorID, "actor-id", "", "Optional system actor UUID")
 	flag.StringVar(&policyVersion, "policy-version", "", "Optional policy version guard; defaults to import run policy")
+	flag.BoolVar(&allowRFIDOnlyBlankSuffix, "allow-rfid-only-blank-suffix", false, "Opt in to apply rows whose only review reason is blank_old_tag_suffix by creating RFID-only goats")
 	flag.Parse()
 
 	log := observability.New(observability.Config{Service: "rfid-apply"})
@@ -57,12 +59,13 @@ func main() {
 	repo := importpg.NewRepository(pool, 10*time.Second)
 	applier := legacy_import.NewApplier(repo)
 	result, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
-		TenantID:      tenantID,
-		ImportRunID:   importRunID,
-		DryRun:        dryRun,
-		BatchSize:     batchSize,
-		ActorID:       actor,
-		PolicyVersion: policyVersion,
+		TenantID:                 tenantID,
+		ImportRunID:              importRunID,
+		DryRun:                   dryRun,
+		BatchSize:                batchSize,
+		ActorID:                  actor,
+		PolicyVersion:            policyVersion,
+		AllowRFIDOnlyBlankSuffix: allowRFIDOnlyBlankSuffix,
 	})
 	if err != nil {
 		log.Error("rfid_apply_failed", slog.String("error", err.Error()))

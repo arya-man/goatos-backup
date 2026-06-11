@@ -2744,8 +2744,9 @@ Grouped CSV cells are spreadsheet-formula safe. duplicate_old_tag_same_scope
 groups use stable non-reversible old-tag/scope refs instead of raw values or
 short masks, so short old-tag labels do not collapse into one bucket.
 species_or_breed_requires_review groups are for human alias-vs-exclusion
-decisions, not auto-aliasing. blank_old_tag_suffix groups are context for a
-future RFID-only creation policy decision, not a Phase 1 apply behavior change.
+decisions, not auto-aliasing. blank_old_tag_suffix groups support the explicit
+`rfid-apply --allow-rfid-only-blank-suffix` policy and do not imply suffix
+derivation.
 created_goat_count, updated_goat_count, and conflict_count remain 0 during
 staging; canonical apply updates created_goat_count for rows it creates
 ```
