@@ -1,11 +1,12 @@
 # RFID Data Mapping Review
 
-Status: reviewed from the local post-apply anomaly report.
+Status: reviewed from the local post-apply anomaly report; approved plain
+`F2`/`K2` status mappings are implemented by migration `000010`.
 
 This report summarizes the first real Shape-2 RFID data rehearsal after
-staging, apply, and final anomaly-report generation. It is analysis only: no
-canonical import/apply behavior, reference tables, or policy rows changed in
-this slice.
+staging, apply, and final anomaly-report generation, then records the local
+rerun after adding only the approved plain `F2`/`K2` status mappings. No
+canonical import/apply behavior changed.
 
 Safety scope:
 
@@ -16,7 +17,7 @@ Safety scope:
   media URLs, screenshots, or individual names are included here.
 - Source labels below are grouped labels only and are used for mapping review.
 
-## Aggregate Outcome
+## Initial Aggregate Outcome
 
 | Metric | Count |
 | --- | ---: |
@@ -37,28 +38,37 @@ Final review reasons:
 | `blank_gender` | 4 | staging |
 | `duplicate_old_tag_same_scope` | 4 | staging |
 
-Projected effect after only the approved plain `F2`/`K2` status mappings:
+## Rerun After Plain F2/K2 Mapping
 
-| Bucket | Count |
-| --- | ---: |
-| Current canonical goats created | 145 |
-| Additional rows expected to clear status mapping | 437 |
-| Upper bound if all 437 pass downstream gates | 582 |
-| Known non-goat rows expected to stay blocked | 190 |
-| Known remaining Sirohi breed review rows | 8 |
-| Remaining blank old-tag suffix policy rows | 435 |
-| Remaining blank gender rows | 4 |
-| Remaining duplicate same-scope old-tag rows | 4 |
+Migration `000010_phase_1_rfid_plain_status_mappings.sql` added only the two
+approved plain `F2`/`K2` rows. A fresh local Shape-2 rehearsal was run after the
+migration.
 
-Rerun success criterion:
+State counts:
 
-- `unknown_status_mapping` should drop materially, ideally by 437.
-- The 437 rows that clear status are not guaranteed to become goats. Apply checks
-  status before breed/species and old-tag uniqueness, so this mapping may surface
-  downstream blockers that were previously hidden behind `unknown_status_mapping`.
-- A rise in `species_or_breed_requires_review` after adding F2/K2 mappings is
-  expected if some newly unblocked rows are non-goats or unresolved breeds.
-- The rerun should report the full reason-code delta; `error` should remain 0.
+| State | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `created_goat` | 145 | 383 | +238 |
+| `needs_review` | 1,078 | 840 | -238 |
+| `error` | 0 | 0 | 0 |
+
+Reason-code delta:
+
+| Reason code | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| `unknown_status_mapping` | 437 | 0 | -437 |
+| `species_or_breed_requires_review` | 198 | 397 | +199 |
+| `blank_old_tag_suffix` | 435 | 435 | 0 |
+| `blank_gender` | 4 | 4 | 0 |
+| `duplicate_old_tag_same_scope` | 4 | 4 | 0 |
+
+Result:
+
+- `unknown_status_mapping` cleared completely.
+- `created_goat` rose by 238 rows.
+- 199 rows redistributed to the downstream breed/species review bucket, which
+  is expected because apply checks status before breed/species.
+- `error` stayed 0.
 
 ## Status Mapping Review
 
@@ -70,7 +80,8 @@ Grouped source Tag/status labels:
 | `K2` | 200 |
 
 The current status reference data already contains display status codes `F2`
-and `K2`. Proposed `legacy_status_mappings` rows:
+and `K2`. The approved `legacy_status_mappings` rows now implemented by
+migration `000010` are:
 
 | source_system | raw_label | normalized_raw_label | lifecycle_status | reproductive_status | growth_cohort_tag | management_stage | health_status | sex_override | display_status_code | review_required | confidence | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -174,12 +185,11 @@ Recommendation:
 
 ## Next Data Slices
 
-1. Add approved `legacy_status_mappings` rows for plain `F2` and `K2`.
-2. Add approved breed/species decisions:
+1. Add approved breed/species decisions:
    - keep `Anantapur Sheep` out of goat creation through breed/species
      semantics and decide whether that classification belongs at discovery,
      staging, or apply;
    - review and add `Sirohi` as a goat breed/alias only after human approval.
-3. Implement the blank old-tag suffix RFID-only creation policy if approved.
-4. Keep blank gender and duplicate same-scope old tags blocked pending source
+2. Implement the blank old-tag suffix RFID-only creation policy if approved.
+3. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.

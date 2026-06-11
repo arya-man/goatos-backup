@@ -327,17 +327,17 @@ Rules:
   groups are context for a future RFID-only creation policy decision, not a
   Phase 1 apply behavior change.
 - The first local post-apply RFID mapping review is captured in
-  `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`: propose
-  plain F2/K2 `legacy_status_mappings`, review Anantapur Sheep as
-  non-goat/species exclusion, review Sirohi as a goat breed/alias candidate,
-  and decide whether to implement guarded RFID-only creation for blank old-tag
-  suffix rows. blank_gender and duplicate same-scope old_tag rows remain
-  blocked until source correction or an explicit reviewed policy. Treat the 190
-  Anantapur Sheep rows as a source-integrity signal: the species gate is doing
-  the right thing, and later work must not loosen the pipeline to admit them as
-  goats. After only F2/K2 mappings, 582 created goats is only an upper bound:
-  rows that clear status may redistribute to created_goat or downstream review
-  buckets such as species_or_breed_requires_review; error should remain 0.
+  `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`. Migration
+  `000010_phase_1_rfid_plain_status_mappings.sql` implements only the approved
+  plain F2/K2 `legacy_status_mappings`. The follow-up local rerun cleared
+  `unknown_status_mapping` from 437 to 0, raised `created_goat` from 145 to
+  383, kept `error` at 0, and redistributed 199 rows to downstream
+  `species_or_breed_requires_review`. Treat the 190 Anantapur Sheep rows as a
+  source-integrity signal: the species gate is doing the right thing, and later
+  work must not loosen the pipeline to admit them as goats. Next data work is
+  breed/species review for Anantapur Sheep and Sirohi, a guarded RFID-only
+  creation policy decision for blank old-tag suffix rows, and source correction
+  or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

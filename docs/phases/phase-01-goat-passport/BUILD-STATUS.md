@@ -34,6 +34,7 @@ backend/migrations/postgres/000006_phase_1_candidate_review_support.sql
 backend/migrations/postgres/000007_phase_1_reporting_counter_rebuild_support.sql
 backend/migrations/postgres/000008_phase_1_reporting_counts_pagination.sql
 backend/migrations/postgres/000009_phase_1_reporting_incremental_counters.sql
+backend/migrations/postgres/000010_phase_1_rfid_plain_status_mappings.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -530,14 +531,15 @@ RFID source-of-truth staging:
   decisions, not auto-aliasing; blank_old_tag_suffix groups support a future
   RFID-only creation policy decision and do not change Phase 1 apply behavior
   docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md captures the
-  local post-apply mapping review: plain F2/K2 status mappings are proposed,
-  Anantapur Sheep is classified for non-goat/species exclusion review, Sirohi
-  is a goat breed alias candidate, blank_old_tag_suffix is recommended for a
-  later RFID-only creation policy with guardrails, and blank_gender plus
-  duplicate same-scope old_tag rows remain blocked pending source correction or
-  explicit reviewed policy; the review also treats 190 Anantapur Sheep rows as a
-  source-integrity signal and says later work must keep them out of goat
-  creation through breed/species semantics
+  local post-apply mapping review. Migration 000010 implements only the
+  approved plain F2/K2 status mappings. The follow-up local rerun cleared
+  unknown_status_mapping from 437 to 0, raised created_goat from 145 to 383,
+  left error at 0, and redistributed 199 rows to the downstream
+  species_or_breed_requires_review bucket. Anantapur Sheep remains classified
+  for non-goat/species exclusion review, Sirohi remains a goat breed alias
+  candidate, blank_old_tag_suffix is recommended for a later RFID-only creation
+  policy with guardrails, and blank_gender plus duplicate same-scope old_tag
+  rows remain blocked pending source correction or explicit reviewed policy.
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
 RFID source-of-truth canonical apply:
@@ -685,12 +687,9 @@ externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
-F2/K2 legacy_status_mappings, breed/species decisions for the reviewed labels,
-blank_old_tag_suffix RFID-only creation policy if approved, and source cleanup
-or reviewed policy for blank_gender plus duplicate same-scope old_tag rows
-after F2/K2 mappings alone, 582 created goats is only the upper bound; the real
-success criterion is that unknown_status_mapping drops and rows redistribute to
-created_goat or the correct downstream review buckets, with error remaining 0
+breed/species decisions for the reviewed labels, blank_old_tag_suffix RFID-only
+creation policy if approved, and source cleanup or reviewed policy for
+blank_gender plus duplicate same-scope old_tag rows
 P8 sales/allocation/promise behavior
 ```
 
