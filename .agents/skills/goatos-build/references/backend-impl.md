@@ -337,10 +337,12 @@ Rules:
   while nine crossbreed labels are new/needs-decision. Treat the 344 Anantapur
   Sheep rows as a source-integrity signal: the species gate is doing the right
   thing, and later work must not loosen the pipeline to admit them as goats.
-  Next data work is breed/species review for the newly surfaced crossbreed
-  labels, a guarded RFID-only creation policy decision for blank old-tag suffix
-  rows, and source correction or reviewed policy for blank_gender plus duplicate
-  same-scope old_tag rows.
+  The 34 crossbreed rows are recoverable goat-cross rows, not species
+  exclusions; next data work must decide representation, not inclusion. Do not
+  collapse crossbreed labels to one parent breed or normalize ordering without
+  approval. Further data work includes a guarded RFID-only creation policy
+  decision for blank old-tag suffix rows, and source correction or reviewed
+  policy for blank_gender plus duplicate same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

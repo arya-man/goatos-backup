@@ -538,6 +538,10 @@ RFID source-of-truth staging:
   species_or_breed_requires_review bucket. The current breed/species grouping
   has 397 rows across 11 labels: Anantapur Sheep and Sirohi are
   already-classified, while nine crossbreed labels are new/needs-decision.
+  Those 34 crossbreed rows are recoverable goat-cross rows, not species
+  exclusions; the pending decision is how Phase 1 represents goat crosses, not
+  whether they belong in Goat Passport. Do not collapse crossbreed labels to a
+  single parent breed or normalize ordering without approval.
   blank_old_tag_suffix is recommended for a later RFID-only creation policy
   with guardrails, and blank_gender plus duplicate same-scope old_tag rows
   remain blocked pending source correction or explicit reviewed policy.
@@ -688,10 +692,10 @@ externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
-breed/species decisions for the reviewed labels including newly surfaced
-crossbreed labels, blank_old_tag_suffix RFID-only creation policy if approved,
-and source cleanup or reviewed policy for blank_gender plus duplicate same-scope
-old_tag rows
+breed/species decisions for the reviewed labels, including explicit
+representation for newly surfaced recoverable goat-cross labels; guarded
+blank_old_tag_suffix RFID-only creation policy if approved; and source cleanup
+or reviewed policy for blank_gender plus duplicate same-scope old_tag rows
 P8 sales/allocation/promise behavior
 ```
 
