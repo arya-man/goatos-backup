@@ -77,9 +77,13 @@ Completed so far:
 - Rebuild and incremental counter update workers.
 - Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
 - Generated OpenAPI TypeScript client package and drift gate.
-- Admin-web Phase 1 readiness shell with executable BigQuery/Sheets routes removed.
+- Admin-web Phase 1 read-only demo surface with executable BigQuery/Sheets
+  routes removed.
 - Admin-web upgraded to the frozen Next 16 / React 19 / Tailwind 4 framework
-  baseline before real screens are added.
+  baseline before real screens were added.
+- SSR-first admin-web screens for herd search, goat passport, identity counts,
+  live read-only conflicts/candidates queues, and honest placeholders for
+  import rows, corrections, admin goat writes, and timeline.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
@@ -104,22 +108,22 @@ Still pending before Phase 1 is usable end-to-end:
 
 - Production identity-provider/login integration: JWKS/asymmetric token
   verification, sessions, key rotation, revocation, and secret management.
-- Data-bound read-only frontend screens for admin users, built as SSR-first,
-  standalone-capable feature modules inside the admin-web surface.
-- Import-run row APIs, correction request APIs, and admin write APIs are still
-  contract stubs unless explicitly re-scoped to a later phase.
+- Import-run row APIs, correction request admin APIs, admin goat write APIs, and
+  goat timeline screens are still contract stubs or honest placeholders unless
+  explicitly re-scoped to a later phase.
 - Real production event publishing.
-- Operational review screens for dirty data.
+- Operational review/action screens for dirty data.
 - Deployment setup for shared/staging/prod environments.
 
 Immediate Phase 1 demo order:
 
 ```text
-1. Build SSR-first read-only admin screens using dev auth, @goatos/api-client,
-   route-level modules, backend pagination, and lazy-loaded heavy widgets.
-2. Add a local demo runner/runbook for import -> apply -> counters -> reports -> UI.
+1. Run the local demo path through import -> apply -> counters -> reports -> UI.
+2. Decide and implement terminal non-goat disposition as a separate state-change
+   slice if approved.
 3. Close Phase 1 docs honestly.
-4. Handle terminal non-goat disposition as a separate state-change slice if needed.
+4. Prepare the production-auth/event-egress/deploy path without calling the
+   local dev-token demo shippable.
 ```
 
 Important:
