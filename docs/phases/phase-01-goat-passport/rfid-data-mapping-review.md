@@ -177,7 +177,28 @@ Implementation note for the later build slice:
 
 ## Blank Old-Tag Suffix
 
-`blank_old_tag_suffix` accounts for 435 rows. Farm-level grouped counts:
+`blank_old_tag_suffix` accounts for 435 rows. These rows were blocked during
+staging, so they have not yet passed apply-time status, breed/species, RFID
+conflict, or idempotency gates.
+
+CSV evidence from the sensitive local reviewer pack:
+
+| Check | Count | Decision note |
+| --- | ---: | --- |
+| Rows in bucket | 435 | Maximum possible additional goats is 435. |
+| Present RFID | 435 | Every row has an RFID value. |
+| Unique RFID within this bucket | 435 | True global uniqueness is still apply-time only. |
+| Known Gender value | 435 | No blank/unknown Gender inside this bucket. |
+| Current mapped status label | 52 | The other 383 rows would still need status mapping or review. |
+| Current active goat breed/species mapping | 270 | 160 rows are confirmed non-goat labels and 5 still need breed/species review. |
+| Current status + goat breed + gender gates pass | 27 | Realistic immediate yield before DB conflict checks. |
+| Likely still review under option B | 408 | Mostly status mapping and non-goat/species review. |
+
+Exact yield can only be confirmed by the later implementation dry-run because
+RFID conflicts against already-created goats are checked only when rows traverse
+apply.
+
+Farm-level grouped counts:
 
 | Farm context | Count |
 | --- | ---: |
@@ -189,6 +210,27 @@ groups. The largest context buckets have counts 94, 77, 54, 33, and 33. The
 committed report intentionally avoids listing shed or partition labels that
 could be operationally sensitive or person-like labels.
 
+Suffix derivation review:
+
+- Farm has two safe context groups, but Farm is not itself proof of the missing
+  old-tag scope/park suffix.
+- Partition is not deterministic: 9 of 12 partition values appear under more
+  than one Farm context.
+- Shed is not deterministic: 5 of 16 shed values appear under more than one Farm
+  context.
+- Shed plus Partition is still not deterministic: 7 of 53 combinations appear
+  under more than one Farm context.
+- Farm/Shed/Partition together is deterministic only because Farm is included,
+  which would make the derivation circular rather than evidence that Partition
+  proves the suffix.
+- Existing old-tag values in this bucket are low-actionability without suffix:
+  263 distinct old-tag values across 435 rows, with repeated old-tag groups that
+  would still collide if a guessed Farm suffix were used.
+
+C-lite is rejected for now. A wrong derived suffix would create an active
+old-tag identity in the wrong scope, which is worse than preserving unresolved
+old-tag evidence and creating only the globally scoped RFID identifier.
+
 Policy options:
 
 | Option | Description | Tradeoff |
@@ -196,16 +238,66 @@ Policy options:
 | A | Keep blocking as `needs_review`. | Safest for old-tag history, but it keeps 435 otherwise usable RFID-backed rows out of canonical Goat Passport. |
 | B | Allow RFID-only goat creation and leave old_tag unresolved. | Fastest path to a canonical RFID foundation. Old-tag lookup/history remains incomplete until source cleanup or later correction. |
 | C | Require source cleanup before import. | Highest old-tag fidelity, but slow/manual and blocks 36% of the workbook. |
+| C-lite | Derive suffix from Farm/Shed/Partition only when provably one-to-one. | Rejected for this workbook because Partition and Shed are not one-to-one with suffix context. |
 
-Recommendation: choose option B for a later policy build, with guardrails:
+Recommendation: choose option B for a later policy build, with guardrails.
+
+Estimate under option B:
+
+- Maximum possible additional goats: 435.
+- Realistic estimated additional goats from current CSV evidence: 27.
+- Likely remaining review/non-goat rows even under B: 408.
+- Exact created/review counts must be confirmed by an implementation dry-run.
+
+Why B is a policy problem, not just source cleanup:
+
+- All 435 rows have present RFID and are unique within the bucket.
+- Old-tag suffix is the only staging-time blocker for this bucket.
+- The existing evidence model already preserves the unresolved old-tag source
+  data in `legacy_import_rows.raw_payload`, `normalized_payload`, the import
+  run/source record trail, and the decision/audit evidence path.
+- Old-tag identifiers are optional in the model; RFID can be the primary
+  canonical identifier when old-tag scope is unresolved.
+- Requiring source cleanup first remains safest for old-tag fidelity, but it
+  delays the canonical RFID foundation for rows that otherwise have usable RFID
+  identity.
 
 - Only apply when RFID is valid and globally unique.
 - Only apply when status, breed/species, and gender requirements pass.
+- Only bypass `blank_old_tag_suffix` when it is the sole staging review reason;
+  keep rows with any other staging reason blocked.
 - Create the goat and primary RFID identifier.
 - Do not create an `old_tag` identifier for the blank-suffix row.
 - Preserve unresolved old-tag evidence/reason on the import row and decision
   audit path.
 - Keep duplicate, malformed, or ambiguous old-tag rows blocked.
+- Do not derive an old-tag scope from Farm, Shed, or Partition in this slice.
+
+Required later implementation tests:
+
+- A row with only `blank_old_tag_suffix`, valid unique RFID, mapped status,
+  active goat breed, and known Gender creates a goat plus primary RFID.
+- That row creates no `old_tag` identifier and does not run old-tag scoped
+  uniqueness as a creation requirement.
+- Rows with unmapped status, non-goat/unknown breed, blank/unknown Gender, RFID
+  conflict, or any additional staging review reason remain in `needs_review`.
+- Replay/idempotency does not create duplicate goats or duplicate RFID
+  identifiers.
+- The decision record, import row, and audit/evidence trail preserve unresolved
+  old-tag source evidence without emitting raw row data in committed docs.
+- Dry-run reports the exact created/review redistribution before mutation.
+
+Risks and rollback:
+
+- Risk: creating RFID-only goats may temporarily reduce old-tag search coverage.
+  Mitigation: no old-tag identifier is created, and unresolved evidence remains
+  attached to the import row/decision trail for later correction.
+- Risk: some rows may still fail downstream gates after unblocking. Mitigation:
+  implementation must dry-run first and treat redistribution to existing review
+  buckets as expected, not as an error.
+- Rollback before apply is a normal code revert. Rollback after apply requires
+  correction/merge/retire workflows for created goats; do not use destructive
+  deletes.
 
 No apply behavior changes in this slice.
 
@@ -239,9 +331,11 @@ Recommendation:
 
 ## Next Data Slices
 
-1. Decide whether `Anantapur Sheep` should be classified during source
+1. Implement the guarded blank old-tag suffix RFID-only creation policy with a
+   dry-run first. Expected immediate yield from current evidence is 27, not the
+   upper bound 435.
+2. Decide whether `Anantapur Sheep` should be classified during source
    discovery/staging or left to the apply-stage breed/species gate; either way,
    keep it out of goat creation.
-2. Implement the blank old-tag suffix RFID-only creation policy if approved.
 3. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.

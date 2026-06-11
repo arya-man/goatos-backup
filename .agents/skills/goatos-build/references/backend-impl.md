@@ -359,9 +359,15 @@ Rules:
   creation. Do not let confirmed non-goat rows stay indefinitely in an
   actionable review queue; a later review-ops/apply-semantics slice should
   choose terminal rejected disposition versus earlier source classification.
-  Further data work includes a guarded RFID-only creation policy
-  decision for blank old-tag suffix rows, and source correction or reviewed
-  policy for blank_gender plus duplicate same-scope old_tag rows.
+  The blank old-tag suffix policy decision recommends guarded RFID-only goat
+  creation without creating an old_tag identifier: maximum possible additional
+  goats is 435, but current CSV evidence estimates 27 immediate additional
+  goats before DB conflict checks, with 408 likely still routing to existing
+  review buckets. C-lite suffix derivation from Farm/Shed/Partition is rejected
+  because Partition and Shed are not one-to-one with suffix context. Further
+  data work includes implementing that RFID-only policy with dry-run first, and
+  source correction or reviewed policy for blank_gender plus duplicate
+  same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.
