@@ -383,6 +383,9 @@ func writeAnomalyGroups(path string, opts AnomalyReportOptions, groups []Anomaly
 }
 
 func writeReviewerCSVPack(outputDir string, opts AnomalyReportOptions, report AnomalyReport) error {
+	if err := os.RemoveAll(outputDir); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return err
 	}

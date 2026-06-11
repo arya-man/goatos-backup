@@ -463,6 +463,58 @@ func TestReviewerCSVCreatesBreedClassificationOnlyForUnknownBreed(t *testing.T) 
 	}
 }
 
+func TestReviewerCSVRewritesRunDirectoryWithoutStaleOptionalFiles(t *testing.T) {
+	importRunID := "11111111-1111-4111-8111-aaaaaaaaaaaa"
+	dir := t.TempDir()
+
+	unknownBreedReport := BuildAnomalyReport([]AnomalyReportInputRow{
+		anomalyReportRow(t, 20, "species_or_breed_requires_review", map[string]string{
+			"Breed":  "Synthetic Mystery Breed",
+			"Gender": "Female",
+			"Farm":   "CBE",
+			"RFID":   longRFID,
+			"Old ID": "OLDSECRET800",
+		}),
+	}, AnomalyReportOptions{})
+	_, _, _, reviewerDir, err := WriteAnomalyReportCSV(dir, AnomalyReportOptions{
+		ImportRunID: importRunID,
+		SourceType:  SourceTypeLocalXLSX,
+		SourceLabel: "Synthetic",
+		SheetName:   "Combined",
+	}, unknownBreedReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	classificationPath := filepath.Join(reviewerDir, "breed", "species-needs-classification.csv")
+	if _, err := os.Stat(classificationPath); err != nil {
+		t.Fatalf("expected initial breed classification file: %v", err)
+	}
+
+	confirmedNonGoatReport := BuildAnomalyReport([]AnomalyReportInputRow{
+		anomalyReportRow(t, 21, "species_or_breed_requires_review", map[string]string{
+			"Breed":  "Anantapur Sheep",
+			"Gender": "Female",
+			"Farm":   "CBE",
+			"RFID":   "9900000000000000001234567890888",
+			"Old ID": "OLDSECRET801",
+		}),
+	}, AnomalyReportOptions{})
+	_, _, _, reviewerDir, err = WriteAnomalyReportCSV(dir, AnomalyReportOptions{
+		ImportRunID: importRunID,
+		SourceType:  SourceTypeLocalXLSX,
+		SourceLabel: "Synthetic",
+		SheetName:   "Combined",
+	}, confirmedNonGoatReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(reviewerDir, "breed", "species-needs-classification.csv")); !os.IsNotExist(err) {
+		t.Fatalf("stale breed classification file remained after same-run rewrite: %v", err)
+	}
+	nonGoatRows := readCSVFile(t, filepath.Join(reviewerDir, "non-goat-exclusion-candidates.csv"))
+	assertCSVCellPresent(t, nonGoatRows, "Anantapur Sheep")
+}
+
 func TestReviewerCSVDefaultMasksIdentifiersAndSensitiveModeIncludesThem(t *testing.T) {
 	rawOldTag := "OLDSECRET600"
 	rows := []AnomalyReportInputRow{
