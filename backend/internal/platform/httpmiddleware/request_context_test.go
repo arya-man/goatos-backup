@@ -88,6 +88,24 @@ func TestRequestContextAllowsResponseControllerFlush(t *testing.T) {
 	}
 }
 
+func TestStatusRecorderForwardsWriteHeaderOnce(t *testing.T) {
+	underlying := newCountingResponseWriter()
+	rec := &statusRecorder{ResponseWriter: underlying, status: http.StatusOK}
+
+	rec.WriteHeader(http.StatusServiceUnavailable)
+	rec.WriteHeader(http.StatusTeapot)
+
+	if rec.status != http.StatusServiceUnavailable {
+		t.Fatalf("recorded status=%d, want %d", rec.status, http.StatusServiceUnavailable)
+	}
+	if underlying.writeHeaderCount != 1 {
+		t.Fatalf("forwarded WriteHeader count=%d, want 1", underlying.writeHeaderCount)
+	}
+	if len(underlying.statuses) != 1 || underlying.statuses[0] != http.StatusServiceUnavailable {
+		t.Fatalf("forwarded statuses=%v, want [%d]", underlying.statuses, http.StatusServiceUnavailable)
+	}
+}
+
 func TestGenerateIDPanicsWhenCryptoRandFails(t *testing.T) {
 	original := rand.Reader
 	rand.Reader = failingReader{}
@@ -105,4 +123,27 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) {
 	return 0, errors.New("entropy unavailable")
+}
+
+type countingResponseWriter struct {
+	header           http.Header
+	writeHeaderCount int
+	statuses         []int
+}
+
+func newCountingResponseWriter() *countingResponseWriter {
+	return &countingResponseWriter{header: make(http.Header)}
+}
+
+func (w *countingResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *countingResponseWriter) Write(data []byte) (int, error) {
+	return len(data), nil
+}
+
+func (w *countingResponseWriter) WriteHeader(status int) {
+	w.writeHeaderCount++
+	w.statuses = append(w.statuses, status)
 }

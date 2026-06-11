@@ -171,6 +171,54 @@ func TestPanicRecoveryDoesNotAppendEnvelopeAfterFlush(t *testing.T) {
 	}
 }
 
+func TestPanicRecoveryLogsStartedStatusAfterHeaderFlushAndPanic(t *testing.T) {
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, nil))
+
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Fatalf("flush failed: %v", err)
+		}
+		panic("panic after 503 flush")
+	})
+	handler := PanicRecovery(log)(RequestContext(log)(panicHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Request-ID", "req-panic-after-503-flush")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	logOut := logBuf.String()
+	if !strings.Contains(logOut, `"msg":"http_request"`) || !strings.Contains(logOut, `"status":503`) {
+		t.Fatalf("panic request log did not preserve started 503 status: %s", logOut)
+	}
+	if strings.Contains(logOut, `"status":200`) {
+		t.Fatalf("panic request log overwrote 503 status with 200: %s", logOut)
+	}
+}
+
+func TestPanicResponseTrackerForwardsWriteHeaderOnce(t *testing.T) {
+	underlying := newCountingResponseWriter()
+	tracker := &panicResponseTracker{ResponseWriter: underlying, status: http.StatusOK}
+
+	tracker.WriteHeader(http.StatusServiceUnavailable)
+	tracker.WriteHeader(http.StatusTeapot)
+
+	if tracker.status != http.StatusServiceUnavailable {
+		t.Fatalf("recorded status=%d, want %d", tracker.status, http.StatusServiceUnavailable)
+	}
+	if underlying.writeHeaderCount != 1 {
+		t.Fatalf("forwarded WriteHeader count=%d, want 1", underlying.writeHeaderCount)
+	}
+	if len(underlying.statuses) != 1 || underlying.statuses[0] != http.StatusServiceUnavailable {
+		t.Fatalf("forwarded statuses=%v, want [%d]", underlying.statuses, http.StatusServiceUnavailable)
+	}
+}
+
 func TestPanicRecoveryDoesNotFireOnNormalRequests(t *testing.T) {
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logBuf, nil))

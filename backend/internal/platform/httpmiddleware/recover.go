@@ -86,10 +86,11 @@ type panicResponseTracker struct {
 }
 
 func (w *panicResponseTracker) WriteHeader(status int) {
-	if !w.started {
-		w.started = true
-		w.status = status
+	if w.started {
+		return
 	}
+	w.started = true
+	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
 
@@ -107,7 +108,7 @@ func (w *panicResponseTracker) Unwrap() http.ResponseWriter {
 
 func (w *panicResponseTracker) FlushError() error {
 	err := http.NewResponseController(w.ResponseWriter).Flush()
-	if err == nil {
+	if err == nil && !w.started {
 		w.started = true
 		w.status = http.StatusOK
 	}
@@ -120,7 +121,7 @@ func (w *panicResponseTracker) Flush() {
 
 func (w *panicResponseTracker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	conn, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
-	if err == nil {
+	if err == nil && !w.started {
 		w.started = true
 		w.status = http.StatusOK
 	}
