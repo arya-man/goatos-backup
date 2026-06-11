@@ -323,7 +323,11 @@ Use one main repo because:
 - CI can validate contracts, migrations, backend, frontend, and mobile together
 - modular monolith discipline does not require many repos
 
-This is not microservices and not microfrontends. It is one product repo with strict internal modules.
+This is one product repo with strict internal modules and surface-level frontend
+boundaries. Do not split backend into microservices. Frontend surfaces
+(`admin-web`, future investor/public web, operator/mobile) must be able to
+separate by Next.js zone/separate app when their deploy/security cadence differs,
+but do not create per-feature runtime federation by default.
 
 ## What Each Top-Level Folder Owns
 
@@ -479,7 +483,9 @@ wholesale.
 - Do not treat `website/` as Goat OS core.
 - Do not turn current `dashboard/` and `vgoats-dashboard/` into permanent separate products.
 - Do not keep direct BigQuery/Firestore/GCS access in app code.
-- Do not start with microservices or microfrontends.
+- Do not start with backend microservices or per-feature runtime federation.
+  Start with SSR-first surface modules and promote whole web surfaces to
+  multi-zone/separate apps when deploy/security boundaries require it.
 
 ## Immediate Start
 

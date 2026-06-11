@@ -21,16 +21,24 @@ Rules:
   app/admin/analytics APIs. Admin-web and future mobile screens must use it
   through small app adapters instead of hand-copying DTOs.
 - `apps/admin-web` is currently a Phase 1 readiness shell. The next Phase 1 UI
-  slice should turn it into the composition shell for read-only demo screens
-  backed by `@goatos/api-client`.
-- Use a module-first frontend architecture: admin-web is the shell, shared UI
-  components live in packages, and major product areas such as goat passport,
-  import review, and analytics counts should be standalone-capable feature
-  modules that can run inside the shell and be exercised independently during
-  development/demo.
-- Phase 1 should not add runtime module federation or separately deployed
-  microfrontends unless explicitly approved. The immediate goal is clean module
-  boundaries and standalone-capable development, not deployment complexity.
+  slice should turn it into the SSR-first internal admin surface for read-only
+  demo screens backed by `@goatos/api-client`.
+- Use surface-level microfrontend discipline, not one giant dashboard bundle:
+  admin/internal, investor/external, operator/device, and public/partner are the
+  real surface boundaries. Phase 1 builds the admin surface now, with feature
+  modules such as goat passport, import review, and analytics counts as
+  standalone-capable route modules inside that surface.
+- Prefer Next.js SSR/server components, route-level loading, dynamic imports for
+  heavy charts/tables, backend pagination, and backend-shaped summaries. Do not
+  client-render and ship every dashboard module up front.
+- When a second web surface lands, prefer Next.js Multi-Zones or separate Next
+  apps routed by path/domain for independent surface deploys. Use Module
+  Federation only after an explicit decision that runtime module-into-host
+  remotes are needed inside a surface.
+- Do not allow cross-module deep imports. Feature modules consume public module
+  interfaces plus shared `packages/ui`, generated clients, auth, and RBAC
+  helpers. The first slice that creates real admin feature modules must add a
+  `check-boundaries.sh` guard or equivalent CI check for this boundary.
 - Do not reintroduce executable `apps/admin-web/app/api/*` BigQuery/Sheets
   routes or `lib/bigquery.ts`. Deleted legacy route code is available in git
   history if needed as reference.

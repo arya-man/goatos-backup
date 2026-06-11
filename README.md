@@ -101,8 +101,8 @@ Still pending before Phase 1 is usable end-to-end:
 
 - Production identity-provider/login integration: JWKS/asymmetric token
   verification, sessions, key rotation, revocation, and secret management.
-- Data-bound read-only frontend screens for admin users, built as
-  standalone-capable feature modules inside the admin-web shell.
+- Data-bound read-only frontend screens for admin users, built as SSR-first,
+  standalone-capable feature modules inside the admin-web surface.
 - Real production event publishing.
 - Operational review screens for dirty data.
 - Deployment setup for shared/staging/prod environments.
@@ -110,7 +110,9 @@ Still pending before Phase 1 is usable end-to-end:
 Immediate Phase 1 demo order:
 
 ```text
-1. Build read-only admin demo screens using dev auth and @goatos/api-client.
+1. Build SSR-first read-only admin demo screens using dev auth,
+   @goatos/api-client, route-level modules, backend pagination, and lazy-loaded
+   heavy widgets.
 2. Add a local demo runner/runbook for import -> apply -> counters -> reports -> UI.
 3. Close Phase 1 docs honestly.
 4. Handle terminal non-goat disposition as a separate state-change slice if needed.

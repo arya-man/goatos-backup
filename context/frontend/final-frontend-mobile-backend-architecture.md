@@ -126,13 +126,19 @@ Slack/App Script is legacy and migration surface:
 
 ## Final Frontend Direction
 
-Use a modular frontend architecture, not microfrontends.
+Use an SSR-first, surface-separated frontend architecture.
+
+The legacy dashboard surface is already large. The answer is not one giant
+client-rendered admin bundle. Goat OS frontends must be split by product surface
+and rendered/lazy-loaded so each user pays only for the surface and module they
+open.
 
 ```text
 apps/
-  admin-web/             Next.js command center initialized from dashboard snapshot
-  investor-web-shadow/   temporary validation copy initialized from vgoats-dashboard
+  admin-web/             internal SSR command center initialized from dashboard snapshot
+  investor-web-shadow/   temporary investor/reduced validation copy
   operator-mobile/       React Native Android app for field operators
+  public-web/            future public/partner surface only if Goat OS owns it
 
 packages/
   ui/                    shared buttons, charts, tables, shells, tokens
@@ -147,39 +153,58 @@ packages/
   config/                environment config, feature flags, app constants
 ```
 
-This can live in a monorepo, but the design is more important than the repo move. Existing repos can be migrated gradually into this shape.
+This can live in a monorepo. The important boundary is not the folder name; it
+is that each surface can run and deploy independently when needed, while sharing
+typed contracts and UI packages.
 
 `investor-web-shadow` is a migration safety surface, not a forever architecture
 decision. It lets the team validate the investor/reduced dashboard separately
-while current live URLs continue running. After parity is proven, the target can
-be one role-aware dashboard codebase or two deploy targets from shared packages,
-but no old live repo is edited during the rewrite.
+while current live URLs continue running. After parity is proven, investor can
+become a separate Next.js zone/deploy target from the shared packages if its
+security/cadence differs from internal admin.
 
-## Microfrontend Decision
+## Surface Separation Decision
 
-Do not use Module Federation/microfrontends now.
+Goat OS uses microfrontend discipline at the **surface** boundary, not per small
+feature. The surface boundaries are:
 
-Reason:
+- internal admin/CEO command center
+- investor/external read surface
+- operator/device field surface
+- public/partner surface, only when Goat OS owns product data there
 
-- Small engineering team.
-- Current dashboards are already one product shell.
-- Most reuse is shared components and typed data contracts, not independently deployed frontend fragments.
-- Microfrontends add routing, versioning, shared dependency, auth, and deployment complexity before the team needs it.
+For web surfaces, prefer **Next.js Multi-Zones** or separate Next apps routed by
+path/domain when a surface needs an independent deploy/security boundary.
+Multi-zones fit this surface granularity because each surface is a full app and
+does not require runtime shared-dependency negotiation.
 
-Use these boundaries instead:
+Use **Module Federation** only when a surface truly needs runtime
+module-into-host remotes. Do not federate every feature tab. Per-feature
+federation would add version skew, singleton negotiation, routing, auth, and
+runtime failure tax without solving the legacy dashboard lag by itself.
 
-- Route-level feature folders in Next.
-- Shared packages for UI/contracts/forms/analytics.
-- Role-aware navigation from server-provided permissions.
-- Separate deployables only where the audience and risk differ:
-- `admin-web` for internal command center.
-- `operator-mobile` for field execution.
+Phase 1 has one web surface: `admin-web`. Build it with the same boundary
+discipline now:
 
-Microfrontends become valid only if separate teams need independent deploys for large surfaces like commerce/investor portal/public web. Until then, package boundaries are the right discipline.
+- SSR/server components for read-heavy pages wherever possible.
+- route-level modules for goat passport, import review, analytics counts, and
+  future devices/workforce areas.
+- standalone module entrypoints for local/demo testing.
+- dynamic imports for heavy charts/tables and client-only widgets.
+- backend pagination and shaped summaries; no client-side full-herd scans.
+- no cross-module deep imports; shared code moves through `packages/ui`,
+  generated API clients, auth, RBAC, and typed public module interfaces.
+- the first slice that creates real admin feature modules must add a
+  `check-boundaries.sh` guard or equivalent CI check so one feature module
+  cannot deep-import another feature module's internals.
+
+When surface #2 lands, split at the surface boundary with Next zones/separate
+apps first. Reach for Module Federation only if a measured need appears inside a
+surface.
 
 ## Dashboard Role Model
 
-One dashboard codebase should serve multiple roles.
+The internal admin surface should serve internal roles from one SSR shell.
 
 ```text
 same app + same routes + same components
@@ -446,7 +471,14 @@ Reuse:
 - No client-only permission enforcement.
 - No media upload through the API server body; use signed upload URLs.
 - No vendor SDK spread across app code; SDKs live in adapters.
-- No microfrontend framework until independent teams/deploy cadence make it worth the tax.
+- No giant client-rendered dashboard bundle. Use SSR, route-level modules,
+  dynamic imports for heavy widgets, backend pagination, and surface boundaries.
+- No per-feature runtime federation. Surface-level Next zones/separate apps are
+  preferred when admin, investor, operator, or public surfaces need independent
+  deployment/security. Module Federation requires an explicit decision because
+  it adds runtime shared-dependency/versioning complexity.
+- No cross-module deep imports; feature modules use public interfaces and shared
+  packages. Once feature-module directories exist, enforce this in CI.
 - Every command/submission has an idempotency key.
 - Every adapter has a fake/mock implementation for tests and local development.
 

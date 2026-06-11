@@ -751,7 +751,11 @@ This order is intentional and should not be inferred from conversation memory:
 1. Build the local read-only admin demo UI before mutating non-goat review state.
    The UI should show clean goats, passport detail, review buckets, reviewer CSV
    export locations, identity counts, and a separate confirmed non-goat bucket.
-   It must wire dev auth and @goatos/api-client before adding real data views.
+   It must wire dev auth and @goatos/api-client before adding real data views,
+   use SSR-first route modules, lazy-load heavy tables/charts, and keep feature
+   modules standalone-capable inside the admin surface. The same slice should
+   add a boundary guard so feature modules cannot deep-import one another's
+   internals.
 
 2. Add a local demo runner/runbook that reproduces the real Shape-2 rehearsal:
    import, apply with the explicit RFID-only blank-suffix flag, rebuild counters,
