@@ -326,6 +326,13 @@ Rules:
   for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
   groups are context for a future RFID-only creation policy decision, not a
   Phase 1 apply behavior change.
+- The first local post-apply RFID mapping review is captured in
+  `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`: propose
+  plain F2/K2 `legacy_status_mappings`, review Anantapur Sheep as
+  non-goat/species exclusion, review Sirohi as a goat breed/alias candidate,
+  and decide whether to implement guarded RFID-only creation for blank old-tag
+  suffix rows. blank_gender and duplicate same-scope old_tag rows remain
+  blocked until source correction or an explicit reviewed policy.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

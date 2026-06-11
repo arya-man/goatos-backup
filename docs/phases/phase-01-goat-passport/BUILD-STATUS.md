@@ -529,6 +529,13 @@ RFID source-of-truth staging:
   species_or_breed_requires_review groups are for human alias-vs-exclusion
   decisions, not auto-aliasing; blank_old_tag_suffix groups support a future
   RFID-only creation policy decision and do not change Phase 1 apply behavior
+  docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md captures the
+  local post-apply mapping review: plain F2/K2 status mappings are proposed,
+  Anantapur Sheep is classified for non-goat/species exclusion review, Sirohi
+  is a goat breed alias candidate, blank_old_tag_suffix is recommended for a
+  later RFID-only creation policy with guardrails, and blank_gender plus
+  duplicate same-scope old_tag rows remain blocked pending source correction or
+  explicit reviewed policy
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
 RFID source-of-truth canonical apply:
@@ -675,7 +682,10 @@ production async projection worker deployment and Pub/Sub consumer wiring
 externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
-fresh private RFID DB import run
+approved RFID mapping/policy build from the local data mapping review:
+F2/K2 legacy_status_mappings, breed/species decisions for the reviewed labels,
+blank_old_tag_suffix RFID-only creation policy if approved, and source cleanup
+or reviewed policy for blank_gender plus duplicate same-scope old_tag rows
 P8 sales/allocation/promise behavior
 ```
 
