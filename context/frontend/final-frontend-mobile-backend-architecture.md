@@ -164,7 +164,7 @@ typed contracts and UI packages.
 
 ## Frontend Framework Version Baseline
 
-Freeze the Goat OS admin-web framework baseline before building real Phase 1 UI
+The Goat OS admin-web framework baseline is pinned before real Phase 1 UI
 screens. Do not build new screens on the copied dashboard's older Next 14 /
 React 18 stack.
 
@@ -175,20 +175,25 @@ next                16.2.9
 react               19.2.7
 react-dom           19.2.7
 eslint-config-next  16.2.9
+eslint             9.39.4
 typescript          6.0.3
+@types/node         25.9.3
 @types/react        19.2.17
 @types/react-dom    19.2.3
+@tailwindcss/postcss 4.3.0
 tailwindcss         4.3.0
 @tanstack/react-query 5.101.0
 lucide-react        1.17.0
 recharts            3.8.1
 ```
 
-The next admin-web implementation slice must upgrade and pin these framework
-packages first, then run the build/typecheck before adding feature screens. If a
-package has a peer-compatibility issue during the upgrade, pin the latest
-compatible version, document the reason in this section and in BUILD-STATUS, and
-do not silently fall back to the copied dashboard versions.
+`apps/admin-web/package.json` and `package-lock.json` are the executable source
+for these pins. The baseline intentionally uses ESLint `9.39.4`, the latest
+compatible ESLint 9 release, because ESLint 10 currently crashes inside the
+Next 16 React lint plugin stack. Do not silently fall back to the copied
+dashboard versions; if a future latest-version upgrade has a peer/runtime
+compatibility issue, pin the latest compatible version here and in BUILD-STATUS
+with the reason.
 
 Use the modern Next App Router stack:
 

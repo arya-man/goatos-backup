@@ -23,12 +23,12 @@ Rules:
 - `apps/admin-web` is currently a Phase 1 readiness shell. The next Phase 1 UI
   slice should turn it into the SSR-first internal admin surface for read-only
   demo screens backed by `@goatos/api-client`.
-- Before building real Phase 1 screens, upgrade admin-web from the copied
-  dashboard's Next 14 / React 18 stack to the frozen framework baseline in
-  `context/frontend/final-frontend-mobile-backend-architecture.md`:
-  Next 16.2.9, React 19.2.7, React DOM 19.2.7, matching
-  `eslint-config-next`, TypeScript/types, Tailwind, React Query, lucide, and
-  Recharts. Do not silently build new screens on the old framework stack.
+- Admin-web is upgraded from the copied dashboard's Next 14 / React 18 stack to
+  the frozen framework baseline in
+  `context/frontend/final-frontend-mobile-backend-architecture.md`: Next
+  16.2.9, React 19.2.7, React DOM 19.2.7, Tailwind 4.3.0, React Query 5.101.0,
+  lucide 1.17.0, Recharts 3.8.1, and matching TypeScript/types/ESLint tooling.
+  Do not silently build new screens on the old framework stack.
 - Use surface-level microfrontend discipline, not one giant dashboard bundle:
   admin/internal, investor/external, operator/device, and public/partner are the
   real surface boundaries. Phase 1 builds the admin surface now, with feature

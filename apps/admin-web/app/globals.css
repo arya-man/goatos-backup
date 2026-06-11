@@ -1,6 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.ts";
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────────
    Thin, theme-blended scrollbar. Track is invisible; thumb is a subtle

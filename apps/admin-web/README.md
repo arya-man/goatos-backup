@@ -11,11 +11,34 @@ The current shell proves:
 - Phase 1 tabs are visible but disabled until the next frontend slice wires real
   screens through Goat OS APIs.
 
+## Framework Baseline
+
+Admin-web is pinned to the Goat OS frontend baseline:
+
+```text
+Next.js 16.2.9
+React 19.2.7
+React DOM 19.2.7
+Tailwind CSS 4.3.0 with @tailwindcss/postcss 4.3.0
+TanStack Query 5.101.0
+lucide-react 1.17.0
+Recharts 3.8.1
+TypeScript 6.0.3
+ESLint 9.39.4 with eslint-config-next 16.2.9
+```
+
+ESLint is pinned to the latest compatible 9.x release because ESLint 10 crashes
+inside the current Next 16 React lint plugin stack. Upgrade that only after the
+Next/React lint plugins support it cleanly.
+
 ## Run The Shell
 
 ```bash
 cd /Users/ravi/mesha/goatos/apps/admin-web
 npm install
+npm run lint
+npm run typecheck
+npm run build
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 

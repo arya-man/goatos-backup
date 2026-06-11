@@ -751,10 +751,10 @@ This order is intentional and should not be inferred from conversation memory:
 1. Build the local read-only admin demo UI before mutating non-goat review state.
    The UI should show clean goats, passport detail, review buckets, reviewer CSV
    export locations, identity counts, and a separate confirmed non-goat bucket.
-   It must first upgrade admin-web to the frozen Next 16 / React 19 framework
-   baseline from the frontend architecture doc, then wire dev auth and
-   @goatos/api-client before adding real data views, use SSR-first route
-   modules, lazy-load heavy tables/charts, and keep feature modules
+   Admin-web is now on the frozen Next 16 / React 19 / Tailwind 4 framework
+   baseline from the frontend architecture doc, so the next UI slice should wire
+   dev auth and @goatos/api-client before adding real data views, use SSR-first
+   route modules, lazy-load heavy tables/charts, and keep feature modules
    standalone-capable inside the admin surface. The same slice should add a
    boundary guard so feature modules cannot deep-import one another's internals.
 

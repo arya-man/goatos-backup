@@ -53,7 +53,9 @@ Think of Phase 1 as the Aadhaar/passport layer for goats.
 
 ### Built
 
-The Phase 1 backend foundation is now largely built and tested.
+The Phase 1 local identity spine is built and tested: import, apply, canonical
+goat passport creation, search/read APIs, identity counters, auth/RBAC, and
+local rehearsal all work against local Postgres.
 
 Completed so far:
 
@@ -62,8 +64,7 @@ Completed so far:
 - RFID and old-tag identifier rules.
 - Duplicate and conflict handling.
 - Merge handling for duplicate goat records.
-- Correction request flow.
-- Candidate review/reject flow.
+- Correction/candidate/review schema and contracts.
 - RFID workbook staging and safe import foundation.
 - Clean RFID rows can be applied into canonical goat records.
 - Local full-stack rehearsal for source discovery, dry-run, staging, masked
@@ -77,6 +78,8 @@ Completed so far:
 - Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
 - Generated OpenAPI TypeScript client package and drift gate.
 - Admin-web Phase 1 readiness shell with executable BigQuery/Sheets routes removed.
+- Admin-web upgraded to the frozen Next 16 / React 19 / Tailwind 4 framework
+  baseline before real screens are added.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
@@ -103,6 +106,8 @@ Still pending before Phase 1 is usable end-to-end:
   verification, sessions, key rotation, revocation, and secret management.
 - Data-bound read-only frontend screens for admin users, built as SSR-first,
   standalone-capable feature modules inside the admin-web surface.
+- Import-run row APIs, correction request APIs, and admin write APIs are still
+  contract stubs unless explicitly re-scoped to a later phase.
 - Real production event publishing.
 - Operational review screens for dirty data.
 - Deployment setup for shared/staging/prod environments.
@@ -110,8 +115,7 @@ Still pending before Phase 1 is usable end-to-end:
 Immediate Phase 1 demo order:
 
 ```text
-1. Upgrade admin-web to the frozen Next 16 / React 19 framework baseline, then
-   build SSR-first read-only admin screens using dev auth, @goatos/api-client,
+1. Build SSR-first read-only admin screens using dev auth, @goatos/api-client,
    route-level modules, backend pagination, and lazy-loaded heavy widgets.
 2. Add a local demo runner/runbook for import -> apply -> counters -> reports -> UI.
 3. Close Phase 1 docs honestly.
@@ -121,7 +125,7 @@ Immediate Phase 1 demo order:
 Important:
 
 ```text
-Backend foundation is built.
+Local identity spine is built.
 User-facing product is not complete yet.
 ```
 
@@ -202,8 +206,9 @@ Includes:
 Current status:
 
 ```text
-Backend foundation mostly built.
-Frontend screens, production auth, and real data-run still pending.
+Local import/apply/read/counter spine is built.
+Frontend screens, production auth, production event egress, and cloud deploy are
+still pending.
 ```
 
 ### Phase 2: SOP Tasks And Vaccination

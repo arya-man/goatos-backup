@@ -52,6 +52,29 @@ function DaysLeftBadge({ days, consumptionStarted }: { days: number; consumption
   );
 }
 
+function SortButton({
+  active,
+  field,
+  label,
+  onSort,
+}: {
+  active: boolean;
+  field: SortField;
+  label: string;
+  onSort: (field: SortField) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      className="flex items-center gap-1 hover:text-[#B0BEC5] transition-colors"
+    >
+      {label}
+      <ArrowUpDown size={10} className={active ? "text-[#FFFFFF]" : "text-[#8899AA]"} />
+    </button>
+  );
+}
+
 export function FeedStockTable({ records, tableClassName }: FeedStockTableProps) {
   const [sortField, setSortField] = useState<SortField>("purchase_date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -85,16 +108,6 @@ export function FeedStockTable({ records, tableClassName }: FeedStockTableProps)
     return map;
   }, [sortedRecords]);
 
-  const SortButton = ({ field, label }: { field: SortField; label: string }) => (
-    <button
-      onClick={() => toggleSort(field)}
-      className="flex items-center gap-1 hover:text-[#B0BEC5] transition-colors"
-    >
-      {label}
-      <ArrowUpDown size={10} className={sortField === field ? "text-[#FFFFFF]" : "text-[#8899AA]"} />
-    </button>
-  );
-
   return (
     <div className="space-y-2">
       <div className="flex justify-end items-center gap-1">
@@ -125,7 +138,7 @@ export function FeedStockTable({ records, tableClassName }: FeedStockTableProps)
             <th className="px-3 py-2.5 text-left font-medium text-[#B0BEC5] whitespace-nowrap">Load Type</th>
             <th className="px-3 py-2.5 text-left font-medium text-[#B0BEC5] whitespace-nowrap">Load ID</th>
             <th className={cn("px-3 py-2.5 text-left font-medium text-[#B0BEC5] whitespace-nowrap", blueTint)}>
-              <SortButton field="purchase_date" label="Purchase Date" />
+              <SortButton active={sortField === "purchase_date"} field="purchase_date" label="Purchase Date" onSort={toggleSort} />
             </th>
             <th className={cn("px-3 py-2.5 text-right font-medium text-[#B0BEC5] whitespace-nowrap", blueTint)}>Consumption/Day</th>
             <th className={cn("px-3 py-2.5 text-right font-medium text-[#B0BEC5] whitespace-nowrap", blueTint)}>Purchased Qty</th>
@@ -136,7 +149,7 @@ export function FeedStockTable({ records, tableClassName }: FeedStockTableProps)
             <th className="w-px bg-[#334155]" />
             <th className={cn("px-3 py-2.5 text-right font-medium text-[#B0BEC5] whitespace-nowrap", orangeTint)}>Cost</th>
             <th className={cn("px-3 py-2.5 text-left font-medium text-[#B0BEC5] whitespace-nowrap", orangeTint)}>
-              <SortButton field="last_payment_date" label="Last Payment" />
+              <SortButton active={sortField === "last_payment_date"} field="last_payment_date" label="Last Payment" onSort={toggleSort} />
             </th>
             <th className={cn("px-3 py-2.5 text-right font-medium text-[#B0BEC5] whitespace-nowrap", orangeTint)}>Last Amt</th>
             <th className={cn("px-3 py-2.5 text-right font-medium text-[#B0BEC5] whitespace-nowrap", orangeTint)}>Paid</th>
