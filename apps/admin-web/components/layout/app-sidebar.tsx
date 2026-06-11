@@ -15,6 +15,7 @@ import {
   FileSearch,
   HeartPulse,
   LayoutDashboard,
+  Milk,
   PanelLeft,
   PanelLeftClose,
   Search,
@@ -56,6 +57,7 @@ const legacyItems: NavItem[] = [
   { icon: ShoppingCart, label: "Purchase Cost", status: "disabled" },
   { icon: ArrowLeftRight, label: "Shiftings", status: "disabled" },
   { icon: Users, label: "Parent Stock", status: "disabled" },
+  { icon: Milk, label: "Milk", status: "disabled" },
   { icon: ClipboardList, label: "Summary", status: "disabled" },
 ];
 
