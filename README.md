@@ -77,30 +77,28 @@ Completed so far:
 - Rebuild and incremental counter update workers.
 - Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
 - Generated OpenAPI TypeScript client package and drift gate.
-- Admin-web Phase 1 read-only demo surface with executable BigQuery/Sheets
-  routes removed.
+- Admin-web Phase 1 Mesha-style read-only demo surface with executable
+  BigQuery/Sheets routes removed.
 - Admin-web upgraded to the frozen Next 16 / React 19 / Tailwind 4 framework
   baseline before real screens were added.
-- SSR-first admin-web screens for herd search, goat passport, identity counts,
-  live read-only conflicts/candidates queues, live Import Review summary/rows
-  when an import run id is provided, and honest placeholders for corrections,
-  admin goat writes, timeline, import-run creation, and review/fix actions.
+- SSR-first Mesha admin-web shell with legacy-style dark sidebar, compact module
+  navigation, KPI cards, charts, and dense tables for herd search, goat
+  passport, identity counts, live read-only conflicts/candidates queues, and
+  live Import Review summary/rows when an import run id is provided. Non-Phase-1
+  legacy modules and write/fix actions stay disabled or honest placeholders.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
   local baseline is 711 created goats, with remaining review rows grouped for
   cleanup/non-goat handling.
 - Phase 1 local end-to-end proof has passed against the local backend and
-  SSR-first admin-web: normal apply produced 436 created goats and 787 review
-  rows; guarded RFID-only apply produced 711 created goats, 512 review rows, and
-  0 errors; `tenant_lifecycle` shows 711 alive goats; herd search, goat passport,
-  and identity counts rendered through admin-web. Read-only Import Review
-  summary/rows were then proven against a separate real local run at the
-  post-status-mapping stage; the final closeout rehearsal must re-run the full
-  migration-plus-RFID-only sequence and verify Import Review against the 711/512
-  run. The real local DB had no conflicts or candidates, so Data Quality
-  rendered an honest empty state while backend conflict/candidate list coverage
-  proves those read paths separately.
+  Mesha-style SSR admin-web: normal apply produced 436 created goats and 787
+  review rows; guarded RFID-only apply produced 711 created goats, 512 review
+  rows, and 0 errors; `tenant_lifecycle` shows 711 alive goats; overview, herd
+  search, goat passport, identity counts, and live Import Review rendered
+  against the 711/512 run. The real local DB had no conflicts or candidates, so
+  Data Quality rendered an honest empty state while backend conflict/candidate
+  list coverage proves those read paths separately.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
 - Contract validation and migration validation.
@@ -426,8 +424,8 @@ Recommended next execution order:
 1. Decide and implement terminal disposition for confirmed non-goat rows so
    they do not stay forever in actionable goat-review queues.
 2. Close Phase 1 local scope honestly: list remaining stubs that move to later
-   phases, keep the 711-goat proof reproducible, and keep admin-web SSR proof
-   green.
+   phases, keep the 711-goat proof reproducible, and keep the Mesha admin-web
+   SSR proof green.
 3. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.
@@ -480,6 +478,7 @@ Docker-backed Postgres integration tests
 
 Goat OS Phase 1 is building the trusted goat identity foundation.
 
-The backend foundation is strong and progressing well, and admin-web plumbing is
-ready for real screens. The product is not user-ready until data-bound frontend
-screens, production auth, and production deployment pieces are completed.
+The backend foundation is strong and progressing well, and the Mesha admin-web
+read-only demo surface now renders the live identity spine. The product is not
+user-ready until review/write workflows, production auth, and production
+deployment pieces are completed.

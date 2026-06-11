@@ -14,11 +14,11 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="mb-5 flex flex-col gap-3 border-b border-[#293241] pb-5 md:flex-row md:items-end md:justify-between">
+    <header className="mb-5 flex flex-col gap-3 border-b border-[#334155] pb-5 md:flex-row md:items-end md:justify-between">
       <div>
         <div className="text-xs font-semibold uppercase text-[#14f1d9]">{eyebrow}</div>
-        <h1 className="mt-1 text-2xl font-semibold text-white sm:text-3xl">{title}</h1>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-[#aab7c4]">{description}</p>
+        <h1 className="mt-1 text-2xl font-bold text-white sm:text-3xl">{title}</h1>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-[#B0BEC5]">{description}</p>
       </div>
       {actions ? <div className="shrink-0">{actions}</div> : null}
     </header>
@@ -37,11 +37,11 @@ export function Panel({
   action?: React.ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-[#293241] bg-[#151820]">
-      <div className="flex flex-col gap-2 border-b border-[#293241] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="rounded-xl border border-[#334155] bg-[#1A1D24]">
+      <div className="flex flex-col gap-2 border-b border-[#334155] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-white">{title}</h2>
-          {description ? <p className="mt-1 text-sm text-[#93a4b8]">{description}</p> : null}
+          {description ? <p className="mt-1 text-sm text-[#8899AA]">{description}</p> : null}
         </div>
         {action}
       </div>
@@ -83,12 +83,12 @@ export function ErrorPanel({ error }: { error: ApiUiError }) {
 }
 
 export function EmptyPanel({ message }: { message: string }) {
-  return <div className="rounded-md border border-dashed border-[#334155] px-4 py-8 text-center text-sm text-[#93a4b8]">{message}</div>;
+  return <div className="rounded-lg border border-dashed border-[#334155] bg-[#11151C] px-4 py-8 text-center text-sm text-[#8899AA]">{message}</div>;
 }
 
 export function LoadingBlock({ label = "Loading" }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-[#293241] bg-[#151820] px-4 py-3 text-sm text-[#c7d1dc]">
+    <div className="flex items-center gap-2 rounded-lg border border-[#334155] bg-[#1A1D24] px-4 py-3 text-sm text-[#c7d1dc]">
       <Loader2 className="h-4 w-4 animate-spin text-[#14f1d9]" aria-hidden="true" />
       {label}
     </div>
@@ -100,7 +100,7 @@ export function NextPageLink({ href, label = "Load more" }: { href: string | nul
   return (
     <Link
       href={href}
-      className="inline-flex h-9 items-center gap-2 rounded-md border border-[#334155] px-3 text-sm text-[#f8fafc] hover:bg-[#202631]"
+      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm text-[#f8fafc] hover:bg-[#22262E]"
     >
       {label}
       <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -116,8 +116,8 @@ export function ValueList({ values }: { values: Array<[string, React.ReactNode]>
   return (
     <dl className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-3">
       {values.map(([label, value]) => (
-        <div key={label} className="rounded-md border border-[#293241] bg-[#10141b] p-3">
-          <dt className="text-xs uppercase text-[#93a4b8]">{label}</dt>
+        <div key={label} className="rounded-lg border border-[#334155] bg-[#11151C] p-3">
+          <dt className="text-xs uppercase text-[#8899AA]">{label}</dt>
           <dd className="mt-1 break-words text-[#f8fafc]">{value ?? "—"}</dd>
         </div>
       ))}

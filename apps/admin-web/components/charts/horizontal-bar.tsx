@@ -24,13 +24,12 @@ const tooltipStyle = {
 interface HorizontalBarChartProps {
   data: { name: string; value: number }[];
   height?: number;
-  labelFormatter?: (v: number) => string;
   valueLabel?: string;
   showLabels?: boolean;
   yAxisWidth?: number;
 }
 
-export function HorizontalBarChart({ data, height, labelFormatter, valueLabel, showLabels = true, yAxisWidth = 136 }: HorizontalBarChartProps) {
+export function HorizontalBarChart({ data, height, valueLabel, showLabels = true, yAxisWidth = 136 }: HorizontalBarChartProps) {
   const shaded = assignBarShades(data);
   const chartHeight = height ?? Math.max(200, data.length * 44);
 
@@ -76,7 +75,7 @@ export function HorizontalBarChart({ data, height, labelFormatter, valueLabel, s
               position="right"
               fontSize={12}
               fill="#E0E8F0"
-              formatter={labelFormatter as never}
+              formatter={(value) => (typeof value === "number" ? value.toLocaleString("en-IN") : String(value ?? ""))}
             />
           )}
         </Bar>

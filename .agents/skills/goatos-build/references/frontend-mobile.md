@@ -20,10 +20,13 @@ Rules:
 - `packages/api-client` is the generated OpenAPI TypeScript client package for
   app/admin/analytics APIs. Admin-web and future mobile screens must use it
   through small app adapters instead of hand-copying DTOs.
-- `apps/admin-web` is currently the Phase 1 SSR-first internal admin surface
-  for read-only demo screens backed by `@goatos/api-client`. Server-side
-  adapters keep bearer tokens out of browser code; live screens cover herd
-  search, goat passport, identity counts, and data quality queues.
+- `apps/admin-web` is currently the Phase 1 Mesha-style SSR-first internal admin
+  surface for read-only demo screens backed by `@goatos/api-client`.
+  Server-side adapters keep bearer tokens out of browser code; live screens
+  cover the overview, herd search, goat passport, identity counts, Import
+  Review, and data quality queues. The visible shell uses Mesha branding; Goat
+  OS and VGoat labels are internal/legacy labels and must not appear in rendered
+  admin-web UI copy.
 - Admin-web is upgraded from the copied dashboard's Next 14 / React 18 stack to
   the frozen framework baseline in
   `context/frontend/final-frontend-mobile-backend-architecture.md`: Next
@@ -64,3 +67,6 @@ Rules:
 - Do not reintroduce executable `apps/admin-web/app/api/*` BigQuery/Sheets
   routes or `lib/bigquery.ts`. Deleted legacy route code is available in git
   history if needed as reference.
+- The boundary guard checks rendered/admin-web-facing TypeScript and TSX for
+  visible `Goat OS` or `VGoat` labels. Internal code identifiers such as
+  `GOATOS_*`, `@goatos/api-client`, and `GoatOSApiError` remain allowed.

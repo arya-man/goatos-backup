@@ -35,9 +35,9 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
       <PageHeader
         eyebrow="Herd"
         title="Search Goats"
-        description="Search goat passports by display ID, identifier, location, and status. Results are bounded by the backend limit and keyset cursor."
+        description="Search goat passports by display ID, identifier, location, and status."
       />
-      <Panel title="Filters" description="Limit is required by the API and stays within 1-100.">
+      <Panel title="Filters" description="Searches stay bounded for fast review.">
         <form className="grid gap-3 md:grid-cols-4 xl:grid-cols-8" action="/herd">
           <Field name="q" label="Search" defaultValue={one(searchParams, "q")} placeholder="display, tag, RFID" wide />
           <Select name="identifier_type" label="Identifier" defaultValue={identifierType ?? ""} options={identifierTypes} />
@@ -65,7 +65,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
             action={<StatPill label="Page rows" value={result.data.items.length} tone={result.data.items.length > 0 ? "good" : "neutral"} />}
           >
             {result.data.items.length === 0 ? (
-              <EmptyPanel message="No goats matched this bounded search." />
+              <EmptyPanel message="No goats matched these filters." />
             ) : (
               <div className="space-y-3">
                 {result.data.items.map((goat) => (

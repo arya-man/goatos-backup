@@ -26,7 +26,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
         <PageHeader
           eyebrow="Import Review"
           title="RFID Import Review"
-          description="Live import run rows are available when an import run id is provided."
+          description="Live import rows appear when an import run id is provided."
         />
         <Panel title="Select import run">
           <form className="grid gap-3 md:grid-cols-[1fr_auto]" action="/import-review">
@@ -66,7 +66,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
       <PageHeader
         eyebrow="Import Review"
         title="RFID Import Review"
-        description="Live read-only view of staged import rows and messy-data review reasons. Write and fix actions remain disabled."
+        description="Live view of staged import rows and messy-data review reasons. Write and fix actions remain disabled."
       />
 
       {!summary.ok ? (
@@ -102,7 +102,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
 
           <Panel
             title="Review rows"
-            description="Rows are tenant-scoped and keyset-paginated. Filters query backend indexes; no CSV or local files are read by the UI."
+            description="Rows are tenant-scoped and paginated. The page reads the selected run only."
             action={
               <div className="flex items-center gap-2 text-xs text-[#93a4b8]">
                 <Rows3 className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
@@ -123,7 +123,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
             {!rows.ok ? (
               <ErrorPanel error={rows.error} />
             ) : rows.data.items.length === 0 ? (
-              <EmptyPanel message="No import rows returned for this query." />
+              <EmptyPanel message="No import rows returned for these filters." />
             ) : (
               <div className="space-y-3">
                 {rows.data.items.map((row) => (

@@ -1,131 +1,197 @@
-import { BarChart3 } from "lucide-react";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
+import { Activity, BarChart3, CircleDashed, Layers3 } from "lucide-react";
+import { ChartCard } from "@/components/charts/chart-card";
+import { HorizontalBarChart } from "@/components/charts/horizontal-bar";
+import { KPICard } from "@/components/charts/kpi-card";
+import { EmptyPanel, ErrorPanel, NextPageLink, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
-import { boundedInt, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
-import { getIdentityCounts, type CounterGrain } from "@/lib/api/server";
+import { hrefWithCursor, type RouteSearchParams } from "@/lib/search-params";
+import { getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
 
-const grains: CounterGrain[] = [
-  "tenant_lifecycle",
-  "custodian_lifecycle",
-  "custodian_identity",
-  "park_lifecycle",
-  "shed_lifecycle",
-  "breed_sex_lifecycle",
-  "health_status",
-  "growth_cohort",
-  "management_stage",
-  "reproductive_status",
-];
+const tabs = [
+  { id: "overall", label: "Overall", live: true },
+  { id: "core-farms", label: "Core Farms", live: false },
+  { id: "cbe", label: "CBE", live: false },
+  { id: "cpt", label: "CPT", live: false },
+  { id: "holdings", label: "Holdings", live: false },
+] as const;
 
 export async function IdentityCountsPage({ searchParams }: { searchParams: RouteSearchParams }) {
-  const grain = normalizeGrain(one(searchParams, "grain")) ?? "tenant_lifecycle";
-  const limit = boundedInt(one(searchParams, "limit"), 50, 1, 500);
-  const result = await getIdentityCounts({
-    grain,
-    limit,
-    cursor: one(searchParams, "cursor"),
-  });
+  const [tenantLifecycle, healthStatus, growthCohort] = await Promise.all([
+    getIdentityCounts({ grain: "tenant_lifecycle", limit: 50 }),
+    getIdentityCounts({ grain: "health_status", limit: 50 }),
+    getIdentityCounts({ grain: "growth_cohort", limit: 50 }),
+  ]);
+
+  const tenantItems = tenantLifecycle.ok ? tenantLifecycle.data.items : [];
+  const activeGoats = dimensionCount(tenantItems, "lifecycle_status", "alive");
+  const reviewGoats = dimensionCount(tenantItems, "lifecycle_status", "needs_review");
+  const chartSource = healthStatus.ok && healthStatus.data.items.length > 0 ? healthStatus.data : tenantLifecycle.ok ? tenantLifecycle.data : null;
+  const growthRows = growthCohort.ok ? growthCohort.data.items : [];
 
   return (
     <>
       <PageHeader
-        eyebrow="Analytics"
-        title="Identity Counts"
-        description="Materialized identity counter reads use server-side bearer auth, required tenant_id from server config, and keyset pagination."
+        eyebrow="Counts"
+        title="Counts > Overall"
+        description="Live identity counters for the overall herd. Farm-level legacy tabs stay disabled until those rollups are tracked."
       />
-      <Panel title="Query" description="The backend rejects missing or out-of-range limits instead of clamping.">
-        <form className="grid gap-3 sm:grid-cols-[minmax(220px,320px)_160px_auto]" action="/counts">
-          <label>
-            <span className="text-xs uppercase text-[#93a4b8]">Grain</span>
-            <select
-              name="grain"
-              defaultValue={grain}
-              className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
-            >
-              {grains.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span className="text-xs uppercase text-[#93a4b8]">Limit</span>
-            <input
-              name="limit"
-              type="number"
-              min="1"
-              max="500"
-              defaultValue={limit}
-              className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
-            />
-          </label>
-          <div className="flex items-end">
-            <button className="inline-flex h-9 items-center gap-2 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015] hover:bg-[#7ff7ea]">
-              <BarChart3 className="h-4 w-4" aria-hidden="true" />
-              Load
-            </button>
-          </div>
-        </form>
-      </Panel>
-      <div className="mt-5">
-        {!result.ok ? (
-          <ErrorPanel error={result.error} />
-        ) : (
-          <Panel
-            title={result.data.grain}
-            description={`Freshness ${dateTime(result.data.freshness.as_of_recorded_at)}${result.data.freshness.warning ? ` · ${result.data.freshness.warning}` : ""}`}
-            action={<StatPill label="Rows" value={result.data.items.length} tone={result.data.items.length > 0 ? "good" : "neutral"} />}
+
+      <nav className="mb-5 flex flex-wrap items-center gap-1" aria-label="Counts tabs">
+        {tabs.map((tab) => (
+          <span
+            key={tab.id}
+            className={
+              tab.live
+                ? "rounded-lg bg-[#22262E] px-3 py-1.5 text-sm font-medium text-[#14F1D9]"
+                : "rounded-lg border border-dashed border-[#334155] px-3 py-1.5 text-sm font-medium text-[#657386]"
+            }
           >
-            {result.data.items.length === 0 ? (
-              <EmptyPanel message="No count rows returned for this grain and cursor." />
-            ) : (
-              <div className="space-y-3">
-                {result.data.items.map((item, index) => (
-                  <div key={`${item.counter_grain}-${index}-${item.updated_at}`} className="rounded-md border border-[#293241] bg-[#10141b] p-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="text-2xl font-semibold text-white">{item.count_value.toLocaleString("en-IN")}</div>
-                        <div className="mt-1 text-sm text-[#93a4b8]">Updated {dateTime(item.updated_at)}</div>
-                      </div>
-                      <div className="flex flex-wrap gap-2 text-xs">
-                        {item.is_rebuilding ? <span className="rounded border border-[#a16207] px-2 py-1 text-[#facc15]">rebuilding</span> : null}
-                        {item.source_import_run_id ? <span className="rounded border border-[#334155] px-2 py-1 text-[#c7d1dc]">run {shortId(item.source_import_run_id)}</span> : null}
-                      </div>
+            {tab.label}
+            {!tab.live ? <span className="ml-2 text-[10px] uppercase tracking-wider">Not tracked</span> : null}
+          </span>
+        ))}
+      </nav>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KPICard
+          label="Total active goats"
+          value={activeGoats === null ? "Not tracked" : activeGoats.toLocaleString("en-IN")}
+          subtitle="tenant_lifecycle alive"
+          icon={<Activity size={18} />}
+          delay={0}
+          variant={activeGoats === null ? "amber" : "positive"}
+        />
+        <KPICard
+          label="Needs review"
+          value={reviewGoats === null ? "Not tracked" : reviewGoats.toLocaleString("en-IN")}
+          subtitle="only if lifecycle bucket exists"
+          icon={<CircleDashed size={18} />}
+          delay={1}
+          variant="amber"
+        />
+        <KPICard
+          label="Core Farms"
+          value="Not tracked"
+          subtitle="farm rollup not exposed yet"
+          icon={<Layers3 size={18} />}
+          delay={2}
+          variant="amber"
+        />
+        <KPICard
+          label="Holdings"
+          value="Not tracked"
+          subtitle="holding rollup not exposed yet"
+          icon={<BarChart3 size={18} />}
+          delay={3}
+          variant="amber"
+        />
+      </div>
+
+      <div className="mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <ChartCard
+          title={chartSource?.grain === "health_status" ? "Count by Health Status" : "Count by Lifecycle Status"}
+          subtitle={chartSource ? `Updated ${dateTime(chartSource.freshness.as_of_recorded_at)}` : "Live counter data unavailable"}
+        >
+          {chartSource ? (
+            <HorizontalBarChart
+              data={chartRows(chartSource)}
+              valueLabel="Goats"
+              yAxisWidth={150}
+            />
+          ) : tenantLifecycle.ok ? (
+            <EmptyPanel message="No counter rows returned for the overall view." />
+          ) : (
+            <ErrorPanel error={tenantLifecycle.error} />
+          )}
+        </ChartCard>
+
+        <Panel
+          title="Growth Cohort"
+          description="Live growth-cohort grain when available; missing buckets are not filled with zeroes."
+          action={<StatPill label="Rows" value={growthRows.length} tone={growthRows.length > 0 ? "good" : "neutral"} />}
+        >
+          {!growthCohort.ok ? (
+            <ErrorPanel error={growthCohort.error} />
+          ) : growthRows.length === 0 ? (
+            <EmptyPanel message="No growth-cohort counter rows returned." />
+          ) : (
+            <div className="space-y-2">
+              {growthRows.slice(0, 8).map((item, index) => (
+                <div key={`${item.counter_grain}-${index}-${item.updated_at}`} className="flex items-center justify-between gap-4 rounded-lg border border-[#334155] bg-[#11151C] p-3">
+                  <div>
+                    <div className="font-semibold text-white">{dash(item.dimensions.growth_cohort_tag)}</div>
+                    <div className="mt-1 text-xs text-[#8899AA]">Updated {dateTime(item.updated_at)}</div>
+                  </div>
+                  <div className="text-xl font-bold text-[#14F1D9]">{item.count_value.toLocaleString("en-IN")}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <div className="mt-6">
+        <Panel
+          title="Overall Counter Rows"
+          description="Projection rows for the live overall grain. Paging stays bounded."
+          action={tenantLifecycle.ok ? <StatPill label="Rows" value={tenantLifecycle.data.items.length} tone="good" /> : undefined}
+        >
+          {!tenantLifecycle.ok ? (
+            <ErrorPanel error={tenantLifecycle.error} />
+          ) : tenantLifecycle.data.items.length === 0 ? (
+            <EmptyPanel message="No lifecycle count rows returned." />
+          ) : (
+            <div className="space-y-3">
+              {tenantLifecycle.data.items.map((item, index) => (
+                <div key={`${item.counter_grain}-${index}-${item.updated_at}`} className="rounded-lg border border-[#334155] bg-[#11151C] p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="text-2xl font-semibold text-white">{item.count_value.toLocaleString("en-IN")}</div>
+                      <div className="mt-1 text-sm text-[#8899AA]">Updated {dateTime(item.updated_at)}</div>
                     </div>
-                    <div className="mt-4">
-                      <ValueList
-                        values={[
-                          ["tenant", <Mono key="tenant">{item.dimensions.tenant_id}</Mono>],
-                          ["custodian", dash(item.dimensions.custodian_party_id)],
-                          ["farm", dash(item.dimensions.farm_id)],
-                          ["park", dash(item.dimensions.park_id)],
-                          ["shed", dash(item.dimensions.shed_id)],
-                          ["cohort", dash(item.dimensions.cohort_id)],
-                          ["lifecycle", dash(item.dimensions.lifecycle_status)],
-                          ["identity", dash(item.dimensions.identity_state)],
-                          ["breed", dash(item.dimensions.breed_id)],
-                          ["sex", dash(item.dimensions.sex)],
-                          ["health", dash(item.dimensions.health_status)],
-                          ["management", dash(item.dimensions.management_stage)],
-                          ["reproductive", dash(item.dimensions.reproductive_status)],
-                          ["growth cohort", dash(item.dimensions.growth_cohort_tag)],
-                        ]}
-                      />
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      {item.is_rebuilding ? <span className="rounded border border-[#a16207] px-2 py-1 text-[#facc15]">rebuilding</span> : null}
+                      {item.source_import_run_id ? <span className="rounded border border-[#334155] px-2 py-1 text-[#c7d1dc]">run {shortId(item.source_import_run_id)}</span> : null}
                     </div>
                   </div>
-                ))}
-                <NextPageLink href={hrefWithCursor("/counts", searchParams, result.data.next_cursor)} />
-                <div className="text-xs text-[#93a4b8]">Trace {result.data.trace_id}. Has more: {result.data.has_more ? "yes" : "no"}.</div>
-              </div>
-            )}
-          </Panel>
-        )}
+                  <div className="mt-4">
+                    <ValueList
+                      values={[
+                        ["lifecycle", dash(item.dimensions.lifecycle_status)],
+                        ["tenant", item.dimensions.tenant_id],
+                        ["source run", dash(item.source_import_run_id)],
+                        ["rebuilding", item.is_rebuilding ? "yes" : "no"],
+                      ]}
+                    />
+                  </div>
+                </div>
+              ))}
+              <NextPageLink href={hrefWithCursor("/counts", searchParams, tenantLifecycle.data.next_cursor)} />
+              <div className="text-xs text-[#8899AA]">Trace {tenantLifecycle.data.trace_id}. Has more: {tenantLifecycle.data.has_more ? "yes" : "no"}.</div>
+            </div>
+          )}
+        </Panel>
       </div>
     </>
   );
 }
 
-function normalizeGrain(value: string | undefined): CounterGrain | undefined {
-  return grains.includes(value as CounterGrain) ? (value as CounterGrain) : undefined;
+function dimensionCount(
+  items: IdentityCountsResponse["items"],
+  dimension: "lifecycle_status" | "health_status" | "growth_cohort_tag",
+  value: string,
+): number | null {
+  const row = items.find((item) => item.dimensions[dimension] === value);
+  return row?.count_value ?? null;
+}
+
+function chartRows(data: IdentityCountsResponse) {
+  return data.items.map((item) => ({
+    name:
+      item.dimensions.health_status ??
+      item.dimensions.lifecycle_status ??
+      item.dimensions.growth_cohort_tag ??
+      "Unspecified",
+    value: item.count_value,
+  }));
 }

@@ -6,8 +6,8 @@ import { AdminShell } from "@/components/admin-shell";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Goat OS Admin",
-  description: "Goat OS admin console",
+  title: "Mesha Admin",
+  description: "Mesha internal herd dashboard",
 };
 
 export default function RootLayout({

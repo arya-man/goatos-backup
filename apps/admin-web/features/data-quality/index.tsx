@@ -42,10 +42,10 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       <PageHeader
         eyebrow="Data Quality"
         title="Review Queues"
-        description="Read-only conflict and candidate queues. Actions remain disabled in this admin UI slice."
+        description="Conflict and match-candidate queues for identity review. Actions remain disabled here."
       />
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <Panel title="Identity Conflicts" description="Open and field-check conflicts from the admin API.">
+        <Panel title="Identity Conflicts" description="Open and field-check conflicts for the selected filters.">
           <form className="mb-4 grid gap-3 sm:grid-cols-4" action="/data-quality">
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
             <Select name="conflict_type" label="Type" defaultValue={conflictType ?? ""} options={conflictTypes} />
@@ -57,7 +57,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           {!conflicts.ok ? (
             <ErrorPanel error={conflicts.error} />
           ) : conflicts.data.items.length === 0 ? (
-            <EmptyPanel message="No conflicts returned for this query." />
+            <EmptyPanel message="No conflicts returned for these filters." />
           ) : (
             <div className="space-y-3">
               {conflicts.data.items.map((conflict) => (
@@ -118,7 +118,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       </div>
 
       <div className="mt-5">
-        <Panel title="Conflict Detail" description="Select a conflict to inspect goats, source records, and available read-only decision options.">
+        <Panel title="Conflict Detail" description="Select a conflict to inspect goats, source records, and available decision options.">
           {!conflictId ? (
             <EmptyPanel message="No conflict selected." />
           ) : detail && !detail.ok ? (

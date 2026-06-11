@@ -1,135 +1,240 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Activity,
+  ArrowLeftRight,
+  Baby,
   BadgeCheck,
+  BarChart3,
+  Briefcase,
+  Building2,
+  ClipboardList,
   DatabaseZap,
   FileSearch,
-  GitBranch,
-  PanelLeftClose,
+  HeartPulse,
+  LayoutDashboard,
   PanelLeft,
+  PanelLeftClose,
   Search,
+  ShoppingCart,
+  Stethoscope,
+  Syringe,
+  TrendingUp,
+  Users,
+  Wheat,
   X,
 } from "lucide-react";
 import { useSidebar } from "./sidebar-context";
 
-const navItems = [
-  { icon: Search, label: "Herd Search" },
-  { icon: BadgeCheck, label: "Goat Passport" },
-  { icon: DatabaseZap, label: "Import Runs" },
-  { icon: FileSearch, label: "Dirty Data Review" },
-  { icon: GitBranch, label: "Corrections" },
-  { icon: Activity, label: "Analytics Counts" },
+type NavItem = {
+  icon: React.ElementType;
+  label: string;
+  href?: string;
+  status?: "live" | "disabled";
+};
+
+const commandItems: NavItem[] = [
+  { icon: LayoutDashboard, label: "CEO Dashboard", href: "/" },
+  { icon: BarChart3, label: "Counts", href: "/counts" },
+  { icon: Search, label: "Herd Search", href: "/herd" },
+  { icon: BadgeCheck, label: "Goat Passport", href: "/herd" },
+  { icon: DatabaseZap, label: "Import Review", href: "/import-review" },
+  { icon: FileSearch, label: "Data Quality", href: "/data-quality" },
+];
+
+const legacyItems: NavItem[] = [
+  { icon: HeartPulse, label: "Mortality", status: "disabled" },
+  { icon: Baby, label: "Births", status: "disabled" },
+  { icon: TrendingUp, label: "Fattening", status: "disabled" },
+  { icon: Wheat, label: "Feed", status: "disabled" },
+  { icon: Activity, label: "Sales", status: "disabled" },
+  { icon: Briefcase, label: "MIS", status: "disabled" },
+  { icon: Building2, label: "Infra", status: "disabled" },
+  { icon: Stethoscope, label: "Goats Health", status: "disabled" },
+  { icon: Syringe, label: "Vaccination", status: "disabled" },
+  { icon: ShoppingCart, label: "Purchase Cost", status: "disabled" },
+  { icon: ArrowLeftRight, label: "Shiftings", status: "disabled" },
+  { icon: Users, label: "Parent Stock", status: "disabled" },
+  { icon: ClipboardList, label: "Summary", status: "disabled" },
 ];
 
 export function AppSidebar() {
+  const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
   const { mobileOpen, setMobileOpen } = useSidebar();
-
-  const renderItem = (item: {
-    icon: React.ElementType;
-    label: string;
-  }) => {
-    const Icon = item.icon;
-
-    return (
-      <button
-        key={item.label}
-        type="button"
-        disabled
-        title={!expanded ? item.label : undefined}
-        onClick={() => setMobileOpen(false)}
-        className={`flex cursor-not-allowed items-center gap-3 rounded-lg opacity-60 transition-colors ${
-          expanded ? "px-3 h-10" : "justify-center w-10 h-10"
-        } text-[#8899AA]`}
-      >
-        <Icon size={20} className="shrink-0" />
-        {expanded && (
-          <span className="text-xs font-medium truncate">{item.label}</span>
-        )}
-      </button>
-    );
-  };
 
   const sidebarContent = (
     <aside
       className={`flex h-full flex-col overflow-y-auto sidebar-scroll border-r border-[#334155] bg-[#1A1D24] py-4 transition-all duration-200 ${
-        expanded ? "w-[180px] px-3" : "w-[60px] items-center"
+        expanded ? "w-[196px] px-3" : "w-[62px] items-center"
       }`}
     >
-      {/* Logo + collapse toggle */}
-      <div className={`mb-6 flex items-center ${expanded ? "justify-between" : "justify-center"}`}>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#14F1D9] text-xs font-black text-[#0F1115]">
-            GO
+      <div className={`mb-5 flex items-center ${expanded ? "justify-between" : "justify-center"}`}>
+        <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2" onClick={() => setMobileOpen(false)}>
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#14F1D9] text-sm font-black text-[#0F1115]">
+            M
           </div>
-          {expanded && (
-            <span className="text-sm font-bold text-[#14F1D9]">Goat OS</span>
-          )}
-        </div>
-        {expanded && (
+          {expanded ? (
+            <div className="min-w-0">
+              <div className="truncate text-sm font-bold text-[#14F1D9]">Mesha</div>
+              <div className="truncate text-[10px] font-medium uppercase tracking-wider text-[#8899AA]">CEO Dashboard</div>
+            </div>
+          ) : null}
+        </Link>
+        {expanded ? (
           <button
+            type="button"
             onClick={() => setExpanded(false)}
-            className="text-[#8899AA] hover:text-[#14F1D9] transition-colors hidden sm:block"
+            className="hidden text-[#8899AA] transition-colors hover:text-[#14F1D9] sm:block"
+            aria-label="Collapse navigation"
           >
             <PanelLeftClose size={16} />
           </button>
-        )}
-        {/* Mobile close button */}
+        ) : null}
         <button
+          type="button"
           onClick={() => setMobileOpen(false)}
-          className="text-[#8899AA] hover:text-[#14F1D9] transition-colors sm:hidden"
+          className="text-[#8899AA] transition-colors hover:text-[#14F1D9] sm:hidden"
+          aria-label="Close navigation"
         >
           <X size={18} />
         </button>
       </div>
 
-      {expanded && (
-        <p className="text-xs font-bold text-[#14F1D9] mb-4 text-center w-full">Operations</p>
-      )}
-
-      {/* Collapse toggle when collapsed (desktop only) */}
-      {!expanded && (
+      {!expanded ? (
         <button
+          type="button"
           onClick={() => setExpanded(true)}
-          className="hidden sm:flex items-center justify-center w-10 h-10 rounded-lg text-[#8899AA] hover:text-[#14F1D9] hover:bg-[rgba(20,241,217,0.05)] transition-colors mb-2"
-          title="Expand sidebar"
+          className="mb-2 hidden h-10 w-10 items-center justify-center rounded-lg text-[#8899AA] transition-colors hover:bg-[rgba(20,241,217,0.05)] hover:text-[#14F1D9] sm:flex"
+          aria-label="Expand navigation"
         >
           <PanelLeft size={20} />
         </button>
-      )}
+      ) : null}
 
-      <div className={`flex flex-col gap-1 ${expanded ? "" : "items-center"}`}>
-        {navItems.map(renderItem)}
-      </div>
+      <NavSection
+        expanded={expanded}
+        label="Live"
+        items={commandItems}
+        pathname={pathname}
+        onNavigate={() => setMobileOpen(false)}
+      />
+      <hr className={`my-3 border-[#334155] ${expanded ? "" : "w-8"}`} />
+      <NavSection
+        expanded={expanded}
+        label="Modules"
+        items={legacyItems}
+        pathname={pathname}
+        onNavigate={() => setMobileOpen(false)}
+      />
 
-      {/* Spacer */}
       <div className="flex-1" />
+      {expanded ? (
+        <div className="mt-4 rounded-lg border border-[#334155] bg-[#11151C] p-3 text-[11px] leading-5 text-[#8899AA]">
+          <span className="font-semibold text-[#14F1D9]">Preview</span>
+          <br />
+          Live admin preview. Disabled modules wait for backed data.
+        </div>
+      ) : null}
     </aside>
   );
 
   return (
     <>
-      {/* Desktop sidebar — always visible */}
-      <div className="hidden sm:block h-full shrink-0">
-        {sidebarContent}
-      </div>
-
-      {/* Mobile overlay sidebar */}
-      {mobileOpen && (
+      <div className="hidden h-full shrink-0 sm:block">{sidebarContent}</div>
+      {mobileOpen ? (
         <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40 bg-black/60 sm:hidden"
-            onClick={() => setMobileOpen(false)}
-          />
-          {/* Drawer */}
-          <div className="fixed inset-y-0 left-0 z-50 sm:hidden">
-            {sidebarContent}
-          </div>
+          <div className="fixed inset-0 z-40 bg-black/60 sm:hidden" onClick={() => setMobileOpen(false)} />
+          <div className="fixed inset-y-0 left-0 z-50 sm:hidden">{sidebarContent}</div>
         </>
-      )}
+      ) : null}
     </>
+  );
+}
+
+function NavSection({
+  expanded,
+  label,
+  items,
+  pathname,
+  onNavigate,
+}: {
+  expanded: boolean;
+  label: string;
+  items: NavItem[];
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  return (
+    <nav aria-label={`Mesha ${label.toLowerCase()} navigation`} className={expanded ? "" : "w-full"}>
+      {expanded ? <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-[#14F1D9]">{label}</p> : null}
+      <div className={`flex flex-col gap-1 ${expanded ? "" : "items-center"}`}>
+        {items.map((item) => (
+          <NavRow key={item.label} expanded={expanded} item={item} pathname={pathname} onNavigate={onNavigate} />
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function NavRow({
+  expanded,
+  item,
+  pathname,
+  onNavigate,
+}: {
+  expanded: boolean;
+  item: NavItem;
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const Icon = item.icon;
+  const href = item.href;
+  const disabled = item.status === "disabled" || !href;
+  const active = href ? (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`)) : false;
+  const baseClass = `flex h-10 items-center gap-3 rounded-lg transition-colors ${
+    expanded ? "px-3" : "w-10 justify-center"
+  }`;
+  const content = (
+    <>
+      <Icon size={19} className="shrink-0" />
+      {expanded ? (
+        <>
+          <span className="min-w-0 flex-1 truncate text-xs font-medium">{item.label}</span>
+          {disabled ? <span className="text-[9px] uppercase tracking-wider text-[#566273]">Soon</span> : null}
+        </>
+      ) : null}
+    </>
+  );
+
+  if (disabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        title={!expanded ? `${item.label} coming soon` : undefined}
+        className={`${baseClass} cursor-not-allowed text-[#657386] opacity-65`}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <Link
+      href={href}
+      title={!expanded ? item.label : undefined}
+      onClick={onNavigate}
+      className={`${baseClass} ${
+        active
+          ? "bg-[rgba(20,241,217,0.08)] text-[#14F1D9]"
+          : "text-[#8899AA] hover:bg-[rgba(20,241,217,0.05)] hover:text-[#14F1D9]"
+      }`}
+    >
+      {content}
+    </Link>
   );
 }

@@ -115,8 +115,8 @@ export async function GoatPassportPage({ goatId }: { goatId: string }) {
       </div>
 
       <div className="mt-5">
-        <Panel title="Timeline" description="Timeline endpoint is not wired into this Phase 1 read-only screen yet.">
-          <EmptyPanel message="Timeline will appear here once the timeline screen is implemented." />
+        <Panel title="Timeline" description="Timeline is not tracked in this screen yet.">
+          <EmptyPanel message="Timeline will appear here once that read view is available." />
         </Panel>
       </div>
     </>

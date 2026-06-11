@@ -157,6 +157,8 @@ Make sure OpenAPI/JSON Schema/contracts/examples still validate.
 Make sure generated OpenAPI TypeScript clients are regenerated.
 Make sure admin-web does not reintroduce direct BigQuery, Google Sheets,
 Apps Script, direct Sheet CSV export, or XLSX live-data access.
+Make sure rendered/admin-web-facing code uses Mesha visible branding instead of
+old or internal product labels.
 ```
 
 The admin-web direct data-source pattern has a local self-test:
@@ -172,6 +174,8 @@ contract drift
 missing regenerated example/client artifact
 boundary rule violation
 admin-web direct data-source access instead of Goat OS backend API access
+admin-web rendered/user-facing code using old or internal product labels instead
+of Mesha visible branding
 ```
 
 ### Step 5: Large File Guard

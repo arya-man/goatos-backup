@@ -1,21 +1,23 @@
-# Goat OS Admin Web
+# Mesha Admin Web
 
 This app is the Phase 1 admin-web read-only console. It is intentionally not the
 full Goat Passport workflow UI yet, but the main demo screens are backed by
-Goat OS app/admin/analytics APIs through server-side adapters.
+Mesha backend app/admin/analytics APIs through server-side adapters.
 
 The current console provides:
 
 - the Next app builds;
 - `@goatos/api-client` imports from `../../packages/api-client`;
 - the executable legacy BigQuery/Sheets API routes are removed;
+- a Mesha legacy-style dark sidebar, compact module navigation, breadcrumb
+  header, KPI cards, tabs, charts, and dense tables;
 - read-only herd search, goat passport, identity counts, conflict/candidate
   queues, and live Import Review summary/row screens when an import run id is
   provided.
 
 ## Framework Baseline
 
-Admin-web is pinned to the Goat OS frontend baseline:
+Admin-web is pinned to the Mesha internal frontend baseline:
 
 ```text
 Next.js 16.2.9
@@ -49,15 +51,15 @@ npm install
 npm run lint
 npm run typecheck
 npm run build
-npm run dev -- --hostname 127.0.0.1 --port 3000
+npm run dev -- --hostname 127.0.0.1 --port 3300
 ```
 
-Open `http://127.0.0.1:3000`.
+Open `http://127.0.0.1:3300`.
 
-Use another port if `3000` is busy:
+Use another port if `3300` is busy:
 
 ```bash
-npm run dev -- --hostname 127.0.0.1 --port 3001
+npm run dev -- --hostname 127.0.0.1 --port 3301
 ```
 
 ## Environment
@@ -132,7 +134,7 @@ go run ./cmd/seed-dev-grant \
 ```
 
 `ceo_internal` is the intended local role for the internal admin surface. The
-product decision is that it is a full Goat OS product-admin role for Phase 1 API
+product decision is that it is a full Mesha product-admin role for Phase 1 API
 actions, not a read-only dashboard role. That is app authorization only; it does
 not imply Google Cloud, IAM, billing, GitHub, or repository administration.
 
@@ -177,7 +179,7 @@ apps/admin-web/lib/bigquery.ts
 ```
 
 The old live dashboard repos remain untouched. Git history is the reference for
-deleted legacy routes; new admin screens must call Goat OS app/admin/analytics
+deleted legacy routes; new admin screens must call Mesha app/admin/analytics
 APIs through generated clients.
 
 ## Import Review

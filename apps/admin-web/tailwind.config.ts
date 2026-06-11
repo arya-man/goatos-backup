@@ -53,7 +53,7 @@ const config: Config = {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        /* VGoat design system tokens */
+        /* Mesha dashboard design tokens */
         surface: {
           DEFAULT: "#1A1D24",
           muted: "#22262E",

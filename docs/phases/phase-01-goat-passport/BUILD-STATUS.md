@@ -161,14 +161,17 @@ its local file dependency and package-lock.json.
 check-contract-drift now validates OpenAPI/JSON Schema/examples and then runs
 make api-client-check, so generated-client drift is no longer deferred.
 
-apps/admin-web is now the Phase 1 SSR-first read-only admin demo surface. It
-fetches herd search, goat passport, identity counts, read-only data-quality
-queues, and live Import Review summary/row data through backend APIs using
-server-side bearer auth. Import Review requires an import_run_id, is read-only,
-shows nullable/untracked metrics as "Not tracked", and does not read CSVs,
-local files, Sheets, App Script, BigQuery, or operational DBs directly.
-Corrections, admin goat writes, timeline, import-run create, and review/fix
-actions remain honest placeholders or backend 501/deferred paths.
+apps/admin-web is now the Phase 1 Mesha-style SSR read-only admin demo surface.
+It uses the legacy CEO/admin dashboard shape: dark left sidebar, compact module
+navigation, breadcrumb header, tabs, KPI cards, dense charts, and tables. Live
+Phase 1 routes cover the overview, herd search, goat passport, identity counts,
+read-only data-quality queues, and live Import Review summary/row data through
+backend APIs using server-side bearer auth. Import Review requires an
+import_run_id, is read-only, shows nullable/untracked metrics as "Not tracked",
+and does not read CSVs, local files, Sheets, App Script, BigQuery, or
+operational DBs directly. Corrections, admin goat writes, timeline, import-run
+create, review/fix actions, and non-Phase-1 legacy modules remain honest
+placeholders, disabled tabs, or backend 501/deferred paths.
 
 Import Review plan validation covers the generated row-list query with a
 non-null reason_code plus the JSONB GIN reason probe. The current Phase 1 shape
@@ -609,14 +612,12 @@ RFID source-of-truth staging:
   Phase 1 local end-to-end proof passed after this run: normal apply produced
   created_goat 436, needs_review 787, and error 0; guarded RFID-only apply
   produced created_goat 711, needs_review 512, and error 0; the
-  tenant_lifecycle alive counter was 711. SSR admin-web rendered the overview,
-  real herd rows, a real goat passport, and the 711 alive count. Live Import
-  Review rendering was separately proven against a real local run at the
-  post-status-mapping stage, so the final closeout rehearsal must re-run the
-  full migration-plus-RFID-only sequence and verify Import Review against the
-  711/512 run. The real local DB had 0 conflicts and 0 candidates, so Data
-  Quality rendered an honest empty state; backend repository/handler tests cover
-  populated conflict and candidate list paths separately.
+  tenant_lifecycle alive counter was 711. SSR admin-web rendered the Mesha
+  overview, real herd rows, a real goat passport, the 711 alive count, and live
+  Import Review summary/rows against the 711/512 run. The real local DB had 0
+  conflicts and 0 candidates, so Data Quality rendered an honest empty state;
+  backend repository/handler tests cover populated conflict and candidate list
+  paths separately.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
@@ -1065,9 +1066,10 @@ Bearer auth/RBAC is now the API default. The remaining deploy gate is
 production-grade authentication infrastructure: IdP/JWKS, secret management,
 token lifecycle, rate limiting, TLS, and operations runbooks.
 
-Admin-web now has the Phase 1 readiness foundation: generated client plumbing,
-local dev token/grant helpers, local auth smoke, and a buildable disabled shell.
-Full data-bound frontend screens remain deferred.
+Admin-web now has the Phase 1 Mesha-style read-only demo surface: generated
+client plumbing, local dev token/grant helpers, local auth smoke, server-side
+bearer adapters, live identity-read screens, live Import Review rows, and
+disabled placeholders for write/review actions that remain deferred.
 
 Outbox relay is a standalone local/dev CLI foundation. It is not run as an API
 server goroutine and does not include real cloud publishing. Production

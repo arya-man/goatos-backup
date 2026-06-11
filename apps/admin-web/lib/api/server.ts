@@ -113,11 +113,12 @@ function getServerConfig(requireTenant = false): ApiResult<ServerConfig> {
     missing.push("GOATOS_TENANT_ID");
   }
   if (missing.length > 0) {
+    const labels = missing.map((item) => (item === "GOATOS_BEARER_TOKEN" ? "bearer token" : "tenant id"));
     return {
       ok: false,
       error: {
         kind: "missing_config",
-        message: `Server configuration missing: ${missing.join(", ")}`,
+        message: `Server configuration missing: ${labels.join(", ")}.`,
       },
     };
   }
@@ -137,6 +138,7 @@ export function getAdminRuntimeStatus() {
     baseUrl: process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080",
     hasBearerToken: Boolean(process.env.GOATOS_BEARER_TOKEN),
     hasTenantId: Boolean(process.env.GOATOS_TENANT_ID),
+    importRunId: process.env.GOATOS_IMPORT_RUN_ID?.trim() || null,
   };
 }
 
@@ -271,7 +273,7 @@ function normalizeApiError(error: unknown): ApiUiError {
         kind: "unauthorized",
         status: error.status,
         code,
-        message: "Bearer authentication failed. Mint a local dev token and keep it in the server environment.",
+        message: "Bearer authentication failed. Refresh the local admin token in the server environment.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };
@@ -281,7 +283,7 @@ function normalizeApiError(error: unknown): ApiUiError {
         kind: "tenant_scope_mismatch",
         status: error.status,
         code,
-        message: "GOATOS_TENANT_ID does not match the bearer token tenant.",
+        message: "Configured tenant does not match the bearer token tenant.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };
@@ -301,7 +303,7 @@ function normalizeApiError(error: unknown): ApiUiError {
         kind: "bad_request",
         status: error.status,
         code,
-        message: envelope?.message ?? "The backend rejected this query. Check filters, cursor, tenant, and limit.",
+        message: envelope?.message ?? "The service rejected these filters. Check the selected tenant, cursor, and limit.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };
@@ -311,7 +313,7 @@ function normalizeApiError(error: unknown): ApiUiError {
         kind: "not_found",
         status: error.status,
         code,
-        message: envelope?.message ?? "Not found, or this token is not allowed to view it.",
+        message: envelope?.message ?? "Not found, or this admin token is not allowed to view it.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };
@@ -320,7 +322,7 @@ function normalizeApiError(error: unknown): ApiUiError {
       kind: "api_error",
       status: error.status,
       code,
-      message: envelope?.message ?? `Goat OS API returned ${error.status}.`,
+      message: envelope?.message ?? `Backend service returned ${error.status}.`,
       traceId: envelope?.trace_id,
       retryable: envelope?.retryable,
     };
@@ -328,7 +330,7 @@ function normalizeApiError(error: unknown): ApiUiError {
   if (error instanceof TypeError) {
     return {
       kind: "backend_down",
-      message: "Backend API is not reachable from the admin-web server.",
+      message: "Backend service is not reachable from the Mesha admin server.",
     };
   }
   return {

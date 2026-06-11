@@ -12,6 +12,11 @@ function formatSegment(segment: string): string {
     mis: "MIS",
     "parent-stock": "Parent Stock",
     "milking-mothers": "Milk",
+    herd: "Herd Search",
+    goats: "Goat Passport",
+    counts: "Counts",
+    "data-quality": "Data Quality",
+    "import-review": "Import Review",
   };
   if (upperCaseWords[decoded.toLowerCase()]) return upperCaseWords[decoded.toLowerCase()];
   return decoded
@@ -22,7 +27,7 @@ function formatSegment(segment: string): string {
 
 function getBreadcrumb(pathname: string): string {
   const segments = pathname.split("/").filter(Boolean);
-  if (segments.length === 0) return "Dashboard";
+  if (segments.length === 0) return "CEO Dashboard";
   const section = formatSegment(segments[0]);
   if (segments.length > 1) {
     const sub = formatSegment(segments[1]);
@@ -37,9 +42,9 @@ export function Navbar() {
   const { setMobileOpen } = useSidebar();
 
   return (
-    <header className="flex h-14 shrink-0 items-center border-b border-[#334155] bg-[#1A1D24] px-4 sm:px-6 gap-3">
-      {/* Mobile hamburger */}
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[#334155] bg-[#1A1D24] px-4 sm:px-6">
       <button
+        type="button"
         onClick={() => setMobileOpen(true)}
         className="flex sm:hidden h-9 w-9 items-center justify-center rounded-lg text-[#8899AA] hover:bg-[#22262E] hover:text-[#14F1D9] transition-colors shrink-0"
         aria-label="Open navigation"
@@ -47,7 +52,6 @@ export function Navbar() {
         <Menu size={18} />
       </button>
 
-      {/* Left: Breadcrumb */}
       <div className="flex items-center min-w-0 shrink">
         <span className="text-sm font-bold text-[#FFFFFF] truncate max-w-[160px] sm:max-w-none">
           {breadcrumb}
@@ -55,6 +59,10 @@ export function Navbar() {
       </div>
 
       <div className="flex-1" />
+      <div className="hidden items-center gap-2 text-[11px] text-[#8899AA] sm:flex">
+        <span className="rounded-full border border-[#334155] px-2 py-1 text-[#14F1D9]">Read-only</span>
+        <span>Internal admin</span>
+      </div>
     </header>
   );
 }
