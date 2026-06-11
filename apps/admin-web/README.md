@@ -127,7 +127,7 @@ cd /Users/ravi/mesha/goatos/backend
 go run ./cmd/seed-dev-grant \
   -tenant-id 00000000-0000-4000-8000-000000000001 \
   -user-id 90000000-0000-4000-8000-000000000101 \
-  -role operator
+  -role ceo_internal
 ```
 
 Mint a local dev token:

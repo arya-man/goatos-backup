@@ -5,6 +5,28 @@ fail=0
 admin_web_data_pattern="from ['\"]@google-cloud/bigquery|new BigQuery\\(|googleapis|sheets\\.spreadsheets|spreadsheets\\.values|script\\.google\\.com|script\\.googleusercontent\\.com|docs\\.google\\.com/spreadsheets|/spreadsheets/d/|export\\?format=csv|output=csv|gviz/tq|from ['\"](xlsx|exceljs)['\"]|require\\(['\"](xlsx|exceljs)['\"]\\)|XLSX\\."
 admin_web_feature_deep_import_pattern="(from|import\\() ['\"](@/features/[^'\"]+/[^'\"]+|(\\.\\.?/)+features/[^'\"]+/[^'\"]+)['\"]"
 
+check_admin_feature_relative_imports() {
+  local root="${1:-apps/admin-web/features}"
+  local relative_pattern="(from|import\\() ['\"](\\.\\./)+[^/'\"]+/[^'\"]+['\"]"
+  [ -d "$root" ] || return 0
+
+  while IFS= read -r file; do
+    local current_feature
+    current_feature="${file#"$root"/}"
+    current_feature="${current_feature%%/*}"
+    while IFS= read -r line; do
+      local target_feature
+      target_feature="$(printf '%s\n' "$line" | sed -E "s/.*(from|import\\() ['\"](\\.\\.\\/)+([^/'\"]+)(\\/[^'\"]+)?['\"].*/\\3/")"
+      if [ -n "$target_feature" ] \
+        && [ "$target_feature" != "$current_feature" ] \
+        && [ -d "$root/$target_feature" ]; then
+        echo "$file:$line"
+        fail=1
+      fi
+    done < <(grep -nE "$relative_pattern" "$file" 2>/dev/null || true)
+  done < <(find "$root" \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) 2>/dev/null)
+}
+
 if [ "${1:-}" = "--self-test" ]; then
   if ! command -v rg >/dev/null 2>&1; then
     echo "rg is required for boundary self-test."
@@ -28,6 +50,7 @@ EOF
     exit 1
   fi
   mkdir -p "$tmpdir/apps/admin-web/features/overview"
+  mkdir -p "$tmpdir/apps/admin-web/features/goat-passport"
   cat >"$tmpdir/apps/admin-web/features/overview/bad-import.ts" <<'EOF'
 import { thing } from "@/features/herd-search/internal";
 
@@ -39,6 +62,21 @@ EOF
     echo "Feature deep-import guard self-test failed: synthetic violation NOT detected."
     exit 1
   fi
+  cat >"$tmpdir/apps/admin-web/features/overview/bad-relative-import.ts" <<'EOF'
+import { thing } from "../goat-passport/internal";
+
+void thing;
+EOF
+  fail=0
+  check_admin_feature_relative_imports "$tmpdir/apps/admin-web/features" >/tmp/goatos-feature-relative-self-test
+  if grep -q "bad-relative-import.ts" /tmp/goatos-feature-relative-self-test; then
+    echo "Feature relative deep-import guard self-test passed: synthetic violation detected."
+  else
+    cat /tmp/goatos-feature-relative-self-test
+    echo "Feature relative deep-import guard self-test failed: synthetic violation NOT detected."
+    exit 1
+  fi
+  fail=0
 
   # Self-test for slog.New guard: create a synthetic violation outside the observability package.
   mkdir -p "$tmpdir/backend/internal/somepackage"
@@ -147,6 +185,7 @@ if command -v rg >/dev/null 2>&1; then
       echo "Admin web feature modules must import other features through public entrypoints only."
       fail=1
     fi
+    check_admin_feature_relative_imports "apps/admin-web/features"
   fi
 
   if rg -n "goat_identity_counters|GoatIdentityCounter" backend/internal/identity \
