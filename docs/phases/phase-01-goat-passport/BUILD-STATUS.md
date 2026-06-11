@@ -688,8 +688,9 @@ approved RFID mapping/policy build from the local data mapping review:
 F2/K2 legacy_status_mappings, breed/species decisions for the reviewed labels,
 blank_old_tag_suffix RFID-only creation policy if approved, and source cleanup
 or reviewed policy for blank_gender plus duplicate same-scope old_tag rows
-after F2/K2 mappings alone, the expected local rehearsal target is roughly 582
-created goats while 190 non-goat rows remain intentionally blocked
+after F2/K2 mappings alone, 582 created goats is only the upper bound; the real
+success criterion is that unknown_status_mapping drops and rows redistribute to
+created_goat or the correct downstream review buckets, with error remaining 0
 P8 sales/allocation/promise behavior
 ```
 

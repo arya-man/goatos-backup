@@ -335,8 +335,9 @@ Rules:
   blocked until source correction or an explicit reviewed policy. Treat the 190
   Anantapur Sheep rows as a source-integrity signal: the species gate is doing
   the right thing, and later work must not loosen the pipeline to admit them as
-  goats. After only F2/K2 mappings, the expected local rehearsal target is about
-  582 created goats with non-goat rows still blocked.
+  goats. After only F2/K2 mappings, 582 created goats is only an upper bound:
+  rows that clear status may redistribute to created_goat or downstream review
+  buckets such as species_or_breed_requires_review; error should remain 0.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

@@ -37,18 +37,28 @@ Final review reasons:
 | `blank_gender` | 4 | staging |
 | `duplicate_old_tag_same_scope` | 4 | staging |
 
-Projected yield after only the approved plain `F2`/`K2` status mappings:
+Projected effect after only the approved plain `F2`/`K2` status mappings:
 
 | Bucket | Count |
 | --- | ---: |
 | Current canonical goats created | 145 |
 | Additional rows expected to clear status mapping | 437 |
-| Projected canonical goats after F2/K2 mapping | 582 |
-| Non-goat rows expected to stay blocked | 190 |
-| Remaining Sirohi breed review rows | 8 |
+| Upper bound if all 437 pass downstream gates | 582 |
+| Known non-goat rows expected to stay blocked | 190 |
+| Known remaining Sirohi breed review rows | 8 |
 | Remaining blank old-tag suffix policy rows | 435 |
 | Remaining blank gender rows | 4 |
 | Remaining duplicate same-scope old-tag rows | 4 |
+
+Rerun success criterion:
+
+- `unknown_status_mapping` should drop materially, ideally by 437.
+- The 437 rows that clear status are not guaranteed to become goats. Apply checks
+  status before breed/species and old-tag uniqueness, so this mapping may surface
+  downstream blockers that were previously hidden behind `unknown_status_mapping`.
+- A rise in `species_or_breed_requires_review` after adding F2/K2 mappings is
+  expected if some newly unblocked rows are non-goats or unresolved breeds.
+- The rerun should report the full reason-code delta; `error` should remain 0.
 
 ## Status Mapping Review
 
