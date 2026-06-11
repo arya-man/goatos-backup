@@ -162,9 +162,11 @@ check-contract-drift now validates OpenAPI/JSON Schema/examples and then runs
 make api-client-check, so generated-client drift is no longer deferred.
 
 apps/admin-web is now the Phase 1 Mesha-style SSR read-only admin demo surface.
-It uses the legacy CEO/admin dashboard shape: dark left sidebar, compact module
-navigation, breadcrumb header, tabs, KPI cards, dense charts, and tables. Live
-Phase 1 routes cover the overview, herd search, goat passport, identity counts,
+It uses legacy dashboard visual language: dark left sidebar, compact module
+navigation, breadcrumb header, tabs, KPI cards, dense charts, and tables. The
+CEO Dashboard/Overview route is a new Mesha executive landing, while Summary
+remains a disabled legacy operational rollup/report module. Live Phase 1 routes
+cover the overview, herd search, per-goat passport detail, identity counts,
 read-only data-quality queues, and live Import Review summary/row data through
 backend APIs using server-side bearer auth. Import Review requires an
 import_run_id, is read-only, shows nullable/untracked metrics as "Not tracked",

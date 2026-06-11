@@ -7,7 +7,6 @@ import {
   Activity,
   ArrowLeftRight,
   Baby,
-  BadgeCheck,
   BarChart3,
   Briefcase,
   Building2,
@@ -40,7 +39,6 @@ const commandItems: NavItem[] = [
   { icon: LayoutDashboard, label: "CEO Dashboard", href: "/" },
   { icon: BarChart3, label: "Counts", href: "/counts" },
   { icon: Search, label: "Herd Search", href: "/herd" },
-  { icon: BadgeCheck, label: "Goat Passport", href: "/herd" },
   { icon: DatabaseZap, label: "Import Review", href: "/import-review" },
   { icon: FileSearch, label: "Data Quality", href: "/data-quality" },
 ];
