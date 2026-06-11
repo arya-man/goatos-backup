@@ -162,6 +162,44 @@ This can live in a monorepo. The important boundary is not the folder name; it
 is that each surface can run and deploy independently when needed, while sharing
 typed contracts and UI packages.
 
+## Frontend Framework Version Baseline
+
+Freeze the Goat OS admin-web framework baseline before building real Phase 1 UI
+screens. Do not build new screens on the copied dashboard's older Next 14 /
+React 18 stack.
+
+Version baseline checked on 2026-06-11:
+
+```text
+next                16.2.9
+react               19.2.7
+react-dom           19.2.7
+eslint-config-next  16.2.9
+typescript          6.0.3
+@types/react        19.2.17
+@types/react-dom    19.2.3
+tailwindcss         4.3.0
+@tanstack/react-query 5.101.0
+lucide-react        1.17.0
+recharts            3.8.1
+```
+
+The next admin-web implementation slice must upgrade and pin these framework
+packages first, then run the build/typecheck before adding feature screens. If a
+package has a peer-compatibility issue during the upgrade, pin the latest
+compatible version, document the reason in this section and in BUILD-STATUS, and
+do not silently fall back to the copied dashboard versions.
+
+Use the modern Next App Router stack:
+
+- Server Components and server-side data loading for read-heavy dashboard pages.
+- server-only backend fetch adapters so bearer tokens never reach the browser.
+- Server Actions only for future write workflows after the backend action exists.
+- dynamic imports for heavy client-only charts/tables.
+- route-level loading/error states.
+- backend pagination and shaped summaries instead of client-side full-herd
+  transforms.
+
 `investor-web-shadow` is a migration safety surface, not a forever architecture
 decision. It lets the team validate the investor/reduced dashboard separately
 while current live URLs continue running. After parity is proven, investor can

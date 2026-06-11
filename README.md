@@ -110,9 +110,9 @@ Still pending before Phase 1 is usable end-to-end:
 Immediate Phase 1 demo order:
 
 ```text
-1. Build SSR-first read-only admin demo screens using dev auth,
-   @goatos/api-client, route-level modules, backend pagination, and lazy-loaded
-   heavy widgets.
+1. Upgrade admin-web to the frozen Next 16 / React 19 framework baseline, then
+   build SSR-first read-only admin screens using dev auth, @goatos/api-client,
+   route-level modules, backend pagination, and lazy-loaded heavy widgets.
 2. Add a local demo runner/runbook for import -> apply -> counters -> reports -> UI.
 3. Close Phase 1 docs honestly.
 4. Handle terminal non-goat disposition as a separate state-change slice if needed.
