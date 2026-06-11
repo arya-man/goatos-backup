@@ -28,12 +28,21 @@ request duration at the HTTP layer. Gaps that lost failures:
   - `gcm` — alias for `otlp`, intended for GCP OTLP ingestion.
   - Phase 1: `otlp`/`gcm` are stubs that still emit `stdout_json`; a real
     OTLP-HTTP exporter wires into `observability.New` without changing callers.
+    Startup logs warn about the fallback and record only whether
+    `GOATOS_OTLP_ENDPOINT` is configured plus its sanitized scheme/host, never
+    the full URL.
+  - Unknown sink values warn and fall back to `stdout_json`; typos such as
+    `gmc` must be visible in startup logs, not silently treated as a working
+    cloud sink.
 - Level via `GOATOS_LOG_LEVEL` (debug/info/warn/error), env via `GOATOS_ENV`.
 
 Logging discipline (enforced by `tools/agent-hooks/check-boundaries.sh`):
 
 - Construct loggers only via `observability.New`. No hand-rolled `slog.New` in
   `cmd/`, `bootstrap/`, or `internal/` outside the package (test files exempt).
+  Package-level `slog.Error`/`Info`/`Warn`/`Debug` calls are forbidden in
+  product code for the same reason: they bypass service/version/env fields and
+  sink selection.
 - Log once at boundaries (HTTP 5xx, CLI top, worker loops) with err +
   request_id + trace_id + tenant_id + import_run_id. Do not log-and-return at
   every `if err != nil`; wrap with `%w` and let it surface once.
@@ -57,14 +66,15 @@ private source files to git is separate repo hygiene, not a logging rule.)
 3. Outermost HTTP panic-recovery middleware: recover -> log err + stack +
    trace_id -> 500 envelope. (done)
 4. Outbox/worker recover sites log the panic before retry. (done)
-5. check-boundaries guards: `slog.New` outside package, `recover()` without a
-   log. (done)
+5. check-boundaries guards: `slog.New` and package-level `slog.*` outside the
+   package, `recover()` without a log. (done)
 6. Later (separate ADR): real OTLP-HTTP exporter; traces/metrics spans across
    DB/import/worker; cloud sink wiring for goatos-dev.
 
 ## Consequences
 
-- One env var swaps local stdout vs Grafana/GCM. Plug-and-play.
+- One env var selects local stdout vs future Grafana/GCM wiring. In Phase 1,
+  `otlp`/`gcm` remain honest stdout fallbacks until the exporter lands.
 - A 5xx, panic, or worker failure now leaves a structured, trace-correlated log
   carrying the goat/row identifiers needed to diagnose it.
 - OTLP-HTTP keeps the no-direct-gRPC rule intact; a gRPC exporter needs its own

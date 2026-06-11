@@ -11,6 +11,12 @@ Set `GOATOS_OBS_SINK`:
   still emits `stdout_json` until a real exporter is wired.
 - `gcm` — alias for `otlp`.
 
+If `GOATOS_OBS_SINK` is mistyped, startup logs
+`observability_sink_unknown` and falls back to `stdout_json`. If `otlp`/`gcm`
+is selected, startup logs `observability_sink_not_implemented` and records only
+whether `GOATOS_OTLP_ENDPOINT` is configured plus the sanitized scheme/host. It
+does not log the full endpoint URL because it may contain a token or password.
+
 Other env: `GOATOS_LOG_LEVEL` (debug/info/warn/error), `GOATOS_ENV`.
 
 ## Local: persist logs (don't lose them on container teardown)
@@ -40,4 +46,4 @@ retry. A `recover()` that does not log is rejected by
 - The only redaction rule is secrets: never log credentials, tokens, or
   service-account JSON.
 - Construct loggers via `backend/internal/platform/observability`, never
-  hand-rolled `slog.New`.
+  hand-rolled `slog.New` or package-level `slog.Error`/`Info`/`Warn`/`Debug`.

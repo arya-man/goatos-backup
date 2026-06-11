@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	reportingpg "github.com/vgoats/goatos/backend/internal/reporting/adapters/postgres"
 	reportingapp "github.com/vgoats/goatos/backend/internal/reporting/app"
@@ -19,6 +19,12 @@ import (
 )
 
 func main() {
+	log := observability.New(observability.Config{Service: "rebuild-identity-counters"})
+	fatal := func(err error) {
+		log.Error("rebuild identity counters failed", "error", err)
+		os.Exit(1)
+	}
+
 	var tenantID string
 	var sourceImportRunID string
 	var grainsCSV string
@@ -77,9 +83,4 @@ func parseGrains(raw string) []string {
 		}
 	}
 	return grains
-}
-
-func fatal(err error) {
-	slog.Error("rebuild identity counters failed", "error", err)
-	os.Exit(1)
 }

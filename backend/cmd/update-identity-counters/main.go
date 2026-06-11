@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	reportingpg "github.com/vgoats/goatos/backend/internal/reporting/adapters/postgres"
 	reportingapp "github.com/vgoats/goatos/backend/internal/reporting/app"
@@ -17,8 +17,9 @@ import (
 )
 
 func main() {
+	log := observability.New(observability.Config{Service: "update-identity-counters"})
 	if err := run(os.Args[1:]); err != nil {
-		slog.Error("update identity counters failed", "error", err)
+		log.Error("update identity counters failed", "error", err)
 		os.Exit(1)
 	}
 }

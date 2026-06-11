@@ -40,12 +40,23 @@ import (
 func bad() *slog.Logger {
   return slog.New(slog.NewJSONHandler(os.Stdout, nil))
 }
+
+func badPackageLevel() {
+  slog.Error("bad")
+}
 EOF
   if rg -n "slog\.New\(" "$tmpdir/backend/internal/somepackage" \
       --glob '!*_test.go' >/dev/null 2>&1; then
     echo "slog.New guard self-test passed: synthetic violation detected."
   else
     echo "slog.New guard self-test failed: synthetic violation NOT detected."
+    exit 1
+  fi
+  if rg -n "slog\.(Debug|Info|Warn|Error)(Context)?\(" "$tmpdir/backend/internal/somepackage" \
+      --glob '!*_test.go' >/dev/null 2>&1; then
+    echo "package-level slog guard self-test passed: synthetic violation detected."
+  else
+    echo "package-level slog guard self-test failed: synthetic violation NOT detected."
     exit 1
   fi
 
@@ -116,7 +127,8 @@ if command -v rg >/dev/null 2>&1; then
   fi
 
   # Guard: slog.New must only appear in platform/observability and test files.
-  # All other backend Go code must use observability.New instead.
+  # Package-level slog logging must not appear in product code either; loggers
+  # should be constructed with observability.New and used through an instance.
   if [ -d "backend" ]; then
     if rg -n "slog\.New\(" backend \
         --glob '*.go' \
@@ -125,6 +137,15 @@ if command -v rg >/dev/null 2>&1; then
         2>/dev/null | grep -v '//'; then
       echo "slog.New() used outside platform/observability in non-test backend Go code."
       echo "Use observability.New(observability.Config{...}) instead."
+      fail=1
+    fi
+    if rg -n "slog\.(Debug|Info|Warn|Error)(Context)?\(" backend \
+        --glob '*.go' \
+        --glob '!*_test.go' \
+        --glob '!backend/internal/platform/observability/**' \
+        2>/dev/null | grep -v '//'; then
+      echo "Package-level slog logging used outside platform/observability in non-test backend Go code."
+      echo "Use a logger instance from observability.New(observability.Config{...}) instead."
       fail=1
     fi
   fi
@@ -154,7 +175,8 @@ else
   echo "  Install ripgrep (brew install ripgrep) for full boundary enforcement." >&2
   fail=1
 
-  # slog.New guard — grep fallback (excludes observability package and test files).
+  # slog.New and package-level slog guards — grep fallback (excludes
+  # observability package and test files).
   if [ -d "backend" ]; then
     while IFS= read -r gofile; do
       case "$gofile" in
@@ -164,6 +186,11 @@ else
       if grep -n 'slog\.New(' "$gofile" 2>/dev/null | grep -v '//' >/dev/null 2>&1; then
         echo "$gofile: slog.New() used outside platform/observability."
         echo "Use observability.New(observability.Config{...}) instead."
+        fail=1
+      fi
+      if grep -nE 'slog\.(Debug|Info|Warn|Error)(Context)?\(' "$gofile" 2>/dev/null | grep -v '//' >/dev/null 2>&1; then
+        echo "$gofile: package-level slog logging used outside platform/observability."
+        echo "Use a logger instance from observability.New(observability.Config{...}) instead."
         fail=1
       fi
     done < <(find backend -name '*.go' -not -name '*_test.go' 2>/dev/null)

@@ -22,6 +22,7 @@ package observability
 import (
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -50,14 +51,23 @@ type Config struct {
 // Standard fields (service, version, env) are stamped on every log record.
 func New(cfg Config) *slog.Logger {
 	level := resolveLevel(coalesce(cfg.Level, os.Getenv("GOATOS_LOG_LEVEL")))
-	sink := strings.ToLower(strings.TrimSpace(coalesce(cfg.Sink, os.Getenv("GOATOS_OBS_SINK"), "stdout_json")))
+	requestedSink := strings.ToLower(strings.TrimSpace(coalesce(cfg.Sink, os.Getenv("GOATOS_OBS_SINK"), "stdout_json")))
 	env := coalesce(cfg.Env, os.Getenv("GOATOS_ENV"), "local")
 	version := coalesce(cfg.Version, "dev")
-	otlpEndpoint := strings.TrimSpace(os.Getenv("GOATOS_OTLP_ENDPOINT"))
+	otlpEndpointTarget, otlpEndpointConfigured := safeEndpointTarget(os.Getenv("GOATOS_OTLP_ENDPOINT"))
 
 	w := cfg.W
 	if w == nil {
 		w = os.Stdout
+	}
+
+	sink := requestedSink
+	unknownSink := false
+	switch requestedSink {
+	case "stdout_json", "otlp", "gcm":
+	default:
+		unknownSink = true
+		sink = "stdout_json"
 	}
 
 	var handler slog.Handler
@@ -75,11 +85,19 @@ func New(cfg Config) *slog.Logger {
 		slog.String("version", version),
 		slog.String("env", env),
 	)
+	if unknownSink {
+		log.Warn("observability_sink_unknown",
+			slog.String("requested_sink", requestedSink),
+			slog.String("fallback_sink", "stdout_json"),
+			slog.String("next_step", "use GOATOS_OBS_SINK=stdout_json, otlp, or gcm"),
+		)
+	}
 	if sink == "otlp" || sink == "gcm" {
 		log.Warn("observability_sink_not_implemented",
 			slog.String("requested_sink", sink),
 			slog.String("fallback_sink", "stdout_json"),
-			slog.String("otlp_endpoint", otlpEndpoint),
+			slog.Bool("otlp_endpoint_configured", otlpEndpointConfigured),
+			slog.String("otlp_endpoint_target", otlpEndpointTarget),
 			slog.String("next_step", "wire a real OTLP-HTTP exporter before expecting logs to ship outside stdout"),
 		)
 	}
@@ -107,4 +125,16 @@ func coalesce(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func safeEndpointTarget(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "configured", true
+	}
+	return parsed.Scheme + "://" + parsed.Host, true
 }

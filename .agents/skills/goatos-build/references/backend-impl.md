@@ -363,11 +363,14 @@ Observability and logging:
   `backend/internal/platform/observability` (`observability.New`). Do not
   hand-roll `slog.New`/`slog.NewJSONHandler` in `cmd/`, `bootstrap/`, or
   `internal/` outside that package. `tools/agent-hooks/check-boundaries.sh`
-  enforces this and that no `recover()` block omits a log call.
+  enforces this, rejects package-level `slog.Error`/`Info`/`Warn`/`Debug` calls
+  in product code, and checks that no `recover()` block omits a log call.
 - Sink is env-selected via `GOATOS_OBS_SINK`: `stdout_json` (default, local),
   `otlp` (OTLP over HTTP, not gRPC per the go-backend-stack ADR), or `gcm`.
-  OTLP/gcm are Phase 1 stubs that still emit `stdout_json`; a real OTLP-HTTP
-  exporter can be wired in `observability.New` without touching callers.
+  OTLP/gcm are Phase 1 stubs that still emit `stdout_json`; startup logs warn
+  about the fallback and record only whether `GOATOS_OTLP_ENDPOINT` is
+  configured plus the sanitized scheme/host, never the full URL. Unknown sink
+  values warn and fall back to `stdout_json` so typos are visible.
 - Log once at boundaries, not at every `if err != nil`: HTTP 5xx logs
   server-side with trace_id/request_id/tenant before writing the envelope; the
   outermost recovery middleware logs panic + stack and returns a 500 envelope;
