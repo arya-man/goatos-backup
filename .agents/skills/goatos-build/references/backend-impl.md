@@ -80,6 +80,10 @@ Rules:
 - Postgres adapters must satisfy module-owned ports and keep SQL tenant-scoped.
 - Do not scan the full herd in API paths. Use indexed lookup paths and bounded
   `limit` values.
+- Apply the scale lens before approving any backend change: large-table queries
+  must be tenant/run scoped, index-backed, chunked or paginated, bounded in
+  memory/goroutines, idempotent for retries, and covered by plan validation when
+  the query can touch import, goat, event, counter, or outbox rows at scale.
 - API bootstrap defaults to bearer auth. `X-GoatOS-Tenant-ID` and
   `X-GoatOS-Actor-ID` are local/dev placeholders only and are overwritten by
   bearer auth before handlers run.
@@ -225,7 +229,8 @@ Rules:
 - `make validate-sqlc-plans` extracts every generated static read from
   `sqlc/query.sql`, runs EXPLAIN checks, and rejects sequential scans on the
   hot lookup tables. New generated queries must be registered in that plan
-  validator or the check fails.
+  validator or the check fails. If a generated query widens a hot path, add the
+  supporting migration/index in the same slice and prove the new branch uses it.
 - `backend/internal/legacy_import` owns import staging and reconciliation
   inputs. Do not route staging writes through identity adapters, and do not let
   `cmd` write `legacy_import_*` tables directly.
@@ -676,7 +681,7 @@ read BUILD-STATUS.md for current Phase 1 state
 run make test
 run make check
 run make sqlc-check for DB query changes
-run make validate-sqlc-plans when adding/changing indexed identity/reporting reads
+run make validate-sqlc-plans when adding/changing large-table identity/import/reporting reads
 run make validate-migrations for schema-sensitive work
 keep fixtures synthetic
 ```

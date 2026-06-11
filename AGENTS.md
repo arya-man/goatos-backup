@@ -57,7 +57,11 @@ Do:
 - Use protobuf/gRPC only behind the app API boundary when a real internal workload needs it.
 - Keep frontend/mobile data access behind generated clients and app APIs.
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
-- Treat million-goat scale as a hard requirement: chunk jobs, use idempotency, avoid full-herd scans, bound goroutines, and keep media/analytics off operational API hot paths.
+- Treat million-goat scale as a hard requirement on every design, prompt, and
+  code change. Before accepting any new query, worker, import path, reporting
+  path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
+  chunked or paginated, bounded in memory/goroutines, idempotent for retries,
+  and covered by query-plan validation when it touches large tables.
 - Add observability for new APIs/workers: latency, errors, DB pressure, queue lag, DLQ, and media failures.
 - Goat identifiers (RFID, old tag, breed, farm, shed, partition) are operational
   livestock business data, NOT PII. Log them in diagnostics so a failure is
@@ -91,6 +95,9 @@ Do not:
 Validation expectation:
 
 - Run the narrowest relevant typecheck/build/test command for changed code.
+- For DB query or migration changes on large tables, verify the indexed access
+  path and add/update `make validate-sqlc-plans` coverage when the query is on a
+  hot path or can touch import/goat/event/counter rows at scale.
 - At phase closeout, compare code/contracts/migrations/tests against PRD/TRD and
   update context/skills/agent references if implementation changed the truth.
 - For docs-only edits, run greps for stale terms when the user has explicitly banned wording.
