@@ -281,6 +281,35 @@ When surface #2 lands, split at the surface boundary with Next zones/separate
 apps first. Reach for Module Federation only if a measured need appears inside a
 surface.
 
+## No-Rewrite Surface Migration Rule
+
+Phase 1 `admin-web` is the future `/admin` zone. Build it that way from the
+start. A later investor/public/operator web split must be additive:
+
+```text
+apps/admin-web      -> future /admin surface
+apps/investor-web   -> future /investor surface
+apps/public-web     -> future /public or partner surface, only if needed
+```
+
+Adding `apps/investor-web` later is not a rewrite of `admin-web` if these rules
+are followed now:
+
+- feature modules live behind public entrypoints;
+- no cross-feature deep imports;
+- reusable UI lives in `packages/ui` or shared components, not copied between
+  surfaces;
+- API access goes through generated clients and server-side adapters;
+- auth/session/RBAC helpers are shared packages/adapters;
+- frontend code never reads Sheets, BigQuery, CSVs, local files, or databases
+  directly;
+- backend data is paginated/shaped before it reaches UI modules.
+
+The rewrite failure mode is a giant client-rendered dashboard page with random
+cross-imports, direct data access, and business/data logic buried inside React
+components. Do not build that. If a future surface requires its own deploy,
+create a new Next app/zone beside `admin-web` and reuse the shared packages.
+
 ## Dashboard Role Model
 
 The internal admin surface should serve internal roles from one SSR shell.

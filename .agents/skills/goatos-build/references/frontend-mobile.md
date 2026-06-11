@@ -46,6 +46,10 @@ Rules:
   apps routed by path/domain for independent surface deploys. Use Module
   Federation only after an explicit decision that runtime module-into-host
   remotes are needed inside a surface.
+- No-rewrite rule: Phase 1 `admin-web` is the future `/admin` zone. Adding
+  `apps/investor-web` or another surface later must be additive, not a rewrite,
+  because shared UI, generated clients, auth/RBAC helpers, and server-side data
+  adapters live behind package/public module boundaries from the start.
 - Do not allow cross-module deep imports. Feature modules consume public module
   interfaces plus shared `packages/ui`, generated clients, auth, and RBAC
   helpers. The first slice that creates real admin feature modules must add a
