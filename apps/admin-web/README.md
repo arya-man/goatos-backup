@@ -1,15 +1,16 @@
 # Goat OS Admin Web
 
-This app is the Phase 1 admin-web readiness shell. It is intentionally not the
-full Goat Passport UI yet.
+This app is the Phase 1 admin-web read-only console. It is intentionally not the
+full Goat Passport workflow UI yet, but the main demo screens are backed by
+Goat OS app/admin/analytics APIs through server-side adapters.
 
-The current shell proves:
+The current console provides:
 
 - the Next app builds;
 - `@goatos/api-client` imports from `../../packages/api-client`;
 - the executable legacy BigQuery/Sheets API routes are removed;
-- Phase 1 tabs are visible but disabled until the next frontend slice wires real
-  screens through Goat OS APIs.
+- read-only herd search, goat passport, identity counts, conflict/candidate
+  queues, and local import-review baseline screens.
 
 ## Framework Baseline
 
@@ -39,7 +40,7 @@ the latest compatible version and document the exception in the frontend
 architecture doc, BUILD-STATUS, and this README. `lucide-react` `1.17.0` is the
 intentional current 1.x icon baseline.
 
-## Run The Shell
+## Run The Console
 
 ```bash
 cd /Users/ravi/mesha/goatos/apps/admin-web
@@ -60,15 +61,24 @@ npm run dev -- --hostname 127.0.0.1 --port 3001
 
 ## Environment
 
-The shell does not fetch data yet. The generated-client smoke reads these
-optional environment variables so later screens can use the same shape:
+Backend calls are made from Next server components/adapters only. Set these in
+the server process that runs `npm run dev`, `npm run build`, or `npm run start`:
 
 ```bash
 export GOATOS_API_BASE_URL=http://127.0.0.1:8080
 export GOATOS_BEARER_TOKEN=<local-dev-token>
+export GOATOS_TENANT_ID=<tenant-uuid>
 ```
 
-Do not commit tokens or secrets.
+`GOATOS_TENANT_ID` is required for `GET /analytics/identity/counts` because the
+OpenAPI contract requires a `tenant_id` query parameter. It must match the
+bearer token tenant and the seeded DB grant tenant, otherwise the counts page
+shows the backend `tenant_scope_mismatch` denial.
+
+Do not commit tokens or secrets. Do not put tokens in browser code, localStorage,
+`NEXT_PUBLIC_*` env vars, rendered HTML, query params, or static files. The build
+script runs a token leak guard after `next build`; when `GOATOS_BEARER_TOKEN` is
+set, the guard scans client/static build output and fails if the token appears.
 
 ## Generated Client
 
@@ -134,10 +144,9 @@ It refuses production/staging-looking targets and non-local database hosts,
 including Cloud SQL-style Unix socket paths. It is not a migration and does not
 silently create admin grants.
 
-When admin-web calls the backend, the bearer token must stay server-side. Do not
-put local dev tokens in browser code, localStorage, public env vars, rendered
-HTML, or query params. Client components receive rendered data or call server
-adapters, not the backend with raw bearer credentials.
+When admin-web calls the backend, the bearer token stays server-side. Client
+components receive rendered data; they do not call the backend with raw bearer
+credentials.
 
 ## Auth Smoke
 
