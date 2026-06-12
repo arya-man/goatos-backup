@@ -3,9 +3,18 @@ import { ClipboardCheck, GitBranch } from "lucide-react";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefWithParam, one, type RouteSearchParams } from "@/lib/search-params";
-import { getConflictDetail, listCandidates, listConflicts, type ConflictState, type ConflictType } from "@/lib/api/server";
+import {
+  adminListCorrectionRequests,
+  getConflictDetail,
+  listCandidates,
+  listConflicts,
+  type ConflictState,
+  type ConflictType,
+  type CorrectionRequestState,
+} from "@/lib/api/server";
 
 const conflictStates: ConflictState[] = ["open", "needs_field_check", "resolved", "rejected", "closed"];
+const correctionStates: CorrectionRequestState[] = ["open", "assigned", "needs_field_check", "approved", "rejected", "closed"];
 const conflictTypes: ConflictType[] = [
   "duplicate_active_identifier",
   "missing_required_identifier",
@@ -20,10 +29,12 @@ const conflictTypes: ConflictType[] = [
 export async function DataQualityPage({ searchParams }: { searchParams: RouteSearchParams }) {
   const conflictLimit = boundedInt(one(searchParams, "conflict_limit"), 25, 1, 100);
   const candidateLimit = boundedInt(one(searchParams, "candidate_limit"), 25, 1, 100);
+  const correctionLimit = boundedInt(one(searchParams, "correction_limit"), 25, 1, 100);
   const state = normalizeState(one(searchParams, "state"));
+  const correctionState = normalizeCorrectionState(one(searchParams, "correction_state"));
   const conflictType = normalizeConflictType(one(searchParams, "conflict_type"));
   const conflictId = one(searchParams, "conflict_id");
-  const [conflicts, candidates, detail] = await Promise.all([
+  const [conflicts, candidates, corrections, detail] = await Promise.all([
     listConflicts({
       limit: conflictLimit,
       cursor: one(searchParams, "conflict_cursor"),
@@ -33,6 +44,11 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
     listCandidates({
       limit: candidateLimit,
       cursor: one(searchParams, "candidate_cursor"),
+    }),
+    adminListCorrectionRequests({
+      limit: correctionLimit,
+      cursor: one(searchParams, "correction_cursor"),
+      state: correctionState,
     }),
     conflictId ? getConflictDetail(conflictId) : Promise.resolve(null),
   ]);
@@ -112,6 +128,45 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
               ))}
               <NextPageLink href={hrefWithParam("/data-quality", searchParams, "candidate_cursor", candidates.data.next_cursor)} />
               <div className="text-xs text-[#93a4b8]">Trace {candidates.data.trace_id}</div>
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <div className="mt-5">
+        <Panel title="Correction Requests" description="Live read-only correction queue. Review actions remain a later write slice.">
+          <form className="mb-4 grid gap-3 sm:grid-cols-3" action="/data-quality">
+            <Select name="correction_state" label="State" defaultValue={correctionState ?? ""} options={correctionStates} />
+            <Field name="correction_limit" label="Limit" defaultValue={String(correctionLimit)} min="1" max="100" />
+            <div className="flex items-end">
+              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
+            </div>
+          </form>
+          {!corrections.ok ? (
+            <ErrorPanel error={corrections.error} />
+          ) : corrections.data.items.length === 0 ? (
+            <EmptyPanel message="No correction requests returned for these filters." />
+          ) : (
+            <div className="space-y-3">
+              {corrections.data.items.map((correction) => (
+                <div key={correction.correction_request_id} className="rounded-md border border-[#293241] bg-[#10141b] p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-white">{correction.request_type}</div>
+                      <div className="mt-1 text-sm text-[#93a4b8]">{correction.description}</div>
+                    </div>
+                    <span className="rounded border border-[#334155] px-2 py-1 text-xs text-[#c7d1dc]">{correction.state}</span>
+                  </div>
+                  <div className="mt-3 grid gap-1 text-xs text-[#c7d1dc] sm:grid-cols-4">
+                    <span>{correction.goat_id ? `goat ${shortId(correction.goat_id)}` : "no goat"}</span>
+                    <span>{correction.identifier_type ?? "no identifier"}</span>
+                    <span>evidence {correction.evidence_refs.length}</span>
+                    <span>row v{correction.row_version}</span>
+                  </div>
+                </div>
+              ))}
+              <NextPageLink href={hrefWithParam("/data-quality", searchParams, "correction_cursor", corrections.data.next_cursor)} />
+              <div className="text-xs text-[#93a4b8]">Trace {corrections.data.trace_id}</div>
             </div>
           )}
         </Panel>
@@ -206,4 +261,8 @@ function normalizeState(value: string | undefined): ConflictState | undefined {
 
 function normalizeConflictType(value: string | undefined): ConflictType | undefined {
   return conflictTypes.includes(value as ConflictType) ? (value as ConflictType) : undefined;
+}
+
+function normalizeCorrectionState(value: string | undefined): CorrectionRequestState | undefined {
+  return correctionStates.includes(value as CorrectionRequestState) ? (value as CorrectionRequestState) : undefined;
 }

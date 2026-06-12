@@ -248,12 +248,10 @@ remain deferred. Candidate approve and conflict `create_goat` routes exist, but
 their canonical mutation semantics remain deferred rather than silently writing
 incomplete goat state.
 
-The remaining typed not_implemented endpoints are:
+Phase 1B-0 adds read-only goat timeline plus app/admin correction request list
+APIs. The remaining typed not_implemented endpoints are:
 
 ```text
-GET /goats/{goat_id}/timeline
-GET /identity/correction-requests
-GET /admin/identity/correction-requests
 POST /admin/import-runs
 POST /admin/goats
 PATCH /admin/goats/{goat_id}

@@ -11,9 +11,9 @@ The current console provides:
 - the executable legacy BigQuery/Sheets API routes are removed;
 - a Mesha legacy-style dark sidebar, compact module navigation, breadcrumb
   header, KPI cards, tabs, charts, and dense tables;
-- read-only herd search, goat passport, identity counts, conflict/candidate
-  queues, and live Import Review summary/row screens when an import run id is
-  provided.
+- read-only herd search, goat passport with live identity timeline, identity
+  counts, conflict/candidate/correction queues, and live Import Review
+  summary/row screens when an import run id is provided.
 
 ## Framework Baseline
 
@@ -51,15 +51,17 @@ npm install
 npm run lint
 npm run typecheck
 npm run build
-npm run dev -- --hostname 127.0.0.1 --port 3300
+npm run dev:local
 ```
 
 Open `http://127.0.0.1:3300`.
 
-Use another port if `3300` is busy:
+`dev:local` and `start:local` bind explicitly to `127.0.0.1:3300`. If that
+port is busy, the script fails and prints the owning process instead of
+silently moving to another port.
 
 ```bash
-npm run dev -- --hostname 127.0.0.1 --port 3301
+npm run start:local
 ```
 
 ## Environment
@@ -71,12 +73,28 @@ the server process that runs `npm run dev`, `npm run build`, or `npm run start`:
 export GOATOS_API_BASE_URL=http://127.0.0.1:8080
 export GOATOS_BEARER_TOKEN=<local-dev-token>
 export GOATOS_TENANT_ID=<tenant-uuid>
+export GOATOS_IMPORT_RUN_ID=<local-import-run-uuid>
 ```
 
 `GOATOS_TENANT_ID` is required for `GET /analytics/identity/counts` because the
 OpenAPI contract requires a `tenant_id` query parameter. It must match the
 bearer token tenant and the seeded DB grant tenant, otherwise the counts page
 shows the backend `tenant_scope_mismatch` denial.
+
+`GOATOS_IMPORT_RUN_ID` is required only for the live visual smoke and lets
+`/import-review` open the proven local import run directly.
+
+After a local backend and admin-web are already running, capture the live
+read-only proof screenshots:
+
+```bash
+npm run smoke:visual:live
+```
+
+The smoke requires the same server-only env values, fetches a real goat_id from
+`GET /goats/search`, captures desktop and narrow screenshots under the ignored
+`.codex-goatos-render/admin-web-screenshots/` directory, and fails if it renders
+configuration-error pages or leaks the bearer token into HTML.
 
 Do not commit tokens or secrets. Do not put tokens in browser code, localStorage,
 `NEXT_PUBLIC_*` env vars, rendered HTML, query params, or static files. The build

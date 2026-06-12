@@ -223,3 +223,56 @@ WHERE tenant_id = @tenant_id
   )
 ORDER BY row_number ASC, legacy_row_id ASC
 LIMIT @limit_count;
+
+-- name: ListGoatTimeline :many
+SELECT
+  e.identity_event_id::text AS event_id,
+  e.event_type,
+  e.occurred_at,
+  e.recorded_at,
+  CASE WHEN e.actor_id IS NULL THEN 'system' ELSE 'human' END::text AS actor_type,
+  COALESCE(e.payload->'evidence_refs', '[]'::jsonb)::text AS evidence_refs,
+  COALESCE(e.decision_id::text, '')::text AS decision_id
+FROM goat_identity_events e
+WHERE e.tenant_id = @tenant_id
+  AND e.goat_id = @goat_id
+  AND (
+    sqlc.narg('cursor_occurred_at')::timestamptz IS NULL
+    OR (e.occurred_at, e.identity_event_id) < (sqlc.narg('cursor_occurred_at')::timestamptz, sqlc.narg('cursor_event_id')::uuid)
+  )
+ORDER BY e.occurred_at DESC, e.identity_event_id DESC
+LIMIT @limit_count;
+
+-- name: ListCorrectionRequests :many
+SELECT
+  correction_request_id::text AS correction_request_id,
+  request_type,
+  state,
+  COALESCE(goat_id::text, '')::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id,
+  description,
+  evidence,
+  row_version,
+  created_at,
+  resolved_at
+FROM identity_correction_requests
+WHERE tenant_id = @tenant_id
+  AND (
+    sqlc.narg('created_by')::uuid IS NULL
+    OR requested_by = sqlc.narg('created_by')::uuid
+  )
+  AND (
+    sqlc.narg('state')::text IS NULL
+    OR state = sqlc.narg('state')::text
+  )
+  AND (
+    sqlc.narg('cursor_created_at')::timestamptz IS NULL
+    OR (created_at, identity_correction_requests.correction_request_id) < (sqlc.narg('cursor_created_at')::timestamptz, sqlc.narg('cursor_correction_request_id')::uuid)
+  )
+ORDER BY created_at DESC, identity_correction_requests.correction_request_id DESC
+LIMIT @limit_count;

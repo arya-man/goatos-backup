@@ -81,6 +81,10 @@ bind_query_params() {
   local reason_code="${PLAN_REASON_CODE:-NULL::text}"
   local cursor_row_number="${PLAN_CURSOR_ROW_NUMBER:-NULL::int}"
   local cursor_legacy_row_id="${PLAN_CURSOR_LEGACY_ROW_ID:-NULL::uuid}"
+  local created_by="${PLAN_CREATED_BY:-NULL::uuid}"
+  local state="${PLAN_STATE:-NULL::text}"
+  local cursor_event_id="${PLAN_CURSOR_EVENT_ID:-NULL::uuid}"
+  local cursor_correction_request_id="${PLAN_CURSOR_CORRECTION_REQUEST_ID:-NULL::uuid}"
 
   sed \
     -e "s/@tenant_id/'00000000-0000-4000-8000-000000000001'::uuid/g" \
@@ -116,6 +120,11 @@ bind_query_params() {
     -e "s/sqlc.narg('last_processed_event_id')::uuid/'60000000-0000-4000-8000-000000000001'::uuid/g" \
     -e "s/sqlc.narg('cursor_created_at')::timestamptz/NULL::timestamptz/g" \
     -e "s/sqlc.narg('cursor_candidate_id')::uuid/NULL::uuid/g" \
+    -e "s/sqlc.narg('created_by')::uuid/${created_by}/g" \
+    -e "s/sqlc.narg('state')::text/${state}/g" \
+    -e "s/sqlc.narg('cursor_occurred_at')::timestamptz/NULL::timestamptz/g" \
+    -e "s/sqlc.narg('cursor_event_id')::uuid/${cursor_event_id}/g" \
+    -e "s/sqlc.narg('cursor_correction_request_id')::uuid/${cursor_correction_request_id}/g" \
     -e "s/sqlc.narg('processing_state')::text/${processing_state}/g" \
     -e "s/sqlc.narg('reason_code')::text/${reason_code}/g" \
     -e "s/sqlc.narg('cursor_row_number')::int/${cursor_row_number}/g" \
@@ -152,6 +161,12 @@ forbidden_seq_scan_pattern() {
       ;;
     ListImportRunRows)
       printf '%s\n' 'Seq Scan on legacy_import_rows'
+      ;;
+    ListGoatTimeline)
+      printf '%s\n' 'Seq Scan on goat_identity_events'
+      ;;
+    ListCorrectionRequests)
+      printf '%s\n' 'Seq Scan on identity_correction_requests'
       ;;
     GetApprovedLegacyImportPolicy)
       printf '%s\n' 'Seq Scan on legacy_import_policies'
@@ -195,9 +210,9 @@ validate_generated_query_plan() {
   fi
 
   case "$query_name" in
-    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy|ListImportRunRows)
+    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy|ListImportRunRows|ListGoatTimeline|ListCorrectionRequests)
       explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
-$sql" '(Sort|Incremental Sort)'
+$sql" '^[[:space:]]*(->[[:space:]]*)?(Sort|Incremental Sort)[[:space:]]*$'
       ;;
     *)
       explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
@@ -291,6 +306,24 @@ ORDER BY row_number, legacy_row_id
 LIMIT 10" '(Sort|Incremental Sort)'
 }
 
+validate_correction_request_actor_plan() {
+  local sql
+  PLAN_CREATED_BY="'90000000-0000-4000-8000-000000000001'::uuid"
+  sql="$(extract_query "$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql" "ListCorrectionRequests" | bind_query_params)"
+  unset PLAN_CREATED_BY
+  explain_must_use_index "ListCorrectionRequestsActorFilter" 'Seq Scan on identity_correction_requests' "EXPLAIN (COSTS OFF)
+$sql" '(Sort|Incremental Sort)'
+}
+
+validate_correction_request_state_plan() {
+  local sql
+  PLAN_STATE="'open'::text"
+  sql="$(extract_query "$repo_root/backend/internal/identity/adapters/postgres/sqlc/query.sql" "ListCorrectionRequests" | bind_query_params)"
+  unset PLAN_STATE
+  explain_must_use_index "ListCorrectionRequestsStateFilter" 'Seq Scan on identity_correction_requests' "EXPLAIN (COSTS OFF)
+$sql" '(Sort|Incremental Sort)'
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -323,5 +356,7 @@ validate_auth_grant_lookup_plan
 validate_import_run_reason_gin_probe_plan
 validate_import_run_generated_reason_filter_plan
 validate_import_run_state_filter_plan
+validate_correction_request_actor_plan
+validate_correction_request_state_plan
 
 echo "Validated $checked_count generated sqlc query plans and 5 hand-written query plans"

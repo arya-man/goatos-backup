@@ -61,6 +61,21 @@ type ListImportRunRowsParams struct {
 	ReasonCode      *string
 }
 
+type GetGoatTimelineParams struct {
+	TenantID string
+	GoatID   string
+	Limit    int
+	Cursor   *string
+}
+
+type ListCorrectionRequestsParams struct {
+	TenantID  string
+	Limit     int
+	Cursor    *string
+	CreatedBy *string
+	State     *string
+}
+
 type CreateCorrectionRequestCommand struct {
 	TenantID             string
 	ActorID              string
@@ -210,6 +225,8 @@ type Repository interface {
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]domain.CandidateSummary, *string, error)
 	GetImportRun(ctx context.Context, tenantID, importRunID string) (*domain.ImportRun, error)
 	ListImportRunRows(ctx context.Context, params ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error)
+	GetGoatTimeline(ctx context.Context, params GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error)
+	ListCorrectionRequests(ctx context.Context, params ListCorrectionRequestsParams) ([]domain.CorrectionRequest, *string, error)
 	CreateCorrectionRequest(ctx context.Context, cmd CreateCorrectionRequestCommand) (*CreateCorrectionRequestResult, error)
 	ResolveCorrectionRequest(ctx context.Context, cmd ResolveCorrectionRequestCommand) (*ResolveCorrectionRequestResult, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)

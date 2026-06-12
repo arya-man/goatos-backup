@@ -267,6 +267,7 @@ export interface components {
             location_scope?: components["schemas"]["LocationScope"];
             description: string;
             evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version?: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */

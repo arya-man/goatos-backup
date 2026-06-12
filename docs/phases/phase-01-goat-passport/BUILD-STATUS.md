@@ -38,6 +38,7 @@ backend/migrations/postgres/000010_phase_1_rfid_plain_status_mappings.sql
 backend/migrations/postgres/000011_phase_1_rfid_breed_cross_mappings.sql
 backend/migrations/postgres/000012_phase_1_rfid_blank_suffix_apply_candidates.sql
 backend/migrations/postgres/000013_phase_1_import_review_read_indexes.sql
+backend/migrations/postgres/000014_phase_1b_read_foundation_indexes.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -615,13 +616,13 @@ RFID source-of-truth staging:
   created_goat 436, needs_review 787, and error 0; guarded RFID-only apply
   produced created_goat 711, needs_review 512, and error 0; the
   tenant_lifecycle alive counter was 711. SSR admin-web rendered the Mesha
-  overview, real herd rows, a real goat passport, the 711 alive count, and live
-  Import Review summary/rows against the 711/512 run. The real local DB had 0
-  conflicts and 0 candidates, so Data Quality rendered an honest empty state;
-  backend repository/handler tests cover populated conflict and candidate list
-  paths separately.
+  overview, real herd rows, a real goat passport with live timeline, the 711
+  alive count, and live Import Review summary/rows against the 711/512 run. The
+  real local DB had 0 conflicts, 0 candidates, and 0 correction rows, so Data
+  Quality rendered honest empty states; backend repository/handler tests cover
+  populated conflict/candidate/correction list paths separately.
   Fresh local closeout proof on June 12, 2026 reproduced the same numbers from
-  a clean Docker Postgres database with all migrations through 000013, then
+  a clean Docker Postgres database with all migrations through 000014, then
   rendered `/`, `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and
   `/data-quality` through the Mesha admin-web against that final run. The bearer
   token was absent from captured HTML, client/static bundle, backend logs, and
@@ -726,9 +727,9 @@ with a fail-closed default. Only `/healthz` and `/readyz` are unauthenticated.
 Identity/admin/app handlers and reporting/analytics handlers must share that
 registry; `analytics.identity.read` must not be enforced from a divergent
 analytics-only permission table.
-`adminListCorrectionRequests` must move to
-`GET /admin/identity/correction-requests` before route permissions are enforced;
-`GET /identity/correction-requests` remains the app own/visible correction list.
+`adminListCorrectionRequests` is enforced at
+`GET /admin/identity/correction-requests`; `GET /identity/correction-requests`
+remains the app own/visible correction list.
 
 `import.run.view` on `verifier` is deliberate so identity reviewers can inspect
 import provenance while triaging dirty identity data. It does not grant import
@@ -813,8 +814,10 @@ This order is intentional and should not be inferred from conversation memory:
    leak checks must continue to reproduce 711/512/0.
 
 3. Keep deferred endpoint/action lists honest while moving review/write,
-   correction, import-run create, goat timeline, production auth, cloud deploy,
-   and event-egress work into later scoped slices.
+   import-run create, production auth, cloud deploy, and event-egress work into
+   later scoped slices. Goat timeline plus correction request list reads are now
+   Phase 1B-0 read-only surfaces; correction review actions remain later write
+   slices.
 
 4. Treat terminal non-goat disposition as a separate canonical-state slice unless
    it becomes required before closeout. The demo UI may label the current 504
@@ -825,6 +828,35 @@ The terminal non-goat slice is not mechanical. It must choose and document the
 mechanism first: terminal `rejected` at apply/review time versus earlier
 source-discovery or staging exclusion. It must remain auditable, reversible by a
 future correction path, and must not silently drop source rows.
+
+Phase 1B remaining-work audit after the read foundation:
+
+```text
+DONE in Phase 1A / Phase 1B-0
+  local real-data import/apply/counter/admin-demo spine
+  live Import Review summary and row reads
+  live goat timeline read from goat_identity_events
+  live app/admin correction request list reads
+
+STILL REQUIRED FOR PHASE 1B
+  1. UI wiring for already-built safe write actions:
+     RejectCandidate; ResolveConflict reject_match; ResolveConflict merge;
+     ResolveCorrectionRequest; AddGoatIdentifier; RetireGoatIdentifier.
+  2. Non-goat terminal disposition decision and implementation.
+  3. Candidate approve canonical mutation semantics.
+  4. Conflict create_goat canonical mutation semantics.
+  5. Messy-row approve/reject/fix workflow for import review.
+
+DEFERRED TO PHASE 2+
+  POST /admin/import-runs, POST /admin/goats, PATCH /admin/goats/{goat_id};
+  production IdP/JWKS; cloud deployment; Pub/Sub/event egress; richer cross-run
+  messy-data search; non-Phase-1 legacy modules.
+```
+
+The Phase 2+ items are safe to defer because the local Phase 1 proof uses
+existing CLI import/apply commands, bootstrap bearer auth, local stdout events,
+and read-only admin screens. They are required for production/shared use, not
+for proving the Phase 1 local identity spine.
 
 Counter projection rebuild:
 
@@ -1079,15 +1111,13 @@ token lifecycle, rate limiting, TLS, and operations runbooks.
 
 Admin-web now has the Phase 1 Mesha-style read-only demo surface: generated
 client plumbing, local dev token/grant helpers, local auth smoke, server-side
-bearer adapters, live identity-read screens, live Import Review rows, and
-disabled placeholders for write/review actions that remain deferred.
+bearer adapters, live identity-read screens, live goat timeline, live Import
+Review rows, live correction-request queue reads, and disabled placeholders for
+write/review actions that remain deferred.
 
 Remaining typed not_implemented endpoint surface:
 
 ```text
-GET /goats/{goat_id}/timeline
-GET /identity/correction-requests
-GET /admin/identity/correction-requests
 POST /admin/import-runs
 POST /admin/goats
 PATCH /admin/goats/{goat_id}

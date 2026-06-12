@@ -907,6 +907,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
         created_at:
           type: string
           format: date-time

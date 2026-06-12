@@ -34,9 +34,9 @@ func NewHandler(service *app.Service, log ...*slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /goats/search", h.SearchGoats)
 	mux.HandleFunc("GET /goats/{goat_id}", h.GetGoatPassport)
-	mux.HandleFunc("GET /goats/{goat_id}/timeline", h.NotImplemented("goat_timeline_deferred"))
+	mux.HandleFunc("GET /goats/{goat_id}/timeline", h.GetGoatTimeline)
 	mux.HandleFunc("GET /identifiers/{type}/{value}/resolve", h.ResolveIdentifier)
-	mux.HandleFunc("GET /identity/correction-requests", h.NotImplemented("correction_requests_deferred"))
+	mux.HandleFunc("GET /identity/correction-requests", h.ListCorrectionRequests)
 	mux.HandleFunc("POST /identity/correction-requests", h.CreateCorrectionRequest)
 
 	mux.HandleFunc("GET /admin/identity/conflicts", h.ListConflicts)
@@ -52,7 +52,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PATCH /admin/goats/{goat_id}", h.NotImplemented("admin_goat_writes_deferred"))
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
-	mux.HandleFunc("GET /admin/identity/correction-requests", h.NotImplemented("admin_correction_requests_deferred"))
+	mux.HandleFunc("GET /admin/identity/correction-requests", h.AdminListCorrectionRequests)
 	mux.HandleFunc("POST /admin/identity/correction-requests/{correction_request_id}/resolve", h.ResolveCorrectionRequest)
 }
 
@@ -95,6 +95,21 @@ func (h *Handler) ResolveIdentifier(w http.ResponseWriter, r *http.Request) {
 		LocationID:      optionalQuery(q.Get("location_id")),
 	}
 	result, err := h.service.ResolveIdentifier(r.Context(), params, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) GetGoatTimeline(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLimit(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	result, err := h.service.GetGoatTimeline(r.Context(), ports.GetGoatTimelineParams{
+		TenantID: tenantID(r),
+		GoatID:   r.PathValue("goat_id"),
+		Limit:    limit,
+		Cursor:   optionalQuery(q.Get("cursor")),
+	}, traceID(r))
 	h.respond(w, r, result, err)
 }
 
@@ -152,6 +167,37 @@ func (h *Handler) ListImportRunRows(w http.ResponseWriter, r *http.Request) {
 		Cursor:          optionalQuery(q.Get("cursor")),
 		ProcessingState: optionalQuery(q.Get("processing_state")),
 		ReasonCode:      optionalQuery(q.Get("reason_code")),
+	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) ListCorrectionRequests(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLimit(w, r)
+	if !ok {
+		return
+	}
+	actor := actorID(r)
+	q := r.URL.Query()
+	result, err := h.service.ListCorrectionRequests(r.Context(), ports.ListCorrectionRequestsParams{
+		TenantID:  tenantID(r),
+		Limit:     limit,
+		Cursor:    optionalQuery(q.Get("cursor")),
+		CreatedBy: &actor,
+	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) AdminListCorrectionRequests(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLimit(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	result, err := h.service.ListCorrectionRequests(r.Context(), ports.ListCorrectionRequestsParams{
+		TenantID: tenantID(r),
+		Limit:    limit,
+		Cursor:   optionalQuery(q.Get("cursor")),
+		State:    optionalQuery(q.Get("state")),
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }

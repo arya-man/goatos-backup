@@ -407,12 +407,13 @@ Rules:
   are species_or_breed_requires_review 504, blank_old_tag_suffix 160,
   blank_gender 4, and duplicate_old_tag_same_scope 4; the 160 blank-suffix rows
   also fail breed/species review. The local SSR proof rendered real herd rows, a
-  real goat passport, the 711 tenant_lifecycle alive counter, and live Import
-  Review summary/rows against the same 711/512 run through admin-web. Fresh
-  local closeout proof on June 12, 2026 reproduced this from a clean Docker
-  Postgres database with all migrations through 000013. The real local DB had 0
-  conflicts and 0 candidates, so Data Quality rendered an honest empty state
-  while backend tests cover populated conflict/candidate read paths. C-lite
+  real goat passport with live timeline, the 711 tenant_lifecycle alive counter,
+  and live Import Review summary/rows against the same 711/512 run through
+  admin-web. Fresh local closeout proof on June 12, 2026 reproduced this from a
+  clean Docker Postgres database with all migrations through 000014. The real
+  local DB had 0 conflicts, 0 candidates, and 0 correction rows, so Data Quality
+  rendered honest empty states while backend tests cover populated
+  conflict/candidate/correction read paths. C-lite
   suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction
@@ -628,12 +629,26 @@ POST /admin/identity/candidates/{candidate_id}/approve
   decision-only shortcut
 ```
 
-Known backend deferments:
+Phase 1B-0 read foundation:
 
 ```text
 GET /goats/{goat_id}/timeline
 GET /identity/correction-requests
 GET /admin/identity/correction-requests
+```
+
+These are live read-only routes backed by `goat_identity_events` and
+`identity_correction_requests`; correction review/write actions remain separate
+write slices.
+
+Migration `000014_phase_1b_read_foundation_indexes.sql` adds the per-partition
+goat timeline keyset indexes and correction request keyset indexes used by
+these reads. `make validate-sqlc-plans` gates `ListGoatTimeline` and
+`ListCorrectionRequests` for indexed, no-sort local access paths.
+
+Known backend deferments:
+
+```text
 POST /admin/import-runs
 POST /admin/goats
 PATCH /admin/goats/{goat_id}

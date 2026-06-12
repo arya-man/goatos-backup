@@ -1,10 +1,10 @@
 import { BadgeCheck } from "lucide-react";
 import { EmptyPanel, ErrorPanel, Mono, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, joinParts, shortId } from "@/lib/format";
-import { getGoatPassport } from "@/lib/api/server";
+import { getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 
 export async function GoatPassportPage({ goatId }: { goatId: string }) {
-  const result = await getGoatPassport(goatId);
+  const [result, timeline] = await Promise.all([getGoatPassport(goatId), getGoatTimeline({ goatId, limit: 20 })]);
   if (!result.ok) {
     return (
       <>
@@ -115,8 +115,32 @@ export async function GoatPassportPage({ goatId }: { goatId: string }) {
       </div>
 
       <div className="mt-5">
-        <Panel title="Timeline" description="Timeline is not tracked in this screen yet.">
-          <EmptyPanel message="Timeline will appear here once that read view is available." />
+        <Panel title="Timeline" description="Live identity events from goat_identity_events. Audit-log enrichment is deferred.">
+          {!timeline.ok ? (
+            <ErrorPanel error={timeline.error} />
+          ) : timeline.data.items.length === 0 ? (
+            <EmptyPanel message="No identity events returned for this goat." />
+          ) : (
+            <div className="space-y-3">
+              {timeline.data.items.map((event) => (
+                <div key={event.event_id} className="rounded-md border border-[#293241] bg-[#10141b] p-3 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-white">{event.event_type}</div>
+                      <div className="mt-1 text-[#93a4b8]">occurred {dateTime(event.occurred_at)}</div>
+                    </div>
+                    <span className="rounded border border-[#334155] px-2 py-1 text-xs text-[#c7d1dc]">{event.actor_type}</span>
+                  </div>
+                  <div className="mt-3 grid gap-1 text-xs text-[#c7d1dc] sm:grid-cols-3">
+                    <span>recorded {dateTime(event.recorded_at)}</span>
+                    <span>evidence {event.evidence_refs.length}</span>
+                    <span>{event.decision_id ? `decision ${shortId(event.decision_id)}` : "no decision"}</span>
+                  </div>
+                </div>
+              ))}
+              <div className="text-xs text-[#93a4b8]">Trace {timeline.data.trace_id}</div>
+            </div>
+          )}
         </Panel>
       </div>
     </>

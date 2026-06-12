@@ -256,6 +256,10 @@ Exercise migration invariants.
 Reject whitespace errors.
 ```
 
+The no-Sort plan guard rejects actual `Sort` / `Incremental Sort` plan nodes;
+partitioned timeline reads may still show `Merge Append` `Sort Key` metadata
+while remaining index-backed and acceptable.
+
 If this fails, look at the exact sub-command:
 
 ```text

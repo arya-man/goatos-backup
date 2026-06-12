@@ -379,6 +379,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CorrectionRequestState"
       responses:
         "200":
           description: Correction request page.
@@ -388,6 +393,8 @@ paths:
                 $ref: "#/components/schemas/CorrectionRequestListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /admin/identity/correction-requests/{correction_request_id}/resolve:
     post:
       tags:
@@ -626,6 +633,30 @@ components:
             - string
             - "null"
           maxLength: 500
+    LocationScope:
+      type: object
+      additionalProperties: false
+      properties:
+        farm_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        park_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        shed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        cohort_id:
+          type:
+            - string
+            - "null"
+          format: uuid
     IdentifierType:
       type: string
       enum:
@@ -1764,6 +1795,7 @@ components:
         - correction_request_id
         - request_type
         - state
+        - location_scope
         - description
         - evidence_refs
         - row_version
@@ -1799,6 +1831,8 @@ components:
             - string
             - "null"
           maxLength: 200
+        location_scope:
+          $ref: "#/components/schemas/LocationScope"
         description:
           type: string
           minLength: 1

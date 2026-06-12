@@ -218,6 +218,68 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if _, _, err := repo.ListImportRunRows(ctx, ports.ListImportRunRowsParams{TenantID: meshaTenant, ImportRunID: importRunID, Limit: 10, Cursor: strPtr("not-a-valid-cursor")}); !errors.Is(err, ports.ErrInvalidCursor) {
 		t.Fatalf("invalid import row cursor should return ErrInvalidCursor, got %v", err)
 	}
+
+	timeline, nextTimeline, err := repo.GetGoatTimeline(ctx, ports.GetGoatTimelineParams{TenantID: meshaTenant, GoatID: "10000000-0000-4000-8000-000000000001", Limit: 1})
+	if err != nil {
+		t.Fatalf("GetGoatTimeline first page: %v", err)
+	}
+	if len(timeline) != 1 || timeline[0].EventType != "goat.identifier.added" || nextTimeline == nil {
+		t.Fatalf("unexpected first timeline page rows=%#v next=%v", timeline, nextTimeline)
+	}
+	if len(timeline[0].EvidenceRefs) != 1 || timeline[0].EvidenceRefs[0].EvidenceID != "synthetic-row-2" {
+		t.Fatalf("unexpected evidence refs: %#v", timeline[0].EvidenceRefs)
+	}
+	timeline, nextTimeline, err = repo.GetGoatTimeline(ctx, ports.GetGoatTimelineParams{TenantID: meshaTenant, GoatID: "10000000-0000-4000-8000-000000000001", Limit: 1, Cursor: nextTimeline})
+	if err != nil {
+		t.Fatalf("GetGoatTimeline second page: %v", err)
+	}
+	if len(timeline) != 1 || timeline[0].EventType != "goat.created" || nextTimeline != nil {
+		t.Fatalf("unexpected second timeline page rows=%#v next=%v", timeline, nextTimeline)
+	}
+	if _, _, err := repo.GetGoatTimeline(ctx, ports.GetGoatTimelineParams{TenantID: meshaTenant, GoatID: "10000000-0000-4000-8000-000000000001", Limit: 10, Cursor: strPtr("not-a-valid-cursor")}); !errors.Is(err, ports.ErrInvalidCursor) {
+		t.Fatalf("invalid timeline cursor should return ErrInvalidCursor, got %v", err)
+	}
+	timeline, _, err = repo.GetGoatTimeline(ctx, ports.GetGoatTimelineParams{TenantID: secondTenant, GoatID: "10000000-0000-4000-8000-000000000001", Limit: 10})
+	if err != nil {
+		t.Fatalf("GetGoatTimeline cross tenant: %v", err)
+	}
+	if len(timeline) != 0 {
+		t.Fatalf("cross-tenant timeline should be empty, got %#v", timeline)
+	}
+
+	actorID := "90000000-0000-4000-8000-000000000001"
+	corrections, nextCorrections, err := repo.ListCorrectionRequests(ctx, ports.ListCorrectionRequestsParams{TenantID: meshaTenant, CreatedBy: &actorID, Limit: 1})
+	if err != nil {
+		t.Fatalf("ListCorrectionRequests caller first page: %v", err)
+	}
+	if len(corrections) != 1 || corrections[0].CorrectionRequestID != "40000000-0000-4000-8000-000000000001" || nextCorrections == nil {
+		t.Fatalf("unexpected caller correction page rows=%#v next=%v", corrections, nextCorrections)
+	}
+	corrections, nextCorrections, err = repo.ListCorrectionRequests(ctx, ports.ListCorrectionRequestsParams{TenantID: meshaTenant, CreatedBy: &actorID, Limit: 1, Cursor: nextCorrections})
+	if err != nil {
+		t.Fatalf("ListCorrectionRequests caller second page: %v", err)
+	}
+	if len(corrections) != 1 || corrections[0].CorrectionRequestID != "40000000-0000-4000-8000-000000000003" || nextCorrections != nil {
+		t.Fatalf("unexpected caller correction second page rows=%#v next=%v", corrections, nextCorrections)
+	}
+	openState := "open"
+	corrections, _, err = repo.ListCorrectionRequests(ctx, ports.ListCorrectionRequestsParams{TenantID: meshaTenant, State: &openState, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListCorrectionRequests admin state: %v", err)
+	}
+	if len(corrections) != 1 || corrections[0].CorrectionRequestID != "40000000-0000-4000-8000-000000000001" || corrections[0].RowVersion == nil || *corrections[0].RowVersion != 1 {
+		t.Fatalf("unexpected open corrections: %#v", corrections)
+	}
+	corrections, _, err = repo.ListCorrectionRequests(ctx, ports.ListCorrectionRequestsParams{TenantID: secondTenant, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListCorrectionRequests cross tenant: %v", err)
+	}
+	if len(corrections) != 1 || corrections[0].CorrectionRequestID != "40000000-0000-4000-8000-000000000101" {
+		t.Fatalf("unexpected second tenant corrections: %#v", corrections)
+	}
+	if _, _, err := repo.ListCorrectionRequests(ctx, ports.ListCorrectionRequestsParams{TenantID: meshaTenant, Limit: 10, Cursor: strPtr("not-a-valid-cursor")}); !errors.Is(err, ports.ErrInvalidCursor) {
+		t.Fatalf("invalid correction cursor should return ErrInvalidCursor, got %v", err)
+	}
 }
 
 func applyMigrations(t *testing.T, container string) {
@@ -280,6 +342,141 @@ VALUES
 
 INSERT INTO identity_conflict_source_records (conflict_id, tenant_id, source_system, source_record_id)
 VALUES ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'synthetic_import', 'synthetic-source-record-1');
+
+INSERT INTO goat_identity_events (
+  identity_event_id,
+  tenant_id,
+  goat_id,
+  event_type,
+  event_version,
+  occurred_at,
+  recorded_at,
+  actor_id,
+  source_system,
+  source_record_id,
+  payload,
+  idempotency_key
+)
+VALUES
+  (
+    '60000000-0000-4000-8000-000000000001',
+    '`+meshaTenant+`',
+    '10000000-0000-4000-8000-000000000001',
+    'goat.created',
+    1,
+    '2026-06-08 00:00:00+00',
+    '2026-06-08 00:01:00+00',
+    NULL,
+    'synthetic_import',
+    'synthetic-row-1',
+    '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}]}'::jsonb,
+    'idem-timeline-1'
+  ),
+  (
+    '60000000-0000-4000-8000-000000000002',
+    '`+meshaTenant+`',
+    '10000000-0000-4000-8000-000000000001',
+    'goat.identifier.added',
+    1,
+    '2026-06-09 00:00:00+00',
+    '2026-06-09 00:01:00+00',
+    '90000000-0000-4000-8000-000000000001',
+    'synthetic_import',
+    'synthetic-row-2',
+    '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-2","source_system":"synthetic_import"}]}'::jsonb,
+    'idem-timeline-2'
+  ),
+  (
+    '60000000-0000-4000-8000-000000000101',
+    '`+secondTenant+`',
+    '10000000-0000-4000-8000-000000000101',
+    'goat.created',
+    1,
+    '2026-06-08 00:00:00+00',
+    '2026-06-08 00:01:00+00',
+    NULL,
+    'synthetic_import',
+    'synthetic-row-tenant-2',
+    '{"evidence_refs":[]}'::jsonb,
+    'idem-timeline-tenant-2'
+  );
+
+INSERT INTO identity_correction_requests (
+  correction_request_id,
+  tenant_id,
+  request_type,
+  state,
+  goat_id,
+  identifier_type,
+  identifier_value,
+  park_id,
+  description,
+  evidence,
+  requested_by,
+  created_at,
+  row_version
+)
+VALUES
+  (
+    '40000000-0000-4000-8000-000000000001',
+    '`+meshaTenant+`',
+    'missing_tag',
+    'open',
+    '10000000-0000-4000-8000-000000000001',
+    'old_tag',
+    '1900',
+    '`+cbeLocation+`',
+    'Synthetic open correction',
+    '{"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}]}'::jsonb,
+    '90000000-0000-4000-8000-000000000001',
+    '2026-06-10 00:00:00+00',
+    1
+  ),
+  (
+    '40000000-0000-4000-8000-000000000002',
+    '`+meshaTenant+`',
+    'wrong_status',
+    'assigned',
+    '10000000-0000-4000-8000-000000000002',
+    NULL,
+    NULL,
+    '`+cptLocation+`',
+    'Synthetic assigned correction',
+    '{"evidence_refs":[]}'::jsonb,
+    '90000000-0000-4000-8000-000000000002',
+    '2026-06-09 00:00:00+00',
+    1
+  ),
+  (
+    '40000000-0000-4000-8000-000000000003',
+    '`+meshaTenant+`',
+    'field_verification_result',
+    'closed',
+    NULL,
+    NULL,
+    NULL,
+    '`+cbeLocation+`',
+    'Synthetic closed correction',
+    '{"evidence_refs":[]}'::jsonb,
+    '90000000-0000-4000-8000-000000000001',
+    '2026-06-08 00:00:00+00',
+    2
+  ),
+  (
+    '40000000-0000-4000-8000-000000000101',
+    '`+secondTenant+`',
+    'missing_tag',
+    'open',
+    '10000000-0000-4000-8000-000000000101',
+    'old_tag',
+    '1900',
+    '`+t2Location+`',
+    'Synthetic second tenant correction',
+    '{"evidence_refs":[]}'::jsonb,
+    '90000000-0000-4000-8000-000000000001',
+    '2026-06-10 00:00:00+00',
+    1
+  );
 
 INSERT INTO legacy_import_runs (import_run_id, tenant_id, source_name, source_system, source_dataset, policy_version, dry_run, status, row_count, created_goat_count, error_count)
 VALUES

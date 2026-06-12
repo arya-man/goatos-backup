@@ -1865,11 +1865,11 @@ retireGoatIdentifier                -> goat.write_identity
 getIdentityCounts                   -> analytics.identity.read
 ```
 
-Contract correction required before implementation:
+Contract correction implemented before route permissions were enforced:
 
 ```text
 app-api owns GET /identity/correction-requests as listCorrectionRequests
-admin-api must move adminListCorrectionRequests to GET /admin/identity/correction-requests
+admin-api owns adminListCorrectionRequests at GET /admin/identity/correction-requests
 one method+path cannot have two different permissions in one ServeMux
 ```
 
@@ -2281,7 +2281,7 @@ Rows return whitelisted review fields only and never return raw_payload.
 Phase 1 local closeout status:
 
 ```text
-Fresh local Docker Postgres proof with all migrations through 000013:
+Fresh local Docker Postgres proof with all migrations through 000014:
   normal RFID apply -> created_goat 436, needs_review 787, error 0
   guarded --allow-rfid-only-blank-suffix apply -> created_goat 711, needs_review 512, error 0
   remaining review reason occurrences:
@@ -2294,22 +2294,24 @@ Fresh local Docker Postgres proof with all migrations through 000013:
     /
     /counts
     /herd
-    /goats/{goat_id}
+    /goats/{goat_id} with live timeline
     /import-review?import_run_id=<final_run_id>
-    /data-quality
+    /data-quality with honest empty states when queues are empty
 ```
+
+The real local proof DB had no conflicts, candidates, or correction requests;
+backend repository/handler coverage proves populated list paths for those
+queues separately.
 
 This proves the local identity/import/read/admin-demo spine only. Production
 auth/IdP, cloud deployment, Pub/Sub/event egress, terminal non-goat disposition,
 richer messy-data search, correction/write workflows, and non-Phase-1 legacy
 modules remain deferred.
 
-Remaining typed not_implemented endpoints:
+Phase 1B-0 implements the read-only goat timeline and app/admin correction
+request list APIs. Remaining typed not_implemented endpoints:
 
 ```text
-GET /goats/{goat_id}/timeline
-GET /identity/correction-requests
-GET /admin/identity/correction-requests
 POST /admin/import-runs
 POST /admin/goats
 PATCH /admin/goats/{goat_id}

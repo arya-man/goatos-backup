@@ -255,6 +255,28 @@ type CorrectionRequestResponse struct {
 	TraceID           string                 `json:"trace_id"`
 }
 
+type CorrectionRequestListResponse struct {
+	Items      []CorrectionRequest `json:"items"`
+	NextCursor *string             `json:"next_cursor"`
+	TraceID    string              `json:"trace_id"`
+}
+
+type GoatTimelineEvent struct {
+	EventID      string        `json:"event_id"`
+	EventType    string        `json:"event_type"`
+	OccurredAt   time.Time     `json:"occurred_at"`
+	RecordedAt   time.Time     `json:"recorded_at"`
+	ActorType    string        `json:"actor_type"`
+	EvidenceRefs []EvidenceRef `json:"evidence_refs"`
+	DecisionID   *string       `json:"decision_id"`
+}
+
+type GoatTimelineResponse struct {
+	Items      []GoatTimelineEvent `json:"items"`
+	NextCursor *string             `json:"next_cursor"`
+	TraceID    string              `json:"trace_id"`
+}
+
 type AdminGoatResponse struct {
 	Goat        GoatSummary           `json:"goat"`
 	Identifiers []GoatIdentifier      `json:"identifiers"`

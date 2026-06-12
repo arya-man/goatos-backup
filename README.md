@@ -95,10 +95,12 @@ Completed so far:
   Mesha-style SSR admin-web: normal apply produced 436 created goats and 787
   review rows; guarded RFID-only apply produced 711 created goats, 512 review
   rows, and 0 errors; `tenant_lifecycle` shows 711 alive goats; overview, herd
-  search, goat passport, identity counts, and live Import Review rendered
-  against the 711/512 run. The real local DB had no conflicts or candidates, so
-  Data Quality rendered an honest empty state while backend conflict/candidate
-  list coverage proves those read paths separately.
+  search, goat passport with live identity timeline, identity counts, live
+  Import Review, and live correction-request queue reads rendered against the
+  711/512 run. The real local DB had no conflicts, candidates, or correction
+  rows, so Data Quality rendered honest empty states while backend
+  conflict/candidate/correction list coverage proves populated read paths
+  separately.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
 - Contract validation and migration validation.
@@ -119,12 +121,12 @@ Still pending before Phase 1 is usable end-to-end:
 - Production identity-provider/login integration: JWKS/asymmetric token
   verification, sessions, key rotation, revocation, and secret management.
 - The remaining typed `not_implemented` endpoints are:
-  `GET /goats/{goat_id}/timeline`, `GET /identity/correction-requests`,
-  `GET /admin/identity/correction-requests`, `POST /admin/import-runs`,
-  `POST /admin/goats`, and `PATCH /admin/goats/{goat_id}`.
-- Correction request list APIs, admin goat write APIs, import-run create,
-  review/fix actions, and goat timeline screens are still contract stubs or
-  honest placeholders unless explicitly re-scoped to a later phase.
+  `POST /admin/import-runs`, `POST /admin/goats`, and
+  `PATCH /admin/goats/{goat_id}`.
+- Correction request list APIs and goat timeline reads are live read-only
+  Phase 1B-0 surfaces. Admin goat write APIs, import-run create, review/fix
+  actions, and correction resolution UI wiring remain deferred unless
+  explicitly re-scoped to a later write slice.
 - Candidate approve and conflict `create_goat` routes exist, but their
   canonical mutation semantics remain deferred rather than silently writing
   incomplete goat state.
@@ -132,15 +134,22 @@ Still pending before Phase 1 is usable end-to-end:
 - Operational review/action screens for dirty data.
 - Deployment setup for shared/staging/prod environments.
 
-Immediate Phase 1 demo order:
+Immediate Phase 1B order:
 
 ```text
-1. Run the local demo path through import -> apply -> counters -> reports -> UI.
-2. Decide and implement terminal non-goat disposition as a separate state-change
-   slice if approved.
-3. Close Phase 1 docs honestly.
-4. Prepare the production-auth/event-egress/deploy path without calling the
-   local dev-token demo shippable.
+1. Wire existing safe write actions into the admin UI: reject candidate,
+   resolve conflict reject/merge, resolve correction, add identifier, retire
+   identifier.
+2. Decide and implement terminal non-goat disposition as a separate canonical
+   state-change slice if approved.
+3. Define and implement candidate approve semantics as its own canonical
+   mutation slice.
+4. Define and implement conflict create_goat semantics as its own canonical
+   mutation slice.
+5. Define messy-row approve/reject/fix workflow for import review as its own
+   review/action slice.
+6. Prepare production auth, event egress, and deploy without calling the local
+   dev-token demo shippable.
 ```
 
 Important:

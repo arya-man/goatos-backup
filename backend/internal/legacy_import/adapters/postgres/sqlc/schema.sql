@@ -2400,6 +2400,13 @@ CREATE INDEX goat_identity_events_2026_06_goat_id_occurred_at_idx ON public.goat
 
 
 --
+-- Name: goat_identity_events_2026_06_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_06_goat_timeline_keyset_idx ON public.goat_identity_events_2026_06 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
+
+
+--
 -- Name: goat_identity_events_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2463,6 +2470,13 @@ CREATE INDEX goat_identity_events_2026_07_goat_id_occurred_at_idx ON public.goat
 
 
 --
+-- Name: goat_identity_events_2026_07_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_07_goat_timeline_keyset_idx ON public.goat_identity_events_2026_07 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
+
+
+--
 -- Name: goat_identity_events_2026_07_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2495,6 +2509,13 @@ CREATE INDEX goat_identity_events_2026_07_tenant_id_recorded_at_idx ON public.go
 --
 
 CREATE INDEX goat_identity_events_2026_08_goat_id_occurred_at_idx ON public.goat_identity_events_2026_08 USING btree (goat_id, occurred_at DESC);
+
+
+--
+-- Name: goat_identity_events_2026_08_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_08_goat_timeline_keyset_idx ON public.goat_identity_events_2026_08 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
 
 
 --
@@ -2533,6 +2554,13 @@ CREATE INDEX goat_identity_events_2026_09_goat_id_occurred_at_idx ON public.goat
 
 
 --
+-- Name: goat_identity_events_2026_09_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_2026_09_goat_timeline_keyset_idx ON public.goat_identity_events_2026_09 USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
+
+
+--
 -- Name: goat_identity_events_2026_09_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2565,6 +2593,13 @@ CREATE INDEX goat_identity_events_2026_09_tenant_id_recorded_at_idx ON public.go
 --
 
 CREATE INDEX goat_identity_events_default_goat_id_occurred_at_idx ON public.goat_identity_events_default USING btree (goat_id, occurred_at DESC);
+
+
+--
+-- Name: goat_identity_events_default_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_default_goat_timeline_keyset_idx ON public.goat_identity_events_default USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
 
 
 --
@@ -2775,6 +2810,27 @@ CREATE INDEX identity_conflicts_identifier_idx ON public.identity_conflicts USIN
 --
 
 CREATE INDEX identity_conflicts_queue_idx ON public.identity_conflicts USING btree (tenant_id, state, severity, created_at DESC);
+
+
+--
+-- Name: identity_correction_requests_actor_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX identity_correction_requests_actor_keyset_idx ON public.identity_correction_requests USING btree (tenant_id, requested_by, created_at DESC, correction_request_id DESC);
+
+
+--
+-- Name: identity_correction_requests_admin_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX identity_correction_requests_admin_keyset_idx ON public.identity_correction_requests USING btree (tenant_id, created_at DESC, correction_request_id DESC);
+
+
+--
+-- Name: identity_correction_requests_admin_state_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX identity_correction_requests_admin_state_keyset_idx ON public.identity_correction_requests USING btree (tenant_id, state, created_at DESC, correction_request_id DESC);
 
 
 --

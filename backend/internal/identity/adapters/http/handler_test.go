@@ -69,7 +69,7 @@ func TestNotImplementedUsesErrorEnvelope(t *testing.T) {
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
 	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/goats/10000000-0000-4000-8000-000000000001/timeline?limit=10", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/goats", strings.NewReader(`{}`))
 	req.Header.Set("X-Request-ID", "req-deferred")
 	rec := httptest.NewRecorder()
 
@@ -82,8 +82,79 @@ func TestNotImplementedUsesErrorEnvelope(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if envelope.Code != "goat_timeline_deferred" || envelope.TraceID != "req-deferred" {
+	if envelope.Code != "admin_goat_writes_deferred" || envelope.TraceID != "req-deferred" {
 		t.Fatalf("unexpected envelope: %#v", envelope)
+	}
+}
+
+func TestGetGoatTimelineContractShape(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/10000000-0000-4000-8000-000000000001/timeline?limit=10", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-timeline")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.GoatTimelineResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].EventType != "goat.created" || response.NextCursor == nil {
+		t.Fatalf("unexpected timeline response: %#v", response)
+	}
+	if response.TraceID != "req-timeline" {
+		t.Fatalf("unexpected trace id: %s", response.TraceID)
+	}
+}
+
+func TestListCorrectionRequestsContractShapeAndLimit(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/identity/correction-requests?limit=10", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", "90000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-corrections")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.CorrectionRequestListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].CorrectionRequestID == "" || response.NextCursor == nil {
+		t.Fatalf("unexpected correction response: %#v", response)
+	}
+	if response.TraceID != "req-corrections" {
+		t.Fatalf("unexpected trace id: %s", response.TraceID)
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/admin/identity/correction-requests?limit=10&state=open", nil)
+	adminReq.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	adminRec := httptest.NewRecorder()
+	handler.ServeHTTP(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d body=%s", adminRec.Code, adminRec.Body.String())
+	}
+
+	badReq := httptest.NewRequest(http.MethodGet, "/admin/identity/correction-requests?limit=101", nil)
+	badReq.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	badRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("limit status = %d body=%s", badRec.Code, badRec.Body.String())
 	}
 }
 
@@ -856,6 +927,27 @@ func (handlerRepo) GetImportRun(context.Context, string, string) (*domain.Import
 func (handlerRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
 	next := "eyJ2ZXJzaW9uIjoxLCJyb3dfbnVtYmVyIjo0MiwiaW1wb3J0X3Jvd19pZCI6IjcwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSJ9"
 	return []domain.ImportRunRow{importRunRowResponseFixture("70000000-0000-4000-8000-000000000001")}, &next, nil
+}
+
+func (handlerRepo) GetGoatTimeline(context.Context, ports.GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error) {
+	next := "eyJ2ZXJzaW9uIjoxLCJvY2N1cnJlZF9hdCI6IjIwMjYtMDYtMDhUMDA6MDA6MDBaIiwiZXZlbnRfaWQiOiI2MDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEifQ"
+	return []domain.GoatTimelineEvent{{
+		EventID:      "60000000-0000-4000-8000-000000000001",
+		EventType:    "goat.created",
+		OccurredAt:   time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC),
+		RecordedAt:   time.Date(2026, 6, 8, 0, 1, 0, 0, time.UTC),
+		ActorType:    "system",
+		EvidenceRefs: []domain.EvidenceRef{},
+	}}, &next, nil
+}
+
+func (handlerRepo) ListCorrectionRequests(context.Context, ports.ListCorrectionRequestsParams) ([]domain.CorrectionRequest, *string, error) {
+	next := "eyJ2ZXJzaW9uIjoxLCJjcmVhdGVkX2F0IjoiMjAyNi0wNi0wOFQwMDowMDowMFoiLCJjb3JyZWN0aW9uX3JlcXVlc3RfaWQiOiI0MDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEifQ"
+	rowVersion := 1
+	item := correctionResponseFixture("40000000-0000-4000-8000-000000000001")
+	item.RowVersion = &rowVersion
+	item.CreatedAt = time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
+	return []domain.CorrectionRequest{item}, &next, nil
 }
 
 func (h handlerRepo) CreateCorrectionRequest(context.Context, ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {

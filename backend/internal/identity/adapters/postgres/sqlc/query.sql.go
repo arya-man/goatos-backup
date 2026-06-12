@@ -425,6 +425,183 @@ func (q *Queries) ListConflictSourceRecordsByID(ctx context.Context, arg ListCon
 	return items, nil
 }
 
+const listCorrectionRequests = `-- name: ListCorrectionRequests :many
+SELECT
+  correction_request_id::text AS correction_request_id,
+  request_type,
+  state,
+  COALESCE(goat_id::text, '')::text AS goat_id,
+  identifier_type,
+  identifier_value,
+  COALESCE(farm_id::text, '')::text AS farm_id,
+  COALESCE(park_id::text, '')::text AS park_id,
+  COALESCE(shed_id::text, '')::text AS shed_id,
+  COALESCE(cohort_id::text, '')::text AS cohort_id,
+  description,
+  evidence,
+  row_version,
+  created_at,
+  resolved_at
+FROM identity_correction_requests
+WHERE tenant_id = $1
+  AND (
+    $2::uuid IS NULL
+    OR requested_by = $2::uuid
+  )
+  AND (
+    $3::text IS NULL
+    OR state = $3::text
+  )
+  AND (
+    $4::timestamptz IS NULL
+    OR (created_at, identity_correction_requests.correction_request_id) < ($4::timestamptz, $5::uuid)
+  )
+ORDER BY created_at DESC, identity_correction_requests.correction_request_id DESC
+LIMIT $6
+`
+
+type ListCorrectionRequestsParams struct {
+	TenantID                  pgtype.UUID
+	CreatedBy                 pgtype.UUID
+	State                     pgtype.Text
+	CursorCreatedAt           pgtype.Timestamptz
+	CursorCorrectionRequestID pgtype.UUID
+	LimitCount                int32
+}
+
+type ListCorrectionRequestsRow struct {
+	CorrectionRequestID string
+	RequestType         string
+	State               string
+	GoatID              string
+	IdentifierType      pgtype.Text
+	IdentifierValue     pgtype.Text
+	FarmID              string
+	ParkID              string
+	ShedID              string
+	CohortID            string
+	Description         string
+	Evidence            []byte
+	RowVersion          int32
+	CreatedAt           pgtype.Timestamptz
+	ResolvedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) ListCorrectionRequests(ctx context.Context, arg ListCorrectionRequestsParams) ([]ListCorrectionRequestsRow, error) {
+	rows, err := q.db.Query(ctx, listCorrectionRequests,
+		arg.TenantID,
+		arg.CreatedBy,
+		arg.State,
+		arg.CursorCreatedAt,
+		arg.CursorCorrectionRequestID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCorrectionRequestsRow
+	for rows.Next() {
+		var i ListCorrectionRequestsRow
+		if err := rows.Scan(
+			&i.CorrectionRequestID,
+			&i.RequestType,
+			&i.State,
+			&i.GoatID,
+			&i.IdentifierType,
+			&i.IdentifierValue,
+			&i.FarmID,
+			&i.ParkID,
+			&i.ShedID,
+			&i.CohortID,
+			&i.Description,
+			&i.Evidence,
+			&i.RowVersion,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGoatTimeline = `-- name: ListGoatTimeline :many
+SELECT
+  e.identity_event_id::text AS event_id,
+  e.event_type,
+  e.occurred_at,
+  e.recorded_at,
+  CASE WHEN e.actor_id IS NULL THEN 'system' ELSE 'human' END::text AS actor_type,
+  COALESCE(e.payload->'evidence_refs', '[]'::jsonb)::text AS evidence_refs,
+  COALESCE(e.decision_id::text, '')::text AS decision_id
+FROM goat_identity_events e
+WHERE e.tenant_id = $1
+  AND e.goat_id = $2
+  AND (
+    $3::timestamptz IS NULL
+    OR (e.occurred_at, e.identity_event_id) < ($3::timestamptz, $4::uuid)
+  )
+ORDER BY e.occurred_at DESC, e.identity_event_id DESC
+LIMIT $5
+`
+
+type ListGoatTimelineParams struct {
+	TenantID         pgtype.UUID
+	GoatID           pgtype.UUID
+	CursorOccurredAt pgtype.Timestamptz
+	CursorEventID    pgtype.UUID
+	LimitCount       int32
+}
+
+type ListGoatTimelineRow struct {
+	EventID      string
+	EventType    string
+	OccurredAt   pgtype.Timestamptz
+	RecordedAt   pgtype.Timestamptz
+	ActorType    string
+	EvidenceRefs string
+	DecisionID   string
+}
+
+func (q *Queries) ListGoatTimeline(ctx context.Context, arg ListGoatTimelineParams) ([]ListGoatTimelineRow, error) {
+	rows, err := q.db.Query(ctx, listGoatTimeline,
+		arg.TenantID,
+		arg.GoatID,
+		arg.CursorOccurredAt,
+		arg.CursorEventID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGoatTimelineRow
+	for rows.Next() {
+		var i ListGoatTimelineRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.EventType,
+			&i.OccurredAt,
+			&i.RecordedAt,
+			&i.ActorType,
+			&i.EvidenceRefs,
+			&i.DecisionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIdentifiersForGoat = `-- name: ListIdentifiersForGoat :many
 SELECT
   identifier_id::text AS identifier_id,

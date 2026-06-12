@@ -686,6 +686,14 @@ func (f *fakeRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsPar
 	return []domain.ImportRunRow{}, nil, nil
 }
 
+func (f *fakeRepo) GetGoatTimeline(context.Context, ports.GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error) {
+	return []domain.GoatTimelineEvent{}, nil, nil
+}
+
+func (f *fakeRepo) ListCorrectionRequests(context.Context, ports.ListCorrectionRequestsParams) ([]domain.CorrectionRequest, *string, error) {
+	return []domain.CorrectionRequest{}, nil, nil
+}
+
 func (f *fakeRepo) CreateCorrectionRequest(_ context.Context, cmd ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
 	f.lastCorrectionCmd = cmd
 	if f.correctionErr != nil {

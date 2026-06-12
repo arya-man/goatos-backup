@@ -19,6 +19,7 @@ type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 export type GoatSummary = AppApiComponents["schemas"]["GoatSummary"];
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
+export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
 
 export type CounterGrain = AnalyticsApiComponents["schemas"]["CounterGrain"];
@@ -29,9 +30,11 @@ export type ConflictDetailResponse = AdminApiComponents["schemas"]["ConflictDeta
 export type CandidateListResponse = AdminApiComponents["schemas"]["CandidateListResponse"];
 export type ImportRunResponse = AdminApiComponents["schemas"]["ImportRunResponse"];
 export type ImportRunRowsResponse = AdminApiComponents["schemas"]["ImportRunRowsResponse"];
+export type AdminCorrectionRequestListResponse = AdminApiComponents["schemas"]["CorrectionRequestListResponse"];
 export type ConflictState = AdminApiComponents["schemas"]["ConflictState"];
 export type ConflictType = AdminApiComponents["schemas"]["ConflictType"];
 export type ImportRowState = AdminApiComponents["schemas"]["ImportRowState"];
+export type CorrectionRequestState = AdminApiComponents["schemas"]["CorrectionRequestState"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -92,12 +95,24 @@ export type CandidateSearchParams = {
   cursor?: string;
 };
 
+export type GoatTimelineParams = {
+  goatId: string;
+  limit: number;
+  cursor?: string;
+};
+
 export type ImportRunRowsParams = {
   importRunId: string;
   limit: number;
   cursor?: string;
   processing_state?: ImportRowState;
   reason_code?: string;
+};
+
+export type CorrectionRequestSearchParams = {
+  limit: number;
+  cursor?: string;
+  state?: CorrectionRequestState;
 };
 
 function getServerConfig(requireTenant = false): ApiResult<ServerConfig> {
@@ -166,6 +181,25 @@ export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPas
   });
   const path = `/goats/${encodeURIComponent(goatId)}` as keyof AppApiPaths & string;
   return request(() => client.request<GoatPassportResponse>(path, { cache: "no-store" }));
+}
+
+export async function getGoatTimeline(params: GoatTimelineParams): Promise<ApiResult<GoatTimelineResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/goats/${encodeURIComponent(params.goatId)}/timeline` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<GoatTimelineResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({
+        limit: params.limit,
+        cursor: params.cursor,
+      }),
+    }),
+  );
 }
 
 export async function getIdentityCounts(params: CountSearchParams): Promise<ApiResult<IdentityCountsResponse>> {
@@ -251,6 +285,25 @@ export async function listImportRunRows(params: ImportRunRowsParams): Promise<Ap
         cursor: params.cursor,
         processing_state: params.processing_state,
         reason_code: params.reason_code,
+      }),
+    }),
+  );
+}
+
+export async function adminListCorrectionRequests(params: CorrectionRequestSearchParams): Promise<ApiResult<AdminCorrectionRequestListResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<AdminCorrectionRequestListResponse>("/admin/identity/correction-requests", {
+      cache: "no-store",
+      query: compactQuery({
+        limit: params.limit,
+        cursor: params.cursor,
+        state: params.state,
       }),
     }),
   );

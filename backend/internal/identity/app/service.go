@@ -184,6 +184,58 @@ func (s *Service) ResolveIdentifier(ctx context.Context, params ports.ResolveIde
 	return result, nil
 }
 
+func (s *Service) GetGoatTimeline(ctx context.Context, params ports.GetGoatTimelineParams, traceID string) (*domain.GoatTimelineResponse, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	params.GoatID = strings.TrimSpace(params.GoatID)
+	if !uuidPattern.MatchString(params.GoatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a valid UUID")
+	}
+	if params.Limit < 1 || params.Limit > 100 {
+		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
+	}
+	items, next, err := s.repo.GetGoatTimeline(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if items == nil {
+		items = []domain.GoatTimelineEvent{}
+	}
+	return &domain.GoatTimelineResponse{Items: items, NextCursor: next, TraceID: traceID}, nil
+}
+
+func (s *Service) ListCorrectionRequests(ctx context.Context, params ports.ListCorrectionRequestsParams, traceID string) (*domain.CorrectionRequestListResponse, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	if params.Limit < 1 || params.Limit > 100 {
+		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
+	}
+	if params.CreatedBy != nil {
+		createdBy := strings.TrimSpace(*params.CreatedBy)
+		if !uuidPattern.MatchString(createdBy) {
+			return nil, BadRequest("invalid_actor_id", "authenticated actor must be a valid UUID")
+		}
+		params.CreatedBy = &createdBy
+	}
+	if params.State != nil {
+		state := strings.TrimSpace(*params.State)
+		if !validCorrectionRequestState(state) {
+			return nil, BadRequest("invalid_state", "state is not supported")
+		}
+		params.State = &state
+	}
+	items, next, err := s.repo.ListCorrectionRequests(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if items == nil {
+		items = []domain.CorrectionRequest{}
+	}
+	return &domain.CorrectionRequestListResponse{Items: items, NextCursor: next, TraceID: traceID}, nil
+}
+
 func (s *Service) ListConflicts(ctx context.Context, params ports.ListConflictsParams, traceID string) (*domain.ConflictListResult, error) {
 	if err := requireTenant(params.TenantID); err != nil {
 		return nil, err
@@ -258,6 +310,15 @@ func sameScopeKey(matches []domain.IdentifierMatch) (string, bool) {
 		}
 	}
 	return scope, true
+}
+
+func validCorrectionRequestState(state string) bool {
+	switch state {
+	case "open", "assigned", "needs_field_check", "approved", "rejected", "closed":
+		return true
+	default:
+		return false
+	}
 }
 
 func ensureWarnings(in []domain.Warning) []domain.Warning {

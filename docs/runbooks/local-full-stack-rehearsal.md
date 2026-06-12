@@ -214,7 +214,7 @@ go run ./cmd/rebuild-identity-counters \
 
 ## Real Shape 2 Closeout Expectations
 
-For the current real Shape 2 `Combined` source and migrations through 000013,
+For the current real Shape 2 `Combined` source and migrations through 000014,
 a fresh local run must reconcile exactly:
 
 ```text
@@ -256,6 +256,31 @@ It starts Docker Postgres, applies migrations, discovers the synthetic Shape 2
 fixture, verifies Google Sheet skip behavior, dry-runs, stages, applies clean
 rows, writes the final masked review report, rebuilds counters, starts the API,
 checks authenticated API access, and typechecks/builds admin-web.
+
+For the real local 711-goat proof, start the backend on `127.0.0.1:8080`, seed a
+matching `ceo_internal` or `admin` local grant, mint a matching bearer token,
+then start admin-web explicitly on `127.0.0.1:3300`:
+
+```bash
+cd apps/admin-web
+export GOATOS_API_BASE_URL=http://127.0.0.1:8080
+export GOATOS_BEARER_TOKEN=<local-dev-token>
+export GOATOS_TENANT_ID=<tenant_uuid>
+export GOATOS_IMPORT_RUN_ID=<import_run_id>
+npm run dev:local
+```
+
+In another terminal, capture the live browser proof:
+
+```bash
+cd apps/admin-web
+npm run smoke:visual:live
+```
+
+The smoke captures `/`, `/counts`, `/herd`, `/import-review`,
+`/data-quality`, and one real `/goats/<goat_id>` at desktop and narrow
+viewports under ignored `.codex-goatos-render/admin-web-screenshots/` paths. It
+must not be wired into CI because it requires local private proof data.
 
 ## Repeatable Fresh Export Loop
 

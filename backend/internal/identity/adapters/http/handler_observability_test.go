@@ -53,6 +53,12 @@ func (r errRepo) GetImportRun(context.Context, string, string) (*domain.ImportRu
 func (r errRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
 	return nil, nil, r.err
 }
+func (r errRepo) GetGoatTimeline(context.Context, ports.GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error) {
+	return nil, nil, r.err
+}
+func (r errRepo) ListCorrectionRequests(context.Context, ports.ListCorrectionRequestsParams) ([]domain.CorrectionRequest, *string, error) {
+	return nil, nil, r.err
+}
 func (r errRepo) CreateCorrectionRequest(context.Context, ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
 	return nil, r.err
 }

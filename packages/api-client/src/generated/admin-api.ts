@@ -288,6 +288,16 @@ export interface components {
             source_system?: string | null;
             description?: string | null;
         };
+        LocationScope: {
+            /** Format: uuid */
+            farm_id?: string | null;
+            /** Format: uuid */
+            park_id?: string | null;
+            /** Format: uuid */
+            shed_id?: string | null;
+            /** Format: uuid */
+            cohort_id?: string | null;
+        };
         /** @enum {string} */
         IdentifierType: "old_tag" | "rfid" | "visual_tag" | "sheet_row_id" | "purchase_load_id" | "temp_field_id" | "external_system_id";
         /** @enum {string} */
@@ -597,6 +607,7 @@ export interface components {
             goat_id?: string | null;
             identifier_type?: components["schemas"]["IdentifierType"] | null;
             identifier_value?: string | null;
+            location_scope: components["schemas"]["LocationScope"];
             description: string;
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
@@ -1093,6 +1104,7 @@ export interface operations {
             query: {
                 limit: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
+                state?: components["schemas"]["CorrectionRequestState"];
             };
             header?: never;
             path?: never;
@@ -1110,6 +1122,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     resolveCorrectionRequest: {
