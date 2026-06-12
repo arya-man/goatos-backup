@@ -12,7 +12,7 @@ interface ChartCardProps {
 export function ChartCard({ title, subtitle, children, className }: ChartCardProps) {
   return (
     <div className={cn(
-      "rounded-xl border border-[#334155] bg-[#1A1D24] p-5 transition-colors hover:border-[#334155] animate-fade-up",
+      "rounded-xl border border-[#334155] bg-[#1A1D24] p-5 transition-colors hover:border-[#334155]",
       className
     )}>
       <div className="mb-4">

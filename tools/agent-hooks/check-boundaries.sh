@@ -4,7 +4,7 @@ set -euo pipefail
 fail=0
 admin_web_data_pattern="from ['\"]@google-cloud/bigquery|new BigQuery\\(|googleapis|sheets\\.spreadsheets|spreadsheets\\.values|script\\.google\\.com|script\\.googleusercontent\\.com|docs\\.google\\.com/spreadsheets|/spreadsheets/d/|export\\?format=csv|output=csv|gviz/tq|from ['\"](xlsx|exceljs)['\"]|require\\(['\"](xlsx|exceljs)['\"]\\)|XLSX\\."
 admin_web_feature_deep_import_pattern="(from|import\\() ['\"](@/features/[^'\"]+/[^'\"]+|(\\.\\.?/)+features/[^'\"]+/[^'\"]+)['\"]"
-admin_web_visible_branding_pattern="Goat OS|VGoat"
+admin_web_visible_branding_pattern="goat[[:space:]-]*os|vgoat"
 
 check_admin_feature_relative_imports() {
   local root="${1:-apps/admin-web/features}"
@@ -53,10 +53,10 @@ EOF
   mkdir -p "$tmpdir/apps/admin-web/app/bad-brand"
   cat >"$tmpdir/apps/admin-web/app/bad-brand/page.tsx" <<'EOF'
 export default function BadBrandPage() {
-  return <div>Goat OS visible shell text</div>;
+  return <div>goat os and vgoat visible shell text</div>;
 }
 EOF
-  if rg -n "$admin_web_visible_branding_pattern" "$tmpdir/apps/admin-web/app" >/dev/null 2>&1; then
+  if rg -ni "$admin_web_visible_branding_pattern" "$tmpdir/apps/admin-web/app" >/dev/null 2>&1; then
     echo "Admin-web visible branding guard self-test passed: synthetic violation detected."
   else
     echo "Admin-web visible branding guard self-test failed: synthetic violation NOT detected."
@@ -192,13 +192,16 @@ if command -v rg >/dev/null 2>&1; then
       echo "Admin web must use Goat OS backend APIs only; direct Sheets/App Script/BigQuery/XLSX data access is forbidden."
       fail=1
     fi
-    if rg -n "$admin_web_visible_branding_pattern" \
+    if rg -ni "$admin_web_visible_branding_pattern" \
       apps/admin-web/app apps/admin-web/components apps/admin-web/features apps/admin-web/lib/api/server.ts \
       --glob '!node_modules/**' \
       --glob '*.{ts,tsx}' >/tmp/goatos-admin-web-branding-boundary-warnings 2>/dev/null; then
-      cat /tmp/goatos-admin-web-branding-boundary-warnings
-      echo "Admin web rendered/user-facing strings must use Mesha branding; Goat OS and VGoat are internal or legacy labels only."
-      fail=1
+      if grep -viE 'GOATOS_|GoatOSApiError|@goatos|goatos-build' /tmp/goatos-admin-web-branding-boundary-warnings \
+        >/tmp/goatos-admin-web-branding-boundary-filtered; then
+        cat /tmp/goatos-admin-web-branding-boundary-filtered
+        echo "Admin web rendered/user-facing strings must use Mesha branding; Goat OS and VGoat are internal or legacy labels only."
+        fail=1
+      fi
     fi
     if rg -n "$admin_web_feature_deep_import_pattern" "${admin_web_code[@]}" \
       --glob '!node_modules/**' >/tmp/goatos-admin-web-feature-boundary-warnings 2>/dev/null; then

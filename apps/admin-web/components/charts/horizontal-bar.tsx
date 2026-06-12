@@ -63,8 +63,7 @@ export function HorizontalBarChart({ data, height, valueLabel, showLabels = true
           name={valueLabel}
           radius={[0, 4, 4, 0]}
           barSize={20}
-          animationDuration={800}
-          animationEasing="ease-out"
+          animationDuration={0}
         >
           {shaded.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={entry.fill} />
