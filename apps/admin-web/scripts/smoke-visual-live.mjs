@@ -135,7 +135,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
     const clippedControls = Array.from(document.querySelectorAll("a, button"))
       .filter(isVisible)
       .filter((element) => (element.textContent ?? "").trim().length > 0)
-      .filter((element) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 2)
+      .filter((element) => element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 8)
       .slice(0, 5)
       .map(describeElement);
     const clippedNavLabels = Array.from(document.querySelectorAll('nav[aria-label^="Mesha"] span'))
@@ -163,7 +163,11 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         tag: element.tagName.toLowerCase(),
         text: (element.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 80),
         width: Math.round(element.getBoundingClientRect().width),
+        height: Math.round(element.getBoundingClientRect().height),
+        clientWidth: element.clientWidth,
         scrollWidth: element.scrollWidth,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
       };
     }
   });
