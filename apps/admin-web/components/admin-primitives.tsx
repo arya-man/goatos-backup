@@ -116,11 +116,12 @@ export function LoadingBlock({ label = "Loading" }: { label?: string }) {
   );
 }
 
-export function NextPageLink({ href, label = "Load more" }: { href: string | null; label?: string }) {
+export function NextPageLink({ href, label = "Next page" }: { href: string | null; label?: string }) {
   if (!href) return null;
   return (
     <Link
       href={href}
+      scroll={false}
       className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm text-[#f8fafc] hover:bg-[#22262E]"
     >
       {label}
