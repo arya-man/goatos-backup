@@ -609,10 +609,11 @@ func TestReviewerCSVEscapesFormulaCells(t *testing.T) {
 
 func TestSafeCSVCellEscapesFormulaPrefixesAfterWhitespace(t *testing.T) {
 	cases := map[string]string{
-		"\t=1+1":      "'=1+1",
-		"\r+SUM(A:A)": "'+SUM(A:A)",
-		"\n-42":       "'-42",
-		" @cmd":       "'@cmd",
+		"\t=1+1":      "'\t=1+1",
+		"\r+SUM(A:A)": "'\r+SUM(A:A)",
+		"\n-42":       "'\n-42",
+		" @cmd":       "' @cmd",
+		" old tag ":   " old tag ",
 	}
 	for input, want := range cases {
 		if got := safeCSVCell(input); got != want {
