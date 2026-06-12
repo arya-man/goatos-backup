@@ -111,31 +111,6 @@ func (q *Queries) CompleteLegacyImportRun(ctx context.Context, arg CompleteLegac
 	return err
 }
 
-const countConfirmedNonGoatRowsForDisposition = `-- name: CountConfirmedNonGoatRowsForDisposition :one
-SELECT count(*)::int
-FROM legacy_import_rows
-WHERE tenant_id = $1
-  AND import_run_id = $2
-  AND processing_state = 'needs_review'
-  AND (
-    error_reason = 'species_or_breed_requires_review'
-    OR (normalized_payload -> 'processing_reasons') ? 'species_or_breed_requires_review'
-  )
-  AND lower(regexp_replace(trim(COALESCE(normalized_payload->>'breed', '')), '\s+', ' ', 'g')) = 'anantapur sheep'
-`
-
-type CountConfirmedNonGoatRowsForDispositionParams struct {
-	TenantID    pgtype.UUID
-	ImportRunID pgtype.UUID
-}
-
-func (q *Queries) CountConfirmedNonGoatRowsForDisposition(ctx context.Context, arg CountConfirmedNonGoatRowsForDispositionParams) (int32, error) {
-	row := q.db.QueryRow(ctx, countConfirmedNonGoatRowsForDisposition, arg.TenantID, arg.ImportRunID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const createLegacyImportRun = `-- name: CreateLegacyImportRun :one
 INSERT INTO legacy_import_runs (
   tenant_id,
@@ -425,57 +400,6 @@ func (q *Queries) InsertAuditLogForApply(ctx context.Context, arg InsertAuditLog
 		arg.ActorID,
 		arg.ResourceID,
 		arg.DecisionID,
-		arg.AfterState,
-		arg.Metadata,
-		arg.TraceID,
-	)
-	return err
-}
-
-const insertAuditLogForImportRowDisposition = `-- name: InsertAuditLogForImportRowDisposition :exec
-INSERT INTO audit_log (
-  tenant_id,
-  actor_id,
-  actor_type,
-  action,
-  resource_type,
-  resource_id,
-  before_state,
-  after_state,
-  metadata,
-  trace_id
-) VALUES (
-  $1,
-  $2::uuid,
-  'import_job',
-  $3,
-  'legacy_import_row',
-  $4,
-  $5,
-  $6,
-  $7,
-  $8
-)
-`
-
-type InsertAuditLogForImportRowDispositionParams struct {
-	TenantID    pgtype.UUID
-	ActorID     pgtype.UUID
-	Action      string
-	ResourceID  pgtype.UUID
-	BeforeState []byte
-	AfterState  []byte
-	Metadata    []byte
-	TraceID     pgtype.Text
-}
-
-func (q *Queries) InsertAuditLogForImportRowDisposition(ctx context.Context, arg InsertAuditLogForImportRowDispositionParams) error {
-	_, err := q.db.Exec(ctx, insertAuditLogForImportRowDisposition,
-		arg.TenantID,
-		arg.ActorID,
-		arg.Action,
-		arg.ResourceID,
-		arg.BeforeState,
 		arg.AfterState,
 		arg.Metadata,
 		arg.TraceID,
@@ -1134,85 +1058,6 @@ func (q *Queries) InsertOutboxMessageForApply(ctx context.Context, arg InsertOut
 	return err
 }
 
-const listConfirmedNonGoatRowsForDisposition = `-- name: ListConfirmedNonGoatRowsForDisposition :many
-SELECT
-  legacy_row_id::text AS legacy_row_id,
-  row_number,
-  source_row_key,
-  COALESCE(error_reason, '')::text AS error_reason,
-  COALESCE(normalized_payload->>'breed', '')::text AS source_breed,
-  COALESCE(ARRAY(
-    SELECT reason
-    FROM (
-      SELECT error_reason AS reason
-      WHERE error_reason IS NOT NULL AND error_reason <> ''
-      UNION
-      SELECT jsonb_array_elements_text(
-        CASE
-          WHEN jsonb_typeof(normalized_payload->'processing_reasons') = 'array'
-          THEN normalized_payload->'processing_reasons'
-          ELSE '[]'::jsonb
-        END
-      ) AS reason
-    ) reasons
-    WHERE reason IS NOT NULL AND reason <> ''
-  ), ARRAY[]::text[])::text[] AS review_reasons
-FROM legacy_import_rows
-WHERE tenant_id = $1
-  AND import_run_id = $2
-  AND processing_state = 'needs_review'
-  AND (
-    error_reason = 'species_or_breed_requires_review'
-    OR (normalized_payload -> 'processing_reasons') ? 'species_or_breed_requires_review'
-  )
-  AND lower(regexp_replace(trim(COALESCE(normalized_payload->>'breed', '')), '\s+', ' ', 'g')) = 'anantapur sheep'
-ORDER BY row_number, legacy_import_rows.legacy_row_id
-LIMIT $3
-FOR UPDATE SKIP LOCKED
-`
-
-type ListConfirmedNonGoatRowsForDispositionParams struct {
-	TenantID    pgtype.UUID
-	ImportRunID pgtype.UUID
-	LimitCount  int32
-}
-
-type ListConfirmedNonGoatRowsForDispositionRow struct {
-	LegacyRowID   string
-	RowNumber     int32
-	SourceRowKey  string
-	ErrorReason   string
-	SourceBreed   string
-	ReviewReasons []string
-}
-
-func (q *Queries) ListConfirmedNonGoatRowsForDisposition(ctx context.Context, arg ListConfirmedNonGoatRowsForDispositionParams) ([]ListConfirmedNonGoatRowsForDispositionRow, error) {
-	rows, err := q.db.Query(ctx, listConfirmedNonGoatRowsForDisposition, arg.TenantID, arg.ImportRunID, arg.LimitCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListConfirmedNonGoatRowsForDispositionRow
-	for rows.Next() {
-		var i ListConfirmedNonGoatRowsForDispositionRow
-		if err := rows.Scan(
-			&i.LegacyRowID,
-			&i.RowNumber,
-			&i.SourceRowKey,
-			&i.ErrorReason,
-			&i.SourceBreed,
-			&i.ReviewReasons,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const lockLegacyImportRowForApply = `-- name: LockLegacyImportRowForApply :one
 SELECT
   legacy_row_id::text AS legacy_row_id,
@@ -1403,35 +1248,6 @@ type RefreshLegacyImportRunErrorCountParams struct {
 func (q *Queries) RefreshLegacyImportRunErrorCount(ctx context.Context, arg RefreshLegacyImportRunErrorCountParams) error {
 	_, err := q.db.Exec(ctx, refreshLegacyImportRunErrorCount, arg.TenantID, arg.ImportRunID)
 	return err
-}
-
-const rejectLegacyImportRowAsConfirmedNonGoat = `-- name: RejectLegacyImportRowAsConfirmedNonGoat :execrows
-UPDATE legacy_import_rows
-SET
-  processing_state = 'rejected',
-  error_reason = 'confirmed_non_goat_species',
-  matched_goat_id = NULL
-WHERE tenant_id = $1
-  AND legacy_row_id = $2
-  AND processing_state = 'needs_review'
-  AND (
-    error_reason = 'species_or_breed_requires_review'
-    OR (normalized_payload -> 'processing_reasons') ? 'species_or_breed_requires_review'
-  )
-  AND lower(regexp_replace(trim(COALESCE(normalized_payload->>'breed', '')), '\s+', ' ', 'g')) = 'anantapur sheep'
-`
-
-type RejectLegacyImportRowAsConfirmedNonGoatParams struct {
-	TenantID    pgtype.UUID
-	LegacyRowID pgtype.UUID
-}
-
-func (q *Queries) RejectLegacyImportRowAsConfirmedNonGoat(ctx context.Context, arg RejectLegacyImportRowAsConfirmedNonGoatParams) (int64, error) {
-	result, err := q.db.Exec(ctx, rejectLegacyImportRowAsConfirmedNonGoat, arg.TenantID, arg.LegacyRowID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const resolveBreedAliasForApply = `-- name: ResolveBreedAliasForApply :one

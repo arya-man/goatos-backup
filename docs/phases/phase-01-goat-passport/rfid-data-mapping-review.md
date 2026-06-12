@@ -150,7 +150,7 @@ The remaining `species_or_breed_requires_review` group is:
 
 | Source Breed label | Count after 000011 | Classification status | Recommendation |
 | --- | ---: | --- | --- |
-| `Anantapur Sheep` | 344 | source breed/category review | Keep visible in Import Review; do not infer exclusion from label text alone. |
+| `Anantapur Sheep` | 344 | source breed/category review | Keep visible in Import Review; do not infer final representation from label text alone. |
 
 Source-category signal:
 
@@ -158,10 +158,10 @@ Source-category signal:
 - The source sheet uses `Breed` as an operational breed/category field; the
   label alone is not a business-approved reason to reject or hide the row.
 - The current apply gate is doing the safe thing by keeping these rows out of
-  canonical goat creation until a mapping/exclusion decision exists.
+  canonical goat creation until a breed/category mapping decision exists.
 - Later implementation should decide whether this source category maps to a
-  goat breed, a broader livestock/mutton inventory category, or an explicit
-  exclusion. Until then it remains visible review data.
+  goat breed or a broader livestock/mutton inventory category. Until then it
+  remains visible review data.
 
 Implementation note for the later build slice:
 
@@ -169,8 +169,8 @@ Implementation note for the later build slice:
 - `breed_aliases.normalized_alias` is the lookup key.
 - The current canonical goat row stores one `breed_id`, so a crossbreed label
   must not be aliased to only one parent breed.
-- Exclusion must resolve through breed/species semantics, not a hidden freeform
-  exclusion list or a goat alias.
+- Any source-category decision must resolve through explicit breed/category
+  semantics, not a hidden freeform list or a guessed goat alias.
 
 ## Blank Old-Tag Suffix
 
@@ -189,7 +189,7 @@ CSV evidence from the sensitive local reviewer pack:
 | Current mapped status label | 52 | The other 383 rows would still need status mapping or review. |
 | Current active goat breed/species mapping | 270 | 160 rows carry source breed/category labels that still need review and 5 still need breed/species review. |
 | Current status + goat breed + gender gates pass | 27 | Realistic immediate yield before DB conflict checks. |
-| Likely still review under option B | 408 | Mostly status mapping and non-goat/species review. |
+| Likely still review under option B | 408 | Mostly status mapping and source breed/category review. |
 
 Exact yield can only be confirmed by the later implementation dry-run because
 RFID conflicts against already-created goats are checked only when rows traverse
@@ -244,7 +244,7 @@ Pre-implementation estimate under option B:
 
 - Maximum possible additional goats: 435.
 - Estimated immediate additional goats from CSV evidence: 27.
-- Estimated remaining review/non-goat rows even under B: 408.
+- Estimated remaining review rows even under B: 408.
 - The implementation dry-run superseded this estimate with exact DB-gate
   results.
 
@@ -309,7 +309,7 @@ Implemented tests:
   active goat breed, and known Gender creates a goat plus primary RFID.
 - That row creates no `old_tag` identifier and does not run old-tag scoped
   uniqueness as a creation requirement.
-- Rows with unmapped status, non-goat/unknown breed, blank/unknown Gender, RFID
+- Rows with unmapped status, source breed/category review, blank/unknown Gender, RFID
   conflict, or any additional staging review reason remain in `needs_review`.
 - Replay/idempotency does not create duplicate goats or duplicate RFID
   identifiers.
@@ -378,7 +378,7 @@ Recommendation:
 ## Next Data Slices
 
 1. Decide the source breed/category policy for `Anantapur Sheep`: goat breed
-   mapping, broader livestock/mutton inventory, or explicit exclusion. The
+   mapping or broader livestock/mutton inventory representation. The
    post-`000012` scope is 504 breed/species review occurrences, including 160
    rows that also carry `blank_old_tag_suffix`.
 2. Keep blank gender and duplicate same-scope old tags blocked pending source

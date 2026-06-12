@@ -180,7 +180,8 @@ operational DBs directly. The CSV download supports the all-messy scope
 (`needs_review`, `rejected`, and `error`) plus current state/reason filters, is
 formula-safe for spreadsheet opening, and is relayed server-side so bearer
 tokens never enter browser code. Source breed/category import rows remain
-visible in review until a business-approved mapping or exclusion policy exists.
+visible in review until a business-approved breed/category representation
+policy exists.
 Import run create and admin goat create/update remain honest
 placeholders or backend 501/deferred paths. Import Review row actions and
 candidate approve should be split before implementation: non-create paths can
@@ -577,12 +578,11 @@ RFID source-of-truth staging:
   source_row_key references because source keys can contain source identifiers
   rfid-import --anomaly-report also writes a reviewer-focused CSV pack under a
   per-run reviewer-<import_run_id>/ subdirectory:
-  review-summary.csv, needs-review-rows.csv,
-  non-goat-exclusion-candidates.csv, blank-old-tag-suffix.csv,
+  review-summary.csv, needs-review-rows.csv, blank-old-tag-suffix.csv,
   blank-gender.csv, duplicate-old-tag-same-scope.csv, and README.txt
-  non-goat-exclusion-candidates.csv is header-only until an explicit exclusion
-  policy is approved. Source breed/category labels such as Anantapur Sheep emit
-  breed/species-needs-classification.csv for human mapping or exclusion review
+  Source breed/category labels such as Anantapur Sheep emit
+  breed/species-needs-classification.csv for human mapping and representation
+  review
   reviewer_action and reviewer_notes columns are scratch-only; Goat OS does not
   ingest edited reviewer CSVs yet. Corrections re-enter through the source
   workbook or a future approved correction overlay, then normal import/apply is
@@ -593,8 +593,8 @@ RFID source-of-truth staging:
   raw row JSON, raw RFID, or raw old-tag values
   grouped CSV cells are spreadsheet-formula safe; duplicate old-tag groups use
   stable non-reversible old-tag/scope refs instead of raw values or short masks
-  species_or_breed_requires_review groups are for human alias-vs-exclusion
-  decisions, not auto-aliasing; blank_old_tag_suffix groups support the
+  species_or_breed_requires_review groups are for human breed/category
+  representation decisions, not auto-aliasing; blank_old_tag_suffix groups support the
   opt-in RFID-only creation policy and do not imply suffix derivation
   docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md captures the
   local post-apply mapping review. Migration 000010 implements only the
@@ -607,12 +607,10 @@ RFID source-of-truth staging:
   created_goat from 383 to 436, left error at 0, and reduced
   species_or_breed_requires_review from 397 to 344. At that point the remaining
   breed/species bucket was Anantapur Sheep only. That label is a source
-  `Breed` value, so it remains visible for business mapping/exclusion review
+  `Breed` value, so it remains visible for business breed/category review
   rather than being auto-rejected. After the `000012` blank-suffix opt-in run,
   the source breed/category review scope is 504 reason occurrences because 160
-  blank-suffix rows also hit the same gate. `rfid-apply
-  --reject-confirmed-non-goats` is now disabled pending an explicit source
-  breed/category policy.
+  blank-suffix rows also hit the same gate.
   blank_old_tag_suffix policy review recommended guarded RFID-only creation
   without old_tag identifier creation. Migration 000012 adds the supporting
   apply-candidate index and `rfid-apply --allow-rfid-only-blank-suffix`
@@ -1138,7 +1136,7 @@ Review rows, live correction-request queue reads, plus server-action forms for
 the already-defined Phase 1 decisions: correction request create/resolve,
 candidate reject, conflict reject/merge, and goat identifier add/retire.
 Source breed/category import rows remain visible in Import Review until an
-explicit mapping or exclusion policy exists. Candidate approve, conflict create_goat, admin goat create/update,
+explicit breed/category mapping policy exists. Candidate approve, conflict create_goat, admin goat create/update,
 import-run create, and messy-row fix/approve actions remain deferred.
 
 Remaining typed not_implemented endpoint surface:

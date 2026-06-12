@@ -148,12 +148,6 @@ when `blank_old_tag_suffix` is the row's complete staged reason set and all
 apply-time gates pass; it creates no `old_tag` identifier and does not derive a
 scope from Farm/Shed/Partition.
 
-Do not run `--reject-confirmed-non-goats` in the local proof. That command is
-disabled pending an explicit source breed/category policy. Source labels such
-as `Anantapur Sheep` remain visible in Import Review as
-`species_or_breed_requires_review`; the label alone is not a business-approved
-reason to reject or hide the row.
-
 ## Final Review Report
 
 Write the final sanitized local review report after the apply steps:
@@ -176,8 +170,6 @@ CSVs at the report root, plus a reviewer-focused CSV pack under a per-run
 
 - `reviewer-<import_run_id>/review-summary.csv`
 - `reviewer-<import_run_id>/needs-review-rows.csv`
-- `reviewer-<import_run_id>/non-goat-exclusion-candidates.csv` (header-only
-  until an explicit exclusion policy is approved)
 - `reviewer-<import_run_id>/blank-old-tag-suffix.csv`
 - `reviewer-<import_run_id>/blank-gender.csv`
 - `reviewer-<import_run_id>/duplicate-old-tag-same-scope.csv`
@@ -189,8 +181,8 @@ JSON, or full `raw_payload`.
 
 The current `species_or_breed_requires_review` source label is `Anantapur Sheep`
 only. It is a source `Breed` value from the legacy RFID sheet, so the reviewer
-pack keeps it in `breed/species-needs-classification.csv` until a mapping or
-exclusion policy is explicitly approved.
+pack keeps it in `breed/species-needs-classification.csv` until a
+breed/category mapping policy is explicitly approved.
 `blank_old_tag_suffix` rows show safe Farm/Shed/Partition context. RFID-only goat
 creation for those rows is available only through the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` flag after a dry-run confirms the

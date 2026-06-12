@@ -407,7 +407,6 @@ func TestWriteAnomalyReportCSVWritesReviewerFocusedFiles(t *testing.T) {
 	for _, filename := range []string{
 		"review-summary.csv",
 		"needs-review-rows.csv",
-		"non-goat-exclusion-candidates.csv",
 		"blank-old-tag-suffix.csv",
 		"blank-gender.csv",
 		"duplicate-old-tag-same-scope.csv",
@@ -417,13 +416,9 @@ func TestWriteAnomalyReportCSVWritesReviewerFocusedFiles(t *testing.T) {
 			t.Fatalf("%s not generated: %v", filename, err)
 		}
 	}
-	nonGoatRows := readCSVFile(t, filepath.Join(reviewerDir, "non-goat-exclusion-candidates.csv"))
-	if got := len(nonGoatRows); got != 1 {
-		t.Fatalf("non-goat rows=%d, want header only", got)
-	}
 	classificationRows := readCSVFile(t, filepath.Join(reviewerDir, "breed", "species-needs-classification.csv"))
 	assertCSVCellPresent(t, classificationRows, "Anantapur Sheep")
-	assertCSVCellPresent(t, classificationRows, "Classify the source breed/category label before goat creation; do not infer exclusion from label text alone.")
+	assertCSVCellPresent(t, classificationRows, "Classify how this source breed/category should be represented before goat creation or inventory reporting.")
 
 	needsRows := readCSVFile(t, filepath.Join(reviewerDir, "needs-review-rows.csv"))
 	if got := len(needsRows) - 1; got != len(report.Details) {
@@ -458,10 +453,6 @@ func TestReviewerCSVCreatesBreedClassificationOnlyForUnknownBreed(t *testing.T) 
 	}
 	classificationRows := readCSVFile(t, filepath.Join(reviewerDir, "breed", "species-needs-classification.csv"))
 	assertCSVCellPresent(t, classificationRows, "Synthetic Mystery Breed")
-	nonGoatRows := readCSVFile(t, filepath.Join(reviewerDir, "non-goat-exclusion-candidates.csv"))
-	if got := len(nonGoatRows); got != 1 {
-		t.Fatalf("non-goat rows=%d, want header only for unknown breed", got)
-	}
 }
 
 func TestReviewerCSVRewritesRunDirectoryWithoutStaleOptionalFiles(t *testing.T) {
@@ -511,10 +502,6 @@ func TestReviewerCSVRewritesRunDirectoryWithoutStaleOptionalFiles(t *testing.T) 
 	}
 	classificationRows := readCSVFile(t, filepath.Join(reviewerDir, "breed", "species-needs-classification.csv"))
 	assertCSVCellPresent(t, classificationRows, "Anantapur Sheep")
-	nonGoatRows := readCSVFile(t, filepath.Join(reviewerDir, "non-goat-exclusion-candidates.csv"))
-	if got := len(nonGoatRows); got != 1 {
-		t.Fatalf("non-goat rows=%d, want header only", got)
-	}
 }
 
 func TestReviewerCSVDefaultMasksIdentifiersAndSensitiveModeIncludesThem(t *testing.T) {

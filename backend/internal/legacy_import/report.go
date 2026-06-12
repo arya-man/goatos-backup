@@ -160,7 +160,7 @@ func addAnomalyGroup(report *AnomalyReport, reason string, raw safeReportFields,
 			ReasonCode: reason,
 			LabelField: "Breed",
 			LabelValue: raw.breed,
-			ReviewNote: "Decide whether each label is a goat breed alias or an exclusion; do not auto-alias from this report alone.",
+			ReviewNote: "Decide how each source breed/category label should be represented; do not auto-map from this report alone.",
 		})
 	case "blank_old_tag_suffix":
 		report.addGroup(AnomalyReportGroup{
@@ -405,12 +405,6 @@ func writeReviewerCSVPack(outputDir string, opts AnomalyReportOptions, report An
 			},
 		},
 		{
-			filename: "non-goat-exclusion-candidates.csv",
-			filter: func(entry AnomalyReportEntry) bool {
-				return false
-			},
-		},
-		{
 			filename: "blank-old-tag-suffix.csv",
 			filter: func(entry AnomalyReportEntry) bool {
 				return entry.ReasonCode == "blank_old_tag_suffix"
@@ -592,10 +586,6 @@ func filterAnomalyEntries(details []AnomalyReportEntry, filter func(AnomalyRepor
 	return out
 }
 
-func IsConfirmedNonGoatBreedLabel(label string) bool {
-	return false
-}
-
 func focusedFilename(reason string) string {
 	switch reason {
 	case "species_or_breed_requires_review":
@@ -614,7 +604,7 @@ func focusedFilename(reason string) string {
 func suggestedAction(reason string) string {
 	switch reason {
 	case "species_or_breed_requires_review":
-		return "Classify the source breed/category label before goat creation; do not infer exclusion from label text alone."
+		return "Classify how this source breed/category should be represented before goat creation or inventory reporting."
 	case "blank_old_tag_suffix":
 		return "Choose future RFID-only creation policy or correct source old-tag suffix before import."
 	case "blank_gender":

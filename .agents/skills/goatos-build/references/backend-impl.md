@@ -115,8 +115,8 @@ Rules:
   request, resolve conflict as reject_match or merge_goats, add goat identifier,
   and retire goat identifier. These forms pass backend idempotency keys,
   evidence refs, and row_version guards; they do not create client-side mutation
-  authority. Confirmed non-goat import-row disposition is implemented through
-  the local import tool, not as a browser write action. Candidate approve should
+  authority. Source breed/category import rows remain visible review data until
+  an explicit business mapping policy is approved. Candidate approve should
   be split: attach/merge outcomes can reuse existing identifier attach and merge
   invariants, while approve-to-create stays blocked until conflict create_goat
   exists. Candidate attach must not guess an identifier from match reasons; the
@@ -310,7 +310,7 @@ Rules:
   appear in open anomaly/reviewer reports.
 - RFID apply routes unsafe rows to `needs_review` without goat creation:
   duplicate active RFID, duplicate active old_tag in the same scope, unknown or
-  review-required status mapping, unsafe/non-goat breed or species labels, and
+  review-required status mapping, unmapped source breed/category labels, and
   changed source row hashes. It does not create dirty conflicts/candidates,
   goat_location_history, counters, projections, or an outbox relay.
 - Deterministic per-row SQL data/integrity failures (SQLSTATE class 22/23)
@@ -369,7 +369,7 @@ Rules:
   grouped summary CSVs at the report root, and also emits reviewer-friendly CSVs
   under a per-run `reviewer-<import_run_id>/` subdirectory:
   `review-summary.csv`, `needs-review-rows.csv`,
-  `non-goat-exclusion-candidates.csv`, `blank-old-tag-suffix.csv`,
+  `blank-old-tag-suffix.csv`,
   `blank-gender.csv`, `duplicate-old-tag-same-scope.csv`, and `README.txt`.
   These files are export-only; `reviewer_action` and `reviewer_notes` are
   scratch columns and are not ingested by Goat OS. Corrections must go back
@@ -383,13 +383,13 @@ Rules:
   spreadsheet-formula safe because humans open these files in spreadsheet
   tools. Duplicate old-tag groups use stable non-reversible old-tag/scope refs
   rather than raw values or short masks. Breed review groups are a human gate
-  for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
+  for breed/category representation decisions, not auto-aliasing. Blank old-tag suffix
   groups support the explicit RFID-only apply flag and do not imply suffix
   derivation.
 - While `species_or_breed_requires_review` is currently Anantapur Sheep only,
   those rows remain source breed/category review rows. Emit
-  `breed/species-needs-classification.csv`; do not infer exclusion from the
-  label text alone.
+  `breed/species-needs-classification.csv`; do not infer final representation
+  from the label text alone.
 - The first local post-apply RFID mapping review is captured in
   `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`. Migration
   `000010_phase_1_rfid_plain_status_mappings.sql` implements only the approved
@@ -406,9 +406,8 @@ Rules:
   point the remaining breed/species bucket was Anantapur Sheep only. After the
   `000012` blank-suffix opt-in run, the source breed/category review scope is
   504 reason occurrences because 160 blank-suffix rows also hit the same gate.
-  `rfid-apply --reject-confirmed-non-goats` is disabled pending an explicit
-  source breed/category policy; these rows remain `needs_review` and visible in
-  Import Review.
+  these rows remain `needs_review` and visible in Import Review until an
+  explicit source breed/category mapping policy is approved.
   The blank old-tag suffix policy decision recommended guarded RFID-only goat
   creation without creating an old_tag identifier: maximum possible additional
   goats is 435. Migration

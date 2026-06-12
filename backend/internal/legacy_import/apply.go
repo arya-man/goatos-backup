@@ -29,7 +29,3 @@ func (a *Applier) ApplyRFIDRows(ctx context.Context, cmd ApplyCommand) (*ApplyRe
 	}
 	return a.repo.ApplyRFIDRows(ctx, cmd)
 }
-
-func (a *Applier) RejectConfirmedNonGoatRows(ctx context.Context, cmd RejectConfirmedNonGoatCommand) (*RejectConfirmedNonGoatResult, error) {
-	return nil, errors.New("source breed/category disposition is disabled pending an explicit business policy; keep rows in needs_review")
-}

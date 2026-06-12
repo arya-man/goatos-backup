@@ -96,7 +96,7 @@ Completed so far:
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
   local baseline is 711 created goats; source breed/category labels such as
   `Anantapur Sheep` remain visible in Import Review until a business-approved
-  mapping or exclusion policy exists.
+  breed/category representation policy exists.
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web: normal apply produced 436 created goats and 787
   review rows; guarded RFID-only apply produced 711 created goats, 512 review
@@ -133,7 +133,7 @@ Still pending before Phase 1 is usable end-to-end:
 - Correction request list APIs and goat timeline reads are live Phase 1B
   surfaces. Defined correction/candidate/conflict/identifier actions are wired
   in admin-web. Source breed/category import rows remain in review until an
-  explicit mapping or exclusion policy is approved. Admin goat create/update
+  explicit breed/category mapping policy is approved. Admin goat create/update
   APIs, import-run create, and messy-row fix/approve actions remain deferred.
 - Candidate approve and conflict `create_goat` routes exist, but they are not
   the same blocker. Candidate approve can be split into non-create outcomes

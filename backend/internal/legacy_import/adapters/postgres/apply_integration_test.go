@@ -584,51 +584,6 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		assertRowState(t, pool, runID, 3, legacy_import.StatePending, "")
 	})
 
-	t.Run("source breed category disposition is disabled pending business policy", func(t *testing.T) {
-		runID, _ := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{
-			{RowNumber: 2, Raw: rawRFIDRow("REJECTSHEEP", "CBE", "9900000000000000000000009220001", "Female", "Anantapur Sheep", "Fattening")},
-			{RowNumber: 3, Raw: rawRFIDRow("KEEPUNKNOWN", "CBE", "9900000000000000000000009220002", "Female", "Synthetic Mystery Breed", "Fattening")},
-			{RowNumber: 4, Raw: rawRFIDRow("CREATEGOAT", "CBE", "9900000000000000000000009220003", "Female", "Boer", "Fattening")},
-		})
-		applied, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
-			TenantID:    meshaTenant,
-			ImportRunID: runID,
-			BatchSize:   2,
-			ActorID:     strPtr(applyActorID),
-		})
-		if err != nil {
-			t.Fatalf("apply before disposition: %v", err)
-		}
-		if applied.AppliedCount != 1 || applied.ReviewCount != 2 {
-			t.Fatalf("apply before disposition=%#v, want 1 applied and 2 review", applied)
-		}
-		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
-		assertRowState(t, pool, runID, 3, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
-		assertRowState(t, pool, runID, 4, legacy_import.StateCreatedGoat, "")
-		beforeGoats := countRows(t, pool, `SELECT count(*) FROM goats`)
-		beforeAudit := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE action = 'legacy_import_row.rejected' AND tenant_id = $1`, meshaTenant)
-
-		_, err = applier.RejectConfirmedNonGoatRows(ctx, legacy_import.RejectConfirmedNonGoatCommand{
-			TenantID:    meshaTenant,
-			ImportRunID: runID,
-			DryRun:      true,
-			BatchSize:   1,
-			ActorID:     strPtr(applyActorID),
-		})
-		if err == nil || !strings.Contains(err.Error(), "disabled pending an explicit business policy") {
-			t.Fatalf("disabled disposition err=%v, want source category policy error", err)
-		}
-		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
-		assertRowState(t, pool, runID, 3, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
-		assertRowState(t, pool, runID, 4, legacy_import.StateCreatedGoat, "")
-		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
-			t.Fatalf("disabled disposition created goats: before=%d after=%d", beforeGoats, got)
-		}
-		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE action = 'legacy_import_row.rejected' AND tenant_id = $1`, meshaTenant); got != beforeAudit {
-			t.Fatalf("disabled disposition audit rows=%d, want unchanged %d", got, beforeAudit)
-		}
-	})
-
 	t.Run("blank suffix opt in keeps mixed reasons and downstream gates in review", func(t *testing.T) {
 		insertApplyBaselineGoat(t, pool, "BLANKRFIDBASE", "park:CBE", "9900000000000000000000009250004")
 		runID, _ := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{

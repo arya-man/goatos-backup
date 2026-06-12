@@ -2323,9 +2323,9 @@ write semantics already exist in this TRD/backend: create correction request,
 reject candidate, resolve correction request, resolve conflict as reject_match
 or merge_goats, add goat identifier, and retire goat identifier. The UI sends
 idempotency keys, evidence refs, and row_version values to the backend and does
-not invent client-side mutation authority. Confirmed non-goat import-row
-terminal disposition is implemented through the local import tool, not a browser
-write action. The remaining local workflow work is split deliberately:
+not invent client-side mutation authority. Source breed/category import rows
+remain visible review data until an explicit business mapping policy is
+approved. The remaining local workflow work is split deliberately:
 candidate approve attach/merge can be defined as a scoped contract slice using
 the existing identifier attach and merge invariants; approve-to-create and
 conflict create_goat remain blocked until the operator-entered goat creation
@@ -2829,8 +2829,8 @@ emit full raw_payload, raw row JSON, raw RFID, or raw old-tag values.
 Grouped CSV cells are spreadsheet-formula safe. duplicate_old_tag_same_scope
 groups use stable non-reversible old-tag/scope refs instead of raw values or
 short masks, so short old-tag labels do not collapse into one bucket.
-species_or_breed_requires_review groups are for human alias-vs-exclusion
-decisions, not auto-aliasing. blank_old_tag_suffix groups support the explicit
+species_or_breed_requires_review groups are for human breed/category
+representation decisions, not auto-aliasing. blank_old_tag_suffix groups support the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` policy and do not imply suffix
 derivation.
 created_goat_count, updated_goat_count, and conflict_count remain 0 during
@@ -2948,8 +2948,6 @@ promote the row back to pending before retry
 Source breed/category disposition:
 
 ```text
-rfid-apply --reject-confirmed-non-goats is disabled pending an explicit business
-policy for source breed/category labels.
 Rows with species_or_breed_requires_review remain needs_review and visible in
 Import Review. A label such as Anantapur Sheep is source data, not enough by
 itself to reject or hide the row.

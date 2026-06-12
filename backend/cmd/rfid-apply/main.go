@@ -26,8 +26,6 @@ func main() {
 	var actorID string
 	var policyVersion string
 	var allowRFIDOnlyBlankSuffix bool
-	var rejectConfirmedNonGoats bool
-	var dispositionReason string
 
 	flag.StringVar(&tenantID, "tenant-id", "", "Tenant UUID")
 	flag.StringVar(&importRunID, "import-run-id", "", "Completed legacy import run UUID")
@@ -36,8 +34,6 @@ func main() {
 	flag.StringVar(&actorID, "actor-id", "", "Optional system actor UUID")
 	flag.StringVar(&policyVersion, "policy-version", "", "Optional policy version guard; defaults to import run policy")
 	flag.BoolVar(&allowRFIDOnlyBlankSuffix, "allow-rfid-only-blank-suffix", false, "Opt in to apply rows whose only review reason is blank_old_tag_suffix by creating RFID-only goats")
-	flag.BoolVar(&rejectConfirmedNonGoats, "reject-confirmed-non-goats", false, "Disabled: source breed/category labels must stay in review until an explicit business policy is approved")
-	flag.StringVar(&dispositionReason, "disposition-reason", "", "Unused while --reject-confirmed-non-goats is disabled")
 	flag.Parse()
 
 	log := observability.New(observability.Config{Service: "rfid-apply"})
@@ -62,27 +58,6 @@ func main() {
 	}
 	repo := importpg.NewRepository(pool, 10*time.Second)
 	applier := legacy_import.NewApplier(repo)
-	if rejectConfirmedNonGoats {
-		result, err := applier.RejectConfirmedNonGoatRows(ctx, legacy_import.RejectConfirmedNonGoatCommand{
-			TenantID:    tenantID,
-			ImportRunID: importRunID,
-			DryRun:      dryRun,
-			BatchSize:   batchSize,
-			ActorID:     actor,
-			Reason:      dispositionReason,
-		})
-		if err != nil {
-			log.Error("rfid_non_goat_disposition_failed", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-		fmt.Printf("import_run_id=%s dry_run=%t scanned=%d rejected=%d\n",
-			result.ImportRunID,
-			result.DryRun,
-			result.ScannedCount,
-			result.RejectedCount,
-		)
-		return
-	}
 	result, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
 		TenantID:                 tenantID,
 		ImportRunID:              importRunID,
