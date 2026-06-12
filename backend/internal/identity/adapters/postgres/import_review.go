@@ -65,6 +65,7 @@ func (r *Repository) GetImportRun(ctx context.Context, tenantID, importRunID str
 			MissingRequiredFields: nil,
 			ConflictsOpened:       int(row.ConflictCount),
 			RowsNeedingReview:     int(row.RowsNeedingReview),
+			RowsRejected:          int(row.RowsRejected),
 			ErrorCount:            int(row.ErrorCount),
 		},
 		CreatedAt:   pgTime(row.StartedAt),

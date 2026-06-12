@@ -88,8 +88,8 @@ shows the backend `tenant_scope_mismatch` denial.
 `GOATOS_IMPORT_RUN_ID` is required only for the live visual smoke and lets
 `/import-review` open the proven local import run directly.
 
-After a local backend and admin-web are already running, capture the live
-read-only proof screenshots:
+After a local backend and admin-web are already running, capture the live SSR
+visual proof screenshots:
 
 ```bash
 npm run smoke:visual:live
@@ -97,8 +97,10 @@ npm run smoke:visual:live
 
 The smoke requires the same server-only env values, fetches a real goat_id from
 `GET /goats/search`, captures desktop and narrow screenshots under the ignored
-`.codex-goatos-render/admin-web-screenshots/` directory, and fails if it renders
-configuration-error pages or leaks the bearer token into HTML.
+`.codex-goatos-render/admin-web-screenshots/` directory, exercises the live
+overview/counts/herd/passport/Import Review/Data Quality surfaces, and fails if
+it renders configuration-error pages, detects layout overflow, or leaks the
+bearer token into HTML.
 
 Do not commit tokens or secrets. Do not put tokens in browser code, localStorage,
 `NEXT_PUBLIC_*` env vars, rendered HTML, query params, or static files. The build

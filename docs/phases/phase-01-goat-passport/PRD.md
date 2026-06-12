@@ -236,17 +236,20 @@ later procurement/workforce phases, not to this Goat Passport RBAC slice.
 The local Phase 1 identity/import/read/admin-demo spine is proven against the
 real Shape-2 RFID source: normal apply produces 436 created goats and 787 review
 rows; guarded RFID-only blank-suffix apply produces 711 created goats, 512
-review rows, and 0 errors; `tenant_lifecycle` shows 711 alive goats. The Mesha
-admin-web renders the overview, counts, herd search, a real goat passport, live
-Import Review rows for that final run, and an honest Data Quality empty state
-when the real local DB has no conflicts or candidates.
+review rows, and 0 errors; confirmed non-goat terminal disposition moves the
+current sheep rows to rejected without creating goats, leaving 711 created
+goats, 8 actionable review rows, 504 rejected rows, and 0 errors.
+`tenant_lifecycle` shows 711 alive goats. The Mesha admin-web renders the
+overview, counts, herd search, a real goat passport, live Import Review rows for
+that final run, and an honest Data Quality empty state when the real local DB
+has no conflicts or candidates.
 
 This is a local proof, not production/staging completion. Production auth/IdP,
-cloud deployment, Pub/Sub/event egress, terminal non-goat disposition, richer
-messy-data search, correction/write workflows, and non-Phase-1 legacy modules
-remain deferred. Candidate approve and conflict `create_goat` routes exist, but
-their canonical mutation semantics remain deferred rather than silently writing
-incomplete goat state.
+cloud deployment, Pub/Sub/event egress, richer messy-data search, correction
+workflows beyond the defined safe actions, messy-row fix/approve workflows, and
+non-Phase-1 legacy modules remain deferred. Candidate approve and conflict
+`create_goat` routes exist, but their canonical mutation semantics remain
+deferred rather than silently writing incomplete goat state.
 
 Phase 1B-0 adds read-only goat timeline plus app/admin correction request list
 APIs. The remaining typed not_implemented endpoints are:

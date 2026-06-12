@@ -940,6 +940,7 @@ components:
         - missing_required_fields
         - conflicts_opened
         - rows_needing_review
+        - rows_rejected
         - error_count
       properties:
         rows_processed:
@@ -972,6 +973,9 @@ components:
           type: integer
           minimum: 0
         rows_needing_review:
+          type: integer
+          minimum: 0
+        rows_rejected:
           type: integer
           minimum: 0
         error_count:

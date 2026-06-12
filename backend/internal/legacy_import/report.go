@@ -433,7 +433,7 @@ func writeReviewerCSVPack(outputDir string, opts AnomalyReportOptions, report An
 		}
 	}
 	classificationRows := filterAnomalyEntries(report.Details, func(entry AnomalyReportEntry) bool {
-		return entry.ReasonCode == "species_or_breed_requires_review" && !isConfirmedNonGoatBreedLabel(entry.SourceBreed)
+		return entry.ReasonCode == "species_or_breed_requires_review" && !IsConfirmedNonGoatBreedLabel(entry.SourceBreed)
 	})
 	if len(classificationRows) > 0 {
 		breedDir := filepath.Join(outputDir, "breed")
@@ -591,10 +591,10 @@ func filterAnomalyEntries(details []AnomalyReportEntry, filter func(AnomalyRepor
 }
 
 func isNonGoatExclusionCandidate(entry AnomalyReportEntry) bool {
-	return entry.ReasonCode == "species_or_breed_requires_review" && isConfirmedNonGoatBreedLabel(entry.SourceBreed)
+	return entry.ReasonCode == "species_or_breed_requires_review" && IsConfirmedNonGoatBreedLabel(entry.SourceBreed)
 }
 
-func isConfirmedNonGoatBreedLabel(label string) bool {
+func IsConfirmedNonGoatBreedLabel(label string) bool {
 	switch strings.ToLower(strings.Join(strings.Fields(label), " ")) {
 	case "anantapur sheep":
 		return true

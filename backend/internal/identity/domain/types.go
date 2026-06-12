@@ -314,6 +314,7 @@ type ImportRunSummary struct {
 	MissingRequiredFields *int `json:"missing_required_fields"`
 	ConflictsOpened       int  `json:"conflicts_opened"`
 	RowsNeedingReview     int  `json:"rows_needing_review"`
+	RowsRejected          int  `json:"rows_rejected"`
 	ErrorCount            int  `json:"error_count"`
 }
 

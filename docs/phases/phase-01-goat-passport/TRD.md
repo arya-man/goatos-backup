@@ -2284,11 +2284,12 @@ Phase 1 local closeout status:
 Fresh local Docker Postgres proof with all migrations through 000014:
   normal RFID apply -> created_goat 436, needs_review 787, error 0
   guarded --allow-rfid-only-blank-suffix apply -> created_goat 711, needs_review 512, error 0
+  confirmed non-goat disposition -> created_goat 711, needs_review 8, rejected 504, error 0
   remaining review reason occurrences:
-    species_or_breed_requires_review 504
-    blank_old_tag_suffix 160
     blank_gender 4
     duplicate_old_tag_same_scope 4
+  rejected reason:
+    confirmed_non_goat_species 504
   tenant_lifecycle alive counter = 711
   Mesha admin-web SSR routes verified against the final run:
     /
@@ -2304,9 +2305,9 @@ backend repository/handler coverage proves populated list paths for those
 queues separately.
 
 This proves the local identity/import/read/admin-demo spine only. Production
-auth/IdP, cloud deployment, Pub/Sub/event egress, terminal non-goat disposition,
-richer messy-data search, correction/write workflows, and non-Phase-1 legacy
-modules remain deferred.
+auth/IdP, cloud deployment, Pub/Sub/event egress, richer messy-data search,
+messy-row fix/approve workflows, correction workflows beyond the defined safe
+actions, and non-Phase-1 legacy modules remain deferred.
 
 Phase 1B-0 implements the read-only goat timeline and app/admin correction
 request list APIs. Remaining typed not_implemented endpoints:
@@ -2322,9 +2323,10 @@ write semantics already exist in this TRD/backend: create correction request,
 reject candidate, resolve correction request, resolve conflict as reject_match
 or merge_goats, add goat identifier, and retire goat identifier. The UI sends
 idempotency keys, evidence refs, and row_version values to the backend and does
-not invent client-side mutation authority. Candidate approve, conflict
-create_goat, non-goat terminal disposition, and Import Review row fix/approve
-actions remain separate contract/design slices.
+not invent client-side mutation authority. Confirmed non-goat import-row
+terminal disposition is implemented through the local import tool, not a browser
+write action. Candidate approve, conflict create_goat, and Import Review row
+fix/approve actions remain separate contract/design slices.
 
 ### App APIs
 
@@ -2934,6 +2936,24 @@ transient, concurrency, infrastructure, context, and unknown failures abort the
 run instead of quarantining the row
 error rows are not auto-retried by rfid-apply; an operator must inspect/fix and
 promote the row back to pending before retry
+```
+
+Confirmed non-goat terminal disposition:
+
+```text
+rfid-apply --reject-confirmed-non-goats is an explicit post-apply command
+dry-run counts current confirmed non-goat rows without mutation
+execute updates only tenant/import_run scoped legacy_import_rows where:
+  processing_state='needs_review'
+  review reasons include species_or_breed_requires_review
+  source breed label is a confirmed non-goat label (currently Anantapur Sheep)
+it sets processing_state='rejected' and error_reason='confirmed_non_goat_species'
+it writes audit_log action=legacy_import_row.rejected per row
+it preserves raw_payload and normalized_payload evidence
+it creates no goats, identifiers, identity_decisions, identity events, or outbox rows
+unknown or unclassified goat breeds are not rejected
+replay is idempotent because already rejected rows are skipped
+future correction/review tooling may reverse a row by creating a new audited state-change command
 ```
 
 Future apply ops hardening backlog:

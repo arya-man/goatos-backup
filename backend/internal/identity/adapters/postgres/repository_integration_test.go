@@ -169,6 +169,7 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if runSummary.Summary.RowsProcessed != 3 ||
 		runSummary.Summary.GoatsCreated != 1 ||
 		runSummary.Summary.RowsNeedingReview != 2 ||
+		runSummary.Summary.RowsRejected != 0 ||
 		runSummary.Summary.ErrorCount != 1 ||
 		runSummary.Summary.CleanMatches != nil {
 		t.Fatalf("unexpected import run summary: %#v", runSummary.Summary)

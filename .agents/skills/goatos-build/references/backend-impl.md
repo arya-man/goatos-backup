@@ -112,8 +112,9 @@ Rules:
   request, resolve conflict as reject_match or merge_goats, add goat identifier,
   and retire goat identifier. These forms pass backend idempotency keys,
   evidence refs, and row_version guards; they do not create client-side mutation
-  authority. Candidate approve, conflict create_goat, non-goat terminal
-  disposition, and Import Review row fix/approve flows remain separate
+  authority. Confirmed non-goat import-row disposition is implemented through
+  the local import tool, not as a browser write action. Candidate approve,
+  conflict create_goat, and Import Review row fix/approve flows remain separate
   contract/design slices.
 - Import Review query-plan validation now checks both the real generated
   `ListImportRunRows` shape with a non-null `reason_code` and a separate JSONB
@@ -399,11 +400,18 @@ Rules:
   point the remaining breed/species bucket was Anantapur Sheep only. After the
   `000012` blank-suffix opt-in run, the confirmed non-goat disposition scope is
   504 breed/species review rows because 160 blank-suffix rows also hit the same
-  gate. Later work may classify confirmed non-goats earlier in
-  discovery/staging, but must keep them out of goat creation. Do not let
-  confirmed non-goat rows stay indefinitely in an actionable review queue; a
-  later review-ops/apply-semantics slice should choose terminal rejected
-  disposition versus earlier source classification.
+  gate. `rfid-apply --reject-confirmed-non-goats` implements the terminal
+  disposition: it moves only confirmed non-goat rows to
+  `processing_state='rejected'` with
+  `error_reason='confirmed_non_goat_species'`, writes audit rows, creates no
+  goats/identifiers/identity decisions/events/outbox messages, and leaves
+  unknown/unclassified breed rows in `needs_review`. Rejected rows preserve
+  their prior normalized processing reasons as source evidence, so report
+  reason-summary occurrences can still include historical
+  `species_or_breed_requires_review` or `blank_old_tag_suffix`; use row state
+  and `error_reason=confirmed_non_goat_species` to identify terminal rows.
+  Later work may classify confirmed non-goats earlier in discovery/staging, but
+  must keep them out of goat creation.
   The blank old-tag suffix policy decision recommended guarded RFID-only goat
   creation without creating an old_tag identifier: maximum possible additional
   goats is 435. Migration
@@ -411,12 +419,13 @@ Rules:
   `rfid-apply --allow-rfid-only-blank-suffix` implement the policy behind an
   explicit opt-in. The implementation dry-run and real local rehearsal both
   produced 711 created goats total, 275 above the post-000011 baseline of 436,
-  with needs_review 512 and error 0. Remaining open-review reason occurrences
-  are species_or_breed_requires_review 504, blank_old_tag_suffix 160,
-  blank_gender 4, and duplicate_old_tag_same_scope 4; the 160 blank-suffix rows
-  also fail breed/species review. The local SSR proof rendered real herd rows, a
-  real goat passport with live timeline, the 711 tenant_lifecycle alive counter,
-  and live Import Review summary/rows against the same 711/512 run through
+  with needs_review 512 and error 0. Confirmed non-goat disposition then moves
+  those 504 sheep rows to `rejected`, leaving `created_goat` 711,
+  `needs_review` 8, `rejected` 504, and `error` 0. Remaining actionable
+  open-review reason occurrences are `blank_gender` 4 and
+  `duplicate_old_tag_same_scope` 4. The local SSR proof rendered real herd rows,
+  a real goat passport with live timeline, the 711 tenant_lifecycle alive
+  counter, and live Import Review summary/rows against the final run through
   admin-web. Fresh local closeout proof on June 12, 2026 reproduced this from a
   clean Docker Postgres database with all migrations through 000014. The real
   local DB had 0 conflicts, 0 candidates, and 0 correction rows, so Data Quality

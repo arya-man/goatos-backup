@@ -74,10 +74,11 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
       ) : (
         <div className="space-y-5">
           <Panel title="Import run summary" description="Reason buckets can overlap; counts by reason do not necessarily sum to rows needing review.">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <StatPill label="rows processed" value={summary.data.import_run.summary.rows_processed} />
               <StatPill label="goats created" value={summary.data.import_run.summary.goats_created} tone="good" />
               <StatPill label="needs review" value={summary.data.import_run.summary.rows_needing_review} tone="warn" />
+              <StatPill label="rejected" value={summary.data.import_run.summary.rows_rejected} />
               <StatPill label="errors" value={summary.data.import_run.summary.error_count} tone={summary.data.import_run.summary.error_count > 0 ? "warn" : "neutral"} />
             </div>
             <div className="mt-4">

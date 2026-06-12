@@ -172,13 +172,15 @@ identity counts, data-quality queues, correction queue reads, and live Import
 Review summary/row data through backend APIs using server-side bearer auth. The
 defined safe Phase 1B actions are wired through server actions: correction
 request create/resolve, candidate reject, conflict reject/merge, and goat
-identifier add/retire. Import Review requires an import_run_id, is read-only,
-shows nullable/untracked metrics as "Not tracked", and does not read CSVs,
-local files, Sheets, App Script, BigQuery, or operational DBs directly. Import
-run create, admin goat create/update, Import Review row review/fix actions,
-candidate approve, conflict create_goat, non-goat disposition, and
-non-Phase-1 legacy modules remain honest placeholders, disabled tabs, or backend
-501/deferred paths.
+identifier add/retire. Import Review requires an import_run_id, shows nullable
+or untracked metrics as "Not tracked", includes a derived rejected-row count,
+and does not read CSVs, local files, Sheets, App Script, BigQuery, or
+operational DBs directly. Confirmed non-goat import rows can be terminalized
+through the local `rfid-apply --reject-confirmed-non-goats` path without
+creating goats. Import run create, admin goat create/update, Import Review row
+fix/approve actions, candidate approve, conflict create_goat, and
+non-Phase-1 legacy modules remain honest placeholders, disabled tabs, or
+backend 501/deferred paths.
 
 Import Review plan validation covers the generated row-list query with a
 non-null reason_code plus the JSONB GIN reason probe. The current Phase 1 shape
@@ -601,27 +603,37 @@ RFID source-of-truth staging:
   breed/species bucket was Anantapur Sheep only and had to stay out of goat
   creation through breed/species semantics. After the `000012` blank-suffix
   opt-in run, the confirmed non-goat disposition scope is 504 breed/species
-  review rows because 160 blank-suffix rows also hit the same gate. Confirmed
-  non-goat rows should not stay forever in an actionable review queue; a later
-  review-ops/apply-semantics slice should decide terminal rejected disposition
-  versus earlier source classification.
+  review rows because 160 blank-suffix rows also hit the same gate.
+  `rfid-apply --reject-confirmed-non-goats` now terminalizes only confirmed
+  Anantapur Sheep rows to `processing_state='rejected'`, writes an audit row per
+  source row, preserves raw/normalized source evidence, and creates no goats,
+  identifiers, identity events, or outbox rows. Dry-run reports the candidate
+  count without mutation; replay is idempotent because already rejected rows are
+  skipped. Unknown/unclassified goat breeds stay in needs_review.
+  Rejected rows preserve their prior normalized processing reasons as source
+  evidence, so report reason-summary occurrences can still include historical
+  `species_or_breed_requires_review` or `blank_old_tag_suffix`; use row state
+  and `error_reason=confirmed_non_goat_species` to identify terminal rows.
   blank_old_tag_suffix policy review recommended guarded RFID-only creation
   without old_tag identifier creation. Migration 000012 adds the supporting
   apply-candidate index and `rfid-apply --allow-rfid-only-blank-suffix`
   implements it behind an explicit flag. Maximum possible additional goats is
   435. The implementation dry-run and real local rehearsal both produced 711
   created goats total, 275 above the post-000011 baseline of 436, with
-  needs_review 512 and error 0. Remaining open-review reason occurrences are
+  needs_review 512 and error 0. At that post-RFID-only, pre-disposition point,
+  review reason occurrences were
   species_or_breed_requires_review 504, blank_old_tag_suffix 160,
   blank_gender 4, and duplicate_old_tag_same_scope 4; reason counts are
   occurrences because the 160 remaining blank-suffix rows also fail the
   breed/species gate.
   Phase 1 local end-to-end proof passed after this run: normal apply produced
   created_goat 436, needs_review 787, and error 0; guarded RFID-only apply
-  produced created_goat 711, needs_review 512, and error 0; the
-  tenant_lifecycle alive counter was 711. SSR admin-web rendered the Mesha
+  produced created_goat 711, needs_review 512, and error 0; terminal
+  confirmed non-goat disposition leaves created_goat 711, needs_review 8,
+  rejected 504, and error 0 while the tenant_lifecycle alive counter remains
+  711. SSR admin-web rendered the Mesha
   overview, real herd rows, a real goat passport with live timeline, the 711
-  alive count, and live Import Review summary/rows against the 711/512 run. The
+  alive count, and live Import Review summary/rows against the final run. The
   real local DB had 0 conflicts, 0 candidates, and 0 correction rows, so Data
   Quality rendered honest empty states; backend repository/handler tests cover
   populated conflict/candidate/correction list paths separately.
@@ -795,10 +807,7 @@ OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
 source cleanup or reviewed policy for blank_gender plus duplicate same-scope
 old_tag rows; optional earlier source classification for Anantapur Sheep while
-keeping it out of goat creation;
-terminal rejected disposition for the 504 current confirmed non-goat
-breed/species review rows so actionable review queues do not carry permanent
-non-goat noise
+keeping it out of goat creation
 P8 sales/allocation/promise behavior
 ```
 
@@ -807,17 +816,20 @@ P8 sales/allocation/promise behavior
 This order is intentional and should not be inferred from conversation memory:
 
 ```text
-1. Keep the local admin demo reproducible before mutating non-goat review state.
+1. Keep the local admin demo reproducible after terminalizing confirmed non-goat
+   review state.
    The UI now shows clean goats, passport detail with timeline, review buckets,
    live Import Review rows, correction queue reads, identity counts, and honest
    empty states where the local DB has no conflicts/candidates. Defined Phase 1B
-   correction/candidate/conflict/identifier actions are live; Import Review row
-   review/fix actions remain deferred.
+   correction/candidate/conflict/identifier actions are live; confirmed
+   non-goat rows can be terminalized through the local import tool; Import
+   Review row fix/approve actions remain deferred.
 
 2. Keep the local runbook and proof reproducible: fresh Docker Postgres, all
    migrations, real Shape-2 import, normal apply, explicit RFID-only
-   blank-suffix apply, counter rebuild, Mesha admin-web SSR routes, and token
-   leak checks must continue to reproduce 711/512/0.
+   blank-suffix apply, confirmed non-goat disposition, counter rebuild, Mesha
+   admin-web SSR routes, and token leak checks must continue to reproduce
+   711 created, 8 actionable review, 504 rejected, and 0 errors.
 
 3. Keep deferred endpoint/action lists honest while moving Import Review row
    review/fix, import-run create, production auth, cloud deploy, and event-egress
@@ -826,15 +838,9 @@ This order is intentional and should not be inferred from conversation memory:
    now live surfaces; candidate approve and conflict create_goat stay
    contract-blocked.
 
-4. Treat terminal non-goat disposition as a separate canonical-state slice unless
-   it becomes required before closeout. The demo UI may label the current 504
-   confirmed non-goat breed/species review rows without changing their state.
+4. Keep candidate approve and conflict create_goat contract-blocked until their
+   canonical mutation semantics are defined.
 ```
-
-The terminal non-goat slice is not mechanical. It must choose and document the
-mechanism first: terminal `rejected` at apply/review time versus earlier
-source-discovery or staging exclusion. It must remain auditable, reversible by a
-future correction path, and must not silently drop source rows.
 
 Phase 1B remaining-work audit after the read foundation:
 
@@ -848,12 +854,12 @@ DONE in Phase 1A / Phase 1B
     CreateCorrectionRequest; RejectCandidate; ResolveConflict reject_match;
     ResolveConflict merge; ResolveCorrectionRequest; AddGoatIdentifier;
     RetireGoatIdentifier.
+  confirmed non-goat terminal disposition through the local RFID import tool.
 
 STILL REQUIRED FOR PHASE 1B
-  1. Non-goat terminal disposition decision and implementation.
-  2. Candidate approve canonical mutation semantics.
-  3. Conflict create_goat canonical mutation semantics.
-  4. Messy-row approve/reject/fix workflow for import review.
+  1. Candidate approve canonical mutation semantics.
+  2. Conflict create_goat canonical mutation semantics.
+  3. Messy-row approve/fix workflow for import review.
 
 DEFERRED TO PHASE 2+
   POST /admin/import-runs, POST /admin/goats, PATCH /admin/goats/{goat_id};
@@ -1123,8 +1129,9 @@ bearer adapters, live identity-read screens, live goat timeline, live Import
 Review rows, live correction-request queue reads, plus server-action forms for
 the already-defined Phase 1 decisions: correction request create/resolve,
 candidate reject, conflict reject/merge, and goat identifier add/retire.
-Candidate approve, conflict create_goat, admin goat create/update, import-run
-create, and messy-row review/fix actions remain deferred.
+Confirmed non-goat import rows can be terminalized through the local import
+tool. Candidate approve, conflict create_goat, admin goat create/update,
+import-run create, and messy-row fix/approve actions remain deferred.
 
 Remaining typed not_implemented endpoint surface:
 
@@ -1136,7 +1143,7 @@ PATCH /admin/goats/{goat_id}
 
 These are explicitly outside the proven local Phase 1 identity/import/read/admin
 demo spine. They remain deferred with correction/write workflows, richer
-messy-data search, non-goat terminal disposition, production auth/IdP, cloud
+messy-data search, production auth/IdP, cloud
 deployment, and production Pub/Sub/event egress.
 
 Outbox relay is a standalone local/dev CLI foundation. It is not run as an API

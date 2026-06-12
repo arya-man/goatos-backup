@@ -11,6 +11,7 @@ local XLSX export
   -> source discovery
   -> RFID import staging
   -> RFID apply
+  -> confirmed non-goat disposition
   -> final sanitized review report
   -> identity counter rebuild
   -> backend APIs
@@ -148,9 +149,33 @@ when `blank_old_tag_suffix` is the row's complete staged reason set and all
 apply-time gates pass; it creates no `old_tag` identifier and does not derive a
 scope from Farm/Shed/Partition.
 
+After the RFID-only apply, terminalize confirmed non-goat rows with a dry-run
+first and then an explicit execute:
+
+```bash
+go run ./cmd/rfid-apply \
+  --tenant-id <tenant_uuid> \
+  --import-run-id <import_run_id> \
+  --dry-run \
+  --reject-confirmed-non-goats
+
+go run ./cmd/rfid-apply \
+  --tenant-id <tenant_uuid> \
+  --import-run-id <import_run_id> \
+  --actor-id <actor_uuid> \
+  --reject-confirmed-non-goats
+```
+
+This command only moves tenant/import-run scoped `needs_review` rows with the
+confirmed non-goat breed label to `rejected` with
+`error_reason=confirmed_non_goat_species`. It writes audit rows and creates no
+goats, identifiers, identity decisions, identity events, or outbox messages.
+Unknown or unclassified goat breeds remain in `needs_review`.
+
 ## Final Review Report
 
-Write the final sanitized local review report after `rfid-apply`:
+Write the final sanitized local review report after the apply and disposition
+steps:
 
 ```bash
 go run ./cmd/rfid-import \
@@ -180,17 +205,21 @@ Grouped summaries use only safe source labels (`Tag`, `Breed`, `Gender`,
 `Farm`, `Shed`, and `Partition`) and never write raw RFID, old-tag, full row
 JSON, or full `raw_payload`.
 
-The current `species_or_breed_requires_review` bucket is Anantapur Sheep only, so
-those rows are exported to `non-goat-exclusion-candidates.csv` and should be
-confirmed as non-goat exclusions, not created as goats. The tool does not emit a
-duplicate breed/species issue file for those sheep rows. If a future import has a
-breed/species review label that is not a confirmed non-goat label, the tool emits
+The current `species_or_breed_requires_review` source label is Anantapur Sheep
+only; after confirmed non-goat disposition those rows are terminal `rejected`
+instead of actionable review rows. If a future import has a breed/species review
+label that is not a confirmed non-goat label, the tool emits
 `breed/species-needs-classification.csv` for that classification work.
 `blank_old_tag_suffix` rows show safe Farm/Shed/Partition context. RFID-only goat
 creation for those rows is available only through the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` flag after a dry-run confirms the
 redistribution. `blank_gender` and `duplicate_old_tag_same_scope` rows remain
 source correction or explicit reviewed-policy work.
+
+Rejected rows preserve their prior normalized processing reasons as source
+evidence. When reading the reason summary CSV, use `row_state` and
+`error_reason=confirmed_non_goat_species` to distinguish terminal non-goat rows
+from still-actionable `needs_review` rows.
 
 The reviewer CSVs are export-only. `reviewer_action` and `reviewer_notes` are
 scratch columns for the data team; Goat OS does not ingest edited review CSVs
@@ -228,11 +257,18 @@ rfid-apply --allow-rfid-only-blank-suffix:
   needs_review = 512
   error = 0
 
-remaining review reason occurrences:
-  species_or_breed_requires_review = 504
-  blank_old_tag_suffix = 160
+rfid-apply --reject-confirmed-non-goats:
+  created_goat = 711
+  needs_review = 8
+  rejected = 504
+  error = 0
+
+remaining actionable review reason occurrences:
   blank_gender = 4
   duplicate_old_tag_same_scope = 4
+
+terminal rejected reason:
+  confirmed_non_goat_species = 504
 
 rebuild-identity-counters:
   tenant_lifecycle alive = 711
@@ -240,8 +276,9 @@ rebuild-identity-counters:
 
 If these numbers differ on a fresh local database, stop and investigate before
 using the result as a Phase 1 proof. Usual causes are wrong sheet, changed
-source export, stale database, missing migration, or skipping the explicit
-RFID-only blank-suffix apply flag.
+source export, stale database, missing migration, skipping the explicit
+RFID-only blank-suffix apply flag, or skipping the confirmed non-goat
+disposition command.
 
 ## Backend And Admin-Web Smoke
 

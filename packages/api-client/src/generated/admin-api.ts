@@ -380,6 +380,7 @@ export interface components {
             missing_required_fields: number | null;
             conflicts_opened: number;
             rows_needing_review: number;
+            rows_rejected: number;
             error_count: number;
         };
         ImportRunResponse: {

@@ -168,6 +168,13 @@ SELECT
       AND row.import_run_id = r.import_run_id
       AND row.processing_state = 'needs_review'
   ), 0)::int AS rows_needing_review,
+  COALESCE((
+    SELECT count(*)::int
+    FROM legacy_import_rows row
+    WHERE row.tenant_id = r.tenant_id
+      AND row.import_run_id = r.import_run_id
+      AND row.processing_state = 'rejected'
+  ), 0)::int AS rows_rejected,
   r.started_at,
   r.completed_at
 FROM legacy_import_runs r

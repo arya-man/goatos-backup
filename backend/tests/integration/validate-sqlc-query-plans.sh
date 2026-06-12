@@ -306,6 +306,18 @@ ORDER BY row_number, legacy_row_id
 LIMIT 10" '(Sort|Incremental Sort)'
 }
 
+validate_confirmed_non_goat_disposition_plans() {
+  local sql
+
+  sql="$(extract_query "$repo_root/backend/internal/legacy_import/adapters/postgres/sqlc/commands.sql" "CountConfirmedNonGoatRowsForDisposition" | bind_query_params)"
+  explain_must_use_index "CountConfirmedNonGoatRowsForDisposition" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
+$sql"
+
+  sql="$(extract_query "$repo_root/backend/internal/legacy_import/adapters/postgres/sqlc/commands.sql" "ListConfirmedNonGoatRowsForDisposition" | bind_query_params)"
+  explain_must_use_index "ListConfirmedNonGoatRowsForDisposition" 'Seq Scan on legacy_import_rows' "EXPLAIN (COSTS OFF)
+$sql" '(Sort|Incremental Sort)'
+}
+
 validate_correction_request_actor_plan() {
   local sql
   PLAN_CREATED_BY="'90000000-0000-4000-8000-000000000001'::uuid"
@@ -356,7 +368,8 @@ validate_auth_grant_lookup_plan
 validate_import_run_reason_gin_probe_plan
 validate_import_run_generated_reason_filter_plan
 validate_import_run_state_filter_plan
+validate_confirmed_non_goat_disposition_plans
 validate_correction_request_actor_plan
 validate_correction_request_state_plan
 
-echo "Validated $checked_count generated sqlc query plans and 5 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 7 hand-written query plans"

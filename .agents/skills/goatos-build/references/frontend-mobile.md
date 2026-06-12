@@ -31,10 +31,12 @@ Rules:
   Mesha branding; Goat OS and VGoat labels are internal/legacy labels and must
   not appear in rendered admin-web UI copy.
 - Fresh local closeout proof on June 12, 2026 rendered the Mesha admin-web
-  against the real 711/512 RFID import run: overview, counts, herd search, a
-  real goat passport, live Import Review rows, and honest Data Quality empty
-  states because that local DB had no conflicts, candidates, or correction
-  requests. Backend tests cover populated list paths separately.
+  against the real RFID import run after guarded RFID-only apply and confirmed
+  non-goat disposition: 711 created goats, 8 actionable review rows, 504
+  rejected non-goat rows, and 0 errors. The proof covered overview, counts,
+  herd search, a real goat passport, live Import Review rows, and honest Data
+  Quality empty states because that local DB had no conflicts, candidates, or
+  correction requests. Backend tests cover populated list paths separately.
 - Admin-web is upgraded from the copied dashboard's Next 14 / React 18 stack to
   the frozen framework baseline in
   `context/frontend/final-frontend-mobile-backend-architecture.md`: Next

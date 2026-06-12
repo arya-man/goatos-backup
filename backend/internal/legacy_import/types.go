@@ -14,6 +14,7 @@ const (
 	StateNeedsReview = "needs_review"
 	StateError       = "error"
 	StateCreatedGoat = "created_goat"
+	StateRejected    = "rejected"
 )
 
 type ImportCommand struct {
@@ -83,6 +84,23 @@ type ApplyResult struct {
 	SkippedCount   int
 	ReviewReasons  map[string]int
 	CreatedGoatIDs []string
+}
+
+type RejectConfirmedNonGoatCommand struct {
+	TenantID    string
+	ImportRunID string
+	DryRun      bool
+	BatchSize   int
+	ActorID     *string
+	Reason      string
+}
+
+type RejectConfirmedNonGoatResult struct {
+	ImportRunID   string
+	TenantID      string
+	DryRun        bool
+	ScannedCount  int
+	RejectedCount int
 }
 
 type SourceKeyRecipe struct {
@@ -171,4 +189,5 @@ type Repository interface {
 	HasDifferentSourceRowVersion(ctx context.Context, params SourceRowChangeParams) (bool, error)
 	InsertRows(ctx context.Context, rows []StagedRow, batchSize int) (int, error)
 	ApplyRFIDRows(ctx context.Context, cmd ApplyCommand) (*ApplyResult, error)
+	RejectConfirmedNonGoatRows(ctx context.Context, cmd RejectConfirmedNonGoatCommand) (*RejectConfirmedNonGoatResult, error)
 }

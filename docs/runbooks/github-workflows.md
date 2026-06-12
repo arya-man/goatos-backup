@@ -251,7 +251,8 @@ Assert generated code matches committed code.
 Validate important SQL query plans.
 Validate hand-written hot-path plans such as outbox claim, auth grant lookup,
 Import Review state filtering, the real generated Import Review reason-filter
-shape, and the JSONB reason-index probe.
+shape, the JSONB reason-index probe, and confirmed non-goat disposition
+count/list probes.
 Exercise migration invariants.
 Reject whitespace errors.
 ```
@@ -272,6 +273,7 @@ validate-sqlc-plans failed
   hot apply/read query introduced an avoidable Sort
   Import Review generated reason-filter query lost its ordered indexed path
   Import Review JSONB reason probe is not using the GIN reason index
+  confirmed non-goat disposition query lost its indexed tenant/run path
 
 The Import Review generated reason-filter no-Sort check is the Phase 1 local
 ordered-keyset proof. When the staging/1M sparse-reason strategy lands, revise

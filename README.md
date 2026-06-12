@@ -92,15 +92,18 @@ Completed so far:
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
-  local baseline is 711 created goats, with remaining review rows grouped for
-  cleanup/non-goat handling.
+  local baseline is 711 created goats; confirmed non-goat source rows can now be
+  terminalized as rejected through the local RFID apply tool without creating
+  goats.
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web: normal apply produced 436 created goats and 787
   review rows; guarded RFID-only apply produced 711 created goats, 512 review
-  rows, and 0 errors; `tenant_lifecycle` shows 711 alive goats; overview, herd
+  rows, and 0 errors; terminal non-goat disposition moves confirmed sheep rows
+  from actionable review to rejected while leaving `tenant_lifecycle` at 711
+  alive goats; overview, herd
   search, goat passport with live identity timeline, identity counts, live
   Import Review, and live correction-request queue reads rendered against the
-  711/512 run. The real local DB had no conflicts, candidates, or correction
+  final run. The real local DB had no conflicts, candidates, or correction
   rows, so Data Quality rendered honest empty states while backend
   conflict/candidate/correction list coverage proves populated read paths
   separately.
@@ -128,27 +131,27 @@ Still pending before Phase 1 is usable end-to-end:
   `PATCH /admin/goats/{goat_id}`.
 - Correction request list APIs and goat timeline reads are live Phase 1B
   surfaces. Defined correction/candidate/conflict/identifier actions are wired
-  in admin-web, but admin goat create/update APIs, import-run create, and
-  messy-row review/fix actions remain deferred.
+  in admin-web, and confirmed non-goat import rows can be terminalized through
+  the local import tool. Admin goat create/update APIs, import-run create, and
+  messy-row fix/approve actions remain deferred.
 - Candidate approve and conflict `create_goat` routes exist, but their
   canonical mutation semantics remain deferred rather than silently writing
   incomplete goat state.
 - Real production event publishing.
-- Operational review/action screens for dirty data.
+- Remaining dirty-data actions: candidate approve, conflict `create_goat`, and
+  Import Review row fix/approve.
 - Deployment setup for shared/staging/prod environments.
 
 Immediate Phase 1B order:
 
 ```text
-1. Decide and implement terminal non-goat disposition as a separate canonical
-   state-change slice if approved.
-2. Define and implement candidate approve semantics as its own canonical
+1. Define and implement candidate approve semantics as its own canonical
    mutation slice.
-3. Define and implement conflict create_goat semantics as its own canonical
+2. Define and implement conflict create_goat semantics as its own canonical
    mutation slice.
-4. Define messy-row approve/reject/fix workflow for import review as its own
+3. Define messy-row approve/fix workflow for import review as its own
    review/action slice.
-5. Prepare production auth, event egress, and deploy without calling the local
+4. Prepare production auth, event egress, and deploy without calling the local
    dev-token demo shippable.
 ```
 
@@ -437,17 +440,15 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Decide and implement terminal disposition for confirmed non-goat rows so
-   they do not stay forever in actionable goat-review queues.
-2. Keep the local Phase 1 proof reproducible while moving remaining stubs to
+1. Keep the local Phase 1 proof reproducible while moving remaining stubs to
    their explicit later-phase slices: candidate approve, conflict create_goat,
    Import Review row fix/approve, import-run create, admin goat create/update,
    production auth, cloud deployment, and event egress.
-3. Add production identity-provider integration later: JWKS/asymmetric token
+2. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.
-5. Start Phase 2 vaccination task workflow.
-6. Later connect hardware feeding panel data under Phase 5/9.
+3. Start Phase 2 vaccination task workflow.
+4. Later connect hardware feeding panel data under Phase 5/9.
 
 ## Build Principle
 
