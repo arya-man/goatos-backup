@@ -36,8 +36,8 @@ func main() {
 	flag.StringVar(&actorID, "actor-id", "", "Optional system actor UUID")
 	flag.StringVar(&policyVersion, "policy-version", "", "Optional policy version guard; defaults to import run policy")
 	flag.BoolVar(&allowRFIDOnlyBlankSuffix, "allow-rfid-only-blank-suffix", false, "Opt in to apply rows whose only review reason is blank_old_tag_suffix by creating RFID-only goats")
-	flag.BoolVar(&rejectConfirmedNonGoats, "reject-confirmed-non-goats", false, "Terminalize confirmed non-goat review rows without creating goats")
-	flag.StringVar(&dispositionReason, "disposition-reason", "", "Optional audit reason for --reject-confirmed-non-goats")
+	flag.BoolVar(&rejectConfirmedNonGoats, "reject-confirmed-non-goats", false, "Disabled: source breed/category labels must stay in review until an explicit business policy is approved")
+	flag.StringVar(&dispositionReason, "disposition-reason", "", "Unused while --reject-confirmed-non-goats is disabled")
 	flag.Parse()
 
 	log := observability.New(observability.Config{Service: "rfid-apply"})

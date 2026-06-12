@@ -150,22 +150,18 @@ The remaining `species_or_breed_requires_review` group is:
 
 | Source Breed label | Count after 000011 | Classification status | Recommendation |
 | --- | ---: | --- | --- |
-| `Anantapur Sheep` | 344 | already-classified | Keep out of goat creation through breed/species semantics. |
+| `Anantapur Sheep` | 344 | source breed/category review | Keep visible in Import Review; do not infer exclusion from label text alone. |
 
-Source-integrity signal:
+Source-category signal:
 
 - `Anantapur Sheep` accounts for all 344 remaining breed/species review rows.
-- A goat-passport import source containing this many non-goat rows is not just a
-  breed-alias gap; it is a source-integrity issue.
-- The current species gate is doing the right thing by keeping these rows out of
-  goat creation.
-- Later implementation should decide whether non-goat rows are classified during
-  source discovery/staging or left to the apply-stage breed/species gate. Either
-  way, the pipeline must not be loosened to admit them as goats.
-- Confirmed non-goat rows should not remain indefinitely in an actionable
-  human-review queue. A later review-ops/apply-semantics slice should decide
-  whether these rows become terminal `rejected` rows at apply time or are
-  excluded earlier during source discovery/staging.
+- The source sheet uses `Breed` as an operational breed/category field; the
+  label alone is not a business-approved reason to reject or hide the row.
+- The current apply gate is doing the safe thing by keeping these rows out of
+  canonical goat creation until a mapping/exclusion decision exists.
+- Later implementation should decide whether this source category maps to a
+  goat breed, a broader livestock/mutton inventory category, or an explicit
+  exclusion. Until then it remains visible review data.
 
 Implementation note for the later build slice:
 
@@ -191,7 +187,7 @@ CSV evidence from the sensitive local reviewer pack:
 | Unique RFID within this bucket | 435 | True global uniqueness is still apply-time only. |
 | Known Gender value | 435 | No blank/unknown Gender inside this bucket. |
 | Current mapped status label | 52 | The other 383 rows would still need status mapping or review. |
-| Current active goat breed/species mapping | 270 | 160 rows are confirmed non-goat labels and 5 still need breed/species review. |
+| Current active goat breed/species mapping | 270 | 160 rows carry source breed/category labels that still need review and 5 still need breed/species review. |
 | Current status + goat breed + gender gates pass | 27 | Realistic immediate yield before DB conflict checks. |
 | Likely still review under option B | 408 | Mostly status mapping and non-goat/species review. |
 
@@ -278,10 +274,10 @@ Post-implementation open-review reason occurrences:
 
 Reason-code counts are occurrences, not distinct row counts. The 160 remaining
 `blank_old_tag_suffix` rows also fail breed/species review, so they appear in
-both buckets. The current non-goat disposition scope is therefore 504
-breed/species review rows: the earlier 344 confirmed non-goat rows plus 160
-blank-suffix rows that also hit the same non-goat/species gate. The counter
-rebuild reported `tenant_lifecycle=alive` count 711, matching `created_goat`.
+both buckets. The current source breed/category review scope is therefore 504
+breed/species review occurrences: the earlier 344 rows plus 160 blank-suffix
+rows that also hit the same gate. The counter rebuild reported
+`tenant_lifecycle=alive` count 711, matching `created_goat`.
 
 Why B is a policy problem, not just source cleanup:
 
@@ -381,10 +377,9 @@ Recommendation:
 
 ## Next Data Slices
 
-1. Decide whether confirmed non-goat rows should be classified during source
-   discovery/staging or left to the apply-stage breed/species gate; either way,
-   keep them out of goat creation. The post-`000012` scope is 504
-   breed/species review rows, including 160 rows that also carry
-   `blank_old_tag_suffix`.
+1. Decide the source breed/category policy for `Anantapur Sheep`: goat breed
+   mapping, broader livestock/mutton inventory, or explicit exclusion. The
+   post-`000012` scope is 504 breed/species review occurrences, including 160
+   rows that also carry `blank_old_tag_suffix`.
 2. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.

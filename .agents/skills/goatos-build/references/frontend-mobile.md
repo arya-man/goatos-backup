@@ -32,9 +32,10 @@ Rules:
   Mesha branding; Goat OS and VGoat labels are internal/legacy labels and must
   not appear in rendered admin-web UI copy.
 - Fresh local closeout proof on June 12, 2026 rendered the Mesha admin-web
-  against the real RFID import run after guarded RFID-only apply and confirmed
-  non-goat disposition: 711 created goats, 8 actionable review rows, 504
-  rejected non-goat rows, and 0 errors. The proof covered overview, counts,
+  against the real RFID import run after guarded RFID-only apply: 711 created
+  goats, 512 review rows, 0 rejected rows, and 0 errors. Source breed/category
+  rows such as Anantapur Sheep remain visible in Import Review until a business
+  mapping or exclusion policy exists. The proof covered overview, counts,
   herd search, a real goat passport, live Import Review rows, and honest Data
   Quality empty states because that local DB had no conflicts, candidates, or
   correction requests. Backend tests cover populated list paths separately.

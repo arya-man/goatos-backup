@@ -236,9 +236,9 @@ later procurement/workforce phases, not to this Goat Passport RBAC slice.
 The local Phase 1 identity/import/read/admin-demo spine is proven against the
 real Shape-2 RFID source: normal apply produces 436 created goats and 787 review
 rows; guarded RFID-only blank-suffix apply produces 711 created goats, 512
-review rows, and 0 errors; confirmed non-goat terminal disposition moves the
-current sheep rows to rejected without creating goats, leaving 711 created
-goats, 8 actionable review rows, 504 rejected rows, and 0 errors.
+review rows, and 0 errors. Source breed/category rows such as `Anantapur Sheep`
+remain visible in Import Review until a business-approved mapping or exclusion
+policy exists; they are not auto-rejected by the local proof.
 `tenant_lifecycle` shows 711 alive goats. The Mesha admin-web renders the
 overview, counts, herd search, a real goat passport, live Import Review rows for
 that final run, and an honest Data Quality empty state when the real local DB

@@ -94,15 +94,14 @@ Completed so far:
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
-  local baseline is 711 created goats; confirmed non-goat source rows can now be
-  terminalized as rejected through the local RFID apply tool without creating
-  goats.
+  local baseline is 711 created goats; source breed/category labels such as
+  `Anantapur Sheep` remain visible in Import Review until a business-approved
+  mapping or exclusion policy exists.
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web: normal apply produced 436 created goats and 787
   review rows; guarded RFID-only apply produced 711 created goats, 512 review
-  rows, and 0 errors; terminal non-goat disposition moves confirmed sheep rows
-  from actionable review to rejected while leaving `tenant_lifecycle` at 711
-  alive goats; overview, herd
+  rows, and 0 errors; source breed/category review rows stay in
+  `needs_review` rather than being auto-rejected; overview, herd
   search, goat passport with live identity timeline, identity counts, live
   Import Review, and live correction-request queue reads rendered against the
   final run. The real local DB had no conflicts, candidates, or correction
@@ -133,9 +132,9 @@ Still pending before Phase 1 is usable end-to-end:
   `PATCH /admin/goats/{goat_id}`.
 - Correction request list APIs and goat timeline reads are live Phase 1B
   surfaces. Defined correction/candidate/conflict/identifier actions are wired
-  in admin-web, and confirmed non-goat import rows can be terminalized through
-  the local import tool. Admin goat create/update APIs, import-run create, and
-  messy-row fix/approve actions remain deferred.
+  in admin-web. Source breed/category import rows remain in review until an
+  explicit mapping or exclusion policy is approved. Admin goat create/update
+  APIs, import-run create, and messy-row fix/approve actions remain deferred.
 - Candidate approve and conflict `create_goat` routes exist, but they are not
   the same blocker. Candidate approve can be split into non-create outcomes
   that reuse existing identifier-attach or merge invariants, while

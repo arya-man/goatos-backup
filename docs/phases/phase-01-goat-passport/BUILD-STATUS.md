@@ -179,9 +179,9 @@ in the UI, and does not read CSVs, local files, Sheets, App Script, BigQuery, or
 operational DBs directly. The CSV download supports the all-messy scope
 (`needs_review`, `rejected`, and `error`) plus current state/reason filters, is
 formula-safe for spreadsheet opening, and is relayed server-side so bearer
-tokens never enter browser code. Confirmed non-goat import rows can be terminalized
-through the local `rfid-apply --reject-confirmed-non-goats` path without
-creating goats. Import run create and admin goat create/update remain honest
+tokens never enter browser code. Source breed/category import rows remain
+visible in review until a business-approved mapping or exclusion policy exists.
+Import run create and admin goat create/update remain honest
 placeholders or backend 501/deferred paths. Import Review row actions and
 candidate approve should be split before implementation: non-create paths can
 reuse existing row-local fix/reject, identifier attach, merge, and RFID apply
@@ -580,11 +580,9 @@ RFID source-of-truth staging:
   review-summary.csv, needs-review-rows.csv,
   non-goat-exclusion-candidates.csv, blank-old-tag-suffix.csv,
   blank-gender.csv, duplicate-old-tag-same-scope.csv, and README.txt
-  non-goat-exclusion-candidates.csv carries confirmed non-goat breed/species
-  labels such as Anantapur Sheep so they are visible for exclusion review; the
-  tool does not duplicate those same sheep rows into a breed/species issue file
-  future non-confirmed breed/species labels emit
-  breed/species-needs-classification.csv instead
+  non-goat-exclusion-candidates.csv is header-only until an explicit exclusion
+  policy is approved. Source breed/category labels such as Anantapur Sheep emit
+  breed/species-needs-classification.csv for human mapping or exclusion review
   reviewer_action and reviewer_notes columns are scratch-only; Goat OS does not
   ingest edited reviewer CSVs yet. Corrections re-enter through the source
   workbook or a future approved correction overlay, then normal import/apply is
@@ -608,20 +606,13 @@ RFID source-of-truth staging:
   the Phase 1 crossbreed-as-breed-row simplification. The follow-up rerun raised
   created_goat from 383 to 436, left error at 0, and reduced
   species_or_breed_requires_review from 397 to 344. At that point the remaining
-  breed/species bucket was Anantapur Sheep only and had to stay out of goat
-  creation through breed/species semantics. After the `000012` blank-suffix
-  opt-in run, the confirmed non-goat disposition scope is 504 breed/species
-  review rows because 160 blank-suffix rows also hit the same gate.
-  `rfid-apply --reject-confirmed-non-goats` now terminalizes only confirmed
-  Anantapur Sheep rows to `processing_state='rejected'`, writes an audit row per
-  source row, preserves raw/normalized source evidence, and creates no goats,
-  identifiers, identity events, or outbox rows. Dry-run reports the candidate
-  count without mutation; replay is idempotent because already rejected rows are
-  skipped. Unknown/unclassified goat breeds stay in needs_review.
-  Rejected rows preserve their prior normalized processing reasons as source
-  evidence, so report reason-summary occurrences can still include historical
-  `species_or_breed_requires_review` or `blank_old_tag_suffix`; use row state
-  and `error_reason=confirmed_non_goat_species` to identify terminal rows.
+  breed/species bucket was Anantapur Sheep only. That label is a source
+  `Breed` value, so it remains visible for business mapping/exclusion review
+  rather than being auto-rejected. After the `000012` blank-suffix opt-in run,
+  the source breed/category review scope is 504 reason occurrences because 160
+  blank-suffix rows also hit the same gate. `rfid-apply
+  --reject-confirmed-non-goats` is now disabled pending an explicit source
+  breed/category policy.
   blank_old_tag_suffix policy review recommended guarded RFID-only creation
   without old_tag identifier creation. Migration 000012 adds the supporting
   apply-candidate index and `rfid-apply --allow-rfid-only-blank-suffix`
@@ -636,10 +627,8 @@ RFID source-of-truth staging:
   breed/species gate.
   Phase 1 local end-to-end proof passed after this run: normal apply produced
   created_goat 436, needs_review 787, and error 0; guarded RFID-only apply
-  produced created_goat 711, needs_review 512, and error 0; terminal
-  confirmed non-goat disposition leaves created_goat 711, needs_review 8,
-  rejected 504, and error 0 while the tenant_lifecycle alive counter remains
-  711. SSR admin-web rendered the Mesha
+  produced created_goat 711, needs_review 512, and error 0 while the
+  tenant_lifecycle alive counter remains 711. SSR admin-web rendered the Mesha
   overview, real herd rows, a real goat passport with live timeline, the 711
   alive count, and live Import Review summary/rows against the final run. The
   real local DB had 0 conflicts, 0 candidates, and 0 correction rows, so Data
@@ -827,20 +816,20 @@ P8 sales/allocation/promise behavior
 This order is intentional and should not be inferred from conversation memory:
 
 ```text
-1. Keep the local admin demo reproducible after terminalizing confirmed non-goat
-   review state.
+1. Keep the local admin demo reproducible with source breed/category review rows
+   visible.
    The UI now shows clean goats, passport detail with timeline, review buckets,
    live Import Review rows, correction queue reads, identity counts, and honest
    empty states where the local DB has no conflicts/candidates. Defined Phase 1B
-   correction/candidate/conflict/identifier actions are live; confirmed
-   non-goat rows can be terminalized through the local import tool; Import
+   correction/candidate/conflict/identifier actions are live; source
+   breed/category rows remain in Import Review; Import
    Review row fix/approve actions remain deferred.
 
 2. Keep the local runbook and proof reproducible: fresh Docker Postgres, all
    migrations, real Shape-2 import, normal apply, explicit RFID-only
-   blank-suffix apply, confirmed non-goat disposition, counter rebuild, Mesha
+   blank-suffix apply, counter rebuild, Mesha
    admin-web SSR routes, and token leak checks must continue to reproduce
-   711 created, 8 actionable review, 504 rejected, and 0 errors.
+   711 created, 512 needs_review, 0 rejected, and 0 errors.
 
 3. Split remaining local workflow work instead of treating it as one blanket
    blocker. Candidate approve attach/merge is implementable as a scoped
@@ -868,7 +857,7 @@ DONE in Phase 1A / Phase 1B
     CreateCorrectionRequest; RejectCandidate; ResolveConflict reject_match;
     ResolveConflict merge; ResolveCorrectionRequest; AddGoatIdentifier;
     RetireGoatIdentifier.
-  confirmed non-goat terminal disposition through the local RFID import tool.
+  source breed/category rows remain visible in Import Review.
 
 STILL REQUIRED FOR PHASE 1B
   1. Candidate approve attach/merge semantics; approve-to-create stays blocked
@@ -1148,8 +1137,8 @@ bearer adapters, live identity-read screens, live goat timeline, live Import
 Review rows, live correction-request queue reads, plus server-action forms for
 the already-defined Phase 1 decisions: correction request create/resolve,
 candidate reject, conflict reject/merge, and goat identifier add/retire.
-Confirmed non-goat import rows can be terminalized through the local import
-tool. Candidate approve, conflict create_goat, admin goat create/update,
+Source breed/category import rows remain visible in Import Review until an
+explicit mapping or exclusion policy exists. Candidate approve, conflict create_goat, admin goat create/update,
 import-run create, and messy-row fix/approve actions remain deferred.
 
 Remaining typed not_implemented endpoint surface:

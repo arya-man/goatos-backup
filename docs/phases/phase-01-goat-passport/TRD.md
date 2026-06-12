@@ -2284,12 +2284,12 @@ Phase 1 local closeout status:
 Fresh local Docker Postgres proof with all migrations through 000014:
   normal RFID apply -> created_goat 436, needs_review 787, error 0
   guarded --allow-rfid-only-blank-suffix apply -> created_goat 711, needs_review 512, error 0
-  confirmed non-goat disposition -> created_goat 711, needs_review 8, rejected 504, error 0
+  source breed/category review remains visible -> created_goat 711, needs_review 512, rejected 0, error 0
   remaining review reason occurrences:
+    species_or_breed_requires_review 504
+    blank_old_tag_suffix 160
     blank_gender 4
     duplicate_old_tag_same_scope 4
-  rejected reason:
-    confirmed_non_goat_species 504
   tenant_lifecycle alive counter = 711
   Mesha admin-web SSR routes verified against the final run:
     /
@@ -2930,8 +2930,8 @@ nonblank Tag/status labels must map through legacy_status_mappings for
 source_system='legacy_rfid_db'
 unknown status mappings and review_required mappings route to needs_review
 blank Tag/status defaults lifecycle_status='alive' only
-breed/species must resolve to a clear active goat breed alias; unsafe or
-non-goat labels such as Anantapur Sheep route to needs_review
+breed/species must resolve to a clear active goat breed alias; source
+breed/category labels such as Anantapur Sheep route to needs_review
 same source_row_key with different source_row_version_hash routes to
 needs_review before canonical creation
 deterministic SQL data/integrity failures for one staged row (SQLSTATE class
@@ -2945,22 +2945,14 @@ error rows are not auto-retried by rfid-apply; an operator must inspect/fix and
 promote the row back to pending before retry
 ```
 
-Confirmed non-goat terminal disposition:
+Source breed/category disposition:
 
 ```text
-rfid-apply --reject-confirmed-non-goats is an explicit post-apply command
-dry-run counts current confirmed non-goat rows without mutation
-execute updates only tenant/import_run scoped legacy_import_rows where:
-  processing_state='needs_review'
-  review reasons include species_or_breed_requires_review
-  source breed label is a confirmed non-goat label (currently Anantapur Sheep)
-it sets processing_state='rejected' and error_reason='confirmed_non_goat_species'
-it writes audit_log action=legacy_import_row.rejected per row
-it preserves raw_payload and normalized_payload evidence
-it creates no goats, identifiers, identity_decisions, identity events, or outbox rows
-unknown or unclassified goat breeds are not rejected
-replay is idempotent because already rejected rows are skipped
-future correction/review tooling may reverse a row by creating a new audited state-change command
+rfid-apply --reject-confirmed-non-goats is disabled pending an explicit business
+policy for source breed/category labels.
+Rows with species_or_breed_requires_review remain needs_review and visible in
+Import Review. A label such as Anantapur Sheep is source data, not enough by
+itself to reject or hide the row.
 ```
 
 Future apply ops hardening backlog:

@@ -407,7 +407,7 @@ func writeReviewerCSVPack(outputDir string, opts AnomalyReportOptions, report An
 		{
 			filename: "non-goat-exclusion-candidates.csv",
 			filter: func(entry AnomalyReportEntry) bool {
-				return isNonGoatExclusionCandidate(entry)
+				return false
 			},
 		},
 		{
@@ -435,7 +435,7 @@ func writeReviewerCSVPack(outputDir string, opts AnomalyReportOptions, report An
 		}
 	}
 	classificationRows := filterAnomalyEntries(report.Details, func(entry AnomalyReportEntry) bool {
-		return entry.ReasonCode == "species_or_breed_requires_review" && !IsConfirmedNonGoatBreedLabel(entry.SourceBreed)
+		return entry.ReasonCode == "species_or_breed_requires_review"
 	})
 	if len(classificationRows) > 0 {
 		breedDir := filepath.Join(outputDir, "breed")
@@ -571,7 +571,7 @@ func writeReviewerInstructions(path string, opts AnomalyReportOptions) error {
 		"Default CSVs mask RFID and hash old-tag/source-row references. Internal cleanup usually needs --include-sensitive.",
 		"Never commit generated reports or private source data.",
 		"",
-		"non-goat-exclusion-candidates.csv contains confirmed non-goat labels such as Anantapur Sheep; confirm exclusion and do not create goats.",
+		"breed/species-needs-classification.csv contains source breed/category labels that need a business mapping decision before goat creation.",
 		"blank-old-tag-suffix.csv is for source correction or a future RFID-only creation policy decision.",
 		"blank-gender.csv is for source correction or an explicit reviewed sex policy.",
 		"duplicate-old-tag-same-scope.csv is for source correction, conflict review, or merge review.",
@@ -592,23 +592,14 @@ func filterAnomalyEntries(details []AnomalyReportEntry, filter func(AnomalyRepor
 	return out
 }
 
-func isNonGoatExclusionCandidate(entry AnomalyReportEntry) bool {
-	return entry.ReasonCode == "species_or_breed_requires_review" && IsConfirmedNonGoatBreedLabel(entry.SourceBreed)
-}
-
 func IsConfirmedNonGoatBreedLabel(label string) bool {
-	switch strings.ToLower(strings.Join(strings.Fields(label), " ")) {
-	case "anantapur sheep":
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func focusedFilename(reason string) string {
 	switch reason {
 	case "species_or_breed_requires_review":
-		return "non-goat-exclusion-candidates.csv or breed/species-needs-classification.csv"
+		return "breed/species-needs-classification.csv"
 	case "blank_old_tag_suffix":
 		return "blank-old-tag-suffix.csv"
 	case "blank_gender", "unknown_gender":
@@ -623,7 +614,7 @@ func focusedFilename(reason string) string {
 func suggestedAction(reason string) string {
 	switch reason {
 	case "species_or_breed_requires_review":
-		return "If source_breed is Anantapur Sheep, confirm non-goat exclusion and do not create goat; otherwise classify goat breed/species before import."
+		return "Classify the source breed/category label before goat creation; do not infer exclusion from label text alone."
 	case "blank_old_tag_suffix":
 		return "Choose future RFID-only creation policy or correct source old-tag suffix before import."
 	case "blank_gender":

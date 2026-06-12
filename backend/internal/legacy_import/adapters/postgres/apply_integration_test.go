@@ -584,7 +584,7 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		assertRowState(t, pool, runID, 3, legacy_import.StatePending, "")
 	})
 
-	t.Run("confirmed non-goat disposition is dry-run safe audited and idempotent", func(t *testing.T) {
+	t.Run("source breed category disposition is disabled pending business policy", func(t *testing.T) {
 		runID, _ := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{
 			{RowNumber: 2, Raw: rawRFIDRow("REJECTSHEEP", "CBE", "9900000000000000000000009220001", "Female", "Anantapur Sheep", "Fattening")},
 			{RowNumber: 3, Raw: rawRFIDRow("KEEPUNKNOWN", "CBE", "9900000000000000000000009220002", "Female", "Synthetic Mystery Breed", "Fattening")},
@@ -606,65 +606,26 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		assertRowState(t, pool, runID, 3, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
 		assertRowState(t, pool, runID, 4, legacy_import.StateCreatedGoat, "")
 		beforeGoats := countRows(t, pool, `SELECT count(*) FROM goats`)
+		beforeAudit := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE action = 'legacy_import_row.rejected' AND tenant_id = $1`, meshaTenant)
 
-		dryRun, err := applier.RejectConfirmedNonGoatRows(ctx, legacy_import.RejectConfirmedNonGoatCommand{
+		_, err = applier.RejectConfirmedNonGoatRows(ctx, legacy_import.RejectConfirmedNonGoatCommand{
 			TenantID:    meshaTenant,
 			ImportRunID: runID,
 			DryRun:      true,
 			BatchSize:   1,
 			ActorID:     strPtr(applyActorID),
 		})
-		if err != nil {
-			t.Fatalf("dry-run non-goat disposition: %v", err)
-		}
-		if dryRun.ScannedCount != 1 || dryRun.RejectedCount != 0 {
-			t.Fatalf("dry-run non-goat disposition=%#v, want scanned 1 rejected 0", dryRun)
+		if err == nil || !strings.Contains(err.Error(), "disabled pending an explicit business policy") {
+			t.Fatalf("disabled disposition err=%v, want source category policy error", err)
 		}
 		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
-
-		result, err := applier.RejectConfirmedNonGoatRows(ctx, legacy_import.RejectConfirmedNonGoatCommand{
-			TenantID:    meshaTenant,
-			ImportRunID: runID,
-			BatchSize:   1,
-			ActorID:     strPtr(applyActorID),
-			Reason:      "Synthetic test confirmed non-goat.",
-		})
-		if err != nil {
-			t.Fatalf("non-goat disposition: %v", err)
-		}
-		if result.ScannedCount != 1 || result.RejectedCount != 1 {
-			t.Fatalf("non-goat disposition=%#v, want scanned 1 rejected 1", result)
-		}
-		assertRowState(t, pool, runID, 2, legacy_import.StateRejected, confirmedNonGoatDispositionReason)
 		assertRowState(t, pool, runID, 3, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
 		assertRowState(t, pool, runID, 4, legacy_import.StateCreatedGoat, "")
 		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
-			t.Fatalf("non-goat disposition created goats: before=%d after=%d", beforeGoats, got)
+			t.Fatalf("disabled disposition created goats: before=%d after=%d", beforeGoats, got)
 		}
-		if got := countRows(t, pool, `
-SELECT count(*)
-FROM audit_log
-WHERE action = 'legacy_import_row.rejected'
-  AND resource_type = 'legacy_import_row'
-  AND tenant_id = $1
-  AND metadata->>'source_breed' = 'Anantapur Sheep'`, meshaTenant); got != 1 {
-			t.Fatalf("non-goat audit rows=%d, want 1", got)
-		}
-
-		replay, err := applier.RejectConfirmedNonGoatRows(ctx, legacy_import.RejectConfirmedNonGoatCommand{
-			TenantID:    meshaTenant,
-			ImportRunID: runID,
-			BatchSize:   1,
-			ActorID:     strPtr(applyActorID),
-		})
-		if err != nil {
-			t.Fatalf("non-goat disposition replay: %v", err)
-		}
-		if replay.ScannedCount != 0 || replay.RejectedCount != 0 {
-			t.Fatalf("non-goat disposition replay=%#v, want zero", replay)
-		}
-		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE action = 'legacy_import_row.rejected' AND tenant_id = $1`, meshaTenant); got != 1 {
-			t.Fatalf("non-goat audit rows after replay=%d, want 1", got)
+		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE action = 'legacy_import_row.rejected' AND tenant_id = $1`, meshaTenant); got != beforeAudit {
+			t.Fatalf("disabled disposition audit rows=%d, want unchanged %d", got, beforeAudit)
 		}
 	})
 

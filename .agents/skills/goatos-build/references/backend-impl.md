@@ -386,11 +386,10 @@ Rules:
   for alias-vs-exclusion decisions, not auto-aliasing. Blank old-tag suffix
   groups support the explicit RFID-only apply flag and do not imply suffix
   derivation.
-- While `species_or_breed_requires_review` is confirmed to be Anantapur Sheep
-  only, those rows belong in `non-goat-exclusion-candidates.csv`; do not emit a
-  duplicate breed/species issue file with the same sheep rows. If future imports
-  contain non-confirmed breed/species labels again, emit
-  `breed/species-needs-classification.csv` for that classification work.
+- While `species_or_breed_requires_review` is currently Anantapur Sheep only,
+  those rows remain source breed/category review rows. Emit
+  `breed/species-needs-classification.csv`; do not infer exclusion from the
+  label text alone.
 - The first local post-apply RFID mapping review is captured in
   `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`. Migration
   `000010_phase_1_rfid_plain_status_mappings.sql` implements only the approved
@@ -405,20 +404,11 @@ Rules:
   follow-up local rerun raised `created_goat` from 383 to 436, kept `error` at
   0, and reduced `species_or_breed_requires_review` from 397 to 344. At that
   point the remaining breed/species bucket was Anantapur Sheep only. After the
-  `000012` blank-suffix opt-in run, the confirmed non-goat disposition scope is
-  504 breed/species review rows because 160 blank-suffix rows also hit the same
-  gate. `rfid-apply --reject-confirmed-non-goats` implements the terminal
-  disposition: it moves only confirmed non-goat rows to
-  `processing_state='rejected'` with
-  `error_reason='confirmed_non_goat_species'`, writes audit rows, creates no
-  goats/identifiers/identity decisions/events/outbox messages, and leaves
-  unknown/unclassified breed rows in `needs_review`. Rejected rows preserve
-  their prior normalized processing reasons as source evidence, so report
-  reason-summary occurrences can still include historical
-  `species_or_breed_requires_review` or `blank_old_tag_suffix`; use row state
-  and `error_reason=confirmed_non_goat_species` to identify terminal rows.
-  Later work may classify confirmed non-goats earlier in discovery/staging, but
-  must keep them out of goat creation.
+  `000012` blank-suffix opt-in run, the source breed/category review scope is
+  504 reason occurrences because 160 blank-suffix rows also hit the same gate.
+  `rfid-apply --reject-confirmed-non-goats` is disabled pending an explicit
+  source breed/category policy; these rows remain `needs_review` and visible in
+  Import Review.
   The blank old-tag suffix policy decision recommended guarded RFID-only goat
   creation without creating an old_tag identifier: maximum possible additional
   goats is 435. Migration
@@ -426,10 +416,10 @@ Rules:
   `rfid-apply --allow-rfid-only-blank-suffix` implement the policy behind an
   explicit opt-in. The implementation dry-run and real local rehearsal both
   produced 711 created goats total, 275 above the post-000011 baseline of 436,
-  with needs_review 512 and error 0. Confirmed non-goat disposition then moves
-  those 504 sheep rows to `rejected`, leaving `created_goat` 711,
-  `needs_review` 8, `rejected` 504, and `error` 0. Remaining actionable
-  open-review reason occurrences are `blank_gender` 4 and
+  with needs_review 512 and error 0. Source breed/category rows remain visible
+  in review; current open-review reason occurrences include
+  `species_or_breed_requires_review` 504, `blank_old_tag_suffix` 160,
+  `blank_gender` 4, and
   `duplicate_old_tag_same_scope` 4. The local SSR proof rendered real herd rows,
   a real goat passport with live timeline, the 711 tenant_lifecycle alive
   counter, and live Import Review summary/rows against the final run through

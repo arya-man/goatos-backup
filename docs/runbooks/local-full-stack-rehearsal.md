@@ -11,7 +11,6 @@ local XLSX export
   -> source discovery
   -> RFID import staging
   -> RFID apply
-  -> confirmed non-goat disposition
   -> final sanitized review report
   -> identity counter rebuild
   -> backend APIs
@@ -149,33 +148,15 @@ when `blank_old_tag_suffix` is the row's complete staged reason set and all
 apply-time gates pass; it creates no `old_tag` identifier and does not derive a
 scope from Farm/Shed/Partition.
 
-After the RFID-only apply, terminalize confirmed non-goat rows with a dry-run
-first and then an explicit execute:
-
-```bash
-go run ./cmd/rfid-apply \
-  --tenant-id <tenant_uuid> \
-  --import-run-id <import_run_id> \
-  --dry-run \
-  --reject-confirmed-non-goats
-
-go run ./cmd/rfid-apply \
-  --tenant-id <tenant_uuid> \
-  --import-run-id <import_run_id> \
-  --actor-id <actor_uuid> \
-  --reject-confirmed-non-goats
-```
-
-This command only moves tenant/import-run scoped `needs_review` rows with the
-confirmed non-goat breed label to `rejected` with
-`error_reason=confirmed_non_goat_species`. It writes audit rows and creates no
-goats, identifiers, identity decisions, identity events, or outbox messages.
-Unknown or unclassified goat breeds remain in `needs_review`.
+Do not run `--reject-confirmed-non-goats` in the local proof. That command is
+disabled pending an explicit source breed/category policy. Source labels such
+as `Anantapur Sheep` remain visible in Import Review as
+`species_or_breed_requires_review`; the label alone is not a business-approved
+reason to reject or hide the row.
 
 ## Final Review Report
 
-Write the final sanitized local review report after the apply and disposition
-steps:
+Write the final sanitized local review report after the apply steps:
 
 ```bash
 go run ./cmd/rfid-import \
@@ -195,7 +176,8 @@ CSVs at the report root, plus a reviewer-focused CSV pack under a per-run
 
 - `reviewer-<import_run_id>/review-summary.csv`
 - `reviewer-<import_run_id>/needs-review-rows.csv`
-- `reviewer-<import_run_id>/non-goat-exclusion-candidates.csv`
+- `reviewer-<import_run_id>/non-goat-exclusion-candidates.csv` (header-only
+  until an explicit exclusion policy is approved)
 - `reviewer-<import_run_id>/blank-old-tag-suffix.csv`
 - `reviewer-<import_run_id>/blank-gender.csv`
 - `reviewer-<import_run_id>/duplicate-old-tag-same-scope.csv`
@@ -205,21 +187,15 @@ Grouped summaries use only safe source labels (`Tag`, `Breed`, `Gender`,
 `Farm`, `Shed`, and `Partition`) and never write raw RFID, old-tag, full row
 JSON, or full `raw_payload`.
 
-The current `species_or_breed_requires_review` source label is Anantapur Sheep
-only; after confirmed non-goat disposition those rows are terminal `rejected`
-instead of actionable review rows. If a future import has a breed/species review
-label that is not a confirmed non-goat label, the tool emits
-`breed/species-needs-classification.csv` for that classification work.
+The current `species_or_breed_requires_review` source label is `Anantapur Sheep`
+only. It is a source `Breed` value from the legacy RFID sheet, so the reviewer
+pack keeps it in `breed/species-needs-classification.csv` until a mapping or
+exclusion policy is explicitly approved.
 `blank_old_tag_suffix` rows show safe Farm/Shed/Partition context. RFID-only goat
 creation for those rows is available only through the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` flag after a dry-run confirms the
 redistribution. `blank_gender` and `duplicate_old_tag_same_scope` rows remain
 source correction or explicit reviewed-policy work.
-
-Rejected rows preserve their prior normalized processing reasons as source
-evidence. When reading the reason summary CSV, use `row_state` and
-`error_reason=confirmed_non_goat_species` to distinguish terminal non-goat rows
-from still-actionable `needs_review` rows.
 
 The reviewer CSVs are export-only. `reviewer_action` and `reviewer_notes` are
 scratch columns for the data team; Goat OS does not ingest edited review CSVs
@@ -257,18 +233,11 @@ rfid-apply --allow-rfid-only-blank-suffix:
   needs_review = 512
   error = 0
 
-rfid-apply --reject-confirmed-non-goats:
-  created_goat = 711
-  needs_review = 8
-  rejected = 504
-  error = 0
-
 remaining actionable review reason occurrences:
+  species_or_breed_requires_review = 504
+  blank_old_tag_suffix = 160
   blank_gender = 4
   duplicate_old_tag_same_scope = 4
-
-terminal rejected reason:
-  confirmed_non_goat_species = 504
 
 rebuild-identity-counters:
   tenant_lifecycle alive = 711
@@ -277,8 +246,9 @@ rebuild-identity-counters:
 If these numbers differ on a fresh local database, stop and investigate before
 using the result as a Phase 1 proof. Usual causes are wrong sheet, changed
 source export, stale database, missing migration, skipping the explicit
-RFID-only blank-suffix apply flag, or skipping the confirmed non-goat
-disposition command.
+RFID-only blank-suffix apply flag, or accidentally using a database where the
+now-disabled source breed/category disposition command was run. Current fresh
+local proof should stop at 711 created, 512 needs_review, and 0 error rows.
 
 ## Backend And Admin-Web Smoke
 
