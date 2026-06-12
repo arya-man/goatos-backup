@@ -125,6 +125,9 @@ Still pending before Phase 1 is usable end-to-end:
 - Correction request list APIs, admin goat write APIs, import-run create,
   review/fix actions, and goat timeline screens are still contract stubs or
   honest placeholders unless explicitly re-scoped to a later phase.
+- Candidate approve and conflict `create_goat` routes exist, but their
+  canonical mutation semantics remain deferred rather than silently writing
+  incomplete goat state.
 - Real production event publishing.
 - Operational review/action screens for dirty data.
 - Deployment setup for shared/staging/prod environments.

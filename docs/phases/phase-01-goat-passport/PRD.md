@@ -244,7 +244,11 @@ when the real local DB has no conflicts or candidates.
 This is a local proof, not production/staging completion. Production auth/IdP,
 cloud deployment, Pub/Sub/event egress, terminal non-goat disposition, richer
 messy-data search, correction/write workflows, and non-Phase-1 legacy modules
-remain deferred. The remaining typed not_implemented endpoints are:
+remain deferred. Candidate approve and conflict `create_goat` routes exist, but
+their canonical mutation semantics remain deferred rather than silently writing
+incomplete goat state.
+
+The remaining typed not_implemented endpoints are:
 
 ```text
 GET /goats/{goat_id}/timeline
