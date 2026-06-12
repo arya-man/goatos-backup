@@ -672,6 +672,7 @@ func correctionUpdatedEnvelope(cmd ports.ResolveCorrectionRequestCommand, correc
 }
 
 func correctionRequestFromCreateRow(row identitydb.CreateCorrectionRequestRow) (domain.CorrectionRequest, error) {
+	rowVersion := int(row.RowVersion)
 	return correctionRequestFromFields(
 		row.CorrectionRequestID,
 		row.RequestType,
@@ -685,13 +686,14 @@ func correctionRequestFromCreateRow(row identitydb.CreateCorrectionRequestRow) (
 		row.CohortID,
 		row.Description,
 		row.Evidence,
-		nil,
+		&rowVersion,
 		row.CreatedAt,
 		row.ResolvedAt,
 	)
 }
 
 func correctionRequestFromGetRow(row identitydb.GetCorrectionRequestByIDRow) (domain.CorrectionRequest, error) {
+	rowVersion := int(row.RowVersion)
 	return correctionRequestFromFields(
 		row.CorrectionRequestID,
 		row.RequestType,
@@ -705,7 +707,7 @@ func correctionRequestFromGetRow(row identitydb.GetCorrectionRequestByIDRow) (do
 		row.CohortID,
 		row.Description,
 		row.Evidence,
-		nil,
+		&rowVersion,
 		row.CreatedAt,
 		row.ResolvedAt,
 	)

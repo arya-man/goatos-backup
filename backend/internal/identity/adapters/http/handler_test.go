@@ -1071,6 +1071,7 @@ func strPtr(value string) *string {
 }
 
 func correctionResponseFixture(id string) domain.CorrectionRequest {
+	rowVersion := 1
 	return domain.CorrectionRequest{
 		CorrectionRequestID: id,
 		RequestType:         "missing_tag",
@@ -1078,6 +1079,7 @@ func correctionResponseFixture(id string) domain.CorrectionRequest {
 		LocationScope:       domain.LocationScope{ParkID: strPtr("00000000-0000-4000-8000-000000003001")},
 		Description:         "synthetic note",
 		EvidenceRefs:        []domain.EvidenceRef{{EvidenceType: "source_record", EvidenceID: "synthetic-row-1"}},
+		RowVersion:          &rowVersion,
 	}
 }
 

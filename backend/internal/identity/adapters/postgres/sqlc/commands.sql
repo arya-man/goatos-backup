@@ -86,6 +86,7 @@ RETURNING
   COALESCE(cohort_id::text, '')::text AS cohort_id,
   description,
   evidence,
+  row_version,
   created_at,
   resolved_at;
 
@@ -103,6 +104,7 @@ SELECT
   COALESCE(cohort_id::text, '')::text AS cohort_id,
   description,
   evidence,
+  row_version,
   created_at,
   resolved_at
 FROM identity_correction_requests

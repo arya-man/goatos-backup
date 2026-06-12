@@ -42,6 +42,9 @@ func TestCorrectionRequestWritePathWithDockerPostgres(t *testing.T) {
 		if result.Replayed || result.CorrectionRequest.State != "open" || result.CorrectionRequest.GoatID != nil {
 			t.Fatalf("unexpected result: %#v", result)
 		}
+		if result.CorrectionRequest.RowVersion == nil || *result.CorrectionRequest.RowVersion != 1 {
+			t.Fatalf("create row_version missing or wrong: %#v", result.CorrectionRequest.RowVersion)
+		}
 		correctionID := result.CorrectionRequest.CorrectionRequestID
 		if got := countRows(t, pool, "SELECT count(*) FROM identity_correction_requests WHERE correction_request_id = $1", correctionID); got != 1 {
 			t.Fatalf("correction rows = %d", got)
@@ -170,6 +173,9 @@ func TestCorrectionRequestWritePathWithDockerPostgres(t *testing.T) {
 		var fresh, replay int
 		var correctionID string
 		for result := range results {
+			if result.CorrectionRequest.RowVersion == nil || *result.CorrectionRequest.RowVersion != 1 {
+				t.Fatalf("concurrent create/replay row_version missing or wrong: replay=%v row_version=%#v", result.Replayed, result.CorrectionRequest.RowVersion)
+			}
 			if result.Replayed {
 				replay++
 			} else {

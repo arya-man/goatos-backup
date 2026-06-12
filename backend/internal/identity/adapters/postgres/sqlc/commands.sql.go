@@ -75,6 +75,7 @@ RETURNING
   COALESCE(cohort_id::text, '')::text AS cohort_id,
   description,
   evidence,
+  row_version,
   created_at,
   resolved_at
 `
@@ -107,6 +108,7 @@ type CreateCorrectionRequestRow struct {
 	CohortID            string
 	Description         string
 	Evidence            []byte
+	RowVersion          int32
 	CreatedAt           pgtype.Timestamptz
 	ResolvedAt          pgtype.Timestamptz
 }
@@ -140,6 +142,7 @@ func (q *Queries) CreateCorrectionRequest(ctx context.Context, arg CreateCorrect
 		&i.CohortID,
 		&i.Description,
 		&i.Evidence,
+		&i.RowVersion,
 		&i.CreatedAt,
 		&i.ResolvedAt,
 	)
@@ -264,6 +267,7 @@ SELECT
   COALESCE(cohort_id::text, '')::text AS cohort_id,
   description,
   evidence,
+  row_version,
   created_at,
   resolved_at
 FROM identity_correction_requests
@@ -288,6 +292,7 @@ type GetCorrectionRequestByIDRow struct {
 	CohortID            string
 	Description         string
 	Evidence            []byte
+	RowVersion          int32
 	CreatedAt           pgtype.Timestamptz
 	ResolvedAt          pgtype.Timestamptz
 }
@@ -308,6 +313,7 @@ func (q *Queries) GetCorrectionRequestByID(ctx context.Context, arg GetCorrectio
 		&i.CohortID,
 		&i.Description,
 		&i.Evidence,
+		&i.RowVersion,
 		&i.CreatedAt,
 		&i.ResolvedAt,
 	)
