@@ -1,4 +1,4 @@
-import { AlertTriangle, FileWarning, Rows3 } from "lucide-react";
+import { AlertTriangle, Download, FileWarning, Rows3 } from "lucide-react";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefWithParam, one, type RouteSearchParams } from "@/lib/search-params";
@@ -66,7 +66,19 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
       <PageHeader
         eyebrow="Import Review"
         title="RFID Import Review"
-        description="Live view of staged import rows and messy-data review reasons. Write and fix actions remain disabled."
+        description="Live view of staged import rows and messy-data review reasons. CSV downloads use the same protected backend row API as this screen."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <DownloadLink href={exportHref(importRunId, "messy")} label="Download messy CSV" />
+            <DownloadLink
+              href={exportHref(importRunId, "current", {
+                processing_state: processingState,
+                reason_code: reasonCode,
+              })}
+              label="Download current CSV"
+            />
+          </div>
+        }
       />
 
       {!summary.ok ? (
@@ -198,6 +210,33 @@ function Cell({ label, value }: { label: string; value: React.ReactNode }) {
       <div className="mt-1 break-words text-[#f8fafc]">{dash(value)}</div>
     </div>
   );
+}
+
+function DownloadLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      download
+      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
+    >
+      <Download className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
+      {label}
+    </a>
+  );
+}
+
+function exportHref(
+  importRunId: string,
+  scope: "messy" | "current",
+  filters: { processing_state?: string; reason_code?: string } = {},
+) {
+  const params = new URLSearchParams({
+    import_run_id: importRunId,
+    scope,
+  });
+  if (filters.processing_state) params.set("processing_state", filters.processing_state);
+  if (filters.reason_code) params.set("reason_code", filters.reason_code);
+  return `/import-review/export?${params.toString()}`;
 }
 
 function Field({ name, label, defaultValue, min, max }: { name: string; label: string; defaultValue: string; min: string; max: string }) {

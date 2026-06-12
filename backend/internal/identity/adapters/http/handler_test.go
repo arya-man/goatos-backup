@@ -254,6 +254,44 @@ func TestListImportRunRowsContractShapeAndLimit(t *testing.T) {
 	}
 }
 
+func TestExportImportRunRowsCSVContractShapeAndSafety(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/import-runs/30000000-0000-4000-8000-000000000001/rows.csv?scope=messy", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-import-rows-csv")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "text/csv") {
+		t.Fatalf("content-type=%q", got)
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") || !strings.Contains(got, "mesha-import-review-messy-") {
+		t.Fatalf("content-disposition=%q", got)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"import_run_id,import_row_id,row_number,row_state,review_reasons,rfid,old_tag,breed,gender,farm,shed,partition,source_record_id,source_row_key_ref,matched_goat_id,error_reason",
+		"30000000-0000-4000-8000-000000000001",
+		"RFID-SYNTHETIC-0042",
+		"blank_old_tag_suffix",
+		"'=cmd",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("CSV missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, ",=cmd,") {
+		t.Fatalf("CSV did not escape spreadsheet formula cell:\n%s", body)
+	}
+}
+
 func TestCreateImportRunRemainsNotImplemented(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
@@ -955,7 +993,13 @@ func (handlerRepo) GetImportRun(context.Context, string, string) (*domain.Import
 	return importRunResponseFixture("30000000-0000-4000-8000-000000000001"), nil
 }
 
-func (handlerRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
+func (handlerRepo) ListImportRunRows(_ context.Context, params ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
+	if params.ProcessingState != nil && *params.ProcessingState != "needs_review" {
+		return nil, nil, nil
+	}
+	if params.Cursor != nil {
+		return nil, nil, nil
+	}
 	next := "eyJ2ZXJzaW9uIjoxLCJyb3dfbnVtYmVyIjo0MiwiaW1wb3J0X3Jvd19pZCI6IjcwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSJ9"
 	return []domain.ImportRunRow{importRunRowResponseFixture("70000000-0000-4000-8000-000000000001")}, &next, nil
 }
@@ -1189,7 +1233,7 @@ func importRunRowResponseFixture(id string) domain.ImportRunRow {
 		ReviewReasons:   []string{"blank_old_tag_suffix"},
 		RFID:            strPtr("RFID-SYNTHETIC-0042"),
 		OldTag:          strPtr("1900"),
-		Breed:           strPtr("Sirohi"),
+		Breed:           strPtr("=cmd"),
 		Gender:          strPtr("Female"),
 		Farm:            strPtr("Synthetic farm"),
 		Shed:            strPtr("Synthetic shed"),

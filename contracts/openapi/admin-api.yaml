@@ -101,6 +101,56 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/import-runs/{import_run_id}/rows.csv:
+    get:
+      tags:
+        - Import Runs
+      operationId: exportImportRunRowsCSV
+      summary: Download staged import rows as formula-safe CSV.
+      description: >
+        Streams the same whitelisted Import Review row fields exposed by
+        listImportRunRows. scope=messy exports needs_review, rejected, and
+        error rows; scope=current exports the selected processing_state and/or
+        reason_code filter.
+      parameters:
+        - $ref: "#/components/parameters/ImportRunId"
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - messy
+              - current
+            default: messy
+        - name: processing_state
+          in: query
+          required: false
+          description: Used when scope=current.
+          schema:
+            $ref: "#/components/schemas/ImportRowState"
+        - name: reason_code
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        "200":
+          description: Formula-safe CSV export of import review rows.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
   /admin/identity/conflicts:
     get:
       tags:

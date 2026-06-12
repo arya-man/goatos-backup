@@ -26,6 +26,7 @@ Rules:
   Server-side adapters keep bearer tokens out of browser code; live screens
   cover the overview, herd search, goat passport with live timeline, identity
   counts, Import Review, data quality queues, correction request queue reads,
+  Import Review backend-owned CSV downloads relayed through the Next server,
   and server-side forms for correction create/resolve, candidate reject,
   conflict reject/merge, and goat identifier add/retire. The visible shell uses
   Mesha branding; Goat OS and VGoat labels are internal/legacy labels and must

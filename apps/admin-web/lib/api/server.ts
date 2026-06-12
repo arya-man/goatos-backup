@@ -35,6 +35,7 @@ export type CandidateListResponse = AdminApiComponents["schemas"]["CandidateList
 export type ReviewCandidateRequestBody = AdminApiComponents["schemas"]["ReviewCandidateRequest"];
 export type CandidateDecisionResponse = AdminApiComponents["schemas"]["CandidateDecisionResponse"];
 export type ImportRunResponse = AdminApiComponents["schemas"]["ImportRunResponse"];
+export type ImportRunRow = AdminApiComponents["schemas"]["ImportRunRow"];
 export type ImportRunRowsResponse = AdminApiComponents["schemas"]["ImportRunRowsResponse"];
 export type AdminCorrectionRequestListResponse = AdminApiComponents["schemas"]["CorrectionRequestListResponse"];
 export type AdminCorrectionRequestResponse = AdminApiComponents["schemas"]["CorrectionRequestResponse"];
@@ -126,7 +127,7 @@ export type CorrectionRequestSearchParams = {
   state?: CorrectionRequestState;
 };
 
-function getServerConfig(requireTenant = false): ApiResult<ServerConfig> {
+export function getServerConfig(requireTenant = false): ApiResult<ServerConfig> {
   const missing: string[] = [];
   const baseUrl = process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080";
   const bearerToken = process.env.GOATOS_BEARER_TOKEN;

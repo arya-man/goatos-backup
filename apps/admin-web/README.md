@@ -220,3 +220,17 @@ filters, and shows only whitelisted review fields. Nullable run metrics that are
 not tracked by Phase 1 import/apply are rendered as "Not tracked." Import-row
 review/fix actions are still deferred; defined identity/correction decisions
 live on Data Quality and Goat Passport.
+
+The page also exposes server-side CSV downloads:
+
+```text
+/import-review/export?import_run_id=<import-run-uuid>&scope=messy
+/import-review/export?import_run_id=<import-run-uuid>&scope=current
+```
+
+`scope=messy` downloads every `needs_review`, `rejected`, and `error` row for
+the run. `scope=current` downloads the currently selected state/reason filter.
+CSV generation is owned by the backend `rows.csv` route and relayed by the Next
+server so the browser never receives the backend bearer token. The CSV contains
+the same whitelisted Import Review row fields visible in the UI, not raw source
+workbook payloads.

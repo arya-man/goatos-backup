@@ -44,6 +44,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/identity/conflicts/{conflict_id}/resolve", h.ResolveConflict)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}", h.GetImportRun)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows", h.ListImportRunRows)
+	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows.csv", h.ExportImportRunRowsCSV)
 	mux.HandleFunc("POST /admin/import-runs", h.NotImplemented("legacy_import_deferred"))
 	mux.HandleFunc("GET /admin/identity/candidates", h.ListCandidates)
 	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/approve", h.ApproveCandidate)

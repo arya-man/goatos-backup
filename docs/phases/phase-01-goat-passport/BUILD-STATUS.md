@@ -174,8 +174,12 @@ defined safe Phase 1B actions are wired through server actions: correction
 request create/resolve, candidate reject, conflict reject/merge, and goat
 identifier add/retire. Import Review requires an import_run_id, shows nullable
 or untracked metrics as "Not tracked", includes a derived rejected-row count,
-and does not read CSVs, local files, Sheets, App Script, BigQuery, or
-operational DBs directly. Confirmed non-goat import rows can be terminalized
+offers backend-owned CSV downloads for the same whitelisted row fields visible
+in the UI, and does not read CSVs, local files, Sheets, App Script, BigQuery, or
+operational DBs directly. The CSV download supports the all-messy scope
+(`needs_review`, `rejected`, and `error`) plus current state/reason filters, is
+formula-safe for spreadsheet opening, and is relayed server-side so bearer
+tokens never enter browser code. Confirmed non-goat import rows can be terminalized
 through the local `rfid-apply --reject-confirmed-non-goats` path without
 creating goats. Import run create and admin goat create/update remain honest
 placeholders or backend 501/deferred paths. Import Review row actions and

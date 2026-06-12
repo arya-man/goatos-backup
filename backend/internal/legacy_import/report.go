@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/platform/csvutil"
 )
 
 type AnomalyReportInputRow struct {
@@ -636,11 +638,7 @@ func suggestedAction(reason string) string {
 }
 
 func writeSafeCSVRow(writer *csv.Writer, fields []string) error {
-	safe := make([]string, len(fields))
-	for i, field := range fields {
-		safe[i] = safeCSVCell(field)
-	}
-	return writer.Write(safe)
+	return csvutil.WriteSafeRow(writer, fields)
 }
 
 type normalizedReportFields struct {
@@ -769,16 +767,7 @@ func scopedIdentifierRef(value, scope string) string {
 }
 
 func safeCSVCell(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	switch value[0] {
-	case '=', '+', '-', '@':
-		return "'" + value
-	default:
-		return value
-	}
+	return csvutil.SafeCell(value)
 }
 
 func stringField(payload map[string]any, key string) string {

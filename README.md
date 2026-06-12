@@ -85,6 +85,8 @@ Completed so far:
   navigation, KPI cards, charts, and dense tables for herd search, goat
   passport, identity counts, live conflicts/candidates/correction queues, and
   live Import Review summary/rows when an import run id is provided. The UI now
+  includes backend-owned CSV download buttons for all messy Import Review rows
+  and the current row filter, with server-side token handling. The UI also
   exposes already-built Phase 1 actions for correction request create/resolve,
   candidate reject, conflict reject/merge, and goat identifier add/retire
   through server-side actions. Non-Phase-1 legacy modules and undefined
