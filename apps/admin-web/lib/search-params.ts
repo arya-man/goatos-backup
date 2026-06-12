@@ -13,7 +13,21 @@ export function boundedInt(value: string | undefined, fallback: number, min: num
 }
 
 export function hrefWithCursor(pathname: string, params: RouteSearchParams, cursor: string | null) {
-  return hrefWithParam(pathname, params, "cursor", cursor);
+  if (!cursor) return null;
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "cursor" || key === "page") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  const currentPage = boundedInt(one(params, "page"), 1, 1, 1000000);
+  next.set("cursor", cursor);
+  next.set("page", String(currentPage + 1));
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
 }
 
 export function hrefWithParam(pathname: string, params: RouteSearchParams, key: string, value: string | null) {
