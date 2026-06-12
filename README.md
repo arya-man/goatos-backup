@@ -449,16 +449,18 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Keep the local Phase 1 proof reproducible while moving remaining stubs to
-   their explicit remaining Phase 1B slices and separate later deploy/prod
-   slices: candidate approve, conflict create_goat, Import Review row
-   fix/approve, import-run create, admin goat create/update, production auth,
-   cloud deployment, and event egress.
-2. Add production identity-provider integration later: JWKS/asymmetric token
+1. Keep the local Phase 1 proof reproducible while moving remaining workflow
+   stubs into Phase 1B slices: candidate approve attach/merge, Import Review
+   row reject/fix/re-apply, and the conflict create_goat field-set decision.
+2. Keep later app/admin creation work separate: import-run create and admin
+   goat create/update.
+3. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.
-3. Start Phase 2 vaccination task workflow.
-4. Later connect hardware feeding panel data under Phase 5/9.
+4. Prepare production deploy/event work separately: cloud deployment and event
+   egress.
+5. Start Phase 2 vaccination task workflow.
+6. Later connect hardware feeding panel data under Phase 5/9.
 
 ## Build Principle
 
