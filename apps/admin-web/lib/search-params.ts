@@ -32,3 +32,17 @@ export function hrefWithParam(pathname: string, params: RouteSearchParams, key: 
   const qs = next.toString();
   return qs ? `${pathname}?${qs}` : pathname;
 }
+
+export function hrefWithoutAction(pathname: string, params: RouteSearchParams) {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "action_status" || key === "action_message") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}

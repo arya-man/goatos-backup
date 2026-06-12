@@ -106,7 +106,15 @@ Rules:
   max row limit of 500, support `processing_state` and `reason_code` filters,
   expose only whitelisted normalized review fields, and return nullable
   "not tracked" summary metrics instead of fake zeroes. `POST /admin/import-runs`
-  and all review/fix/import write actions remain deferred.
+  and Import Review row review/fix/import write actions remain deferred.
+- Admin-web wires only existing Phase 1 write semantics through server-side
+  forms: create correction request, reject candidate, resolve correction
+  request, resolve conflict as reject_match or merge_goats, add goat identifier,
+  and retire goat identifier. These forms pass backend idempotency keys,
+  evidence refs, and row_version guards; they do not create client-side mutation
+  authority. Candidate approve, conflict create_goat, non-goat terminal
+  disposition, and Import Review row fix/approve flows remain separate
+  contract/design slices.
 - Import Review query-plan validation now checks both the real generated
   `ListImportRunRows` shape with a non-null `reason_code` and a separate JSONB
   GIN usability probe. Phase 1 accepts the current ordered keyset plan with a
@@ -638,8 +646,9 @@ GET /admin/identity/correction-requests
 ```
 
 These are live read-only routes backed by `goat_identity_events` and
-`identity_correction_requests`; correction review/write actions remain separate
-write slices.
+`identity_correction_requests`. Correction create/resolve actions are now wired
+in admin-web through the already-built app/admin services; correction
+auto-apply and broader write/fix workflows remain separate slices.
 
 Migration `000014_phase_1b_read_foundation_indexes.sql` adds the per-partition
 goat timeline keyset indexes and correction request keyset indexes used by

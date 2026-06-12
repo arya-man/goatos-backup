@@ -53,6 +53,7 @@ SELECT
   COALESCE((SELECT count(*)::int FROM identity_conflict_goats cg WHERE cg.tenant_id = c.tenant_id AND cg.conflict_id = c.conflict_id), cardinality(c.goat_ids), 0)::int AS goat_count,
   COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), cardinality(c.source_record_ids), 0)::int AS source_record_count,
   c.state,
+  c.row_version,
   c.created_at
 FROM identity_conflicts c
 WHERE c.tenant_id = $1 AND c.conflict_id = $2
@@ -73,6 +74,7 @@ type GetConflictSummaryByIDRow struct {
 	GoatCount         int32
 	SourceRecordCount int32
 	State             string
+	RowVersion        int32
 	CreatedAt         pgtype.Timestamptz
 }
 
@@ -90,6 +92,7 @@ func (q *Queries) GetConflictSummaryByID(ctx context.Context, arg GetConflictSum
 		&i.GoatCount,
 		&i.SourceRecordCount,
 		&i.State,
+		&i.RowVersion,
 		&i.CreatedAt,
 	)
 	return i, err

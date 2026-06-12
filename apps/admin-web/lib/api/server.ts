@@ -20,17 +20,28 @@ export type GoatSummary = AppApiComponents["schemas"]["GoatSummary"];
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
+export type CorrectionRequestResponse = AppApiComponents["schemas"]["CorrectionRequestResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
+export type CreateCorrectionRequestBody = AppApiComponents["schemas"]["CreateCorrectionRequest"];
 
 export type CounterGrain = AnalyticsApiComponents["schemas"]["CounterGrain"];
 export type IdentityCountsResponse = AnalyticsApiComponents["schemas"]["IdentityCountsResponse"];
 
 export type ConflictListResponse = AdminApiComponents["schemas"]["ConflictListResponse"];
 export type ConflictDetailResponse = AdminApiComponents["schemas"]["ConflictDetailResponse"];
+export type ResolveConflictRequestBody = AdminApiComponents["schemas"]["ResolveConflictRequest"];
+export type ResolveConflictResponse = AdminApiComponents["schemas"]["ResolveConflictResponse"];
 export type CandidateListResponse = AdminApiComponents["schemas"]["CandidateListResponse"];
+export type ReviewCandidateRequestBody = AdminApiComponents["schemas"]["ReviewCandidateRequest"];
+export type CandidateDecisionResponse = AdminApiComponents["schemas"]["CandidateDecisionResponse"];
 export type ImportRunResponse = AdminApiComponents["schemas"]["ImportRunResponse"];
 export type ImportRunRowsResponse = AdminApiComponents["schemas"]["ImportRunRowsResponse"];
 export type AdminCorrectionRequestListResponse = AdminApiComponents["schemas"]["CorrectionRequestListResponse"];
+export type AdminCorrectionRequestResponse = AdminApiComponents["schemas"]["CorrectionRequestResponse"];
+export type ResolveCorrectionRequestBody = AdminApiComponents["schemas"]["ResolveCorrectionRequest"];
+export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
+export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentifierRequest"];
+export type RetireIdentifierRequestBody = AdminApiComponents["schemas"]["RetireIdentifierRequest"];
 export type ConflictState = AdminApiComponents["schemas"]["ConflictState"];
 export type ConflictType = AdminApiComponents["schemas"]["ConflictType"];
 export type ImportRowState = AdminApiComponents["schemas"]["ImportRowState"];
@@ -202,6 +213,26 @@ export async function getGoatTimeline(params: GoatTimelineParams): Promise<ApiRe
   );
 }
 
+export async function createCorrectionRequest(
+  body: CreateCorrectionRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<CorrectionRequestResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<CorrectionRequestResponse>("/identity/correction-requests", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function getIdentityCounts(params: CountSearchParams): Promise<ApiResult<IdentityCountsResponse>> {
   const config = getServerConfig(true);
   if (!config.ok) return config;
@@ -243,6 +274,28 @@ export async function getConflictDetail(conflictId: string): Promise<ApiResult<C
   return request(() => client.request<ConflictDetailResponse>(path, { cache: "no-store" }));
 }
 
+export async function resolveIdentityConflict(
+  conflictId: string,
+  body: ResolveConflictRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<ResolveConflictResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/identity/conflicts/${encodeURIComponent(conflictId)}/resolve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<ResolveConflictResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function listCandidates(params: CandidateSearchParams): Promise<ApiResult<CandidateListResponse>> {
   const config = getServerConfig();
   if (!config.ok) return config;
@@ -254,6 +307,28 @@ export async function listCandidates(params: CandidateSearchParams): Promise<Api
     client.request<CandidateListResponse>("/admin/identity/candidates", {
       cache: "no-store",
       query: compactQuery(params),
+    }),
+  );
+}
+
+export async function rejectIdentityCandidate(
+  candidateId: string,
+  body: ReviewCandidateRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<CandidateDecisionResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/identity/candidates/${encodeURIComponent(candidateId)}/reject` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<CandidateDecisionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
     }),
   );
 }
@@ -305,6 +380,73 @@ export async function adminListCorrectionRequests(params: CorrectionRequestSearc
         cursor: params.cursor,
         state: params.state,
       }),
+    }),
+  );
+}
+
+export async function resolveCorrectionRequest(
+  correctionRequestId: string,
+  body: ResolveCorrectionRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminCorrectionRequestResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/identity/correction-requests/${encodeURIComponent(correctionRequestId)}/resolve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminCorrectionRequestResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function addGoatIdentifier(
+  goatId: string,
+  body: AddIdentifierRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminGoatResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/goats/${encodeURIComponent(goatId)}/identifiers` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminGoatResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function retireGoatIdentifier(
+  goatId: string,
+  identifierId: string,
+  body: RetireIdentifierRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminGoatResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/goats/${encodeURIComponent(goatId)}/identifiers/${encodeURIComponent(identifierId)}/retire` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminGoatResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
     }),
   );
 }

@@ -1,8 +1,9 @@
 # Mesha Admin Web
 
-This app is the Phase 1 admin-web read-only console. It is intentionally not the
-full Goat Passport workflow UI yet, but the main demo screens are backed by
-Mesha backend app/admin/analytics APIs through server-side adapters.
+This app is the Phase 1 admin-web console. It is intentionally not the full
+Goat Passport workflow UI yet, but the main demo screens and already-defined
+Phase 1 actions are backed by Mesha backend app/admin/analytics APIs through
+server-side adapters.
 
 The current console provides:
 
@@ -11,9 +12,12 @@ The current console provides:
 - the executable legacy BigQuery/Sheets API routes are removed;
 - a Mesha legacy-style dark sidebar, compact module navigation, breadcrumb
   header, KPI cards, tabs, charts, and dense tables;
-- read-only herd search, goat passport with live identity timeline, identity
-  counts, conflict/candidate/correction queues, and live Import Review
-  summary/row screens when an import run id is provided.
+- herd search, goat passport with live identity timeline, identity counts,
+  conflict/candidate/correction queues, and live Import Review summary/row
+  screens when an import run id is provided;
+- server-side forms for the already-built Phase 1 actions: correction request
+  create/resolve, candidate reject, conflict reject/merge, and goat identifier
+  add/retire.
 
 ## Framework Baseline
 
@@ -211,5 +215,6 @@ load the live import run summary and staged row list from backend APIs:
 
 The row table is keyset-paginated, supports `processing_state` and `reason_code`
 filters, and shows only whitelisted review fields. Nullable run metrics that are
-not tracked by Phase 1 import/apply are rendered as "Not tracked." Create,
-review, fix, correction, and canonical write actions are still deferred.
+not tracked by Phase 1 import/apply are rendered as "Not tracked." Import-row
+review/fix actions are still deferred; defined identity/correction decisions
+live on Data Quality and Goat Passport.

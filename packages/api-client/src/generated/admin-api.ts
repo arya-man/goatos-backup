@@ -426,6 +426,7 @@ export interface components {
             goat_count: number;
             source_record_count: number;
             state: components["schemas"]["ConflictState"];
+            row_version: number;
             /** Format: date-time */
             created_at: string;
         };

@@ -615,6 +615,7 @@ func conflictSummaryFromSQLC(row identitydb.GetConflictSummaryByIDRow) domain.Co
 		GoatCount:         int(row.GoatCount),
 		SourceRecordCount: int(row.SourceRecordCount),
 		State:             row.State,
+		RowVersion:        int(row.RowVersion),
 		CreatedAt:         pgTime(row.CreatedAt),
 	}
 	if row.IdentifierType.Valid && row.IdentifierValue.Valid {
@@ -822,6 +823,7 @@ SELECT
   COALESCE((SELECT count(*)::int FROM identity_conflict_goats cg WHERE cg.tenant_id = c.tenant_id AND cg.conflict_id = c.conflict_id), cardinality(c.goat_ids), 0),
   COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), cardinality(c.source_record_ids), 0),
   c.state,
+  c.row_version,
   c.created_at
 FROM identity_conflicts c`
 }
@@ -843,6 +845,7 @@ func scanConflictSummary(row scanner) (domain.ConflictSummary, error) {
 		&item.GoatCount,
 		&item.SourceRecordCount,
 		&item.State,
+		&item.RowVersion,
 		&item.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

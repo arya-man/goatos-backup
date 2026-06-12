@@ -21,12 +21,15 @@ Rules:
   app/admin/analytics APIs. Admin-web and future mobile screens must use it
   through small app adapters instead of hand-copying DTOs.
 - `apps/admin-web` is currently the Phase 1 Mesha-style SSR-first internal admin
-  surface for read-only demo screens backed by `@goatos/api-client`.
+  surface for local Phase 1 screens and defined action forms backed by
+  `@goatos/api-client`.
   Server-side adapters keep bearer tokens out of browser code; live screens
   cover the overview, herd search, goat passport with live timeline, identity
-  counts, Import Review, data quality queues, and correction request queue
-  reads. The visible shell uses Mesha branding; Goat OS and VGoat labels are
-  internal/legacy labels and must not appear in rendered admin-web UI copy.
+  counts, Import Review, data quality queues, correction request queue reads,
+  and server-side forms for correction create/resolve, candidate reject,
+  conflict reject/merge, and goat identifier add/retire. The visible shell uses
+  Mesha branding; Goat OS and VGoat labels are internal/legacy labels and must
+  not appear in rendered admin-web UI copy.
 - Fresh local closeout proof on June 12, 2026 rendered the Mesha admin-web
   against the real 711/512 RFID import run: overview, counts, herd search, a
   real goat passport, live Import Review rows, and honest Data Quality empty

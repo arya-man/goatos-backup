@@ -161,6 +161,33 @@ func TestListCorrectionRequestsContractShapeAndLimit(t *testing.T) {
 	}
 }
 
+func TestListConflictsContractShapeIncludesRowVersion(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/identity/conflicts?limit=10", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-conflicts")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.ConflictListResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].RowVersion != 3 {
+		t.Fatalf("conflict response missing row_version: %#v", response.Items)
+	}
+	if response.TraceID != "req-conflicts" {
+		t.Fatalf("unexpected trace id: %s", response.TraceID)
+	}
+}
+
 func TestGetImportRunContractShape(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
@@ -911,7 +938,8 @@ func (handlerRepo) FindOpenConflictForIdentifier(context.Context, string, string
 }
 
 func (handlerRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]domain.ConflictSummary, *string, error) {
-	return nil, nil, nil
+	next := "eyJ2ZXJzaW9uIjoxLCJjcmVhdGVkX2F0Ijoic3ludGhldGljIiwiY29uZmxpY3RfaWQiOiJzeW50aGV0aWMifQ"
+	return []domain.ConflictSummary{conflictResponseFixture("20000000-0000-4000-8000-000000000001", 3)}, &next, nil
 }
 
 func (handlerRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
@@ -1112,6 +1140,19 @@ func candidateResponseFixture(id, state string, rowVersion int) domain.Candidate
 		CreatedBy:       "system_rule",
 		RowVersion:      rowVersion,
 		CreatedAt:       time.Now().UTC(),
+	}
+}
+
+func conflictResponseFixture(id string, rowVersion int) domain.ConflictSummary {
+	return domain.ConflictSummary{
+		ConflictID:        id,
+		ConflictType:      "possible_duplicate_goat",
+		Severity:          "medium",
+		GoatCount:         2,
+		SourceRecordCount: 1,
+		State:             "open",
+		RowVersion:        rowVersion,
+		CreatedAt:         time.Now().UTC(),
 	}
 }
 

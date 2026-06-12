@@ -110,6 +110,7 @@ SELECT
   COALESCE((SELECT count(*)::int FROM identity_conflict_goats cg WHERE cg.tenant_id = c.tenant_id AND cg.conflict_id = c.conflict_id), cardinality(c.goat_ids), 0)::int AS goat_count,
   COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), cardinality(c.source_record_ids), 0)::int AS source_record_count,
   c.state,
+  c.row_version,
   c.created_at
 FROM identity_conflicts c
 WHERE c.tenant_id = @tenant_id AND c.conflict_id = @conflict_id;

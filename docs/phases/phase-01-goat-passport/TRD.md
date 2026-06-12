@@ -2317,6 +2317,15 @@ POST /admin/goats
 PATCH /admin/goats/{goat_id}
 ```
 
+Phase 1B admin-web action wiring is intentionally limited to services whose
+write semantics already exist in this TRD/backend: create correction request,
+reject candidate, resolve correction request, resolve conflict as reject_match
+or merge_goats, add goat identifier, and retire goat identifier. The UI sends
+idempotency keys, evidence refs, and row_version values to the backend and does
+not invent client-side mutation authority. Candidate approve, conflict
+create_goat, non-goat terminal disposition, and Import Review row fix/approve
+actions remain separate contract/design slices.
+
 ### App APIs
 
 ```text

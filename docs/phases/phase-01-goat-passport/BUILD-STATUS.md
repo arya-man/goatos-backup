@@ -832,20 +832,21 @@ future correction path, and must not silently drop source rows.
 Phase 1B remaining-work audit after the read foundation:
 
 ```text
-DONE in Phase 1A / Phase 1B-0
+DONE in Phase 1A / Phase 1B
   local real-data import/apply/counter/admin-demo spine
   live Import Review summary and row reads
   live goat timeline read from goat_identity_events
   live app/admin correction request list reads
+  UI wiring for already-built safe write actions:
+    CreateCorrectionRequest; RejectCandidate; ResolveConflict reject_match;
+    ResolveConflict merge; ResolveCorrectionRequest; AddGoatIdentifier;
+    RetireGoatIdentifier.
 
 STILL REQUIRED FOR PHASE 1B
-  1. UI wiring for already-built safe write actions:
-     RejectCandidate; ResolveConflict reject_match; ResolveConflict merge;
-     ResolveCorrectionRequest; AddGoatIdentifier; RetireGoatIdentifier.
-  2. Non-goat terminal disposition decision and implementation.
-  3. Candidate approve canonical mutation semantics.
-  4. Conflict create_goat canonical mutation semantics.
-  5. Messy-row approve/reject/fix workflow for import review.
+  1. Non-goat terminal disposition decision and implementation.
+  2. Candidate approve canonical mutation semantics.
+  3. Conflict create_goat canonical mutation semantics.
+  4. Messy-row approve/reject/fix workflow for import review.
 
 DEFERRED TO PHASE 2+
   POST /admin/import-runs, POST /admin/goats, PATCH /admin/goats/{goat_id};
@@ -1109,11 +1110,14 @@ Bearer auth/RBAC is now the API default. The remaining deploy gate is
 production-grade authentication infrastructure: IdP/JWKS, secret management,
 token lifecycle, rate limiting, TLS, and operations runbooks.
 
-Admin-web now has the Phase 1 Mesha-style read-only demo surface: generated
+Admin-web now has the Phase 1 Mesha-style local demo surface: generated
 client plumbing, local dev token/grant helpers, local auth smoke, server-side
 bearer adapters, live identity-read screens, live goat timeline, live Import
-Review rows, live correction-request queue reads, and disabled placeholders for
-write/review actions that remain deferred.
+Review rows, live correction-request queue reads, plus server-action forms for
+the already-defined Phase 1 decisions: correction request create/resolve,
+candidate reject, conflict reject/merge, and goat identifier add/retire.
+Candidate approve, conflict create_goat, admin goat create/update, import-run
+create, and messy-row review/fix actions remain deferred.
 
 Remaining typed not_implemented endpoint surface:
 

@@ -77,15 +77,18 @@ Completed so far:
 - Rebuild and incremental counter update workers.
 - Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
 - Generated OpenAPI TypeScript client package and drift gate.
-- Admin-web Phase 1 Mesha-style read-only demo surface with executable
+- Admin-web Phase 1 Mesha-style local demo surface with executable
   BigQuery/Sheets routes removed.
 - Admin-web upgraded to the frozen Next 16 / React 19 / Tailwind 4 framework
   baseline before real screens were added.
 - SSR-first Mesha admin-web shell with legacy-style dark sidebar, compact module
   navigation, KPI cards, charts, and dense tables for herd search, goat
-  passport, identity counts, live read-only conflicts/candidates queues, and
-  live Import Review summary/rows when an import run id is provided. Non-Phase-1
-  legacy modules and write/fix actions stay disabled or honest placeholders.
+  passport, identity counts, live conflicts/candidates/correction queues, and
+  live Import Review summary/rows when an import run id is provided. The UI now
+  exposes already-built Phase 1 actions for correction request create/resolve,
+  candidate reject, conflict reject/merge, and goat identifier add/retire
+  through server-side actions. Non-Phase-1 legacy modules and undefined
+  review/fix actions stay disabled or honest placeholders.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
@@ -123,10 +126,10 @@ Still pending before Phase 1 is usable end-to-end:
 - The remaining typed `not_implemented` endpoints are:
   `POST /admin/import-runs`, `POST /admin/goats`, and
   `PATCH /admin/goats/{goat_id}`.
-- Correction request list APIs and goat timeline reads are live read-only
-  Phase 1B-0 surfaces. Admin goat write APIs, import-run create, review/fix
-  actions, and correction resolution UI wiring remain deferred unless
-  explicitly re-scoped to a later write slice.
+- Correction request list APIs and goat timeline reads are live Phase 1B
+  surfaces. Defined correction/candidate/conflict/identifier actions are wired
+  in admin-web, but admin goat create/update APIs, import-run create, and
+  messy-row review/fix actions remain deferred.
 - Candidate approve and conflict `create_goat` routes exist, but their
   canonical mutation semantics remain deferred rather than silently writing
   incomplete goat state.
@@ -137,18 +140,15 @@ Still pending before Phase 1 is usable end-to-end:
 Immediate Phase 1B order:
 
 ```text
-1. Wire existing safe write actions into the admin UI: reject candidate,
-   resolve conflict reject/merge, resolve correction, add identifier, retire
-   identifier.
-2. Decide and implement terminal non-goat disposition as a separate canonical
+1. Decide and implement terminal non-goat disposition as a separate canonical
    state-change slice if approved.
-3. Define and implement candidate approve semantics as its own canonical
+2. Define and implement candidate approve semantics as its own canonical
    mutation slice.
-4. Define and implement conflict create_goat semantics as its own canonical
+3. Define and implement conflict create_goat semantics as its own canonical
    mutation slice.
-5. Define messy-row approve/reject/fix workflow for import review as its own
+4. Define messy-row approve/reject/fix workflow for import review as its own
    review/action slice.
-6. Prepare production auth, event egress, and deploy without calling the local
+5. Prepare production auth, event egress, and deploy without calling the local
    dev-token demo shippable.
 ```
 
@@ -495,6 +495,6 @@ Docker-backed Postgres integration tests
 Goat OS Phase 1 is building the trusted goat identity foundation.
 
 The backend foundation is strong and progressing well, and the Mesha admin-web
-read-only demo surface now renders the live identity spine. The product is not
-user-ready until review/write workflows, production auth, and production
-deployment pieces are completed.
+local demo surface now renders the live identity spine plus defined Phase 1
+actions. The product is not user-ready until the remaining review/write
+workflows, production auth, and production deployment pieces are completed.

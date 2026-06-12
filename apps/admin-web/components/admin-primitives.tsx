@@ -82,6 +82,16 @@ export function ErrorPanel({ error }: { error: ApiUiError }) {
   );
 }
 
+export function ActionNotice({ status, message }: { status?: string; message?: string }) {
+  if (!status || !message) return null;
+  const isSuccess = status === "success";
+  return (
+    <div className={`mb-4 rounded-md border p-3 text-sm ${isSuccess ? "border-[#1f8f65] bg-[#102018] text-[#b7f7ce]" : "border-[#7f1d1d] bg-[#1d1214] text-[#fecaca]"}`}>
+      {message}
+    </div>
+  );
+}
+
 export function EmptyPanel({ message }: { message: string }) {
   return <div className="rounded-lg border border-dashed border-[#334155] bg-[#11151C] px-4 py-8 text-center text-sm text-[#8899AA]">{message}</div>;
 }
@@ -122,5 +132,106 @@ export function ValueList({ values }: { values: Array<[string, React.ReactNode]>
         </div>
       ))}
     </dl>
+  );
+}
+
+export function FormField({
+  name,
+  label,
+  defaultValue,
+  placeholder,
+  type = "text",
+  required = false,
+  min,
+  max,
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string;
+  placeholder?: string;
+  type?: string;
+  required?: boolean;
+  min?: string;
+  max?: string;
+}) {
+  return (
+    <label>
+      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
+      <input
+        name={name}
+        type={type}
+        required={required}
+        min={min}
+        max={max}
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+      />
+    </label>
+  );
+}
+
+export function FormSelect({
+  name,
+  label,
+  defaultValue,
+  options,
+  required = false,
+  emptyLabel = "Any",
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string;
+  options: string[];
+  required?: boolean;
+  emptyLabel?: string;
+}) {
+  return (
+    <label>
+      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
+      <select
+        name={name}
+        defaultValue={defaultValue ?? ""}
+        required={required}
+        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+      >
+        <option value="">{emptyLabel}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function FormTextArea({
+  name,
+  label,
+  defaultValue,
+  placeholder,
+  required = false,
+  rows = 3,
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string;
+  placeholder?: string;
+  required?: boolean;
+  rows?: number;
+}) {
+  return (
+    <label>
+      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
+      <textarea
+        name={name}
+        required={required}
+        rows={rows}
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        className="mt-1 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 py-2 text-sm text-white outline-none focus:border-[#14f1d9]"
+      />
+    </label>
   );
 }

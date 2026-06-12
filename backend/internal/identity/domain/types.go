@@ -144,6 +144,7 @@ type ConflictSummary struct {
 	GoatCount         int                  `json:"goat_count"`
 	SourceRecordCount int                  `json:"source_record_count"`
 	State             string               `json:"state"`
+	RowVersion        int                  `json:"row_version"`
 	CreatedAt         time.Time            `json:"created_at"`
 }
 

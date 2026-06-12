@@ -257,6 +257,12 @@ POST /admin/goats
 PATCH /admin/goats/{goat_id}
 ```
 
+Phase 1B then wires the already-built safe action services into admin-web as
+server-side forms: create correction request, reject candidate, resolve
+correction request, resolve conflict as reject/merge, add goat identifier, and
+retire goat identifier. These are not a general messy-row fix workflow and do
+not implement candidate approve or conflict create_goat semantics.
+
 ## Existing Legacy Pieces
 
 Already present:

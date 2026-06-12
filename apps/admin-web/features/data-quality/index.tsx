@@ -1,8 +1,22 @@
 import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import { ClipboardCheck, GitBranch } from "lucide-react";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, ValueList } from "@/components/admin-primitives";
+import {
+  ActionNotice,
+  EmptyPanel,
+  ErrorPanel,
+  FormField,
+  FormSelect,
+  FormTextArea,
+  Mono,
+  NextPageLink,
+  PageHeader,
+  Panel,
+  ValueList,
+} from "@/components/admin-primitives";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { dateTime, dash, shortId } from "@/lib/format";
-import { boundedInt, hrefWithParam, one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefWithParam, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   adminListCorrectionRequests,
   getConflictDetail,
@@ -12,9 +26,22 @@ import {
   type ConflictType,
   type CorrectionRequestState,
 } from "@/lib/api/server";
+import { createCorrectionRequestAction, rejectCandidateAction, resolveConflictAction, resolveCorrectionRequestAction } from "./actions";
 
 const conflictStates: ConflictState[] = ["open", "needs_field_check", "resolved", "rejected", "closed"];
 const correctionStates: CorrectionRequestState[] = ["open", "assigned", "needs_field_check", "approved", "rejected", "closed"];
+const resolveCorrectionStates: CorrectionRequestState[] = ["approved", "rejected", "needs_field_check", "closed"];
+const identifierTypes = ["old_tag", "rfid", "visual_tag", "sheet_row_id", "purchase_load_id", "temp_field_id", "external_system_id"];
+const correctionRequestTypes = [
+  "missing_tag",
+  "tag_reused",
+  "rfid_conflict",
+  "possible_duplicate",
+  "wrong_location",
+  "wrong_status",
+  "field_verification_result",
+  "identifier_seen_but_not_attached",
+];
 const conflictTypes: ConflictType[] = [
   "duplicate_active_identifier",
   "missing_required_identifier",
@@ -34,6 +61,9 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
   const correctionState = normalizeCorrectionState(one(searchParams, "correction_state"));
   const conflictType = normalizeConflictType(one(searchParams, "conflict_type"));
   const conflictId = one(searchParams, "conflict_id");
+  const returnTo = hrefWithoutAction("/data-quality", searchParams);
+  const actionStatus = one(searchParams, "action_status");
+  const actionMessage = one(searchParams, "action_message");
   const [conflicts, candidates, corrections, detail] = await Promise.all([
     listConflicts({
       limit: conflictLimit,
@@ -58,8 +88,9 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       <PageHeader
         eyebrow="Data Quality"
         title="Review Queues"
-        description="Conflict, match-candidate, and correction request queues for identity review. Actions remain disabled here."
+        description="Live conflict, match-candidate, and correction request queues. Defined Phase 1 decisions are wired; approve/create-goat semantics remain blocked until their contracts are written."
       />
+      <ActionNotice status={actionStatus} message={actionMessage} />
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <Panel title="Identity Conflicts" description="Open and field-check conflicts for the selected filters.">
           <form className="mb-4 grid gap-3 sm:grid-cols-4" action="/data-quality">
@@ -124,6 +155,25 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                     <span>by {candidate.created_by}</span>
                     <span>row v{candidate.row_version}</span>
                   </div>
+                  <form action={rejectCandidateAction} className="mt-4 rounded-md border border-[#334155] bg-[#0f1115] p-3">
+                    <input type="hidden" name="candidate_id" value={candidate.candidate_id} />
+                    <input type="hidden" name="row_version" value={candidate.row_version} />
+                    <input type="hidden" name="idempotency_key" value={randomUUID()} />
+                    <input type="hidden" name="return_to" value={returnTo} />
+                    <EvidenceFields defaultType="goat" defaultID={candidate.candidate_goat_id ?? candidate.proposed_goat_id ?? candidate.candidate_id} />
+                    <div className="mt-3">
+                      <FormTextArea name="reason" label="Reject reason" required placeholder="Why this candidate is not the same goat." rows={2} />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <p className="text-xs text-[#93a4b8]">Reject records a candidate decision only; candidate approve remains contract-blocked.</p>
+                      <ConfirmSubmitButton
+                        message="Reject this candidate match?"
+                        className="h-9 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"
+                      >
+                        Reject
+                      </ConfirmSubmitButton>
+                    </div>
+                  </form>
                 </div>
               ))}
               <NextPageLink href={hrefWithParam("/data-quality", searchParams, "candidate_cursor", candidates.data.next_cursor)} />
@@ -134,7 +184,26 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       </div>
 
       <div className="mt-5">
-        <Panel title="Correction Requests" description="Live read-only correction queue. Review actions remain a later write slice.">
+        <Panel title="Correction Requests" description="Create correction requests and resolve existing requests through the defined Phase 1 review service.">
+          <form action={createCorrectionRequestAction} className="mb-5 rounded-md border border-[#334155] bg-[#10141b] p-3">
+            <input type="hidden" name="idempotency_key" value={randomUUID()} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <div className="grid gap-3 lg:grid-cols-4">
+              <FormSelect name="request_type" label="Request type" options={correctionRequestTypes} required emptyLabel="Select" />
+              <FormField name="goat_id" label="Goat ID" placeholder="optional goat UUID" />
+              <FormSelect name="identifier_type" label="Identifier type" options={identifierTypes} emptyLabel="None" />
+              <FormField name="identifier_value" label="Identifier value" placeholder="optional tag/RFID" />
+            </div>
+            <div className="mt-3">
+              <FormTextArea name="description" label="Description" required placeholder="What needs review or correction?" rows={2} />
+            </div>
+            <div className="mt-3">
+              <EvidenceFields defaultType="source_record" defaultID="manual-admin-review" />
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Create correction request</button>
+            </div>
+          </form>
           <form className="mb-4 grid gap-3 sm:grid-cols-3" action="/data-quality">
             <Select name="correction_state" label="State" defaultValue={correctionState ?? ""} options={correctionStates} />
             <Field name="correction_limit" label="Limit" defaultValue={String(correctionLimit)} min="1" max="100" />
@@ -163,6 +232,29 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                     <span>evidence {correction.evidence_refs.length}</span>
                     <span>row v{correction.row_version}</span>
                   </div>
+                  {["open", "assigned", "needs_field_check"].includes(correction.state) ? (
+                    <form action={resolveCorrectionRequestAction} className="mt-4 rounded-md border border-[#334155] bg-[#0f1115] p-3">
+                      <input type="hidden" name="correction_request_id" value={correction.correction_request_id} />
+                      <input type="hidden" name="row_version" value={correction.row_version} />
+                      <input type="hidden" name="idempotency_key" value={randomUUID()} />
+                      <input type="hidden" name="return_to" value={returnTo} />
+                      <div className="grid gap-3 lg:grid-cols-[0.7fr_1.3fr]">
+                        <FormSelect name="state" label="Decision" options={resolveCorrectionStates} required emptyLabel="Select" />
+                        <EvidenceFields defaultType="source_record" defaultID={correction.correction_request_id} />
+                      </div>
+                      <div className="mt-3">
+                        <FormTextArea name="reason" label="Decision reason" required rows={2} />
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <ConfirmSubmitButton
+                          message="Resolve this correction request?"
+                          className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]"
+                        >
+                          Resolve
+                        </ConfirmSubmitButton>
+                      </div>
+                    </form>
+                  ) : null}
                 </div>
               ))}
               <NextPageLink href={hrefWithParam("/data-quality", searchParams, "correction_cursor", corrections.data.next_cursor)} />
@@ -185,6 +277,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                   ["conflict", <Mono key="conflict">{detail.data.conflict.conflict_id}</Mono>],
                   ["state", detail.data.conflict.state],
                   ["severity", detail.data.conflict.severity],
+                  ["row version", detail.data.conflict.row_version],
                   ["decision options", detail.data.decision_options.join(", ")],
                 ]}
               />
@@ -211,6 +304,65 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                 </div>
                 <div className="mt-2 text-sm text-[#93a4b8]">{detail.data.source_records.length} linked source records returned.</div>
               </div>
+              {detail.data.conflict.state === "open" || detail.data.conflict.state === "needs_field_check" ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <form action={resolveConflictAction} className="rounded-md border border-[#334155] bg-[#10141b] p-3">
+                    <input type="hidden" name="conflict_action" value="reject" />
+                    <input type="hidden" name="conflict_id" value={detail.data.conflict.conflict_id} />
+                    <input type="hidden" name="row_version" value={detail.data.conflict.row_version} />
+                    <input type="hidden" name="affected_goat_ids" value={detail.data.goats.map((item) => item.goat.goat_id).join(",")} />
+                    <input type="hidden" name="idempotency_key" value={randomUUID()} />
+                    <input type="hidden" name="return_to" value={returnTo} />
+                    <h3 className="text-sm font-semibold text-white">Reject match</h3>
+                    <p className="mt-1 text-xs text-[#93a4b8]">Records this conflict as not the same goat. It does not mutate goat identifiers.</p>
+                    <div className="mt-3">
+                      <EvidenceFields defaultType="conflict" defaultID={detail.data.conflict.conflict_id} />
+                    </div>
+                    <div className="mt-3">
+                      <FormTextArea name="reason" label="Reason" required rows={2} />
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <ConfirmSubmitButton
+                        message="Reject this conflict match?"
+                        className="h-9 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"
+                      >
+                        Reject match
+                      </ConfirmSubmitButton>
+                    </div>
+                  </form>
+                  {detail.data.goats.length > 1 ? (
+                    <form action={resolveConflictAction} className="rounded-md border border-[#334155] bg-[#10141b] p-3">
+                      <input type="hidden" name="conflict_action" value="merge" />
+                      <input type="hidden" name="conflict_id" value={detail.data.conflict.conflict_id} />
+                      <input type="hidden" name="row_version" value={detail.data.conflict.row_version} />
+                      <input type="hidden" name="affected_goat_ids" value={detail.data.goats.map((item) => item.goat.goat_id).join(",")} />
+                      <input type="hidden" name="idempotency_key" value={randomUUID()} />
+                      <input type="hidden" name="return_to" value={returnTo} />
+                      <h3 className="text-sm font-semibold text-white">Merge goats</h3>
+                      <p className="mt-1 text-xs text-[#93a4b8]">Uses the existing merge service. The selected survivor wins; non-transferred identifiers are retired historically.</p>
+                      <div className="mt-3 grid gap-3">
+                        <FormSelect
+                          name="survivor_goat_id"
+                          label="Survivor goat"
+                          options={detail.data.goats.map((item) => item.goat.goat_id)}
+                          required
+                          emptyLabel="Select survivor"
+                        />
+                        <EvidenceFields defaultType="conflict" defaultID={detail.data.conflict.conflict_id} />
+                        <FormTextArea name="reason" label="Reason" required rows={2} />
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <ConfirmSubmitButton
+                          message="Merge these goats? This is a canonical identity mutation."
+                          className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]"
+                        >
+                          Merge
+                        </ConfirmSubmitButton>
+                      </div>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </Panel>
@@ -235,6 +387,17 @@ function Field({ name, label, defaultValue, min, max }: { name: string; label: s
   );
 }
 
+function EvidenceFields({ defaultType, defaultID }: { defaultType: string; defaultID: string }) {
+  const safeDefaultID = defaultID || "manual-admin-review";
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      <FormSelect name="evidence_type" label="Evidence type" defaultValue={defaultType} options={evidenceTypes} required emptyLabel="Select" />
+      <FormField name="evidence_id" label="Evidence ID" defaultValue={safeDefaultID} required />
+      <FormField name="evidence_source_system" label="Evidence source" placeholder="optional" />
+    </div>
+  );
+}
+
 function Select({ name, label, defaultValue, options }: { name: string; label: string; defaultValue: string; options: string[] }) {
   return (
     <label>
@@ -254,6 +417,8 @@ function Select({ name, label, defaultValue, options }: { name: string; label: s
     </label>
   );
 }
+
+const evidenceTypes = ["source_record", "identifier", "goat", "event", "media", "decision", "import_run", "conflict", "location", "actor"];
 
 function normalizeState(value: string | undefined): ConflictState | undefined {
   return conflictStates.includes(value as ConflictState) ? (value as ConflictState) : undefined;
