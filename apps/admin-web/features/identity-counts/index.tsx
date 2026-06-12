@@ -2,7 +2,7 @@ import { Activity, BarChart3, CircleDashed, Layers3 } from "lucide-react";
 import { ChartCard } from "@/components/charts/chart-card";
 import { HorizontalBarChart } from "@/components/charts/horizontal-bar";
 import { KPICard } from "@/components/charts/kpi-card";
-import { EmptyPanel, ErrorPanel, NextPageLink, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
+import { EmptyPanel, ErrorPanel, NextPageLink, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { hrefWithCursor, type RouteSearchParams } from "@/lib/search-params";
 import { getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
@@ -30,12 +30,6 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
 
   return (
     <>
-      <PageHeader
-        eyebrow="Counts"
-        title="Counts > Overall"
-        description="Live identity counters for the overall herd. Farm-level legacy tabs stay disabled until those rollups are tracked."
-      />
-
       <nav className="mb-5 flex flex-wrap items-center gap-1" aria-label="Counts tabs">
         {tabs.map((tab) => (
           <span

@@ -7,11 +7,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <div className="flex h-screen overflow-hidden bg-[#0f1115] text-[#f8fafc]">
         <AppSidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Navbar />
-          <main className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8">{children}</div>
-          </main>
+          <main className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-6">{children}</main>
         </div>
       </div>
     </SidebarProvider>

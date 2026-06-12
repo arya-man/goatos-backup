@@ -171,7 +171,7 @@ function tenantLifecycleCount(items: Array<{ count_value: number; dimensions: { 
 
 function Nav({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
   return (
-    <Link href={href} className="inline-flex h-8 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm text-[#f8fafc] hover:bg-[#22262E]">
+    <Link href={href} className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-lg border border-[#334155] px-3 text-sm text-[#f8fafc] hover:bg-[#22262E]">
       {icon}
       {label}
     </Link>

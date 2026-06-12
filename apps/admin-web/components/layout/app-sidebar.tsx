@@ -1,10 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  Activity,
   ArrowLeftRight,
   Baby,
   BarChart3,
@@ -14,10 +14,10 @@ import {
   DatabaseZap,
   FileSearch,
   HeartPulse,
-  LayoutDashboard,
   Milk,
   PanelLeft,
   PanelLeftClose,
+  Receipt,
   Search,
   ShoppingCart,
   Stethoscope,
@@ -27,6 +27,7 @@ import {
   Wheat,
   X,
 } from "lucide-react";
+import logoImg from "@/lib/logo.png";
 import { useSidebar } from "./sidebar-context";
 
 type NavItem = {
@@ -37,7 +38,6 @@ type NavItem = {
 };
 
 const commandItems: NavItem[] = [
-  { icon: LayoutDashboard, label: "CEO Dashboard", href: "/" },
   { icon: BarChart3, label: "Counts", href: "/counts" },
   { icon: Search, label: "Herd Search", href: "/herd" },
   { icon: DatabaseZap, label: "Import Review", href: "/import-review" },
@@ -49,7 +49,7 @@ const legacyItems: NavItem[] = [
   { icon: Baby, label: "Births", status: "disabled" },
   { icon: TrendingUp, label: "Fattening", status: "disabled" },
   { icon: Wheat, label: "Feed", status: "disabled" },
-  { icon: Activity, label: "Sales", status: "disabled" },
+  { icon: Receipt, label: "Sales", status: "disabled" },
   { icon: Briefcase, label: "MIS", status: "disabled" },
   { icon: Building2, label: "Infra", status: "disabled" },
   { icon: Stethoscope, label: "Goats Health", status: "disabled" },
@@ -69,19 +69,14 @@ export function AppSidebar() {
   const sidebarContent = (
     <aside
       className={`flex h-full flex-col overflow-y-auto sidebar-scroll border-r border-[#334155] bg-[#1A1D24] py-4 transition-all duration-200 ${
-        expanded ? "w-[224px] px-3" : "w-[62px] items-center"
+        expanded ? "w-[180px] px-3" : "w-[60px] items-center"
       }`}
     >
-      <div className={`mb-5 flex items-center ${expanded ? "justify-between" : "justify-center"}`}>
+      <div className={`mb-6 flex items-center ${expanded ? "justify-between" : "justify-center"}`}>
         <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2" onClick={() => setMobileOpen(false)}>
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#14F1D9] text-sm font-black text-[#0F1115]">
-            M
-          </div>
+          <Image src={logoImg} alt="Mesha" width={36} height={36} className="rounded-full" priority />
           {expanded ? (
-            <div className="min-w-0">
-              <div className="truncate text-sm font-bold text-[#14F1D9]">Mesha</div>
-              <div className="truncate text-[10px] font-medium uppercase tracking-wider text-[#8899AA]">CEO Dashboard</div>
-            </div>
+            <span className="truncate text-sm font-bold text-[#14F1D9]">Mesha</span>
           ) : null}
         </Link>
         {expanded ? (
@@ -115,30 +110,13 @@ export function AppSidebar() {
         </button>
       ) : null}
 
-      <NavSection
-        expanded={expanded}
-        label="Live"
-        items={commandItems}
-        pathname={pathname}
-        onNavigate={() => setMobileOpen(false)}
-      />
+      {expanded ? <p className="mb-4 w-full text-center text-xs font-bold text-[#14F1D9]">CEO Dashboard</p> : null}
+
+      <NavList expanded={expanded} items={commandItems} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
       <hr className={`my-3 border-[#334155] ${expanded ? "" : "w-8"}`} />
-      <NavSection
-        expanded={expanded}
-        label="Modules"
-        items={legacyItems}
-        pathname={pathname}
-        onNavigate={() => setMobileOpen(false)}
-      />
+      <NavList expanded={expanded} items={legacyItems} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
 
       <div className="flex-1" />
-      {expanded ? (
-        <div className="mt-4 rounded-lg border border-[#334155] bg-[#11151C] p-3 text-[11px] leading-5 text-[#8899AA]">
-          <span className="font-semibold text-[#14F1D9]">Preview</span>
-          <br />
-          Live admin preview. Disabled modules wait for backed data.
-        </div>
-      ) : null}
     </aside>
   );
 
@@ -155,22 +133,19 @@ export function AppSidebar() {
   );
 }
 
-function NavSection({
+function NavList({
   expanded,
-  label,
   items,
   pathname,
   onNavigate,
 }: {
   expanded: boolean;
-  label: string;
   items: NavItem[];
   pathname: string;
   onNavigate: () => void;
 }) {
   return (
-    <nav aria-label={`Mesha ${label.toLowerCase()} navigation`} className={expanded ? "" : "w-full"}>
-      {expanded ? <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-[#14F1D9]">{label}</p> : null}
+    <nav aria-label="Mesha dashboard navigation" className={expanded ? "" : "w-full"}>
       <div className={`flex flex-col gap-1 ${expanded ? "" : "items-center"}`}>
         {items.map((item) => (
           <NavRow key={item.label} expanded={expanded} item={item} pathname={pathname} onNavigate={onNavigate} />
@@ -202,10 +177,7 @@ function NavRow({
     <>
       <Icon size={19} className="shrink-0" />
       {expanded ? (
-        <>
-          <span className="min-w-0 flex-1 truncate text-xs font-medium">{item.label}</span>
-          {disabled ? <span className="text-[9px] uppercase tracking-wider text-[#566273]">Soon</span> : null}
-        </>
+        <span className="min-w-0 flex-1 truncate text-xs font-medium">{item.label}</span>
       ) : null}
     </>
   );
@@ -216,7 +188,7 @@ function NavRow({
         type="button"
         disabled
         title={!expanded ? `${item.label} coming soon` : undefined}
-        className={`${baseClass} cursor-not-allowed text-[#657386] opacity-65`}
+        className={`${baseClass} cursor-not-allowed text-[#8899AA]`}
       >
         {content}
       </button>

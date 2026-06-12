@@ -28,6 +28,7 @@ function formatSegment(segment: string): string {
 function getBreadcrumb(pathname: string): string {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) return "CEO Dashboard";
+  if (segments.length === 1 && segments[0] === "counts") return "Counts > Overall";
   const section = formatSegment(segments[0]);
   if (segments.length > 1) {
     const sub = formatSegment(segments[1]);
@@ -59,10 +60,6 @@ export function Navbar() {
       </div>
 
       <div className="flex-1" />
-      <div className="hidden items-center gap-2 text-[11px] text-[#8899AA] sm:flex">
-        <span className="rounded-full border border-[#334155] px-2 py-1 text-[#14F1D9]">Read-only</span>
-        <span>Internal admin</span>
-      </div>
     </header>
   );
 }

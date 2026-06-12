@@ -23,15 +23,11 @@ interface KPICardProps {
 
 export const KPICard = memo(function KPICard({ label, value, subtitle, icon, delay = 0, variant = 'default' }: KPICardProps) {
   const color = variantColor[variant];
+  void delay;
 
   return (
     <div className={cn(
-      "rounded-xl border border-[#334155] bg-[#1A1D24] p-5 transition-colors hover:border-[#334155] animate-fade-up",
-      delay === 0 && "stagger-1",
-      delay === 1 && "stagger-2",
-      delay === 2 && "stagger-3",
-      delay === 3 && "stagger-4",
-      delay === 4 && "stagger-5",
+      "rounded-xl border border-[#334155] bg-[#1A1D24] p-5 transition-colors hover:border-[#334155]",
     )}>
       <div className="flex items-start justify-between">
         <div>

@@ -14,11 +14,11 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="mb-5 flex flex-col gap-3 border-b border-[#334155] pb-5 md:flex-row md:items-end md:justify-between">
+    <header className="mb-5 flex flex-col gap-2 border-b border-[#334155] pb-5 md:flex-row md:items-end md:justify-between">
       <div>
         <div className="text-xs font-semibold uppercase text-[#14f1d9]">{eyebrow}</div>
-        <h1 className="mt-1 text-2xl font-bold text-white sm:text-3xl">{title}</h1>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-[#B0BEC5]">{description}</p>
+        <h1 className="mt-1 text-2xl font-bold text-white">{title}</h1>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-[#8899AA]">{description}</p>
       </div>
       {actions ? <div className="shrink-0">{actions}</div> : null}
     </header>
@@ -40,7 +40,7 @@ export function Panel({
     <section className="rounded-xl border border-[#334155] bg-[#1A1D24]">
       <div className="flex flex-col gap-2 border-b border-[#334155] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-white">{title}</h2>
+          <h2 className="text-sm font-bold text-white">{title}</h2>
           {description ? <p className="mt-1 text-sm text-[#8899AA]">{description}</p> : null}
         </div>
         {action}
@@ -65,6 +65,17 @@ export function StatPill({ label, value, tone = "neutral" }: { label: string; va
 }
 
 export function ErrorPanel({ error }: { error: ApiUiError }) {
+  if (error.kind === "missing_config" || error.code === "missing_config") {
+    return (
+      <div className="rounded-lg border border-dashed border-[#334155] bg-[#11151C] px-4 py-6 text-sm text-[#8899AA]">
+        <div className="font-semibold text-[#c7d1dc]">Local API configuration needed</div>
+        <p className="mt-1">
+          Start this server with the local backend URL, tenant, and bearer token to load live rows.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-md border border-[#7f1d1d] bg-[#1d1214] p-4 text-sm">
       <div className="flex items-start gap-3">
