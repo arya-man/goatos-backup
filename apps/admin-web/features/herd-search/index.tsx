@@ -17,6 +17,7 @@ const identifierTypes: IdentifierType[] = [
 
 export async function HerdSearchPage({ searchParams }: { searchParams: RouteSearchParams }) {
   const limit = boundedInt(one(searchParams, "limit"), 25, 1, 100);
+  const page = boundedInt(one(searchParams, "page"), 1, 1, 1000000);
   const identifierType = normalizeIdentifierType(one(searchParams, "identifier_type"));
   const result = await searchGoats({
     limit,
@@ -92,7 +93,11 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
                     </div>
                   </Link>
                 ))}
-                <NextPageLink href={hrefWithCursor("/herd", searchParams, result.data.next_cursor)} />
+                <NextPageLink
+                  href={hrefWithCursor("/herd", searchParams, result.data.next_cursor)}
+                  currentPage={page}
+                  pageSize={limit}
+                />
                 <div className="text-xs text-[#93a4b8]">Trace {result.data.trace_id}. Rendered {dateTime(new Date().toISOString())}.</div>
               </div>
             )}

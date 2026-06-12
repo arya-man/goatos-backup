@@ -116,17 +116,34 @@ export function LoadingBlock({ label = "Loading" }: { label?: string }) {
   );
 }
 
-export function NextPageLink({ href, label = "Next page" }: { href: string | null; label?: string }) {
+export function NextPageLink({
+  href,
+  label,
+  currentPage,
+  pageSize,
+}: {
+  href: string | null;
+  label?: string;
+  currentPage?: number;
+  pageSize?: number;
+}) {
   if (!href) return null;
+  const nextLabel = label ?? (currentPage ? `Page ${currentPage + 1}` : "Next page");
   return (
-    <Link
-      href={href}
-      scroll={false}
-      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm text-[#f8fafc] hover:bg-[#22262E]"
-    >
-      {label}
-      <ArrowRight className="h-4 w-4" aria-hidden="true" />
-    </Link>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#334155] bg-[#11151C] px-3 py-2">
+      <div className="text-xs text-[#93a4b8]">
+        <span className="font-semibold uppercase text-[#c7d1dc]">{currentPage ? `Page ${currentPage}` : "Page navigation"}</span>
+        {pageSize ? <span className="ml-2">showing up to {pageSize} rows</span> : null}
+      </div>
+      <Link
+        href={href}
+        scroll={false}
+        className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
+      >
+        {nextLabel}
+        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+      </Link>
+    </div>
   );
 }
 
