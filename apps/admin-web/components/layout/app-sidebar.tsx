@@ -69,10 +69,10 @@ export function AppSidebar() {
   const sidebarContent = (
     <aside
       className={`flex h-full flex-col overflow-y-auto sidebar-scroll border-r border-[#334155] bg-[#1A1D24] py-4 transition-all duration-200 ${
-        expanded ? "w-[180px] px-3" : "w-[60px] items-center"
+        expanded ? "w-[180px] px-3" : "w-[68px] items-center"
       }`}
     >
-      <div className={`mb-6 flex items-center ${expanded ? "justify-between" : "justify-center"}`}>
+      <div className={`flex items-center ${expanded ? "mb-6 justify-between" : "mb-3 justify-center"}`}>
         <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2" onClick={() => setMobileOpen(false)}>
           <Image src={logoImg} alt="Mesha" width={36} height={36} className="rounded-full" priority />
           {expanded ? (
@@ -83,8 +83,10 @@ export function AppSidebar() {
           <button
             type="button"
             onClick={() => setExpanded(false)}
-            className="hidden text-[#8899AA] transition-colors hover:text-[#14F1D9] sm:block"
+            className="hidden rounded-md p-1 text-[#8899AA] transition-colors hover:bg-[rgba(20,241,217,0.08)] hover:text-[#14F1D9] sm:block"
             aria-label="Collapse navigation"
+            aria-expanded={expanded}
+            title="Collapse menu"
           >
             <PanelLeftClose size={16} />
           </button>
@@ -103,10 +105,13 @@ export function AppSidebar() {
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="mb-2 hidden h-10 w-10 items-center justify-center rounded-lg text-[#8899AA] transition-colors hover:bg-[rgba(20,241,217,0.05)] hover:text-[#14F1D9] sm:flex"
-          aria-label="Expand navigation"
+          className="mb-3 hidden h-12 w-12 flex-col items-center justify-center rounded-xl border border-[#14F1D9]/70 bg-[rgba(20,241,217,0.12)] text-[#14F1D9] shadow-[0_0_18px_rgba(20,241,217,0.16)] transition-colors hover:bg-[rgba(20,241,217,0.22)] sm:flex"
+          aria-label="Expand menu"
+          aria-expanded={expanded}
+          title="Expand menu"
         >
-          <PanelLeft size={20} />
+          <PanelLeft size={18} />
+          <span className="mt-0.5 text-[8px] font-black uppercase tracking-wide">Open</span>
         </button>
       ) : null}
 
