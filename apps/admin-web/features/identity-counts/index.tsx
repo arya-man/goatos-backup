@@ -1,10 +1,11 @@
 import { Activity, IndianRupee, Scale, Tag } from "lucide-react";
+import Link from "next/link";
 import { ChartCard } from "@/components/charts/chart-card";
 import { HorizontalBarChart } from "@/components/charts/horizontal-bar";
 import { KPICard } from "@/components/charts/kpi-card";
 import { EmptyPanel, ErrorPanel, NextPageLink, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
-import { hrefWithCursor, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
 
 const tabs = [
@@ -16,6 +17,8 @@ const tabs = [
 ] as const;
 
 export async function IdentityCountsPage({ searchParams }: { searchParams: RouteSearchParams }) {
+  const activeTab = normalizeTab(one(searchParams, "view"));
+  const page = boundedInt(one(searchParams, "page"), 1, 1, 1000000);
   const [tenantLifecycle, growthCohort] = await Promise.all([
     getIdentityCounts({ grain: "tenant_lifecycle", limit: 50 }),
     getIdentityCounts({ grain: "growth_cohort", limit: 50 }),
@@ -34,22 +37,34 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
 
   return (
     <>
-      <nav className="mb-5 flex flex-wrap items-center gap-7" aria-label="Counts tabs">
+      <nav className="mb-5 flex flex-wrap items-center gap-5 text-xl font-semibold" aria-label="Counts tabs">
         {tabs.map((tab) => (
-          <span
+          <Link
             key={tab.id}
+            href={tab.id === "overall" ? "/counts" : `/counts?view=${tab.id}`}
+            scroll={false}
+            aria-current={activeTab === tab.id ? "page" : undefined}
             className={
-              tab.live
-                ? "rounded-lg bg-[#22262E] px-3 py-1.5 text-base font-medium text-[#14F1D9]"
-                : "py-1.5 text-base font-medium text-[#8899AA]"
+              activeTab === tab.id
+                ? "rounded-xl bg-[#22262E] px-4 py-2 text-[#14F1D9]"
+                : "px-2 py-2 text-[#8899AA] hover:text-[#c7d1dc]"
             }
           >
             {tab.label}
-          </span>
+          </Link>
         ))}
       </nav>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {activeTab !== "overall" ? (
+        <Panel
+          title={`${tabs.find((tab) => tab.id === activeTab)?.label} counts`}
+          description="This legacy tab is visible for navigation parity, but the corresponding farm/holding rollup is not exposed by the Mesha counters yet."
+        >
+          <EmptyPanel message="Not tracked yet. Overall identity counts are live; farm, CBE, CPT, and holding rollups need their own backend projections before they can show numbers." />
+        </Panel>
+      ) : null}
+
+      {activeTab === "overall" ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KPICard
           label="Total active goats"
           value={activeGoats === null ? "Not tracked" : activeGoats.toLocaleString("en-IN")}
@@ -79,9 +94,9 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
           icon={<Tag size={18} />}
           delay={3}
         />
-      </div>
+      </div> : null}
 
-      <div className="mt-6">
+      {activeTab === "overall" ? <div className="mt-6">
         <ChartCard
           title="Count by Status"
           subtitle={
@@ -103,9 +118,9 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
             <EmptyPanel message="No counter rows returned for the overall view." />
           )}
         </ChartCard>
-      </div>
+      </div> : null}
 
-      <div className="mt-6">
+      {activeTab === "overall" ? <div className="mt-6">
         <Panel
           title="Overall Counter Rows"
           description="Projection rows for the live overall grain. Paging stays bounded."
@@ -141,14 +156,23 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
                   </div>
                 </div>
               ))}
-              <NextPageLink href={hrefWithCursor("/counts", searchParams, tenantLifecycle.data.next_cursor)} />
+              <NextPageLink
+                href={hrefWithCursor("/counts", searchParams, tenantLifecycle.data.next_cursor)}
+                currentPage={page}
+                pageSize={50}
+              />
               <div className="text-xs text-[#8899AA]">Trace {tenantLifecycle.data.trace_id}. Has more: {tenantLifecycle.data.has_more ? "yes" : "no"}.</div>
             </div>
           )}
         </Panel>
-      </div>
+      </div> : null}
     </>
   );
+}
+
+function normalizeTab(value: string | undefined): typeof tabs[number]["id"] {
+  const match = tabs.find((tab) => tab.id === value);
+  return match?.id ?? "overall";
 }
 
 function dimensionCount(
