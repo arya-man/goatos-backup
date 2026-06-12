@@ -162,19 +162,23 @@ its local file dependency and package-lock.json.
 check-contract-drift now validates OpenAPI/JSON Schema/examples and then runs
 make api-client-check, so generated-client drift is no longer deferred.
 
-apps/admin-web is now the Phase 1 Mesha-style SSR read-only admin demo surface.
+apps/admin-web is now the Phase 1 Mesha-style SSR admin demo surface.
 It uses legacy dashboard visual language: dark left sidebar, compact module
 navigation, breadcrumb header, tabs, KPI cards, dense charts, and tables. The
 CEO Dashboard/Overview route is a new Mesha executive landing, while Summary
 remains a disabled legacy operational rollup/report module. Live Phase 1 routes
-cover the overview, herd search, per-goat passport detail, identity counts,
-read-only data-quality queues, and live Import Review summary/row data through
-backend APIs using server-side bearer auth. Import Review requires an
-import_run_id, is read-only, shows nullable/untracked metrics as "Not tracked",
-and does not read CSVs, local files, Sheets, App Script, BigQuery, or
-operational DBs directly. Corrections, admin goat writes, timeline, import-run
-create, review/fix actions, and non-Phase-1 legacy modules remain honest
-placeholders, disabled tabs, or backend 501/deferred paths.
+cover the overview, herd search, per-goat passport detail with live timeline,
+identity counts, data-quality queues, correction queue reads, and live Import
+Review summary/row data through backend APIs using server-side bearer auth. The
+defined safe Phase 1B actions are wired through server actions: correction
+request create/resolve, candidate reject, conflict reject/merge, and goat
+identifier add/retire. Import Review requires an import_run_id, is read-only,
+shows nullable/untracked metrics as "Not tracked", and does not read CSVs,
+local files, Sheets, App Script, BigQuery, or operational DBs directly. Import
+run create, admin goat create/update, Import Review row review/fix actions,
+candidate approve, conflict create_goat, non-goat disposition, and
+non-Phase-1 legacy modules remain honest placeholders, disabled tabs, or backend
+501/deferred paths.
 
 Import Review plan validation covers the generated row-list query with a
 non-null reason_code plus the JSONB GIN reason probe. The current Phase 1 shape
@@ -803,21 +807,24 @@ P8 sales/allocation/promise behavior
 This order is intentional and should not be inferred from conversation memory:
 
 ```text
-1. Keep the local read-only admin demo reproducible before mutating non-goat
-   review state. The UI now shows clean goats, passport detail, review buckets,
-   live Import Review rows, identity counts, and honest empty states where the
-   local DB has no conflicts/candidates. Review/fix actions are still deferred.
+1. Keep the local admin demo reproducible before mutating non-goat review state.
+   The UI now shows clean goats, passport detail with timeline, review buckets,
+   live Import Review rows, correction queue reads, identity counts, and honest
+   empty states where the local DB has no conflicts/candidates. Defined Phase 1B
+   correction/candidate/conflict/identifier actions are live; Import Review row
+   review/fix actions remain deferred.
 
 2. Keep the local runbook and proof reproducible: fresh Docker Postgres, all
    migrations, real Shape-2 import, normal apply, explicit RFID-only
    blank-suffix apply, counter rebuild, Mesha admin-web SSR routes, and token
    leak checks must continue to reproduce 711/512/0.
 
-3. Keep deferred endpoint/action lists honest while moving review/write,
-   import-run create, production auth, cloud deploy, and event-egress work into
-   later scoped slices. Goat timeline plus correction request list reads are now
-   Phase 1B-0 read-only surfaces; correction review actions remain later write
-   slices.
+3. Keep deferred endpoint/action lists honest while moving Import Review row
+   review/fix, import-run create, production auth, cloud deploy, and event-egress
+   work into later scoped slices. Goat timeline, correction request list reads,
+   and the defined Phase 1B correction/candidate/conflict/identifier actions are
+   now live surfaces; candidate approve and conflict create_goat stay
+   contract-blocked.
 
 4. Treat terminal non-goat disposition as a separate canonical-state slice unless
    it becomes required before closeout. The demo UI may label the current 504

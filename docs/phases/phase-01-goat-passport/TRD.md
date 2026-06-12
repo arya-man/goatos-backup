@@ -1841,7 +1841,7 @@ getGoatPassport                     -> goat.read
 getGoatTimeline                     -> goat.read
 resolveIdentifier                   -> goat.read
 createCorrectionRequest             -> correction.create
-listCorrectionRequests              -> correction.create for the app own/visible correction list; endpoint remains deferred until scoped list semantics are implemented
+listCorrectionRequests              -> correction.create for the app own/visible correction list; Phase 1B scoped list semantics are implemented
 
 createImportRun                     -> import.run.manage, product-admin only
 getImportRun                        -> import.run.view

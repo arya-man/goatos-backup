@@ -46,6 +46,7 @@ try {
       await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
       const html = await page.content();
       assertHealthyHTML(route.name, html, bearerToken);
+      await assertLayoutHealthy(page, route.name, viewport.label);
       await page.screenshot({
         path: join(screenshotDir, `${viewport.label}-${route.name}.png`),
         fullPage: true,
@@ -123,6 +124,61 @@ function assertHealthyHTML(routeName, html, token) {
   }
   if (token && html.includes(token)) {
     throw new Error(`${routeName} rendered GOATOS_BEARER_TOKEN into HTML`);
+  }
+}
+
+async function assertLayoutHealthy(page, routeName, viewportLabel) {
+  const layout = await page.evaluate(() => {
+    const root = document.documentElement;
+    const overflow = root.scrollWidth - root.clientWidth;
+    const main = document.querySelector("main")?.getBoundingClientRect();
+    const clippedControls = Array.from(document.querySelectorAll("a, button"))
+      .filter(isVisible)
+      .filter((element) => (element.textContent ?? "").trim().length > 0)
+      .filter((element) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 2)
+      .slice(0, 5)
+      .map(describeElement);
+    const clippedNavLabels = Array.from(document.querySelectorAll('nav[aria-label^="Mesha"] span'))
+      .filter(isVisible)
+      .filter((element) => (element.textContent ?? "").trim().length > 0)
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .slice(0, 5)
+      .map(describeElement);
+
+    return {
+      overflow,
+      mainInViewport: !main || (main.left >= -1 && main.right <= root.clientWidth + 1),
+      clippedControls,
+      clippedNavLabels,
+    };
+
+    function isVisible(element) {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    }
+
+    function describeElement(element) {
+      return {
+        tag: element.tagName.toLowerCase(),
+        text: (element.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 80),
+        width: Math.round(element.getBoundingClientRect().width),
+        scrollWidth: element.scrollWidth,
+      };
+    }
+  });
+
+  if (layout.overflow > 2) {
+    throw new Error(`${routeName} ${viewportLabel} has horizontal overflow of ${layout.overflow}px`);
+  }
+  if (!layout.mainInViewport) {
+    throw new Error(`${routeName} ${viewportLabel} main content extends outside the viewport`);
+  }
+  if (layout.clippedControls.length > 0) {
+    throw new Error(`${routeName} ${viewportLabel} has clipped button/link text: ${JSON.stringify(layout.clippedControls)}`);
+  }
+  if (viewportLabel === "desktop" && layout.clippedNavLabels.length > 0) {
+    throw new Error(`${routeName} ${viewportLabel} has clipped navigation labels: ${JSON.stringify(layout.clippedNavLabels)}`);
   }
 }
 

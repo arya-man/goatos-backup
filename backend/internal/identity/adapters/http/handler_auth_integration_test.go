@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,6 +151,101 @@ func TestCorrectionReadRoutesUseExpectedPermissions(t *testing.T) {
 			t.Fatalf("role %s admin path status=%d body=%s", role, rec.Code, rec.Body.String())
 		}
 	}
+}
+
+func TestPhase1BWriteRoutesUseExpectedPermissions(t *testing.T) {
+	reviewAllowed := []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier}
+	reviewDenied := []string{permissions.RoleOperator, permissions.RoleParkHead}
+	productWriteAllowed := []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier}
+	productWriteDenied := []string{permissions.RoleOperator, permissions.RoleParkHead}
+
+	routes := []struct {
+		name         string
+		path         string
+		body         string
+		wantStatus   int
+		allowedRoles []string
+		deniedRoles  []string
+	}{
+		{
+			name:         "create correction request",
+			path:         "/identity/correction-requests",
+			body:         validCorrectionBody(),
+			wantStatus:   http.StatusCreated,
+			allowedRoles: []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier, permissions.RoleOperator, permissions.RoleParkHead},
+		},
+		{
+			name:         "resolve correction request",
+			path:         "/admin/identity/correction-requests/40000000-0000-4000-8000-000000000001/resolve",
+			body:         validResolveBody(),
+			wantStatus:   http.StatusOK,
+			allowedRoles: reviewAllowed,
+			deniedRoles:  reviewDenied,
+		},
+		{
+			name:         "reject candidate",
+			path:         "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/reject",
+			body:         validRejectCandidateBody(),
+			wantStatus:   http.StatusOK,
+			allowedRoles: reviewAllowed,
+			deniedRoles:  reviewDenied,
+		},
+		{
+			name:         "resolve conflict",
+			path:         "/admin/identity/conflicts/20000000-0000-4000-8000-000000000001/resolve",
+			body:         validRejectConflictBody(),
+			wantStatus:   http.StatusOK,
+			allowedRoles: reviewAllowed,
+			deniedRoles:  reviewDenied,
+		},
+		{
+			name:         "add goat identifier",
+			path:         "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers",
+			body:         validAddIdentifierBody(),
+			wantStatus:   http.StatusOK,
+			allowedRoles: productWriteAllowed,
+			deniedRoles:  productWriteDenied,
+		},
+		{
+			name:         "retire goat identifier",
+			path:         "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers/30000000-0000-4000-8000-000000000001/retire",
+			body:         validRetireIdentifierBody(),
+			wantStatus:   http.StatusOK,
+			allowedRoles: productWriteAllowed,
+			deniedRoles:  productWriteDenied,
+		},
+	}
+
+	for _, route := range routes {
+		for _, role := range route.allowedRoles {
+			t.Run(route.name+" allows "+role, func(t *testing.T) {
+				rec := authWriteRequest(t, role, route.path, route.body)
+				if rec.Code != route.wantStatus {
+					t.Fatalf("role %s path %s status=%d body=%s", role, route.path, rec.Code, rec.Body.String())
+				}
+			})
+		}
+		for _, role := range route.deniedRoles {
+			t.Run(route.name+" denies "+role, func(t *testing.T) {
+				rec := authWriteRequest(t, role, route.path, route.body)
+				if rec.Code != http.StatusForbidden {
+					t.Fatalf("role %s path %s status=%d body=%s", role, route.path, rec.Code, rec.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func authWriteRequest(t *testing.T, role, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	handler := authWrappedIdentityMux(t, grantSourceForRoles(role))
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "idem-auth-chain-write")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
 }
 
 func authWrappedIdentityMux(t *testing.T, grants permissions.GrantSource) http.Handler {
