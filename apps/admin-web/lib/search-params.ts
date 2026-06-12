@@ -1,5 +1,7 @@
 export type RouteSearchParams = Record<string, string | string[] | undefined>;
 
+const MAX_CURSOR_STACK_DEPTH = 8;
+
 export function one(params: RouteSearchParams, key: string): string | undefined {
   const value = params[key];
   return Array.isArray(value) ? value[0] : value;
@@ -42,9 +44,10 @@ export function hrefWithPagedCursor(
       next.set(key, value);
     }
   }
-  for (const item of all(params, stackKey)) next.append(stackKey, item);
+  const stack = all(params, stackKey);
   const currentCursor = one(params, cursorKey);
-  if (currentCursor) next.append(stackKey, currentCursor);
+  if (currentCursor) stack.push(currentCursor);
+  for (const item of stack.slice(-MAX_CURSOR_STACK_DEPTH)) next.append(stackKey, item);
   const currentPage = boundedInt(one(params, pageKey), 1, 1, 1000000);
   next.set(cursorKey, cursor);
   next.set(pageKey, String(currentPage + 1));
