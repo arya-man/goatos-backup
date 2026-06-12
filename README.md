@@ -450,9 +450,10 @@ and AI all depend on correct goat identity.
 Recommended next execution order:
 
 1. Keep the local Phase 1 proof reproducible while moving remaining stubs to
-   their explicit later-phase slices: candidate approve, conflict create_goat,
-   Import Review row fix/approve, import-run create, admin goat create/update,
-   production auth, cloud deployment, and event egress.
+   their explicit remaining Phase 1B slices and separate later deploy/prod
+   slices: candidate approve, conflict create_goat, Import Review row
+   fix/approve, import-run create, admin goat create/update, production auth,
+   cloud deployment, and event egress.
 2. Add production identity-provider integration later: JWKS/asymmetric token
    verification, login/session handling, key rotation, revocation, and secret
    management.

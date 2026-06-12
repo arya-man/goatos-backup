@@ -119,8 +119,10 @@ Rules:
   the local import tool, not as a browser write action. Candidate approve should
   be split: attach/merge outcomes can reuse existing identifier attach and merge
   invariants, while approve-to-create stays blocked until conflict create_goat
-  exists. Conflict create_goat still needs a product-level operator field-set
-  contract before implementation.
+  exists. Candidate attach must not guess an identifier from match reasons; the
+  request must carry an explicit identifier_action or specify deterministic
+  extraction from the linked legacy row. Conflict create_goat still needs a
+  product-level operator field-set contract before implementation.
 - Import Review query-plan validation now checks both the real generated
   `ListImportRunRows` shape with a non-null `reason_code` and a separate JSONB
   GIN usability probe. Phase 1 accepts the current ordered keyset plan with a

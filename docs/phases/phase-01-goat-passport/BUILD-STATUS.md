@@ -868,7 +868,9 @@ DONE in Phase 1A / Phase 1B
 
 STILL REQUIRED FOR PHASE 1B
   1. Candidate approve attach/merge semantics; approve-to-create stays blocked
-     until conflict create_goat exists.
+     until conflict create_goat exists. Attach must not guess an identifier:
+     the request must carry an explicit identifier_action or specify
+     deterministic extraction from the linked legacy row.
   2. Import Review row actions: row_version, terminal reject with audit,
      fix-with-evidence for row-local fields, and safe re-apply through the
      existing RFID apply path.

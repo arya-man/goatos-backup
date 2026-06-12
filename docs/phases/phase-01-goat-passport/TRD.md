@@ -2329,8 +2329,11 @@ write action. The remaining local workflow work is split deliberately:
 candidate approve attach/merge can be defined as a scoped contract slice using
 the existing identifier attach and merge invariants; approve-to-create and
 conflict create_goat remain blocked until the operator-entered goat creation
-field set is written; Import Review row reject/fix/re-apply is a separate
-row-action slice and must not invent a third goat creator.
+field set is written; attach approval must not infer identifiers from match
+reasons alone and must either carry an explicit `identifier_action` payload or
+name deterministic extraction from the linked legacy row; Import Review row
+reject/fix/re-apply is a separate row-action slice and must not invent a third
+goat creator.
 
 ### App APIs
 
