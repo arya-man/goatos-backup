@@ -94,7 +94,6 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
           {statusRows.length > 0 ? (
             <HorizontalBarChart
               data={chartRows(statusRows)}
-              height={610}
               valueLabel="Count"
               yAxisWidth={150}
             />
