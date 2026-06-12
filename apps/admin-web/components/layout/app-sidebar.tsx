@@ -175,16 +175,18 @@ function NavRow({
   const href = item.href;
   const disabled = item.status === "disabled" || !href;
   const active = href ? (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`)) : false;
-  const baseClass = `flex h-10 items-center gap-3 rounded-lg transition-colors ${
-    expanded ? "px-3" : "w-10 justify-center"
-  }`;
-  const content = (
+  const baseClass = expanded
+    ? "grid h-10 w-full grid-cols-[32px_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 transition-colors"
+    : "flex h-10 w-10 items-center justify-center rounded-lg transition-colors";
+  const content = expanded ? (
     <>
-      <Icon size={19} className="shrink-0" />
-      {expanded ? (
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">{item.label}</span>
-      ) : null}
+      <span className="flex h-7 w-8 items-center justify-center">
+        <Icon size={19} className="shrink-0" />
+      </span>
+      <span className="min-w-0 truncate text-left text-xs font-medium">{item.label}</span>
     </>
+  ) : (
+    <Icon size={19} className="shrink-0" />
   );
 
   if (disabled) {
