@@ -2325,8 +2325,12 @@ or merge_goats, add goat identifier, and retire goat identifier. The UI sends
 idempotency keys, evidence refs, and row_version values to the backend and does
 not invent client-side mutation authority. Confirmed non-goat import-row
 terminal disposition is implemented through the local import tool, not a browser
-write action. Candidate approve, conflict create_goat, and Import Review row
-fix/approve actions remain separate contract/design slices.
+write action. The remaining local workflow work is split deliberately:
+candidate approve attach/merge can be defined as a scoped contract slice using
+the existing identifier attach and merge invariants; approve-to-create and
+conflict create_goat remain blocked until the operator-entered goat creation
+field set is written; Import Review row reject/fix/re-apply is a separate
+row-action slice and must not invent a third goat creator.
 
 ### App APIs
 

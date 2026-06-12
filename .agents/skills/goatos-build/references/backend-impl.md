@@ -106,16 +106,21 @@ Rules:
   max row limit of 500, support `processing_state` and `reason_code` filters,
   expose only whitelisted normalized review fields, and return nullable
   "not tracked" summary metrics instead of fake zeroes. `POST /admin/import-runs`
-  and Import Review row review/fix/import write actions remain deferred.
+  and Import Review row review/fix/import write actions remain deferred; the
+  next row-action slice should add row_version, terminal reject with audit,
+  fix-with-evidence for row-local fields, and safe re-apply through the existing
+  RFID apply path without inventing a third goat creator.
 - Admin-web wires only existing Phase 1 write semantics through server-side
   forms: create correction request, reject candidate, resolve correction
   request, resolve conflict as reject_match or merge_goats, add goat identifier,
   and retire goat identifier. These forms pass backend idempotency keys,
   evidence refs, and row_version guards; they do not create client-side mutation
   authority. Confirmed non-goat import-row disposition is implemented through
-  the local import tool, not as a browser write action. Candidate approve,
-  conflict create_goat, and Import Review row fix/approve flows remain separate
-  contract/design slices.
+  the local import tool, not as a browser write action. Candidate approve should
+  be split: attach/merge outcomes can reuse existing identifier attach and merge
+  invariants, while approve-to-create stays blocked until conflict create_goat
+  exists. Conflict create_goat still needs a product-level operator field-set
+  contract before implementation.
 - Import Review query-plan validation now checks both the real generated
   `ListImportRunRows` shape with a non-null `reason_code` and a separate JSONB
   GIN usability probe. Phase 1 accepts the current ordered keyset plan with a

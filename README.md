@@ -134,23 +134,32 @@ Still pending before Phase 1 is usable end-to-end:
   in admin-web, and confirmed non-goat import rows can be terminalized through
   the local import tool. Admin goat create/update APIs, import-run create, and
   messy-row fix/approve actions remain deferred.
-- Candidate approve and conflict `create_goat` routes exist, but their
-  canonical mutation semantics remain deferred rather than silently writing
-  incomplete goat state.
+- Candidate approve and conflict `create_goat` routes exist, but they are not
+  the same blocker. Candidate approve can be split into non-create outcomes
+  that reuse existing identifier-attach or merge invariants, while
+  approve-to-create remains blocked on the conflict `create_goat` contract.
+  Conflict `create_goat` itself still needs the operator-entered creation field
+  set before code may mint a goat from a conflict.
 - Real production event publishing.
-- Remaining dirty-data actions: candidate approve, conflict `create_goat`, and
-  Import Review row fix/approve.
+- Remaining dirty-data actions: candidate approve attach/merge, Import Review
+  row reject/fix/re-apply, and the create-dependent paths gated by conflict
+  `create_goat`.
 - Deployment setup for shared/staging/prod environments.
 
 Immediate Phase 1B order:
 
 ```text
-1. Define and implement candidate approve semantics as its own canonical
-   mutation slice.
-2. Define and implement conflict create_goat semantics as its own canonical
-   mutation slice.
-3. Define messy-row approve/fix workflow for import review as its own
-   review/action slice.
+1. Define and implement the non-create candidate approve outcomes as their own
+   canonical mutation slice: attach identifier and merge goats; return a typed
+   blocker for approve-to-create until `create_goat` is defined.
+2. Define and implement Import Review row actions that do not require new
+   product semantics: row_version, terminal reject with audit,
+   fix-with-evidence for known row-local fields, and re-apply through the
+   existing RFID apply path when safe.
+3. Make the product decision for conflict `create_goat`: required operator
+   fields, primary identifier evidence, breed/species/status/sex rules,
+   ownership/custody/location requirements, and duplicate checks. Implement it
+   only after that contract is written.
 4. Prepare production auth, event egress, and deploy without calling the local
    dev-token demo shippable.
 ```

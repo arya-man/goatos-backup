@@ -248,8 +248,11 @@ This is a local proof, not production/staging completion. Production auth/IdP,
 cloud deployment, Pub/Sub/event egress, richer messy-data search, correction
 workflows beyond the defined safe actions, messy-row fix/approve workflows, and
 non-Phase-1 legacy modules remain deferred. Candidate approve and conflict
-`create_goat` routes exist, but their canonical mutation semantics remain
-deferred rather than silently writing incomplete goat state.
+`create_goat` routes exist, but they are split blockers rather than one broad
+deferment: candidate approve attach/merge can be defined as a scoped Phase 1B
+slice that reuses existing identifier attach and merge invariants, while
+approve-to-create and conflict `create_goat` remain blocked until the
+operator-entered goat creation field set is written.
 
 Phase 1B-0 adds read-only goat timeline plus app/admin correction request list
 APIs. The remaining typed not_implemented endpoints are:
@@ -264,7 +267,11 @@ Phase 1B then wires the already-built safe action services into admin-web as
 server-side forms: create correction request, reject candidate, resolve
 correction request, resolve conflict as reject/merge, add goat identifier, and
 retire goat identifier. These are not a general messy-row fix workflow and do
-not implement candidate approve or conflict create_goat semantics.
+not implement candidate approve or conflict create_goat semantics. Import
+Review row actions must be defined as their own slice: row_version, terminal
+reject with audit, fix-with-evidence for row-local fields, and safe re-apply
+through the existing RFID apply path; any row action that needs new goat
+creation remains blocked by the conflict `create_goat` contract.
 
 ## Existing Legacy Pieces
 

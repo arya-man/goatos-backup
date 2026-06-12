@@ -177,10 +177,14 @@ or untracked metrics as "Not tracked", includes a derived rejected-row count,
 and does not read CSVs, local files, Sheets, App Script, BigQuery, or
 operational DBs directly. Confirmed non-goat import rows can be terminalized
 through the local `rfid-apply --reject-confirmed-non-goats` path without
-creating goats. Import run create, admin goat create/update, Import Review row
-fix/approve actions, candidate approve, conflict create_goat, and
-non-Phase-1 legacy modules remain honest placeholders, disabled tabs, or
-backend 501/deferred paths.
+creating goats. Import run create and admin goat create/update remain honest
+placeholders or backend 501/deferred paths. Import Review row actions and
+candidate approve should be split before implementation: non-create paths can
+reuse existing row-local fix/reject, identifier attach, merge, and RFID apply
+invariants, while any path that mints a new goat stays blocked on the conflict
+`create_goat` contract. Conflict `create_goat` itself still needs the
+operator-entered creation field set before code may mint a goat from a
+conflict. Non-Phase-1 legacy modules remain disabled tabs.
 
 Import Review plan validation covers the generated row-list query with a
 non-null reason_code plus the JSONB GIN reason probe. The current Phase 1 shape
@@ -792,10 +796,13 @@ AI suggestion worker and candidate-state DB hardening
 remaining admin write handlers except identifier add/retire, correction resolve,
 candidate reject, and built conflict resolve paths
 dirty staged-row conflict/candidate creation and auto-link reconciliation
-create_goat conflict decision until required goat creation fields are
-contract-defined
-candidate approve canonical mutation until required semantics are
-contract-defined
+candidate approve attach/merge outcomes as a scoped contract slice; any
+candidate approve-to-create path remains blocked on conflict create_goat
+create_goat conflict decision until required operator-entered goat creation
+fields are contract-defined
+Import Review row reject/fix/re-apply actions as a scoped row-action slice;
+row approval that needs new goat creation remains blocked on conflict
+create_goat
 standalone merge command handler
 unmerge command handler/contract
 real Google Pub/Sub outbox publisher and production worker deployment
@@ -831,15 +838,18 @@ This order is intentional and should not be inferred from conversation memory:
    admin-web SSR routes, and token leak checks must continue to reproduce
    711 created, 8 actionable review, 504 rejected, and 0 errors.
 
-3. Keep deferred endpoint/action lists honest while moving Import Review row
-   review/fix, import-run create, production auth, cloud deploy, and event-egress
-   work into later scoped slices. Goat timeline, correction request list reads,
-   and the defined Phase 1B correction/candidate/conflict/identifier actions are
-   now live surfaces; candidate approve and conflict create_goat stay
-   contract-blocked.
+3. Split remaining local workflow work instead of treating it as one blanket
+   blocker. Candidate approve attach/merge is implementable as a scoped
+   contract slice that reuses existing identifier attach and merge invariants;
+   approve-to-create must return a typed blocker until conflict create_goat is
+   defined. Import Review row reject/fix/re-apply is a scoped row-action slice;
+   row approval that creates a goat must reuse the existing RFID apply path or
+   remain typed-blocked.
 
-4. Keep candidate approve and conflict create_goat contract-blocked until their
-   canonical mutation semantics are defined.
+4. Keep conflict create_goat contract-blocked until the product field set is
+   written: required operator inputs, primary identifier evidence, breed/species
+   resolution, lifecycle/status/sex rules, ownership/custody/location rules,
+   duplicate checks, audit/evidence, and idempotent replay.
 ```
 
 Phase 1B remaining-work audit after the read foundation:
@@ -857,9 +867,12 @@ DONE in Phase 1A / Phase 1B
   confirmed non-goat terminal disposition through the local RFID import tool.
 
 STILL REQUIRED FOR PHASE 1B
-  1. Candidate approve canonical mutation semantics.
-  2. Conflict create_goat canonical mutation semantics.
-  3. Messy-row approve/fix workflow for import review.
+  1. Candidate approve attach/merge semantics; approve-to-create stays blocked
+     until conflict create_goat exists.
+  2. Import Review row actions: row_version, terminal reject with audit,
+     fix-with-evidence for row-local fields, and safe re-apply through the
+     existing RFID apply path.
+  3. Conflict create_goat product contract and isolated implementation.
 
 DEFERRED TO PHASE 2+
   POST /admin/import-runs, POST /admin/goats, PATCH /admin/goats/{goat_id};
