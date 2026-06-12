@@ -12,11 +12,12 @@ import {
   NextPageLink,
   PageHeader,
   Panel,
+  RowsPerPageSelect,
   ValueList,
 } from "@/components/admin-primitives";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { dateTime, dash, shortId } from "@/lib/format";
-import { boundedInt, hrefWithParam, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   adminListCorrectionRequests,
   getConflictDetail,
@@ -57,6 +58,9 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
   const conflictLimit = boundedInt(one(searchParams, "conflict_limit"), 25, 1, 100);
   const candidateLimit = boundedInt(one(searchParams, "candidate_limit"), 25, 1, 100);
   const correctionLimit = boundedInt(one(searchParams, "correction_limit"), 25, 1, 100);
+  const conflictPage = boundedInt(one(searchParams, "conflict_page"), 1, 1, 1000000);
+  const candidatePage = boundedInt(one(searchParams, "candidate_page"), 1, 1, 1000000);
+  const correctionPage = boundedInt(one(searchParams, "correction_page"), 1, 1, 1000000);
   const state = normalizeState(one(searchParams, "state"));
   const correctionState = normalizeCorrectionState(one(searchParams, "correction_state"));
   const conflictType = normalizeConflictType(one(searchParams, "conflict_type"));
@@ -96,7 +100,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           <form className="mb-4 grid gap-3 sm:grid-cols-4" action="/data-quality">
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
             <Select name="conflict_type" label="Type" defaultValue={conflictType ?? ""} options={conflictTypes} />
-            <Field name="conflict_limit" label="Limit" defaultValue={String(conflictLimit)} min="1" max="100" />
+            <RowsPerPageSelect name="conflict_limit" defaultValue={String(conflictLimit)} />
             <div className="flex items-end">
               <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
             </div>
@@ -127,7 +131,13 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                   </div>
                 </Link>
               ))}
-              <NextPageLink href={hrefWithParam("/data-quality", searchParams, "conflict_cursor", conflicts.data.next_cursor)} />
+              <NextPageLink
+                href={hrefWithPagedCursor("/data-quality", searchParams, "conflict_cursor", conflicts.data.next_cursor, "conflict_page")}
+                previousHref={hrefPreviousPagedCursor("/data-quality", searchParams, "conflict_cursor", "conflict_page")}
+                currentPage={conflictPage}
+                pageSize={conflictLimit}
+                itemCount={conflicts.data.items.length}
+              />
               <div className="text-xs text-[#93a4b8]">Trace {conflicts.data.trace_id}</div>
             </div>
           )}
@@ -176,7 +186,13 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                   </form>
                 </div>
               ))}
-              <NextPageLink href={hrefWithParam("/data-quality", searchParams, "candidate_cursor", candidates.data.next_cursor)} />
+              <NextPageLink
+                href={hrefWithPagedCursor("/data-quality", searchParams, "candidate_cursor", candidates.data.next_cursor, "candidate_page")}
+                previousHref={hrefPreviousPagedCursor("/data-quality", searchParams, "candidate_cursor", "candidate_page")}
+                currentPage={candidatePage}
+                pageSize={candidateLimit}
+                itemCount={candidates.data.items.length}
+              />
               <div className="text-xs text-[#93a4b8]">Trace {candidates.data.trace_id}</div>
             </div>
           )}
@@ -206,7 +222,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           </form>
           <form className="mb-4 grid gap-3 sm:grid-cols-3" action="/data-quality">
             <Select name="correction_state" label="State" defaultValue={correctionState ?? ""} options={correctionStates} />
-            <Field name="correction_limit" label="Limit" defaultValue={String(correctionLimit)} min="1" max="100" />
+            <RowsPerPageSelect name="correction_limit" defaultValue={String(correctionLimit)} />
             <div className="flex items-end">
               <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
             </div>
@@ -257,7 +273,13 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                   ) : null}
                 </div>
               ))}
-              <NextPageLink href={hrefWithParam("/data-quality", searchParams, "correction_cursor", corrections.data.next_cursor)} />
+              <NextPageLink
+                href={hrefWithPagedCursor("/data-quality", searchParams, "correction_cursor", corrections.data.next_cursor, "correction_page")}
+                previousHref={hrefPreviousPagedCursor("/data-quality", searchParams, "correction_cursor", "correction_page")}
+                currentPage={correctionPage}
+                pageSize={correctionLimit}
+                itemCount={corrections.data.items.length}
+              />
               <div className="text-xs text-[#93a4b8]">Trace {corrections.data.trace_id}</div>
             </div>
           )}
@@ -368,22 +390,6 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
         </Panel>
       </div>
     </>
-  );
-}
-
-function Field({ name, label, defaultValue, min, max }: { name: string; label: string; defaultValue: string; min: string; max: string }) {
-  return (
-    <label>
-      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
-      <input
-        name={name}
-        type="number"
-        min={min}
-        max={max}
-        defaultValue={defaultValue}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
-      />
-    </label>
   );
 }
 

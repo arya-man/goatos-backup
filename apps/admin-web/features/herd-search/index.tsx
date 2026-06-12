@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, StatPill } from "@/components/admin-primitives";
+import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
 import { dateTime, dash, joinParts, shortId } from "@/lib/format";
-import { boundedInt, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { searchGoats, type IdentifierType } from "@/lib/api/server";
 
 const identifierTypes: IdentifierType[] = [
@@ -47,7 +47,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
           <Field name="park_id" label="Park ID" defaultValue={one(searchParams, "park_id")} />
           <Field name="location_id" label="Location ID" defaultValue={one(searchParams, "location_id")} />
           <Field name="status" label="Status" defaultValue={one(searchParams, "status")} />
-          <Field name="limit" label="Limit" defaultValue={String(limit)} type="number" min="1" max="100" />
+          <RowsPerPageSelect defaultValue={String(limit)} />
           <div className="md:col-span-4 xl:col-span-8">
             <button className="inline-flex h-9 items-center gap-2 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015] hover:bg-[#7ff7ea]">
               <Search className="h-4 w-4" aria-hidden="true" />
@@ -63,7 +63,11 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
         ) : (
           <Panel
             title="Results"
-            action={<StatPill label="Page rows" value={result.data.items.length} tone={result.data.items.length > 0 ? "good" : "neutral"} />}
+            description={
+              result.data.items.length > 0
+                ? `Showing ${(page - 1) * limit + 1}-${(page - 1) * limit + result.data.items.length} for the current filters.`
+                : "No rows returned for the current filters."
+            }
           >
             {result.data.items.length === 0 ? (
               <EmptyPanel message="No goats matched these filters." />
@@ -95,8 +99,10 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
                 ))}
                 <NextPageLink
                   href={hrefWithCursor("/herd", searchParams, result.data.next_cursor)}
+                  previousHref={hrefPreviousCursor("/herd", searchParams)}
                   currentPage={page}
                   pageSize={limit}
+                  itemCount={result.data.items.length}
                 />
                 <div className="text-xs text-[#93a4b8]">Trace {result.data.trace_id}. Rendered {dateTime(new Date().toISOString())}.</div>
               </div>

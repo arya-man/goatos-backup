@@ -1,5 +1,5 @@
-import Link from "next/link";
-import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
+import { CursorPagination } from "@/components/cursor-pagination";
 import type { ApiUiError } from "@/lib/api/server";
 
 export function PageHeader({
@@ -116,34 +116,57 @@ export function LoadingBlock({ label = "Loading" }: { label?: string }) {
   );
 }
 
+export function RowsPerPageSelect({
+  name = "limit",
+  label = "Rows per page",
+  defaultValue,
+  options = [25, 50, 100],
+}: {
+  name?: string;
+  label?: string;
+  defaultValue: string;
+  options?: number[];
+}) {
+  return (
+    <label>
+      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
+      <select
+        name={name}
+        defaultValue={defaultValue}
+        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function NextPageLink({
   href,
-  label,
+  previousHref,
   currentPage,
   pageSize,
+  itemCount,
 }: {
   href: string | null;
-  label?: string;
+  previousHref?: string | null;
   currentPage?: number;
   pageSize?: number;
+  itemCount?: number;
 }) {
-  if (!href) return null;
-  const nextLabel = label ?? (currentPage ? `Page ${currentPage + 1}` : "Next page");
+  if (!href && !previousHref) return null;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#334155] bg-[#11151C] px-3 py-2">
-      <div className="text-xs text-[#93a4b8]">
-        <span className="font-semibold uppercase text-[#c7d1dc]">{currentPage ? `Page ${currentPage}` : "Page navigation"}</span>
-        {pageSize ? <span className="ml-2">showing up to {pageSize} rows</span> : null}
-      </div>
-      <Link
-        href={href}
-        scroll={false}
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
-      >
-        {nextLabel}
-        <ArrowRight className="h-4 w-4" aria-hidden="true" />
-      </Link>
-    </div>
+    <CursorPagination
+      nextHref={href}
+      previousHref={previousHref ?? null}
+      currentPage={currentPage}
+      pageSize={pageSize}
+      itemCount={itemCount}
+    />
   );
 }
 

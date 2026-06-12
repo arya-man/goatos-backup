@@ -1,7 +1,7 @@
-import { AlertTriangle, Download, FileWarning, Rows3 } from "lucide-react";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
+import { AlertTriangle, Download, FileWarning } from "lucide-react";
+import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
-import { boundedInt, hrefWithParam, one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { getImportRun, listImportRunRows, type ImportRowState } from "@/lib/api/server";
 
 const rowStates: ImportRowState[] = ["pending", "auto_linked", "created_goat", "needs_review", "rejected", "error"];
@@ -17,6 +17,7 @@ const reasonOptions = [
 export async function ImportReviewPage({ searchParams }: { searchParams: RouteSearchParams }) {
   const importRunId = one(searchParams, "import_run_id")?.trim();
   const limit = boundedInt(one(searchParams, "limit"), 50, 1, 500);
+  const page = boundedInt(one(searchParams, "page"), 1, 1, 1000000);
   const processingState = normalizeRowState(one(searchParams, "processing_state"));
   const reasonCode = normalizeReason(one(searchParams, "reason_code"));
 
@@ -116,18 +117,12 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
           <Panel
             title="Review rows"
             description="Rows are tenant-scoped and paginated. The page reads the selected run only."
-            action={
-              <div className="flex items-center gap-2 text-xs text-[#93a4b8]">
-                <Rows3 className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
-                limit {limit}
-              </div>
-            }
           >
             <form className="mb-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action="/import-review">
               <input type="hidden" name="import_run_id" value={importRunId} />
               <Select name="processing_state" label="State" defaultValue={processingState ?? ""} options={rowStates} />
               <Select name="reason_code" label="Reason" defaultValue={reasonCode ?? ""} options={reasonOptions} />
-              <Field name="limit" label="Limit" defaultValue={String(limit)} min="1" max="500" />
+              <RowsPerPageSelect defaultValue={String(limit)} options={[25, 50, 100, 250, 500]} />
               <div className="flex items-end">
                 <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
               </div>
@@ -178,7 +173,13 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                     ) : null}
                   </div>
                 ))}
-                <NextPageLink href={hrefWithParam("/import-review", searchParams, "cursor", rows.data.next_cursor)} />
+                <NextPageLink
+                  href={hrefWithCursor("/import-review", searchParams, rows.data.next_cursor)}
+                  previousHref={hrefPreviousCursor("/import-review", searchParams)}
+                  currentPage={page}
+                  pageSize={limit}
+                  itemCount={rows.data.items.length}
+                />
                 <div className="text-xs text-[#93a4b8]">Trace {rows.data.trace_id}</div>
               </div>
             )}
@@ -237,22 +238,6 @@ function exportHref(
   if (filters.processing_state) params.set("processing_state", filters.processing_state);
   if (filters.reason_code) params.set("reason_code", filters.reason_code);
   return `/import-review/export?${params.toString()}`;
-}
-
-function Field({ name, label, defaultValue, min, max }: { name: string; label: string; defaultValue: string; min: string; max: string }) {
-  return (
-    <label>
-      <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
-      <input
-        name={name}
-        type="number"
-        min={min}
-        max={max}
-        defaultValue={defaultValue}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
-      />
-    </label>
-  );
 }
 
 function Select({ name, label, defaultValue, options }: { name: string; label: string; defaultValue: string; options: readonly string[] }) {

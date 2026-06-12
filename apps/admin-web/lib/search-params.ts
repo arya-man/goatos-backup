@@ -13,21 +13,90 @@ export function boundedInt(value: string | undefined, fallback: number, min: num
 }
 
 export function hrefWithCursor(pathname: string, params: RouteSearchParams, cursor: string | null) {
+  return hrefWithPagedCursor(pathname, params, "cursor", cursor, "page", "cursor_stack");
+}
+
+export function hrefWithoutCursor(pathname: string, params: RouteSearchParams) {
+  return hrefWithoutPagedCursor(pathname, params, "cursor", "page", "cursor_stack");
+}
+
+export function hrefPreviousCursor(pathname: string, params: RouteSearchParams) {
+  return hrefPreviousPagedCursor(pathname, params, "cursor", "page", "cursor_stack");
+}
+
+export function hrefWithPagedCursor(
+  pathname: string,
+  params: RouteSearchParams,
+  cursorKey: string,
+  cursor: string | null,
+  pageKey = "page",
+  stackKey = `${cursorKey}_stack`,
+) {
   if (!cursor) return null;
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (key === "cursor" || key === "page") continue;
+    if (key === cursorKey || key === pageKey || key === stackKey) continue;
     if (Array.isArray(value)) {
       for (const item of value) next.append(key, item);
     } else if (value) {
       next.set(key, value);
     }
   }
-  const currentPage = boundedInt(one(params, "page"), 1, 1, 1000000);
-  next.set("cursor", cursor);
-  next.set("page", String(currentPage + 1));
+  for (const item of all(params, stackKey)) next.append(stackKey, item);
+  const currentCursor = one(params, cursorKey);
+  if (currentCursor) next.append(stackKey, currentCursor);
+  const currentPage = boundedInt(one(params, pageKey), 1, 1, 1000000);
+  next.set(cursorKey, cursor);
+  next.set(pageKey, String(currentPage + 1));
   const qs = next.toString();
   return qs ? `${pathname}?${qs}` : pathname;
+}
+
+export function hrefPreviousPagedCursor(
+  pathname: string,
+  params: RouteSearchParams,
+  cursorKey: string,
+  pageKey = "page",
+  stackKey = `${cursorKey}_stack`,
+) {
+  const currentPage = boundedInt(one(params, pageKey), 1, 1, 1000000);
+  if (currentPage <= 1) return null;
+  const stack = all(params, stackKey);
+  const previousCursor = stack.pop();
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === cursorKey || key === pageKey || key === stackKey) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  for (const item of stack) next.append(stackKey, item);
+  if (previousCursor) next.set(cursorKey, previousCursor);
+  if (previousCursor && currentPage > 2) next.set(pageKey, String(currentPage - 1));
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
+export function hrefWithoutPagedCursor(pathname: string, params: RouteSearchParams, cursorKey: string, pageKey = "page", stackKey = `${cursorKey}_stack`) {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === cursorKey || key === pageKey || key === stackKey) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
+function all(params: RouteSearchParams, key: string): string[] {
+  const value = params[key];
+  if (!value) return [];
+  return Array.isArray(value) ? value.filter(Boolean) : [value];
 }
 
 export function hrefWithParam(pathname: string, params: RouteSearchParams, key: string, value: string | null) {
