@@ -264,10 +264,10 @@ export interface components {
             goat_id?: string | null;
             identifier_type?: components["schemas"]["IdentifierType"] | null;
             identifier_value?: string | null;
-            location_scope?: components["schemas"]["LocationScope"];
+            location_scope: components["schemas"]["LocationScope"];
             description: string;
             evidence_refs: components["schemas"]["EvidenceRef"][];
-            row_version?: number;
+            row_version: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */

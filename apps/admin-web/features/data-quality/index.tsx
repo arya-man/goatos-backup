@@ -58,7 +58,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       <PageHeader
         eyebrow="Data Quality"
         title="Review Queues"
-        description="Conflict and match-candidate queues for identity review. Actions remain disabled here."
+        description="Conflict, match-candidate, and correction request queues for identity review. Actions remain disabled here."
       />
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <Panel title="Identity Conflicts" description="Open and field-check conflicts for the selected filters.">

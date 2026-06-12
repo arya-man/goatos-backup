@@ -865,8 +865,10 @@ components:
         - correction_request_id
         - request_type
         - state
+        - location_scope
         - description
         - evidence_refs
+        - row_version
         - created_at
       properties:
         correction_request_id:

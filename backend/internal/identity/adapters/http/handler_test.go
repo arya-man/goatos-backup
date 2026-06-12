@@ -137,6 +137,9 @@ func TestListCorrectionRequestsContractShapeAndLimit(t *testing.T) {
 	if len(response.Items) != 1 || response.Items[0].CorrectionRequestID == "" || response.NextCursor == nil {
 		t.Fatalf("unexpected correction response: %#v", response)
 	}
+	if response.Items[0].LocationScope.ParkID == nil || response.Items[0].RowVersion == nil || *response.Items[0].RowVersion != 1 {
+		t.Fatalf("correction response missing location scope or row_version: %#v", response.Items[0])
+	}
 	if response.TraceID != "req-corrections" {
 		t.Fatalf("unexpected trace id: %s", response.TraceID)
 	}
