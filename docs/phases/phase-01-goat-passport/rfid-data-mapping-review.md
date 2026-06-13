@@ -158,9 +158,9 @@ Source-category signal:
   before migration 000015.
 - The source sheet uses `Breed` as an operational breed/category field; the
   label is Mesha business data, not a reason to reject or hide the row.
-- The correct apply behavior is to resolve existing aliases or auto-admit
-  nonblank source Breed labels as active goat breed/category aliases for the
-  source system. Blank/missing Breed remains reviewable.
+- The correct apply behavior is to resolve existing approved aliases or create
+  review-status catalog aliases for unknown nonblank source Breed labels while
+  still allowing passport creation. Blank/missing Breed remains reviewable.
 
 Implementation note for the later build slice:
 
@@ -186,7 +186,7 @@ CSV evidence from the sensitive local reviewer pack:
 | Unique RFID within this bucket | 435 | True global uniqueness is still apply-time only. |
 | Known Gender value | 435 | No blank/unknown Gender inside this bucket. |
 | Current mapped status label | 52 | The other 383 rows would still need status mapping or review. |
-| Current active goat breed/species mapping | 270 | Historical pre-000015 count; source breed/category labels now resolve or auto-admit during apply. |
+| Current active goat breed/species mapping | 270 | Historical pre-000015 count; source breed/category labels now resolve during apply, with unknown labels held in catalog review status. |
 | Current status + goat breed + gender gates pass | 27 | Realistic immediate yield before DB conflict checks. |
 | Likely still review under option B | 408 | Historical pre-000015 estimate; source breed/category review no longer applies to nonblank Breed labels. |
 
@@ -310,7 +310,8 @@ Implemented tests:
 - Rows with unmapped status, blank/missing Breed, blank/unknown Gender, RFID
   conflict, same-scope old-tag conflict, or any additional staging review reason
   remain in `needs_review`. Nonblank source Breed labels such as Anantapur Sheep
-  are not blockers after migration 000015.
+  are not blockers after migration 000015; unknown labels stay review-status in
+  the catalog until operator review.
 - Replay/idempotency does not create duplicate goats or duplicate RFID
   identifiers.
 - The decision record, import row, and audit/evidence trail preserve unresolved
@@ -379,7 +380,8 @@ Recommendation:
 
 1. Keep migration 000015 and the source Breed policy proof in every fresh local
    rehearsal: `Anantapur Sheep` and other nonblank source Breed labels must
-   create goat passports when all other gates pass. The old 504 breed/species
-   review occurrences are historical.
+   create goat passports when all other gates pass. Unknown labels stay
+   review-status in the catalog. The old 504 breed/species review occurrences
+   are historical.
 2. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.

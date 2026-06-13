@@ -34,8 +34,9 @@ Rules:
 - Fresh local closeout proof on June 12, 2026 rendered the Mesha admin-web
   against the real RFID import run after guarded RFID-only apply. The historical
   pre-000015 proof was 711 created goats and 512 review rows; after migration
-  000015, Anantapur Sheep and future nonblank source Breed labels create
-  passports when the other gates pass. The current proof expects 1215 created
+  000015, Anantapur Sheep and other nonblank source Breed labels create
+  passports when the other gates pass. Unknown labels remain review-status in
+  the catalog until operator review. The current proof expects 1215 created
   goats, 8 review rows, 0 errors, and tenant_lifecycle alive 1215. The proof
   covers overview, counts, herd search, a real goat passport, live Import Review
   rows, and honest Data Quality empty states when the local DB has no conflicts,

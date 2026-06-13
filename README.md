@@ -94,9 +94,12 @@ Completed so far:
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
   goat passports from clean rows, guarded RFID-only blank-suffix rows, and
-  nonblank source `Breed` labels such as `Anantapur Sheep`. Source breed/category
-  text is Mesha business data; it must not block passport creation unless the
-  business explicitly marks that label as non-goat/non-passport.
+  source `Breed` labels such as `Anantapur Sheep`. Source breed/category text is
+  Mesha business data; it must not block passport creation unless the business
+  explicitly marks that label as non-goat/non-passport. Known approved labels
+  stay active in the breed catalog; unknown nonblank source labels may create
+  passports when other gates pass, but enter the catalog in review status until
+  an operator promotes or remaps them.
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web. Current post-000015 proof against the real Shape-2
   source creates 780 goats on normal apply, then 1215 goats after guarded

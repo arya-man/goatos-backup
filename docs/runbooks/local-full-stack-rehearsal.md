@@ -244,7 +244,9 @@ using the result as a Phase 1 proof. Usual causes are wrong sheet, changed
 source export, stale database, missing migration, skipping the explicit
 RFID-only blank-suffix apply flag, or accidentally using a pre-000015 database.
 Do not expect the historical 711/512 split; nonblank source Breed rows should
-move into created passports instead of species/breed review.
+move into created passports instead of species/breed review. Unknown nonblank
+source labels are cataloged in review status rather than silently promoted to
+trusted active breeds.
 
 ## Backend And Admin-Web Smoke
 

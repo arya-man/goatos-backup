@@ -581,9 +581,11 @@ RFID source-of-truth staging:
   review-summary.csv, needs-review-rows.csv, blank-old-tag-suffix.csv,
   blank-gender.csv, duplicate-old-tag-same-scope.csv, and README.txt
   Nonblank source breed/category labels such as Anantapur Sheep are Mesha
-  business Breed values and now resolve to active goat breed/category aliases
-  during apply. They must not block passport creation unless the business
-  explicitly marks that label as non-goat/non-passport.
+  business Breed values and must not block passport creation unless the business
+  explicitly marks that label as non-goat/non-passport. Known approved labels
+  resolve to active goat breed/category aliases; unknown nonblank labels create
+  passports when other gates pass but stay review-status in the catalog until an
+  operator promotes or remaps them.
   reviewer_action and reviewer_notes columns are scratch-only; Goat OS does not
   ingest edited reviewer CSVs yet. Corrections re-enter through the source
   workbook or a future approved correction overlay, then normal import/apply is
@@ -595,9 +597,9 @@ RFID source-of-truth staging:
   grouped CSV cells are spreadsheet-formula safe; duplicate old-tag groups use
   stable non-reversible old-tag/scope refs instead of raw values or short masks
   species_or_breed_requires_review groups are for truly blank/missing breed
-  labels only; nonblank source Breed values auto-admit as goat breed/category
-  aliases during apply. blank_old_tag_suffix groups support the opt-in RFID-only
-  creation policy and do not imply suffix derivation
+  labels only; nonblank source Breed values can create passports during apply.
+  Unknown labels stay review-status in the catalog. blank_old_tag_suffix groups
+  support the opt-in RFID-only creation policy and do not imply suffix derivation
   docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md captures the
   local post-apply mapping review. Migration 000010 implements only the
   approved plain F2/K2 status mappings. The follow-up local rerun cleared
@@ -611,8 +613,9 @@ RFID source-of-truth staging:
   breed/species bucket was Anantapur Sheep only. That interpretation was wrong:
   `Anantapur Sheep` is a Mesha source `Breed` value and must create passports
   when the other gates pass. Migration 000015 corrects the policy by mapping it
-  as an active goat breed/category alias and by auto-admitting future nonblank
-  source Breed labels during real apply. The old post-000012 504
+  as an active goat breed/category alias and by allowing future nonblank source
+  Breed labels to create passports during real apply without silently promoting
+  unknown labels to active catalog truth. The old post-000012 504
   species_or_breed_requires_review occurrences are historical pre-000015 counts.
   blank_old_tag_suffix policy review recommended guarded RFID-only creation
   without old_tag identifier creation. Migration 000012 adds the supporting
@@ -625,7 +628,8 @@ RFID source-of-truth staging:
   blank_old_tag_suffix 160, blank_gender 4, and duplicate_old_tag_same_scope 4.
   Those are historical pre-000015 counts from the old source-breed policy; after
   000015, nonblank source Breed labels should move through apply instead of
-  remaining breed/species review rows.
+  remaining breed/species review rows, with unknown labels held as review-status
+  catalog entries.
   Phase 1 local end-to-end proof was rerun after migration 000015: normal apply
   produced created_goat 780, needs_review 443, and error 0; guarded RFID-only
   apply produced created_goat 1215, needs_review 8, and error 0 while the

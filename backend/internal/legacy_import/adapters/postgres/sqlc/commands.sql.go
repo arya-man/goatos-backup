@@ -197,14 +197,14 @@ WITH upsert_breed AS (
   ) VALUES (
     'goat',
     $1,
-    'active',
-    'Auto-admitted from a nonblank source breed/category label during legacy RFID apply; operator review can recategorize later.',
+    'review',
+    'Observed from a nonblank source breed/category label during legacy RFID apply; passport creation is allowed, but catalog trust requires operator promotion.',
     now(),
     now()
   )
   ON CONFLICT (species, canonical_name) DO UPDATE
   SET
-    status = 'active',
+    status = breeds.status,
     review_notes = COALESCE(breeds.review_notes, EXCLUDED.review_notes),
     updated_at = now()
   RETURNING breed_id, canonical_name

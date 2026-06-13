@@ -1697,10 +1697,12 @@ Seed breed/species reference data from the canonical glossary/source findings.
 Known source labels include Malai, Beetal, Sojat, Osmanabadi, Boer, Anantapur
 Sheep, Anantapur, and Kenguri. Treat these as source breed/category reference
 rows and aliases, not hardcoded enums. Nonblank source Breed labels are Mesha
-business data and must create passports when the other apply gates pass; real
-apply auto-admits a source-system alias so counters remain normalized instead of
-fragmenting on free text. Blank/missing Breed values, or a future
-business-explicit non-passport label, stay as raw evidence and route to review.
+business data and must create passports when the other apply gates pass. Known
+approved labels resolve as active catalog rows; unknown nonblank source labels
+may create passports but are inserted as review-status catalog rows so counters
+remain normalized without silently trusting new labels. Blank/missing Breed
+values, or a future business-explicit non-passport label, stay as raw evidence
+and route to review.
 
 ### `audit_log`
 
@@ -2843,8 +2845,9 @@ Grouped CSV cells are spreadsheet-formula safe. duplicate_old_tag_same_scope
 groups use stable non-reversible old-tag/scope refs instead of raw values or
 short masks, so short old-tag labels do not collapse into one bucket.
 species_or_breed_requires_review groups are for blank/missing Breed values or a
-future business-explicit non-passport label; nonblank source Breed labels
-auto-admit as goat breed/category aliases during real apply.
+future business-explicit non-passport label; nonblank source Breed labels create
+passports when other gates pass. Unknown source labels are review-status catalog
+rows until operator promotion/remapping.
 blank_old_tag_suffix groups support the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` policy and do not imply suffix
 derivation.
@@ -2945,10 +2948,11 @@ nonblank Tag/status labels must map through legacy_status_mappings for
 source_system='legacy_rfid_db'
 unknown status mappings and review_required mappings route to needs_review
 blank Tag/status defaults lifecycle_status='alive' only
-breed/species must resolve to a clear active goat breed alias; nonblank source
-Breed labels such as Anantapur Sheep auto-admit as active goat breed/category
-aliases for the source system during real apply; blank/missing Breed routes to
-needs_review
+breed/species must resolve to a clear approved goat breed alias or a nonblank
+source Breed label that can be cataloged for operator review; nonblank source
+Breed labels such as Anantapur Sheep create passports for the source system
+during real apply; unknown labels stay review-status in the catalog.
+blank/missing Breed routes to needs_review
 same source_row_key with different source_row_version_hash routes to
 needs_review before canonical creation
 deterministic SQL data/integrity failures for one staged row (SQLSTATE class
@@ -2967,7 +2971,8 @@ Source breed/category policy:
 ```text
 Rows with nonblank source Breed values must not be blocked by label text alone.
 Migration 000015 maps Anantapur Sheep as an active Mesha goat breed/category and
-apply auto-admits future nonblank source Breed labels for the source system.
+apply keeps unknown nonblank source Breed labels review-status in the catalog
+while allowing passport creation when all other gates pass.
 Blank/missing Breed remains needs_review.
 ```
 

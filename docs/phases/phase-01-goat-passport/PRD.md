@@ -236,9 +236,11 @@ later procurement/workforce phases, not to this Goat Passport RBAC slice.
 The local Phase 1 identity/import/read/admin-demo spine is proven against the
 real Shape-2 RFID source. Historical pre-000015 proof produced 436 created goats
 after normal apply and 711 after guarded RFID-only blank-suffix apply. Migration
-000015 corrects the source Breed policy: `Anantapur Sheep` and future nonblank
+000015 corrects the source Breed policy: `Anantapur Sheep` and other nonblank
 source Breed labels should create passports when all other gates pass. Blank or
-missing Breed remains reviewable.
+missing Breed remains reviewable. Known approved labels stay active in the breed
+catalog; unknown nonblank labels may create passports but remain review-status
+catalog entries until operator promotion/remapping.
 The post-000015 proof creates 780 goats after normal apply and 1215 after
 guarded RFID-only apply, with 8 review rows, 0 errors, and `tenant_lifecycle`
 alive 1215. The Mesha admin-web renders the

@@ -384,13 +384,15 @@ Rules:
   tools. Duplicate old-tag groups use stable non-reversible old-tag/scope refs
   rather than raw values or short masks. Breed review groups are only for
   blank/missing Breed values or future business-explicit non-passport labels.
-  Nonblank source Breed labels auto-admit as goat breed/category aliases during
-  real apply. Blank old-tag suffix groups support the explicit RFID-only apply
-  flag and do not imply suffix derivation.
+  Nonblank source Breed labels create passports during real apply; unknown labels
+  stay review-status in the catalog until operator promotion/remapping. Blank
+  old-tag suffix groups support the explicit RFID-only apply flag and do not
+  imply suffix derivation.
 - `species_or_breed_requires_review` is for blank/missing Breed or a future label
   the business explicitly marks as non-passport/non-goat. Anantapur Sheep is a
-  Mesha source Breed value; migration 000015 maps it active and real apply
-  auto-admits future nonblank source Breed labels as goat breed/category aliases.
+  Mesha source Breed value; migration 000015 maps it active. Real apply may
+  create passports from unknown nonblank source Breed labels, but those labels
+  stay review-status in the catalog until operator promotion/remapping.
 - The first local post-apply RFID mapping review is captured in
   `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`. Migration
   `000010_phase_1_rfid_plain_status_mappings.sql` implements only the approved

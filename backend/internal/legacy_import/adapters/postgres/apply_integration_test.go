@@ -119,7 +119,7 @@ WHERE source_system = 'legacy_rfid_db'
 		}
 	})
 
-	t.Run("nonblank source breed category label auto admits and creates passport", func(t *testing.T) {
+	t.Run("nonblank unknown source breed category label creates passport with review catalog status", func(t *testing.T) {
 		runID, _ := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
 			RowNumber: 2,
 			Raw:       rawRFIDRow("SOURCEBREED", "CBE", "9900000000000000000000009100002", "Female", "Mesha Field Category", ""),
@@ -155,10 +155,13 @@ FROM breeds b
 JOIN breed_aliases ba ON ba.breed_id = b.breed_id
 WHERE b.species = 'goat'
   AND b.canonical_name = 'Mesha Field Category'
-  AND b.status = 'active'
+  AND b.status = 'review'
   AND ba.normalized_alias = 'mesha_field_category'
   AND ba.source_system = 'legacy_rfid_db'`); got != 1 {
 			t.Fatalf("source breed/alias rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM breeds WHERE species = 'goat' AND canonical_name = 'Mesha Field Category' AND status = 'active'`); got != 0 {
+			t.Fatalf("active source breed/category rows=%d, want 0 for unknown label", got)
 		}
 		assertRowState(t, pool, runID, 2, legacy_import.StateCreatedGoat, "")
 	})
