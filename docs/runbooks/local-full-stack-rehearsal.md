@@ -274,18 +274,20 @@ created passports:
   import-review rows = 8
 
 tenant_lifecycle after counter rebuild:
-  alive = 1060
-  sold = 69
+  alive = 1113
+  sold = 70
   dead = 32
-  inactive = 54
+  inactive = 0
 ```
 
 If these numbers differ on a fresh local database, stop and investigate before
 using the result as a Phase 1 proof. Usual causes are wrong BQ export/table,
 changed legacy data, stale database, missing migration, skipping the explicit
 RFID-only blank-suffix apply flag for parser-harness runs, or accidentally using
-a pre-000015 database. Do not expect the historical 711/512 split; nonblank
-source Breed rows should move into created passports instead of species/breed
+a pre-000015 database. Do not classify BQ Shifting-only goats as inactive:
+Shifting without terminal Sale/Death is proof-of-life. Do not expect the
+historical 711/512 split; nonblank source Breed rows should move into created
+passports instead of species/breed
 review. Unknown nonblank source labels are cataloged in review status rather
 than silently promoted to trusted active breeds.
 

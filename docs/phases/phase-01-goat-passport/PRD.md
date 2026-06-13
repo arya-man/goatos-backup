@@ -247,9 +247,10 @@ may create passports but remain review-status catalog entries until operator
 promotion/remapping. The post-000015 proof creates 780 goats after normal apply
 and 1215 after guarded RFID-only apply, with 8 review rows and 0 errors. A
 follow-up BQ reconciliation corrected deterministic matched passport properties:
-943 created passports matched BQ, 155 moved from alive to sold/dead/inactive,
-272 existing passports remain identifier-unmatched, and `tenant_lifecycle`
-now reports alive 1060, sold 69, dead 32, and inactive 54.
+943 created passports matched BQ, terminal BQ evidence now marks sold 70 and
+dead 32, BQ Shifting evidence without terminal Sale/Death is proof-of-life, 272
+existing passports remain identifier-unmatched, and `tenant_lifecycle` now
+reports alive 1113, sold 70, dead 32, and inactive 0.
 The Mesha admin-web renders the overview, counts, herd search, a real goat
 passport, live Import Review rows for that final run, and an honest Data Quality
 empty state when the real local DB has no conflicts or candidates.

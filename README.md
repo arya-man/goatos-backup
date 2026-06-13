@@ -104,10 +104,11 @@ Completed so far:
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web. Current local DB has 1215 goat passports and 8
   import-review rows from the RFID import run. A BQ reconciliation pass matched
-  943 existing passports deterministically, corrected 155 passports away from
-  `alive` into `sold`/`dead`/`inactive`, and rebuilt counters so
-  `tenant_lifecycle` now shows `alive=1060`, `sold=69`, `dead=32`, and
-  `inactive=54`. A follow-up BQ location pass seeded 154 CBE/CPT shed locations
+  943 existing passports deterministically. Terminal BQ evidence now marks
+  `sold=70` and `dead=32`; BQ Shifting evidence without terminal Sale/Death is
+  treated as proof-of-life, so the previous inactive bucket is cleared and
+  `tenant_lifecycle` now shows `alive=1113`, `sold=70`, and `dead=32`. A
+  follow-up BQ location pass seeded 154 CBE/CPT shed locations
   and updated 860 deterministically matched goats to shed-level current
   locations; 83 matched goats remain park-only because BQ had no safe shed, and
   272 existing passports that cannot be joined to BQ by RFID or scoped old tag

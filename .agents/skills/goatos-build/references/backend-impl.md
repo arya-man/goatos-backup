@@ -436,9 +436,11 @@ Rules:
   reconciliation pass caps BQ events at the dashboard max date, updates 860
   deterministic matches to shed-level current locations, leaves 83 matched goats
   park-only because BQ had no safe shed, and leaves 272 unmatched goats
-  untouched. After counter rebuild, tenant_lifecycle is alive 1060, sold 69,
-  dead 32, inactive 54; shed_lifecycle has 165 rows with 860 goats in specific
-  shed buckets and 355 no-shed bucket counts. The local SSR proof rendered real
+  untouched. BQ Shifting evidence without terminal Sale/Death is proof-of-life,
+  so the local lifecycle fix clears the previous inactive bucket. After counter
+  rebuild, tenant_lifecycle is alive 1113, sold 70, dead 32, inactive 0;
+  shed_lifecycle has 136 rows with 860 goats in specific shed buckets and 355
+  no-shed bucket counts. The local SSR proof rendered real
   herd rows, a real goat passport with live timeline, and live Import Review
   summary/rows through admin-web; reruns after 000015 and BQ reconciliation
   must expect this post-BQ state, not the historical 711/512 or 1215-alive

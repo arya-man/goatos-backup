@@ -636,10 +636,11 @@ RFID/BQ source-of-truth staging and reconciliation:
   apply produced created_goat 1215, needs_review 8, and error 0 while the
   tenant_lifecycle alive counter became 1215. A follow-up BQ reconciliation pass
   corrected deterministic matched passports from legacy BigQuery: 943 created
-  passports matched BQ, 155 of those moved from alive to sold/dead/inactive,
-  272 existing passports remain unmatched by RFID or scoped old tag and need
-  identifier reconciliation, and counters were rebuilt to tenant_lifecycle
-  alive 1060, sold 69, dead 32, inactive 54. The source proof found 508
+  passports matched BQ, terminal BQ evidence now marks sold 70 and dead 32,
+  BQ Shifting evidence without terminal Sale/Death is treated as proof-of-life,
+  and 272 existing passports remain unmatched by RFID or scoped old tag and need
+  identifier reconciliation. Counters were rebuilt to tenant_lifecycle
+  alive 1113, sold 70, dead 32, inactive 0. The source proof found 508
   Anantapur Sheep rows in the RFID source and 504 created Anantapur Sheep goat
   passports; the 4-row delta remains blocked by other apply gates, not by the
   source Breed label. Migration 000017 seeds BQ dashboard shed taxonomy under
@@ -647,8 +648,8 @@ RFID/BQ source-of-truth staging and reconciliation:
   shed reconciliation pass uses the dashboard max date as cutoff, updates 860
   deterministically matched goats to shed-level current locations, leaves 83
   matched goats park-only because BQ had no safe shed, and leaves 272 unmatched
-  goats untouched. After counter rebuild, tenant_lifecycle remains alive 1060,
-  sold 69, dead 32, inactive 54; shed_lifecycle has 165 rows with 860 goats in
+  goats untouched. After counter rebuild, tenant_lifecycle remains alive 1113,
+  sold 70, dead 32, inactive 0; shed_lifecycle has 136 rows with 860 goats in
   specific shed buckets and 355 in no-shed buckets. SSR admin-web proof should
   use this post-BQ-reconciled state, not the historical 711/512 or 1215-alive
   split.
@@ -656,8 +657,8 @@ RFID/BQ source-of-truth staging and reconciliation:
   `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and `/data-quality`
   through the Mesha admin-web; reruns after 000015 and BQ reconciliation must
   keep those route checks and token-leak checks while expecting 1215 total
-  passports, 8 import-review rows, and tenant_lifecycle counters alive 1060,
-  sold 69, dead 32, inactive 54.
+  passports, 8 import-review rows, and tenant_lifecycle counters alive 1113,
+  sold 70, dead 32, inactive 0.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
