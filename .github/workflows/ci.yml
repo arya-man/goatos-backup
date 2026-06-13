@@ -60,3 +60,23 @@ jobs:
           make validate-sqlc-plans
           make validate-migrations
           git diff --check
+
+  admin-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/admin-web/package-lock.json
+      - name: Install admin-web dependencies
+        run: npm --prefix apps/admin-web ci
+      - name: Admin-web lint
+        run: npm --prefix apps/admin-web run lint
+      - name: Admin-web typecheck
+        run: npm --prefix apps/admin-web run typecheck
+      - name: Admin-web build and token leak guard
+        env:
+          GOATOS_BEARER_TOKEN: sentinel-mesha-admin-token
+        run: npm --prefix apps/admin-web run build

@@ -5,6 +5,7 @@ fail=0
 admin_web_data_pattern="from ['\"]@google-cloud/bigquery|new BigQuery\\(|googleapis|sheets\\.spreadsheets|spreadsheets\\.values|script\\.google\\.com|script\\.googleusercontent\\.com|docs\\.google\\.com/spreadsheets|/spreadsheets/d/|export\\?format=csv|output=csv|gviz/tq|from ['\"](xlsx|exceljs)['\"]|require\\(['\"](xlsx|exceljs)['\"]\\)|XLSX\\."
 admin_web_feature_deep_import_pattern="(from|import\\() ['\"](@/features/[^'\"]+/[^'\"]+|(\\.\\.?/)+features/[^'\"]+/[^'\"]+)['\"]"
 admin_web_visible_branding_pattern="goat[[:space:]-]*os|vgoat"
+admin_web_debug_footer_pattern="Trace [A-Za-z0-9{]|Rendered [A-Za-z0-9{]"
 
 check_admin_feature_relative_imports() {
   local root="${1:-apps/admin-web/features}"
@@ -60,6 +61,18 @@ EOF
     echo "Admin-web visible branding guard self-test passed: synthetic violation detected."
   else
     echo "Admin-web visible branding guard self-test failed: synthetic violation NOT detected."
+    exit 1
+  fi
+  mkdir -p "$tmpdir/apps/admin-web/app/debug-footer"
+  cat >"$tmpdir/apps/admin-web/app/debug-footer/page.tsx" <<'EOF'
+export default function DebugFooterPage() {
+  return <div>Trace abc123. Rendered 13 Jun 2026, 08:24.</div>;
+}
+EOF
+  if rg -n "$admin_web_debug_footer_pattern" "$tmpdir/apps/admin-web/app" >/dev/null 2>&1; then
+    echo "Admin-web debug footer guard self-test passed: synthetic violation detected."
+  else
+    echo "Admin-web debug footer guard self-test failed: synthetic violation NOT detected."
     exit 1
   fi
   mkdir -p "$tmpdir/apps/admin-web/features/overview"
@@ -202,6 +215,14 @@ if command -v rg >/dev/null 2>&1; then
         echo "Admin web rendered/user-facing strings must use Mesha branding; Goat OS and VGoat are internal or legacy labels only."
         fail=1
       fi
+    fi
+    if rg -n "$admin_web_debug_footer_pattern" \
+      apps/admin-web/app apps/admin-web/components apps/admin-web/features \
+      --glob '!node_modules/**' \
+      --glob '*.{ts,tsx}' >/tmp/goatos-admin-web-debug-footer-boundary-warnings 2>/dev/null; then
+      cat /tmp/goatos-admin-web-debug-footer-boundary-warnings
+      echo "Admin web must not render debug trace/render footers in normal UI. Keep trace IDs inside explicit error diagnostics only."
+      fail=1
     fi
     if rg -n "$admin_web_feature_deep_import_pattern" "${admin_web_code[@]}" \
       --glob '!node_modules/**' >/tmp/goatos-admin-web-feature-boundary-warnings 2>/dev/null; then

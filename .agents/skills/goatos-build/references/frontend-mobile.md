@@ -88,5 +88,10 @@ Rules:
   is `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
   Check alignment, tab/title spacing, typography, colors, card spacing, chart
   sizing, labels, icons, empty space, overflow, clipping, and responsive
-  desktop/narrow views. Do not treat typecheck/build or a `missing_config`
-  screenshot as UI proof.
+  desktop/narrow views. For admin-web, run
+  `npm --prefix apps/admin-web run smoke:visual:live` when the local
+  backend/admin-web can be started; it captures desktop/narrow screenshots and
+  runs layout geometry checks, serious/critical axe checks, token-leak checks,
+  and optional baseline diffs through `smoke:visual:update-baseline` /
+  `smoke:visual:baseline`. Do not treat typecheck/build, a console-only check,
+  or a `missing_config` screenshot as UI proof.

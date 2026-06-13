@@ -54,7 +54,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
           <Field name="status" label="Status" defaultValue={one(searchParams, "status")} />
           <RowsPerPageSelect defaultValue={String(limit)} />
           <div className="md:col-span-4 xl:col-span-8">
-            <button className="inline-flex h-9 items-center gap-2 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015] hover:bg-[#7ff7ea]">
+            <button className="inline-flex h-10 items-center gap-2 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015] hover:bg-[#7ff7ea]">
               <Search className="h-4 w-4" aria-hidden="true" />
               Search
             </button>
@@ -99,7 +99,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
                       <FieldValue label="Breed / sex / status" value={joinParts([goat.breed, goat.sex, goat.lifecycle_status])} />
                       <FieldValue label="Location" value={dash(goat.location_path.display)} />
                       <div className="min-w-0 lg:text-right">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b]">Goat ID</div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-[#94a3b8]">Goat ID</div>
                         <Mono>{shortId(goat.goat_id)}</Mono>
                       </div>
                     </div>
@@ -124,7 +124,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
 function FieldValue({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b]">{label}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#94a3b8]">{label}</div>
       <div className="mt-1 break-words text-sm text-[#c7d1dc]">{value}</div>
     </div>
   );
@@ -156,7 +156,7 @@ function Field({
         type={type}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
         {...rest}
       />
     </label>
@@ -170,7 +170,7 @@ function Select({ name, label, defaultValue, options }: { name: string; label: s
       <select
         name={name}
         defaultValue={defaultValue}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       >
         <option value="">Any</option>
         {options.map((option) => (

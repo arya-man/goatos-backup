@@ -34,6 +34,7 @@ The checks are:
 ```text
 Can the backend compile?
 Do tests pass?
+Can admin-web lint, typecheck, build, and keep the bearer token out of the client bundle?
 Are API contracts still valid?
 Did we accidentally commit a huge/private file?
 Can a brand-new Postgres database be built from our migrations?
@@ -99,6 +100,7 @@ Job:
 
 ```text
 guardrails
+admin-web
 ```
 
 Runs on:
@@ -292,6 +294,95 @@ validate-migrations failed
 git diff --check failed
   whitespace or conflict marker issue
 ```
+
+## Job: `admin-web`
+
+Runs on:
+
+```text
+ubuntu-latest
+```
+
+This job makes sure the Mesha admin-web frontend still compiles and keeps server
+secrets out of browser artifacts. It does not start a local backend or run the
+live screenshot smoke; that visual smoke remains a local pre-push requirement
+for frontend work because it needs a seeded backend/admin-web environment and
+real route data.
+
+### Step 1: Checkout
+
+GitHub downloads the repository into the temporary runner.
+
+### Step 2: Setup Node
+
+GitHub installs Node 24 and enables npm caching using:
+
+```text
+apps/admin-web/package-lock.json
+```
+
+### Step 3: Install Admin-Web Dependencies
+
+Command:
+
+```text
+npm --prefix apps/admin-web ci
+```
+
+Purpose:
+
+```text
+Install the exact dependency graph from package-lock.json, including the
+generated @goatos/api-client file dependency.
+```
+
+### Step 4: Admin-Web Lint
+
+Command:
+
+```text
+npm --prefix apps/admin-web run lint
+```
+
+Purpose:
+
+```text
+Catch TypeScript/React/Next lint failures in the admin surface.
+```
+
+### Step 5: Admin-Web Typecheck
+
+Command:
+
+```text
+npm --prefix apps/admin-web run typecheck
+```
+
+Purpose:
+
+```text
+Catch generated-client, server-action, route, and component type drift.
+```
+
+### Step 6: Admin-Web Build And Token Leak Guard
+
+Command:
+
+```text
+GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
+```
+
+Purpose:
+
+```text
+Build the Next app and run the post-build token leak guard. The sentinel token
+must not appear in client/static output.
+```
+
+If this fails, inspect whether the frontend no longer builds or whether a
+server-only bearer token leaked into browser code/static assets. This job is not
+visual QA; frontend code changes still need the local screenshot/layout/a11y
+smoke plus human screenshot review before push.
 
 ## Temporary Postgres Startup Hardening
 

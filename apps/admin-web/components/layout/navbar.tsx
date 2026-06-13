@@ -47,7 +47,7 @@ export function Navbar() {
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
-        className="flex sm:hidden h-9 w-9 items-center justify-center rounded-lg text-[#8899AA] hover:bg-[#22262E] hover:text-[#14F1D9] transition-colors shrink-0"
+        className="flex sm:hidden h-10 w-10 items-center justify-center rounded-lg text-[#8899AA] hover:bg-[#22262E] hover:text-[#14F1D9] transition-colors shrink-0"
         aria-label="Open navigation"
       >
         <Menu size={18} />

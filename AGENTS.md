@@ -69,7 +69,13 @@ Do:
   Check pixel-level UI quality: sidebar/nav alignment, tab/title spacing,
   typography, color, card padding, chart sizing, labels, icons, empty space,
   overflow, clipping, and desktop/narrow responsive states. Do not accept
-  typecheck/build or a `missing_config` page as frontend visual proof.
+  typecheck/build or a `missing_config` page as frontend visual proof. For
+  admin-web, run `npm --prefix apps/admin-web run smoke:visual:live` when the
+  local backend/admin-web can be started; it captures desktop/narrow
+  screenshots and runs layout/a11y/token-leak checks. Open the resulting images
+  under `.codex-goatos-render/admin-web-screenshots/` and include the screenshot
+  review result in the handoff before pushing. Build passing means only that the
+  code compiles; it does not mean the UI ships.
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
 - Treat million-goat scale as a hard requirement on every design, prompt, and
   code change. Before accepting any new query, worker, import path, reporting

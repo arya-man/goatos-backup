@@ -108,7 +108,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
             <Select name="conflict_type" label="Type" defaultValue={conflictType ?? ""} options={conflictTypes} />
             <RowsPerPageSelect name="conflict_limit" defaultValue={String(conflictLimit)} />
             <div className="flex items-end">
-              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
+              <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
             </div>
           </form>
           {!conflicts.ok ? (
@@ -183,7 +183,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                       <p className="text-xs text-[#93a4b8]">Reject records a candidate decision only; candidate approve remains contract-blocked.</p>
                       <ConfirmSubmitButton
                         message="Reject this candidate match?"
-                        className="h-9 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"
+                        className="h-10 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"
                       >
                         Reject
                       </ConfirmSubmitButton>
@@ -221,14 +221,14 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
               <EvidenceFields defaultType="source_record" defaultID="manual-admin-review" />
             </div>
             <div className="mt-3 flex justify-end">
-              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Create correction request</button>
+              <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Create correction request</button>
             </div>
           </form>
           <form className="mb-4 grid gap-3 sm:grid-cols-3" action="/data-quality">
             <Select name="correction_state" label="State" defaultValue={correctionState ?? ""} options={correctionStates} />
             <RowsPerPageSelect name="correction_limit" defaultValue={String(correctionLimit)} />
             <div className="flex items-end">
-              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
+              <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
             </div>
           </form>
           {!corrections.ok ? (
@@ -268,7 +268,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                       <div className="mt-3 flex justify-end">
                         <ConfirmSubmitButton
                           message="Resolve this correction request?"
-                          className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]"
+                          className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]"
                         >
                           Resolve
                         </ConfirmSubmitButton>
@@ -349,7 +349,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                     <div className="mt-3 flex justify-end">
                       <ConfirmSubmitButton
                         message="Reject this conflict match?"
-                        className="h-9 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"
+                        className="h-10 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"
                       >
                         Reject match
                       </ConfirmSubmitButton>
@@ -379,7 +379,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                       <div className="mt-3 flex justify-end">
                         <ConfirmSubmitButton
                           message="Merge these goats? This is a canonical identity mutation."
-                          className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]"
+                          className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]"
                         >
                           Merge
                         </ConfirmSubmitButton>
@@ -414,7 +414,7 @@ function Select({ name, label, defaultValue, options }: { name: string; label: s
       <select
         name={name}
         defaultValue={defaultValue}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       >
         <option value="">Any</option>
         {options.map((option) => (

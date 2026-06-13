@@ -121,7 +121,7 @@ export async function GoatPassportPage({ goatId, searchParams = {} }: { goatId: 
                             <input type="hidden" name="reason" value="Retired from passport identifier review." />
                             <ConfirmSubmitButton
                               message={`Retire ${identifier.identifier_type} ${identifier.identifier_value}?`}
-                              className="h-8 rounded-md border border-[#7f1d1d] px-2 text-xs font-semibold text-[#fecaca] hover:bg-[#1d1214]"
+                              className="h-10 rounded-md border border-[#7f1d1d] px-3 text-xs font-semibold text-[#fecaca] hover:bg-[#1d1214]"
                             >
                               Retire
                             </ConfirmSubmitButton>
@@ -145,7 +145,7 @@ export async function GoatPassportPage({ goatId, searchParams = {} }: { goatId: 
               <FormSelect name="identifier_type" label="Identifier type" options={identifierTypes} required emptyLabel="Select" />
               <FormField name="identifier_value" label="Identifier value" required />
               <FormField name="scope_key" label="Scope key" required placeholder="global or park scope" />
-              <label className="flex items-end gap-2 pb-2 text-sm text-[#c7d1dc]">
+              <label className="flex min-h-10 items-center gap-2 text-sm text-[#c7d1dc]">
                 <input name="is_primary_for_goat" type="checkbox" className="h-4 w-4 accent-[#14f1d9]" />
                 Primary
               </label>
@@ -154,7 +154,7 @@ export async function GoatPassportPage({ goatId, searchParams = {} }: { goatId: 
               <EvidenceFields defaultType="goat" defaultID={goat.goat_id} />
             </div>
             <div className="mt-3 flex justify-end">
-              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Add identifier</button>
+              <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Add identifier</button>
             </div>
           </form>
         </Panel>

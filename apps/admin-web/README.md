@@ -117,8 +117,23 @@ The smoke requires the same server-only env values, fetches a real goat_id from
 `GET /goats/search`, captures desktop and narrow screenshots under the ignored
 `.codex-goatos-render/admin-web-screenshots/` directory, exercises the live
 overview/counts/herd/passport/Import Review/Data Quality surfaces, and fails if
-it renders configuration-error pages, detects layout overflow, or leaks the
-bearer token into HTML.
+it renders configuration-error pages, detects layout overflow/clipping,
+detects serious or critical accessibility issues, renders debug trace footers,
+or leaks the bearer token into HTML.
+
+The smoke also supports a local visual baseline set for frontend QA:
+
+```bash
+npm run smoke:visual:update-baseline
+npm run smoke:visual:baseline
+```
+
+`smoke:visual:update-baseline` captures the current route screenshots into the
+ignored `.codex-goatos-render/admin-web-baselines/` directory.
+`smoke:visual:baseline` compares a fresh run against that baseline and writes
+diffs under the current screenshot directory if the pixel delta exceeds the
+configured threshold. Use this when polishing a page so visual drift is reviewed
+as an artifact instead of claimed by memory.
 
 For frontend changes, the screenshots must be opened and reviewed before push;
 do not rely on the command exiting successfully. When the changed page has a
@@ -126,8 +141,9 @@ legacy dashboard analogue, open the legacy page in a separate tab and compare
 the local page against it for visual quality. For counts, use
 `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
 Review sidebar/nav alignment, tab/title spacing, typography, colors, card
-padding, chart sizing, labels, icons, empty space, overflow, clipping, and
-desktop/narrow responsive states. A `missing_config` render is not valid visual
+padding, chart sizing, labels, icons, empty space, overflow, clipping,
+desktop/narrow responsive states, and whether the screen actually has live data
+instead of a configuration error. A `missing_config` render is not valid visual
 proof; start the backend/admin-web with the required server-only env first.
 
 Do not commit tokens or secrets. Do not put tokens in browser code, localStorage,

@@ -37,11 +37,11 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
               <input
                 name="import_run_id"
                 placeholder="00000000-0000-4000-8000-000000000000"
-                className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 font-mono text-sm text-white outline-none focus:border-[#14f1d9]"
+                className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 font-mono text-sm text-white outline-none focus:border-[#14f1d9]"
               />
             </label>
             <div className="flex items-end">
-              <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Open</button>
+              <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Open</button>
             </div>
           </form>
           <div className="mt-4">
@@ -128,7 +128,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
               <Select name="reason_code" label="Reason" defaultValue={reasonCode ?? ""} options={reasonOptions} />
               <RowsPerPageSelect defaultValue={String(limit)} options={[25, 50, 100, 250, 500]} />
               <div className="flex items-end">
-                <button className="h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
+                <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
               </div>
             </form>
 
@@ -221,7 +221,7 @@ function DownloadLink({ href, label }: { href: string; label: string }) {
     <a
       href={href}
       download
-      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
+      className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
     >
       <Download className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
       {label}
@@ -250,7 +250,7 @@ function Select({ name, label, defaultValue, options }: { name: string; label: s
       <select
         name={name}
         defaultValue={defaultValue}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       >
         <option value="">Any</option>
         {options.map((option) => (

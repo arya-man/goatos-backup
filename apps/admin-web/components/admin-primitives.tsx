@@ -37,7 +37,7 @@ export function Panel({
   action?: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-[#334155] bg-[#1A1D24]">
+    <section className="min-w-0 rounded-xl border border-[#334155] bg-[#1A1D24]">
       <div className="flex flex-col gap-2 border-b border-[#334155] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-sm font-bold text-white">{title}</h2>
@@ -164,7 +164,7 @@ export function RowsPerPageSelect({
       <select
         name={name}
         defaultValue={defaultValue}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -248,7 +248,7 @@ export function FormField({
         max={max}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       />
     </label>
   );
@@ -276,7 +276,7 @@ export function FormSelect({
         name={name}
         defaultValue={defaultValue ?? ""}
         required={required}
-        className="mt-1 h-9 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       >
         <option value="">{emptyLabel}</option>
         {options.map((option) => (

@@ -34,7 +34,7 @@ export function CursorPagination({
           <Link
             href={previousHref}
             scroll={false}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             Previous
@@ -43,7 +43,7 @@ export function CursorPagination({
           <button
             type="button"
             disabled
-            className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] opacity-40"
+            className="inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] opacity-40"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             Previous
@@ -53,7 +53,7 @@ export function CursorPagination({
           <Link
             href={nextHref}
             scroll={false}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
           >
             Next
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -62,7 +62,7 @@ export function CursorPagination({
           <button
             type="button"
             disabled
-            className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] opacity-40"
+            className="inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] opacity-40"
           >
             Next
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
