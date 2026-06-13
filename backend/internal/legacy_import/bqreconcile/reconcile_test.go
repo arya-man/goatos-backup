@@ -119,6 +119,36 @@ func TestPlanLifecyclePrecedence(t *testing.T) {
 	}
 }
 
+func TestPlanRFIDEvidenceWinsAndFlagsOldTagLifecycleConflict(t *testing.T) {
+	events := []Event{
+		{GoatID: "123456789012345", Farm: "CBE", Event: "Shifting", Date: "2026-02-03"},
+		{GoatID: "765", Farm: "CPT", Event: "Sale", Date: "2025-10-16"},
+	}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		LifecycleStatus: "sold",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+			{IdentifierType: "old_tag", NormalizedValue: "765", ScopeKey: "park:CPT"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.LifecycleUpdates["alive"] != 1 {
+		t.Fatalf("lifecycle updates=%#v want alive update", summary.LifecycleUpdates)
+	}
+	if summary.IdentityReviewUpdates != 1 || summary.LifecycleConflicts != 1 {
+		t.Fatalf("summary conflict counts wrong: %#v", summary)
+	}
+	if len(patches) != 1 {
+		t.Fatalf("patches=%d want 1", len(patches))
+	}
+	if patches[0].AfterLifecycle != "alive" || patches[0].AfterIdentity != "needs_review" || patches[0].Conflict == nil {
+		t.Fatalf("unexpected conflict patch: %#v", patches[0])
+	}
+}
+
 func TestPlanSkipsAmbiguousIdentifierMatches(t *testing.T) {
 	events := []Event{{GoatID: "123456789012345", Event: "Shifting"}}
 	goats := []LocalGoat{

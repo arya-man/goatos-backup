@@ -48,6 +48,7 @@ type Event struct {
 type LocalGoat struct {
 	GoatID            string
 	LifecycleStatus   string
+	IdentityState     string
 	CurrentLocationID string
 	FarmID            string
 	ParkID            string
@@ -91,6 +92,8 @@ type Summary struct {
 	LocationShedUpdates     int            `json:"location_shed_updates"`
 	LocationParkOnlyUpdates int            `json:"location_park_only_updates"`
 	NoLocationEvidence      int            `json:"no_location_evidence"`
+	IdentityReviewUpdates   int            `json:"identity_review_updates"`
+	LifecycleConflicts      int            `json:"lifecycle_conflicts"`
 	PatchesPlanned          int            `json:"patches_planned"`
 	PatchesApplied          int            `json:"patches_applied"`
 }
@@ -99,6 +102,8 @@ type patch struct {
 	GoatID          string
 	BeforeLifecycle string
 	AfterLifecycle  string
+	BeforeIdentity  string
+	AfterIdentity   string
 	BeforeCurrent   string
 	BeforeFarm      string
 	BeforePark      string
@@ -111,17 +116,32 @@ type patch struct {
 	LatestEventDate string
 	LatestFarmCode  string
 	LatestShed      string
+	Conflict        *lifecycleConflict
 }
 
 type goatEvidence struct {
 	events         []Event
 	keys           map[string]struct{}
-	hasBirth       bool
-	hasDeath       bool
-	hasPurchase    bool
-	hasSale        bool
-	hasShifting    bool
+	all            lifecycleEvidence
+	rfid           lifecycleEvidence
+	oldTag         lifecycleEvidence
 	latestLocation *Event
+}
+
+type lifecycleEvidence struct {
+	hasBirth    bool
+	hasDeath    bool
+	hasPurchase bool
+	hasSale     bool
+	hasShifting bool
+}
+
+type lifecycleConflict struct {
+	RFIDLifecycle    string
+	OldTagLifecycle  string
+	RFIDKey          string
+	OldTagKey        string
+	RecommendedState string
 }
 
 func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Summary, error) {
@@ -257,17 +277,12 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 		}
 		ev.events = append(ev.events, event)
 		ev.keys[key] = struct{}{}
-		switch canonicalEventType(event.Event) {
-		case eventTypeBirth:
-			ev.hasBirth = true
-		case eventTypeDeath:
-			ev.hasDeath = true
-		case eventTypePurchase:
-			ev.hasPurchase = true
-		case eventTypeSale:
-			ev.hasSale = true
-		case eventTypeShifting:
-			ev.hasShifting = true
+		applyLifecycleEvent(&ev.all, event)
+		switch identifierKindForKey(key) {
+		case "rfid":
+			applyLifecycleEvent(&ev.rfid, event)
+		case "old_tag":
+			applyLifecycleEvent(&ev.oldTag, event)
 		}
 	}
 	locationSource := locationEvents
@@ -302,7 +317,12 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 	patches := make([]patch, 0)
 	for goatID, evidence := range evidenceByGoat {
 		goat := byGoat[goatID]
-		nextLifecycle := targetLifecycle(evidence)
+		nextLifecycle, conflict := targetLifecycle(evidence)
+		nextIdentity := goat.IdentityState
+		if conflict != nil {
+			nextIdentity = "needs_review"
+			summary.LifecycleConflicts++
+		}
 		nextCurrent := goat.CurrentLocationID
 		nextFarm := goat.FarmID
 		nextPark := goat.ParkID
@@ -335,6 +355,7 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 			nextLifecycle = goat.LifecycleStatus
 		}
 		if nextLifecycle == goat.LifecycleStatus &&
+			nextIdentity == goat.IdentityState &&
 			nextCurrent == goat.CurrentLocationID &&
 			nextFarm == goat.FarmID &&
 			nextPark == goat.ParkID &&
@@ -343,6 +364,9 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 		}
 		if nextLifecycle != goat.LifecycleStatus {
 			summary.LifecycleUpdates[nextLifecycle]++
+		}
+		if nextIdentity != goat.IdentityState {
+			summary.IdentityReviewUpdates++
 		}
 		if nextShed != "" && nextShed != goat.ShedID {
 			summary.LocationShedUpdates++
@@ -353,6 +377,8 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 			GoatID:          goatID,
 			BeforeLifecycle: goat.LifecycleStatus,
 			AfterLifecycle:  nextLifecycle,
+			BeforeIdentity:  goat.IdentityState,
+			AfterIdentity:   nextIdentity,
 			BeforeCurrent:   goat.CurrentLocationID,
 			BeforeFarm:      goat.FarmID,
 			BeforePark:      goat.ParkID,
@@ -365,13 +391,50 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 			LatestEventDate: latestDate,
 			LatestFarmCode:  latestFarm,
 			LatestShed:      latestShed,
+			Conflict:        conflict,
 		})
 	}
 	summary.PatchesPlanned = len(patches)
 	return summary, patches
 }
 
-func targetLifecycle(evidence *goatEvidence) string {
+func applyLifecycleEvent(evidence *lifecycleEvidence, event Event) {
+	switch canonicalEventType(event.Event) {
+	case eventTypeBirth:
+		evidence.hasBirth = true
+	case eventTypeDeath:
+		evidence.hasDeath = true
+	case eventTypePurchase:
+		evidence.hasPurchase = true
+	case eventTypeSale:
+		evidence.hasSale = true
+	case eventTypeShifting:
+		evidence.hasShifting = true
+	}
+}
+
+func targetLifecycle(evidence *goatEvidence) (string, *lifecycleConflict) {
+	rfidLifecycle := targetLifecycleForEvidence(evidence.rfid)
+	oldTagLifecycle := targetLifecycleForEvidence(evidence.oldTag)
+	if rfidLifecycle != "" {
+		if oldTagLifecycle != "" && oldTagLifecycle != rfidLifecycle {
+			return rfidLifecycle, &lifecycleConflict{
+				RFIDLifecycle:    rfidLifecycle,
+				OldTagLifecycle:  oldTagLifecycle,
+				RFIDKey:          firstKeyWithPrefix(evidence.keys, "rfid:"),
+				OldTagKey:        firstKeyWithPrefix(evidence.keys, "old_tag:"),
+				RecommendedState: "RFID evidence wins lifecycle; review reused/manual old-tag evidence before changing identifiers.",
+			}
+		}
+		return rfidLifecycle, nil
+	}
+	if oldTagLifecycle != "" {
+		return oldTagLifecycle, nil
+	}
+	return targetLifecycleForEvidence(evidence.all), nil
+}
+
+func targetLifecycleForEvidence(evidence lifecycleEvidence) string {
 	if evidence.hasDeath {
 		return "dead"
 	}
@@ -382,6 +445,20 @@ func targetLifecycle(evidence *goatEvidence) string {
 		return "alive"
 	}
 	return ""
+}
+
+func firstKeyWithPrefix(keys map[string]struct{}, prefix string) string {
+	out := make([]string, 0, len(keys))
+	for key := range keys {
+		if strings.HasPrefix(key, prefix) {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		return ""
+	}
+	return out[0]
 }
 
 func localIdentifierKey(identifier LocalIdentifier) string {
@@ -416,6 +493,17 @@ func bqEventKey(event Event) string {
 		return ""
 	}
 	return "old_tag:park:" + strings.ToLower(farm) + ":" + value
+}
+
+func identifierKindForKey(key string) string {
+	switch {
+	case strings.HasPrefix(key, "rfid:"):
+		return "rfid"
+	case strings.HasPrefix(key, "old_tag:"):
+		return "old_tag"
+	default:
+		return ""
+	}
 }
 
 func CanonicalIdentifier(raw string) string {
@@ -528,6 +616,7 @@ func loadLocalGoats(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([
 SELECT
   g.goat_id::text,
   g.lifecycle_status,
+  g.identity_state,
   COALESCE(g.current_location_id::text, '')::text,
   COALESCE(g.farm_id::text, '')::text,
   COALESCE(g.park_id::text, '')::text,
@@ -552,8 +641,8 @@ ORDER BY g.goat_id::text, gi.identifier_type, gi.normalized_value`, tenantID)
 	byID := map[string]*LocalGoat{}
 	order := []string{}
 	for rows.Next() {
-		var goatID, lifecycle, current, farm, park, shed, idType, value, scope string
-		if err := rows.Scan(&goatID, &lifecycle, &current, &farm, &park, &shed, &idType, &value, &scope); err != nil {
+		var goatID, lifecycle, identity, current, farm, park, shed, idType, value, scope string
+		if err := rows.Scan(&goatID, &lifecycle, &identity, &current, &farm, &park, &shed, &idType, &value, &scope); err != nil {
 			return nil, fmt.Errorf("scan local goat identifier: %w", err)
 		}
 		goat := byID[goatID]
@@ -561,6 +650,7 @@ ORDER BY g.goat_id::text, gi.identifier_type, gi.normalized_value`, tenantID)
 			goat = &LocalGoat{
 				GoatID:            goatID,
 				LifecycleStatus:   lifecycle,
+				IdentityState:     identity,
 				CurrentLocationID: current,
 				FarmID:            farm,
 				ParkID:            park,
@@ -661,24 +751,27 @@ func applyPatches(ctx context.Context, pool *pgxpool.Pool, tenantID, traceID str
 UPDATE goats
 SET
   lifecycle_status = $3,
-  current_location_id = $4::uuid,
-  farm_id = $5::uuid,
-  park_id = $6::uuid,
-  shed_id = $7::uuid,
+  identity_state = $4,
+  current_location_id = $5::uuid,
+  farm_id = $6::uuid,
+  park_id = $7::uuid,
+  shed_id = $8::uuid,
   row_version = row_version + 1,
   updated_at = now()
 WHERE tenant_id = $1::uuid
   AND goat_id = $2::uuid
   AND (
     lifecycle_status IS DISTINCT FROM $3
-    OR current_location_id IS DISTINCT FROM $4::uuid
-    OR farm_id IS DISTINCT FROM $5::uuid
-    OR park_id IS DISTINCT FROM $6::uuid
-    OR shed_id IS DISTINCT FROM $7::uuid
+    OR identity_state IS DISTINCT FROM $4
+    OR current_location_id IS DISTINCT FROM $5::uuid
+    OR farm_id IS DISTINCT FROM $6::uuid
+    OR park_id IS DISTINCT FROM $7::uuid
+    OR shed_id IS DISTINCT FROM $8::uuid
   )`,
 			tenantID,
 			patch.GoatID,
 			patch.AfterLifecycle,
+			patch.AfterIdentity,
 			nullableUUID(patch.AfterCurrent),
 			nullableUUID(patch.AfterFarm),
 			nullableUUID(patch.AfterPark),
@@ -687,12 +780,20 @@ WHERE tenant_id = $1::uuid
 		if err != nil {
 			return 0, fmt.Errorf("apply BQ reconciliation patch for goat %s: %w", patch.GoatID, err)
 		}
-		if tag.RowsAffected() == 0 {
+		conflictInserted := false
+		if patch.Conflict != nil {
+			conflictInserted, err = ensureLifecycleConflict(ctx, tx, tenantID, patch)
+			if err != nil {
+				return 0, err
+			}
+		}
+		if tag.RowsAffected() == 0 && !conflictInserted {
 			continue
 		}
 		applied++
 		before := map[string]string{
 			"lifecycle_status":    patch.BeforeLifecycle,
+			"identity_state":      patch.BeforeIdentity,
 			"current_location_id": patch.BeforeCurrent,
 			"farm_id":             patch.BeforeFarm,
 			"park_id":             patch.BeforePark,
@@ -700,6 +801,7 @@ WHERE tenant_id = $1::uuid
 		}
 		after := map[string]string{
 			"lifecycle_status":    patch.AfterLifecycle,
+			"identity_state":      patch.AfterIdentity,
 			"current_location_id": patch.AfterCurrent,
 			"farm_id":             patch.AfterFarm,
 			"park_id":             patch.AfterPark,
@@ -712,6 +814,9 @@ WHERE tenant_id = $1::uuid
 			"latest_event_date":       patch.LatestEventDate,
 			"latest_farm_code":        patch.LatestFarmCode,
 			"latest_destination_shed": patch.LatestShed,
+		}
+		if patch.Conflict != nil {
+			metadata["identifier_lifecycle_conflict"] = patch.Conflict
 		}
 		beforeJSON, _ := json.Marshal(before)
 		afterJSON, _ := json.Marshal(after)
@@ -745,6 +850,86 @@ INSERT INTO audit_log (
 		return 0, fmt.Errorf("commit BQ reconciliation: %w", err)
 	}
 	return applied, nil
+}
+
+func ensureLifecycleConflict(ctx context.Context, tx pgx.Tx, tenantID string, patch patch) (bool, error) {
+	if patch.Conflict == nil {
+		return false, nil
+	}
+	evidence := map[string]any{
+		"source_context":     "bq_reconcile_identifier_lifecycle_conflict",
+		"source_system":      "legacy_bigquery",
+		"review_note":        patch.Conflict.RecommendedState,
+		"rfid_lifecycle":     patch.Conflict.RFIDLifecycle,
+		"old_tag_lifecycle":  patch.Conflict.OldTagLifecycle,
+		"rfid_key":           patch.Conflict.RFIDKey,
+		"old_tag_key":        patch.Conflict.OldTagKey,
+		"matched_keys":       patch.MatchedKeys,
+		"latest_event_date":  patch.LatestEventDate,
+		"latest_farm_code":   patch.LatestFarmCode,
+		"latest_destination": patch.LatestShed,
+	}
+	evidenceJSON, _ := json.Marshal(evidence)
+	var conflictID string
+	err := tx.QueryRow(ctx, `
+INSERT INTO identity_conflicts (
+  tenant_id,
+  conflict_type,
+  severity,
+  state,
+  identifier_type,
+  identifier_value,
+  goat_ids,
+  source_record_ids,
+  evidence
+)
+SELECT
+  $1::uuid,
+  'status_mismatch',
+  'high',
+  'open',
+  'rfid',
+  $3,
+  ARRAY[$2::uuid],
+  $4::text[],
+  $5::jsonb
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM identity_conflicts
+  WHERE tenant_id = $1::uuid
+    AND conflict_type = 'status_mismatch'
+    AND state IN ('open', 'needs_field_check')
+    AND goat_ids @> ARRAY[$2::uuid]
+    AND evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'
+)
+RETURNING conflict_id::text`,
+		tenantID,
+		patch.GoatID,
+		identifierValueFromKey(patch.Conflict.RFIDKey),
+		patch.MatchedKeys,
+		evidenceJSON,
+	).Scan(&conflictID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("insert BQ lifecycle conflict for goat %s: %w", patch.GoatID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')
+ON CONFLICT (conflict_id, goat_id) DO NOTHING`, conflictID, tenantID, patch.GoatID); err != nil {
+		return false, fmt.Errorf("link BQ lifecycle conflict for goat %s: %w", patch.GoatID, err)
+	}
+	return true, nil
+}
+
+func identifierValueFromKey(key string) string {
+	parts := strings.Split(key, ":")
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
 }
 
 func nullableUUID(value string) any {

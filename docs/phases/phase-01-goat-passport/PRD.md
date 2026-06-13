@@ -260,10 +260,12 @@ follow-up BQ reconciliation corrected deterministic matched passport properties:
 the replayable BQ reconciliation command now consumes legacy BQ event and
 latest-location exports, BQ Shifting evidence without terminal Sale/Death is
 proof-of-life, 272 existing passports still have no BQ-derived current location,
-and `tenant_lifecycle` now reports alive 1100, sold 80, dead 35, and inactive 0.
+RFID lifecycle evidence wins over reused/scoped old-tag lifecycle evidence, 47
+identifier-lifecycle disagreements are Data Quality `status_mismatch` conflicts,
+and `tenant_lifecycle` now reports alive 1104, sold 76, dead 35, and inactive 0.
 The Mesha admin-web renders the overview, counts, herd search, a real goat
 passport, live Import Review rows for that final run, and an honest Data Quality
-empty state when the real local DB has no conflicts or candidates.
+queue when the real local DB has conflicts or candidates.
 
 This is a local proof, not production/staging completion. Production auth/IdP,
 cloud deployment, Pub/Sub/event egress, richer messy-data search, correction

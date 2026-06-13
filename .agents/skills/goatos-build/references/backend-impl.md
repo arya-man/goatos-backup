@@ -354,7 +354,10 @@ Rules:
   lifecycle/current-location corrections from BQ event and latest-location
   exports. It dry-runs by default, requires `--execute` plus GOATOS_ENV for
   mutation, takes a tenant advisory lock, updates deterministic
-  RFID/scoped-old-tag matches only, writes `goat.bq_reconciled` audit rows, and requires
+  RFID/scoped-old-tag matches only, lets RFID lifecycle evidence win over
+  reused/scoped old-tag lifecycle evidence, opens Data Quality
+  `status_mismatch` conflicts when those evidence streams disagree, writes
+  `goat.bq_reconciled` audit rows, and requires
   `rebuild-identity-counters` afterward. It does not create goats, add
   identifiers, or emit outbox events. The RFID
   workbook parser/normalizer is retained as a legacy parser/regression harness
@@ -455,8 +458,9 @@ Rules:
   `backend/cmd/bq-reconcile`, not a one-off local DB patch. BQ Shifting
   evidence without terminal Sale/Death is proof-of-life,
   so the local lifecycle fix clears the previous inactive bucket. After counter
-  rebuild, tenant_lifecycle is alive 1100, sold 80, dead 35, inactive 0;
-  shed_lifecycle has 136 rows with 860 goats in specific shed buckets and 355
+  rebuild, tenant_lifecycle is alive 1104, sold 76, dead 35, inactive 0;
+  47 RFID-vs-old-tag lifecycle disagreements are open Data Quality
+  `status_mismatch` conflicts; shed_lifecycle has 134 rows with 860 goats in specific shed buckets and 355
   no-shed bucket counts. The local SSR proof rendered real
   herd rows, a real goat passport with live timeline, and live Import Review
   summary/rows through admin-web; reruns after 000015 and BQ reconciliation
