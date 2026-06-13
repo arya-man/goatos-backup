@@ -1,9 +1,10 @@
 import { Activity, IndianRupee, Scale, Tag } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ChartCard } from "@/components/charts/chart-card";
 import { HorizontalBarChart } from "@/components/charts/horizontal-bar";
 import { KPICard } from "@/components/charts/kpi-card";
-import { AuthRequiredPanel, EmptyPanel, ErrorPanel, Panel } from "@/components/admin-primitives";
+import { EmptyPanel, ErrorPanel, Panel } from "@/components/admin-primitives";
 import { dateTime } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
@@ -24,7 +25,7 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
   ]);
   const authError = firstAuthRequiredError(tenantLifecycle, growthCohort);
   if (authError) {
-    return <AuthRequiredPanel error={authError} />;
+    redirect("/login");
   }
 
   const tenantItems = tenantLifecycle.ok ? tenantLifecycle.data.items : [];

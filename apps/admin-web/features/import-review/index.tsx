@@ -1,5 +1,6 @@
 import { AlertTriangle, Download, FileWarning } from "lucide-react";
-import { AuthRequiredPanel, EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, StatPill, ValueList } from "@/components/admin-primitives";
+import { redirect } from "next/navigation";
+import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, getImportRun, listImportRunRows, type ImportRowState } from "@/lib/api/server";
@@ -63,7 +64,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
   ]);
   const authError = firstAuthRequiredError(summary, rows);
   if (authError) {
-    return <AuthRequiredPanel error={authError} />;
+    redirect("/login");
   }
 
   return (

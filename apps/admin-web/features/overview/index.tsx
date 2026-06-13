@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Activity, AlertTriangle, ClipboardList, DatabaseZap, FileSearch, Search } from "lucide-react";
+import { redirect } from "next/navigation";
 import { KPICard } from "@/components/charts/kpi-card";
-import { AuthRequiredPanel, EmptyPanel, ErrorPanel, PageHeader, Panel, StatPill } from "@/components/admin-primitives";
+import { EmptyPanel, ErrorPanel, PageHeader, Panel, StatPill } from "@/components/admin-primitives";
 import { firstAuthRequiredError, getAdminRuntimeStatus, getIdentityCounts, getImportRun, listCandidates, listConflicts, searchGoats } from "@/lib/api/server";
 import { dash, shortId } from "@/lib/format";
 
@@ -16,7 +17,7 @@ export async function OverviewPage() {
   ]);
   const authError = firstAuthRequiredError(counts, conflicts, candidates, herd, importRun);
   if (authError) {
-    return <AuthRequiredPanel error={authError} />;
+    redirect("/login");
   }
 
   const activeGoats = counts.ok ? tenantLifecycleCount(counts.data.items, "alive") : null;

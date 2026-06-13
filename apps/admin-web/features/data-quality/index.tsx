@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
 import { ClipboardCheck, GitBranch } from "lucide-react";
+import { redirect } from "next/navigation";
 import {
   ActionNotice,
-  AuthRequiredPanel,
   EmptyPanel,
   ErrorPanel,
   FormField,
@@ -90,7 +90,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
   ]);
   const authError = firstAuthRequiredError(conflicts, candidates, corrections, detail);
   if (authError) {
-    return <AuthRequiredPanel error={authError} />;
+    redirect("/login");
   }
 
   return (

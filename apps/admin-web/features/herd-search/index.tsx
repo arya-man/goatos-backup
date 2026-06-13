@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { AuthRequiredPanel, EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
+import { redirect } from "next/navigation";
+import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
 import { dateTime, dash, joinParts, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, searchGoats, type IdentifierType } from "@/lib/api/server";
@@ -32,7 +33,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
   });
   const authError = firstAuthRequiredError(result);
   if (authError) {
-    return <AuthRequiredPanel error={authError} />;
+    redirect("/login");
   }
 
   return (
