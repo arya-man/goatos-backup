@@ -5,6 +5,11 @@ import logoImg from "@/lib/logo.png";
 export const dynamic = "force-dynamic";
 
 export default function LoginPage() {
+  const showLocalDashboardShortcut =
+    process.env.GOATOS_ENV === "local" &&
+    process.env.GOATOS_AUTH_MODE === "bearer" &&
+    Boolean(process.env.GOATOS_BEARER_TOKEN);
+
   return (
     <main className="min-h-screen overflow-hidden bg-[#0b0e13] text-[#f8fafc]">
       <div className="grid min-h-screen lg:grid-cols-[0.95fr_1.05fr]">
@@ -71,12 +76,14 @@ export default function LoginPage() {
                 Google SSO setup is pending for local, staging, and production.
               </p>
 
-              <Link
-                href="/"
-                className="mt-5 flex h-12 w-full items-center justify-center rounded-xl border border-[#14f1d9]/40 bg-[#14f1d9]/10 px-4 text-sm font-black text-[#14f1d9] transition hover:border-[#14f1d9] hover:bg-[#14f1d9]/15 focus:outline-none focus:ring-2 focus:ring-[#14f1d9]/50"
-              >
-                Open local dashboard
-              </Link>
+              {showLocalDashboardShortcut ? (
+                <Link
+                  href="/"
+                  className="mt-5 flex h-12 w-full items-center justify-center rounded-xl border border-[#14f1d9]/40 bg-[#14f1d9]/10 px-4 text-sm font-black text-[#14f1d9] transition hover:border-[#14f1d9] hover:bg-[#14f1d9]/15 focus:outline-none focus:ring-2 focus:ring-[#14f1d9]/50"
+                >
+                  Open local dashboard
+                </Link>
+              ) : null}
             </div>
           </div>
         </section>
