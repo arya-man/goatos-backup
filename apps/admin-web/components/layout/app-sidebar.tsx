@@ -14,6 +14,7 @@ import {
   DatabaseZap,
   FileSearch,
   HeartPulse,
+  LayoutDashboard,
   Milk,
   PanelLeft,
   PanelLeftClose,
@@ -38,6 +39,7 @@ type NavItem = {
 };
 
 const commandItems: NavItem[] = [
+  { icon: LayoutDashboard, label: "CEO Dashboard", href: "/" },
   { icon: BarChart3, label: "Counts", href: "/counts" },
   { icon: Search, label: "Herd Search", href: "/herd" },
   { icon: DatabaseZap, label: "Import Review", href: "/import-review" },
@@ -114,8 +116,6 @@ export function AppSidebar() {
           <span className="mt-0.5 text-[8px] font-black uppercase tracking-wide">Open</span>
         </button>
       ) : null}
-
-      {expanded ? <p className="mb-4 w-full text-center text-xs font-bold text-[#14F1D9]">CEO Dashboard</p> : null}
 
       <NavList expanded={expanded} items={commandItems} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
       <hr className={`my-3 border-[#334155] ${expanded ? "" : "w-8"}`} />
@@ -207,6 +207,7 @@ function NavRow({
       href={href}
       title={!expanded ? item.label : undefined}
       onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
       className={`${baseClass} ${
         active
           ? "bg-[rgba(20,241,217,0.08)] text-[#14F1D9]"
