@@ -256,17 +256,25 @@ fixture, verifies Google Sheet skip behavior, dry-runs, stages, applies clean
 rows, writes the final masked review report, rebuilds counters, starts the API,
 checks authenticated API access, and typechecks/builds admin-web.
 
-For the real local 711-goat proof, start the backend on `127.0.0.1:8080`, seed a
-matching `ceo_internal` or `admin` local grant, mint a matching bearer token,
-then start admin-web explicitly on `127.0.0.1:3300`:
+For day-to-day local UI development, use the one-command local stack. It starts
+or reuses the local API, waits for readiness, seeds the local `ceo_internal`
+grant idempotently, mints a fresh server-side bearer token, and starts admin-web
+on `127.0.0.1:3300`:
 
 ```bash
-cd apps/admin-web
-export GOATOS_API_BASE_URL=http://127.0.0.1:8080
-export GOATOS_BEARER_TOKEN=<local-dev-token>
-export GOATOS_TENANT_ID=<tenant_uuid>
-export GOATOS_IMPORT_RUN_ID=<import_run_id>
-npm run dev:local
+cd /Users/ravi/mesha/goatos
+make dev-local
+```
+
+Use this path instead of reusing an old `GOATOS_BEARER_TOKEN` from a shell. If
+the browser shows `401 invalid_bearer_token`, restart through `make dev-local`
+so the backend and admin-web share the same local auth issuer/audience/secret.
+
+For the real local 711-goat proof, pass the proven import run id so
+`/import-review` opens the live run directly:
+
+```bash
+GOATOS_IMPORT_RUN_ID=<import_run_id> make dev-local
 ```
 
 In another terminal, capture the live browser proof:

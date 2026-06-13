@@ -49,6 +49,23 @@ intentional current 1.x icon baseline.
 
 ## Run The Console
 
+For normal local development, start the API and admin-web together from the repo
+root:
+
+```bash
+cd /Users/ravi/mesha/goatos
+make dev-local
+```
+
+This starts or reuses the local API on `127.0.0.1:8080`, waits for readiness,
+seeds the local `ceo_internal` tenant grant idempotently, mints a fresh bearer
+token, and starts admin-web on `127.0.0.1:3300`. Use this path when the browser
+shows `401 invalid_bearer_token`; it replaces stale shell tokens automatically.
+
+Open `http://127.0.0.1:3300`.
+
+For direct admin-web-only checks:
+
 ```bash
 cd /Users/ravi/mesha/goatos/apps/admin-web
 npm install
@@ -58,11 +75,10 @@ npm run build
 npm run dev:local
 ```
 
-Open `http://127.0.0.1:3300`.
-
-`dev:local` and `start:local` bind explicitly to `127.0.0.1:3300`. If that
-port is busy, the script fails and prints the owning process instead of
-silently moving to another port.
+`dev:local` and `start:local` bind explicitly to `127.0.0.1:3300`, seed the
+local grant, and mint a fresh server-side token unless
+`GOATOS_LOCAL_DEV_AUTO_AUTH=false` is set. If port 3300 is busy, the script
+fails and prints the owning process instead of silently moving to another port.
 
 ```bash
 npm run start:local
@@ -71,7 +87,9 @@ npm run start:local
 ## Environment
 
 Backend calls are made from Next server components/adapters only. Set these in
-the server process that runs `npm run dev`, `npm run build`, or `npm run start`:
+the server process that runs plain `npm run dev`, `npm run build`, or
+`npm run start`. `make dev-local`, `dev:local`, and `start:local` set local
+defaults and mint the bearer token for you:
 
 ```bash
 export GOATOS_API_BASE_URL=http://127.0.0.1:8080
@@ -134,8 +152,28 @@ The contract drift hook now fails if OpenAPI changes without regenerated
 
 ## Local Dev Auth
 
-The backend defaults to bearer auth. For local development, use one shared
-`GOATOS_AUTH_*` config for the API and token minting:
+The backend defaults to bearer auth. `make dev-local` is the preferred local
+path because it uses one shared `GOATOS_AUTH_*` config for the API and token
+minting, avoids stale bearer tokens, and refuses non-local database targets.
+
+The default local identity is:
+
+```text
+tenant_id = 00000000-0000-4000-8000-000000000001
+user_id   = 90000000-0000-4000-8000-000000000101
+role      = ceo_internal
+```
+
+Override it only when you need to test a specific role:
+
+```bash
+export GOATOS_LOCAL_USER_ID=<user-uuid>
+export GOATOS_LOCAL_ROLE=verifier
+make dev-local
+```
+
+For manual local auth debugging, use matching values for the API and token
+minting:
 
 ```bash
 export GOATOS_ENV=local
@@ -156,6 +194,9 @@ go run ./cmd/seed-dev-grant \
   -user-id 90000000-0000-4000-8000-000000000101 \
   -role ceo_internal
 ```
+
+The command is idempotent: if the same active local grant already exists, it
+prints that grant and exits successfully instead of inserting duplicates.
 
 `ceo_internal` is the intended local role for the internal admin surface. The
 product decision is that it is a full Mesha product-admin role for Phase 1 API

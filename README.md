@@ -172,6 +172,20 @@ Local identity spine is built.
 User-facing product is not complete yet.
 ```
 
+## Local Dev Start
+
+Use this command for day-to-day local UI work:
+
+```bash
+make dev-local
+```
+
+It starts or reuses the local API on `127.0.0.1:8080`, seeds the local
+`ceo_internal` grant idempotently, mints a fresh server-side bearer token, and
+starts Mesha admin-web on `127.0.0.1:3300`. If the browser shows
+`401 invalid_bearer_token`, restart through this command instead of reusing an
+old shell token.
+
 ## Local Development Storage
 
 Daily Goat OS development runs locally with Docker Postgres, tests, and small

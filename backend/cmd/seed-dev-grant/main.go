@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
@@ -41,6 +43,26 @@ func main() {
 
 	var grantID string
 	if err := pool.QueryRow(ctx, `
+SELECT grant_id::text
+FROM user_scope_grants
+WHERE tenant_id = $1
+  AND user_id = $2
+  AND role = $3
+  AND scope_type = 'tenant'
+  AND scope_id = $1
+  AND status = 'active'
+  AND valid_from <= now()
+  AND (valid_to IS NULL OR valid_to > now())
+ORDER BY valid_from DESC, grant_id DESC
+LIMIT 1
+`, tenantID, userID, role).Scan(&grantID); err == nil {
+		fmt.Printf("local dev grant already active %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
+		return
+	} else if !isNoRows(err) {
+		fail("query local dev grant: %v", err)
+	}
+
+	if err := pool.QueryRow(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1, $2, $3, 'tenant', $1, 'active', now())
 RETURNING grant_id::text
@@ -65,6 +87,10 @@ func validRole(role string) bool {
 	default:
 		return false
 	}
+}
+
+func isNoRows(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows)
 }
 
 func fail(format string, args ...any) {

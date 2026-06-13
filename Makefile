@@ -1,4 +1,4 @@
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters dev-local
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh
@@ -24,6 +24,9 @@ sqlc-check: sqlc-generate
 
 check: guardrails docker-storage-scripts-test
 	$(MAKE) test
+
+dev-local:
+	bash tools/dev/run-local-stack.sh
 
 validate-migrations:
 	bash backend/tests/integration/validate-postgres-migrations.sh
