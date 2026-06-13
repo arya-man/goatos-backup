@@ -41,6 +41,74 @@ func TestGetGoatPassportContractShape(t *testing.T) {
 	}
 }
 
+func TestSearchGoatsForwardsTableFilters(t *testing.T) {
+	repo := &handlerRepo{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=25&q=G-000001&goat_id=10000000-0000-4000-8000-000000000001&identifier_type=rfid&scope_key=global%3Arfid&breed=Sojat&sex=male&farm_id=20000000-0000-4000-8000-000000000001&park_id=30000000-0000-4000-8000-000000000001&location_id=40000000-0000-4000-8000-000000000001&status=alive", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-search")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.searchParams == nil {
+		t.Fatal("search params were not captured")
+	}
+	assertPtr := func(name string, got *string, want string) {
+		t.Helper()
+		if got == nil || *got != want {
+			t.Fatalf("%s = %v, want %q", name, got, want)
+		}
+	}
+	if repo.searchParams.Limit != 25 || repo.searchParams.TenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("unexpected limit/tenant params: %#v", repo.searchParams)
+	}
+	assertPtr("q", repo.searchParams.Query, "G-000001")
+	assertPtr("goat_id", repo.searchParams.GoatID, "10000000-0000-4000-8000-000000000001")
+	assertPtr("identifier_type", repo.searchParams.IdentifierType, "rfid")
+	assertPtr("scope_key", repo.searchParams.ScopeKey, "global:rfid")
+	assertPtr("breed", repo.searchParams.Breed, "Sojat")
+	assertPtr("sex", repo.searchParams.Sex, "male")
+	assertPtr("farm_id", repo.searchParams.FarmID, "20000000-0000-4000-8000-000000000001")
+	assertPtr("park_id", repo.searchParams.ParkID, "30000000-0000-4000-8000-000000000001")
+	assertPtr("location_id", repo.searchParams.LocationID, "40000000-0000-4000-8000-000000000001")
+	assertPtr("status", repo.searchParams.Status, "alive")
+}
+
+func TestSearchGoatsRejectsInvalidUUIDFilters(t *testing.T) {
+	repo := &handlerRepo{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(repo)))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=25&goat_id=not-a-uuid", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-search-invalid")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.searchParams != nil {
+		t.Fatal("repository should not be called for invalid goat_id")
+	}
+	var envelope domain.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if envelope.Code != "invalid_goat_id" {
+		t.Fatalf("code = %q, want invalid_goat_id", envelope.Code)
+	}
+}
+
 func TestMissingTenantReturnsErrorEnvelope(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
@@ -953,6 +1021,7 @@ type handlerRepo struct {
 	retireIdentifierResult *ports.AdminGoatMutationResult
 	resolveConflictResult  *ports.ResolveConflictResult
 	rejectCandidateResult  *ports.RejectCandidateResult
+	searchParams           *ports.SearchGoatsParams
 }
 
 func (handlerRepo) GetGoatByID(context.Context, string, string) (*domain.GoatPassport, error) {
@@ -963,7 +1032,8 @@ func (handlerRepo) GetGoatByDisplayID(context.Context, string, string) (*domain.
 	return handlerPassport(), nil
 }
 
-func (handlerRepo) SearchGoats(context.Context, ports.SearchGoatsParams) ([]domain.GoatSummary, *string, error) {
+func (r *handlerRepo) SearchGoats(_ context.Context, params ports.SearchGoatsParams) ([]domain.GoatSummary, *string, error) {
+	r.searchParams = &params
 	return []domain.GoatSummary{handlerPassport().Summary}, nil, nil
 }
 

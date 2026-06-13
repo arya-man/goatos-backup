@@ -20,8 +20,11 @@ type SearchGoatsParams struct {
 	Limit          int
 	Cursor         *string
 	Query          *string
+	GoatID         *string
 	IdentifierType *string
 	ScopeKey       *string
+	Breed          *string
+	Sex            *string
 	FarmID         *string
 	ParkID         *string
 	LocationID     *string

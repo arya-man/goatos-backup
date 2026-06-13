@@ -324,6 +324,36 @@ validate_correction_request_state_plan() {
 $sql" '(Sort|Incremental Sort)'
 }
 
+validate_herd_search_filter_plans() {
+  explain_must_use_index "SearchGoatsBreedSexFilter" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT goat_id
+FROM goats g
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.identity_state <> 'merged'
+  AND g.breed = 'Sojat'
+  AND g.sex = 'male'
+ORDER BY g.display_id ASC
+LIMIT 10" '(Sort|Incremental Sort)'
+
+  explain_must_use_index "SearchGoatsSexFilter" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT goat_id
+FROM goats g
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.identity_state <> 'merged'
+  AND g.sex = 'female'
+ORDER BY g.display_id ASC
+LIMIT 10" '(Sort|Incremental Sort)'
+
+  explain_must_use_index "SearchGoatsLifecycleFilter" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT goat_id
+FROM goats g
+WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND g.identity_state <> 'merged'
+  AND g.lifecycle_status = 'alive'
+ORDER BY g.display_id ASC
+LIMIT 10" '(Sort|Incremental Sort)'
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -358,5 +388,6 @@ validate_import_run_generated_reason_filter_plan
 validate_import_run_state_filter_plan
 validate_correction_request_actor_plan
 validate_correction_request_state_plan
+validate_herd_search_filter_plans
 
-echo "Validated $checked_count generated sqlc query plans and 7 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 10 hand-written query plans"

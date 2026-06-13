@@ -117,6 +117,18 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 		args = append(args, *params.Cursor)
 		where = append(where, fmt.Sprintf("g.display_id > $%d", len(args)))
 	}
+	if params.GoatID != nil {
+		args = append(args, *params.GoatID)
+		where = append(where, fmt.Sprintf("g.goat_id = $%d::uuid", len(args)))
+	}
+	if params.Breed != nil {
+		args = append(args, *params.Breed)
+		where = append(where, fmt.Sprintf("g.breed = $%d", len(args)))
+	}
+	if params.Sex != nil {
+		args = append(args, *params.Sex)
+		where = append(where, fmt.Sprintf("g.sex = $%d", len(args)))
+	}
 	if params.FarmID != nil {
 		args = append(args, *params.FarmID)
 		where = append(where, fmt.Sprintf("g.farm_id = $%d::uuid", len(args)))

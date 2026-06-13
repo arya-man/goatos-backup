@@ -30,6 +30,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 200
+        - name: goat_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
         - name: identifier_type
           in: query
           required: false
@@ -42,6 +48,20 @@ paths:
             type: string
             minLength: 1
             maxLength: 120
+        - name: breed
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: sex
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
         - name: farm_id
           in: query
           required: false

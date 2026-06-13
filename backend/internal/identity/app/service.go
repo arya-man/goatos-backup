@@ -83,6 +83,18 @@ func (s *Service) SearchGoats(ctx context.Context, params ports.SearchGoatsParam
 	if params.Limit < 1 || params.Limit > 100 {
 		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
 	}
+	if err := validateOptionalUUID("goat_id", params.GoatID); err != nil {
+		return nil, err
+	}
+	if err := validateOptionalUUID("farm_id", params.FarmID); err != nil {
+		return nil, err
+	}
+	if err := validateOptionalUUID("park_id", params.ParkID); err != nil {
+		return nil, err
+	}
+	if err := validateOptionalUUID("location_id", params.LocationID); err != nil {
+		return nil, err
+	}
 	items, next, err := s.repo.SearchGoats(ctx, params)
 	if err != nil {
 		return nil, mapRepoErr(err)

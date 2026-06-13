@@ -346,8 +346,11 @@ export interface operations {
                 limit: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
                 q?: string;
+                goat_id?: string;
                 identifier_type?: components["schemas"]["IdentifierType"];
                 scope_key?: string;
+                breed?: string;
+                sex?: string;
                 farm_id?: string;
                 park_id?: string;
                 location_id?: string;

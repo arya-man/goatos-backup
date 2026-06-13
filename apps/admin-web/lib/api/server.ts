@@ -81,8 +81,11 @@ export type HerdSearchParams = {
   limit: number;
   cursor?: string;
   q?: string;
+  goat_id?: string;
   identifier_type?: IdentifierType;
   scope_key?: string;
+  breed?: string;
+  sex?: string;
   farm_id?: string;
   park_id?: string;
   location_id?: string;

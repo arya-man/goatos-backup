@@ -2722,6 +2722,20 @@ CREATE INDEX goats_shed_lifecycle_idx ON public.goats USING btree (shed_id, life
 
 
 --
+-- Name: goats_tenant_breed_display_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goats_tenant_breed_display_idx ON public.goats USING btree (tenant_id, breed, display_id) WHERE (identity_state <> 'merged'::text);
+
+
+--
+-- Name: goats_tenant_breed_sex_display_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goats_tenant_breed_sex_display_idx ON public.goats USING btree (tenant_id, breed, sex, display_id) WHERE (identity_state <> 'merged'::text);
+
+
+--
 -- Name: goats_tenant_custodian_lifecycle_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2750,6 +2764,13 @@ CREATE INDEX goats_tenant_health_idx ON public.goats USING btree (tenant_id, hea
 
 
 --
+-- Name: goats_tenant_lifecycle_display_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goats_tenant_lifecycle_display_idx ON public.goats USING btree (tenant_id, lifecycle_status, display_id) WHERE (identity_state <> 'merged'::text);
+
+
+--
 -- Name: goats_tenant_lifecycle_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2768,6 +2789,13 @@ CREATE INDEX goats_tenant_management_idx ON public.goats USING btree (tenant_id,
 --
 
 CREATE INDEX goats_tenant_reproductive_idx ON public.goats USING btree (tenant_id, reproductive_status);
+
+
+--
+-- Name: goats_tenant_sex_display_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goats_tenant_sex_display_idx ON public.goats USING btree (tenant_id, sex, display_id) WHERE (identity_state <> 'merged'::text);
 
 
 --
