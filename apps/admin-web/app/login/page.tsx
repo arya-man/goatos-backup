@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import logoImg from "@/lib/logo.png";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,13 @@ export default function LoginPage() {
               <p id="sso-setup-note" className="mt-3 text-center text-xs leading-5 text-[#7f8fa3]">
                 Google SSO setup is pending for local, staging, and production.
               </p>
+
+              <Link
+                href="/"
+                className="mt-5 flex h-12 w-full items-center justify-center rounded-xl border border-[#14f1d9]/40 bg-[#14f1d9]/10 px-4 text-sm font-black text-[#14f1d9] transition hover:border-[#14f1d9] hover:bg-[#14f1d9]/15 focus:outline-none focus:ring-2 focus:ring-[#14f1d9]/50"
+              >
+                Open local dashboard
+              </Link>
             </div>
           </div>
         </section>

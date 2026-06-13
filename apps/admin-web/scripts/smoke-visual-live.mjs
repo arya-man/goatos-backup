@@ -40,6 +40,7 @@ mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
 const routes = [
+  { name: "login", path: "/login" },
   { name: "overview", path: "/" },
   { name: "counts", path: "/counts" },
   { name: "herd", path: "/herd" },
