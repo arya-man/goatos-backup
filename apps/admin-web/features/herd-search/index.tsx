@@ -83,21 +83,24 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
                     href={`/goats/${goat.goat_id}`}
                     className="block rounded-md border border-[#293241] bg-[#10141b] p-4 hover:border-[#14f1d9]/60"
                   >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
+                    <div className="grid gap-4 lg:grid-cols-[minmax(360px,1.4fr)_minmax(190px,0.75fr)_minmax(210px,0.8fr)_minmax(120px,auto)] lg:items-center">
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-lg font-semibold text-white">{goat.display_id}</span>
                           <span className="rounded border border-[#334155] px-2 py-1 text-xs text-[#c7d1dc]">{goat.identity_state}</span>
                           {goat.warnings.length > 0 ? <span className="rounded border border-[#a16207] px-2 py-1 text-xs text-[#facc15]">warnings {goat.warnings.length}</span> : null}
                         </div>
-                        <div className="mt-2 grid gap-1 text-sm text-[#aab7c4] sm:grid-cols-2 xl:grid-cols-4">
-                          <span>RFID {dash(goat.rfid)}</span>
-                          <span>Old tag {dash(goat.primary_old_tag)}</span>
-                          <span>{joinParts([goat.breed, goat.sex, goat.lifecycle_status])}</span>
-                          <span>{dash(goat.location_path.display)}</span>
+                        <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-sm text-[#aab7c4]">
+                          <span className="min-w-0 break-words">RFID {dash(goat.rfid)}</span>
+                          <span className="min-w-0 break-words">Old tag {dash(goat.primary_old_tag)}</span>
                         </div>
                       </div>
-                      <Mono>{shortId(goat.goat_id)}</Mono>
+                      <FieldValue label="Breed / sex / status" value={joinParts([goat.breed, goat.sex, goat.lifecycle_status])} />
+                      <FieldValue label="Location" value={dash(goat.location_path.display)} />
+                      <div className="min-w-0 lg:text-right">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b]">Goat ID</div>
+                        <Mono>{shortId(goat.goat_id)}</Mono>
+                      </div>
                     </div>
                   </Link>
                 ))}
@@ -115,6 +118,15 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
         )}
       </div>
     </>
+  );
+}
+
+function FieldValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748b]">{label}</div>
+      <div className="mt-1 break-words text-sm text-[#c7d1dc]">{value}</div>
+    </div>
   );
 }
 
