@@ -26,6 +26,13 @@ legacy BigQuery read-only export/reconciliation
   -> admin-web build/client smoke
 ```
 
+For current location correction, use the legacy dashboard BQ taxonomy. CBE and
+CPT remain park-scope locations because old-tag identity uses `park:CBE` and
+`park:CPT`; BQ shed labels are seeded as child `shed` locations under those
+parks. Apply shed correction only for deterministic BQ-matched goats whose BQ
+current shed is present in that dashboard taxonomy. Do not derive or invent
+Holding Farm shed rows from aggregate dashboard counts.
+
 ## Safety Rules
 
 - Do not commit private workbooks, rows, screenshots, RFID values, old tags,

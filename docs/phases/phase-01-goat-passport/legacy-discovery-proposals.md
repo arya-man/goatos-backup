@@ -1,8 +1,9 @@
 # Phase 1 Legacy Discovery Proposals
 
-Status: superseded discovery proposal. Current Phase 1 reconciliation/backfill
-uses legacy BigQuery read-only exports as source truth; this file remains only
-as historical evidence about earlier inspected artifacts.
+Status: old discovery note, not current build guidance. Current Phase 1
+reconciliation/backfill uses legacy BigQuery read-only exports as source truth;
+this file remains only to explain what was inspected earlier while building the
+parser harness.
 
 This file is the read-only discovery output for Phase 1. It does not contain
 raw goat rows, raw Slack payloads, tokens, media URLs, or private sheet data.

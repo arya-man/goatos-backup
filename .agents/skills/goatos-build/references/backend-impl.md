@@ -429,13 +429,22 @@ Rules:
   normal apply now creates 780 goats, guarded RFID-only apply creates 1215 goats,
   needs_review falls to 8, and tenant_lifecycle alive becomes 1215. The source
   proof found 508 Anantapur Sheep source rows and 504 created Anantapur Sheep
-  goat passports. The local SSR proof rendered real herd rows, a real goat
-  passport with live timeline, and live Import Review summary/rows through
-  admin-web; reruns after 000015 must expect the 1215/8 counts, not the
-  historical 711/512 counts. The real local DB had 0 conflicts, 0 candidates,
-  and 0 correction rows, so Data Quality rendered honest empty states while
-  backend tests cover populated conflict/candidate/correction read paths. C-lite
-  suffix derivation from
+  goat passports. Migration 000017 seeds 154 CBE/CPT BQ dashboard shed
+  locations plus aliases under the existing CBE/CPT park rows. CBE/CPT stay as
+  parks because old-tag scopes use `park:CBE` and `park:CPT`; shed labels are
+  child locations for current-location reporting. The local BQ shed
+  reconciliation pass caps BQ events at the dashboard max date, updates 860
+  deterministic matches to shed-level current locations, leaves 83 matched goats
+  park-only because BQ had no safe shed, and leaves 272 unmatched goats
+  untouched. After counter rebuild, tenant_lifecycle is alive 1060, sold 69,
+  dead 32, inactive 54; shed_lifecycle has 165 rows with 860 goats in specific
+  shed buckets and 355 no-shed bucket counts. The local SSR proof rendered real
+  herd rows, a real goat passport with live timeline, and live Import Review
+  summary/rows through admin-web; reruns after 000015 and BQ reconciliation
+  must expect this post-BQ state, not the historical 711/512 or 1215-alive
+  counts. The real local DB had 0 conflicts, 0 candidates, and 0 correction
+  rows, so Data Quality rendered honest empty states while backend tests cover
+  populated conflict/candidate/correction read paths. C-lite suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction
   or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.

@@ -78,7 +78,9 @@ Current Phase 1 implementation status: legacy BigQuery is the source of truth
 for current-data reconciliation/backfill. The original local XLSX path remains
 as a parser harness for synthetic or temporary BQ-derived exports. Admin-web
 must consume Goat OS backend APIs, not Sheets, Apps Script, direct XLSX/CSV, or
-BigQuery.
+BigQuery. Current location correction uses the BQ dashboard location taxonomy:
+CBE and CPT remain park-scope locations for old-tag identity, while their BQ
+shed labels are represented as child shed locations for matched goats.
 
 ## Architecture Guarantees
 

@@ -2822,6 +2822,11 @@ source-name, policy-version defaulting to phase1-rfid-db-import-v1
 source discovery runs before import and classifies Shape 2 as importable,
 Shape 1 as recognized but not importable until mapping extension, and
 operational/unknown sources as rejected before staging
+current-data location reconciliation uses the legacy dashboard BQ taxonomy, not
+private workbook sheets: CBE and CPT stay as park locations because old-tag
+scope keys depend on `park:CBE` and `park:CPT`; BQ shed labels are stored as
+child `shed` locations under those parks and applied only to deterministically
+matched goats with known dashboard shed labels
 source_system and source_dataset always come from the approved policy row
 the runner validates the policy exists and status=approved before import
 source_file_hash is sha256 over parser-harness workbook bytes when that harness is used

@@ -97,15 +97,21 @@ Completed so far:
   workbook exports are no longer treated as source of truth for Phase 1 data
   correction. BQ-derived reconciliation updates now correct matched Goat OS
   passports for lifecycle, breed, sex, age band, park/current location, and
-  canonical identifier text where the match is deterministic.
+  canonical identifier text where the match is deterministic. BQ dashboard shed
+  taxonomy is now seeded under the existing CBE/CPT park locations so matched
+  goats can carry specific shed current locations without breaking old-tag
+  park-scope identity rules.
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web. Current local DB has 1215 goat passports and 8
   import-review rows from the RFID import run. A BQ reconciliation pass matched
   943 existing passports deterministically, corrected 155 passports away from
   `alive` into `sold`/`dead`/`inactive`, and rebuilt counters so
   `tenant_lifecycle` now shows `alive=1060`, `sold=69`, `dead=32`, and
-  `inactive=54`. The 272 existing passports that cannot be joined to BQ by RFID
-  or scoped old tag remain unchanged pending identifier reconciliation.
+  `inactive=54`. A follow-up BQ location pass seeded 154 CBE/CPT shed locations
+  and updated 860 deterministically matched goats to shed-level current
+  locations; 83 matched goats remain park-only because BQ had no safe shed, and
+  272 existing passports that cannot be joined to BQ by RFID or scoped old tag
+  remain unchanged pending identifier reconciliation.
   Overview, herd
   search, goat passport with live identity timeline, identity counts, live
   Import Review, and live correction-request queue reads rendered against the
