@@ -3,9 +3,9 @@ import Link from "next/link";
 import { ChartCard } from "@/components/charts/chart-card";
 import { HorizontalBarChart } from "@/components/charts/horizontal-bar";
 import { KPICard } from "@/components/charts/kpi-card";
-import { AuthRequiredPanel, EmptyPanel, ErrorPanel, NextPageLink, Panel, StatPill, ValueList } from "@/components/admin-primitives";
-import { dateTime, dash, shortId } from "@/lib/format";
-import { boundedInt, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
+import { AuthRequiredPanel, EmptyPanel, ErrorPanel, Panel } from "@/components/admin-primitives";
+import { dateTime } from "@/lib/format";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
 
 const tabs = [
@@ -18,7 +18,6 @@ const tabs = [
 
 export async function IdentityCountsPage({ searchParams }: { searchParams: RouteSearchParams }) {
   const activeTab = normalizeTab(one(searchParams, "view"));
-  const page = boundedInt(one(searchParams, "page"), 1, 1, 1000000);
   const [tenantLifecycle, growthCohort] = await Promise.all([
     getIdentityCounts({ grain: "tenant_lifecycle", limit: 50 }),
     getIdentityCounts({ grain: "growth_cohort", limit: 50 }),
@@ -125,53 +124,6 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
             <EmptyPanel message="No counter rows returned for the overall view." />
           )}
         </ChartCard>
-      </div> : null}
-
-      {activeTab === "overall" ? <div className="mt-6">
-        <Panel
-          title="Overall Counter Rows"
-          description="Projection rows for the live overall grain. Paging stays bounded."
-          action={tenantLifecycle.ok ? <StatPill label="Rows" value={tenantLifecycle.data.items.length} tone="good" /> : undefined}
-        >
-          {!tenantLifecycle.ok ? (
-            <ErrorPanel error={tenantLifecycle.error} />
-          ) : tenantLifecycle.data.items.length === 0 ? (
-            <EmptyPanel message="No lifecycle count rows returned." />
-          ) : (
-            <div className="space-y-3">
-              {tenantLifecycle.data.items.map((item, index) => (
-                <div key={`${item.counter_grain}-${index}-${item.updated_at}`} className="rounded-lg border border-[#334155] bg-[#11151C] p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="text-2xl font-semibold text-white">{item.count_value.toLocaleString("en-IN")}</div>
-                      <div className="mt-1 text-sm text-[#8899AA]">Updated {dateTime(item.updated_at)}</div>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      {item.is_rebuilding ? <span className="rounded border border-[#a16207] px-2 py-1 text-[#facc15]">rebuilding</span> : null}
-                      {item.source_import_run_id ? <span className="rounded border border-[#334155] px-2 py-1 text-[#c7d1dc]">run {shortId(item.source_import_run_id)}</span> : null}
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <ValueList
-                      values={[
-                        ["lifecycle", dash(item.dimensions.lifecycle_status)],
-                        ["tenant", item.dimensions.tenant_id],
-                        ["source run", dash(item.source_import_run_id)],
-                        ["rebuilding", item.is_rebuilding ? "yes" : "no"],
-                      ]}
-                    />
-                  </div>
-                </div>
-              ))}
-              <NextPageLink
-                href={hrefWithCursor("/counts", searchParams, tenantLifecycle.data.next_cursor)}
-                currentPage={page}
-                pageSize={50}
-              />
-              <div className="text-xs text-[#8899AA]">Trace {tenantLifecycle.data.trace_id}. Has more: {tenantLifecycle.data.has_more ? "yes" : "no"}.</div>
-            </div>
-          )}
-        </Panel>
       </div> : null}
     </>
   );
