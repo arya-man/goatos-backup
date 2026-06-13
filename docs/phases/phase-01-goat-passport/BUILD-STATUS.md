@@ -296,7 +296,7 @@ backend/internal/legacy_import/adapters/postgres
 backend/internal/legacy_import/adapters/postgres/sqlc
 backend/internal/legacy_import/testdata/synthetic_rfid_import.xlsx
 
-RFID workbook import runner loads approved policy phase1-rfid-db-import-v1,
+Legacy RFID parser/import harness loads approved policy phase1-rfid-db-import-v1,
 parses .xlsx rows as raw text, normalizes RFID/old tag/scope/status evidence,
 and stages legacy_import_runs plus legacy_import_rows only.
 
@@ -523,13 +523,13 @@ candidate review:
   exact idempotent replay rebuilds from DB state, not cached response bodies
   POST /admin/identity/candidates/{candidate_id}/approve remains typed
   not_implemented until canonical mutation semantics are contract-defined
-RFID source-of-truth staging:
+RFID/BQ source-of-truth staging and reconciliation:
   CLI supports source discovery, sheet-by-name selection, dry-run staging
   preview, real staging, and sanitized anomaly report generation for local
   rehearsal
-  CLI requires input workbook path and tenant_id for import; optional --sheet,
-  dry-run, batch-size, started-by actor UUID, source-name, and policy-version
-  are supported
+  The legacy XLSX CLI path is now a parser/regression harness, not the
+  authoritative source for current corrections. Current herd reconciliation and
+  backfill use legacy BigQuery read-only exports as source truth.
   local DB-writing import/apply/counter commands share the
   backend/internal/platform/localtarget guard: GOATOS_ENV must be local/dev and
   DATABASE_URL must point to loopback or approved local socket paths, never
@@ -537,16 +537,17 @@ RFID source-of-truth staging:
   source_system and source_dataset come from the approved
   legacy_import_policies row, not CLI flags
   policy phase1-rfid-db-import-v1 must exist and be approved before importing
-  source_file_hash stores a sha256 of workbook bytes; source_file_ref remains
-  null so local absolute paths are not persisted
+  source_file_hash stores a sha256 of parser-harness workbook bytes when that
+  harness is used; source_file_ref remains null so local absolute paths are not
+  persisted
   dry-run writes one completed legacy_import_runs row with aggregate counts only
   and writes no legacy_import_rows
-  source discovery classifies Shape 2 RFID headers as importable, recognizes
-  Shape 1 RFID headers as blocked until mapping extension, and rejects
-  operational/unknown source shapes before staging
-  Google Sheet live export/import is deliberately skipped in Phase 1 local
-  rehearsal; operators must export to a local XLSX and run the backend import
-  pipeline
+  source discovery classifies Shape 2 RFID headers as importable for the legacy
+  parser harness, recognizes Shape 1 RFID headers as blocked until mapping
+  extension, and rejects operational/unknown source shapes before staging
+  Current-data reconciliation must use legacy BigQuery, not a private local
+  workbook copy. Frontend still never reads BigQuery directly; BQ is read only
+  by local/backend operator tooling.
   real staging writes legacy_import_runs as running -> completed or failed and
   inserts legacy_import_rows in bounded batches
   source_row_key uses policy source_key_recipe fields in order:
@@ -587,9 +588,9 @@ RFID source-of-truth staging:
   passports when other gates pass but stay review-status in the catalog until an
   operator promotes or remaps them.
   reviewer_action and reviewer_notes columns are scratch-only; Goat OS does not
-  ingest edited reviewer CSVs yet. Corrections re-enter through the source
-  workbook or a future approved correction overlay, then normal import/apply is
-  rerun
+  ingest edited reviewer CSVs yet. Corrections re-enter through a future
+  approved correction overlay or BQ-backed reconciliation path, then normal
+  apply/rebuild steps are rerun
   grouped review summaries read raw_payload only through safe source-label
   fields Tag, Breed, Gender, Farm, Shed, and Partition, falling back to
   normalized fields for those same labels; they never emit full raw_payload,
@@ -633,15 +634,22 @@ RFID source-of-truth staging:
   Phase 1 local end-to-end proof was rerun after migration 000015: normal apply
   produced created_goat 780, needs_review 443, and error 0; guarded RFID-only
   apply produced created_goat 1215, needs_review 8, and error 0 while the
-  tenant_lifecycle alive counter became 1215. The source proof found 508
+  tenant_lifecycle alive counter became 1215. A follow-up BQ reconciliation pass
+  corrected deterministic matched passports from legacy BigQuery: 943 created
+  passports matched BQ, 155 of those moved from alive to sold/dead/inactive,
+  272 existing passports remain unmatched by RFID or scoped old tag and need
+  identifier reconciliation, and counters were rebuilt to tenant_lifecycle
+  alive 1060, sold 69, dead 32, inactive 54. The source proof found 508
   Anantapur Sheep rows in the RFID source and 504 created Anantapur Sheep goat
   passports; the 4-row delta remains blocked by other apply gates, not by the
-  source Breed label. SSR admin-web proof should use this post-000015 state, not
-  the historical 711/512 split.
+  source Breed label. SSR admin-web proof should use this post-BQ-reconciled
+  state, not the historical 711/512 or 1215-alive split.
   The previous local closeout proof with migrations through 000014 rendered `/`,
   `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and `/data-quality`
-  through the Mesha admin-web; reruns after 000015 must keep those route checks
-  and token-leak checks while expecting the updated 1215/8 counts.
+  through the Mesha admin-web; reruns after 000015 and BQ reconciliation must
+  keep those route checks and token-leak checks while expecting 1215 total
+  passports, 8 import-review rows, and tenant_lifecycle counters alive 1060,
+  sold 69, dead 32, inactive 54.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
@@ -649,7 +657,7 @@ RFID source-of-truth staging:
   reviewed policy.
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
-RFID source-of-truth canonical apply:
+Legacy RFID parser canonical apply:
   CLI requires tenant_id and import_run_id; optional dry-run preview,
   batch-size, actor-id, and policy-version guard are supported
   apply loads the completed non-dry-run import run, verifies its approved
@@ -830,8 +838,8 @@ This order is intentional and should not be inferred from conversation memory:
    fix/approve actions remain deferred.
 
 2. Keep the local runbook and proof reproducible: fresh Docker Postgres, all
-   migrations, real Shape-2 import, normal apply, explicit RFID-only
-   blank-suffix apply, counter rebuild, Mesha
+   migrations, BQ-backed reconciliation/import input, normal apply where the
+   legacy parser harness is used, explicit RFID-only blank-suffix apply, counter rebuild, Mesha
    admin-web SSR routes, and token leak checks must continue to reproduce
    the post-000015 created/review counts once the source-breed fix has been
    applied; never reuse the historical 711/512 counts as current proof.

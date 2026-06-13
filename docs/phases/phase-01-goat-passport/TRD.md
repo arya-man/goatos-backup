@@ -2810,13 +2810,13 @@ Phase 1 RFID runner foundation:
 
 ```text
 backend/cmd/rfid-import is the thin CLI entrypoint
-backend/internal/legacy_import owns workbook parsing, source-key/hash creation,
-row-state classification, and staging orchestration
+backend/internal/legacy_import owns legacy parser-harness parsing, source-key/
+hash creation, row-state classification, and staging orchestration
 backend/internal/legacy_import/adapters/postgres owns legacy_import_runs and
 legacy_import_rows persistence; cmd must not write those tables directly
-the runner supports local .xlsx only in this slice; live Google Sheets export is
-deferred and discovery returns a skipped status for source_type=google_sheet
-required CLI flags: input workbook path, tenant_id
+the runner's local .xlsx path is retained as a parser/regression harness only;
+current-data reconciliation/backfill uses legacy BigQuery read-only exports
+required parser-harness CLI flags: input workbook path, tenant_id
 optional CLI flags: sheet name, dry-run, batch-size, started-by actor UUID,
 source-name, policy-version defaulting to phase1-rfid-db-import-v1
 source discovery runs before import and classifies Shape 2 as importable,
@@ -2824,7 +2824,7 @@ Shape 1 as recognized but not importable until mapping extension, and
 operational/unknown sources as rejected before staging
 source_system and source_dataset always come from the approved policy row
 the runner validates the policy exists and status=approved before import
-source_file_hash is sha256 over workbook bytes
+source_file_hash is sha256 over parser-harness workbook bytes when that harness is used
 source_file_ref is null for local CLI imports so local absolute paths are never
 stored
 dry-run writes a completed legacy_import_runs row and aggregate counts only; it
@@ -2884,14 +2884,15 @@ Local full-stack rehearsal:
 
 ```text
 Use docs/runbooks/local-full-stack-rehearsal.md for the repeatable local path:
-local XLSX export -> discovery -> dry-run -> staging -> rfid-apply -> final
-anomaly/review report -> counter rebuild -> backend API smoke -> admin-web
-typecheck/build.
+legacy BigQuery read-only export/reconciliation -> local Docker Postgres ->
+bounded local import/reconciliation tooling -> counter rebuild -> backend API
+smoke -> admin-web typecheck/build.
 DB-writing local rehearsal CLIs use backend/internal/platform/localtarget and
 must reject non-local/staging/prod/Cloud SQL database targets.
 Frontend/admin-web must consume backend APIs only and must not import Google
 Sheets, Apps Script, BigQuery, direct CSV exports, or XLSX readers for live
-data.
+data. BigQuery access is limited to backend/local operator reconciliation and
+backfill tooling.
 ```
 
 Source key and hash implementation:
@@ -3303,7 +3304,7 @@ legacy artifacts. This is the evidence stage for the locked decisions.
 Inputs:
 
 ```text
-private herd workbook kept outside git
+legacy BigQuery dashboard/event tables, read-only
 <mesha-workspace>/dashboard/public/data/*.csv
 <mesha-workspace>/vgoats-dashboard/public/data/*.csv
 <mesha-workspace>/dashboard/app/api/**/*

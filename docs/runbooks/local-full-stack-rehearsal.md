@@ -1,17 +1,26 @@
 # Local Full-Stack Rehearsal
 
-Use this runbook to rehearse Phase 1 Goat Passport locally, without GCP or
-Cloud SQL.
+Use this runbook to rehearse Phase 1 Goat Passport locally, without Goat OS
+GCP, Cloud SQL, Sheets API writes, or production/staging resources.
+
+Current source-of-truth rule:
+
+```text
+Legacy BigQuery is the source for current-data reconciliation and backfill.
+Private local XLSX workbook exports are not source of truth anymore.
+```
+
+The local XLSX importer remains in the repo as a parser/regression harness for
+the original Shape-2 RFID import path. Use it only for synthetic fixtures or
+temporary BQ-derived rehearsal exports. Do not use a private local workbook copy
+as the authoritative source for current Phase 1 corrections.
 
 The local path is:
 
 ```text
-local XLSX export
+legacy BigQuery read-only export/reconciliation
   -> local Docker Postgres
-  -> source discovery
-  -> RFID import staging
-  -> RFID apply
-  -> final sanitized review report
+  -> bounded local import/reconciliation tooling
   -> identity counter rebuild
   -> backend APIs
   -> admin-web build/client smoke
@@ -27,8 +36,12 @@ local XLSX export
   remote DB hosts, and Cloud SQL Unix sockets.
 - Frontend code must read Goat OS backend APIs only. It must not read Google
   Sheets, Apps Script, CSV exports, BigQuery, or XLSX files directly.
-- Google Sheets live export/import is deferred. If a fresh source is needed,
-  export the sheet to a local `.xlsx` file and run the local XLSX flow.
+- Backend/local operator reconciliation may read legacy BigQuery in read-only
+  mode for current herd truth. Generated local exports and reports must stay
+  under ignored `.codex-goatos-render/` paths.
+- Do not use private local XLSX workbook exports as current source truth. If the
+  legacy XLSX parser is exercised, use synthetic fixtures or a temporary
+  BQ-derived rehearsal export.
 
 ## Source Shapes
 
@@ -44,8 +57,9 @@ Shape 1 is recognized but not importable until a mapping extension is written:
 Farm, Origin Farm, Old Tag ID, RFID, Breed, Gender, Shed, Shed Tag, Age
 ```
 
-Operational counting/feed/health/death/shifting/dashboard sheets are not Phase
-1 identity source inputs and must be rejected before staging.
+Operational counting/feed/health/death/shifting/dashboard sheets are not direct
+frontend inputs. For reconciliation, use their legacy BigQuery outputs rather
+than local workbook copies.
 
 ## Environment
 
@@ -62,16 +76,18 @@ Use the Docker storage runbook before large tests:
 docs/runbooks/local-docker-storage.md
 ```
 
-## Discover Source
+## Legacy XLSX Parser Harness
 
-For a local XLSX export, choose the source tab explicitly:
+This section is retained only for parser regression or a temporary BQ-derived
+rehearsal export. It is not the current source-of-truth path. Choose the source
+tab explicitly:
 
 ```bash
 cd backend
 go run ./cmd/rfid-import \
   --discover \
   --source-type local_xlsx \
-  --input <local-export.xlsx> \
+  --input <synthetic-or-bq-derived-export.xlsx> \
   --sheet Combined
 ```
 
@@ -99,7 +115,7 @@ Dry run records only the run row and aggregate counts:
 
 ```bash
 go run ./cmd/rfid-import \
-  --input <local-export.xlsx> \
+  --input <synthetic-or-bq-derived-export.xlsx> \
   --sheet Combined \
   --tenant-id <tenant_uuid> \
   --dry-run
@@ -110,11 +126,11 @@ identifiers, events, outbox, counters, conflicts, candidates, or corrections.
 
 ## Stage
 
-Stage the local XLSX:
+Stage the synthetic or BQ-derived XLSX harness input:
 
 ```bash
 go run ./cmd/rfid-import \
-  --input <local-export.xlsx> \
+  --input <synthetic-or-bq-derived-export.xlsx> \
   --sheet Combined \
   --tenant-id <tenant_uuid>
 ```
@@ -193,8 +209,9 @@ source correction or explicit reviewed-policy work.
 
 The reviewer CSVs are export-only. `reviewer_action` and `reviewer_notes` are
 scratch columns for the data team; Goat OS does not ingest edited review CSVs
-yet. Corrections must re-enter through the source workbook, or a future approved
-correction overlay, and then the normal Shape-2 import/apply flow must be rerun.
+yet. Corrections must re-enter through a future approved correction overlay or
+BQ-backed reconciliation path, and then normal apply/rebuild steps must be
+rerun.
 
 The report masks RFID and hashes old-tag/source-row references by default and
 writes only to ignored local output paths. Internal cleanup usually needs
@@ -213,8 +230,8 @@ go run ./cmd/rebuild-identity-counters \
 
 ## Real Shape 2 Closeout Expectations
 
-For the current real Shape 2 `Combined` source and migrations through 000015,
-a fresh local run must reconcile exactly:
+For the historical Shape 2 parser harness and migrations through 000015, a
+fresh local run before BQ reconciliation must reconcile exactly:
 
 ```text
 normal rfid-apply:
@@ -239,14 +256,31 @@ rebuild-identity-counters:
   tenant_lifecycle alive = 1215
 ```
 
+After the BQ reconciliation pass, current proof should keep total passports at
+1215 while correcting matched passport properties and counters:
+
+```text
+created passports:
+  total = 1215
+  deterministic BQ matches corrected = 943
+  unmatched by RFID/scoped old tag = 272
+  import-review rows = 8
+
+tenant_lifecycle after counter rebuild:
+  alive = 1060
+  sold = 69
+  dead = 32
+  inactive = 54
+```
+
 If these numbers differ on a fresh local database, stop and investigate before
-using the result as a Phase 1 proof. Usual causes are wrong sheet, changed
-source export, stale database, missing migration, skipping the explicit
-RFID-only blank-suffix apply flag, or accidentally using a pre-000015 database.
-Do not expect the historical 711/512 split; nonblank source Breed rows should
-move into created passports instead of species/breed review. Unknown nonblank
-source labels are cataloged in review status rather than silently promoted to
-trusted active breeds.
+using the result as a Phase 1 proof. Usual causes are wrong BQ export/table,
+changed legacy data, stale database, missing migration, skipping the explicit
+RFID-only blank-suffix apply flag for parser-harness runs, or accidentally using
+a pre-000015 database. Do not expect the historical 711/512 split; nonblank
+source Breed rows should move into created passports instead of species/breed
+review. Unknown nonblank source labels are cataloged in review status rather
+than silently promoted to trusted active breeds.
 
 ## Backend And Admin-Web Smoke
 

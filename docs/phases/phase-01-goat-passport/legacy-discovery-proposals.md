@@ -1,6 +1,8 @@
 # Phase 1 Legacy Discovery Proposals
 
-Status: derived proposal for business-owner review.
+Status: superseded discovery proposal. Current Phase 1 reconciliation/backfill
+uses legacy BigQuery read-only exports as source truth; this file remains only
+as historical evidence about earlier inspected artifacts.
 
 This file is the read-only discovery output for Phase 1. It does not contain
 raw goat rows, raw Slack payloads, tokens, media URLs, or private sheet data.
@@ -17,8 +19,9 @@ The legacy data is not one clean goat table:
 
 - `private herd workbook` `DB` looks like goat event history: purchase, birth, shifting,
   sale, death, abortion.
-- `private herd workbook` ` RFID DB` is the best current RFID/old-tag mapping source
-  found so far, but it covers fewer rows than the dashboard aggregate count.
+- `private herd workbook` ` RFID DB` was the best RFID/old-tag mapping source
+  found during this historical pass, but it covers fewer rows than the dashboard
+  aggregate count and is no longer the current source truth.
 - dashboard CSVs are aggregate reporting projections, not goat-level identity
   truth.
 - Slack/App Script files hold important SOP/workflow behavior that later phases

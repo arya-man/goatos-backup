@@ -18,7 +18,7 @@ backend/cmd/api                 process entrypoint and graceful shutdown
 backend/cmd/outbox-relay        Phase 1 local/dev outbox relay one-shot CLI
 backend/cmd/rebuild-identity-counters Phase 1 reporting counter rebuild CLI
 backend/cmd/update-identity-counters  Phase 1 local incremental counter update CLI
-backend/cmd/rfid-import         Phase 1 RFID workbook staging CLI
+backend/cmd/rfid-import         Phase 1 legacy RFID parser/import harness CLI
 backend/cmd/rfid-apply          Phase 1 RFID staged-row canonical apply CLI
 backend/internal/bootstrap      explicit constructor wiring
 backend/internal/platform       shared platform adapters
@@ -53,7 +53,7 @@ Local import rehearsal routing:
 ```text
 docs/runbooks/local-full-stack-rehearsal.md  local Phase 1 import/API/admin-web rehearsal flow once added
 docs/runbooks/local-docker-storage.md        local Docker storage safety and cleanup rules
-backend/cmd/rfid-import                      RFID workbook staging CLI
+backend/cmd/rfid-import                      legacy RFID parser/import harness CLI
 backend/cmd/rfid-apply                       staged RFID canonical apply CLI
 backend/cmd/rebuild-identity-counters        local/reporting counter rebuild after apply
 backend/internal/legacy_import/xlsx.go       workbook parser and sheet-selection behavior
@@ -338,21 +338,23 @@ Rules:
   not commit raw private workbook rows, RFID values, local paths, screenshots,
   names, media URLs, or PII.
 - Phase 1 local full-stack rehearsal routes source data through backend import
-  tooling into local Postgres first. Frontend must read Goat OS backend APIs
-  only; it must never read Sheets, Apps Script, XLSX files, CSV exports, or
-  Google SDKs directly.
-- Current RFID workbook parser/normalizer accepts the Shape-2 source headers:
+  or reconciliation tooling into local Postgres first. Frontend must read Goat
+  OS backend APIs only; it must never read Sheets, Apps Script, XLSX files, CSV
+  exports, BigQuery, or Google SDKs directly.
+- Current-data reconciliation/backfill uses legacy BigQuery read-only exports as
+  source truth. The RFID workbook parser/normalizer is retained as a legacy
+  parser/regression harness and accepts the Shape-2 source headers:
   `Farm`, `Old ID`, `Old ID Suffix`, `RFID`, `Age`, `Gender`, `Breed`, `Tag`,
   `Shed`, and `Partition`. Shape-1 RFID headers such as `Origin Farm`,
   `Old Tag ID`, and `Shed Tag` are recognized source evidence but require a
   separate mapping extension before import.
-- Source discovery classifies Shape 2 as importable, recognizes Shape 1 as
-  blocked until mapping extension, and rejects operational/unknown source
-  shapes before staging. Operational counting/feed/health/death/shifting/
-  dashboard Sheets must not be fed into the Phase 1 RFID identity importer.
-- Google Sheet live export/import is not implemented in Phase 1. Operators must
-  export to local XLSX and use `rfid-import --source-type=local_xlsx`; the
-  `google_sheet` discovery path returns a skipped status.
+- Source discovery classifies Shape 2 as importable for the parser harness,
+  recognizes Shape 1 as blocked until mapping extension, and rejects
+  operational/unknown source shapes before staging. Operational counting/feed/
+  health/death/shifting/dashboard data is reconciled from legacy BigQuery, not
+  by feeding local workbook copies into the Phase 1 RFID identity importer.
+- The `google_sheet` discovery path returns a skipped status, and local XLSX
+  remains only a synthetic/BQ-derived parser harness path.
 - Anomaly/review reports must be generated after `rfid-apply` for the final
   local rehearsal handoff so they include both staging reasons and apply-stage
   review reasons such as `unknown_status_mapping` and
@@ -373,8 +375,8 @@ Rules:
   `blank-gender.csv`, `duplicate-old-tag-same-scope.csv`, and `README.txt`.
   These files are export-only; `reviewer_action` and `reviewer_notes` are
   scratch columns and are not ingested by Goat OS. Corrections must go back
-  through the source workbook, or a future approved correction overlay, followed
-  by the normal Shape-2 import/apply flow.
+  through a future approved correction overlay or BQ-backed reconciliation path,
+  followed by normal apply/rebuild steps.
 - Anomaly grouped summaries may read `legacy_import_rows.raw_payload` only
   through the safe source-label whitelist `Tag`, `Breed`, `Gender`, `Farm`,
   `Shed`, and `Partition`, falling back to normalized fields for those same

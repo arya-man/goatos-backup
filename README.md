@@ -65,7 +65,7 @@ Completed so far:
 - Duplicate and conflict handling.
 - Merge handling for duplicate goat records.
 - Correction/candidate/review schema and contracts.
-- RFID workbook staging and safe import foundation.
+- Legacy RFID parser/import harness and safe import foundation.
 - Clean RFID rows can be applied into canonical goat records.
 - Local full-stack rehearsal for source discovery, dry-run, staging, masked
   anomaly/reviewer CSV exports, RFID apply, counter rebuild, backend API smoke,
@@ -92,19 +92,20 @@ Completed so far:
   through server-side actions. Non-Phase-1 legacy modules and undefined
   review/fix actions stay disabled or honest placeholders.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
-- Real local RFID rehearsal against the Shape-2 source path now creates canonical
-  goat passports from clean rows, guarded RFID-only blank-suffix rows, and
-  source `Breed` labels such as `Anantapur Sheep`. Source breed/category text is
-  Mesha business data; it must not block passport creation unless the business
-  explicitly marks that label as non-goat/non-passport. Known approved labels
-  stay active in the breed catalog; unknown nonblank source labels may create
-  passports when other gates pass, but enter the catalog in review status until
-  an operator promotes or remaps them.
+- Legacy BigQuery is now the reconciliation/backfill source for current herd
+  data. The local XLSX importer remains a parser/regression harness, but private
+  workbook exports are no longer treated as source of truth for Phase 1 data
+  correction. BQ-derived reconciliation updates now correct matched Goat OS
+  passports for lifecycle, breed, sex, age band, park/current location, and
+  canonical identifier text where the match is deterministic.
 - Phase 1 local end-to-end proof has passed against the local backend and
-  Mesha-style SSR admin-web. Current post-000015 proof against the real Shape-2
-  source creates 780 goats on normal apply, then 1215 goats after guarded
-  RFID-only apply, with 8 review rows and 0 errors. `Anantapur Sheep` now
-  creates goat passports as a breed/category when the other apply gates pass.
+  Mesha-style SSR admin-web. Current local DB has 1215 goat passports and 8
+  import-review rows from the RFID import run. A BQ reconciliation pass matched
+  943 existing passports deterministically, corrected 155 passports away from
+  `alive` into `sold`/`dead`/`inactive`, and rebuilt counters so
+  `tenant_lifecycle` now shows `alive=1060`, `sold=69`, `dead=32`, and
+  `inactive=54`. The 272 existing passports that cannot be joined to BQ by RFID
+  or scoped old tag remain unchanged pending identifier reconciliation.
   Overview, herd
   search, goat passport with live identity timeline, identity counts, live
   Import Review, and live correction-request queue reads rendered against the

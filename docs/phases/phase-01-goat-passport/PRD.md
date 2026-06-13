@@ -64,7 +64,8 @@ wrong goat. Phase 1 is the foundation.
 ## Business Goals
 
 - Create one trusted goat record per real goat.
-- Import the existing herd from current Sheets/XLSX sources.
+- Import and reconcile the existing herd from the legacy BigQuery source used by
+  the current dashboard. Local XLSX parsing remains a regression harness only.
 - Preserve all useful legacy identifiers without treating any single tag as
   permanent truth.
 - Detect duplicate, missing, dirty, reused, or conflicting identifiers.
@@ -73,11 +74,11 @@ wrong goat. Phase 1 is the foundation.
 - Prepare the identity layer for RFID, camera/FaceID suggestions, and device
   observations later.
 
-Current Phase 1 implementation status: the rehearsal path is local XLSX export
-first. Source discovery classifies the RFID workbook shape before staging; live
-Google Sheets import is deferred until a concrete Sheet source and credentials
-are supplied and reviewed. Admin-web must consume Goat OS backend APIs, not
-Sheets, Apps Script, direct XLSX/CSV, or BigQuery.
+Current Phase 1 implementation status: legacy BigQuery is the source of truth
+for current-data reconciliation/backfill. The original local XLSX path remains
+as a parser harness for synthetic or temporary BQ-derived exports. Admin-web
+must consume Goat OS backend APIs, not Sheets, Apps Script, direct XLSX/CSV, or
+BigQuery.
 
 ## Architecture Guarantees
 
@@ -234,19 +235,22 @@ later procurement/workforce phases, not to this Goat Passport RBAC slice.
 ### Phase 1 Local Closeout Status
 
 The local Phase 1 identity/import/read/admin-demo spine is proven against the
-real Shape-2 RFID source. Historical pre-000015 proof produced 436 created goats
-after normal apply and 711 after guarded RFID-only blank-suffix apply. Migration
-000015 corrects the source Breed policy: `Anantapur Sheep` and other nonblank
-source Breed labels should create passports when all other gates pass. Blank or
-missing Breed remains reviewable. Known approved labels stay active in the breed
-catalog; unknown nonblank labels may create passports but remain review-status
-catalog entries until operator promotion/remapping.
-The post-000015 proof creates 780 goats after normal apply and 1215 after
-guarded RFID-only apply, with 8 review rows, 0 errors, and `tenant_lifecycle`
-alive 1215. The Mesha admin-web renders the
-overview, counts, herd search, a real goat passport, live Import Review rows for
-that final run, and an honest Data Quality empty state when the real local DB
-has no conflicts or candidates.
+legacy RFID import path and then reconciled against legacy BigQuery. Historical
+pre-000015 proof produced 436 created goats after normal apply and 711 after
+guarded RFID-only blank-suffix apply. Migration 000015 corrects the source Breed
+policy: `Anantapur Sheep` and other nonblank source Breed labels should create
+passports when all other gates pass. Blank or missing Breed remains reviewable.
+Known approved labels stay active in the breed catalog; unknown nonblank labels
+may create passports but remain review-status catalog entries until operator
+promotion/remapping. The post-000015 proof creates 780 goats after normal apply
+and 1215 after guarded RFID-only apply, with 8 review rows and 0 errors. A
+follow-up BQ reconciliation corrected deterministic matched passport properties:
+943 created passports matched BQ, 155 moved from alive to sold/dead/inactive,
+272 existing passports remain identifier-unmatched, and `tenant_lifecycle`
+now reports alive 1060, sold 69, dead 32, and inactive 54.
+The Mesha admin-web renders the overview, counts, herd search, a real goat
+passport, live Import Review rows for that final run, and an honest Data Quality
+empty state when the real local DB has no conflicts or candidates.
 
 This is a local proof, not production/staging completion. Production auth/IdP,
 cloud deployment, Pub/Sub/event egress, richer messy-data search, correction
@@ -282,8 +286,8 @@ creation remains blocked by the conflict `create_goat` contract.
 Already present:
 
 ```text
-private herd workbook and sheet exports
-  current goat rows, old tags, breed/status/location-ish data
+legacy BigQuery dashboard and event tables
+  current aggregate counts plus per-goat event history used for reconciliation
 
 dashboard/
   counts, status, breed, farm, shifting, parent-stock, mortality views
@@ -866,7 +870,7 @@ Before asking a human owner to answer from memory, the implementation agent must
 read-only legacy discovery pass over the current artifacts:
 
 ```text
-private herd workbook kept outside git
+legacy BigQuery dashboard/event tables, read-only
 dashboard/ and vgoats-dashboard/ CSVs, API routes, data loaders, and display logic
 slack-automation-scripts/ App Script and Slack SOP automation files
 procurement_app/ mobile/operator patterns if useful

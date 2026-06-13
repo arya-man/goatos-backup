@@ -66,10 +66,12 @@ more current placement signal because goats shift constantly and RFID DB shed
 association may be stale. The importer should still preserve both pieces of
 evidence and create a review/audit note for the disagreement.
 
-### RFID Source Snapshot
+### Historical RFID Parser-Harness Snapshot
 
-A newer locally reviewed RFID source-of-truth workbook has one combined snapshot
-with these sanitized aggregate facts:
+This snapshot describes the historical local RFID parser-harness input. It is
+not the current Phase 1 source of truth for data correction; current
+reconciliation/backfill uses legacy BigQuery read-only exports. The snapshot had
+one combined tab with these sanitized aggregate facts:
 
 ```text
 rows: 1,223
