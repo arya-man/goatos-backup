@@ -169,6 +169,21 @@ export function getAdminRuntimeStatus() {
   };
 }
 
+export function isAuthRequiredError(error: ApiUiError): boolean {
+  return error.kind === "unauthorized" || error.status === 401;
+}
+
+export function firstAuthRequiredError(
+  ...results: Array<ApiResult<unknown> | null | undefined>
+): ApiUiError | null {
+  for (const result of results) {
+    if (result && !result.ok && isAuthRequiredError(result.error)) {
+      return result.error;
+    }
+  }
+  return null;
+}
+
 export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<GoatSearchResponse>> {
   const config = getServerConfig();
   if (!config.ok) return config;

@@ -3,10 +3,10 @@ import Link from "next/link";
 import { ChartCard } from "@/components/charts/chart-card";
 import { HorizontalBarChart } from "@/components/charts/horizontal-bar";
 import { KPICard } from "@/components/charts/kpi-card";
-import { EmptyPanel, ErrorPanel, NextPageLink, Panel, StatPill, ValueList } from "@/components/admin-primitives";
+import { AuthRequiredPanel, EmptyPanel, ErrorPanel, NextPageLink, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
-import { getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
+import { firstAuthRequiredError, getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
 
 const tabs = [
   { id: "overall", label: "Overall", live: true },
@@ -23,6 +23,10 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
     getIdentityCounts({ grain: "tenant_lifecycle", limit: 50 }),
     getIdentityCounts({ grain: "growth_cohort", limit: 50 }),
   ]);
+  const authError = firstAuthRequiredError(tenantLifecycle, growthCohort);
+  if (authError) {
+    return <AuthRequiredPanel error={authError} />;
+  }
 
   const tenantItems = tenantLifecycle.ok ? tenantLifecycle.data.items : [];
   const activeGoats = dimensionCount(tenantItems, "lifecycle_status", "alive");

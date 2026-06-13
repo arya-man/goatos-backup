@@ -1,8 +1,8 @@
 import { AlertTriangle, Download, FileWarning } from "lucide-react";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, StatPill, ValueList } from "@/components/admin-primitives";
+import { AuthRequiredPanel, EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
-import { getImportRun, listImportRunRows, type ImportRowState } from "@/lib/api/server";
+import { firstAuthRequiredError, getImportRun, listImportRunRows, type ImportRowState } from "@/lib/api/server";
 
 const rowStates: ImportRowState[] = ["pending", "auto_linked", "created_goat", "needs_review", "rejected", "error"];
 const reasonOptions = [
@@ -61,6 +61,10 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
       reason_code: reasonCode,
     }),
   ]);
+  const authError = firstAuthRequiredError(summary, rows);
+  if (authError) {
+    return <AuthRequiredPanel error={authError} />;
+  }
 
   return (
     <>

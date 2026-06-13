@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ClipboardCheck, GitBranch } from "lucide-react";
 import {
   ActionNotice,
+  AuthRequiredPanel,
   EmptyPanel,
   ErrorPanel,
   FormField,
@@ -20,6 +21,7 @@ import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   adminListCorrectionRequests,
+  firstAuthRequiredError,
   getConflictDetail,
   listCandidates,
   listConflicts,
@@ -86,6 +88,10 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
     }),
     conflictId ? getConflictDetail(conflictId) : Promise.resolve(null),
   ]);
+  const authError = firstAuthRequiredError(conflicts, candidates, corrections, detail);
+  if (authError) {
+    return <AuthRequiredPanel error={authError} />;
+  }
 
   return (
     <>

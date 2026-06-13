@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
+import { AuthRequiredPanel, EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
 import { dateTime, dash, joinParts, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
-import { searchGoats, type IdentifierType } from "@/lib/api/server";
+import { firstAuthRequiredError, searchGoats, type IdentifierType } from "@/lib/api/server";
 
 const identifierTypes: IdentifierType[] = [
   "old_tag",
@@ -30,6 +30,10 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
     location_id: one(searchParams, "location_id"),
     status: one(searchParams, "status"),
   });
+  const authError = firstAuthRequiredError(result);
+  if (authError) {
+    return <AuthRequiredPanel error={authError} />;
+  }
 
   return (
     <>

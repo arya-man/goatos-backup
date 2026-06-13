@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Activity, AlertTriangle, ClipboardList, DatabaseZap, FileSearch, Search } from "lucide-react";
 import { KPICard } from "@/components/charts/kpi-card";
-import { EmptyPanel, ErrorPanel, PageHeader, Panel, StatPill } from "@/components/admin-primitives";
-import { getAdminRuntimeStatus, getIdentityCounts, getImportRun, listCandidates, listConflicts, searchGoats } from "@/lib/api/server";
+import { AuthRequiredPanel, EmptyPanel, ErrorPanel, PageHeader, Panel, StatPill } from "@/components/admin-primitives";
+import { firstAuthRequiredError, getAdminRuntimeStatus, getIdentityCounts, getImportRun, listCandidates, listConflicts, searchGoats } from "@/lib/api/server";
 import { dash, shortId } from "@/lib/format";
 
 export async function OverviewPage() {
@@ -14,6 +14,10 @@ export async function OverviewPage() {
     searchGoats({ limit: 5 }),
     runtime.importRunId ? getImportRun(runtime.importRunId) : Promise.resolve(null),
   ]);
+  const authError = firstAuthRequiredError(counts, conflicts, candidates, herd, importRun);
+  if (authError) {
+    return <AuthRequiredPanel error={authError} />;
+  }
 
   const activeGoats = counts.ok ? tenantLifecycleCount(counts.data.items, "alive") : null;
   const reviewRows = importRun?.ok ? importRun.data.import_run.summary.rows_needing_review : null;

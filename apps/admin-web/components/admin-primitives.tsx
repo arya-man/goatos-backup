@@ -1,4 +1,4 @@
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, LogIn } from "lucide-react";
 import { CursorPagination } from "@/components/cursor-pagination";
 import type { ApiUiError } from "@/lib/api/server";
 
@@ -65,6 +65,10 @@ export function StatPill({ label, value, tone = "neutral" }: { label: string; va
 }
 
 export function ErrorPanel({ error }: { error: ApiUiError }) {
+  if (error.kind === "unauthorized" || error.status === 401) {
+    return <AuthRequiredPanel error={error} />;
+  }
+
   if (error.kind === "missing_config" || error.code === "missing_config") {
     return (
       <div className="rounded-lg border border-dashed border-[#334155] bg-[#11151C] px-4 py-6 text-sm text-[#8899AA]">
@@ -90,6 +94,33 @@ export function ErrorPanel({ error }: { error: ApiUiError }) {
         </div>
       </div>
     </div>
+  );
+}
+
+export function AuthRequiredPanel({ error }: { error?: ApiUiError }) {
+  return (
+    <section className="rounded-xl border border-[#334155] bg-[#1A1D24] p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[rgba(20,241,217,0.12)] text-[#14f1d9]">
+            <LogIn className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="mt-4 text-xs font-bold uppercase tracking-wide text-[#14f1d9]">Mesha admin login</div>
+          <h1 className="mt-1 text-2xl font-bold text-white">Sign in required</h1>
+          <p className="mt-3 text-sm leading-6 text-[#aab7c4]">
+            Your admin session is missing or expired. In local development, restart the local stack so the server mints a fresh admin token; in shared environments this page will hand off to Mesha SSO.
+          </p>
+        </div>
+        <div className="rounded-lg border border-[#334155] bg-[#10141b] p-4 text-sm text-[#c7d1dc] lg:min-w-[360px]">
+          <div className="font-semibold text-white">Local development</div>
+          <p className="mt-2 text-[#93a4b8]">Run this from the repo root, then refresh this page:</p>
+          <pre className="mt-3 overflow-x-auto rounded-md border border-[#293241] bg-[#0f1115] px-3 py-2 font-mono text-xs text-[#14f1d9]">
+            <code>make dev-local</code>
+          </pre>
+          {error?.traceId ? <p className="mt-3 font-mono text-xs text-[#64748b]">trace {error.traceId}</p> : null}
+        </div>
+      </div>
+    </section>
   );
 }
 

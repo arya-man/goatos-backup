@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { BadgeCheck } from "lucide-react";
-import { ActionNotice, EmptyPanel, ErrorPanel, FormField, FormSelect, Mono, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
+import { ActionNotice, AuthRequiredPanel, EmptyPanel, ErrorPanel, FormField, FormSelect, Mono, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { dateTime, dash, joinParts, shortId } from "@/lib/format";
-import { getGoatPassport, getGoatTimeline } from "@/lib/api/server";
+import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { addIdentifierAction, retireIdentifierAction } from "./actions";
 
@@ -15,6 +15,11 @@ export async function GoatPassportPage({ goatId, searchParams = {} }: { goatId: 
   const returnTo = hrefWithoutAction(`/goats/${encodeURIComponent(goatId)}`, searchParams);
   const actionStatus = one(searchParams, "action_status");
   const actionMessage = one(searchParams, "action_message");
+  const authError = firstAuthRequiredError(result, timeline);
+  if (authError) {
+    return <AuthRequiredPanel error={authError} />;
+  }
+
   if (!result.ok) {
     return (
       <>
