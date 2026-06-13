@@ -93,15 +93,16 @@ Completed so far:
   review/fix actions stay disabled or honest placeholders.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Real local RFID rehearsal against the Shape-2 source path now creates canonical
-  goat passports from clean rows and guarded RFID-only blank-suffix rows. Current
-  local baseline is 711 created goats; source breed/category labels such as
-  `Anantapur Sheep` remain visible in Import Review until a business-approved
-  breed/category representation policy exists.
+  goat passports from clean rows, guarded RFID-only blank-suffix rows, and
+  nonblank source `Breed` labels such as `Anantapur Sheep`. Source breed/category
+  text is Mesha business data; it must not block passport creation unless the
+  business explicitly marks that label as non-goat/non-passport.
 - Phase 1 local end-to-end proof has passed against the local backend and
-  Mesha-style SSR admin-web: normal apply produced 436 created goats and 787
-  review rows; guarded RFID-only apply produced 711 created goats, 512 review
-  rows, and 0 errors; source breed/category review rows stay in
-  `needs_review` rather than being auto-rejected; overview, herd
+  Mesha-style SSR admin-web. Current post-000015 proof against the real Shape-2
+  source creates 780 goats on normal apply, then 1215 goats after guarded
+  RFID-only apply, with 8 review rows and 0 errors. `Anantapur Sheep` now
+  creates goat passports as a breed/category when the other apply gates pass.
+  Overview, herd
   search, goat passport with live identity timeline, identity counts, live
   Import Review, and live correction-request queue reads rendered against the
   final run. The real local DB had no conflicts, candidates, or correction

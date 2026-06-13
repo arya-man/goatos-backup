@@ -185,6 +185,76 @@ func (q *Queries) CreateLegacyImportRun(ctx context.Context, arg CreateLegacyImp
 	return import_run_id, err
 }
 
+const ensureSourceBreedAliasForApply = `-- name: EnsureSourceBreedAliasForApply :one
+WITH upsert_breed AS (
+  INSERT INTO breeds (
+    species,
+    canonical_name,
+    status,
+    review_notes,
+    created_at,
+    updated_at
+  ) VALUES (
+    'goat',
+    $1,
+    'active',
+    'Auto-admitted from a nonblank source breed/category label during legacy RFID apply; operator review can recategorize later.',
+    now(),
+    now()
+  )
+  ON CONFLICT (species, canonical_name) DO UPDATE
+  SET
+    status = 'active',
+    review_notes = COALESCE(breeds.review_notes, EXCLUDED.review_notes),
+    updated_at = now()
+  RETURNING breed_id, canonical_name
+),
+upsert_alias AS (
+  INSERT INTO breed_aliases (
+    breed_id,
+    alias,
+    normalized_alias,
+    source_system,
+    created_at
+  )
+  SELECT
+    breed_id,
+    canonical_name,
+    $2,
+    $3,
+    now()
+  FROM upsert_breed
+  ON CONFLICT (normalized_alias, source_system) DO UPDATE
+  SET
+    breed_id = EXCLUDED.breed_id,
+    alias = EXCLUDED.alias
+  RETURNING breed_id
+)
+SELECT
+  ub.breed_id::text AS breed_id,
+  ub.canonical_name
+FROM upsert_breed ub
+CROSS JOIN (SELECT count(*) FROM upsert_alias) alias_write
+`
+
+type EnsureSourceBreedAliasForApplyParams struct {
+	CanonicalName   string
+	NormalizedAlias string
+	SourceSystem    pgtype.Text
+}
+
+type EnsureSourceBreedAliasForApplyRow struct {
+	BreedID       string
+	CanonicalName string
+}
+
+func (q *Queries) EnsureSourceBreedAliasForApply(ctx context.Context, arg EnsureSourceBreedAliasForApplyParams) (EnsureSourceBreedAliasForApplyRow, error) {
+	row := q.db.QueryRow(ctx, ensureSourceBreedAliasForApply, arg.CanonicalName, arg.NormalizedAlias, arg.SourceSystem)
+	var i EnsureSourceBreedAliasForApplyRow
+	err := row.Scan(&i.BreedID, &i.CanonicalName)
+	return i, err
+}
+
 const failLegacyImportRun = `-- name: FailLegacyImportRun :exec
 UPDATE legacy_import_runs
 SET

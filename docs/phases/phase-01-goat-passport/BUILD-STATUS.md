@@ -572,7 +572,7 @@ RFID source-of-truth staging:
   .codex-goatos-render/import-reports by default; the final rehearsal report is
   generated after rfid-apply so it includes staging reasons and apply-stage
   review reasons such as unknown_status_mapping and
-  species_or_breed_requires_review
+  species_or_breed_requires_review only for truly blank/missing breed labels
   reports group actual emitted reason codes from error_reason and
   processing_reasons, mask RFID/old-tag values by default, and hash
   source_row_key references because source keys can contain source identifiers
@@ -580,9 +580,10 @@ RFID source-of-truth staging:
   per-run reviewer-<import_run_id>/ subdirectory:
   review-summary.csv, needs-review-rows.csv, blank-old-tag-suffix.csv,
   blank-gender.csv, duplicate-old-tag-same-scope.csv, and README.txt
-  Source breed/category labels such as Anantapur Sheep emit
-  breed/species-needs-classification.csv for human mapping and representation
-  review
+  Nonblank source breed/category labels such as Anantapur Sheep are Mesha
+  business Breed values and now resolve to active goat breed/category aliases
+  during apply. They must not block passport creation unless the business
+  explicitly marks that label as non-goat/non-passport.
   reviewer_action and reviewer_notes columns are scratch-only; Goat OS does not
   ingest edited reviewer CSVs yet. Corrections re-enter through the source
   workbook or a future approved correction overlay, then normal import/apply is
@@ -593,9 +594,10 @@ RFID source-of-truth staging:
   raw row JSON, raw RFID, or raw old-tag values
   grouped CSV cells are spreadsheet-formula safe; duplicate old-tag groups use
   stable non-reversible old-tag/scope refs instead of raw values or short masks
-  species_or_breed_requires_review groups are for human breed/category
-  representation decisions, not auto-aliasing; blank_old_tag_suffix groups support the
-  opt-in RFID-only creation policy and do not imply suffix derivation
+  species_or_breed_requires_review groups are for truly blank/missing breed
+  labels only; nonblank source Breed values auto-admit as goat breed/category
+  aliases during apply. blank_old_tag_suffix groups support the opt-in RFID-only
+  creation policy and do not imply suffix derivation
   docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md captures the
   local post-apply mapping review. Migration 000010 implements only the
   approved plain F2/K2 status mappings. The follow-up local rerun cleared
@@ -606,11 +608,12 @@ RFID source-of-truth staging:
   the Phase 1 crossbreed-as-breed-row simplification. The follow-up rerun raised
   created_goat from 383 to 436, left error at 0, and reduced
   species_or_breed_requires_review from 397 to 344. At that point the remaining
-  breed/species bucket was Anantapur Sheep only. That label is a source
-  `Breed` value, so it remains visible for business breed/category review
-  rather than being auto-rejected. After the `000012` blank-suffix opt-in run,
-  the source breed/category review scope is 504 reason occurrences because 160
-  blank-suffix rows also hit the same gate.
+  breed/species bucket was Anantapur Sheep only. That interpretation was wrong:
+  `Anantapur Sheep` is a Mesha source `Breed` value and must create passports
+  when the other gates pass. Migration 000015 corrects the policy by mapping it
+  as an active goat breed/category alias and by auto-admitting future nonblank
+  source Breed labels during real apply. The old post-000012 504
+  species_or_breed_requires_review occurrences are historical pre-000015 counts.
   blank_old_tag_suffix policy review recommended guarded RFID-only creation
   without old_tag identifier creation. Migration 000012 adds the supporting
   apply-candidate index and `rfid-apply --allow-rfid-only-blank-suffix`
@@ -618,26 +621,23 @@ RFID source-of-truth staging:
   435. The implementation dry-run and real local rehearsal both produced 711
   created goats total, 275 above the post-000011 baseline of 436, with
   needs_review 512 and error 0. At that post-RFID-only, pre-disposition point,
-  review reason occurrences were
-  species_or_breed_requires_review 504, blank_old_tag_suffix 160,
-  blank_gender 4, and duplicate_old_tag_same_scope 4; reason counts are
-  occurrences because the 160 remaining blank-suffix rows also fail the
-  breed/species gate.
-  Phase 1 local end-to-end proof passed after this run: normal apply produced
-  created_goat 436, needs_review 787, and error 0; guarded RFID-only apply
-  produced created_goat 711, needs_review 512, and error 0 while the
-  tenant_lifecycle alive counter remains 711. SSR admin-web rendered the Mesha
-  overview, real herd rows, a real goat passport with live timeline, the 711
-  alive count, and live Import Review summary/rows against the final run. The
-  real local DB had 0 conflicts, 0 candidates, and 0 correction rows, so Data
-  Quality rendered honest empty states; backend repository/handler tests cover
-  populated conflict/candidate/correction list paths separately.
-  Fresh local closeout proof on June 12, 2026 reproduced the same numbers from
-  a clean Docker Postgres database with all migrations through 000014, then
-  rendered `/`, `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and
-  `/data-quality` through the Mesha admin-web against that final run. The bearer
-  token was absent from captured HTML, client/static bundle, backend logs, and
-  admin-web logs.
+  review reason occurrences were species_or_breed_requires_review 504,
+  blank_old_tag_suffix 160, blank_gender 4, and duplicate_old_tag_same_scope 4.
+  Those are historical pre-000015 counts from the old source-breed policy; after
+  000015, nonblank source Breed labels should move through apply instead of
+  remaining breed/species review rows.
+  Phase 1 local end-to-end proof was rerun after migration 000015: normal apply
+  produced created_goat 780, needs_review 443, and error 0; guarded RFID-only
+  apply produced created_goat 1215, needs_review 8, and error 0 while the
+  tenant_lifecycle alive counter became 1215. The source proof found 508
+  Anantapur Sheep rows in the RFID source and 504 created Anantapur Sheep goat
+  passports; the 4-row delta remains blocked by other apply gates, not by the
+  source Breed label. SSR admin-web proof should use this post-000015 state, not
+  the historical 711/512 split.
+  The previous local closeout proof with migrations through 000014 rendered `/`,
+  `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and `/data-quality`
+  through the Mesha admin-web; reruns after 000015 must keep those route checks
+  and token-leak checks while expecting the updated 1215/8 counts.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
@@ -665,8 +665,9 @@ RFID source-of-truth canonical apply:
   first_rfid_import; goat_location_history and counters are not written in this
   slice
   active RFID conflicts, active same-scope old_tag conflicts, unknown or
-  review_required status mappings, unsafe species/breed labels, and changed
-  source_row_version_hash route the row to needs_review without creating a goat
+  review_required status mappings, blank/missing Breed values, future
+  business-explicit non-passport Breed labels, and changed source_row_version_hash
+  route the row to needs_review without creating a goat
   deterministic SQL data/integrity per-row failures roll back that row's
   canonical write transaction, mark only that row processing_state=error in a
   separate short transaction with sanitized SQLSTATE/constraint metadata,
@@ -804,8 +805,8 @@ partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
 source cleanup or reviewed policy for blank_gender plus duplicate same-scope
-old_tag rows; optional earlier source classification for Anantapur Sheep while
-keeping it out of goat creation
+old_tag rows; source Breed labels such as Anantapur Sheep are business
+breed/category data and should not be kept out of goat creation by label text
 P8 sales/allocation/promise behavior
 ```
 
@@ -814,20 +815,22 @@ P8 sales/allocation/promise behavior
 This order is intentional and should not be inferred from conversation memory:
 
 ```text
-1. Keep the local admin demo reproducible with source breed/category review rows
-   visible.
+1. Keep the local admin demo reproducible with source breed/category labels
+   admitted into passport creation when nonblank and otherwise eligible.
    The UI now shows clean goats, passport detail with timeline, review buckets,
    live Import Review rows, correction queue reads, identity counts, and honest
    empty states where the local DB has no conflicts/candidates. Defined Phase 1B
    correction/candidate/conflict/identifier actions are live; source
-   breed/category rows remain in Import Review; Import
-   Review row fix/approve actions remain deferred.
+   breed/category labels such as Anantapur Sheep should appear as goat passport
+   breed/category values after apply, not as review blockers. Import Review row
+   fix/approve actions remain deferred.
 
 2. Keep the local runbook and proof reproducible: fresh Docker Postgres, all
    migrations, real Shape-2 import, normal apply, explicit RFID-only
    blank-suffix apply, counter rebuild, Mesha
    admin-web SSR routes, and token leak checks must continue to reproduce
-   711 created, 512 needs_review, 0 rejected, and 0 errors.
+   the post-000015 created/review counts once the source-breed fix has been
+   applied; never reuse the historical 711/512 counts as current proof.
 
 3. Split remaining local workflow work instead of treating it as one blanket
    blocker. Candidate approve attach/merge is implementable as a scoped
@@ -855,7 +858,7 @@ DONE in Phase 1A / Phase 1B
     CreateCorrectionRequest; RejectCandidate; ResolveConflict reject_match;
     ResolveConflict merge; ResolveCorrectionRequest; AddGoatIdentifier;
     RetireGoatIdentifier.
-  source breed/category rows remain visible in Import Review.
+  nonblank source breed/category labels no longer block passport creation.
 
 STILL REQUIRED FOR PHASE 1B
   1. Candidate approve attach/merge semantics; approve-to-create stays blocked

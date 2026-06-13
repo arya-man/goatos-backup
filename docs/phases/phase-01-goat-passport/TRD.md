@@ -1695,9 +1695,12 @@ breed strings as counter dimensions; map legacy breed text to controlled
 
 Seed breed/species reference data from the canonical glossary/source findings.
 Known source labels include Malai, Beetal, Sojat, Osmanabadi, Boer, Anantapur
-Sheep, Anantapur, and Kenguri. Treat these as reviewable reference rows and
-aliases, not hardcoded enums. Unknown or dirty breed strings stay as raw evidence
-and route to review instead of fragmenting counters.
+Sheep, Anantapur, and Kenguri. Treat these as source breed/category reference
+rows and aliases, not hardcoded enums. Nonblank source Breed labels are Mesha
+business data and must create passports when the other apply gates pass; real
+apply auto-admits a source-system alias so counters remain normalized instead of
+fragmenting on free text. Blank/missing Breed values, or a future
+business-explicit non-passport label, stay as raw evidence and route to review.
 
 ### `audit_log`
 
@@ -2284,13 +2287,23 @@ Phase 1 local closeout status:
 Fresh local Docker Postgres proof with all migrations through 000014:
   normal RFID apply -> created_goat 436, needs_review 787, error 0
   guarded --allow-rfid-only-blank-suffix apply -> created_goat 711, needs_review 512, error 0
-  source breed/category review remains visible -> created_goat 711, needs_review 512, rejected 0, error 0
+  source breed/category review remained visible before 000015 -> created_goat 711, needs_review 512, rejected 0, error 0
   remaining review reason occurrences:
-    species_or_breed_requires_review 504
+    species_or_breed_requires_review 504 (historical pre-000015)
     blank_old_tag_suffix 160
     blank_gender 4
     duplicate_old_tag_same_scope 4
   tenant_lifecycle alive counter = 711
+
+Fresh local Docker Postgres proof with all migrations through 000015:
+  normal RFID apply -> created_goat 780, needs_review 443, error 0
+  guarded --allow-rfid-only-blank-suffix apply -> created_goat 1215, needs_review 8, error 0
+  remaining review reason occurrences:
+    blank_gender 4
+    duplicate_old_tag_same_scope 4
+  Anantapur Sheep source rows = 508
+  Anantapur Sheep created passports = 504
+  tenant_lifecycle alive counter = 1215
   Mesha admin-web SSR routes verified against the final run:
     /
     /counts
@@ -2829,8 +2842,10 @@ emit full raw_payload, raw row JSON, raw RFID, or raw old-tag values.
 Grouped CSV cells are spreadsheet-formula safe. duplicate_old_tag_same_scope
 groups use stable non-reversible old-tag/scope refs instead of raw values or
 short masks, so short old-tag labels do not collapse into one bucket.
-species_or_breed_requires_review groups are for human breed/category
-representation decisions, not auto-aliasing. blank_old_tag_suffix groups support the explicit
+species_or_breed_requires_review groups are for blank/missing Breed values or a
+future business-explicit non-passport label; nonblank source Breed labels
+auto-admit as goat breed/category aliases during real apply.
+blank_old_tag_suffix groups support the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` policy and do not imply suffix
 derivation.
 created_goat_count, updated_goat_count, and conflict_count remain 0 during
@@ -2930,8 +2945,10 @@ nonblank Tag/status labels must map through legacy_status_mappings for
 source_system='legacy_rfid_db'
 unknown status mappings and review_required mappings route to needs_review
 blank Tag/status defaults lifecycle_status='alive' only
-breed/species must resolve to a clear active goat breed alias; source
-breed/category labels such as Anantapur Sheep route to needs_review
+breed/species must resolve to a clear active goat breed alias; nonblank source
+Breed labels such as Anantapur Sheep auto-admit as active goat breed/category
+aliases for the source system during real apply; blank/missing Breed routes to
+needs_review
 same source_row_key with different source_row_version_hash routes to
 needs_review before canonical creation
 deterministic SQL data/integrity failures for one staged row (SQLSTATE class
@@ -2945,12 +2962,13 @@ error rows are not auto-retried by rfid-apply; an operator must inspect/fix and
 promote the row back to pending before retry
 ```
 
-Source breed/category disposition:
+Source breed/category policy:
 
 ```text
-Rows with species_or_breed_requires_review remain needs_review and visible in
-Import Review. A label such as Anantapur Sheep is source data, not enough by
-itself to reject or hide the row.
+Rows with nonblank source Breed values must not be blocked by label text alone.
+Migration 000015 maps Anantapur Sheep as an active Mesha goat breed/category and
+apply auto-admits future nonblank source Breed labels for the source system.
+Blank/missing Breed remains needs_review.
 ```
 
 Future apply ops hardening backlog:

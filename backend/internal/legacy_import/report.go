@@ -160,7 +160,7 @@ func addAnomalyGroup(report *AnomalyReport, reason string, raw safeReportFields,
 			ReasonCode: reason,
 			LabelField: "Breed",
 			LabelValue: raw.breed,
-			ReviewNote: "Decide how each source breed/category label should be represented; do not auto-map from this report alone.",
+			ReviewNote: "Only blank/missing Breed values or business-explicit non-passport labels should be here; nonblank source Breed labels create passports during apply.",
 		})
 	case "blank_old_tag_suffix":
 		report.addGroup(AnomalyReportGroup{
@@ -565,7 +565,7 @@ func writeReviewerInstructions(path string, opts AnomalyReportOptions) error {
 		"Default CSVs mask RFID and hash old-tag/source-row references. Internal cleanup usually needs --include-sensitive.",
 		"Never commit generated reports or private source data.",
 		"",
-		"breed/species-needs-classification.csv contains source breed/category labels that need a business mapping decision before goat creation.",
+		"breed/species-needs-classification.csv is only for blank/missing Breed values or labels explicitly marked non-passport by the business.",
 		"blank-old-tag-suffix.csv is for source correction or a future RFID-only creation policy decision.",
 		"blank-gender.csv is for source correction or an explicit reviewed sex policy.",
 		"duplicate-old-tag-same-scope.csv is for source correction, conflict review, or merge review.",
@@ -604,7 +604,7 @@ func focusedFilename(reason string) string {
 func suggestedAction(reason string) string {
 	switch reason {
 	case "species_or_breed_requires_review":
-		return "Classify how this source breed/category should be represented before goat creation or inventory reporting."
+		return "Only blank/missing Breed values or business-explicit non-passport labels should remain here; nonblank source Breed labels create passports during apply."
 	case "blank_old_tag_suffix":
 		return "Choose future RFID-only creation policy or correct source old-tag suffix before import."
 	case "blank_gender":

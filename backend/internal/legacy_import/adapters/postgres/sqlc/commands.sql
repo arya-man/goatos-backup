@@ -199,6 +199,57 @@ ORDER BY
   b.canonical_name
 LIMIT 1;
 
+-- name: EnsureSourceBreedAliasForApply :one
+WITH upsert_breed AS (
+  INSERT INTO breeds (
+    species,
+    canonical_name,
+    status,
+    review_notes,
+    created_at,
+    updated_at
+  ) VALUES (
+    'goat',
+    @canonical_name,
+    'active',
+    'Auto-admitted from a nonblank source breed/category label during legacy RFID apply; operator review can recategorize later.',
+    now(),
+    now()
+  )
+  ON CONFLICT (species, canonical_name) DO UPDATE
+  SET
+    status = 'active',
+    review_notes = COALESCE(breeds.review_notes, EXCLUDED.review_notes),
+    updated_at = now()
+  RETURNING breed_id, canonical_name
+),
+upsert_alias AS (
+  INSERT INTO breed_aliases (
+    breed_id,
+    alias,
+    normalized_alias,
+    source_system,
+    created_at
+  )
+  SELECT
+    breed_id,
+    canonical_name,
+    @normalized_alias,
+    @source_system,
+    now()
+  FROM upsert_breed
+  ON CONFLICT (normalized_alias, source_system) DO UPDATE
+  SET
+    breed_id = EXCLUDED.breed_id,
+    alias = EXCLUDED.alias
+  RETURNING breed_id
+)
+SELECT
+  ub.breed_id::text AS breed_id,
+  ub.canonical_name
+FROM upsert_breed ub
+CROSS JOIN (SELECT count(*) FROM upsert_alias) alias_write;
+
 -- name: GetIdentifierPolicyForApply :one
 SELECT normalizer_version, primary_allowed
 FROM identifier_policies

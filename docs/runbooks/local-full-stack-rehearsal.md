@@ -179,10 +179,12 @@ Grouped summaries use only safe source labels (`Tag`, `Breed`, `Gender`,
 `Farm`, `Shed`, and `Partition`) and never write raw RFID, old-tag, full row
 JSON, or full `raw_payload`.
 
-The current `species_or_breed_requires_review` source label is `Anantapur Sheep`
-only. It is a source `Breed` value from the legacy RFID sheet, so the reviewer
-pack keeps it in `breed/species-needs-classification.csv` until a
-breed/category mapping policy is explicitly approved.
+Before migration 000015, the `species_or_breed_requires_review` source label was
+`Anantapur Sheep`. That was corrected: `Anantapur Sheep` is a Mesha source
+`Breed` value and should create passports when all other apply gates pass.
+Current reviewer packs should only use `breed/species-needs-classification.csv`
+for truly blank/missing Breed or a label the business explicitly marks as
+non-passport/non-goat.
 `blank_old_tag_suffix` rows show safe Farm/Shed/Partition context. RFID-only goat
 creation for those rows is available only through the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` flag after a dry-run confirms the
@@ -211,36 +213,38 @@ go run ./cmd/rebuild-identity-counters \
 
 ## Real Shape 2 Closeout Expectations
 
-For the current real Shape 2 `Combined` source and migrations through 000014,
+For the current real Shape 2 `Combined` source and migrations through 000015,
 a fresh local run must reconcile exactly:
 
 ```text
 normal rfid-apply:
-  created_goat = 436
-  needs_review = 787
+  created_goat = 780
+  needs_review = 443
   error = 0
 
 rfid-apply --allow-rfid-only-blank-suffix:
-  created_goat = 711
-  needs_review = 512
+  created_goat = 1215
+  needs_review = 8
   error = 0
 
 remaining actionable review reason occurrences:
-  species_or_breed_requires_review = 504
-  blank_old_tag_suffix = 160
   blank_gender = 4
   duplicate_old_tag_same_scope = 4
 
+source Breed policy proof:
+  Anantapur Sheep source rows = 508
+  Anantapur Sheep created passports = 504
+
 rebuild-identity-counters:
-  tenant_lifecycle alive = 711
+  tenant_lifecycle alive = 1215
 ```
 
 If these numbers differ on a fresh local database, stop and investigate before
 using the result as a Phase 1 proof. Usual causes are wrong sheet, changed
 source export, stale database, missing migration, skipping the explicit
-RFID-only blank-suffix apply flag, or accidentally using a database where the
-now-disabled source breed/category disposition command was run. Current fresh
-local proof should stop at 711 created, 512 needs_review, and 0 error rows.
+RFID-only blank-suffix apply flag, or accidentally using a pre-000015 database.
+Do not expect the historical 711/512 split; nonblank source Breed rows should
+move into created passports instead of species/breed review.
 
 ## Backend And Admin-Web Smoke
 
@@ -270,7 +274,7 @@ Use this path instead of reusing an old `GOATOS_BEARER_TOKEN` from a shell. If
 the browser shows `401 invalid_bearer_token`, restart through `make dev-local`
 so the backend and admin-web share the same local auth issuer/audience/secret.
 
-For the real local 711-goat proof, pass the proven import run id so
+For the real local post-000015 proof, pass the proven import run id so
 `/import-review` opens the live run directly:
 
 ```bash

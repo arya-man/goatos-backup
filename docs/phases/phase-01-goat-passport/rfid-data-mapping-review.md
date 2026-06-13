@@ -146,22 +146,21 @@ Reason-code delta:
 | `blank_gender` | 4 | 4 | 0 |
 | `duplicate_old_tag_same_scope` | 4 | 4 | 0 |
 
-The remaining `species_or_breed_requires_review` group is:
+The historical post-000011 `species_or_breed_requires_review` group was:
 
 | Source Breed label | Count after 000011 | Classification status | Recommendation |
 | --- | ---: | --- | --- |
-| `Anantapur Sheep` | 344 | source breed/category review | Keep visible in Import Review; do not infer final representation from label text alone. |
+| `Anantapur Sheep` | 344 | source `Breed` value | Business-confirmed Mesha goat breed/category; migration 000015 maps it active and it should not block passport creation. |
 
 Source-category signal:
 
-- `Anantapur Sheep` accounts for all 344 remaining breed/species review rows.
+- `Anantapur Sheep` accounted for all 344 remaining breed/species review rows
+  before migration 000015.
 - The source sheet uses `Breed` as an operational breed/category field; the
-  label alone is not a business-approved reason to reject or hide the row.
-- The current apply gate is doing the safe thing by keeping these rows out of
-  canonical goat creation until a breed/category mapping decision exists.
-- Later implementation should decide whether this source category maps to a
-  goat breed or a broader livestock/mutton inventory category. Until then it
-  remains visible review data.
+  label is Mesha business data, not a reason to reject or hide the row.
+- The correct apply behavior is to resolve existing aliases or auto-admit
+  nonblank source Breed labels as active goat breed/category aliases for the
+  source system. Blank/missing Breed remains reviewable.
 
 Implementation note for the later build slice:
 
@@ -187,9 +186,9 @@ CSV evidence from the sensitive local reviewer pack:
 | Unique RFID within this bucket | 435 | True global uniqueness is still apply-time only. |
 | Known Gender value | 435 | No blank/unknown Gender inside this bucket. |
 | Current mapped status label | 52 | The other 383 rows would still need status mapping or review. |
-| Current active goat breed/species mapping | 270 | 160 rows carry source breed/category labels that still need review and 5 still need breed/species review. |
+| Current active goat breed/species mapping | 270 | Historical pre-000015 count; source breed/category labels now resolve or auto-admit during apply. |
 | Current status + goat breed + gender gates pass | 27 | Realistic immediate yield before DB conflict checks. |
-| Likely still review under option B | 408 | Mostly status mapping and source breed/category review. |
+| Likely still review under option B | 408 | Historical pre-000015 estimate; source breed/category review no longer applies to nonblank Breed labels. |
 
 Exact yield can only be confirmed by the later implementation dry-run because
 RFID conflicts against already-created goats are checked only when rows traverse
@@ -263,7 +262,7 @@ candidate rows, applied 711, routed 504 to review, and had 0 errors. The
 remaining 8 rows were the original blank-gender and duplicate-old-tag staging
 reviews; they were not apply candidates and remained blocked.
 
-Post-implementation open-review reason occurrences:
+Historical post-RFID-only, pre-000015 open-review reason occurrences:
 
 | Reason code | Count |
 | --- | ---: |
@@ -273,11 +272,10 @@ Post-implementation open-review reason occurrences:
 | `duplicate_old_tag_same_scope` | 4 |
 
 Reason-code counts are occurrences, not distinct row counts. The 160 remaining
-`blank_old_tag_suffix` rows also fail breed/species review, so they appear in
-both buckets. The current source breed/category review scope is therefore 504
-breed/species review occurrences: the earlier 344 rows plus 160 blank-suffix
-rows that also hit the same gate. The counter rebuild reported
-`tenant_lifecycle=alive` count 711, matching `created_goat`.
+`blank_old_tag_suffix` rows also failed the old breed/species review gate, so
+they appeared in both buckets. Migration 000015 makes those nonblank Breed labels
+eligible for passport creation instead; only blank/missing Breed should emit
+`species_or_breed_requires_review`.
 
 Why B is a policy problem, not just source cleanup:
 
@@ -309,8 +307,10 @@ Implemented tests:
   active goat breed, and known Gender creates a goat plus primary RFID.
 - That row creates no `old_tag` identifier and does not run old-tag scoped
   uniqueness as a creation requirement.
-- Rows with unmapped status, source breed/category review, blank/unknown Gender, RFID
-  conflict, or any additional staging review reason remain in `needs_review`.
+- Rows with unmapped status, blank/missing Breed, blank/unknown Gender, RFID
+  conflict, same-scope old-tag conflict, or any additional staging review reason
+  remain in `needs_review`. Nonblank source Breed labels such as Anantapur Sheep
+  are not blockers after migration 000015.
 - Replay/idempotency does not create duplicate goats or duplicate RFID
   identifiers.
 - The decision record, import row, and audit/evidence trail preserve unresolved
@@ -377,9 +377,9 @@ Recommendation:
 
 ## Next Data Slices
 
-1. Decide the source breed/category policy for `Anantapur Sheep`: goat breed
-   mapping or broader livestock/mutton inventory representation. The
-   post-`000012` scope is 504 breed/species review occurrences, including 160
-   rows that also carry `blank_old_tag_suffix`.
+1. Keep migration 000015 and the source Breed policy proof in every fresh local
+   rehearsal: `Anantapur Sheep` and other nonblank source Breed labels must
+   create goat passports when all other gates pass. The old 504 breed/species
+   review occurrences are historical.
 2. Keep blank gender and duplicate same-scope old tags blocked pending source
    correction or an explicit reviewed policy.

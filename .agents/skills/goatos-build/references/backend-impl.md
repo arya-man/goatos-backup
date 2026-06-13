@@ -310,8 +310,8 @@ Rules:
   appear in open anomaly/reviewer reports.
 - RFID apply routes unsafe rows to `needs_review` without goat creation:
   duplicate active RFID, duplicate active old_tag in the same scope, unknown or
-  review-required status mapping, unmapped source breed/category labels, and
-  changed source row hashes. It does not create dirty conflicts/candidates,
+  review-required status mapping, blank/missing Breed, explicit future
+  non-passport Breed policy labels, and changed source row hashes. It does not create dirty conflicts/candidates,
   goat_location_history, counters, projections, or an outbox relay.
 - Deterministic per-row SQL data/integrity failures (SQLSTATE class 22/23)
   roll back that row's canonical write transaction, then a separate short
@@ -382,14 +382,15 @@ Rules:
   raw row JSON, raw RFID, or raw old-tag values. Grouped CSV cells must be
   spreadsheet-formula safe because humans open these files in spreadsheet
   tools. Duplicate old-tag groups use stable non-reversible old-tag/scope refs
-  rather than raw values or short masks. Breed review groups are a human gate
-  for breed/category representation decisions, not auto-aliasing. Blank old-tag suffix
-  groups support the explicit RFID-only apply flag and do not imply suffix
-  derivation.
-- While `species_or_breed_requires_review` is currently Anantapur Sheep only,
-  those rows remain source breed/category review rows. Emit
-  `breed/species-needs-classification.csv`; do not infer final representation
-  from the label text alone.
+  rather than raw values or short masks. Breed review groups are only for
+  blank/missing Breed values or future business-explicit non-passport labels.
+  Nonblank source Breed labels auto-admit as goat breed/category aliases during
+  real apply. Blank old-tag suffix groups support the explicit RFID-only apply
+  flag and do not imply suffix derivation.
+- `species_or_breed_requires_review` is for blank/missing Breed or a future label
+  the business explicitly marks as non-passport/non-goat. Anantapur Sheep is a
+  Mesha source Breed value; migration 000015 maps it active and real apply
+  auto-admits future nonblank source Breed labels as goat breed/category aliases.
 - The first local post-apply RFID mapping review is captured in
   `docs/phases/phase-01-goat-passport/rfid-data-mapping-review.md`. Migration
   `000010_phase_1_rfid_plain_status_mappings.sql` implements only the approved
@@ -403,11 +404,11 @@ Rules:
   one `breed_id`; richer parentage/compound-breed modeling is deferred. The
   follow-up local rerun raised `created_goat` from 383 to 436, kept `error` at
   0, and reduced `species_or_breed_requires_review` from 397 to 344. At that
-  point the remaining breed/species bucket was Anantapur Sheep only. After the
-  `000012` blank-suffix opt-in run, the source breed/category review scope is
-  504 reason occurrences because 160 blank-suffix rows also hit the same gate.
-  these rows remain `needs_review` and visible in Import Review until an
-  explicit source breed/category mapping policy is approved.
+  point the remaining breed/species bucket was Anantapur Sheep only. That was a
+  policy mistake: Anantapur Sheep is a Mesha source Breed value, and migration
+  000015 maps it as an active goat breed/category. The old 504
+  species_or_breed_requires_review occurrences after 000012 are historical
+  pre-000015 counts.
   The blank old-tag suffix policy decision recommended guarded RFID-only goat
   creation without creating an old_tag identifier: maximum possible additional
   goats is 435. Migration
@@ -415,18 +416,21 @@ Rules:
   `rfid-apply --allow-rfid-only-blank-suffix` implement the policy behind an
   explicit opt-in. The implementation dry-run and real local rehearsal both
   produced 711 created goats total, 275 above the post-000011 baseline of 436,
-  with needs_review 512 and error 0. Source breed/category rows remain visible
-  in review; current open-review reason occurrences include
+  with needs_review 512 and error 0. Those counts are historical pre-000015;
+  after the source Breed fix, nonblank Breed labels should create passports.
+  Historical open-review reason occurrences included
   `species_or_breed_requires_review` 504, `blank_old_tag_suffix` 160,
   `blank_gender` 4, and
-  `duplicate_old_tag_same_scope` 4. The local SSR proof rendered real herd rows,
-  a real goat passport with live timeline, the 711 tenant_lifecycle alive
-  counter, and live Import Review summary/rows against the final run through
-  admin-web. Fresh local closeout proof on June 12, 2026 reproduced this from a
-  clean Docker Postgres database with all migrations through 000014. The real
-  local DB had 0 conflicts, 0 candidates, and 0 correction rows, so Data Quality
-  rendered honest empty states while backend tests cover populated
-  conflict/candidate/correction read paths. C-lite
+  `duplicate_old_tag_same_scope` 4. Migration 000015 changed the current proof:
+  normal apply now creates 780 goats, guarded RFID-only apply creates 1215 goats,
+  needs_review falls to 8, and tenant_lifecycle alive becomes 1215. The source
+  proof found 508 Anantapur Sheep source rows and 504 created Anantapur Sheep
+  goat passports. The local SSR proof rendered real herd rows, a real goat
+  passport with live timeline, and live Import Review summary/rows through
+  admin-web; reruns after 000015 must expect the 1215/8 counts, not the
+  historical 711/512 counts. The real local DB had 0 conflicts, 0 candidates,
+  and 0 correction rows, so Data Quality rendered honest empty states while
+  backend tests cover populated conflict/candidate/correction read paths. C-lite
   suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction

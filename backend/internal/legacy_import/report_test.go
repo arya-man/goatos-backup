@@ -418,7 +418,7 @@ func TestWriteAnomalyReportCSVWritesReviewerFocusedFiles(t *testing.T) {
 	}
 	classificationRows := readCSVFile(t, filepath.Join(reviewerDir, "breed", "species-needs-classification.csv"))
 	assertCSVCellPresent(t, classificationRows, "Anantapur Sheep")
-	assertCSVCellPresent(t, classificationRows, "Classify how this source breed/category should be represented before goat creation or inventory reporting.")
+	assertCSVCellPresent(t, classificationRows, "Only blank/missing Breed values or business-explicit non-passport labels should remain here; nonblank source Breed labels create passports during apply.")
 
 	needsRows := readCSVFile(t, filepath.Join(reviewerDir, "needs-review-rows.csv"))
 	if got := len(needsRows) - 1; got != len(report.Details) {

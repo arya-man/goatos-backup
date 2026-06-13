@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -53,16 +51,17 @@ func TestRFIDApplyWithDockerPostgres(t *testing.T) {
 		}
 
 		expected := map[string]string{
-			"Sirohi":         "Sirohi",
-			"Beetal x Malai": "Beetal x Malai",
-			"Malai x Beetal": "Beetal x Malai",
-			"Beetal x Sojat": "Beetal x Sojat",
-			"Boer x Beetal":  "Boer x Beetal",
-			"Boer x Malai":   "Boer x Malai",
-			"Boer x Sirohi":  "Boer x Sirohi",
-			"Boer x Sojat":   "Boer x Sojat",
-			"Malai x Sojat":  "Malai x Sojat",
-			"Sojat x Malai":  "Malai x Sojat",
+			"Sirohi":          "Sirohi",
+			"Beetal x Malai":  "Beetal x Malai",
+			"Malai x Beetal":  "Beetal x Malai",
+			"Beetal x Sojat":  "Beetal x Sojat",
+			"Boer x Beetal":   "Boer x Beetal",
+			"Boer x Malai":    "Boer x Malai",
+			"Boer x Sirohi":   "Boer x Sirohi",
+			"Boer x Sojat":    "Boer x Sojat",
+			"Malai x Sojat":   "Malai x Sojat",
+			"Sojat x Malai":   "Malai x Sojat",
+			"Anantapur Sheep": "Anantapur Sheep",
 		}
 		resolvedIDs := map[string]string{}
 		for rawLabel, wantCanonical := range expected {
@@ -82,18 +81,14 @@ func TestRFIDApplyWithDockerPostgres(t *testing.T) {
 			}
 			resolvedIDs[rawLabel] = row.BreedID
 		}
+		if got := countRows(t, pool, `SELECT count(*) FROM breeds WHERE species = 'goat' AND canonical_name = 'Anantapur Sheep' AND status = 'active'`); got != 1 {
+			t.Fatalf("active Anantapur Sheep goat breed rows=%d, want 1", got)
+		}
 		if resolvedIDs["Beetal x Malai"] != resolvedIDs["Malai x Beetal"] {
 			t.Fatalf("reverse aliases Beetal x Malai/Malai x Beetal resolved to different breed_id")
 		}
 		if resolvedIDs["Malai x Sojat"] != resolvedIDs["Sojat x Malai"] {
 			t.Fatalf("reverse aliases Malai x Sojat/Sojat x Malai resolved to different breed_id")
-		}
-
-		if _, err := q.ResolveBreedAliasForApply(ctx, importdb.ResolveBreedAliasForApplyParams{
-			NormalizedAlias: normalizedBreedAlias("Anantapur Sheep"),
-			SourceSystem:    textParam("legacy_rfid_db"),
-		}); !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("Anantapur Sheep resolve err=%v, want pgx.ErrNoRows", err)
 		}
 
 		migrationPath := filepath.Join(repoRoot(t), "backend", "migrations", "postgres", "000011_phase_1_rfid_breed_cross_mappings.sql")
@@ -122,6 +117,50 @@ WHERE source_system = 'legacy_rfid_db'
   )`); got != 10 {
 			t.Fatalf("approved RFID breed alias rows=%d, want 10 after idempotent reapply", got)
 		}
+	})
+
+	t.Run("nonblank source breed category label auto admits and creates passport", func(t *testing.T) {
+		runID, _ := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
+			RowNumber: 2,
+			Raw:       rawRFIDRow("SOURCEBREED", "CBE", "9900000000000000000000009100002", "Female", "Mesha Field Category", ""),
+		}})
+
+		result, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:    meshaTenant,
+			ImportRunID: runID,
+			BatchSize:   1,
+			ActorID:     strPtr(applyActorID),
+		})
+		if err != nil {
+			t.Fatalf("ApplyRFIDRows: %v", err)
+		}
+		if result.AppliedCount != 1 || result.ReviewCount != 0 || len(result.CreatedGoatIDs) != 1 {
+			t.Fatalf("unexpected source breed apply result: %#v", result)
+		}
+		goatID := result.CreatedGoatIDs[0]
+		var breed string
+		var breedID string
+		if err := pool.QueryRow(ctx, `
+SELECT breed, breed_id::text
+FROM goats
+WHERE goat_id = $1`, goatID).Scan(&breed, &breedID); err != nil {
+			t.Fatal(err)
+		}
+		if breed != "Mesha Field Category" || breedID == "" {
+			t.Fatalf("source breed mapping mismatch breed=%q breedID=%q", breed, breedID)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM breeds b
+JOIN breed_aliases ba ON ba.breed_id = b.breed_id
+WHERE b.species = 'goat'
+  AND b.canonical_name = 'Mesha Field Category'
+  AND b.status = 'active'
+  AND ba.normalized_alias = 'mesha_field_category'
+  AND ba.source_system = 'legacy_rfid_db'`); got != 1 {
+			t.Fatalf("source breed/alias rows=%d, want 1", got)
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StateCreatedGoat, "")
 	})
 
 	t.Run("clean pending row creates canonical goat identity ledger event outbox and audit", func(t *testing.T) {
@@ -574,7 +613,7 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		if err != nil {
 			t.Fatalf("dry apply: %v", err)
 		}
-		if result.AppliedCount != 1 || result.ReviewCount != 1 || result.ReviewReasons["species_or_breed_requires_review"] != 1 {
+		if result.AppliedCount != 2 || result.ReviewCount != 0 || len(result.ReviewReasons) != 0 {
 			t.Fatalf("unexpected dry-run result: %#v", result)
 		}
 		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
@@ -603,12 +642,12 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		if err != nil {
 			t.Fatalf("blank suffix guarded apply: %v", err)
 		}
-		if result.PendingScanned != 5 || result.AppliedCount != 1 || result.ReviewCount != 3 || result.SkippedCount != 1 {
+		if result.PendingScanned != 5 || result.AppliedCount != 2 || result.ReviewCount != 2 || result.SkippedCount != 1 {
 			t.Fatalf("unexpected guarded blank suffix result: %#v", result)
 		}
 		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "blank_gender")
 		assertRowState(t, pool, runID, 3, legacy_import.StateNeedsReview, "unknown_status_mapping")
-		assertRowState(t, pool, runID, 4, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
+		assertRowState(t, pool, runID, 4, legacy_import.StateCreatedGoat, "")
 		assertRowState(t, pool, runID, 5, legacy_import.StateNeedsReview, "rfid_already_linked")
 		assertRowState(t, pool, runID, 6, legacy_import.StateCreatedGoat, "")
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE normalized_value = 'BLANKEXTRA' OR normalized_value = 'BLANKSTATUS' OR normalized_value = 'BLANKSHEEP' OR normalized_value = 'BLANKRFID'`); got != 0 {
@@ -636,11 +675,11 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		if err != nil {
 			t.Fatalf("review apply: %v", err)
 		}
-		if result.AppliedCount != 1 || result.ReviewCount != 5 || result.PendingScanned != 6 {
+		if result.AppliedCount != 2 || result.ReviewCount != 4 || result.PendingScanned != 6 {
 			t.Fatalf("unexpected review result: %#v", result)
 		}
 		assertRowState(t, pool, runID, 2, legacy_import.StateNeedsReview, "status_mapping_requires_review")
-		assertRowState(t, pool, runID, 3, legacy_import.StateNeedsReview, "species_or_breed_requires_review")
+		assertRowState(t, pool, runID, 3, legacy_import.StateCreatedGoat, "")
 		assertRowState(t, pool, runID, 4, legacy_import.StateNeedsReview, "unknown_status_mapping")
 		assertRowState(t, pool, runID, 5, legacy_import.StateNeedsReview, "rfid_already_linked")
 		assertRowState(t, pool, runID, 6, legacy_import.StateNeedsReview, "old_tag_same_scope_conflict")
@@ -650,7 +689,7 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE identifier_type = 'old_tag' AND normalized_value = 'APPLYCONFLICT' AND scope_key = 'park:CPT' AND status = 'active'`); got != 1 {
 			t.Fatalf("different-scope old tag rows=%d", got)
 		}
-		if got := countRows(t, pool, `SELECT count(*) FROM goats g JOIN legacy_import_rows lir ON lir.matched_goat_id = g.goat_id WHERE lir.import_run_id = $1`, runID); got != 1 {
+		if got := countRows(t, pool, `SELECT count(*) FROM goats g JOIN legacy_import_rows lir ON lir.matched_goat_id = g.goat_id WHERE lir.import_run_id = $1`, runID); got != 2 {
 			t.Fatalf("goats created for review run=%d", got)
 		}
 	})

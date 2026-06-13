@@ -160,7 +160,7 @@ func (r *Repository) ApplyRFIDRows(ctx context.Context, cmd legacy_import.ApplyC
 					}
 					continue
 				}
-				plan, reason, err := r.evaluatePendingApplyRow(ctx, r.queries, tenantUUID, policy, applyRow, mode == applyCandidateRFIDOnlyBlankSuffix)
+				plan, reason, err := r.evaluatePendingApplyRow(ctx, r.queries, tenantUUID, policy, applyRow, mode == applyCandidateRFIDOnlyBlankSuffix, false)
 				if err != nil {
 					return nil, err
 				}
@@ -365,7 +365,7 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 		return applyOutcome{}, err
 	}
 
-	plan, reviewReason, err := r.evaluatePendingApplyRow(ctx, qtx, tenantUUID, policy, row, mode == applyCandidateRFIDOnlyBlankSuffix)
+	plan, reviewReason, err := r.evaluatePendingApplyRow(ctx, qtx, tenantUUID, policy, row, mode == applyCandidateRFIDOnlyBlankSuffix, true)
 	if err != nil {
 		return applyOutcome{}, err
 	}
@@ -732,7 +732,7 @@ func (r *Repository) applyOnePendingRow(ctx context.Context, tenantUUID, runUUID
 	return applyOutcome{applied: true, goatID: goatRow.GoatID}, nil
 }
 
-func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Queries, tenantUUID pgtype.UUID, policy legacy_import.Policy, row pendingApplyRow, allowRFIDOnlyBlankSuffix bool) (applyPlan, string, error) {
+func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Queries, tenantUUID pgtype.UUID, policy legacy_import.Policy, row pendingApplyRow, allowRFIDOnlyBlankSuffix bool, persistSourceBreed bool) (applyPlan, string, error) {
 	if row.ProcessingState != legacy_import.StatePending && !(allowRFIDOnlyBlankSuffix && row.ProcessingState == legacy_import.StateNeedsReview) {
 		return applyPlan{}, "", nil
 	}
@@ -812,14 +812,29 @@ func (r *Repository) evaluatePendingApplyRow(ctx context.Context, q *importdb.Qu
 		NormalizedAlias: normalizedBreedAlias(breed),
 		SourceSystem:    textParam(policy.SourceSystem),
 	})
+	breedID := breedRow.BreedID
 	if errors.Is(err, pgx.ErrNoRows) {
-		return applyPlan{}, "species_or_breed_requires_review", nil
+		if !persistSourceBreed {
+			plan.Breed = breed
+			return plan, "", nil
+		}
+		ensuredBreedRow, ensureErr := q.EnsureSourceBreedAliasForApply(ctx, importdb.EnsureSourceBreedAliasForApplyParams{
+			CanonicalName:   breed,
+			NormalizedAlias: normalizedBreedAlias(breed),
+			SourceSystem:    textParam(policy.SourceSystem),
+		})
+		if ensureErr != nil {
+			err = fmt.Errorf("ensure source breed alias %q: %w", breed, ensureErr)
+		} else {
+			err = nil
+		}
+		breedID = ensuredBreedRow.BreedID
 	}
 	if err != nil {
 		return applyPlan{}, "", err
 	}
 	plan.Breed = breed
-	plan.BreedID = &breedRow.BreedID
+	plan.BreedID = &breedID
 
 	oldTag := strings.TrimSpace(stringValue(payload["normalized_old_tag"]))
 	parkCode := strings.TrimSpace(stringValue(payload["normalized_park_code"]))
