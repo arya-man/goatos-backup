@@ -16,7 +16,7 @@ const reasonOptions = [
 ] as const;
 
 export async function ImportReviewPage({ searchParams }: { searchParams: RouteSearchParams }) {
-  const importRunId = one(searchParams, "import_run_id")?.trim();
+  const importRunId = one(searchParams, "import_run_id")?.trim() || process.env.GOATOS_IMPORT_RUN_ID?.trim();
   const limit = boundedInt(one(searchParams, "limit"), 50, 1, 500);
   const page = boundedInt(one(searchParams, "page"), 1, 1, 1000000);
   const processingState = normalizeRowState(one(searchParams, "processing_state"));
