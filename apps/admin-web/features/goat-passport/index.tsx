@@ -199,7 +199,6 @@ export async function GoatPassportPage({ goatId, searchParams = {} }: { goatId: 
                   </div>
                 </div>
               ))}
-              <div className="text-xs text-[#93a4b8]">Trace {timeline.data.trace_id}</div>
             </div>
           )}
         </Panel>

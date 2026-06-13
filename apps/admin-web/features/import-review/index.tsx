@@ -113,7 +113,6 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                   ["duplicates found", tracked(summary.data.import_run.summary.duplicates_found)],
                   ["missing required fields", tracked(summary.data.import_run.summary.missing_required_fields)],
                   ["conflicts opened", summary.data.import_run.summary.conflicts_opened],
-                  ["trace", summary.data.trace_id],
                 ]}
               />
             </div>
@@ -185,7 +184,6 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                   pageSize={limit}
                   itemCount={rows.data.items.length}
                 />
-                <div className="text-xs text-[#93a4b8]">Trace {rows.data.trace_id}</div>
               </div>
             )}
           </Panel>

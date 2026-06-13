@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Search } from "lucide-react";
 import { redirect } from "next/navigation";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
-import { dateTime, dash, joinParts, shortId } from "@/lib/format";
+import { dash, joinParts, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, searchGoats, type IdentifierType } from "@/lib/api/server";
 
@@ -112,7 +112,6 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
                   pageSize={limit}
                   itemCount={result.data.items.length}
                 />
-                <div className="text-xs text-[#93a4b8]">Trace {result.data.trace_id}. Rendered {dateTime(new Date().toISOString())}.</div>
               </div>
             )}
           </Panel>

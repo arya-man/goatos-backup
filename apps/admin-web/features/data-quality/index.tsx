@@ -144,7 +144,6 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                 pageSize={conflictLimit}
                 itemCount={conflicts.data.items.length}
               />
-              <div className="text-xs text-[#93a4b8]">Trace {conflicts.data.trace_id}</div>
             </div>
           )}
         </Panel>
@@ -199,7 +198,6 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                 pageSize={candidateLimit}
                 itemCount={candidates.data.items.length}
               />
-              <div className="text-xs text-[#93a4b8]">Trace {candidates.data.trace_id}</div>
             </div>
           )}
         </Panel>
@@ -286,7 +284,6 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                 pageSize={correctionLimit}
                 itemCount={corrections.data.items.length}
               />
-              <div className="text-xs text-[#93a4b8]">Trace {corrections.data.trace_id}</div>
             </div>
           )}
         </Panel>
