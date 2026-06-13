@@ -42,7 +42,7 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
 
   return (
     <>
-      <nav className="mb-5 flex flex-wrap items-center gap-5 text-xl font-semibold" aria-label="Counts tabs">
+      <nav className="mb-5 flex flex-wrap items-center gap-3" aria-label="Counts tabs">
         {tabs.map((tab) => (
           <Link
             key={tab.id}
@@ -51,8 +51,8 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
             aria-current={activeTab === tab.id ? "page" : undefined}
             className={
               activeTab === tab.id
-                ? "rounded-xl bg-[#22262E] px-4 py-2 text-[#14F1D9]"
-                : "px-2 py-2 text-[#8899AA] hover:text-[#c7d1dc]"
+                ? "inline-flex h-10 min-w-[5rem] items-center justify-center rounded-xl border border-transparent bg-[#22262E] px-4 text-lg font-semibold leading-none text-[#14F1D9] outline-none focus-visible:ring-2 focus-visible:ring-[#14F1D9]/50"
+                : "inline-flex h-10 min-w-[5rem] items-center justify-center rounded-xl border border-transparent px-4 text-lg font-semibold leading-none text-[#8899AA] outline-none hover:text-[#c7d1dc] focus-visible:ring-2 focus-visible:ring-[#14F1D9]/50"
             }
           >
             {tab.label}

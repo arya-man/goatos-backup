@@ -43,6 +43,7 @@ const routes = [
   { name: "login", path: "/login" },
   { name: "overview", path: "/" },
   { name: "counts", path: "/counts" },
+  { name: "counts-core-farms", path: "/counts?view=core-farms" },
   { name: "herd", path: "/herd" },
   { name: "import-review", path: `/import-review?import_run_id=${encodeURIComponent(importRunId)}` },
   { name: "data-quality", path: "/data-quality" },
