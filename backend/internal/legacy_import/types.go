@@ -14,7 +14,6 @@ const (
 	StateNeedsReview = "needs_review"
 	StateError       = "error"
 	StateCreatedGoat = "created_goat"
-	StateRejected    = "rejected"
 )
 
 type ImportCommand struct {

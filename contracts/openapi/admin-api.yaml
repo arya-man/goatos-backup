@@ -109,7 +109,7 @@ paths:
       summary: Download staged import rows as formula-safe CSV.
       description: >
         Streams the same whitelisted Import Review row fields exposed by
-        listImportRunRows. scope=messy exports needs_review, rejected, and
+        listImportRunRows. scope=messy exports needs_review and
         error rows; scope=current exports the selected processing_state and/or
         reason_code filter.
       parameters:
@@ -990,7 +990,6 @@ components:
         - missing_required_fields
         - conflicts_opened
         - rows_needing_review
-        - rows_rejected
         - error_count
       properties:
         rows_processed:
@@ -1023,9 +1022,6 @@ components:
           type: integer
           minimum: 0
         rows_needing_review:
-          type: integer
-          minimum: 0
-        rows_rejected:
           type: integer
           minimum: 0
         error_count:

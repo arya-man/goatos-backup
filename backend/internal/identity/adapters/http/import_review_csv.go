@@ -14,7 +14,7 @@ import (
 
 const importRunRowsCSVLimit = 500
 
-var messyImportRunRowStates = []string{"needs_review", "rejected", "error"}
+var messyImportRunRowStates = []string{"needs_review", "error"}
 
 type importRunRowsCSVSpec struct {
 	ProcessingState *string

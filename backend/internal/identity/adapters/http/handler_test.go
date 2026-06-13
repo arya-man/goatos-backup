@@ -1216,7 +1216,6 @@ func importRunResponseFixture(id string) *domain.ImportRun {
 			GoatsCreated:      711,
 			ConflictsOpened:   0,
 			RowsNeedingReview: 8,
-			RowsRejected:      504,
 			ErrorCount:        0,
 		},
 		CreatedAt:   now.Add(-10 * time.Minute),

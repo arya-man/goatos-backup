@@ -308,13 +308,6 @@ SELECT
       AND row.import_run_id = r.import_run_id
       AND row.processing_state = 'needs_review'
   ), 0)::int AS rows_needing_review,
-  COALESCE((
-    SELECT count(*)::int
-    FROM legacy_import_rows row
-    WHERE row.tenant_id = r.tenant_id
-      AND row.import_run_id = r.import_run_id
-      AND row.processing_state = 'rejected'
-  ), 0)::int AS rows_rejected,
   r.started_at,
   r.completed_at
 FROM legacy_import_runs r
@@ -340,7 +333,6 @@ type GetImportRunByIDRow struct {
 	ConflictCount     int32
 	ErrorCount        int32
 	RowsNeedingReview int32
-	RowsRejected      int32
 	StartedAt         pgtype.Timestamptz
 	CompletedAt       pgtype.Timestamptz
 }
@@ -361,7 +353,6 @@ func (q *Queries) GetImportRunByID(ctx context.Context, arg GetImportRunByIDPara
 		&i.ConflictCount,
 		&i.ErrorCount,
 		&i.RowsNeedingReview,
-		&i.RowsRejected,
 		&i.StartedAt,
 		&i.CompletedAt,
 	)

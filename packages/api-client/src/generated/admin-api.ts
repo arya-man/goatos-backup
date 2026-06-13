@@ -64,7 +64,7 @@ export interface paths {
         };
         /**
          * Download staged import rows as formula-safe CSV.
-         * @description Streams the same whitelisted Import Review row fields exposed by listImportRunRows. scope=messy exports needs_review, rejected, and error rows; scope=current exports the selected processing_state and/or reason_code filter.
+         * @description Streams the same whitelisted Import Review row fields exposed by listImportRunRows. scope=messy exports needs_review and error rows; scope=current exports the selected processing_state and/or reason_code filter.
          */
         get: operations["exportImportRunRowsCSV"];
         put?: never;
@@ -400,7 +400,6 @@ export interface components {
             missing_required_fields: number | null;
             conflicts_opened: number;
             rows_needing_review: number;
-            rows_rejected: number;
             error_count: number;
         };
         ImportRunResponse: {
