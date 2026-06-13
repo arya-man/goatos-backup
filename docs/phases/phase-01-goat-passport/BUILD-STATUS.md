@@ -529,7 +529,13 @@ RFID/BQ source-of-truth staging and reconciliation:
   rehearsal
   The legacy XLSX CLI path is now a parser/regression harness, not the
   authoritative source for current corrections. Current herd reconciliation and
-  backfill use legacy BigQuery read-only exports as source truth.
+  backfill use legacy BigQuery read-only exports as the temporary upstream until
+  operators write daily changes through Goat OS Android/backend workflows.
+  Current-data flow is BQ -> backend sync/reconciliation job -> Goat OS
+  Postgres -> backend APIs -> admin dashboard. Dashboards must not read BQ
+  directly. The future "Sync with BQ" UI control should trigger the same
+  backend job used by scheduled syncs, not a browser-side BQ query, and must be
+  RBAC-protected, audited, idempotent, bounded, and freshness-visible.
   local DB-writing import/apply/counter commands share the
   backend/internal/platform/localtarget guard: GOATOS_ENV must be local/dev and
   DATABASE_URL must point to loopback or approved local socket paths, never
@@ -547,7 +553,17 @@ RFID/BQ source-of-truth staging and reconciliation:
   extension, and rejects operational/unknown source shapes before staging
   Current-data reconciliation must use legacy BigQuery, not a private local
   workbook copy. Frontend still never reads BigQuery directly; BQ is read only
-  by local/backend operator tooling.
+  by local/backend operator tooling. Fresh DBs are not considered reconciled
+  until the committed BQ sync/reconciliation path has run and counters are
+  rebuilt.
+  `backend/cmd/bq-reconcile` is the replayable lifecycle/current-location
+  correction path for fresh local/dev/stg/prod databases. It consumes a
+  read-only legacy BQ event export plus optional latest-location export as JSON
+  array or JSONL, dry-runs by default, requires explicit `--execute` plus
+  GOATOS_ENV for mutation, takes an advisory tenant lock, updates only
+  deterministic RFID/scoped-old-tag matches, writes a `goat.bq_reconciled`
+  audit row for every changed goat, and emits no goat creation or outbox events.
+  Rebuild identity counters after every execute before trusting the dashboard.
   real staging writes legacy_import_runs as running -> completed or failed and
   inserts legacy_import_rows in bounded batches
   source_row_key uses policy source_key_recipe fields in order:
@@ -635,12 +651,12 @@ RFID/BQ source-of-truth staging and reconciliation:
   produced created_goat 780, needs_review 443, and error 0; guarded RFID-only
   apply produced created_goat 1215, needs_review 8, and error 0 while the
   tenant_lifecycle alive counter became 1215. A follow-up BQ reconciliation pass
-  corrected deterministic matched passports from legacy BigQuery: 943 created
-  passports matched BQ, terminal BQ evidence now marks sold 70 and dead 32,
-  BQ Shifting evidence without terminal Sale/Death is treated as proof-of-life,
-  and 272 existing passports remain unmatched by RFID or scoped old tag and need
-  identifier reconciliation. Counters were rebuilt to tenant_lifecycle
-  alive 1113, sold 70, dead 32, inactive 0. The source proof found 508
+  now runs through `backend/cmd/bq-reconcile` using legacy BQ event and
+  latest-location exports. BQ Shifting evidence without terminal Sale/Death is
+  treated as proof-of-life, and 272 existing passports still have no BQ-derived
+  current location and need identifier reconciliation/backfill. Counters were
+  rebuilt to tenant_lifecycle alive 1100, sold 80, dead 35, inactive 0. The
+  source proof found 508
   Anantapur Sheep rows in the RFID source and 504 created Anantapur Sheep goat
   passports; the 4-row delta remains blocked by other apply gates, not by the
   source Breed label. Migration 000017 seeds BQ dashboard shed taxonomy under
@@ -648,8 +664,10 @@ RFID/BQ source-of-truth staging and reconciliation:
   shed reconciliation pass uses the dashboard max date as cutoff, updates 860
   deterministically matched goats to shed-level current locations, leaves 83
   matched goats park-only because BQ had no safe shed, and leaves 272 unmatched
-  goats untouched. After counter rebuild, tenant_lifecycle remains alive 1113,
-  sold 70, dead 32, inactive 0; shed_lifecycle has 136 rows with 860 goats in
+  goats untouched. This correction is now replayable through
+  `backend/cmd/bq-reconcile`; it is no longer a one-off local DB mutation. After
+  counter rebuild, tenant_lifecycle remains alive 1100,
+  sold 80, dead 35, inactive 0; shed_lifecycle has 136 rows with 860 goats in
   specific shed buckets and 355 in no-shed buckets. SSR admin-web proof should
   use this post-BQ-reconciled state, not the historical 711/512 or 1215-alive
   split.
@@ -657,8 +675,8 @@ RFID/BQ source-of-truth staging and reconciliation:
   `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and `/data-quality`
   through the Mesha admin-web; reruns after 000015 and BQ reconciliation must
   keep those route checks and token-leak checks while expecting 1215 total
-  passports, 8 import-review rows, and tenant_lifecycle counters alive 1113,
-  sold 70, dead 32, inactive 0.
+  passports, 8 import-review rows, and tenant_lifecycle counters alive 1100,
+  sold 80, dead 35, inactive 0.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. blank_gender plus duplicate

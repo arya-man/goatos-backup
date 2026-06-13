@@ -235,6 +235,55 @@ go run ./cmd/rebuild-identity-counters \
   --source-import-run-id <import_run_id>
 ```
 
+## Replay BQ Lifecycle And Location Reconciliation
+
+Use this after the RFID parser-harness import/apply path when validating the
+current BQ-backed state. The required input is a read-only export of the legacy
+BQ event rows needed for lifecycle reconciliation. It can be JSON array or JSONL
+and must include the fields used by the command: `goat_id`, `farm_goat_id`,
+`farm`, `event`, and `date`. Current-location replay should also pass the
+prepared latest-location export with `--locations-json`; those rows must include
+`goat_id`, `farm`, `date`, and either `current_shed` or `dst_shed`. Do not
+commit either export.
+
+Dry-run first:
+
+```bash
+export GOATOS_ENV=local
+export DATABASE_URL=<local Docker Postgres URL>
+
+(cd backend && go run ./cmd/bq-reconcile \
+  --tenant-id <tenant_uuid> \
+  --events-json <ignored-bq-event-export.json> \
+  --locations-json <ignored-bq-latest-location-export.json>)
+```
+
+Apply only after the dry-run matches the expected correction shape:
+
+```bash
+(cd backend && go run ./cmd/bq-reconcile \
+  --tenant-id <tenant_uuid> \
+  --events-json <ignored-bq-event-export.json> \
+  --locations-json <ignored-bq-latest-location-export.json> \
+  --execute)
+```
+
+Then rebuild counters before trusting API/dashboard reads:
+
+```bash
+(cd backend && go run ./cmd/rebuild-identity-counters \
+  --tenant-id <tenant_uuid> \
+  --source-import-run-id <import_run_id>)
+```
+
+`bq-reconcile` is idempotent and audited. It updates deterministic
+RFID/scoped-old-tag matches for lifecycle and current location only; it does not
+create goats, add identifiers, or emit outbox events. BQ Shifting evidence
+without terminal Sale/Death is proof-of-life and should keep the goat `alive`.
+Sale and Death remain terminal lifecycle evidence. Unmatched local goats stay
+untouched until identifier reconciliation/backfill work supplies stronger
+evidence.
+
 ## Real Shape 2 Closeout Expectations
 
 For the historical Shape 2 parser harness and migrations through 000015, a
@@ -269,14 +318,14 @@ After the BQ reconciliation pass, current proof should keep total passports at
 ```text
 created passports:
   total = 1215
-  deterministic BQ matches corrected = 943
-  unmatched by RFID/scoped old tag = 272
+  passports after BQ reconciliation = 1215
+  no current BQ-derived location = 272
   import-review rows = 8
 
 tenant_lifecycle after counter rebuild:
-  alive = 1113
-  sold = 70
-  dead = 32
+  alive = 1100
+  sold = 80
+  dead = 35
   inactive = 0
 ```
 
@@ -311,7 +360,7 @@ grant idempotently, mints a fresh server-side bearer token, and starts admin-web
 on `127.0.0.1:3300`:
 
 ```bash
-cd /Users/ravi/mesha/goatos
+cd <goatos-repo>
 make dev-local
 ```
 

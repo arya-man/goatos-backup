@@ -12,7 +12,7 @@ Canonical docs:
 
 Rules:
 
-- Postgres is operational truth.
+- Postgres is operational truth for Goat OS apps and dashboards.
 - Outbox -> Pub/Sub is the streaming backbone.
 - BigQuery is warehouse/history/training-set layer.
 - Tinybird is hot telemetry/live API layer.
@@ -22,8 +22,14 @@ Rules:
 - Guard BigQuery cost with partition filters, max bytes billed, quotas, marts,
   BI Engine/caches, and scan monitoring.
 - Media storage/egress is a first-class cost line.
-- Legacy BigQuery/dashboard table catalog is now captured in the analytics doc
-  as parity-test and metric-inventory seed material. It is not operational truth.
+- Legacy BigQuery/dashboard data is a temporary upstream for current-data
+  reconciliation/backfill until Goat OS Android/backend workflows become the
+  primary write path. Treat it as read-only source input to backend sync jobs,
+  not as a dashboard runtime dependency. Apps still read Postgres-backed Goat OS
+  APIs/Cube-facing metrics, never raw BQ. The current committed bridge is
+  `backend/cmd/bq-reconcile`, which consumes read-only BQ event and
+  latest-location exports and writes audited lifecycle/current-location
+  corrections into Postgres before counters are rebuilt.
 - AI analyst work is blocked until canonical dbt marts, Cube metrics, dashboard
   parity tests, an analytics skill, offline evals, and provenance/freshness
   footers exist. AI uses Cube first, curated marts second, and raw SQL only for

@@ -16,15 +16,18 @@ We can start Phase 1 contract work now. We should not write final database
 migrations, import seeds, identifier policies, or canonical import logic until
 the business owner confirms the few policy decisions at the end of this file.
 
-The legacy data is not one clean goat table:
+The historical files inspected here are not one clean goat table, and they are
+not the current operational source path:
 
-- `private herd workbook` `DB` looks like goat event history: purchase, birth, shifting,
-  sale, death, abortion.
-- `private herd workbook` ` RFID DB` was the best RFID/old-tag mapping source
-  found during this historical pass, but it covers fewer rows than the dashboard
-  aggregate count and is no longer the current source truth.
-- dashboard CSVs are aggregate reporting projections, not goat-level identity
+- The old `private herd workbook` `DB` looked like goat event history:
+  purchase, birth, shifting, sale, death, abortion.
+- The old `private herd workbook` `RFID DB` was useful historical evidence for
+  parser-shape work, but it covers fewer rows than the dashboard aggregate
+  count and is not the current source truth.
+- Dashboard CSVs were aggregate reporting projections, not goat-level identity
   truth.
+- Current reconciliation/backfill must use the legacy BigQuery read-only exports
+  and backend sync/reconciliation commands, then Postgres-backed Goat OS APIs.
 - Slack/App Script files hold important SOP/workflow behavior that later phases
   must preserve.
 
@@ -103,7 +106,9 @@ Conclusion: legacy numeric goat/tag values must not be globally unique.
 
 ### `private herd workbook` ` RFID DB`
 
-Purpose observed: best RFID/old-tag mapping source found so far.
+Purpose observed during this historical pass: useful RFID/old-tag mapping
+evidence for parser-harness design. Superseded for current correction/backfill
+by legacy BigQuery read-only exports.
 
 Rows: `1,349`
 
@@ -569,8 +574,9 @@ scratch:
 5. DB sheet is event history, not current goat table.
    Proposal: import to event staging/reconciliation, not direct canonical identity.
 
-6. RFID DB is the best first source for tag/RFID identity staging.
-   Proposal: use it as first identity mapping sample, then reconcile against DB + dashboards.
+6. RFID DB was the best first source found during historical tag/RFID discovery.
+   Superseded proposal: keep it as parser-harness/sample evidence only; current
+   correction/backfill uses legacy BigQuery exports and backend reconciliation.
 ```
 
 ## Locked Answers And Remaining Ops Clarifications

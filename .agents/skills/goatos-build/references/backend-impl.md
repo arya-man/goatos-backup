@@ -55,6 +55,7 @@ docs/runbooks/local-full-stack-rehearsal.md  local Phase 1 import/API/admin-web 
 docs/runbooks/local-docker-storage.md        local Docker storage safety and cleanup rules
 backend/cmd/rfid-import                      legacy RFID parser/import harness CLI
 backend/cmd/rfid-apply                       staged RFID canonical apply CLI
+backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location correction CLI
 backend/cmd/rebuild-identity-counters        local/reporting counter rebuild after apply
 backend/internal/legacy_import/xlsx.go       workbook parser and sheet-selection behavior
 backend/internal/legacy_import/normalize.go  emitted staging/review/error reason codes
@@ -342,8 +343,22 @@ Rules:
   OS backend APIs only; it must never read Sheets, Apps Script, XLSX files, CSV
   exports, BigQuery, or Google SDKs directly.
 - Current-data reconciliation/backfill uses legacy BigQuery read-only exports as
-  source truth. The RFID workbook parser/normalizer is retained as a legacy
-  parser/regression harness and accepts the Shape-2 source headers:
+  the temporary upstream until operators write daily updates through Goat OS
+  Android/backend workflows. The live app path is BQ -> backend
+  sync/reconciliation job -> Goat OS Postgres -> backend APIs -> dashboard.
+  Dashboards and browser/Next frontend code must never read BQ directly. A
+  manual "Sync with BQ" UI control, when added, must trigger the same backend
+  sync job used by scheduled local/dev/stg/prod syncs, with RBAC, audit,
+  idempotency, bounded batches, and freshness/status reporting.
+  `backend/cmd/bq-reconcile` is the committed replay path for current
+  lifecycle/current-location corrections from BQ event and latest-location
+  exports. It dry-runs by default, requires `--execute` plus GOATOS_ENV for
+  mutation, takes a tenant advisory lock, updates deterministic
+  RFID/scoped-old-tag matches only, writes `goat.bq_reconciled` audit rows, and requires
+  `rebuild-identity-counters` afterward. It does not create goats, add
+  identifiers, or emit outbox events. The RFID
+  workbook parser/normalizer is retained as a legacy parser/regression harness
+  and accepts the Shape-2 source headers:
   `Farm`, `Old ID`, `Old ID Suffix`, `RFID`, `Age`, `Gender`, `Breed`, `Tag`,
   `Shed`, and `Partition`. Shape-1 RFID headers such as `Origin Farm`,
   `Old Tag ID`, and `Shed Tag` are recognized source evidence but require a
@@ -436,9 +451,11 @@ Rules:
   reconciliation pass caps BQ events at the dashboard max date, updates 860
   deterministic matches to shed-level current locations, leaves 83 matched goats
   park-only because BQ had no safe shed, and leaves 272 unmatched goats
-  untouched. BQ Shifting evidence without terminal Sale/Death is proof-of-life,
+  untouched. The correction is now replayable through
+  `backend/cmd/bq-reconcile`, not a one-off local DB patch. BQ Shifting
+  evidence without terminal Sale/Death is proof-of-life,
   so the local lifecycle fix clears the previous inactive bucket. After counter
-  rebuild, tenant_lifecycle is alive 1113, sold 70, dead 32, inactive 0;
+  rebuild, tenant_lifecycle is alive 1100, sold 80, dead 35, inactive 0;
   shed_lifecycle has 136 rows with 860 goats in specific shed buckets and 355
   no-shed bucket counts. The local SSR proof rendered real
   herd rows, a real goat passport with live timeline, and live Import Review

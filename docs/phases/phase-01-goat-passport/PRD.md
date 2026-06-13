@@ -74,13 +74,23 @@ wrong goat. Phase 1 is the foundation.
 - Prepare the identity layer for RFID, camera/FaceID suggestions, and device
   observations later.
 
-Current Phase 1 implementation status: legacy BigQuery is the source of truth
-for current-data reconciliation/backfill. The original local XLSX path remains
-as a parser harness for synthetic or temporary BQ-derived exports. Admin-web
-must consume Goat OS backend APIs, not Sheets, Apps Script, direct XLSX/CSV, or
-BigQuery. Current location correction uses the BQ dashboard location taxonomy:
-CBE and CPT remain park-scope locations for old-tag identity, while their BQ
-shed labels are represented as child shed locations for matched goats.
+Current Phase 1 implementation status: legacy BigQuery is the temporary upstream
+for current-data reconciliation/backfill until operators write daily changes
+through Goat OS Android/backend workflows. The original local XLSX path remains
+as a parser harness for synthetic or temporary BQ-derived exports, not a current
+source. Admin-web must consume Goat OS backend APIs, not Sheets, Apps Script,
+direct XLSX/CSV, or BigQuery. The current-data flow is BQ -> backend
+sync/reconciliation job -> Goat OS Postgres -> backend APIs -> admin dashboard.
+The future manual "Sync with BQ" UI action must trigger that backend job and show
+freshness/status; it must not query BigQuery from browser code. Current location
+correction uses the BQ dashboard location taxonomy: CBE and CPT remain
+park-scope locations for old-tag identity, while their BQ shed labels are
+represented as child shed locations for matched goats. The replayable
+implementation for the current lifecycle/location correction is
+`backend/cmd/bq-reconcile`: it consumes read-only BQ event and latest-location
+exports, dry-runs by default, applies only with `--execute`, writes audit rows
+for changed goats, and requires identity-counter rebuilds before dashboards are
+trusted.
 
 ## Architecture Guarantees
 
@@ -247,10 +257,10 @@ may create passports but remain review-status catalog entries until operator
 promotion/remapping. The post-000015 proof creates 780 goats after normal apply
 and 1215 after guarded RFID-only apply, with 8 review rows and 0 errors. A
 follow-up BQ reconciliation corrected deterministic matched passport properties:
-943 created passports matched BQ, terminal BQ evidence now marks sold 70 and
-dead 32, BQ Shifting evidence without terminal Sale/Death is proof-of-life, 272
-existing passports remain identifier-unmatched, and `tenant_lifecycle` now
-reports alive 1113, sold 70, dead 32, and inactive 0.
+the replayable BQ reconciliation command now consumes legacy BQ event and
+latest-location exports, BQ Shifting evidence without terminal Sale/Death is
+proof-of-life, 272 existing passports still have no BQ-derived current location,
+and `tenant_lifecycle` now reports alive 1100, sold 80, dead 35, and inactive 0.
 The Mesha admin-web renders the overview, counts, herd search, a real goat
 passport, live Import Review rows for that final run, and an honest Data Quality
 empty state when the real local DB has no conflicts or candidates.

@@ -2898,6 +2898,17 @@ Frontend/admin-web must consume backend APIs only and must not import Google
 Sheets, Apps Script, BigQuery, direct CSV exports, or XLSX readers for live
 data. BigQuery access is limited to backend/local operator reconciliation and
 backfill tooling.
+Until Goat OS Android/backend workflows become the primary write path, legacy
+BigQuery is the temporary upstream for current-data sync. The current-data path
+is BQ -> backend sync/reconciliation job -> Goat OS Postgres -> backend APIs ->
+dashboard. A dashboard "Sync with BQ" control may exist only as an authenticated
+backend command trigger with RBAC, audit, idempotency, bounded batches, and a
+freshness/status surface; it must not call BigQuery directly from browser or
+Next frontend code. `backend/cmd/bq-reconcile` is the replayable current
+lifecycle/location reconciliation command for fresh local/dev/stg/prod
+databases: it consumes read-only BQ event and latest-location export JSON/JSONL,
+dry-runs by default, mutates only with `--execute`, audits every changed goat,
+and requires counter rebuild before API/dashboard reads are considered fresh.
 ```
 
 Source key and hash implementation:

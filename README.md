@@ -92,22 +92,32 @@ Completed so far:
   through server-side actions. Non-Phase-1 legacy modules and undefined
   review/fix actions stay disabled or honest placeholders.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
-- Legacy BigQuery is now the reconciliation/backfill source for current herd
-  data. The local XLSX importer remains a parser/regression harness, but private
-  workbook exports are no longer treated as source of truth for Phase 1 data
-  correction. BQ-derived reconciliation updates now correct matched Goat OS
-  passports for lifecycle, breed, sex, age band, park/current location, and
-  canonical identifier text where the match is deterministic. BQ dashboard shed
+- Legacy BigQuery is now the temporary upstream for current herd
+  reconciliation/backfill until operators move daily updates into Goat OS mobile
+  and backend workflows. The local XLSX importer remains a parser/regression
+  harness only; private workbook exports are no longer source of truth for
+  Phase 1 data correction. The intended current-data path is
+  `legacy BigQuery -> BQ sync/reconciliation job -> Goat OS Postgres -> backend
+  APIs -> admin dashboard`. Dashboards must never read BQ directly. A future
+  admin "Sync with BQ" control should trigger the same backend job that scheduled
+  local/dev/stg/prod syncs use, with RBAC, audit, idempotency, and visible
+  freshness status. `backend/cmd/bq-reconcile` is the committed replay path for
+  the current lifecycle/location correction: it consumes read-only legacy BQ
+  event and latest-location exports, dry-runs by default, applies only with
+  `--execute`, audits each changed goat, and must be followed by
+  identity-counter rebuilds. BQ-derived
+  reconciliation updates now correct matched Goat OS passports for lifecycle,
+  park/current location, and safe shed assignment where the match is
+  deterministic. BQ dashboard shed
   taxonomy is now seeded under the existing CBE/CPT park locations so matched
   goats can carry specific shed current locations without breaking old-tag
   park-scope identity rules.
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web. Current local DB has 1215 goat passports and 8
-  import-review rows from the RFID import run. A BQ reconciliation pass matched
-  943 existing passports deterministically. Terminal BQ evidence now marks
-  `sold=70` and `dead=32`; BQ Shifting evidence without terminal Sale/Death is
-  treated as proof-of-life, so the previous inactive bucket is cleared and
-  `tenant_lifecycle` now shows `alive=1113`, `sold=70`, and `dead=32`. A
+  import-review rows from the RFID import run. A BQ reconciliation pass now runs through `backend/cmd/bq-reconcile`. The
+  current local DB has `tenant_lifecycle` counters `alive=1100`, `sold=80`,
+  and `dead=35`; BQ Shifting evidence without terminal Sale/Death is treated as
+  proof-of-life, so the previous inactive bucket is cleared. A
   follow-up BQ location pass seeded 154 CBE/CPT shed locations
   and updated 860 deterministically matched goats to shed-level current
   locations; 83 matched goats remain park-only because BQ had no safe shed, and

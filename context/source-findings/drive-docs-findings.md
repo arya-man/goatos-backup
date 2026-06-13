@@ -57,9 +57,12 @@ park aliases and preserve the source code used as evidence.
 
 ### RFID And First Import
 
-RFID tagging is recent and contains clean mappings of old tag, RFID, breed, and
-gender. The first import should seed RFID DB goats only. Tagless/event-log rows
-come later as a separate reviewed import pass after more goats are RFID-tagged.
+RFID tagging was useful historical parser/import evidence because it contained
+clean mappings of old tag, RFID, breed, and gender. It is not the current source
+truth for operational correction/backfill; current reconciliation uses legacy
+BigQuery read-only exports through backend sync/reconciliation tooling.
+Tagless/event-log rows come later as separate reviewed import/backfill passes
+from the approved upstream.
 
 When RFID DB shed and latest DB event shed disagree, the latest DB event is the
 more current placement signal because goats shift constantly and RFID DB shed
@@ -86,9 +89,9 @@ kid tags: F2 284, K2 209, K1 2
 adult tag field: blank for adult rows
 ```
 
-The workbook supports the RFID-first import design. RFID is the clean import
-anchor. Old tags still require scoped handling and review because the current
-snapshot has duplicate old-tag keys under source scope rules:
+The workbook snapshot supports the RFID parser-harness design. RFID is the clean
+parser anchor. Old tags still require scoped handling and review because the
+historical snapshot had duplicate old-tag keys under source scope rules:
 
 ```text
 old tag + suffix-or-fallback-scope duplicate keys: 3
@@ -111,9 +114,10 @@ Breed -> breed/source label evidence, preserving exact source spelling
 the historic/source old-tag scope. `F2` appears with both male and female gender
 values, so `F2` remains a growth-cohort tag only; sex must come from `Gender`.
 
-The workbook is a current identity/location snapshot, not a birth/death event
-ledger. Births and deaths after the snapshot still require reconciliation from
-forms or event sources, using RFID where available for matching.
+The workbook is historical parser evidence, not current identity/location truth
+and not a birth/death event ledger. Births and deaths after that snapshot still
+require reconciliation from BigQuery-backed event sources or Goat OS operator
+workflows, using RFID where available for matching.
 
 ### Holding Farms
 
