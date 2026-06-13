@@ -33,6 +33,7 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
   const growthRows = growthCohort.ok ? growthCohort.data.items : [];
   const statusRows = growthRows.length > 0 ? growthRows : tenantItems;
   const statusError = !growthCohort.ok ? growthCohort.error : !tenantLifecycle.ok ? tenantLifecycle.error : null;
+  const chartUsesGrowthCohort = growthRows.length > 0;
   const statusUpdatedAt = growthCohort.ok && growthRows.length > 0
     ? growthCohort.data.freshness.as_of_recorded_at
     : tenantLifecycle.ok
@@ -102,19 +103,21 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
 
       {activeTab === "overall" ? <div className="mt-6">
         <ChartCard
-          title="Count by Status"
+          title={chartUsesGrowthCohort ? "Growth Cohort" : "Count by Lifecycle Status"}
           subtitle={
             statusUpdatedAt
-              ? `Number of active goats grouped by their current status buckets · Updated ${dateTime(statusUpdatedAt)}`
-              : "Number of active goats grouped by their current status buckets"
+              ? `${chartUsesGrowthCohort ? "Live growth-cohort buckets" : "Live lifecycle buckets"} · Updated ${dateTime(statusUpdatedAt)}`
+              : chartUsesGrowthCohort
+                ? "Live growth-cohort buckets"
+                : "Live lifecycle buckets"
           }
-          className="min-h-[713px]"
         >
           {statusRows.length > 0 ? (
             <HorizontalBarChart
               data={chartRows(statusRows)}
+              height={Math.max(168, chartRows(statusRows).length * 52 + 52)}
               valueLabel="Count"
-              yAxisWidth={150}
+              yAxisWidth={128}
             />
           ) : statusError ? (
             <ErrorPanel error={statusError} />

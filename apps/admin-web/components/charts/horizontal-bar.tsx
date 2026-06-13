@@ -31,15 +31,15 @@ interface HorizontalBarChartProps {
 
 export function HorizontalBarChart({ data, height, valueLabel, showLabels = true, yAxisWidth = 136 }: HorizontalBarChartProps) {
   const shaded = assignBarShades(data);
-  const chartHeight = height ?? Math.max(200, data.length * 44);
+  const chartHeight = height ?? Math.max(168, data.length * 52 + 52);
 
   return (
     <ResponsiveContainer width="100%" height={chartHeight}>
       <BarChart
         data={shaded}
         layout="vertical"
-        margin={{ top: 4, right: 60, bottom: 4, left: 0 }}
-        barCategoryGap="20%"
+        margin={{ top: 8, right: 58, bottom: 8, left: 0 }}
+        barCategoryGap="34%"
       >
         <XAxis type="number" hide />
         <YAxis
@@ -62,7 +62,7 @@ export function HorizontalBarChart({ data, height, valueLabel, showLabels = true
           dataKey="value"
           name={valueLabel}
           radius={[0, 4, 4, 0]}
-          barSize={20}
+          barSize={22}
           animationDuration={0}
         >
           {shaded.map((entry, index) => (
