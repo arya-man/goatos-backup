@@ -82,3 +82,11 @@ Rules:
 - The boundary guard checks rendered/admin-web-facing TypeScript and TSX for
   visible `Goat OS` or `VGoat` labels. Internal code identifiers such as
   `GOATOS_*`, `@goatos/api-client`, and `GoatOSApiError` remain allowed.
+- Any frontend code change must be visually verified before push. Open the
+  changed local page, capture/review screenshots, and compare against the legacy
+  dashboard in a second tab when a legacy analogue exists. The counts reference
+  is `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
+  Check alignment, tab/title spacing, typography, colors, card spacing, chart
+  sizing, labels, icons, empty space, overflow, clipping, and responsive
+  desktop/narrow views. Do not treat typecheck/build or a `missing_config`
+  screenshot as UI proof.

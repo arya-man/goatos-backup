@@ -546,6 +546,33 @@ Sequence:
 
 Do not change every chart at once. The win is moving data access behind contracts, then cutting pages over safely.
 
+## Frontend Visual QA Rule
+
+Every frontend code change must end with real rendered screenshots before push.
+Typecheck, lint, and build are not enough for UI work.
+
+For any page that has a legacy dashboard analogue, open the legacy page in a
+separate browser tab and compare the changed Goat OS page against it before
+pushing. For the counts dashboard, the legacy reference URL is:
+
+```text
+https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall
+```
+
+The comparison must inspect layout and visual quality, not just route liveness:
+sidebar alignment, tab/title alignment, typography, color, card spacing,
+padding, chart sizing, axis/label placement, icon treatment, background
+contrast, empty space, overflow, clipping, and responsive desktop/narrow
+behavior. If the new page represents data that the legacy page did not have,
+still capture and review screenshots for professional UI quality. Do not push a
+frontend change that leaves obvious misalignment, unused dead space, messy
+backgrounds, clipped labels, broken icons, or visually misleading chart titles.
+
+When using `apps/admin-web`, run the live visual smoke where possible and review
+the generated images under `.codex-goatos-render/admin-web-screenshots/`. If the
+app needs a local backend/token/import run for a meaningful screen, start that
+environment first; do not accept a `missing_config` page as visual proof.
+
 ## Backend Build Plan
 
 Build the backend with contracts first:

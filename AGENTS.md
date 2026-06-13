@@ -61,6 +61,15 @@ Do:
 - Use JSON Schema for form DSL and event payload contracts.
 - Use protobuf/gRPC only behind the app API boundary when a real internal workload needs it.
 - Keep frontend/mobile data access behind generated clients and app APIs.
+- For frontend code changes, perform rendered visual QA before pushing. Open the
+  changed local page, capture and inspect screenshots, and compare with the
+  legacy dashboard in a separate tab when there is a legacy analogue. The counts
+  dashboard reference is
+  `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
+  Check pixel-level UI quality: sidebar/nav alignment, tab/title spacing,
+  typography, color, card padding, chart sizing, labels, icons, empty space,
+  overflow, clipping, and desktop/narrow responsive states. Do not accept
+  typecheck/build or a `missing_config` page as frontend visual proof.
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
 - Treat million-goat scale as a hard requirement on every design, prompt, and
   code change. Before accepting any new query, worker, import path, reporting

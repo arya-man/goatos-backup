@@ -120,6 +120,16 @@ overview/counts/herd/passport/Import Review/Data Quality surfaces, and fails if
 it renders configuration-error pages, detects layout overflow, or leaks the
 bearer token into HTML.
 
+For frontend changes, the screenshots must be opened and reviewed before push;
+do not rely on the command exiting successfully. When the changed page has a
+legacy dashboard analogue, open the legacy page in a separate tab and compare
+the local page against it for visual quality. For counts, use
+`https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
+Review sidebar/nav alignment, tab/title spacing, typography, colors, card
+padding, chart sizing, labels, icons, empty space, overflow, clipping, and
+desktop/narrow responsive states. A `missing_config` render is not valid visual
+proof; start the backend/admin-web with the required server-only env first.
+
 Do not commit tokens or secrets. Do not put tokens in browser code, localStorage,
 `NEXT_PUBLIC_*` env vars, rendered HTML, query params, or static files. The build
 script runs a token leak guard after `next build`; when `GOATOS_BEARER_TOKEN` is
