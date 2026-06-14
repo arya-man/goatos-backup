@@ -588,12 +588,14 @@ func TestPlanSkipsExistingAttributeConflictForAlreadyReviewGoat(t *testing.T) {
 		Breed:  "Sojat",
 	}}
 	goats := []LocalGoat{{
-		GoatID:                     "00000000-0000-4000-8000-000000000101",
-		Breed:                      "Sojat",
-		Sex:                        "female",
-		LifecycleStatus:            "alive",
-		IdentityState:              "needs_review",
-		HasOpenBQAttributeConflict: true,
+		GoatID:                         "00000000-0000-4000-8000-000000000101",
+		Breed:                          "Sojat",
+		Sex:                            "female",
+		LifecycleStatus:                "alive",
+		IdentityState:                  "needs_review",
+		HasOpenBQAttributeConflict:     true,
+		OpenBQAttributeIdentifierType:  "rfid",
+		OpenBQAttributeIdentifierValue: "123456789012345",
 		Identifiers: []LocalIdentifier{
 			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
 		},
@@ -605,6 +607,74 @@ func TestPlanSkipsExistingAttributeConflictForAlreadyReviewGoat(t *testing.T) {
 	}
 	if len(patches) != 0 {
 		t.Fatalf("patches=%#v want no patch when conflict row already exists", patches)
+	}
+}
+
+func TestPlanRefreshesStaleOldTagAttributeConflictMetadata(t *testing.T) {
+	events := []Event{{
+		GoatID: "765",
+		Event:  "Shifting",
+		Farm:   "CPT",
+		Date:   "2026-02-03",
+		Gender: "Male",
+		Breed:  "Sojat",
+	}}
+	goats := []LocalGoat{{
+		GoatID:                         "00000000-0000-4000-8000-000000000101",
+		Breed:                          "Sojat",
+		Sex:                            "female",
+		LifecycleStatus:                "alive",
+		IdentityState:                  "needs_review",
+		HasOpenBQAttributeConflict:     true,
+		OpenBQAttributeIdentifierType:  "rfid",
+		OpenBQAttributeIdentifierValue: "",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "old_tag", NormalizedValue: "765", ScopeKey: "park:cpt"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.AttributeConflicts != 1 || summary.PatchesPlanned != 1 || summary.IdentityReviewUpdates != 0 {
+		t.Fatalf("summary=%#v want stale existing attribute conflict metadata patch", summary)
+	}
+	if len(patches) != 1 || !patches[0].RefreshAttributeConflict || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want attribute conflict metadata refresh only", patches)
+	}
+	gotType, gotValue := plannedAttributeConflictIdentifier(patches[0].AttrConflicts, patches[0].MatchedKeys)
+	if gotType != "old_tag" || gotValue != "765" {
+		t.Fatalf("planned identifier=%s/%s want old_tag/765", gotType, gotValue)
+	}
+}
+
+func TestPlanRefreshesStaleOldTagLifecycleConflictMetadata(t *testing.T) {
+	events := []Event{
+		{GoatID: "765", Event: "Sale", Farm: "CPT", Date: "2026-02-03"},
+		{GoatID: "765", Event: "Shifting", Farm: "CPT", Date: "2026-02-04"},
+	}
+	goats := []LocalGoat{{
+		GoatID:                         "00000000-0000-4000-8000-000000000101",
+		Breed:                          "Sojat",
+		Sex:                            "male",
+		LifecycleStatus:                "sold",
+		IdentityState:                  "needs_review",
+		HasOpenBQLifecycleConflict:     true,
+		OpenBQLifecycleIdentifierType:  "rfid",
+		OpenBQLifecycleIdentifierValue: "",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "old_tag", NormalizedValue: "765", ScopeKey: "park:cpt"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.LifecycleConflicts != 1 || summary.PatchesPlanned != 1 || summary.IdentityReviewUpdates != 0 {
+		t.Fatalf("summary=%#v want stale existing lifecycle conflict metadata patch", summary)
+	}
+	if len(patches) != 1 || !patches[0].RefreshLifecycleConflict || patches[0].AfterLifecycle != "sold" {
+		t.Fatalf("patches=%#v want lifecycle conflict metadata refresh only", patches)
+	}
+	gotType, gotValue := plannedLifecycleConflictIdentifier(patches[0].Conflict, patches[0].MatchedKeys)
+	if gotType != "old_tag" || gotValue != "765" {
+		t.Fatalf("planned identifier=%s/%s want old_tag/765", gotType, gotValue)
 	}
 }
 

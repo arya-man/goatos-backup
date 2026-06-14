@@ -48,19 +48,23 @@ type Event struct {
 }
 
 type LocalGoat struct {
-	GoatID                     string
-	Breed                      string
-	BreedID                    string
-	Sex                        string
-	LifecycleStatus            string
-	IdentityState              string
-	CurrentLocationID          string
-	FarmID                     string
-	ParkID                     string
-	ShedID                     string
-	HasOpenBQLifecycleConflict bool
-	HasOpenBQAttributeConflict bool
-	Identifiers                []LocalIdentifier
+	GoatID                         string
+	Breed                          string
+	BreedID                        string
+	Sex                            string
+	LifecycleStatus                string
+	IdentityState                  string
+	CurrentLocationID              string
+	FarmID                         string
+	ParkID                         string
+	ShedID                         string
+	HasOpenBQLifecycleConflict     bool
+	HasOpenBQAttributeConflict     bool
+	OpenBQLifecycleIdentifierType  string
+	OpenBQLifecycleIdentifierValue string
+	OpenBQAttributeIdentifierType  string
+	OpenBQAttributeIdentifierValue string
+	Identifiers                    []LocalIdentifier
 }
 
 type LocalIdentifier struct {
@@ -123,31 +127,33 @@ type Summary struct {
 }
 
 type patch struct {
-	GoatID           string
-	BeforeSex        string
-	AfterSex         string
-	BeforeBreed      string
-	AfterBreed       string
-	BeforeBreedID    string
-	BeforeLifecycle  string
-	AfterLifecycle   string
-	BeforeIdentity   string
-	AfterIdentity    string
-	BeforeCurrent    string
-	BeforeFarm       string
-	BeforePark       string
-	BeforeShed       string
-	AfterCurrent     string
-	AfterFarm        string
-	AfterPark        string
-	AfterShed        string
-	MatchedKeys      []string
-	LatestEventDate  string
-	LatestFarmCode   string
-	LatestShed       string
-	Conflict         *lifecycleConflict
-	AttrConflicts    []attributeConflict
-	AttributeChanges []attributeChange
+	GoatID                   string
+	BeforeSex                string
+	AfterSex                 string
+	BeforeBreed              string
+	AfterBreed               string
+	BeforeBreedID            string
+	BeforeLifecycle          string
+	AfterLifecycle           string
+	BeforeIdentity           string
+	AfterIdentity            string
+	BeforeCurrent            string
+	BeforeFarm               string
+	BeforePark               string
+	BeforeShed               string
+	AfterCurrent             string
+	AfterFarm                string
+	AfterPark                string
+	AfterShed                string
+	MatchedKeys              []string
+	LatestEventDate          string
+	LatestFarmCode           string
+	LatestShed               string
+	Conflict                 *lifecycleConflict
+	AttrConflicts            []attributeConflict
+	AttributeChanges         []attributeChange
+	RefreshLifecycleConflict bool
+	RefreshAttributeConflict bool
 }
 
 type goatEvidence struct {
@@ -524,8 +530,10 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 		if nextLifecycle == "" {
 			nextLifecycle = goat.LifecycleStatus
 		}
-		needsConflictPatch := (conflict != nil && !goat.HasOpenBQLifecycleConflict) ||
-			(len(attrConflicts) > 0 && !goat.HasOpenBQAttributeConflict)
+		matchedKeys := sortedKeys(evidence.keys)
+		needsLifecycleConflictPatch := needsLifecycleConflictPatch(goat, conflict, matchedKeys)
+		needsAttributeConflictPatch := needsAttributeConflictPatch(goat, attrConflicts, matchedKeys)
+		needsConflictPatch := needsLifecycleConflictPatch || needsAttributeConflictPatch
 		if nextLifecycle == goat.LifecycleStatus &&
 			nextSex == goat.Sex &&
 			nextBreed == goat.Breed &&
@@ -552,35 +560,82 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 			summary.LocationParkOnlyUpdates++
 		}
 		patches = append(patches, patch{
-			GoatID:           goatID,
-			BeforeSex:        goat.Sex,
-			AfterSex:         nextSex,
-			BeforeBreed:      goat.Breed,
-			AfterBreed:       nextBreed,
-			BeforeBreedID:    goat.BreedID,
-			BeforeLifecycle:  goat.LifecycleStatus,
-			AfterLifecycle:   nextLifecycle,
-			BeforeIdentity:   goat.IdentityState,
-			AfterIdentity:    nextIdentity,
-			BeforeCurrent:    goat.CurrentLocationID,
-			BeforeFarm:       goat.FarmID,
-			BeforePark:       goat.ParkID,
-			BeforeShed:       goat.ShedID,
-			AfterCurrent:     nextCurrent,
-			AfterFarm:        nextFarm,
-			AfterPark:        nextPark,
-			AfterShed:        nextShed,
-			MatchedKeys:      sortedKeys(evidence.keys),
-			LatestEventDate:  latestDate,
-			LatestFarmCode:   latestFarm,
-			LatestShed:       latestShed,
-			Conflict:         conflict,
-			AttrConflicts:    attrConflicts,
-			AttributeChanges: attrChanges,
+			GoatID:                   goatID,
+			BeforeSex:                goat.Sex,
+			AfterSex:                 nextSex,
+			BeforeBreed:              goat.Breed,
+			AfterBreed:               nextBreed,
+			BeforeBreedID:            goat.BreedID,
+			BeforeLifecycle:          goat.LifecycleStatus,
+			AfterLifecycle:           nextLifecycle,
+			BeforeIdentity:           goat.IdentityState,
+			AfterIdentity:            nextIdentity,
+			BeforeCurrent:            goat.CurrentLocationID,
+			BeforeFarm:               goat.FarmID,
+			BeforePark:               goat.ParkID,
+			BeforeShed:               goat.ShedID,
+			AfterCurrent:             nextCurrent,
+			AfterFarm:                nextFarm,
+			AfterPark:                nextPark,
+			AfterShed:                nextShed,
+			MatchedKeys:              matchedKeys,
+			LatestEventDate:          latestDate,
+			LatestFarmCode:           latestFarm,
+			LatestShed:               latestShed,
+			Conflict:                 conflict,
+			AttrConflicts:            attrConflicts,
+			AttributeChanges:         attrChanges,
+			RefreshLifecycleConflict: needsLifecycleConflictPatch && conflict != nil && goat.HasOpenBQLifecycleConflict,
+			RefreshAttributeConflict: needsAttributeConflictPatch && len(attrConflicts) > 0 && goat.HasOpenBQAttributeConflict,
 		})
 	}
 	summary.PatchesPlanned = len(patches)
 	return summary, patches
+}
+
+func needsLifecycleConflictPatch(goat LocalGoat, conflict *lifecycleConflict, matchedKeys []string) bool {
+	if conflict == nil {
+		return false
+	}
+	if !goat.HasOpenBQLifecycleConflict {
+		return true
+	}
+	identifierType, identifierValue := plannedLifecycleConflictIdentifier(conflict, matchedKeys)
+	return !sameConflictIdentifier(goat.OpenBQLifecycleIdentifierType, goat.OpenBQLifecycleIdentifierValue, identifierType, identifierValue)
+}
+
+func needsAttributeConflictPatch(goat LocalGoat, conflicts []attributeConflict, matchedKeys []string) bool {
+	if len(conflicts) == 0 {
+		return false
+	}
+	if !goat.HasOpenBQAttributeConflict {
+		return true
+	}
+	identifierType, identifierValue := plannedAttributeConflictIdentifier(conflicts, matchedKeys)
+	return !sameConflictIdentifier(goat.OpenBQAttributeIdentifierType, goat.OpenBQAttributeIdentifierValue, identifierType, identifierValue)
+}
+
+func plannedLifecycleConflictIdentifier(conflict *lifecycleConflict, matchedKeys []string) (string, string) {
+	return conflictIdentifierParts(lifecycleConflictKey(conflict, matchedKeys))
+}
+
+func plannedAttributeConflictIdentifier(conflicts []attributeConflict, matchedKeys []string) (string, string) {
+	conflictKey := ""
+	for _, conflict := range conflicts {
+		if strings.TrimSpace(conflict.IdentifierKey) != "" {
+			conflictKey = conflict.IdentifierKey
+			break
+		}
+	}
+	if conflictKey == "" {
+		conflictKey = firstNonEmptyKey(matchedKeys)
+	}
+	return conflictIdentifierParts(conflictKey)
+}
+
+func sameConflictIdentifier(existingType, existingValue, plannedType, plannedValue string) bool {
+	return strings.TrimSpace(existingType) == strings.TrimSpace(plannedType) &&
+		strings.TrimSpace(existingValue) == strings.TrimSpace(plannedValue)
 }
 
 func conflictIdentifierParts(key string) (string, string) {
@@ -1370,6 +1425,28 @@ SELECT
       AND c.goat_ids @> ARRAY[g.goat_id]
       AND c.evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'
   ) AS has_open_bq_lifecycle_conflict,
+  COALESCE((
+    SELECT c.identifier_type
+    FROM identity_conflicts c
+    WHERE c.tenant_id = g.tenant_id
+      AND c.conflict_type = 'status_mismatch'
+      AND c.state IN ('open', 'needs_field_check')
+      AND c.goat_ids @> ARRAY[g.goat_id]
+      AND c.evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'
+    ORDER BY c.created_at DESC, c.conflict_id::text DESC
+    LIMIT 1
+  ), '') AS open_bq_lifecycle_identifier_type,
+  COALESCE((
+    SELECT c.identifier_value
+    FROM identity_conflicts c
+    WHERE c.tenant_id = g.tenant_id
+      AND c.conflict_type = 'status_mismatch'
+      AND c.state IN ('open', 'needs_field_check')
+      AND c.goat_ids @> ARRAY[g.goat_id]
+      AND c.evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'
+    ORDER BY c.created_at DESC, c.conflict_id::text DESC
+    LIMIT 1
+  ), '') AS open_bq_lifecycle_identifier_value,
   EXISTS (
     SELECT 1
     FROM identity_conflicts c
@@ -1379,6 +1456,28 @@ SELECT
       AND c.goat_ids @> ARRAY[g.goat_id]
       AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
   ) AS has_open_bq_attribute_conflict,
+  COALESCE((
+    SELECT c.identifier_type
+    FROM identity_conflicts c
+    WHERE c.tenant_id = g.tenant_id
+      AND c.conflict_type = 'status_mismatch'
+      AND c.state IN ('open', 'needs_field_check')
+      AND c.goat_ids @> ARRAY[g.goat_id]
+      AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+    ORDER BY c.created_at DESC, c.conflict_id::text DESC
+    LIMIT 1
+  ), '') AS open_bq_attribute_identifier_type,
+  COALESCE((
+    SELECT c.identifier_value
+    FROM identity_conflicts c
+    WHERE c.tenant_id = g.tenant_id
+      AND c.conflict_type = 'status_mismatch'
+      AND c.state IN ('open', 'needs_field_check')
+      AND c.goat_ids @> ARRAY[g.goat_id]
+      AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+    ORDER BY c.created_at DESC, c.conflict_id::text DESC
+    LIMIT 1
+  ), '') AS open_bq_attribute_identifier_value,
   gi.identifier_type,
   gi.normalized_value,
   gi.scope_key
@@ -1399,26 +1498,32 @@ ORDER BY g.goat_id::text, gi.identifier_type, gi.normalized_value`, tenantID)
 	byID := map[string]*LocalGoat{}
 	order := []string{}
 	for rows.Next() {
-		var goatID, breed, breedID, sex, lifecycle, identity, current, farm, park, shed, idType, value, scope string
+		var goatID, breed, breedID, sex, lifecycle, identity, current, farm, park, shed string
+		var lifecycleConflictType, lifecycleConflictValue, attributeConflictType, attributeConflictValue string
+		var idType, value, scope string
 		var hasLifecycleConflict, hasAttributeConflict bool
-		if err := rows.Scan(&goatID, &breed, &breedID, &sex, &lifecycle, &identity, &current, &farm, &park, &shed, &hasLifecycleConflict, &hasAttributeConflict, &idType, &value, &scope); err != nil {
+		if err := rows.Scan(&goatID, &breed, &breedID, &sex, &lifecycle, &identity, &current, &farm, &park, &shed, &hasLifecycleConflict, &lifecycleConflictType, &lifecycleConflictValue, &hasAttributeConflict, &attributeConflictType, &attributeConflictValue, &idType, &value, &scope); err != nil {
 			return nil, fmt.Errorf("scan local goat identifier: %w", err)
 		}
 		goat := byID[goatID]
 		if goat == nil {
 			goat = &LocalGoat{
-				GoatID:                     goatID,
-				Breed:                      breed,
-				BreedID:                    breedID,
-				Sex:                        sex,
-				LifecycleStatus:            lifecycle,
-				IdentityState:              identity,
-				CurrentLocationID:          current,
-				FarmID:                     farm,
-				ParkID:                     park,
-				ShedID:                     shed,
-				HasOpenBQLifecycleConflict: hasLifecycleConflict,
-				HasOpenBQAttributeConflict: hasAttributeConflict,
+				GoatID:                         goatID,
+				Breed:                          breed,
+				BreedID:                        breedID,
+				Sex:                            sex,
+				LifecycleStatus:                lifecycle,
+				IdentityState:                  identity,
+				CurrentLocationID:              current,
+				FarmID:                         farm,
+				ParkID:                         park,
+				ShedID:                         shed,
+				HasOpenBQLifecycleConflict:     hasLifecycleConflict,
+				HasOpenBQAttributeConflict:     hasAttributeConflict,
+				OpenBQLifecycleIdentifierType:  lifecycleConflictType,
+				OpenBQLifecycleIdentifierValue: lifecycleConflictValue,
+				OpenBQAttributeIdentifierType:  attributeConflictType,
+				OpenBQAttributeIdentifierValue: attributeConflictValue,
 			}
 			byID[goatID] = goat
 			order = append(order, goatID)
@@ -1613,8 +1718,14 @@ WHERE tenant_id = $1::uuid
 		if patch.Conflict != nil {
 			metadata["identifier_lifecycle_conflict"] = patch.Conflict
 		}
+		if patch.RefreshLifecycleConflict {
+			metadata["refreshed_lifecycle_conflict_metadata"] = true
+		}
 		if len(patch.AttrConflicts) > 0 {
 			metadata["attribute_conflicts"] = patch.AttrConflicts
+		}
+		if patch.RefreshAttributeConflict {
+			metadata["refreshed_attribute_conflict_metadata"] = true
 		}
 		if len(patch.AttributeChanges) > 0 {
 			metadata["attribute_corrections"] = patch.AttributeChanges
@@ -1781,37 +1892,64 @@ func ensureLifecycleConflict(ctx context.Context, tx pgx.Tx, tenantID string, pa
 	identifierType, identifierValue := conflictIdentifierParts(conflictKey)
 	var conflictID string
 	err := tx.QueryRow(ctx, `
-INSERT INTO identity_conflicts (
-  tenant_id,
-  conflict_type,
-  severity,
-  state,
-  identifier_type,
-  identifier_value,
-  goat_ids,
-  source_record_ids,
-  evidence
-)
-SELECT
-  $1::uuid,
-  'status_mismatch',
-  'high',
-  'open',
-  $6,
-  $3,
-  ARRAY[$2::uuid],
-  $4::text[],
-  $5::jsonb
-WHERE NOT EXISTS (
-  SELECT 1
+WITH existing AS (
+  SELECT conflict_id
   FROM identity_conflicts
   WHERE tenant_id = $1::uuid
     AND conflict_type = 'status_mismatch'
     AND state IN ('open', 'needs_field_check')
     AND goat_ids @> ARRAY[$2::uuid]
     AND evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'
+  ORDER BY created_at DESC, conflict_id::text DESC
+  LIMIT 1
+),
+inserted AS (
+  INSERT INTO identity_conflicts (
+    tenant_id,
+    conflict_type,
+    severity,
+    state,
+    identifier_type,
+    identifier_value,
+    goat_ids,
+    source_record_ids,
+    evidence
+  )
+  SELECT
+    $1::uuid,
+    'status_mismatch',
+    'high',
+    'open',
+    $6,
+    $3,
+    ARRAY[$2::uuid],
+    $4::text[],
+    $5::jsonb
+  WHERE NOT EXISTS (SELECT 1 FROM existing)
+  RETURNING conflict_id::text
+),
+updated AS (
+  UPDATE identity_conflicts c
+  SET
+    identifier_type = $6,
+    identifier_value = $3,
+    source_record_ids = $4::text[],
+    evidence = $5::jsonb,
+    row_version = row_version + 1
+  FROM existing e
+  WHERE c.conflict_id = e.conflict_id
+    AND (
+      c.identifier_type IS DISTINCT FROM $6
+      OR c.identifier_value IS DISTINCT FROM $3
+      OR c.source_record_ids IS DISTINCT FROM $4::text[]
+      OR c.evidence IS DISTINCT FROM $5::jsonb
+    )
+  RETURNING c.conflict_id::text
 )
-RETURNING conflict_id::text`,
+SELECT conflict_id FROM inserted
+UNION ALL
+SELECT conflict_id FROM updated
+LIMIT 1`,
 		tenantID,
 		patch.GoatID,
 		identifierValue,
@@ -1823,7 +1961,7 @@ RETURNING conflict_id::text`,
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("insert BQ lifecycle conflict for goat %s: %w", patch.GoatID, err)
+		return false, fmt.Errorf("upsert BQ lifecycle conflict for goat %s: %w", patch.GoatID, err)
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
@@ -1852,50 +1990,67 @@ func ensureAttributeConflict(ctx context.Context, tx pgx.Tx, tenantID string, pa
 		"planned_identity":   patch.AfterIdentity,
 	}
 	evidenceJSON, _ := json.Marshal(evidence)
-	conflictKey := ""
-	for _, conflict := range patch.AttrConflicts {
-		if strings.TrimSpace(conflict.IdentifierKey) != "" {
-			conflictKey = conflict.IdentifierKey
-			break
-		}
-	}
-	if conflictKey == "" {
-		conflictKey = firstNonEmptyKey(patch.MatchedKeys)
-	}
-	identifierType, identifierValue := conflictIdentifierParts(conflictKey)
+	identifierType, identifierValue := plannedAttributeConflictIdentifier(patch.AttrConflicts, patch.MatchedKeys)
 	var conflictID string
 	err := tx.QueryRow(ctx, `
-INSERT INTO identity_conflicts (
-  tenant_id,
-  conflict_type,
-  severity,
-  state,
-  identifier_type,
-  identifier_value,
-  goat_ids,
-  source_record_ids,
-  evidence
-)
-SELECT
-  $1::uuid,
-  'status_mismatch',
-  'medium',
-  'open',
-  $6,
-  $3,
-  ARRAY[$2::uuid],
-  $4::text[],
-  $5::jsonb
-WHERE NOT EXISTS (
-  SELECT 1
+WITH existing AS (
+  SELECT conflict_id
   FROM identity_conflicts
   WHERE tenant_id = $1::uuid
     AND conflict_type = 'status_mismatch'
     AND state IN ('open', 'needs_field_check')
     AND goat_ids @> ARRAY[$2::uuid]
     AND evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+  ORDER BY created_at DESC, conflict_id::text DESC
+  LIMIT 1
+),
+inserted AS (
+  INSERT INTO identity_conflicts (
+    tenant_id,
+    conflict_type,
+    severity,
+    state,
+    identifier_type,
+    identifier_value,
+    goat_ids,
+    source_record_ids,
+    evidence
+  )
+  SELECT
+    $1::uuid,
+    'status_mismatch',
+    'medium',
+    'open',
+    $6,
+    $3,
+    ARRAY[$2::uuid],
+    $4::text[],
+    $5::jsonb
+  WHERE NOT EXISTS (SELECT 1 FROM existing)
+  RETURNING conflict_id::text
+),
+updated AS (
+  UPDATE identity_conflicts c
+  SET
+    identifier_type = $6,
+    identifier_value = $3,
+    source_record_ids = $4::text[],
+    evidence = $5::jsonb,
+    row_version = row_version + 1
+  FROM existing e
+  WHERE c.conflict_id = e.conflict_id
+    AND (
+      c.identifier_type IS DISTINCT FROM $6
+      OR c.identifier_value IS DISTINCT FROM $3
+      OR c.source_record_ids IS DISTINCT FROM $4::text[]
+      OR c.evidence IS DISTINCT FROM $5::jsonb
+    )
+  RETURNING c.conflict_id::text
 )
-RETURNING conflict_id::text`,
+SELECT conflict_id FROM inserted
+UNION ALL
+SELECT conflict_id FROM updated
+LIMIT 1`,
 		tenantID,
 		patch.GoatID,
 		identifierValue,
@@ -1907,7 +2062,7 @@ RETURNING conflict_id::text`,
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("insert BQ attribute conflict for goat %s: %w", patch.GoatID, err)
+		return false, fmt.Errorf("upsert BQ attribute conflict for goat %s: %w", patch.GoatID, err)
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
