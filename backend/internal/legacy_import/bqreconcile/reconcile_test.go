@@ -316,12 +316,19 @@ func TestPlanSkipsAmbiguousIdentifierMatches(t *testing.T) {
 }
 
 func TestReadEventsSupportsArrayAndJSONL(t *testing.T) {
-	arrayEvents, err := ReadEvents(strings.NewReader(`[{"goat_id":"1","event":"Shifting"}]`))
+	arrayEvents, err := ReadEvents(strings.NewReader(`[{"goat_id":"1","event":"Shifting","date":"2026-06-01"}]`))
 	if err != nil || len(arrayEvents) != 1 {
 		t.Fatalf("array events=%#v err=%v", arrayEvents, err)
 	}
-	jsonlEvents, err := ReadEvents(strings.NewReader(`{"goat_id":"1","event":"Shifting"}` + "\n" + `{"goat_id":"2","event":"Sale"}`))
+	jsonlEvents, err := ReadEvents(strings.NewReader(`{"goat_id":"1","event":"Shifting","date":"2026-06-01"}` + "\n" + `{"goat_id":"2","event":"Sale","date":"2026-06-02"}`))
 	if err != nil || len(jsonlEvents) != 2 {
 		t.Fatalf("jsonl events=%#v err=%v", jsonlEvents, err)
+	}
+}
+
+func TestReadEventsRejectsNonISODate(t *testing.T) {
+	_, err := ReadEvents(strings.NewReader(`[{"goat_id":"1","event":"Shifting","date":"06/01/2026"}]`))
+	if err == nil || !strings.Contains(err.Error(), "YYYY-MM-DD") {
+		t.Fatalf("expected YYYY-MM-DD validation error, got %v", err)
 	}
 }

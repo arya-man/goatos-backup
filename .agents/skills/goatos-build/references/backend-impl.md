@@ -352,7 +352,9 @@ Rules:
   idempotency, bounded batches, and freshness/status reporting.
   `backend/cmd/bq-reconcile` is the committed replay path for current
   lifecycle/current-location corrections from BQ event and latest-location
-  exports. It dry-runs by default, requires `--execute` plus GOATOS_ENV for
+  exports. Exported event dates must be strict `YYYY-MM-DD`; malformed dates
+  are rejected before planning because lifecycle ordering depends on them. The
+  command dry-runs by default, requires `--execute` plus GOATOS_ENV for
   mutation, takes a tenant advisory lock, updates deterministic
   RFID/scoped-old-tag matches only, lets RFID lifecycle evidence win over
   reused/scoped old-tag lifecycle evidence, opens Data Quality

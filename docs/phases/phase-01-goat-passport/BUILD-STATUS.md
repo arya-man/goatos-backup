@@ -559,10 +559,11 @@ RFID/BQ source-of-truth staging and reconciliation:
   `backend/cmd/bq-reconcile` is the replayable lifecycle/current-location
   correction path for fresh local/dev/stg/prod databases. It consumes a
   read-only legacy BQ event export plus optional latest-location export as JSON
-  array or JSONL, dry-runs by default, requires explicit `--execute` plus
-  GOATOS_ENV for mutation, takes an advisory tenant lock, updates only
-  deterministic RFID/scoped-old-tag matches, writes a `goat.bq_reconciled`
-  audit row for every changed goat, and emits no goat creation or outbox events.
+  array or JSONL with strict `YYYY-MM-DD` event dates, dry-runs by default,
+  requires explicit `--execute` plus GOATOS_ENV for mutation, takes an advisory
+  tenant lock, updates only deterministic RFID/scoped-old-tag matches, writes a
+  `goat.bq_reconciled` audit row for every changed goat, and emits no goat
+  creation or outbox events.
   Rebuild identity counters after every execute before trusting the dashboard.
   real staging writes legacy_import_runs as running -> completed or failed and
   inserts legacy_import_rows in bounded batches

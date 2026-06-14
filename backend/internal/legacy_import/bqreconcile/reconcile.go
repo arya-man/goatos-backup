@@ -244,6 +244,9 @@ func ReadEvents(r io.Reader) ([]Event, error) {
 		if err := json.Unmarshal(data, &events); err != nil {
 			return nil, fmt.Errorf("parse BQ events JSON array: %w", err)
 		}
+		if err := normalizeEventDates(events); err != nil {
+			return nil, err
+		}
 		return events, nil
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
@@ -262,7 +265,25 @@ func ReadEvents(r io.Reader) ([]Event, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan BQ events JSONL: %w", err)
 	}
+	if err := normalizeEventDates(events); err != nil {
+		return nil, err
+	}
 	return events, nil
+}
+
+func normalizeEventDates(events []Event) error {
+	for i := range events {
+		date := strings.TrimSpace(events[i].Date)
+		if date == "" {
+			return fmt.Errorf("BQ event[%d] date is required in YYYY-MM-DD format", i)
+		}
+		parsed, err := time.Parse("2006-01-02", date)
+		if err != nil || parsed.Format("2006-01-02") != date {
+			return fmt.Errorf("BQ event[%d] date %q must use YYYY-MM-DD format", i, events[i].Date)
+		}
+		events[i].Date = date
+	}
+	return nil
 }
 
 func Plan(events []Event, goats []LocalGoat, locations LocationLookup) (*Summary, []patch) {

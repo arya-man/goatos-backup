@@ -243,8 +243,10 @@ BQ event rows needed for lifecycle reconciliation. It can be JSON array or JSONL
 and must include the fields used by the command: `goat_id`, `farm_goat_id`,
 `farm`, `event`, and `date`. Current-location replay should also pass the
 prepared latest-location export with `--locations-json`; those rows must include
-`goat_id`, `farm`, `date`, and either `current_shed` or `dst_shed`. Do not
-commit either export.
+`goat_id`, `farm`, `date`, and either `current_shed` or `dst_shed`. The `date`
+field must be canonical `YYYY-MM-DD`; `bq-reconcile` rejects blank or non-ISO
+dates before planning so lifecycle ordering cannot depend on ambiguous strings.
+Do not commit either export.
 
 Dry-run first:
 
