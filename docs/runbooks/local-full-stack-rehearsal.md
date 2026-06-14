@@ -211,8 +211,10 @@ non-passport/non-goat.
 `blank_old_tag_suffix` rows show safe Farm/Shed/Partition context. RFID-only goat
 creation for those rows is available only through the explicit
 `rfid-apply --allow-rfid-only-blank-suffix` flag after a dry-run confirms the
-redistribution. `blank_gender` and `duplicate_old_tag_same_scope` rows remain
-source correction or explicit reviewed-policy work.
+redistribution. `blank_gender` rows can now be filled from deterministic BQ RFID
+evidence by `bq-reconcile --import-run-id` and re-applied through normal
+`rfid-apply`; `duplicate_old_tag_same_scope` rows remain source correction or
+explicit reviewed-policy work.
 
 The reviewer CSVs are export-only. `reviewer_action` and `reviewer_notes` are
 scratch columns for the data team; Goat OS does not ingest edited review CSVs
@@ -256,6 +258,7 @@ export DATABASE_URL=<local Docker Postgres URL>
 
 (cd backend && go run ./cmd/bq-reconcile \
   --tenant-id <tenant_uuid> \
+  --import-run-id <import_run_id> \
   --events-json <ignored-bq-event-export.json> \
   --locations-json <ignored-bq-latest-location-export.json>)
 ```
@@ -265,6 +268,7 @@ Apply only after the dry-run matches the expected correction shape:
 ```bash
 (cd backend && go run ./cmd/bq-reconcile \
   --tenant-id <tenant_uuid> \
+  --import-run-id <import_run_id> \
   --events-json <ignored-bq-event-export.json> \
   --locations-json <ignored-bq-latest-location-export.json> \
   --execute)
@@ -279,15 +283,17 @@ Then rebuild counters before trusting API/dashboard reads:
 ```
 
 `bq-reconcile` is idempotent and audited. It updates deterministic
-RFID/scoped-old-tag matches for lifecycle, current location, and safe missing
-sex values; it does not create goats, add identifiers, or emit outbox events.
+RFID/scoped-old-tag matches for lifecycle, current location, sex, and breed.
+When `--import-run-id` is supplied, it can also fill sole-reason `blank_gender`
+staging rows from deterministic BQ RFID evidence and requeue those rows for the
+normal `rfid-apply` path. It does not create goats directly, add identifiers, or
+emit outbox events.
 BQ Shifting evidence without terminal Sale/Death is proof-of-life and should
 keep the goat `alive`. Death remains terminal. Sale is reversed only by a later
 Purchase; later non-purchase activity such as Shifting, Birth, or Abortion after
 Sale or Death opens a Data Quality `status_mismatch` conflict instead of
-silently reviving the goat. BQ-vs-passport gender/breed disagreements also open
-Data Quality `status_mismatch` conflicts instead of silently overwriting
-nonblank passport fields. Unmatched local goats stay
+silently reviving the goat. Deterministic BQ-vs-passport sex/breed drift is
+corrected with audit rows. Unmatched local goats stay
 untouched until identifier reconciliation/backfill work supplies stronger
 evidence.
 
@@ -319,24 +325,33 @@ rebuild-identity-counters:
   tenant_lifecycle alive = 1215
 ```
 
-After the BQ reconciliation pass, current proof should keep total passports at
-1215 while correcting matched passport properties and counters:
+After the BQ reconciliation pass, run `rfid-apply --allow-rfid-only-blank-suffix`
+again if blank-gender rows were requeued, then rebuild counters. Current proof
+settles at 1219 passports while leaving only duplicate-old-tag rows in Import
+Review:
 
 ```text
+import rows:
+  created_goat = 1219
+  needs_review = 4
+  error = 0
+  remaining review reason = duplicate_old_tag_same_scope 4
+
 created passports:
-  total = 1215
-  passports after BQ reconciliation = 1215
+  total = 1219
   no current BQ-derived location = 272
-  import-review rows = 8
+  shed-level current location = 891
+  park-only current location = 56
 
 tenant_lifecycle after counter rebuild:
-  alive = 1109
+  alive = 1113
   sold = 71
   dead = 35
   inactive = 0
 
 Data Quality after BQ reconciliation:
   status_mismatch conflicts = 54
+  deterministic BQ patches planned = 0
 ```
 
 If these numbers differ on a fresh local database, stop and investigate before

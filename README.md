@@ -102,39 +102,38 @@ Completed so far:
   admin "Sync with BQ" control should trigger the same backend job that scheduled
   local/dev/stg/prod syncs use, with RBAC, audit, idempotency, and visible
   freshness status. `backend/cmd/bq-reconcile` is the committed replay path for
-  current lifecycle/location correction plus BQ attribute-conflict surfacing: it
+  current lifecycle/location correction plus BQ-backed attribute correction: it
   consumes read-only legacy BQ
   event and latest-location exports, dry-runs by default, applies only with
   `--execute`, audits each changed goat, and must be followed by
   identity-counter rebuilds. BQ-derived
   reconciliation updates now correct matched Goat OS passports for lifecycle,
   park/current location, and safe shed assignment where the match is
-  deterministic. It fills safe missing sex values from BQ and marks BQ-vs-Goat
-  OS gender/breed disagreements as Data Quality conflicts rather than silently
-  overwriting passport fields. BQ dashboard shed
+  deterministic. It corrects deterministic sex and breed differences from BQ,
+  can fill sole-reason `blank_gender` import rows when an import run is supplied,
+  and leaves only identifier/lifecycle disagreements as Data Quality conflicts.
+  BQ dashboard shed
   taxonomy is now seeded under the existing CBE/CPT park locations so matched
   goats can carry specific shed current locations without breaking old-tag
   park-scope identity rules.
 - Phase 1 local end-to-end proof has passed against the local backend and
-  Mesha-style SSR admin-web. Current local DB has 1215 goat passports and 8
+  Mesha-style SSR admin-web. Current local DB has 1219 goat passports and 4
   import-review rows from the RFID import run. A BQ reconciliation pass now runs
   through `backend/cmd/bq-reconcile`. The current local DB has
-  `tenant_lifecycle` counters `alive=1109`, `sold=71`, and `dead=35`; BQ
+  `tenant_lifecycle` counters `alive=1113`, `sold=71`, and `dead=35`; BQ
   lifecycle is reduced conservatively per identifier. Shifting or Abortion
   evidence without terminal Sale/Death is proof-of-life, Death is sticky, Sale
   is reversed only by a later Purchase, and later non-purchase activity such as
   Shifting, Birth, or Abortion after a terminal event opens a review conflict
-  instead of silently reviving the goat. BQ attribute reconciliation now flags
-  matched-passport gender/breed disagreements as `status_mismatch` review
-  conflicts; cosmetic Anantapur Sheep/Anantapur label drift is reported but not
-  treated as a real breed conflict. RFID evidence is
+  instead of silently reviving the goat. BQ attribute reconciliation corrected
+  deterministic matched-passport sex and breed drift, including the former
+  blank-gender staging rows. RFID evidence is
   evaluated separately from reused/scoped old-tag evidence; current
   disagreements and terminal-after-activity cases are surfaced as 54 Data
   Quality `status_mismatch` conflicts for operator review. A follow-up BQ
-  location pass seeded 154 CBE/CPT shed locations and updated 860
-  deterministically matched goats to shed-level current locations; 83 matched
-  goats remain park-only because BQ had no safe shed, and 272 existing passports
-  that cannot be joined to BQ by RFID or scoped old tag remain unchanged pending
+  location pass seeded 154 CBE/CPT shed locations; the current DB has 891 goats
+  with shed-level current locations, 56 park-only goats, and 272 existing
+  passports that cannot be joined to BQ by RFID or scoped old tag pending
   identifier reconciliation.
   Overview, herd
   search, goat passport with live identity timeline, identity counts, live

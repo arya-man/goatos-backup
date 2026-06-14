@@ -24,6 +24,7 @@ func main() {
 
 func run(args []string) error {
 	var tenantID string
+	var importRunID string
 	var eventsPath string
 	var locationsPath string
 	var execute bool
@@ -31,6 +32,7 @@ func run(args []string) error {
 	var traceID string
 	fs := flag.NewFlagSet("bq-reconcile", flag.ContinueOnError)
 	fs.StringVar(&tenantID, "tenant-id", "", "tenant UUID to reconcile")
+	fs.StringVar(&importRunID, "import-run-id", "", "optional import run UUID for BQ-backed blank-gender staging fixes")
 	fs.StringVar(&eventsPath, "events-json", "", "BQ event export JSON array or JSONL file")
 	fs.StringVar(&locationsPath, "locations-json", "", "optional BQ latest-location export JSON array or JSONL file")
 	fs.BoolVar(&execute, "execute", false, "apply planned updates; default is dry-run")
@@ -60,6 +62,7 @@ func run(args []string) error {
 
 	result, err := bqreconcile.Run(ctx, pool, bqreconcile.Options{
 		TenantID:      tenantID,
+		ImportRunID:   importRunID,
 		EventsPath:    eventsPath,
 		LocationsPath: locationsPath,
 		Execute:       execute,

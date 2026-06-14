@@ -2306,6 +2306,16 @@ Fresh local Docker Postgres proof with all migrations through 000015:
   Anantapur Sheep source rows = 508
   Anantapur Sheep created passports = 504
   tenant_lifecycle alive counter = 1215
+
+Fresh local Docker Postgres proof after BQ reconciliation plus migration 000018:
+  bq-reconcile deterministic passport corrections -> patches_planned 0 after apply
+  bq-reconcile --import-run-id fills 4 sole-reason blank_gender rows from BQ
+  guarded --allow-rfid-only-blank-suffix re-apply -> created_goat 1219, needs_review 4, error 0
+  remaining review reason occurrences:
+    duplicate_old_tag_same_scope 4
+  tenant_lifecycle alive = 1113, sold = 71, dead = 35, inactive = 0
+  Data Quality status_mismatch conflicts = 54
+  current locations: shed-level 891, park-only 56, no current location 272
   Mesha admin-web SSR routes verified against the final run:
     /
     /counts
@@ -2905,11 +2915,12 @@ dashboard. A dashboard "Sync with BQ" control may exist only as an authenticated
 backend command trigger with RBAC, audit, idempotency, bounded batches, and a
 freshness/status surface; it must not call BigQuery directly from browser or
 Next frontend code. `backend/cmd/bq-reconcile` is the replayable current
-lifecycle/location reconciliation and BQ attribute-conflict command for fresh local/dev/stg/prod
+lifecycle/location reconciliation and BQ-backed attribute correction command for fresh local/dev/stg/prod
 databases: it consumes read-only BQ event and latest-location export JSON/JSONL,
 dry-runs by default, mutates only with `--execute`, audits every changed goat,
-opens Data Quality conflicts for matched-passport gender/breed disagreements,
-and requires counter rebuild before API/dashboard reads are considered fresh. The
+corrects deterministic matched-passport sex/breed drift, can fill sole-reason
+`blank_gender` import rows when `--import-run-id` is provided, and requires
+counter rebuild before API/dashboard reads are considered fresh. The
 lifecycle reducer follows the legacy accounting shape: Shifting changes location
 and is proof-of-life only when there is no later terminal evidence; Death stays
 terminal, Sale is reversed only by later Purchase, and non-purchase activity

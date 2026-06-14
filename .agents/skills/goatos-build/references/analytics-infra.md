@@ -28,8 +28,10 @@ Rules:
   not as a dashboard runtime dependency. Apps still read Postgres-backed Goat OS
   APIs/Cube-facing metrics, never raw BQ. The current committed bridge is
   `backend/cmd/bq-reconcile`, which consumes read-only BQ event and
-  latest-location exports and writes audited lifecycle/current-location
-  corrections into Postgres before counters are rebuilt.
+  latest-location exports and writes audited lifecycle/current-location plus
+  deterministic sex/breed corrections into Postgres before counters are rebuilt.
+  When an import run is supplied, it may also fill BQ-backed sole-reason
+  `blank_gender` staging rows so normal RFID apply can create the passports.
 - AI analyst work is blocked until canonical dbt marts, Cube metrics, dashboard
   parity tests, an analytics skill, offline evals, and provenance/freshness
   footers exist. AI uses Cube first, curated marts second, and raw SQL only for

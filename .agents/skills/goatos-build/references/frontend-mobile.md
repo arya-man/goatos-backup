@@ -36,13 +36,13 @@ Rules:
   pre-000015 proof was 711 created goats and 512 review rows; after migration
   000015, Anantapur Sheep and other nonblank source Breed labels create
   passports when the other gates pass. Unknown labels remain review-status in
-  the catalog until operator review. The current post-BQ proof expects 1215
-  created passports, 8 import-review rows, 0 errors, and tenant_lifecycle
-  counters alive=1122, sold=68, dead=25, inactive=0 after
-  `backend/cmd/bq-reconcile` plus counter rebuild. It also expects 40 Data
-  Quality `status_mismatch` conflicts for RFID-vs-old-tag lifecycle
-  disagreements, 860 matched goats assigned to BQ shed-level current locations,
-  83 matched goats park-only, and 272 unmatched passports left unchanged. The proof covers overview, counts,
+  the catalog until operator review. The current post-BQ proof expects 1219
+  created passports, 4 duplicate-old-tag import-review rows, 0 errors, and
+  tenant_lifecycle counters alive=1113, sold=71, dead=35, inactive=0 after
+  `backend/cmd/bq-reconcile`, final `rfid-apply`, and counter rebuild. It also
+  expects 54 Data Quality `status_mismatch` conflicts for identifier/lifecycle
+  disagreements, 891 goats assigned to shed-level current locations, 56
+  park-only goats, and 272 unmatched passports left unchanged. The proof covers overview, counts,
   herd search, a real goat passport, live Import Review rows, and honest Data
   Quality empty states when the local DB has no conflicts, candidates, or
   correction requests. Backend tests cover populated list paths separately.

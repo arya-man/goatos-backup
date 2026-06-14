@@ -55,7 +55,7 @@ docs/runbooks/local-full-stack-rehearsal.md  local Phase 1 import/API/admin-web 
 docs/runbooks/local-docker-storage.md        local Docker storage safety and cleanup rules
 backend/cmd/rfid-import                      legacy RFID parser/import harness CLI
 backend/cmd/rfid-apply                       staged RFID canonical apply CLI
-backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location correction and attribute-conflict CLI
+backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location and BQ-backed attribute correction CLI
 backend/cmd/rebuild-identity-counters        local/reporting counter rebuild after apply
 backend/internal/legacy_import/xlsx.go       workbook parser and sheet-selection behavior
 backend/internal/legacy_import/normalize.go  emitted staging/review/error reason codes
@@ -351,17 +351,20 @@ Rules:
   sync job used by scheduled local/dev/stg/prod syncs, with RBAC, audit,
   idempotency, bounded batches, and freshness/status reporting.
   `backend/cmd/bq-reconcile` is the committed replay path for current
-  lifecycle/current-location corrections and BQ attribute-conflict surfacing
+  lifecycle/current-location corrections and BQ-backed attribute correction
   from BQ event and latest-location exports. Exported event dates must be
   strict `YYYY-MM-DD`; malformed dates are rejected before planning because
   lifecycle ordering depends on them. The command dry-runs by default, requires
   `--execute` plus GOATOS_ENV for mutation, takes a tenant advisory lock,
   updates deterministic RFID/scoped-old-tag matches only, lets RFID lifecycle
   evidence win over reused/scoped old-tag lifecycle evidence, opens Data Quality
-  `status_mismatch` conflicts when lifecycle or BQ-vs-passport gender/breed
-  evidence disagrees, writes `goat.bq_reconciled` audit rows, and requires
-  `rebuild-identity-counters` afterward. It does not create goats, add
-  identifiers, or emit outbox events. The RFID
+  `status_mismatch` conflicts for identifier/lifecycle disagreements, corrects
+  deterministic BQ-vs-passport sex and breed drift with audit rows, writes
+  `goat.bq_reconciled` audit rows, and requires
+  `rebuild-identity-counters` afterward. When `--import-run-id` is supplied, it
+  may fill sole-reason `blank_gender` staging rows from deterministic BQ RFID
+  evidence and requeue them for the normal `rfid-apply` path. It does not create
+  goats directly, add identifiers, or emit outbox events. The RFID
   workbook parser/normalizer is retained as a legacy parser/regression harness
   and accepts the Shape-2 source headers:
   `Farm`, `Old ID`, `Old ID Suffix`, `RFID`, `Age`, `Gender`, `Breed`, `Tag`,
@@ -447,35 +450,41 @@ Rules:
   `blank_gender` 4, and
   `duplicate_old_tag_same_scope` 4. Migration 000015 changed the current proof:
   normal apply now creates 780 goats, guarded RFID-only apply creates 1215 goats,
-  needs_review falls to 8, and tenant_lifecycle alive becomes 1215. The source
+  needs_review falls to 8, and tenant_lifecycle alive becomes 1215. Migration
+  000018 adds the approved plain K1 status mapping. After BQ-backed
+  blank-gender fills are requeued and normal apply runs again, current local
+  proof creates 1219 goats, leaves 4 `duplicate_old_tag_same_scope` Import
+  Review rows, and keeps errors at 0. The source
   proof found 508 Anantapur Sheep source rows and 504 created Anantapur Sheep
   goat passports. Migration 000017 seeds 154 CBE/CPT BQ dashboard shed
   locations plus aliases under the existing CBE/CPT park rows. CBE/CPT stay as
   parks because old-tag scopes use `park:CBE` and `park:CPT`; shed labels are
   child locations for current-location reporting. The local BQ shed
-  reconciliation pass caps BQ events at the dashboard max date, updates 860
-  deterministic matches to shed-level current locations, leaves 83 matched goats
-  park-only because BQ had no safe shed, and leaves 272 unmatched goats
-  untouched. The correction is now replayable through
+  reconciliation pass caps BQ events at the dashboard max date. Current local DB
+  has 891 goats with shed-level current locations, 56 park-only goats, and 272
+  goats with no current location because no safe BQ identifier/location evidence
+  exists. The correction is now replayable through
   `backend/cmd/bq-reconcile`, not a one-off local DB patch. BQ Shifting or
   Abortion evidence without terminal Sale/Death is proof-of-life, but
   non-purchase activity such as Shifting, Birth, or Abortion after terminal
   evidence does not resurrect the goat. Death remains terminal; Sale is reversed
   only by a later Purchase; terminal-after-activity and RFID-vs-old-tag
-  lifecycle disagreements open Data Quality `status_mismatch` conflicts. After
-  counter rebuild, tenant_lifecycle is alive 1109, sold 71, dead 35, inactive 0;
-  54 lifecycle disagreements are open Data Quality `status_mismatch` conflicts;
-  shed_lifecycle has 133 rows with 860 goats in specific shed buckets and 355
-  no-shed bucket counts. The local SSR proof rendered real
+  lifecycle disagreements open Data Quality `status_mismatch` conflicts. BQ
+  attribute reconciliation corrects deterministic sex/breed drift, including the
+  former blank-gender staging rows, instead of leaving hidden clean
+  contradictions. After counter rebuild, tenant_lifecycle is alive 1113, sold
+  71, dead 35, inactive 0; 54 lifecycle disagreements are open Data Quality
+  `status_mismatch` conflicts; current locations are 891 shed-level, 56
+  park-only, and 272 with no current location. The local SSR proof rendered real
   herd rows, a real goat passport with live timeline, and live Import Review
   summary/rows through admin-web; reruns after 000015 and BQ reconciliation
-  must expect this post-BQ state, not the historical 711/512 or 1215-alive
-  counts. The real local DB had 0 conflicts, 0 candidates, and 0 correction
+  must expect this post-BQ state, not the historical 711/512, 1215-alive, or
+  1215/8 counts. The real local DB had 0 conflicts, 0 candidates, and 0 correction
   rows, so Data Quality rendered honest empty states while backend tests cover
   populated conflict/candidate/correction read paths. C-lite suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction
-  or reviewed policy for blank_gender plus duplicate same-scope old_tag rows.
+  or reviewed policy for duplicate same-scope old_tag rows.
 - The import loop is repeatable, not one-time. Existing source-row identity is
   `source_row_key`; existing content-change detection is
   `source_row_version_hash`. Do not build a parallel dedupe state machine.

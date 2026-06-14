@@ -557,7 +557,7 @@ RFID/BQ source-of-truth staging and reconciliation:
   until the committed BQ sync/reconciliation path has run and counters are
   rebuilt.
   `backend/cmd/bq-reconcile` is the replayable lifecycle/current-location
-  correction and attribute-conflict surfacing path for fresh local/dev/stg/prod
+  correction and BQ-backed attribute correction path for fresh local/dev/stg/prod
   databases. It consumes a
   read-only legacy BQ event export plus optional latest-location export as JSON
   array or JSONL with strict `YYYY-MM-DD` event dates, dry-runs by default,
@@ -670,37 +670,39 @@ RFID/BQ source-of-truth staging and reconciliation:
   `identity_state = needs_review` and opened as 54 Data Quality
   `status_mismatch` conflicts rather than silently trusting the old tag or
   resurrecting terminal goats. A follow-up BQ attribute reconciliation pass on
-  the same fresh export found 46 gender conflict items and 1 real breed conflict
-  item across 43 matched passports; those passports are now marked
-  `identity_state = needs_review` with BQ attribute conflict evidence. The pass
-  also reports 15 cosmetic Anantapur Sheep/Anantapur breed-label drifts without
-  treating them as real breed conflicts. The
-  source proof found 508
-  Anantapur Sheep rows in the RFID source and 504 created Anantapur Sheep goat
-  passports; the 4-row delta remains blocked by other apply gates, not by the
-  source Breed label. Migration 000017 seeds BQ dashboard shed taxonomy under
+  the same fresh export corrected deterministic matched-passport sex and breed
+  drift: 46 sex corrections plus 16 breed corrections/normalizations, including
+  the former 15 cosmetic Anantapur Sheep/Anantapur label drifts. Supplying
+  `--import-run-id` lets `bq-reconcile` fill sole-reason `blank_gender` staging
+  rows from deterministic BQ RFID evidence; the normal `rfid-apply` path then
+  created those 4 goats after migration 000018 added the approved plain K1
+  status mapping. The settled local state is created_goat 1219, needs_review 4,
+  error 0, with the remaining Import Review rows all
+  `duplicate_old_tag_same_scope`. The
+  historical source proof found 508
+  Anantapur Sheep rows in the RFID source and showed the source Breed label was
+  not a passport blocker. Migration 000017 seeds BQ dashboard shed taxonomy under
   the existing CBE/CPT park locations: 154 shed rows plus aliases. The local BQ
-  shed reconciliation pass uses the dashboard max date as cutoff, updates 860
-  deterministically matched goats to shed-level current locations, leaves 83
-  matched goats park-only because BQ had no safe shed, and leaves 272 unmatched
-  goats untouched. This correction is now replayable through
+  shed reconciliation pass uses the dashboard max date as cutoff. After the
+  blank-gender rows were created and reconciled, the current DB has 891 goats
+  with shed-level current locations, 56 park-only goats, and 272 unmatched goats
+  untouched. This correction is replayable through
   `backend/cmd/bq-reconcile`; it is no longer a one-off local DB mutation. After
-  counter rebuild, tenant_lifecycle remains alive 1109,
-  sold 71, dead 35, inactive 0; shed_lifecycle has 133 rows with 860 goats in
-  specific shed buckets and 355 in no-shed buckets. SSR admin-web proof should
-  use this post-BQ-reconciled state, not the historical 711/512 or 1215-alive
+  counter rebuild, tenant_lifecycle is alive 1113, sold 71, dead 35, inactive 0;
+  shed_lifecycle has 141 rows. SSR admin-web proof should use this
+  post-BQ-reconciled state, not the historical 711/512, 1215-alive, or 1215/8
   split.
   The previous local closeout proof with migrations through 000014 rendered `/`,
   `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and `/data-quality`
   through the Mesha admin-web; reruns after 000015 and BQ reconciliation must
-  keep those route checks and token-leak checks while expecting 1215 total
-  passports, 8 import-review rows, 54 Data Quality status-mismatch conflicts,
-  and tenant_lifecycle counters alive 1109, sold 71, dead 35, inactive 0.
+  keep those route checks and token-leak checks while expecting 1219 total
+  passports, 4 duplicate-old-tag Import Review rows, 54 Data Quality
+  status-mismatch conflicts, and tenant_lifecycle counters alive 1113, sold 71,
+  dead 35, inactive 0.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
-  old_tag scope is worse than unresolved evidence. blank_gender plus duplicate
-  same-scope old_tag rows remain blocked pending source correction or explicit
-  reviewed policy.
+  old_tag scope is worse than unresolved evidence. Duplicate same-scope old_tag
+  rows remain blocked pending source correction or explicit reviewed policy.
   synthetic .xlsx fixture rows are committed; raw private workbook rows, RFID
   values, local paths, screenshots, names, media URLs, and PII are not committed
 Legacy RFID parser canonical apply:
@@ -862,8 +864,8 @@ externally visible counter rebuild-status metadata table
 partition auto-creation worker or pg_partman
 OpenTelemetry spans/metrics/exporters
 approved RFID mapping/policy build from the local data mapping review:
-source cleanup or reviewed policy for blank_gender plus duplicate same-scope
-old_tag rows; source Breed labels such as Anantapur Sheep are business
+source cleanup or reviewed policy for duplicate same-scope old_tag rows; source
+Breed labels such as Anantapur Sheep are business
 breed/category data and should not be kept out of goat creation by label text
 P8 sales/allocation/promise behavior
 ```
