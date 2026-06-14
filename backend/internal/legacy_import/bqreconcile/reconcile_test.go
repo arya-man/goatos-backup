@@ -88,7 +88,7 @@ func TestPlanUsesSeparateLatestLocationExport(t *testing.T) {
 	}
 }
 
-func TestPlanLifecyclePrecedence(t *testing.T) {
+func TestPlanUsesLatestLifecycleEventPerIdentifier(t *testing.T) {
 	goat := LocalGoat{
 		GoatID:          "00000000-0000-4000-8000-000000000101",
 		LifecycleStatus: "alive",
@@ -101,9 +101,51 @@ func TestPlanLifecyclePrecedence(t *testing.T) {
 		events []Event
 		want   string
 	}{
-		{name: "shifting only is alive", events: []Event{{GoatID: "123456789012345", Event: "Shifting"}}, want: "alive"},
-		{name: "sale beats shifting", events: []Event{{GoatID: "123456789012345", Event: "Shifting"}, {GoatID: "123456789012345", Event: "Sale"}}, want: "sold"},
-		{name: "death beats sale", events: []Event{{GoatID: "123456789012345", Event: "Sale"}, {GoatID: "123456789012345", Event: "Death"}}, want: "dead"},
+		{
+			name:   "shifting only is alive",
+			events: []Event{{GoatID: "123456789012345", Event: "Shifting", Date: "2026-02-01"}},
+			want:   "alive",
+		},
+		{
+			name: "later sale beats earlier shifting",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Sale", Date: "2026-03-01"},
+			},
+			want: "sold",
+		},
+		{
+			name: "later shifting beats earlier sale",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-03-01"},
+			},
+			want: "alive",
+		},
+		{
+			name: "later purchase beats earlier sale",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Purchase", Date: "2026-03-01"},
+			},
+			want: "alive",
+		},
+		{
+			name: "later death beats earlier sale",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Death", Date: "2026-03-01"},
+			},
+			want: "dead",
+		},
+		{
+			name: "same day terminal tie breaker is stable",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
+			},
+			want: "sold",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -38,8 +38,8 @@ Rules:
   passports when the other gates pass. Unknown labels remain review-status in
   the catalog until operator review. The current post-BQ proof expects 1215
   created passports, 8 import-review rows, 0 errors, and tenant_lifecycle
-  counters alive=1104, sold=76, dead=35, inactive=0 after
-  `backend/cmd/bq-reconcile` plus counter rebuild. It also expects 47 Data
+  counters alive=1122, sold=68, dead=25, inactive=0 after
+  `backend/cmd/bq-reconcile` plus counter rebuild. It also expects 40 Data
   Quality `status_mismatch` conflicts for RFID-vs-old-tag lifecycle
   disagreements, 860 matched goats assigned to BQ shed-level current locations,
   83 matched goats park-only, and 272 unmatched passports left unchanged. The proof covers overview, counts,

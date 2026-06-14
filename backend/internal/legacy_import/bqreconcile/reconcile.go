@@ -93,9 +93,13 @@ type Summary struct {
 	LocationParkOnlyUpdates int            `json:"location_park_only_updates"`
 	NoLocationEvidence      int            `json:"no_location_evidence"`
 	IdentityReviewUpdates   int            `json:"identity_review_updates"`
+	IdentityCleanUpdates    int            `json:"identity_clean_updates"`
 	LifecycleConflicts      int            `json:"lifecycle_conflicts"`
+	StaleConflictsClosed    int            `json:"stale_lifecycle_conflicts_closed"`
 	PatchesPlanned          int            `json:"patches_planned"`
 	PatchesApplied          int            `json:"patches_applied"`
+
+	currentLifecycleConflictGoatIDs map[string]struct{} `json:"-"`
 }
 
 type patch struct {
@@ -129,11 +133,9 @@ type goatEvidence struct {
 }
 
 type lifecycleEvidence struct {
-	hasBirth    bool
-	hasDeath    bool
-	hasPurchase bool
-	hasSale     bool
-	hasShifting bool
+	lifecycle string
+	eventDate string
+	eventRank int
 }
 
 type lifecycleConflict struct {
@@ -142,6 +144,11 @@ type lifecycleConflict struct {
 	RFIDKey          string
 	OldTagKey        string
 	RecommendedState string
+}
+
+type queryer interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Summary, error) {
@@ -172,10 +179,16 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Summary, error
 	}
 	summary, patches := PlanWithLocations(events, locationEvents, goats, locations)
 	summary.DryRun = !opts.Execute
+	staleConflicts, cleanableGoats, err := countStaleLifecycleConflicts(ctx, pool, opts.TenantID, summary.currentLifecycleConflictGoatIDs)
+	if err != nil {
+		return nil, err
+	}
+	summary.StaleConflictsClosed = staleConflicts
+	summary.IdentityCleanUpdates = cleanableGoats
 	if !opts.Execute {
 		return summary, nil
 	}
-	applied, err := applyPatches(ctx, pool, opts.TenantID, opts.TraceID, patches)
+	applied, err := applyPatches(ctx, pool, opts.TenantID, opts.TraceID, patches, summary.currentLifecycleConflictGoatIDs, summary)
 	if err != nil {
 		return nil, err
 	}
@@ -232,9 +245,10 @@ func Plan(events []Event, goats []LocalGoat, locations LocationLookup) (*Summary
 
 func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat, locations LocationLookup) (*Summary, []patch) {
 	summary := &Summary{
-		EventsRead:       len(events),
-		LocalGoatsRead:   len(goats),
-		LifecycleUpdates: map[string]int{},
+		EventsRead:                      len(events),
+		LocalGoatsRead:                  len(goats),
+		LifecycleUpdates:                map[string]int{},
+		currentLifecycleConflictGoatIDs: map[string]struct{}{},
 	}
 	keyToGoat := map[string]string{}
 	ambiguousKeys := map[string]struct{}{}
@@ -322,6 +336,7 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 		if conflict != nil {
 			nextIdentity = "needs_review"
 			summary.LifecycleConflicts++
+			summary.currentLifecycleConflictGoatIDs[goatID] = struct{}{}
 		}
 		nextCurrent := goat.CurrentLocationID
 		nextFarm := goat.FarmID
@@ -399,17 +414,46 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 }
 
 func applyLifecycleEvent(evidence *lifecycleEvidence, event Event) {
+	lifecycle, rank := lifecycleForEvent(event)
+	if lifecycle == "" {
+		return
+	}
+	eventDate := strings.TrimSpace(event.Date)
+	if evidence.lifecycle == "" ||
+		lifecycleEventAfter(eventDate, rank, evidence.eventDate, evidence.eventRank) {
+		evidence.lifecycle = lifecycle
+		evidence.eventDate = eventDate
+		evidence.eventRank = rank
+	}
+}
+
+func lifecycleForEvent(event Event) (string, int) {
 	switch canonicalEventType(event.Event) {
-	case eventTypeBirth:
-		evidence.hasBirth = true
-	case eventTypeDeath:
-		evidence.hasDeath = true
 	case eventTypePurchase:
-		evidence.hasPurchase = true
-	case eventTypeSale:
-		evidence.hasSale = true
+		return "alive", 1
+	case eventTypeBirth:
+		return "alive", 1
 	case eventTypeShifting:
-		evidence.hasShifting = true
+		return "alive", 1
+	case eventTypeSale:
+		return "sold", 2
+	case eventTypeDeath:
+		return "dead", 3
+	default:
+		return "", 0
+	}
+}
+
+func lifecycleEventAfter(candidateDate string, candidateRank int, currentDate string, currentRank int) bool {
+	switch {
+	case candidateDate == "" && currentDate != "":
+		return false
+	case candidateDate != "" && currentDate == "":
+		return true
+	case candidateDate != currentDate:
+		return candidateDate > currentDate
+	default:
+		return candidateRank > currentRank
 	}
 }
 
@@ -435,16 +479,7 @@ func targetLifecycle(evidence *goatEvidence) (string, *lifecycleConflict) {
 }
 
 func targetLifecycleForEvidence(evidence lifecycleEvidence) string {
-	if evidence.hasDeath {
-		return "dead"
-	}
-	if evidence.hasSale {
-		return "sold"
-	}
-	if evidence.hasBirth || evidence.hasPurchase || evidence.hasShifting {
-		return "alive"
-	}
-	return ""
+	return evidence.lifecycle
 }
 
 func firstKeyWithPrefix(keys map[string]struct{}, prefix string) string {
@@ -736,7 +771,7 @@ WHERE la.tenant_id = $1::uuid
 	return lookup, nil
 }
 
-func applyPatches(ctx context.Context, pool *pgxpool.Pool, tenantID, traceID string, patches []patch) (int, error) {
+func applyPatches(ctx context.Context, pool *pgxpool.Pool, tenantID, traceID string, patches []patch, currentConflictGoatIDs map[string]struct{}, summary *Summary) (int, error) {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return 0, fmt.Errorf("begin BQ reconciliation transaction: %w", err)
@@ -846,6 +881,12 @@ INSERT INTO audit_log (
 			return 0, fmt.Errorf("audit BQ reconciliation patch for goat %s: %w", patch.GoatID, err)
 		}
 	}
+	closedConflicts, cleanedGoats, err := closeStaleLifecycleConflicts(ctx, tx, tenantID, currentConflictGoatIDs)
+	if err != nil {
+		return 0, err
+	}
+	summary.StaleConflictsClosed = closedConflicts
+	summary.IdentityCleanUpdates = cleanedGoats
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit BQ reconciliation: %w", err)
 	}
@@ -922,6 +963,191 @@ ON CONFLICT (conflict_id, goat_id) DO NOTHING`, conflictID, tenantID, patch.Goat
 		return false, fmt.Errorf("link BQ lifecycle conflict for goat %s: %w", patch.GoatID, err)
 	}
 	return true, nil
+}
+
+func countStaleLifecycleConflicts(ctx context.Context, pool *pgxpool.Pool, tenantID string, currentConflictGoatIDs map[string]struct{}) (int, int, error) {
+	staleGoatIDs, err := staleLifecycleConflictGoatIDs(ctx, pool, tenantID, currentConflictGoatIDs)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(staleGoatIDs) == 0 {
+		return 0, 0, nil
+	}
+	conflicts, err := countStaleLifecycleConflictRows(ctx, pool, tenantID, staleGoatIDs)
+	if err != nil {
+		return 0, 0, err
+	}
+	cleanable, err := countCleanableStaleLifecycleGoats(ctx, pool, tenantID, staleGoatIDs)
+	if err != nil {
+		return 0, 0, err
+	}
+	return conflicts, cleanable, nil
+}
+
+func staleLifecycleConflictGoatIDs(ctx context.Context, q queryer, tenantID string, currentConflictGoatIDs map[string]struct{}) ([]string, error) {
+	current := sortedIDSet(currentConflictGoatIDs)
+	rows, err := q.Query(ctx, `
+WITH current_conflict_goats AS (
+  SELECT unnest($2::uuid[]) AS goat_id
+)
+SELECT DISTINCT cg.goat_id::text
+FROM identity_conflicts c
+JOIN identity_conflict_goats cg
+  ON cg.tenant_id = c.tenant_id
+ AND cg.conflict_id = c.conflict_id
+WHERE c.tenant_id = $1::uuid
+  AND c.conflict_type = 'status_mismatch'
+  AND c.state IN ('open', 'needs_field_check', 'closed')
+  AND c.evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM current_conflict_goats ccg
+    WHERE ccg.goat_id = cg.goat_id
+  )`, tenantID, current)
+	if err != nil {
+		return nil, fmt.Errorf("find stale BQ lifecycle conflicts: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var goatID string
+		if err := rows.Scan(&goatID); err != nil {
+			return nil, fmt.Errorf("scan stale BQ lifecycle conflict goat: %w", err)
+		}
+		out = append(out, goatID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stale BQ lifecycle conflict goats: %w", err)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func closeStaleLifecycleConflicts(ctx context.Context, tx pgx.Tx, tenantID string, currentConflictGoatIDs map[string]struct{}) (int, int, error) {
+	staleGoatIDs, err := staleLifecycleConflictGoatIDs(ctx, tx, tenantID, currentConflictGoatIDs)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(staleGoatIDs) == 0 {
+		return 0, 0, nil
+	}
+
+	closed, err := closeStaleLifecycleConflictRows(ctx, tx, tenantID, staleGoatIDs)
+	if err != nil {
+		return 0, 0, err
+	}
+	cleaned, err := cleanStaleLifecycleGoats(ctx, tx, tenantID, staleGoatIDs)
+	if err != nil {
+		return 0, 0, err
+	}
+	return closed, cleaned, nil
+}
+
+func countStaleLifecycleConflictRows(ctx context.Context, q queryer, tenantID string, staleGoatIDs []string) (int, error) {
+	var count int
+	if err := q.QueryRow(ctx, staleLifecycleConflictRowsSQL("SELECT count(*)::int"), tenantID, staleGoatIDs).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count stale BQ lifecycle conflict rows: %w", err)
+	}
+	return count, nil
+}
+
+func closeStaleLifecycleConflictRows(ctx context.Context, tx pgx.Tx, tenantID string, staleGoatIDs []string) (int, error) {
+	tag, err := tx.Exec(ctx, `
+UPDATE identity_conflicts c
+SET state = 'closed',
+    resolved_at = now(),
+    row_version = row_version + 1
+FROM identity_conflict_goats cg
+JOIN unnest($2::uuid[]) AS stale(goat_id)
+  ON stale.goat_id = cg.goat_id
+WHERE c.tenant_id = $1::uuid
+  AND c.conflict_id = cg.conflict_id
+  AND cg.tenant_id = c.tenant_id
+  AND c.conflict_type = 'status_mismatch'
+  AND c.state IN ('open', 'needs_field_check')
+  AND c.evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'`, tenantID, staleGoatIDs)
+	if err != nil {
+		return 0, fmt.Errorf("close stale BQ lifecycle conflict rows: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+func countCleanableStaleLifecycleGoats(ctx context.Context, q queryer, tenantID string, staleGoatIDs []string) (int, error) {
+	var count int
+	if err := q.QueryRow(ctx, `
+SELECT count(*)::int
+FROM goats g
+JOIN unnest($2::uuid[]) AS stale(goat_id)
+  ON stale.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid
+  AND g.identity_state = 'needs_review'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM identity_conflict_goats cg
+    JOIN identity_conflicts c
+      ON c.tenant_id = cg.tenant_id
+     AND c.conflict_id = cg.conflict_id
+    WHERE cg.tenant_id = g.tenant_id
+      AND cg.goat_id = g.goat_id
+      AND c.state IN ('open', 'needs_field_check')
+      AND NOT (
+        c.conflict_type = 'status_mismatch'
+        AND c.evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'
+        AND cg.goat_id = ANY($2::uuid[])
+      )
+  )`, tenantID, staleGoatIDs).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count cleanable BQ lifecycle goats: %w", err)
+	}
+	return count, nil
+}
+
+func cleanStaleLifecycleGoats(ctx context.Context, tx pgx.Tx, tenantID string, staleGoatIDs []string) (int, error) {
+	tag, err := tx.Exec(ctx, `
+UPDATE goats g
+SET identity_state = 'clean',
+    row_version = row_version + 1,
+    updated_at = now()
+FROM unnest($2::uuid[]) AS stale(goat_id)
+WHERE g.tenant_id = $1::uuid
+  AND g.goat_id = stale.goat_id
+  AND g.identity_state = 'needs_review'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM identity_conflict_goats cg
+    JOIN identity_conflicts c
+      ON c.tenant_id = cg.tenant_id
+     AND c.conflict_id = cg.conflict_id
+    WHERE cg.tenant_id = g.tenant_id
+      AND cg.goat_id = g.goat_id
+      AND c.state IN ('open', 'needs_field_check')
+  )`, tenantID, staleGoatIDs)
+	if err != nil {
+		return 0, fmt.Errorf("clean stale BQ lifecycle goats: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+func staleLifecycleConflictRowsSQL(prefix string) string {
+	return prefix + `
+FROM identity_conflicts c
+JOIN identity_conflict_goats cg
+  ON cg.tenant_id = c.tenant_id
+ AND cg.conflict_id = c.conflict_id
+JOIN unnest($2::uuid[]) AS stale(goat_id)
+  ON stale.goat_id = cg.goat_id
+WHERE c.tenant_id = $1::uuid
+  AND c.conflict_type = 'status_mismatch'
+  AND c.state IN ('open', 'needs_field_check')
+  AND c.evidence->>'source_context' = 'bq_reconcile_identifier_lifecycle_conflict'`
+}
+
+func sortedIDSet(ids map[string]struct{}) []string {
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func identifierValueFromKey(key string) string {

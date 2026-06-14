@@ -114,17 +114,19 @@ Completed so far:
   park-scope identity rules.
 - Phase 1 local end-to-end proof has passed against the local backend and
   Mesha-style SSR admin-web. Current local DB has 1215 goat passports and 8
-  import-review rows from the RFID import run. A BQ reconciliation pass now runs through `backend/cmd/bq-reconcile`. The
-  current local DB has `tenant_lifecycle` counters `alive=1104`, `sold=76`,
-  and `dead=35`; BQ Shifting evidence without terminal Sale/Death is treated as
-  proof-of-life, so the previous inactive bucket is cleared. RFID lifecycle
-  evidence wins over reused/scoped old-tag lifecycle evidence; disagreements are
-  surfaced as Data Quality `status_mismatch` conflicts for operator review. A
-  follow-up BQ location pass seeded 154 CBE/CPT shed locations
-  and updated 860 deterministically matched goats to shed-level current
-  locations; 83 matched goats remain park-only because BQ had no safe shed, and
-  272 existing passports that cannot be joined to BQ by RFID or scoped old tag
-  remain unchanged pending identifier reconciliation.
+  import-review rows from the RFID import run. A BQ reconciliation pass now runs
+  through `backend/cmd/bq-reconcile`. The current local DB has
+  `tenant_lifecycle` counters `alive=1122`, `sold=68`, and `dead=25`; BQ
+  lifecycle is reduced by latest event per identifier, so Shifting or Purchase
+  after a Sale moves that identifier back to proof-of-life and the previous
+  inactive bucket is cleared. RFID evidence is evaluated separately from
+  reused/scoped old-tag evidence; current disagreements are surfaced as 40 Data
+  Quality `status_mismatch` conflicts for operator review. A follow-up BQ
+  location pass seeded 154 CBE/CPT shed locations and updated 860
+  deterministically matched goats to shed-level current locations; 83 matched
+  goats remain park-only because BQ had no safe shed, and 272 existing passports
+  that cannot be joined to BQ by RFID or scoped old tag remain unchanged pending
+  identifier reconciliation.
   Overview, herd
   search, goat passport with live identity timeline, identity counts, live
   Import Review, and live correction-request queue reads rendered against the
