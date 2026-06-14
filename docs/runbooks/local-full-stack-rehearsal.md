@@ -280,7 +280,9 @@ Then rebuild counters before trusting API/dashboard reads:
 RFID/scoped-old-tag matches for lifecycle and current location only; it does not
 create goats, add identifiers, or emit outbox events. BQ Shifting evidence
 without terminal Sale/Death is proof-of-life and should keep the goat `alive`.
-Sale and Death remain terminal lifecycle evidence. Unmatched local goats stay
+Death remains terminal. Sale is reversed only by a later Purchase; later
+Shifting/Birth after Sale or Death opens a Data Quality `status_mismatch`
+conflict instead of silently reviving the goat. Unmatched local goats stay
 untouched until identifier reconciliation/backfill work supplies stronger
 evidence.
 
@@ -323,10 +325,13 @@ created passports:
   import-review rows = 8
 
 tenant_lifecycle after counter rebuild:
-  alive = 1100
-  sold = 80
+  alive = 1109
+  sold = 71
   dead = 35
   inactive = 0
+
+Data Quality after BQ reconciliation:
+  status_mismatch conflicts = 54
 ```
 
 If these numbers differ on a fresh local database, stop and investigate before

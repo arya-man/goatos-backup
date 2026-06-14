@@ -89,76 +89,154 @@ func TestPlanUsesSeparateLatestLocationExport(t *testing.T) {
 }
 
 func TestPlanUsesLatestLifecycleEventPerIdentifier(t *testing.T) {
-	goat := LocalGoat{
-		GoatID:          "00000000-0000-4000-8000-000000000101",
-		LifecycleStatus: "alive",
-		Identifiers: []LocalIdentifier{
-			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
-		},
-	}
 	tests := []struct {
-		name   string
-		events []Event
-		want   string
+		name             string
+		startLifecycle   string
+		startIdentity    string
+		events           []Event
+		wantLifecycle    string
+		wantIdentity     string
+		wantConflict     bool
+		wantConflictCode string
 	}{
 		{
-			name:   "shifting only is alive",
-			events: []Event{{GoatID: "123456789012345", Event: "Shifting", Date: "2026-02-01"}},
-			want:   "alive",
+			name:           "shifting only is alive",
+			startLifecycle: "inactive",
+			startIdentity:  "clean",
+			events:         []Event{{GoatID: "123456789012345", Event: "Shifting", Date: "2026-02-01"}},
+			wantLifecycle:  "alive",
+			wantIdentity:   "clean",
 		},
 		{
-			name: "later sale beats earlier shifting",
+			name:           "later sale beats earlier shifting",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
 			events: []Event{
 				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-02-01"},
 				{GoatID: "123456789012345", Event: "Sale", Date: "2026-03-01"},
 			},
-			want: "sold",
+			wantLifecycle: "sold",
+			wantIdentity:  "clean",
 		},
 		{
-			name: "later shifting beats earlier sale",
+			name:           "sale followed only by shifting stays sold and needs review",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
 			events: []Event{
 				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
 				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-03-01"},
 			},
-			want: "alive",
+			wantLifecycle:    "sold",
+			wantIdentity:     "needs_review",
+			wantConflict:     true,
+			wantConflictCode: "sale_then_later_nonpurchase_activity",
 		},
 		{
-			name: "later purchase beats earlier sale",
+			name:           "later purchase reopens a sold goat",
+			startLifecycle: "sold",
+			startIdentity:  "clean",
 			events: []Event{
 				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
 				{GoatID: "123456789012345", Event: "Purchase", Date: "2026-03-01"},
 			},
-			want: "alive",
+			wantLifecycle: "alive",
+			wantIdentity:  "clean",
 		},
 		{
-			name: "later death beats earlier sale",
+			name:           "later death beats earlier sale",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
 			events: []Event{
 				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
 				{GoatID: "123456789012345", Event: "Death", Date: "2026-03-01"},
 			},
-			want: "dead",
+			wantLifecycle: "dead",
+			wantIdentity:  "clean",
 		},
 		{
-			name: "same day terminal tie breaker is stable",
+			name:           "death followed by shifting stays dead and needs review",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Death", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-03-01"},
+			},
+			wantLifecycle:    "dead",
+			wantIdentity:     "needs_review",
+			wantConflict:     true,
+			wantConflictCode: "death_then_later_activity",
+		},
+		{
+			name:           "birth after death stays dead and needs review",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Death", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Birth", Date: "2026-03-01"},
+			},
+			wantLifecycle:    "dead",
+			wantIdentity:     "needs_review",
+			wantConflict:     true,
+			wantConflictCode: "death_then_later_activity",
+		},
+		{
+			name:           "same day terminal tie breaker is stable",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
 			events: []Event{
 				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-02-01"},
 				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
 			},
-			want: "sold",
+			wantLifecycle: "sold",
+			wantIdentity:  "clean",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			local := goat
-			if tt.want == "alive" {
-				local.LifecycleStatus = "inactive"
+			local := LocalGoat{
+				GoatID:          "00000000-0000-4000-8000-000000000101",
+				LifecycleStatus: tt.startLifecycle,
+				IdentityState:   tt.startIdentity,
+				Identifiers: []LocalIdentifier{
+					{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+				},
 			}
 			summary, _ := Plan(tt.events, []LocalGoat{local}, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
-			if summary.LifecycleUpdates[tt.want] != 1 {
-				t.Fatalf("lifecycle updates=%#v want one %s update", summary.LifecycleUpdates, tt.want)
+			if summary.LifecycleUpdates[tt.wantLifecycle] != 1 {
+				t.Fatalf("lifecycle updates=%#v want one %s update", summary.LifecycleUpdates, tt.wantLifecycle)
+			}
+			if got := summary.LifecycleConflicts; got != boolToInt(tt.wantConflict) {
+				t.Fatalf("lifecycle conflicts=%d want %d", got, boolToInt(tt.wantConflict))
+			}
+			if got := summary.IdentityReviewUpdates; got != boolToInt(tt.wantIdentity == "needs_review") {
+				t.Fatalf("identity review updates=%d want %d", got, boolToInt(tt.wantIdentity == "needs_review"))
+			}
+			_, patches := Plan(tt.events, []LocalGoat{local}, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+			if len(patches) != 1 {
+				t.Fatalf("patches=%d want 1", len(patches))
+			}
+			if patches[0].AfterLifecycle != tt.wantLifecycle || patches[0].AfterIdentity != tt.wantIdentity {
+				t.Fatalf("patch=%#v want lifecycle=%s identity=%s", patches[0], tt.wantLifecycle, tt.wantIdentity)
+			}
+			if tt.wantConflict {
+				if patches[0].Conflict == nil {
+					t.Fatalf("expected conflict patch: %#v", patches[0])
+				}
+				if patches[0].Conflict.Reason != tt.wantConflictCode {
+					t.Fatalf("conflict reason=%q want %q", patches[0].Conflict.Reason, tt.wantConflictCode)
+				}
+			} else if patches[0].Conflict != nil {
+				t.Fatalf("unexpected conflict patch: %#v", patches[0])
 			}
 		})
 	}
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func TestPlanRFIDEvidenceWinsAndFlagsOldTagLifecycleConflict(t *testing.T) {

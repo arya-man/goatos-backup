@@ -456,12 +456,13 @@ Rules:
   park-only because BQ had no safe shed, and leaves 272 unmatched goats
   untouched. The correction is now replayable through
   `backend/cmd/bq-reconcile`, not a one-off local DB patch. BQ Shifting
-  evidence without terminal Sale/Death is proof-of-life,
-  and BQ lifecycle is reduced by latest event per identifier so later Shifting
-  or Purchase can override older Sale on that same identifier. After counter
-  rebuild, tenant_lifecycle is alive 1122, sold 68, dead 25, inactive 0;
-  40 RFID-vs-old-tag lifecycle disagreements are open Data Quality
-  `status_mismatch` conflicts; shed_lifecycle has 126 rows with 860 goats in specific shed buckets and 355
+  evidence without terminal Sale/Death is proof-of-life, but Shifting/Birth after
+  terminal evidence does not resurrect the goat. Death remains terminal; Sale is
+  reversed only by a later Purchase; terminal-after-activity and RFID-vs-old-tag
+  lifecycle disagreements open Data Quality `status_mismatch` conflicts. After
+  counter rebuild, tenant_lifecycle is alive 1109, sold 71, dead 35, inactive 0;
+  54 lifecycle disagreements are open Data Quality `status_mismatch` conflicts;
+  shed_lifecycle has 133 rows with 860 goats in specific shed buckets and 355
   no-shed bucket counts. The local SSR proof rendered real
   herd rows, a real goat passport with live timeline, and live Import Review
   summary/rows through admin-web; reruns after 000015 and BQ reconciliation

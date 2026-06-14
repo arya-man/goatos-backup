@@ -116,11 +116,13 @@ Completed so far:
   Mesha-style SSR admin-web. Current local DB has 1215 goat passports and 8
   import-review rows from the RFID import run. A BQ reconciliation pass now runs
   through `backend/cmd/bq-reconcile`. The current local DB has
-  `tenant_lifecycle` counters `alive=1122`, `sold=68`, and `dead=25`; BQ
-  lifecycle is reduced by latest event per identifier, so Shifting or Purchase
-  after a Sale moves that identifier back to proof-of-life and the previous
-  inactive bucket is cleared. RFID evidence is evaluated separately from
-  reused/scoped old-tag evidence; current disagreements are surfaced as 40 Data
+  `tenant_lifecycle` counters `alive=1109`, `sold=71`, and `dead=35`; BQ
+  lifecycle is reduced conservatively per identifier. Shifting evidence without
+  terminal Sale/Death is proof-of-life, Death is sticky, Sale is reversed only
+  by a later Purchase, and later Shifting/Birth after a terminal event opens a
+  review conflict instead of silently reviving the goat. RFID evidence is
+  evaluated separately from reused/scoped old-tag evidence; current
+  disagreements and terminal-after-activity cases are surfaced as 54 Data
   Quality `status_mismatch` conflicts for operator review. A follow-up BQ
   location pass seeded 154 CBE/CPT shed locations and updated 860
   deterministically matched goats to shed-level current locations; 83 matched

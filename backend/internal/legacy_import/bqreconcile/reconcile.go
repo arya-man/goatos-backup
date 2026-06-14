@@ -136,14 +136,39 @@ type lifecycleEvidence struct {
 	lifecycle string
 	eventDate string
 	eventRank int
+	events    []lifecycleEvent
+}
+
+type lifecycleEvent struct {
+	lifecycle string
+	eventType string
+	date      string
+	rank      int
+}
+
+type identifierLifecycleConflict struct {
+	Reason            string
+	TerminalLifecycle string
+	TerminalEventDate string
+	LaterLifecycle    string
+	LaterEventDate    string
+	IdentifierKind    string
+	IdentifierKey     string
 }
 
 type lifecycleConflict struct {
-	RFIDLifecycle    string
-	OldTagLifecycle  string
-	RFIDKey          string
-	OldTagKey        string
-	RecommendedState string
+	RFIDLifecycle     string
+	OldTagLifecycle   string
+	RFIDKey           string
+	OldTagKey         string
+	Reason            string
+	IdentifierKind    string
+	IdentifierKey     string
+	TerminalLifecycle string
+	TerminalEventDate string
+	LaterLifecycle    string
+	LaterEventDate    string
+	RecommendedState  string
 }
 
 type queryer interface {
@@ -418,7 +443,14 @@ func applyLifecycleEvent(evidence *lifecycleEvidence, event Event) {
 	if lifecycle == "" {
 		return
 	}
+	eventType := canonicalEventType(event.Event)
 	eventDate := strings.TrimSpace(event.Date)
+	evidence.events = append(evidence.events, lifecycleEvent{
+		lifecycle: lifecycle,
+		eventType: eventType,
+		date:      eventDate,
+		rank:      rank,
+	})
 	if evidence.lifecycle == "" ||
 		lifecycleEventAfter(eventDate, rank, evidence.eventDate, evidence.eventRank) {
 		evidence.lifecycle = lifecycle
@@ -458,28 +490,146 @@ func lifecycleEventAfter(candidateDate string, candidateRank int, currentDate st
 }
 
 func targetLifecycle(evidence *goatEvidence) (string, *lifecycleConflict) {
-	rfidLifecycle := targetLifecycleForEvidence(evidence.rfid)
-	oldTagLifecycle := targetLifecycleForEvidence(evidence.oldTag)
+	rfidLifecycle, rfidConflict := targetLifecycleForEvidence(evidence.rfid, "rfid", firstKeyWithPrefix(evidence.keys, "rfid:"))
+	oldTagLifecycle, oldTagConflict := targetLifecycleForEvidence(evidence.oldTag, "old_tag", firstKeyWithPrefix(evidence.keys, "old_tag:"))
 	if rfidLifecycle != "" {
+		if rfidConflict != nil {
+			return rfidLifecycle, lifecycleConflictFromIdentifier(rfidLifecycle, oldTagLifecycle, evidence.keys, rfidConflict)
+		}
+		if oldTagConflict != nil {
+			return rfidLifecycle, lifecycleConflictFromIdentifier(rfidLifecycle, oldTagLifecycle, evidence.keys, oldTagConflict)
+		}
 		if oldTagLifecycle != "" && oldTagLifecycle != rfidLifecycle {
 			return rfidLifecycle, &lifecycleConflict{
 				RFIDLifecycle:    rfidLifecycle,
 				OldTagLifecycle:  oldTagLifecycle,
 				RFIDKey:          firstKeyWithPrefix(evidence.keys, "rfid:"),
 				OldTagKey:        firstKeyWithPrefix(evidence.keys, "old_tag:"),
+				Reason:           "identifier_lifecycle_disagreement",
 				RecommendedState: "RFID evidence wins lifecycle; review reused/manual old-tag evidence before changing identifiers.",
 			}
 		}
 		return rfidLifecycle, nil
 	}
 	if oldTagLifecycle != "" {
+		if oldTagConflict != nil {
+			return oldTagLifecycle, lifecycleConflictFromIdentifier(rfidLifecycle, oldTagLifecycle, evidence.keys, oldTagConflict)
+		}
 		return oldTagLifecycle, nil
 	}
-	return targetLifecycleForEvidence(evidence.all), nil
+	allLifecycle, allConflict := targetLifecycleForEvidence(evidence.all, "matched_identifier", firstKeyWithPrefix(evidence.keys, ""))
+	if allConflict != nil {
+		return allLifecycle, lifecycleConflictFromIdentifier(rfidLifecycle, oldTagLifecycle, evidence.keys, allConflict)
+	}
+	return allLifecycle, nil
 }
 
-func targetLifecycleForEvidence(evidence lifecycleEvidence) string {
-	return evidence.lifecycle
+func targetLifecycleForEvidence(evidence lifecycleEvidence, identifierKind, identifierKey string) (string, *identifierLifecycleConflict) {
+	death := latestLifecycleEvent(evidence.events, eventTypeDeath)
+	if death != nil {
+		if later := latestLifecycleEventAfter(evidence.events, death.date, eventTypeBirth, eventTypePurchase, eventTypeSale, eventTypeShifting); later != nil {
+			return "dead", &identifierLifecycleConflict{
+				Reason:            "death_then_later_activity",
+				TerminalLifecycle: "dead",
+				TerminalEventDate: death.date,
+				LaterLifecycle:    later.lifecycle,
+				LaterEventDate:    later.date,
+				IdentifierKind:    identifierKind,
+				IdentifierKey:     identifierKey,
+			}
+		}
+		return "dead", nil
+	}
+	sale := latestLifecycleEvent(evidence.events, eventTypeSale)
+	if sale != nil {
+		if purchase := latestLifecycleEventAfter(evidence.events, sale.date, eventTypePurchase); purchase != nil {
+			return "alive", nil
+		}
+		if later := latestLifecycleEventAfter(evidence.events, sale.date, eventTypeBirth, eventTypeShifting); later != nil {
+			return "sold", &identifierLifecycleConflict{
+				Reason:            "sale_then_later_nonpurchase_activity",
+				TerminalLifecycle: "sold",
+				TerminalEventDate: sale.date,
+				LaterLifecycle:    later.lifecycle,
+				LaterEventDate:    later.date,
+				IdentifierKind:    identifierKind,
+				IdentifierKey:     identifierKey,
+			}
+		}
+		return "sold", nil
+	}
+	if alive := latestLifecycleEvent(evidence.events, eventTypeBirth, eventTypePurchase, eventTypeShifting); alive != nil {
+		return "alive", nil
+	}
+	return evidence.lifecycle, nil
+}
+
+func latestLifecycleEvent(events []lifecycleEvent, eventTypes ...string) *lifecycleEvent {
+	wanted := map[string]struct{}{}
+	for _, eventType := range eventTypes {
+		wanted[eventType] = struct{}{}
+	}
+	var out *lifecycleEvent
+	for i := range events {
+		event := events[i]
+		if _, ok := wanted[event.eventType]; !ok {
+			continue
+		}
+		if out == nil || lifecycleEventAfter(event.date, event.rank, out.date, out.rank) {
+			out = &events[i]
+		}
+	}
+	return out
+}
+
+func latestLifecycleEventAfter(events []lifecycleEvent, afterDate string, eventTypes ...string) *lifecycleEvent {
+	if strings.TrimSpace(afterDate) == "" {
+		return nil
+	}
+	wanted := map[string]struct{}{}
+	for _, eventType := range eventTypes {
+		wanted[eventType] = struct{}{}
+	}
+	var out *lifecycleEvent
+	for i := range events {
+		event := events[i]
+		if _, ok := wanted[event.eventType]; !ok {
+			continue
+		}
+		if strings.TrimSpace(event.date) <= afterDate {
+			continue
+		}
+		if out == nil || lifecycleEventAfter(event.date, event.rank, out.date, out.rank) {
+			out = &events[i]
+		}
+	}
+	return out
+}
+
+func lifecycleConflictFromIdentifier(rfidLifecycle, oldTagLifecycle string, keys map[string]struct{}, conflict *identifierLifecycleConflict) *lifecycleConflict {
+	if conflict == nil {
+		return nil
+	}
+	recommended := "BQ lifecycle evidence conflicts inside one identifier stream; keep the terminal state and review possible tag/chip reuse before marking the goat clean."
+	if conflict.IdentifierKind == "rfid" {
+		recommended = "RFID lifecycle evidence has terminal-plus-later activity; keep the conservative lifecycle and review possible chip reuse before marking the goat clean."
+	} else if conflict.IdentifierKind == "old_tag" {
+		recommended = "Old-tag lifecycle evidence has terminal-plus-later activity; keep the conservative lifecycle and review reused/manual old-tag evidence before changing identifiers."
+	}
+	return &lifecycleConflict{
+		RFIDLifecycle:     rfidLifecycle,
+		OldTagLifecycle:   oldTagLifecycle,
+		RFIDKey:           firstKeyWithPrefix(keys, "rfid:"),
+		OldTagKey:         firstKeyWithPrefix(keys, "old_tag:"),
+		Reason:            conflict.Reason,
+		IdentifierKind:    conflict.IdentifierKind,
+		IdentifierKey:     conflict.IdentifierKey,
+		TerminalLifecycle: conflict.TerminalLifecycle,
+		TerminalEventDate: conflict.TerminalEventDate,
+		LaterLifecycle:    conflict.LaterLifecycle,
+		LaterEventDate:    conflict.LaterEventDate,
+		RecommendedState:  recommended,
+	}
 }
 
 func firstKeyWithPrefix(keys map[string]struct{}, prefix string) string {
@@ -881,7 +1031,7 @@ INSERT INTO audit_log (
 			return 0, fmt.Errorf("audit BQ reconciliation patch for goat %s: %w", patch.GoatID, err)
 		}
 	}
-	closedConflicts, cleanedGoats, err := closeStaleLifecycleConflicts(ctx, tx, tenantID, currentConflictGoatIDs)
+	closedConflicts, cleanedGoats, err := closeStaleLifecycleConflicts(ctx, tx, tenantID, traceID, currentConflictGoatIDs)
 	if err != nil {
 		return 0, err
 	}
@@ -898,17 +1048,24 @@ func ensureLifecycleConflict(ctx context.Context, tx pgx.Tx, tenantID string, pa
 		return false, nil
 	}
 	evidence := map[string]any{
-		"source_context":     "bq_reconcile_identifier_lifecycle_conflict",
-		"source_system":      "legacy_bigquery",
-		"review_note":        patch.Conflict.RecommendedState,
-		"rfid_lifecycle":     patch.Conflict.RFIDLifecycle,
-		"old_tag_lifecycle":  patch.Conflict.OldTagLifecycle,
-		"rfid_key":           patch.Conflict.RFIDKey,
-		"old_tag_key":        patch.Conflict.OldTagKey,
-		"matched_keys":       patch.MatchedKeys,
-		"latest_event_date":  patch.LatestEventDate,
-		"latest_farm_code":   patch.LatestFarmCode,
-		"latest_destination": patch.LatestShed,
+		"source_context":      "bq_reconcile_identifier_lifecycle_conflict",
+		"source_system":       "legacy_bigquery",
+		"review_note":         patch.Conflict.RecommendedState,
+		"reason":              patch.Conflict.Reason,
+		"identifier_kind":     patch.Conflict.IdentifierKind,
+		"identifier_key":      patch.Conflict.IdentifierKey,
+		"terminal_lifecycle":  patch.Conflict.TerminalLifecycle,
+		"terminal_event_date": patch.Conflict.TerminalEventDate,
+		"later_lifecycle":     patch.Conflict.LaterLifecycle,
+		"later_event_date":    patch.Conflict.LaterEventDate,
+		"rfid_lifecycle":      patch.Conflict.RFIDLifecycle,
+		"old_tag_lifecycle":   patch.Conflict.OldTagLifecycle,
+		"rfid_key":            patch.Conflict.RFIDKey,
+		"old_tag_key":         patch.Conflict.OldTagKey,
+		"matched_keys":        patch.MatchedKeys,
+		"latest_event_date":   patch.LatestEventDate,
+		"latest_farm_code":    patch.LatestFarmCode,
+		"latest_destination":  patch.LatestShed,
 	}
 	evidenceJSON, _ := json.Marshal(evidence)
 	var conflictID string
@@ -1023,7 +1180,7 @@ WHERE c.tenant_id = $1::uuid
 	return out, nil
 }
 
-func closeStaleLifecycleConflicts(ctx context.Context, tx pgx.Tx, tenantID string, currentConflictGoatIDs map[string]struct{}) (int, int, error) {
+func closeStaleLifecycleConflicts(ctx context.Context, tx pgx.Tx, tenantID, traceID string, currentConflictGoatIDs map[string]struct{}) (int, int, error) {
 	staleGoatIDs, err := staleLifecycleConflictGoatIDs(ctx, tx, tenantID, currentConflictGoatIDs)
 	if err != nil {
 		return 0, 0, err
@@ -1036,7 +1193,7 @@ func closeStaleLifecycleConflicts(ctx context.Context, tx pgx.Tx, tenantID strin
 	if err != nil {
 		return 0, 0, err
 	}
-	cleaned, err := cleanStaleLifecycleGoats(ctx, tx, tenantID, staleGoatIDs)
+	cleaned, err := cleanStaleLifecycleGoats(ctx, tx, tenantID, traceID, staleGoatIDs)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -1101,8 +1258,10 @@ WHERE g.tenant_id = $1::uuid
 	return count, nil
 }
 
-func cleanStaleLifecycleGoats(ctx context.Context, tx pgx.Tx, tenantID string, staleGoatIDs []string) (int, error) {
-	tag, err := tx.Exec(ctx, `
+func cleanStaleLifecycleGoats(ctx context.Context, tx pgx.Tx, tenantID, traceID string, staleGoatIDs []string) (int, error) {
+	var count int
+	err := tx.QueryRow(ctx, `
+WITH cleaned AS (
 UPDATE goats g
 SET identity_state = 'clean',
     row_version = row_version + 1,
@@ -1120,11 +1279,43 @@ WHERE g.tenant_id = $1::uuid
     WHERE cg.tenant_id = g.tenant_id
       AND cg.goat_id = g.goat_id
       AND c.state IN ('open', 'needs_field_check')
-  )`, tenantID, staleGoatIDs)
+  )
+  RETURNING g.goat_id
+),
+audited AS (
+  INSERT INTO audit_log (
+    tenant_id,
+    actor_type,
+    action,
+    resource_type,
+    resource_id,
+    before_state,
+    after_state,
+    metadata,
+    trace_id
+  )
+  SELECT
+    $1::uuid,
+    'system',
+    'goat.bq_lifecycle_conflict_cleaned',
+    'goat',
+    goat_id,
+    jsonb_build_object('identity_state', 'needs_review'),
+    jsonb_build_object('identity_state', 'clean'),
+    jsonb_build_object(
+      'source_system', 'legacy_bigquery',
+      'source_context', 'bq_reconcile_stale_lifecycle_conflict_cleanup',
+      'closed_conflict_source_context', 'bq_reconcile_identifier_lifecycle_conflict'
+    ),
+    $3
+  FROM cleaned
+  RETURNING 1
+)
+SELECT count(*)::int FROM audited`, tenantID, staleGoatIDs, traceID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("clean stale BQ lifecycle goats: %w", err)
 	}
-	return int(tag.RowsAffected()), nil
+	return count, nil
 }
 
 func staleLifecycleConflictRowsSQL(prefix string) string {
