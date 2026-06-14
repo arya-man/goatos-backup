@@ -101,7 +101,9 @@ Rules:
   `import.run.manage`; import run reads use `import.run.view`. HS256 is a
   bootstrap verifier only; production IdP/JWKS/asymmetric verification remains
   deferred.
-- GET `/admin/import-runs/{import_run_id}` and
+- GET `/admin/import-runs` lists recent tenant-scoped import runs, bounded to
+  limit <=50, so admin-web can open the latest run without asking operators to
+  memorize UUIDs. GET `/admin/import-runs/{import_run_id}` and
   `/admin/import-runs/{import_run_id}/rows` are live read-only Phase 1 Import
   Review APIs. They are tenant/run scoped, keyset-paginated for rows, enforce a
   max row limit of 500, support `processing_state` and `reason_code` filters,
@@ -366,7 +368,12 @@ Rules:
   `rebuild-identity-counters` afterward. When `--import-run-id` is supplied, it
   may fill sole-reason `blank_gender` staging rows from deterministic BQ RFID
   evidence and requeue them for the normal `rfid-apply` path. It does not create
-  goats directly, add identifiers, or emit outbox events. The RFID
+  goats directly, add identifiers, or emit outbox events.
+  `--backfill-missing` flag is intentionally blocked until an accessible
+  per-goat current identity export exists. The legacy dashboard aggregate table
+  can prove count gaps but cannot create passports, and event/location exports
+  are valid only for reconciling existing matched passports.
+  The RFID
   workbook parser/normalizer is retained as a legacy parser/regression harness
   and accepts the Shape-2 source headers:
   `Farm`, `Old ID`, `Old ID Suffix`, `RFID`, `Age`, `Gender`, `Breed`, `Tag`,
@@ -476,9 +483,9 @@ Rules:
   but keeps nonblank passport sex/breed unchanged when BQ disagrees and opens
   review conflicts instead of hiding contradictions. After counter rebuild,
   tenant_lifecycle is alive 1113, sold 71, dead 35, inactive 0; identity_state is
-  1094 clean and 125 needs_review. 54 lifecycle disagreements are open Data
-  Quality `status_mismatch` conflicts, plus 79 open BQ attribute review conflict
-  rows covering 80 occurrences: 59 sex and 21 breed. Current locations are 891
+  1088 clean and 131 needs_review. 54 lifecycle disagreements are open Data
+  Quality `status_mismatch` conflicts, plus 106 open BQ attribute review conflict
+  rows covering 108 occurrences: 73 sex and 35 breed. Current locations are 891
   shed-level, 56 park-only, and 272 with no current location. The local SSR proof rendered real
   herd rows, a real goat passport with live timeline, and live Import Review
   summary/rows through admin-web; reruns after 000015 and BQ reconciliation

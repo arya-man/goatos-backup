@@ -71,7 +71,7 @@ export function AppSidebar() {
   const sidebarContent = (
     <aside
       className={`flex h-full flex-col overflow-y-auto sidebar-scroll border-r border-[#334155] bg-[#1A1D24] py-4 transition-all duration-200 ${
-        expanded ? "w-[180px] px-3" : "w-[68px] items-center"
+        expanded ? "w-[220px] px-3" : "w-[68px] items-center"
       }`}
     >
       <div className={`flex items-center ${expanded ? "mb-6 justify-between" : "mb-3 justify-center"}`}>

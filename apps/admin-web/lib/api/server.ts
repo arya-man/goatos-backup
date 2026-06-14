@@ -35,6 +35,7 @@ export type CandidateListResponse = AdminApiComponents["schemas"]["CandidateList
 export type ReviewCandidateRequestBody = AdminApiComponents["schemas"]["ReviewCandidateRequest"];
 export type CandidateDecisionResponse = AdminApiComponents["schemas"]["CandidateDecisionResponse"];
 export type ImportRunResponse = AdminApiComponents["schemas"]["ImportRunResponse"];
+export type ImportRunListResponse = AdminApiComponents["schemas"]["ImportRunListResponse"];
 export type ImportRunRow = AdminApiComponents["schemas"]["ImportRunRow"];
 export type ImportRunRowsResponse = AdminApiComponents["schemas"]["ImportRunRowsResponse"];
 export type AdminCorrectionRequestListResponse = AdminApiComponents["schemas"]["CorrectionRequestListResponse"];
@@ -122,6 +123,10 @@ export type ImportRunRowsParams = {
   cursor?: string;
   processing_state?: ImportRowState;
   reason_code?: string;
+};
+
+export type ImportRunsParams = {
+  limit: number;
 };
 
 export type CorrectionRequestSearchParams = {
@@ -361,6 +366,21 @@ export async function getImportRun(importRunId: string): Promise<ApiResult<Impor
   });
   const path = `/admin/import-runs/${encodeURIComponent(importRunId)}` as keyof AdminApiPaths & string;
   return request(() => client.request<ImportRunResponse>(path, { cache: "no-store" }));
+}
+
+export async function listImportRuns(params: ImportRunsParams): Promise<ApiResult<ImportRunListResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<ImportRunListResponse>("/admin/import-runs", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit }),
+    }),
+  );
 }
 
 export async function listImportRunRows(params: ImportRunRowsParams): Promise<ApiResult<ImportRunRowsResponse>> {

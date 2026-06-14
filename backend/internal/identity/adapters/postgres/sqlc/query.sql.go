@@ -873,3 +873,88 @@ func (q *Queries) ListImportRunRows(ctx context.Context, arg ListImportRunRowsPa
 	}
 	return items, nil
 }
+
+const listImportRuns = `-- name: ListImportRuns :many
+SELECT
+  r.import_run_id::text AS import_run_id,
+  r.source_system,
+  r.source_dataset,
+  r.policy_version,
+  r.status,
+  r.dry_run,
+  r.row_count,
+  r.created_goat_count,
+  r.updated_goat_count,
+  r.conflict_count,
+  r.error_count,
+  COALESCE((
+    SELECT count(*)::int
+    FROM legacy_import_rows row
+    WHERE row.tenant_id = r.tenant_id
+      AND row.import_run_id = r.import_run_id
+      AND row.processing_state = 'needs_review'
+  ), 0)::int AS rows_needing_review,
+  r.started_at,
+  r.completed_at
+FROM legacy_import_runs r
+WHERE r.tenant_id = $1
+ORDER BY r.started_at DESC, r.import_run_id DESC
+LIMIT $2
+`
+
+type ListImportRunsParams struct {
+	TenantID   pgtype.UUID
+	LimitCount int32
+}
+
+type ListImportRunsRow struct {
+	ImportRunID       string
+	SourceSystem      string
+	SourceDataset     string
+	PolicyVersion     string
+	Status            string
+	DryRun            bool
+	RowCount          int32
+	CreatedGoatCount  int32
+	UpdatedGoatCount  int32
+	ConflictCount     int32
+	ErrorCount        int32
+	RowsNeedingReview int32
+	StartedAt         pgtype.Timestamptz
+	CompletedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) ListImportRuns(ctx context.Context, arg ListImportRunsParams) ([]ListImportRunsRow, error) {
+	rows, err := q.db.Query(ctx, listImportRuns, arg.TenantID, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListImportRunsRow
+	for rows.Next() {
+		var i ListImportRunsRow
+		if err := rows.Scan(
+			&i.ImportRunID,
+			&i.SourceSystem,
+			&i.SourceDataset,
+			&i.PolicyVersion,
+			&i.Status,
+			&i.DryRun,
+			&i.RowCount,
+			&i.CreatedGoatCount,
+			&i.UpdatedGoatCount,
+			&i.ConflictCount,
+			&i.ErrorCount,
+			&i.RowsNeedingReview,
+			&i.StartedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

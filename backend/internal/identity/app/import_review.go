@@ -10,6 +10,7 @@ import (
 )
 
 const maxImportRunRowsLimit = 500
+const maxImportRunsLimit = 50
 
 var reasonCodePattern = regexp.MustCompile(`^[a-z0-9_:-]{1,200}$`)
 
@@ -26,6 +27,23 @@ func (s *Service) GetImportRun(ctx context.Context, tenantID, importRunID, trace
 		return nil, mapRepoErr(err)
 	}
 	return &domain.ImportRunResponse{ImportRun: *run, TraceID: traceID}, nil
+}
+
+func (s *Service) ListImportRuns(ctx context.Context, params ports.ListImportRunsParams, traceID string) (*domain.ImportRunListResponse, error) {
+	if err := requireTenant(params.TenantID); err != nil {
+		return nil, err
+	}
+	if params.Limit < 1 || params.Limit > maxImportRunsLimit {
+		return nil, BadRequest("invalid_limit", "limit must be between 1 and 50")
+	}
+	items, err := s.repo.ListImportRuns(ctx, params)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if items == nil {
+		items = []domain.ImportRun{}
+	}
+	return &domain.ImportRunListResponse{Items: items, TraceID: traceID}, nil
 }
 
 func (s *Service) ListImportRunRows(ctx context.Context, params ports.ListImportRunRowsParams, traceID string) (*domain.ImportRunRowsResponse, error) {

@@ -182,6 +182,41 @@ func TestGetGoatTimelineContractShape(t *testing.T) {
 	}
 }
 
+func TestListImportRunsContractShapeAndLimit(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/import-runs?limit=10", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-import-runs")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.ImportRunListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].ImportRunID == "" {
+		t.Fatalf("unexpected import run list response: %#v", response)
+	}
+	if response.TraceID != "req-import-runs" {
+		t.Fatalf("unexpected trace id: %s", response.TraceID)
+	}
+
+	badReq := httptest.NewRequest(http.MethodGet, "/admin/import-runs?limit=51", nil)
+	badReq.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	badRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("bad status = %d body=%s", badRec.Code, badRec.Body.String())
+	}
+}
+
 func TestListCorrectionRequestsContractShapeAndLimit(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
@@ -1061,6 +1096,10 @@ func (handlerRepo) ListCandidates(context.Context, ports.ListCandidatesParams) (
 
 func (handlerRepo) GetImportRun(context.Context, string, string) (*domain.ImportRun, error) {
 	return importRunResponseFixture("30000000-0000-4000-8000-000000000001"), nil
+}
+
+func (handlerRepo) ListImportRuns(context.Context, ports.ListImportRunsParams) ([]domain.ImportRun, error) {
+	return []domain.ImportRun{*importRunResponseFixture("30000000-0000-4000-8000-000000000001")}, nil
 }
 
 func (handlerRepo) ListImportRunRows(_ context.Context, params ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {

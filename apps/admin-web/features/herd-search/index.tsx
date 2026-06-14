@@ -108,7 +108,10 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
                     {result.data.items.map((goat) => (
                       <TableRow key={goat.goat_id} className="border-[#293241] hover:bg-[#121923]">
                         <TableCell className="px-4 py-3">
-                          <Link href={`/goats/${goat.goat_id}`} className="font-semibold text-white hover:text-[#14f1d9]">
+                          <Link
+                            href={`/goats/${goat.goat_id}`}
+                            className="-my-2 inline-flex min-h-10 items-center font-semibold text-white hover:text-[#14f1d9]"
+                          >
                             {goat.display_id}
                           </Link>
                         </TableCell>

@@ -1,9 +1,9 @@
-import { AlertTriangle, Download, FileWarning } from "lucide-react";
+import { AlertTriangle, Download, FileWarning, History } from "lucide-react";
 import { redirect } from "next/navigation";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, StatPill, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
-import { firstAuthRequiredError, getImportRun, listImportRunRows, type ImportRowState } from "@/lib/api/server";
+import { firstAuthRequiredError, getImportRun, listImportRunRows, listImportRuns, type ImportRowState } from "@/lib/api/server";
 
 const rowStates: ImportRowState[] = ["pending", "auto_linked", "created_goat", "needs_review", "error"];
 const reasonOptions = [
@@ -23,31 +23,77 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
   const reasonCode = normalizeReason(one(searchParams, "reason_code"));
 
   if (!importRunId) {
+    const runs = await listImportRuns({ limit: 10 });
+    const authError = firstAuthRequiredError(runs);
+    if (authError) {
+      redirect("/login");
+    }
     return (
       <>
         <PageHeader
           eyebrow="Import Review"
           title="RFID Import Review"
-          description="Live import rows appear when an import run id is provided."
+          description="Open a recent import run to review staged rows and messy-data reasons."
         />
-        <Panel title="Select import run">
-          <form className="grid gap-3 md:grid-cols-[1fr_auto]" action="/import-review">
-            <label>
-              <span className="text-xs uppercase text-[#93a4b8]">import_run_id</span>
-              <input
-                name="import_run_id"
-                placeholder="00000000-0000-4000-8000-000000000000"
-                className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 font-mono text-sm text-white outline-none focus:border-[#14f1d9]"
-              />
-            </label>
-            <div className="flex items-end">
-              <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Open</button>
-            </div>
-          </form>
-          <div className="mt-4">
-            <EmptyPanel message="Select or provide an import run id to load live review rows." />
-          </div>
-        </Panel>
+        <div className="space-y-5">
+          <Panel title="Recent import runs" description="Use the latest completed run; the full UUID is shown only as a secondary reference.">
+            {!runs.ok ? (
+              <ErrorPanel error={runs.error} />
+            ) : runs.data.items.length === 0 ? (
+              <EmptyPanel message="No import runs are available for this tenant yet." />
+            ) : (
+              <div className="grid gap-3 lg:grid-cols-2">
+                {runs.data.items.map((run, index) => (
+                  <a
+                    key={run.import_run_id}
+                    href={`/import-review?import_run_id=${encodeURIComponent(run.import_run_id)}`}
+                    className="block rounded-md border border-[#334155] bg-[#10141b] p-4 transition hover:border-[#14f1d9] hover:bg-[#151b22]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                          <History className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
+                          {index === 0 ? "Latest run" : `Run ${index + 1}`}
+                          <span className="rounded border border-[#334155] px-2 py-0.5 text-xs font-medium text-[#93a4b8]">
+                            {run.status}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm text-[#c7d1dc]">
+                          {run.source_system} · {run.source_dataset}
+                        </div>
+                        <div className="mt-1 text-xs text-[#93a4b8]">
+                          Started {dateTime(run.created_at)} · run {shortId(run.import_run_id)}
+                        </div>
+                      </div>
+                      <span className="rounded-md bg-[#14f1d9] px-3 py-2 text-sm font-semibold text-[#081015]">Open</span>
+                    </div>
+                    <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+                      <MiniStat label="goats" value={run.summary.goats_created} tone="good" />
+                      <MiniStat label="review" value={run.summary.rows_needing_review} tone="warn" />
+                      <MiniStat label="errors" value={run.summary.error_count} />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Open by run id" description="Use this only when you need a specific older run that is not in the recent list.">
+            <form className="grid gap-3 md:grid-cols-[1fr_auto]" action="/import-review">
+              <label>
+                <span className="text-xs uppercase text-[#93a4b8]">import run id</span>
+                <input
+                  name="import_run_id"
+                  placeholder="paste older run UUID"
+                  className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 font-mono text-sm text-white outline-none focus:border-[#14f1d9]"
+                />
+              </label>
+              <div className="flex items-end">
+                <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Open</button>
+              </div>
+            </form>
+          </Panel>
+        </div>
       </>
     );
   }
@@ -101,7 +147,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
             <div className="mt-4">
               <ValueList
                 values={[
-                  ["import run", <Mono key="run">{summary.data.import_run.import_run_id}</Mono>],
+                  ["import run", <span key="run">Run {shortId(summary.data.import_run.import_run_id)} · <Mono>{summary.data.import_run.import_run_id}</Mono></span>],
                   ["status", summary.data.import_run.status],
                   ["source", `${summary.data.import_run.source_system} · ${summary.data.import_run.source_dataset}`],
                   ["policy", summary.data.import_run.policy_version],
@@ -194,6 +240,17 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
 
 function tracked(value: number | null): string | number {
   return value === null ? "Not tracked" : value;
+}
+
+function MiniStat({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "good" | "warn" }) {
+  const toneClass =
+    tone === "good" ? "text-[#7ddda4]" : tone === "warn" ? "text-[#facc15]" : "text-[#f8fafc]";
+  return (
+    <div className="rounded-md border border-[#293241] bg-[#0f1115] p-2">
+      <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
+      <div className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</div>
+    </div>
+  );
 }
 
 function normalizeRowState(value: string | undefined): ImportRowState | undefined {

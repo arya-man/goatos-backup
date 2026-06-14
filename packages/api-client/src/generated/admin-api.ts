@@ -11,7 +11,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List recent legacy import runs.
+         * @description Returns recent tenant-scoped import runs so reviewers can open a run without memorizing UUIDs.
+         */
+        get: operations["listImportRuns"];
         put?: never;
         /** Create a staged legacy import run. */
         post: operations["createImportRun"];
@@ -406,6 +410,10 @@ export interface components {
             import_run: components["schemas"]["ImportRun"];
             trace_id: string;
         };
+        ImportRunListResponse: {
+            items: components["schemas"]["ImportRun"][];
+            trace_id: string;
+        };
         /** @enum {string} */
         ImportRowState: "pending" | "auto_linked" | "created_goat" | "needs_review" | "rejected" | "error";
         ImportRunRow: {
@@ -729,6 +737,31 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listImportRuns: {
+        parameters: {
+            query: {
+                limit: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent import runs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRunListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     createImportRun: {
         parameters: {
             query?: never;

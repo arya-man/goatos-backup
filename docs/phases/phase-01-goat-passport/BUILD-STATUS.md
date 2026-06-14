@@ -536,6 +536,14 @@ RFID/BQ source-of-truth staging and reconciliation:
   directly. The future "Sync with BQ" UI control should trigger the same
   backend job used by scheduled syncs, not a browser-side BQ query, and must be
   RBAC-protected, audited, idempotent, bounded, and freshness-visible.
+  Missing-passport backfill is deliberately fail-closed for the current BQ
+  exports. The dashboard aggregate table proves the 2011 active-goat count and
+  farm/shed/breed buckets but has no per-goat identity; the BQ event and
+  latest-location exports reconcile existing matched Goat OS passports but do
+  not provide one deterministic current identity row per missing passport.
+  `bq-reconcile --backfill-missing` therefore returns a clear blocked error
+  until an accessible per-goat current identity export/bridge is added. Do not
+  create passports from aggregate counts or event-history keys.
   local DB-writing import/apply/counter commands share the
   backend/internal/platform/localtarget guard: GOATOS_ENV must be local/dev and
   DATABASE_URL must point to loopback or approved local socket paths, never
@@ -570,6 +578,9 @@ RFID/BQ source-of-truth staging and reconciliation:
   conflicts for those disagreements or BQ self-contradictions so they are not
   hidden as clean passports.
   Rebuild identity counters after every execute before trusting the dashboard.
+  Import Review no longer requires users to remember a run UUID: the backend
+  exposes `GET /admin/import-runs` for recent tenant runs, and admin-web shows a
+  recent-run picker before falling back to manual older-run UUID entry.
   real staging writes legacy_import_runs as running -> completed or failed and
   inserts legacy_import_rows in bounded batches
   source_row_key uses policy source_key_recipe fields in order:
@@ -674,9 +685,10 @@ RFID/BQ source-of-truth staging and reconciliation:
   corrected so it no longer overwrites nonblank passport sex/breed when BQ
   disagrees. It fills blanks, normalizes same-meaning breed labels such as
   Anantapur Sheep/Anantapur, and opens Data Quality conflicts for nonblank
-  BQ/passport disagreements or BQ self-contradictions. The previous 46 sex plus
-  1 real breed overwrites were restored from audit history and recorded with
-  `goat.bq_attribute_overwrite_reverted` audit rows. Supplying `--import-run-id`
+	  BQ/passport disagreements or BQ self-contradictions, including disagreements
+	  between BQ RFID and scoped old-tag evidence for the same Goat OS passport. The
+	  previous 46 sex plus 1 real breed overwrites were restored from audit history
+	  and recorded with `goat.bq_attribute_overwrite_reverted` audit rows. Supplying `--import-run-id`
   lets `bq-reconcile` fill sole-reason `blank_gender` staging rows from
   deterministic BQ RFID evidence; the normal `rfid-apply` path then created
   those 4 goats after migration 000018 added the approved plain K1 status
@@ -692,10 +704,10 @@ RFID/BQ source-of-truth staging and reconciliation:
   with shed-level current locations, 56 park-only goats, and 272 unmatched goats
   untouched. This correction is replayable through
   `backend/cmd/bq-reconcile`; it is no longer a one-off local DB mutation. After
-  counter rebuild, tenant_lifecycle is alive 1113, sold 71, dead 35, inactive 0;
-  identity_state is 1094 clean and 125 needs_review. Data Quality has 54 open
-  lifecycle/status conflicts plus 79 open BQ attribute review conflict rows
-  covering 80 occurrences: 59 sex and 21 breed. shed_lifecycle has 141 rows.
+	  counter rebuild, tenant_lifecycle is alive 1113, sold 71, dead 35, inactive 0;
+	  identity_state is 1088 clean and 131 needs_review. Data Quality has 54 open
+	  lifecycle/status conflicts plus 106 open BQ attribute review conflict rows
+	  covering 108 occurrences: 73 sex and 35 breed. shed_lifecycle has 141 rows.
   SSR admin-web proof should use this
   post-BQ-reconciled state, not the historical 711/512, 1215-alive, or 1215/8
   split.
@@ -703,9 +715,9 @@ RFID/BQ source-of-truth staging and reconciliation:
   `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and `/data-quality`
   through the Mesha admin-web; reruns after 000015 and BQ reconciliation must
   keep those route checks and token-leak checks while expecting 1219 total
-  passports, 4 duplicate-old-tag Import Review rows, 54 lifecycle
-  status-mismatch conflicts, 79 BQ attribute review conflict rows, identity
-  state 1094 clean / 125 needs_review, and tenant_lifecycle counters alive 1113,
+	  passports, 4 duplicate-old-tag Import Review rows, 54 lifecycle
+	  status-mismatch conflicts, 106 BQ attribute review conflict rows, identity
+	  state 1088 clean / 131 needs_review, and tenant_lifecycle counters alive 1113,
   sold 71, dead 35, inactive 0.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived

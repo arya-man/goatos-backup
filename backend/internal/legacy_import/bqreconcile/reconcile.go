@@ -80,12 +80,13 @@ type LocationTarget struct {
 }
 
 type Options struct {
-	TenantID      string
-	ImportRunID   string
-	EventsPath    string
-	LocationsPath string
-	Execute       bool
-	TraceID       string
+	TenantID        string
+	ImportRunID     string
+	EventsPath      string
+	LocationsPath   string
+	BackfillMissing bool
+	Execute         bool
+	TraceID         string
 }
 
 type Summary struct {
@@ -264,6 +265,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Summary, error
 	}
 	summary, patches := PlanWithLocations(events, locationEvents, goats, locations)
 	summary.DryRun = !opts.Execute
+	if opts.BackfillMissing {
+		return nil, fmt.Errorf("safe BQ passport backfill is blocked: the current BQ event/location exports and legacy dashboard aggregates do not provide one deterministic current goat per missing passport; use BQ reconcile for existing passports only until a per-goat current identity export is available")
+	}
 	importGenderPatches, err := planImportBlankGenderFills(ctx, pool, opts.TenantID, opts.ImportRunID, events)
 	if err != nil {
 		return nil, err
@@ -579,6 +583,32 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 	return summary, patches
 }
 
+func conflictIdentifierParts(key string) (string, string) {
+	switch identifierKindForKey(key) {
+	case "rfid":
+		return "rfid", identifierValueFromKey(key)
+	case "old_tag":
+		return "old_tag", identifierValueFromKey(key)
+	default:
+		return "external_system_id", identifierValueFromKey(key)
+	}
+}
+
+func lifecycleConflictKey(conflict *lifecycleConflict, matchedKeys []string) string {
+	if conflict != nil {
+		if strings.TrimSpace(conflict.IdentifierKey) != "" {
+			return conflict.IdentifierKey
+		}
+		if strings.TrimSpace(conflict.RFIDKey) != "" {
+			return conflict.RFIDKey
+		}
+		if strings.TrimSpace(conflict.OldTagKey) != "" {
+			return conflict.OldTagKey
+		}
+	}
+	return firstNonEmptyKey(matchedKeys)
+}
+
 func applyLifecycleEvent(evidence *lifecycleEvidence, event Event) {
 	lifecycle, rank := lifecycleForEvent(event)
 	if lifecycle == "" {
@@ -812,7 +842,7 @@ func lifecycleConflictFromIdentifier(rfidLifecycle, oldTagLifecycle string, keys
 func targetAttributes(goat LocalGoat, evidence *goatEvidence) (string, string, []attributeChange, []attributeConflict, int) {
 	nextSex := strings.TrimSpace(goat.Sex)
 	nextBreed := strings.TrimSpace(goat.Breed)
-	events, identifierKind, identifierKey := preferredAttributeEvents(evidence)
+	events, identifierKind, identifierKey := attributeEvidenceEvents(evidence)
 	bqSex, sexDate, bqSexConflict, bqSexValues := latestBQSex(events)
 	bqBreed, breedDate, bqBreedConflict, bqBreedValues := latestBQBreed(events)
 	changes := []attributeChange{}
@@ -911,21 +941,24 @@ func targetAttributes(goat LocalGoat, evidence *goatEvidence) (string, string, [
 	return nextSex, nextBreed, changes, conflicts, cosmeticDrifts
 }
 
-func preferredAttributeEvents(evidence *goatEvidence) ([]Event, string, string) {
-	if len(evidence.rfidEvents) > 0 {
+func attributeEvidenceEvents(evidence *goatEvidence) ([]Event, string, string) {
+	switch {
+	case len(evidence.rfidEvents) > 0 && len(evidence.oldTagEvents) > 0:
+		return evidence.events, "matched_identifiers", strings.Join(sortedKeys(evidence.keys), "|")
+	case len(evidence.rfidEvents) > 0:
 		return evidence.rfidEvents, "rfid", firstKeyWithPrefix(evidence.keys, "rfid:")
-	}
-	if len(evidence.oldTagEvents) > 0 {
+	case len(evidence.oldTagEvents) > 0:
 		return evidence.oldTagEvents, "old_tag", firstKeyWithPrefix(evidence.keys, "old_tag:")
+	default:
+		return evidence.events, "matched_identifier", firstKeyWithPrefix(evidence.keys, "")
 	}
-	return evidence.events, "matched_identifier", firstKeyWithPrefix(evidence.keys, "")
 }
 
 func planImportBlankGenderFills(ctx context.Context, pool *pgxpool.Pool, tenantID, importRunID string, events []Event) ([]importGenderPatch, error) {
 	if strings.TrimSpace(importRunID) == "" {
 		return nil, nil
 	}
-	sexByRFID := latestSexByRFID(events)
+	sexByRFID := deterministicSexByRFID(events)
 	if len(sexByRFID) == 0 {
 		return nil, nil
 	}
@@ -1009,8 +1042,12 @@ type attributeValue struct {
 	Date  string
 }
 
-func latestSexByRFID(events []Event) map[string]attributeValue {
-	out := map[string]attributeValue{}
+func deterministicSexByRFID(events []Event) map[string]attributeValue {
+	type sexEvidence struct {
+		latest attributeValue
+		seen   map[string]struct{}
+	}
+	byRFID := map[string]*sexEvidence{}
 	for _, event := range events {
 		key := bqEventKey(event)
 		if !strings.HasPrefix(key, "rfid:global:") {
@@ -1021,8 +1058,20 @@ func latestSexByRFID(events []Event) map[string]attributeValue {
 			continue
 		}
 		rfid := strings.TrimPrefix(key, "rfid:global:")
-		if current, ok := out[rfid]; !ok || event.Date > current.Date {
-			out[rfid] = attributeValue{Value: sex, Date: event.Date}
+		current := byRFID[rfid]
+		if current == nil {
+			current = &sexEvidence{seen: map[string]struct{}{}}
+			byRFID[rfid] = current
+		}
+		current.seen[sex] = struct{}{}
+		if current.latest.Value == "" || event.Date > current.latest.Date {
+			current.latest = attributeValue{Value: sex, Date: event.Date}
+		}
+	}
+	out := map[string]attributeValue{}
+	for rfid, evidence := range byRFID {
+		if len(evidence.seen) == 1 && evidence.latest.Value != "" {
+			out[rfid] = evidence.latest
 		}
 	}
 	return out
@@ -1728,6 +1777,8 @@ func ensureLifecycleConflict(ctx context.Context, tx pgx.Tx, tenantID string, pa
 		"latest_destination":  patch.LatestShed,
 	}
 	evidenceJSON, _ := json.Marshal(evidence)
+	conflictKey := lifecycleConflictKey(patch.Conflict, patch.MatchedKeys)
+	identifierType, identifierValue := conflictIdentifierParts(conflictKey)
 	var conflictID string
 	err := tx.QueryRow(ctx, `
 INSERT INTO identity_conflicts (
@@ -1746,7 +1797,7 @@ SELECT
   'status_mismatch',
   'high',
   'open',
-  'rfid',
+  $6,
   $3,
   ARRAY[$2::uuid],
   $4::text[],
@@ -1763,9 +1814,10 @@ WHERE NOT EXISTS (
 RETURNING conflict_id::text`,
 		tenantID,
 		patch.GoatID,
-		identifierValueFromKey(patch.Conflict.RFIDKey),
+		identifierValue,
 		patch.MatchedKeys,
 		evidenceJSON,
+		identifierType,
 	).Scan(&conflictID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -1810,6 +1862,7 @@ func ensureAttributeConflict(ctx context.Context, tx pgx.Tx, tenantID string, pa
 	if conflictKey == "" {
 		conflictKey = firstNonEmptyKey(patch.MatchedKeys)
 	}
+	identifierType, identifierValue := conflictIdentifierParts(conflictKey)
 	var conflictID string
 	err := tx.QueryRow(ctx, `
 INSERT INTO identity_conflicts (
@@ -1828,7 +1881,7 @@ SELECT
   'status_mismatch',
   'medium',
   'open',
-  'rfid',
+  $6,
   $3,
   ARRAY[$2::uuid],
   $4::text[],
@@ -1845,9 +1898,10 @@ WHERE NOT EXISTS (
 RETURNING conflict_id::text`,
 		tenantID,
 		patch.GoatID,
-		identifierValueFromKey(conflictKey),
+		identifierValue,
 		patch.MatchedKeys,
 		evidenceJSON,
+		identifierType,
 	).Scan(&conflictID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil

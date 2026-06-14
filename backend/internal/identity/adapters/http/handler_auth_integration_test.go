@@ -90,6 +90,7 @@ func TestBearerAuthRunsBeforeRealNotImplementedStub(t *testing.T) {
 
 func TestImportReviewRoutesRequireImportRunView(t *testing.T) {
 	paths := []string{
+		"/admin/import-runs?limit=10",
 		"/admin/import-runs/30000000-0000-4000-8000-000000000001",
 		"/admin/import-runs/30000000-0000-4000-8000-000000000001/rows?limit=10",
 		"/admin/import-runs/30000000-0000-4000-8000-000000000001/rows.csv?scope=messy",

@@ -159,6 +159,9 @@ forbidden_seq_scan_pattern() {
     GetImportRunByID)
       printf '%s\n' 'Seq Scan on (legacy_import_runs|legacy_import_rows)'
       ;;
+    ListImportRuns)
+      printf '%s\n' 'Seq Scan on legacy_import_runs'
+      ;;
     ListImportRunRows)
       printf '%s\n' 'Seq Scan on legacy_import_rows'
       ;;
@@ -210,7 +213,7 @@ validate_generated_query_plan() {
   fi
 
   case "$query_name" in
-    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy|ListImportRunRows|ListGoatTimeline|ListCorrectionRequests)
+    ListPendingLegacyImportRowsForApply|ListRFIDApplyCandidateRowsForBlankSuffixPolicy|ListImportRuns|ListImportRunRows|ListGoatTimeline|ListCorrectionRequests)
       explain_must_use_index "$query_name" "$forbidden" "EXPLAIN (COSTS OFF)
 $sql" '^[[:space:]]*(->[[:space:]]*)?(Sort|Incremental Sort)[[:space:]]*$'
       ;;

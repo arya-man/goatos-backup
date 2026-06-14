@@ -13,8 +13,8 @@ The current console provides:
 - a Mesha legacy-style dark sidebar, compact module navigation, breadcrumb
   header, KPI cards, tabs, charts, and dense tables;
 - herd search, goat passport with live identity timeline, identity counts,
-  conflict/candidate/correction queues, and live Import Review summary/row
-  screens when an import run id is provided;
+  conflict/candidate/correction queues, and live Import Review with a recent-run
+  picker plus summary/row screens;
 - server-side forms for the already-built Phase 1 actions: correction request
   create/resolve, candidate reject, conflict reject/merge, and goat identifier
   add/retire.
@@ -103,8 +103,9 @@ OpenAPI contract requires a `tenant_id` query parameter. It must match the
 bearer token tenant and the seeded DB grant tenant, otherwise the counts page
 shows the backend `tenant_scope_mismatch` denial.
 
-`GOATOS_IMPORT_RUN_ID` is required only for the live visual smoke and lets
-`/import-review` open the proven local import run directly.
+`GOATOS_IMPORT_RUN_ID` is optional. It pins `/import-review` to a known run for
+visual smoke or proof reruns; without it, `/import-review` lists recent tenant
+import runs and lets the operator open one.
 
 After a local backend and admin-web are already running, capture the live SSR
 visual proof screenshots:
@@ -275,8 +276,9 @@ APIs through generated clients.
 
 ## Import Review
 
-`/import-review` is read-only. Provide `import_run_id` as a query parameter to
-load the live import run summary and staged row list from backend APIs:
+`/import-review` is read-only. Without an `import_run_id`, it lists recent
+tenant import runs from the backend so operators do not need to remember UUIDs.
+Provide `import_run_id` as a query parameter only to open a specific older run:
 
 ```text
 /import-review?import_run_id=<import-run-uuid>

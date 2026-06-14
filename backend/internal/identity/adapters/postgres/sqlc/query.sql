@@ -174,6 +174,33 @@ FROM legacy_import_runs r
 WHERE r.tenant_id = @tenant_id
   AND r.import_run_id = @import_run_id;
 
+-- name: ListImportRuns :many
+SELECT
+  r.import_run_id::text AS import_run_id,
+  r.source_system,
+  r.source_dataset,
+  r.policy_version,
+  r.status,
+  r.dry_run,
+  r.row_count,
+  r.created_goat_count,
+  r.updated_goat_count,
+  r.conflict_count,
+  r.error_count,
+  COALESCE((
+    SELECT count(*)::int
+    FROM legacy_import_rows row
+    WHERE row.tenant_id = r.tenant_id
+      AND row.import_run_id = r.import_run_id
+      AND row.processing_state = 'needs_review'
+  ), 0)::int AS rows_needing_review,
+  r.started_at,
+  r.completed_at
+FROM legacy_import_runs r
+WHERE r.tenant_id = @tenant_id
+ORDER BY r.started_at DESC, r.import_run_id DESC
+LIMIT @limit_count;
+
 -- name: ListImportRunRows :many
 SELECT
   legacy_row_id::text AS import_row_id,

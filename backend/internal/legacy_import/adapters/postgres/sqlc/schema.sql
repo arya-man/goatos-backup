@@ -2988,6 +2988,13 @@ CREATE INDEX legacy_import_runs_policy_status_idx ON public.legacy_import_runs U
 
 
 --
+-- Name: legacy_import_runs_tenant_started_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_import_runs_tenant_started_idx ON public.legacy_import_runs USING btree (tenant_id, started_at DESC, import_run_id DESC);
+
+
+--
 -- Name: legacy_status_mappings_lookup_idx; Type: INDEX; Schema: public; Owner: -
 --
 

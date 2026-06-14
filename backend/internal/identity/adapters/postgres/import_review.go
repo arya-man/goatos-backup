@@ -72,6 +72,30 @@ func (r *Repository) GetImportRun(ctx context.Context, tenantID, importRunID str
 	}, nil
 }
 
+func (r *Repository) ListImportRuns(ctx context.Context, params ports.ListImportRunsParams) ([]domain.ImportRun, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam(params.TenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.queries.ListImportRuns(ctx, identitydb.ListImportRunsParams{
+		TenantID:   tenantUUID,
+		LimitCount: int32(params.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.ImportRun, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, importRunFromListSQLC(row))
+	}
+	return items, nil
+}
+
 func (r *Repository) ListImportRunRows(ctx context.Context, params ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -122,6 +146,30 @@ func (r *Repository) ListImportRunRows(ctx context.Context, params ports.ListImp
 		items = items[:params.Limit]
 	}
 	return items, next, nil
+}
+
+func importRunFromListSQLC(row identitydb.ListImportRunsRow) domain.ImportRun {
+	return domain.ImportRun{
+		ImportRunID:   row.ImportRunID,
+		SourceSystem:  row.SourceSystem,
+		SourceDataset: row.SourceDataset,
+		PolicyVersion: row.PolicyVersion,
+		Status:        row.Status,
+		DryRun:        row.DryRun,
+		Summary: domain.ImportRunSummary{
+			RowsProcessed:         int(row.RowCount),
+			GoatsCreated:          int(row.CreatedGoatCount),
+			IdentifiersAdded:      nil,
+			CleanMatches:          nil,
+			DuplicatesFound:       nil,
+			MissingRequiredFields: nil,
+			ConflictsOpened:       int(row.ConflictCount),
+			RowsNeedingReview:     int(row.RowsNeedingReview),
+			ErrorCount:            int(row.ErrorCount),
+		},
+		CreatedAt:   pgTime(row.StartedAt),
+		CompletedAt: pgTimePtr(row.CompletedAt),
+	}
 }
 
 func importRunRowFromSQLC(row identitydb.ListImportRunRowsRow) domain.ImportRunRow {

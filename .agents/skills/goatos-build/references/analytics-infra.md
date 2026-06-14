@@ -35,6 +35,9 @@ Rules:
   disagreements with BQ become review conflicts rather than silent overwrites.
   When an import run is supplied, it may also fill BQ-backed sole-reason
   `blank_gender` staging rows so normal RFID apply can create the passports.
+  Missing-passport backfill remains blocked until an accessible BQ/source export
+  provides one deterministic current identity row per missing passport; aggregate
+  dashboard counts and event-history keys must not be used to invent passports.
 - AI analyst work is blocked until canonical dbt marts, Cube metrics, dashboard
   parity tests, an analytics skill, offline evals, and provenance/freshness
   footers exist. AI uses Cube first, curated marts second, and raw SQL only for

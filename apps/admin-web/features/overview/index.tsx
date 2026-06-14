@@ -3,20 +3,36 @@ import { Activity, AlertTriangle, ClipboardList, DatabaseZap, FileSearch, Search
 import { redirect } from "next/navigation";
 import { KPICard } from "@/components/charts/kpi-card";
 import { EmptyPanel, ErrorPanel, PageHeader, Panel, StatPill } from "@/components/admin-primitives";
-import { firstAuthRequiredError, getAdminRuntimeStatus, getIdentityCounts, getImportRun, listCandidates, listConflicts, searchGoats } from "@/lib/api/server";
+import {
+  firstAuthRequiredError,
+  getAdminRuntimeStatus,
+  getIdentityCounts,
+  getImportRun,
+  listCandidates,
+  listConflicts,
+  listImportRuns,
+  searchGoats,
+} from "@/lib/api/server";
 import { dash, shortId } from "@/lib/format";
 
 export async function OverviewPage() {
   const runtime = getAdminRuntimeStatus();
-  const [counts, conflicts, candidates, herd, importRun] = await Promise.all([
+  const [counts, conflicts, candidates, herd, recentRuns] = await Promise.all([
     getIdentityCounts({ grain: "tenant_lifecycle", limit: 20 }),
     listConflicts({ limit: 5, state: "open" }),
     listCandidates({ limit: 5 }),
     searchGoats({ limit: 5 }),
-    runtime.importRunId ? getImportRun(runtime.importRunId) : Promise.resolve(null),
+    runtime.importRunId ? Promise.resolve(null) : listImportRuns({ limit: 1 }),
   ]);
-  const authError = firstAuthRequiredError(counts, conflicts, candidates, herd, importRun);
+  const authError = firstAuthRequiredError(counts, conflicts, candidates, herd, recentRuns);
   if (authError) {
+    redirect("/login");
+  }
+
+  const selectedImportRunId = runtime.importRunId ?? (recentRuns?.ok ? recentRuns.data.items[0]?.import_run_id ?? null : null);
+  const importRun = selectedImportRunId ? await getImportRun(selectedImportRunId) : null;
+  const importRunAuthError = firstAuthRequiredError(importRun);
+  if (importRunAuthError) {
     redirect("/login");
   }
 
@@ -57,8 +73,8 @@ export async function OverviewPage() {
         />
         <KPICard
           label="Import review"
-          value={reviewRows === null ? "Select run" : reviewRows.toLocaleString("en-IN")}
-          subtitle={runtime.importRunId ? `run ${shortId(runtime.importRunId)}` : "No run selected"}
+          value={reviewRows === null ? "No run" : reviewRows.toLocaleString("en-IN")}
+          subtitle={selectedImportRunId ? `run ${shortId(selectedImportRunId)}` : "No import runs found"}
           icon={<DatabaseZap size={18} />}
           delay={3}
           variant={reviewRows === null ? "amber" : "default"}
@@ -106,15 +122,17 @@ export async function OverviewPage() {
 
         <Panel
           title="Import Review"
-          description="Live when an import run is selected for the admin server."
+          description="Latest import run summary from the backend."
           action={
-            runtime.importRunId ? (
-              <Nav href={`/import-review?import_run_id=${encodeURIComponent(runtime.importRunId)}`} label="Open Run" icon={<DatabaseZap className="h-4 w-4" aria-hidden="true" />} />
+            selectedImportRunId ? (
+              <Nav href={`/import-review?import_run_id=${encodeURIComponent(selectedImportRunId)}`} label="Open Run" icon={<DatabaseZap className="h-4 w-4" aria-hidden="true" />} />
             ) : null
           }
         >
-          {!runtime.importRunId ? (
-            <EmptyPanel message="Select or configure an import run to show current review rows here." />
+          {recentRuns && !recentRuns.ok ? (
+            <ErrorPanel error={recentRuns.error} />
+          ) : !selectedImportRunId ? (
+            <EmptyPanel message="No import runs found. Run the local RFID import/reconcile flow first." />
           ) : importRun && !importRun.ok ? (
             <ErrorPanel error={importRun.error} />
           ) : importRun?.ok ? (

@@ -2242,6 +2242,7 @@ admin responses may include hidden/affected counts only with goat.view_dirty_dat
 
 ```text
 POST /admin/import-runs
+GET  /admin/import-runs
 GET  /admin/import-runs/{import_run_id}
 GET  /admin/import-runs/{import_run_id}/rows
 
@@ -2267,6 +2268,11 @@ POST /admin/identity/correction-requests/{correction_request_id}/resolve
 Import Review read semantics:
 
 ```text
+GET /admin/import-runs returns recent tenant-scoped import runs ordered by
+started_at descending, bounded to limit <=50. It exists so operators can open
+the latest run from the UI instead of pasting a UUID; it does not create or
+apply imports.
+
 GET /admin/import-runs/{import_run_id} returns the tenant-scoped run summary.
 rows_processed maps to legacy_import_runs.row_count.
 goats_created maps to legacy_import_runs.created_goat_count.
@@ -2931,6 +2937,15 @@ and is proof-of-life only when there is no later terminal evidence; Death stays
 terminal, Sale is reversed only by later Purchase, and non-purchase activity
 such as Shifting, Birth, or Abortion after terminal evidence opens a
 `status_mismatch` review conflict instead of reviving a goat.
+
+Missing-passport backfill is blocked until Goat OS has an accessible BQ/source
+export with one deterministic current identity row per missing passport. The
+legacy dashboard aggregate table is valid for dashboard-count reconciliation
+but cannot create individual passports because it has no goat identity. BQ event
+and latest-location exports are valid for reconciling matched Goat OS passports,
+but event-history keys alone are not a safe passport-creation source. The
+`bq-reconcile --backfill-missing` flag must fail closed until that per-goat
+identity export exists.
 ```
 
 Source key and hash implementation:

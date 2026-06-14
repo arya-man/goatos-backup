@@ -334,6 +334,11 @@ type ImportRunResponse struct {
 	TraceID   string    `json:"trace_id"`
 }
 
+type ImportRunListResponse struct {
+	Items   []ImportRun `json:"items"`
+	TraceID string      `json:"trace_id"`
+}
+
 type ImportRunRow struct {
 	ImportRowID     string   `json:"import_row_id"`
 	SourceRecordID  *string  `json:"source_record_id"`

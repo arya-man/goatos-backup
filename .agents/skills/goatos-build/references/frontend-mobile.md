@@ -25,7 +25,7 @@ Rules:
   `@goatos/api-client`.
   Server-side adapters keep bearer tokens out of browser code; live screens
   cover the overview, herd search, goat passport with live timeline, identity
-  counts, Import Review, data quality queues, correction request queue reads,
+  counts, Import Review with recent-run picker, data quality queues, correction request queue reads,
   Import Review backend-owned CSV downloads relayed through the Next server,
   and server-side forms for correction create/resolve, candidate reject,
   conflict reject/merge, and goat identifier add/retire. The visible shell uses
@@ -40,9 +40,9 @@ Rules:
   created passports, 4 duplicate-old-tag import-review rows, 0 errors, and
   tenant_lifecycle counters alive=1113, sold=71, dead=35, inactive=0 after
   `backend/cmd/bq-reconcile`, final `rfid-apply`, and counter rebuild. It also
-  expects identity_state 1094 clean / 125 needs_review, 54 lifecycle
-  `status_mismatch` conflicts, and 79 BQ attribute review conflict rows covering
-  sex/breed disagreements or BQ self-contradictions. Current locations are 891
+  expects identity_state 1088 clean / 131 needs_review, 54 lifecycle
+  `status_mismatch` conflicts, and 106 BQ attribute review conflict rows covering
+  108 sex/breed disagreement or BQ self-contradiction occurrences. Current locations are 891
   shed-level, 56 park-only, and 272 unmatched passports left unchanged. The proof
   covers overview, counts, herd search, a real goat passport, live Import Review
   rows, and the live Data Quality conflict queue when BQ conflicts are present.

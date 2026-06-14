@@ -464,6 +464,93 @@ func TestPlanFlagsBQGenderSelfConflict(t *testing.T) {
 	}
 }
 
+func TestPlanFlagsBQGenderConflictAcrossMatchedIdentifiers(t *testing.T) {
+	events := []Event{
+		{
+			GoatID: "123456789012345",
+			Event:  "Shifting",
+			Date:   "2026-02-03",
+			Gender: "Male",
+			Breed:  "Sojat",
+		},
+		{
+			GoatID: "765",
+			Farm:   "CPT",
+			Event:  "Shifting",
+			Date:   "2026-02-04",
+			Gender: "Female",
+			Breed:  "Sojat",
+		},
+	}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Sojat",
+		Sex:             "male",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+			{IdentifierType: "old_tag", NormalizedValue: "765", ScopeKey: "park:cpt"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.GenderConflicts != 1 || summary.AttributeConflicts != 1 || summary.SexUpdates != 0 || summary.IdentityReviewUpdates != 1 {
+		t.Fatalf("summary=%#v want cross-identifier BQ gender conflict", summary)
+	}
+	if len(patches) != 1 || patches[0].AfterSex != "male" || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want sex unchanged and review", patches)
+	}
+	if got := patches[0].AttrConflicts[0].Reason; got != "bq_gender_self_conflict" {
+		t.Fatalf("conflict reason=%q want bq_gender_self_conflict", got)
+	}
+	if got := patches[0].AttrConflicts[0].IdentifierKind; got != "matched_identifiers" {
+		t.Fatalf("identifier kind=%q want matched_identifiers", got)
+	}
+}
+
+func TestPlanFlagsBQBreedConflictAcrossMatchedIdentifiers(t *testing.T) {
+	events := []Event{
+		{
+			GoatID: "123456789012345",
+			Event:  "Shifting",
+			Date:   "2026-02-03",
+			Gender: "Female",
+			Breed:  "Sirohi",
+		},
+		{
+			GoatID: "765",
+			Farm:   "CPT",
+			Event:  "Shifting",
+			Date:   "2026-02-04",
+			Gender: "Female",
+			Breed:  "Beetal",
+		},
+	}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Sirohi",
+		Sex:             "female",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+			{IdentifierType: "old_tag", NormalizedValue: "765", ScopeKey: "park:cpt"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.BreedConflicts != 1 || summary.AttributeConflicts != 1 || summary.BreedCorrections != 0 || summary.IdentityReviewUpdates != 1 {
+		t.Fatalf("summary=%#v want cross-identifier BQ breed conflict", summary)
+	}
+	if len(patches) != 1 || patches[0].AfterBreed != "Sirohi" || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want breed unchanged and review", patches)
+	}
+	if got := patches[0].AttrConflicts[0].Reason; got != "bq_breed_self_conflict" {
+		t.Fatalf("conflict reason=%q want bq_breed_self_conflict", got)
+	}
+}
+
 func TestPlanCreatesMissingAttributeConflictForAlreadyReviewGoat(t *testing.T) {
 	events := []Event{{
 		GoatID: "123456789012345",
@@ -544,6 +631,24 @@ func TestPlanImportBlankGenderFillFromBQ(t *testing.T) {
 	}
 	if reasons := jsonStringSlice(after["processing_reasons"]); len(reasons) != 0 {
 		t.Fatalf("after reasons=%#v want empty", reasons)
+	}
+}
+
+func TestPlanImportBlankGenderFillRequiresDeterministicRFIDGender(t *testing.T) {
+	payload := []byte(`{"rfid":"123456789012345","sex":"","processing_reasons":["blank_gender"]}`)
+	sexByRFID := deterministicSexByRFID([]Event{
+		{GoatID: "123456789012345", Event: "Shifting", Date: "2026-06-12", Gender: "Male"},
+		{GoatID: "123456789012345", Event: "Shifting", Date: "2026-06-13", Gender: "Female"},
+	})
+	if _, ok := sexByRFID["123456789012345"]; ok {
+		t.Fatalf("conflicting BQ genders must not produce a deterministic fill: %#v", sexByRFID)
+	}
+	_, ok, err := planImportBlankGenderFill("00000000-0000-4000-8000-000000000201", "needs_review", payload, sexByRFID)
+	if err != nil {
+		t.Fatalf("planImportBlankGenderFill err=%v", err)
+	}
+	if ok {
+		t.Fatal("blank gender row with contradictory BQ RFID gender must not be filled/requeued")
 	}
 }
 

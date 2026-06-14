@@ -50,6 +50,9 @@ func (r errRepo) ListCandidates(context.Context, ports.ListCandidatesParams) ([]
 func (r errRepo) GetImportRun(context.Context, string, string) (*domain.ImportRun, error) {
 	return nil, r.err
 }
+func (r errRepo) ListImportRuns(context.Context, ports.ListImportRunsParams) ([]domain.ImportRun, error) {
+	return nil, r.err
+}
 func (r errRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
 	return nil, nil, r.err
 }

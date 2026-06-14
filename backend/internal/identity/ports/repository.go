@@ -64,6 +64,11 @@ type ListImportRunRowsParams struct {
 	ReasonCode      *string
 }
 
+type ListImportRunsParams struct {
+	TenantID string
+	Limit    int
+}
+
 type GetGoatTimelineParams struct {
 	TenantID string
 	GoatID   string
@@ -227,6 +232,7 @@ type Repository interface {
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]domain.CandidateSummary, *string, error)
 	GetImportRun(ctx context.Context, tenantID, importRunID string) (*domain.ImportRun, error)
+	ListImportRuns(ctx context.Context, params ListImportRunsParams) ([]domain.ImportRun, error)
 	ListImportRunRows(ctx context.Context, params ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error)
 	GetGoatTimeline(ctx context.Context, params GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error)
 	ListCorrectionRequests(ctx context.Context, params ListCorrectionRequestsParams) ([]domain.CorrectionRequest, *string, error)

@@ -19,6 +19,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listCorrectionRequests", Method: "GET", Pattern: "/identity/correction-requests", Permissions: []string{CorrectionCreate}},
 
 	{OperationID: "createImportRun", Method: "POST", Pattern: "/admin/import-runs", Permissions: []string{ImportRunManage}, AdminOnly: true},
+	{OperationID: "listImportRuns", Method: "GET", Pattern: "/admin/import-runs", Permissions: []string{ImportRunView}},
 	{OperationID: "getImportRun", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}", Permissions: []string{ImportRunView}},
 	{OperationID: "listImportRunRows", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}/rows", Permissions: []string{ImportRunView}},
 	{OperationID: "exportImportRunRowsCSV", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}/rows.csv", Permissions: []string{ImportRunView}},

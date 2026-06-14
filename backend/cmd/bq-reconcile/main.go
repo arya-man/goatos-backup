@@ -27,6 +27,7 @@ func run(args []string) error {
 	var importRunID string
 	var eventsPath string
 	var locationsPath string
+	var backfillMissing bool
 	var execute bool
 	var timeout time.Duration
 	var traceID string
@@ -35,6 +36,7 @@ func run(args []string) error {
 	fs.StringVar(&importRunID, "import-run-id", "", "optional import run UUID for BQ-backed blank-gender staging fixes")
 	fs.StringVar(&eventsPath, "events-json", "", "BQ event export JSON array or JSONL file")
 	fs.StringVar(&locationsPath, "locations-json", "", "optional BQ latest-location export JSON array or JSONL file")
+	fs.BoolVar(&backfillMissing, "backfill-missing", false, "blocked unless a deterministic per-goat current BQ identity export is added; event-history exports cannot safely create missing passports")
 	fs.BoolVar(&execute, "execute", false, "apply planned updates; default is dry-run")
 	fs.DurationVar(&timeout, "timeout", 10*time.Minute, "command timeout")
 	fs.StringVar(&traceID, "trace-id", "", "optional audit trace id")
@@ -61,12 +63,13 @@ func run(args []string) error {
 	defer pool.Close()
 
 	result, err := bqreconcile.Run(ctx, pool, bqreconcile.Options{
-		TenantID:      tenantID,
-		ImportRunID:   importRunID,
-		EventsPath:    eventsPath,
-		LocationsPath: locationsPath,
-		Execute:       execute,
-		TraceID:       traceID,
+		TenantID:        tenantID,
+		ImportRunID:     importRunID,
+		EventsPath:      eventsPath,
+		LocationsPath:   locationsPath,
+		BackfillMissing: backfillMissing,
+		Execute:         execute,
+		TraceID:         traceID,
 	})
 	if err != nil {
 		return err

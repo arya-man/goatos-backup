@@ -682,6 +682,10 @@ func (f *fakeRepo) GetImportRun(context.Context, string, string) (*domain.Import
 	return nil, ports.ErrNotFound
 }
 
+func (f *fakeRepo) ListImportRuns(context.Context, ports.ListImportRunsParams) ([]domain.ImportRun, error) {
+	return []domain.ImportRun{}, nil
+}
+
 func (f *fakeRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
 	return []domain.ImportRunRow{}, nil, nil
 }

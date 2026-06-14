@@ -84,9 +84,11 @@ Completed so far:
 - SSR-first Mesha admin-web shell with legacy-style dark sidebar, compact module
   navigation, KPI cards, charts, and dense tables for herd search, goat
   passport, identity counts, live conflicts/candidates/correction queues, and
-  live Import Review summary/rows when an import run id is provided. The UI now
-  includes backend-owned CSV download buttons for all messy Import Review rows
-  and the current row filter, with server-side token handling. The UI also
+  live Import Review summary/rows. Import Review now lists recent tenant import
+  runs so operators do not need to memorize UUIDs, while still allowing an older
+  run id to be pasted when needed. The UI includes backend-owned CSV download
+  buttons for all messy Import Review rows and the current row filter, with
+  server-side token handling. The UI also
   exposes already-built Phase 1 actions for correction request create/resolve,
   candidate reject, conflict reject/merge, and goat identifier add/retire
   through server-side actions. Non-Phase-1 legacy modules and undefined
@@ -115,6 +117,13 @@ Completed so far:
   self-contradicting sex/breed evidence, open Data Quality conflicts for review.
   When an import run is supplied, it can fill sole-reason `blank_gender` import
   rows from deterministic BQ RFID evidence.
+  `--backfill-missing` is currently fail-closed: the legacy dashboard aggregate
+  proves count gaps, and the BQ event/latest-location exports reconcile existing
+  matched passports, but they do not provide one deterministic current identity
+  row per missing passport. Missing-passport creation stays blocked until an
+  accessible per-goat current identity export/bridge is available; creating
+  passports directly from aggregate counts or event-history keys would be fake
+  data.
   BQ dashboard shed
   taxonomy is now seeded under the existing CBE/CPT park locations so matched
   goats can carry specific shed current locations without breaking old-tag
@@ -132,11 +141,14 @@ Completed so far:
   nonblank passport sex/breed unchanged when BQ disagrees, opens review
   conflicts instead of silently choosing a side, and only filled the former
   blank-gender staging rows plus same-meaning breed-label normalization. RFID evidence is
-  evaluated separately from reused/scoped old-tag evidence; current
+  evaluated separately from reused/scoped old-tag evidence for lifecycle, while
+  passport attribute checks look across all matched BQ evidence so RFID/old-tag
+  sex or breed contradictions become review conflicts instead of hidden clean
+  passports. Current
   disagreements and terminal-after-activity cases are surfaced as 54 lifecycle
   Data Quality `status_mismatch` conflicts for operator review. The current DB
-  also has 79 open BQ attribute review conflict rows, covering 80 reason
-  occurrences: 59 sex and 21 breed. Goat identity state is 1094 `clean` and 125
+  also has 106 open BQ attribute review conflict rows, covering 108 reason
+  occurrences: 73 sex and 35 breed. Goat identity state is 1088 `clean` and 131
   `needs_review`; these review states are the intended safety net for BQ/passport
   disagreements. A follow-up BQ
   location pass seeded 154 CBE/CPT shed locations; the current DB has 891 goats

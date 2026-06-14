@@ -43,6 +43,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/admin/identity/conflicts"},
 		{"GET", "/admin/identity/conflicts/20000000-0000-4000-8000-000000000001"},
 		{"POST", "/admin/identity/conflicts/20000000-0000-4000-8000-000000000001/resolve"},
+		{"GET", "/admin/import-runs"},
 		{"GET", "/admin/import-runs/70000000-0000-4000-8000-000000000001"},
 		{"GET", "/admin/import-runs/70000000-0000-4000-8000-000000000001/rows"},
 		{"POST", "/admin/import-runs"},

@@ -42,6 +42,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /admin/identity/conflicts", h.ListConflicts)
 	mux.HandleFunc("GET /admin/identity/conflicts/{conflict_id}", h.GetConflict)
 	mux.HandleFunc("POST /admin/identity/conflicts/{conflict_id}/resolve", h.ResolveConflict)
+	mux.HandleFunc("GET /admin/import-runs", h.ListImportRuns)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}", h.GetImportRun)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows", h.ListImportRunRows)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows.csv", h.ExportImportRunRowsCSV)
@@ -155,6 +156,18 @@ func (h *Handler) ListCandidates(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetImportRun(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetImportRun(r.Context(), tenantID(r), r.PathValue("import_run_id"), traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) ListImportRuns(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLimitWithMax(w, r, 50)
+	if !ok {
+		return
+	}
+	result, err := h.service.ListImportRuns(r.Context(), ports.ListImportRunsParams{
+		TenantID: tenantID(r),
+		Limit:    limit,
+	}, traceID(r))
 	h.respond(w, r, result, err)
 }
 
