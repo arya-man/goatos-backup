@@ -281,8 +281,9 @@ RFID/scoped-old-tag matches for lifecycle and current location only; it does not
 create goats, add identifiers, or emit outbox events. BQ Shifting evidence
 without terminal Sale/Death is proof-of-life and should keep the goat `alive`.
 Death remains terminal. Sale is reversed only by a later Purchase; later
-Shifting/Birth after Sale or Death opens a Data Quality `status_mismatch`
-conflict instead of silently reviving the goat. Unmatched local goats stay
+non-purchase activity such as Shifting, Birth, or Abortion after Sale or Death
+opens a Data Quality `status_mismatch` conflict instead of silently reviving the
+goat. Unmatched local goats stay
 untouched until identifier reconciliation/backfill work supplies stronger
 evidence.
 

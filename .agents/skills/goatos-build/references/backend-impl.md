@@ -455,10 +455,11 @@ Rules:
   deterministic matches to shed-level current locations, leaves 83 matched goats
   park-only because BQ had no safe shed, and leaves 272 unmatched goats
   untouched. The correction is now replayable through
-  `backend/cmd/bq-reconcile`, not a one-off local DB patch. BQ Shifting
-  evidence without terminal Sale/Death is proof-of-life, but Shifting/Birth after
-  terminal evidence does not resurrect the goat. Death remains terminal; Sale is
-  reversed only by a later Purchase; terminal-after-activity and RFID-vs-old-tag
+  `backend/cmd/bq-reconcile`, not a one-off local DB patch. BQ Shifting or
+  Abortion evidence without terminal Sale/Death is proof-of-life, but
+  non-purchase activity such as Shifting, Birth, or Abortion after terminal
+  evidence does not resurrect the goat. Death remains terminal; Sale is reversed
+  only by a later Purchase; terminal-after-activity and RFID-vs-old-tag
   lifecycle disagreements open Data Quality `status_mismatch` conflicts. After
   counter rebuild, tenant_lifecycle is alive 1109, sold 71, dead 35, inactive 0;
   54 lifecycle disagreements are open Data Quality `status_mismatch` conflicts;

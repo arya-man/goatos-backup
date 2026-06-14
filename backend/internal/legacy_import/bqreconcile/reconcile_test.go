@@ -108,6 +108,14 @@ func TestPlanUsesLatestLifecycleEventPerIdentifier(t *testing.T) {
 			wantIdentity:   "clean",
 		},
 		{
+			name:           "abortion only is alive",
+			startLifecycle: "inactive",
+			startIdentity:  "clean",
+			events:         []Event{{GoatID: "123456789012345", Event: "Abortion", Date: "2026-02-01"}},
+			wantLifecycle:  "alive",
+			wantIdentity:   "clean",
+		},
+		{
 			name:           "later sale beats earlier shifting",
 			startLifecycle: "alive",
 			startIdentity:  "clean",
@@ -125,6 +133,19 @@ func TestPlanUsesLatestLifecycleEventPerIdentifier(t *testing.T) {
 			events: []Event{
 				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
 				{GoatID: "123456789012345", Event: "Shifting", Date: "2026-03-01"},
+			},
+			wantLifecycle:    "sold",
+			wantIdentity:     "needs_review",
+			wantConflict:     true,
+			wantConflictCode: "sale_then_later_nonpurchase_activity",
+		},
+		{
+			name:           "sale followed only by abortion stays sold and needs review",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Sale", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Abortion", Date: "2026-03-01"},
 			},
 			wantLifecycle:    "sold",
 			wantIdentity:     "needs_review",
@@ -173,6 +194,19 @@ func TestPlanUsesLatestLifecycleEventPerIdentifier(t *testing.T) {
 			events: []Event{
 				{GoatID: "123456789012345", Event: "Death", Date: "2026-02-01"},
 				{GoatID: "123456789012345", Event: "Birth", Date: "2026-03-01"},
+			},
+			wantLifecycle:    "dead",
+			wantIdentity:     "needs_review",
+			wantConflict:     true,
+			wantConflictCode: "death_then_later_activity",
+		},
+		{
+			name:           "abortion after death stays dead and needs review",
+			startLifecycle: "alive",
+			startIdentity:  "clean",
+			events: []Event{
+				{GoatID: "123456789012345", Event: "Death", Date: "2026-02-01"},
+				{GoatID: "123456789012345", Event: "Abortion", Date: "2026-03-01"},
 			},
 			wantLifecycle:    "dead",
 			wantIdentity:     "needs_review",

@@ -258,11 +258,12 @@ promotion/remapping. The post-000015 proof creates 780 goats after normal apply
 and 1215 after guarded RFID-only apply, with 8 review rows and 0 errors. A
 follow-up BQ reconciliation corrected deterministic matched passport properties:
 the replayable BQ reconciliation command now consumes legacy BQ event and
-latest-location exports, BQ Shifting evidence without terminal Sale/Death is
-proof-of-life, 272 existing passports still have no BQ-derived current location,
-Death remains terminal, Sale is reversed only by a later Purchase, and later
-Shifting/Birth after terminal evidence opens a Data Quality conflict instead of
-resurrecting the goat. RFID evidence is compared separately from reused/scoped
+latest-location exports, BQ Shifting or Abortion evidence without terminal
+Sale/Death is proof-of-life, 272 existing passports still have no BQ-derived
+current location, Death remains terminal, Sale is reversed only by a later
+Purchase, and later non-purchase activity such as Shifting, Birth, or Abortion
+after terminal evidence opens a Data Quality conflict instead of resurrecting
+the goat. RFID evidence is compared separately from reused/scoped
 old-tag evidence, current identifier-lifecycle disagreements and
 terminal-after-activity cases produce 54 Data Quality `status_mismatch`
 conflicts, and `tenant_lifecycle` now reports alive 1109, sold 71, dead 35, and

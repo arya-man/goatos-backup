@@ -656,8 +656,9 @@ RFID/BQ source-of-truth staging and reconciliation:
   treated as proof-of-life, and 272 existing passports still have no BQ-derived
   current location and need identifier reconciliation/backfill. BQ lifecycle is
   reduced conservatively per identifier: Death remains terminal, Sale is reversed
-  only by a later Purchase, and later Shifting/Birth after a terminal event keeps
-  the conservative terminal state while opening a review conflict. Counters were
+  only by a later Purchase, and later non-purchase activity such as Shifting,
+  Birth, or Abortion after a terminal event keeps the conservative terminal
+  state while opening a review conflict. Counters were
   rebuilt to tenant_lifecycle alive 1109, sold 71, dead 35, inactive 0. RFID
   evidence is evaluated separately from reused/scoped old-tag evidence; current
   evidence-stream disagreements plus terminal-after-activity cases are marked

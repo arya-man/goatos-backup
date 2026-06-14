@@ -25,6 +25,7 @@ const (
 	eventTypePurchase = "purchase"
 	eventTypeSale     = "sale"
 	eventTypeShifting = "shifting"
+	eventTypeAbortion = "abortion"
 
 	aliasSourceContext = "legacy_bq_dashboard_shed"
 )
@@ -467,6 +468,8 @@ func lifecycleForEvent(event Event) (string, int) {
 		return "alive", 1
 	case eventTypeShifting:
 		return "alive", 1
+	case eventTypeAbortion:
+		return "alive", 1
 	case eventTypeSale:
 		return "sold", 2
 	case eventTypeDeath:
@@ -527,7 +530,7 @@ func targetLifecycle(evidence *goatEvidence) (string, *lifecycleConflict) {
 func targetLifecycleForEvidence(evidence lifecycleEvidence, identifierKind, identifierKey string) (string, *identifierLifecycleConflict) {
 	death := latestLifecycleEvent(evidence.events, eventTypeDeath)
 	if death != nil {
-		if later := latestLifecycleEventAfter(evidence.events, death.date, eventTypeBirth, eventTypePurchase, eventTypeSale, eventTypeShifting); later != nil {
+		if later := latestLifecycleActivityAfter(evidence.events, death.date); later != nil {
 			return "dead", &identifierLifecycleConflict{
 				Reason:            "death_then_later_activity",
 				TerminalLifecycle: "dead",
@@ -545,7 +548,7 @@ func targetLifecycleForEvidence(evidence lifecycleEvidence, identifierKind, iden
 		if purchase := latestLifecycleEventAfter(evidence.events, sale.date, eventTypePurchase); purchase != nil {
 			return "alive", nil
 		}
-		if later := latestLifecycleEventAfter(evidence.events, sale.date, eventTypeBirth, eventTypeShifting); later != nil {
+		if later := latestLifecycleActivityAfter(evidence.events, sale.date); later != nil {
 			return "sold", &identifierLifecycleConflict{
 				Reason:            "sale_then_later_nonpurchase_activity",
 				TerminalLifecycle: "sold",
@@ -558,7 +561,7 @@ func targetLifecycleForEvidence(evidence lifecycleEvidence, identifierKind, iden
 		}
 		return "sold", nil
 	}
-	if alive := latestLifecycleEvent(evidence.events, eventTypeBirth, eventTypePurchase, eventTypeShifting); alive != nil {
+	if alive := latestAliveLifecycleEvent(evidence.events); alive != nil {
 		return "alive", nil
 	}
 	return evidence.lifecycle, nil
@@ -582,6 +585,20 @@ func latestLifecycleEvent(events []lifecycleEvent, eventTypes ...string) *lifecy
 	return out
 }
 
+func latestAliveLifecycleEvent(events []lifecycleEvent) *lifecycleEvent {
+	var out *lifecycleEvent
+	for i := range events {
+		event := events[i]
+		if event.lifecycle != "alive" {
+			continue
+		}
+		if out == nil || lifecycleEventAfter(event.date, event.rank, out.date, out.rank) {
+			out = &events[i]
+		}
+	}
+	return out
+}
+
 func latestLifecycleEventAfter(events []lifecycleEvent, afterDate string, eventTypes ...string) *lifecycleEvent {
 	if strings.TrimSpace(afterDate) == "" {
 		return nil
@@ -594,6 +611,26 @@ func latestLifecycleEventAfter(events []lifecycleEvent, afterDate string, eventT
 	for i := range events {
 		event := events[i]
 		if _, ok := wanted[event.eventType]; !ok {
+			continue
+		}
+		if strings.TrimSpace(event.date) <= afterDate {
+			continue
+		}
+		if out == nil || lifecycleEventAfter(event.date, event.rank, out.date, out.rank) {
+			out = &events[i]
+		}
+	}
+	return out
+}
+
+func latestLifecycleActivityAfter(events []lifecycleEvent, afterDate string) *lifecycleEvent {
+	if strings.TrimSpace(afterDate) == "" {
+		return nil
+	}
+	var out *lifecycleEvent
+	for i := range events {
+		event := events[i]
+		if event.lifecycle == "" {
 			continue
 		}
 		if strings.TrimSpace(event.date) <= afterDate {

@@ -2911,9 +2911,9 @@ dry-runs by default, mutates only with `--execute`, audits every changed goat,
 and requires counter rebuild before API/dashboard reads are considered fresh. The
 lifecycle reducer follows the legacy accounting shape: Shifting changes location
 and is proof-of-life only when there is no later terminal evidence; Death stays
-terminal, Sale is reversed only by later Purchase, and Shifting/Birth after
-terminal evidence opens a `status_mismatch` review conflict instead of reviving a
-goat.
+terminal, Sale is reversed only by later Purchase, and non-purchase activity
+such as Shifting, Birth, or Abortion after terminal evidence opens a
+`status_mismatch` review conflict instead of reviving a goat.
 ```
 
 Source key and hash implementation:
