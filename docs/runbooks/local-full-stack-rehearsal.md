@@ -283,7 +283,10 @@ Then rebuild counters before trusting API/dashboard reads:
 ```
 
 `bq-reconcile` is idempotent and audited. It updates deterministic
-RFID/scoped-old-tag matches for lifecycle, current location, sex, and breed.
+RFID/scoped-old-tag matches for lifecycle and current location. It fills blank
+local attributes from deterministic BQ evidence and normalizes same-meaning breed
+labels, but nonblank BQ/passport sex or breed disagreements become Data Quality
+review conflicts rather than silent overwrites.
 When `--import-run-id` is supplied, it can also fill sole-reason `blank_gender`
 staging rows from deterministic BQ RFID evidence and requeue those rows for the
 normal `rfid-apply` path. It does not create goats directly, add identifiers, or
@@ -292,8 +295,7 @@ BQ Shifting evidence without terminal Sale/Death is proof-of-life and should
 keep the goat `alive`. Death remains terminal. Sale is reversed only by a later
 Purchase; later non-purchase activity such as Shifting, Birth, or Abortion after
 Sale or Death opens a Data Quality `status_mismatch` conflict instead of
-silently reviving the goat. Deterministic BQ-vs-passport sex/breed drift is
-corrected with audit rows. Unmatched local goats stay
+silently reviving the goat. Unmatched local goats stay
 untouched until identifier reconciliation/backfill work supplies stronger
 evidence.
 

@@ -2322,12 +2322,15 @@ Fresh local Docker Postgres proof after BQ reconciliation plus migration 000018:
     /herd
     /goats/{goat_id} with live timeline
     /import-review?import_run_id=<final_run_id>
-    /data-quality with honest empty states when queues are empty
+    /data-quality with live conflict rows when BQ review conflicts exist, and
+    honest empty states when queues are empty
 ```
 
-The real local proof DB had no conflicts, candidates, or correction requests;
-backend repository/handler coverage proves populated list paths for those
-queues separately.
+The earlier local proof DB had no conflicts, candidates, or correction requests.
+The current post-BQ proof should render live lifecycle/attribute conflicts in
+Data Quality; candidates and correction requests remain honest empty states
+unless populated, with backend repository/handler coverage for populated list
+paths.
 
 This proves the local identity/import/read/admin-demo spine only. Production
 auth/IdP, cloud deployment, Pub/Sub/event egress, richer messy-data search,
@@ -2915,10 +2918,12 @@ dashboard. A dashboard "Sync with BQ" control may exist only as an authenticated
 backend command trigger with RBAC, audit, idempotency, bounded batches, and a
 freshness/status surface; it must not call BigQuery directly from browser or
 Next frontend code. `backend/cmd/bq-reconcile` is the replayable current
-lifecycle/location reconciliation and BQ-backed attribute correction command for fresh local/dev/stg/prod
+lifecycle/location reconciliation and BQ-backed attribute fill/review command for fresh local/dev/stg/prod
 databases: it consumes read-only BQ event and latest-location export JSON/JSONL,
 dry-runs by default, mutates only with `--execute`, audits every changed goat,
-corrects deterministic matched-passport sex/breed drift, can fill sole-reason
+fills blank local sex/breed values from deterministic BQ evidence, normalizes
+same-meaning breed labels, opens review conflicts for nonblank BQ/passport
+sex/breed disagreements or BQ self-contradiction, can fill sole-reason
 `blank_gender` import rows when `--import-run-id` is provided, and requires
 counter rebuild before API/dashboard reads are considered fresh. The
 lifecycle reducer follows the legacy accounting shape: Shifting changes location

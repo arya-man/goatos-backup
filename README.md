@@ -102,16 +102,19 @@ Completed so far:
   admin "Sync with BQ" control should trigger the same backend job that scheduled
   local/dev/stg/prod syncs use, with RBAC, audit, idempotency, and visible
   freshness status. `backend/cmd/bq-reconcile` is the committed replay path for
-  current lifecycle/location correction plus BQ-backed attribute correction: it
+  current lifecycle/location reconciliation plus BQ-backed attribute fill/review: it
   consumes read-only legacy BQ
   event and latest-location exports, dry-runs by default, applies only with
   `--execute`, audits each changed goat, and must be followed by
   identity-counter rebuilds. BQ-derived
   reconciliation updates now correct matched Goat OS passports for lifecycle,
   park/current location, and safe shed assignment where the match is
-  deterministic. It corrects deterministic sex and breed differences from BQ,
-  can fill sole-reason `blank_gender` import rows when an import run is supplied,
-  and leaves only identifier/lifecycle disagreements as Data Quality conflicts.
+  deterministic. It may fill blank local sex/breed values from deterministic BQ
+  evidence and may normalize same-meaning breed labels, but it does not overwrite
+  nonblank passport sex/breed when BQ disagrees. Those disagreements, plus BQ
+  self-contradicting sex/breed evidence, open Data Quality conflicts for review.
+  When an import run is supplied, it can fill sole-reason `blank_gender` import
+  rows from deterministic BQ RFID evidence.
   BQ dashboard shed
   taxonomy is now seeded under the existing CBE/CPT park locations so matched
   goats can carry specific shed current locations without breaking old-tag
@@ -125,23 +128,27 @@ Completed so far:
   evidence without terminal Sale/Death is proof-of-life, Death is sticky, Sale
   is reversed only by a later Purchase, and later non-purchase activity such as
   Shifting, Birth, or Abortion after a terminal event opens a review conflict
-  instead of silently reviving the goat. BQ attribute reconciliation corrected
-  deterministic matched-passport sex and breed drift, including the former
-  blank-gender staging rows. RFID evidence is
+  instead of silently reviving the goat. BQ attribute reconciliation now keeps
+  nonblank passport sex/breed unchanged when BQ disagrees, opens review
+  conflicts instead of silently choosing a side, and only filled the former
+  blank-gender staging rows plus same-meaning breed-label normalization. RFID evidence is
   evaluated separately from reused/scoped old-tag evidence; current
-  disagreements and terminal-after-activity cases are surfaced as 54 Data
-  Quality `status_mismatch` conflicts for operator review. A follow-up BQ
+  disagreements and terminal-after-activity cases are surfaced as 54 lifecycle
+  Data Quality `status_mismatch` conflicts for operator review. The current DB
+  also has 79 open BQ attribute review conflict rows, covering 80 reason
+  occurrences: 59 sex and 21 breed. Goat identity state is 1094 `clean` and 125
+  `needs_review`; these review states are the intended safety net for BQ/passport
+  disagreements. A follow-up BQ
   location pass seeded 154 CBE/CPT shed locations; the current DB has 891 goats
   with shed-level current locations, 56 park-only goats, and 272 existing
   passports that cannot be joined to BQ by RFID or scoped old tag pending
   identifier reconciliation.
-  Overview, herd
-  search, goat passport with live identity timeline, identity counts, live
-  Import Review, and live correction-request queue reads rendered against the
-  final run. The real local DB had no conflicts, candidates, or correction
-  rows, so Data Quality rendered honest empty states while backend
-  conflict/candidate/correction list coverage proves populated read paths
-  separately.
+  Overview, herd search, goat passport with live identity timeline, identity
+  counts, live Import Review, and live correction-request queue reads rendered
+  against the final run. Earlier UI proof rendered honest empty states before BQ
+  conflicts existed; current post-BQ proof should render the live Data Quality
+  conflict queue for lifecycle and attribute review conflicts, while candidates
+  and correction requests remain honest empty states unless populated.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
 - Contract validation and migration validation.

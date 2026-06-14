@@ -8,11 +8,12 @@ plus `rfid-apply --allow-rfid-only-blank-suffix`, source Breed handling is
 corrected by migration `000015`, and approved plain `K1` status mapping is
 implemented by migration `000018`.
 
-Current post-BQ-reconcile outcome: deterministic BQ-backed sex/breed
-corrections are applied, sole-reason `blank_gender` staging rows are filled from
-BQ RFID evidence and created through normal `rfid-apply`, and the remaining
-Import Review rows are only `duplicate_old_tag_same_scope` (4). Historical
-sections below retain earlier rehearsal counts for audit trail.
+Current post-BQ-reconcile outcome: BQ-backed blank-gender fills are applied from
+deterministic RFID evidence and created through normal `rfid-apply`; same-meaning
+breed-label drift can be normalized; nonblank passport sex/breed disagreements
+with BQ remain unchanged and route to Data Quality review. The remaining Import
+Review rows are only `duplicate_old_tag_same_scope` (4). Historical sections
+below retain earlier rehearsal counts for audit trail.
 
 This report summarizes the first real Shape-2 RFID data rehearsal after
 staging, apply, and final anomaly-report generation, then records local reruns

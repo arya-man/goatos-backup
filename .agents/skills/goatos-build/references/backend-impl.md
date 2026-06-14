@@ -55,7 +55,7 @@ docs/runbooks/local-full-stack-rehearsal.md  local Phase 1 import/API/admin-web 
 docs/runbooks/local-docker-storage.md        local Docker storage safety and cleanup rules
 backend/cmd/rfid-import                      legacy RFID parser/import harness CLI
 backend/cmd/rfid-apply                       staged RFID canonical apply CLI
-backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location and BQ-backed attribute correction CLI
+backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location and BQ-backed attribute fill/review CLI
 backend/cmd/rebuild-identity-counters        local/reporting counter rebuild after apply
 backend/internal/legacy_import/xlsx.go       workbook parser and sheet-selection behavior
 backend/internal/legacy_import/normalize.go  emitted staging/review/error reason codes
@@ -351,16 +351,18 @@ Rules:
   sync job used by scheduled local/dev/stg/prod syncs, with RBAC, audit,
   idempotency, bounded batches, and freshness/status reporting.
   `backend/cmd/bq-reconcile` is the committed replay path for current
-  lifecycle/current-location corrections and BQ-backed attribute correction
+  lifecycle/current-location reconciliation and BQ-backed attribute fill/review
   from BQ event and latest-location exports. Exported event dates must be
   strict `YYYY-MM-DD`; malformed dates are rejected before planning because
   lifecycle ordering depends on them. The command dry-runs by default, requires
   `--execute` plus GOATOS_ENV for mutation, takes a tenant advisory lock,
   updates deterministic RFID/scoped-old-tag matches only, lets RFID lifecycle
   evidence win over reused/scoped old-tag lifecycle evidence, opens Data Quality
-  `status_mismatch` conflicts for identifier/lifecycle disagreements, corrects
-  deterministic BQ-vs-passport sex and breed drift with audit rows, writes
-  `goat.bq_reconciled` audit rows, and requires
+  `status_mismatch` conflicts for identifier/lifecycle disagreements, fills
+  blank local sex/breed values from deterministic BQ evidence, normalizes
+  same-meaning breed labels, opens review conflicts instead of overwriting
+  nonblank BQ/passport sex or breed disagreements, writes `goat.bq_reconciled`
+  audit rows, and requires
   `rebuild-identity-counters` afterward. When `--import-run-id` is supplied, it
   may fill sole-reason `blank_gender` staging rows from deterministic BQ RFID
   evidence and requeue them for the normal `rfid-apply` path. It does not create
@@ -470,18 +472,22 @@ Rules:
   evidence does not resurrect the goat. Death remains terminal; Sale is reversed
   only by a later Purchase; terminal-after-activity and RFID-vs-old-tag
   lifecycle disagreements open Data Quality `status_mismatch` conflicts. BQ
-  attribute reconciliation corrects deterministic sex/breed drift, including the
-  former blank-gender staging rows, instead of leaving hidden clean
-  contradictions. After counter rebuild, tenant_lifecycle is alive 1113, sold
-  71, dead 35, inactive 0; 54 lifecycle disagreements are open Data Quality
-  `status_mismatch` conflicts; current locations are 891 shed-level, 56
-  park-only, and 272 with no current location. The local SSR proof rendered real
+  attribute reconciliation fills blanks and normalizes same-meaning breed labels,
+  but keeps nonblank passport sex/breed unchanged when BQ disagrees and opens
+  review conflicts instead of hiding contradictions. After counter rebuild,
+  tenant_lifecycle is alive 1113, sold 71, dead 35, inactive 0; identity_state is
+  1094 clean and 125 needs_review. 54 lifecycle disagreements are open Data
+  Quality `status_mismatch` conflicts, plus 79 open BQ attribute review conflict
+  rows covering 80 occurrences: 59 sex and 21 breed. Current locations are 891
+  shed-level, 56 park-only, and 272 with no current location. The local SSR proof rendered real
   herd rows, a real goat passport with live timeline, and live Import Review
   summary/rows through admin-web; reruns after 000015 and BQ reconciliation
   must expect this post-BQ state, not the historical 711/512, 1215-alive, or
-  1215/8 counts. The real local DB had 0 conflicts, 0 candidates, and 0 correction
-  rows, so Data Quality rendered honest empty states while backend tests cover
-  populated conflict/candidate/correction read paths. C-lite suffix derivation from
+  1215/8 counts. Earlier UI proof rendered honest empty states before BQ
+  conflicts existed; current post-BQ proof should render the live Data Quality
+  conflict queue for BQ lifecycle and attribute conflicts. Candidates and
+  correction requests remain honest empty states unless populated, while backend
+  tests cover populated list paths. C-lite suffix derivation from
   Farm/Shed/Partition remains rejected because Partition and Shed are not
   one-to-one with suffix context. Further data work includes source correction
   or reviewed policy for duplicate same-scope old_tag rows.

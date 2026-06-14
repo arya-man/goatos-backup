@@ -90,9 +90,11 @@ implementation for the current lifecycle/location and BQ-backed attribute
 correction is
 `backend/cmd/bq-reconcile`: it consumes read-only BQ event and latest-location
 exports, dry-runs by default, applies only with `--execute`, writes audit rows
-for changed goats, corrects deterministic BQ-vs-passport sex/breed drift, can
-fill sole-reason `blank_gender` import rows when an import run is supplied, and
-requires identity-counter rebuilds before dashboards are trusted.
+for changed goats, fills blank local attributes from deterministic BQ evidence,
+normalizes same-meaning breed labels, opens review conflicts when nonblank
+passport sex/breed disagrees with BQ or BQ self-contradicts, can fill sole-reason
+`blank_gender` import rows when an import run is supplied, and requires
+identity-counter rebuilds before dashboards are trusted.
 
 ## Architecture Guarantees
 
@@ -258,8 +260,9 @@ Known approved labels stay active in the breed catalog; unknown nonblank labels
 may create passports but remain review-status catalog entries until operator
 promotion/remapping. The post-000015 proof creates 780 goats after normal apply
 and 1215 after guarded RFID-only apply, with 8 review rows and 0 errors. A
-follow-up BQ reconciliation corrected deterministic matched passport properties
-and then requeued BQ-backed sole-reason blank-gender rows through normal apply:
+follow-up BQ reconciliation corrected deterministic lifecycle/location
+properties and then requeued BQ-backed sole-reason blank-gender rows through
+normal apply:
 the replayable BQ reconciliation command now consumes legacy BQ event and
 latest-location exports, BQ Shifting or Abortion evidence without terminal
 Sale/Death is proof-of-life, 272 existing passports still have no BQ-derived
@@ -269,9 +272,12 @@ after terminal evidence opens a Data Quality conflict instead of resurrecting
 the goat. RFID evidence is compared separately from reused/scoped
 old-tag evidence, current identifier-lifecycle disagreements and
 terminal-after-activity cases produce 54 Data Quality `status_mismatch`
-conflicts, deterministic BQ sex/breed drift is corrected with audit rows, and
-the settled current state is 1219 passports, 4 duplicate-old-tag Import Review
-rows, 0 errors, and `tenant_lifecycle` alive 1113, sold 71, dead 35, inactive 0.
+conflicts. BQ attribute reconciliation fills blanks and normalizes same-meaning
+breed labels, but nonblank passport sex/breed disagreements with BQ stay
+unchanged and open Data Quality review conflicts. The settled current state is
+1219 passports, 4 duplicate-old-tag Import Review rows, 0 errors,
+`tenant_lifecycle` alive 1113, sold 71, dead 35, inactive 0, and goat identity
+state 1094 `clean` / 125 `needs_review`.
 The Mesha admin-web renders the overview, counts, herd search, a real goat
 passport, live Import Review rows for that final run, and an honest Data Quality
 queue when the real local DB has conflicts or candidates.

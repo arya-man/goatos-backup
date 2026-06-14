@@ -557,16 +557,17 @@ RFID/BQ source-of-truth staging and reconciliation:
   until the committed BQ sync/reconciliation path has run and counters are
   rebuilt.
   `backend/cmd/bq-reconcile` is the replayable lifecycle/current-location
-  correction and BQ-backed attribute correction path for fresh local/dev/stg/prod
+  reconciliation and BQ-backed attribute fill/review path for fresh local/dev/stg/prod
   databases. It consumes a
   read-only legacy BQ event export plus optional latest-location export as JSON
   array or JSONL with strict `YYYY-MM-DD` event dates, dry-runs by default,
   requires explicit `--execute` plus GOATOS_ENV for mutation, takes an advisory
   tenant lock, updates only deterministic RFID/scoped-old-tag matches, writes a
   `goat.bq_reconciled` audit row for every changed goat, and emits no goat
-  creation or outbox events. It fills safe missing sex values from BQ, keeps
-  nonblank passport sex/breed unchanged when BQ disagrees, and opens Data
-  Quality `status_mismatch` conflicts for those disagreements so they are not
+  creation or outbox events. It fills safe missing sex/breed values from BQ,
+  normalizes same-meaning breed labels, keeps nonblank passport sex/breed
+  unchanged when BQ disagrees, and opens Data Quality `status_mismatch`
+  conflicts for those disagreements or BQ self-contradictions so they are not
   hidden as clean passports.
   Rebuild identity counters after every execute before trusting the dashboard.
   real staging writes legacy_import_runs as running -> completed or failed and
@@ -669,15 +670,18 @@ RFID/BQ source-of-truth staging and reconciliation:
   evidence-stream disagreements plus terminal-after-activity cases are marked
   `identity_state = needs_review` and opened as 54 Data Quality
   `status_mismatch` conflicts rather than silently trusting the old tag or
-  resurrecting terminal goats. A follow-up BQ attribute reconciliation pass on
-  the same fresh export corrected deterministic matched-passport sex and breed
-  drift: 46 sex corrections plus 16 breed corrections/normalizations, including
-  the former 15 cosmetic Anantapur Sheep/Anantapur label drifts. Supplying
-  `--import-run-id` lets `bq-reconcile` fill sole-reason `blank_gender` staging
-  rows from deterministic BQ RFID evidence; the normal `rfid-apply` path then
-  created those 4 goats after migration 000018 added the approved plain K1
-  status mapping. The settled local state is created_goat 1219, needs_review 4,
-  error 0, with the remaining Import Review rows all
+  resurrecting terminal goats. The BQ attribute reconciliation policy was
+  corrected so it no longer overwrites nonblank passport sex/breed when BQ
+  disagrees. It fills blanks, normalizes same-meaning breed labels such as
+  Anantapur Sheep/Anantapur, and opens Data Quality conflicts for nonblank
+  BQ/passport disagreements or BQ self-contradictions. The previous 46 sex plus
+  1 real breed overwrites were restored from audit history and recorded with
+  `goat.bq_attribute_overwrite_reverted` audit rows. Supplying `--import-run-id`
+  lets `bq-reconcile` fill sole-reason `blank_gender` staging rows from
+  deterministic BQ RFID evidence; the normal `rfid-apply` path then created
+  those 4 goats after migration 000018 added the approved plain K1 status
+  mapping. The settled local Import Review state is created_goat 1219,
+  needs_review 4, error 0, with the remaining Import Review rows all
   `duplicate_old_tag_same_scope`. The
   historical source proof found 508
   Anantapur Sheep rows in the RFID source and showed the source Breed label was
@@ -689,16 +693,20 @@ RFID/BQ source-of-truth staging and reconciliation:
   untouched. This correction is replayable through
   `backend/cmd/bq-reconcile`; it is no longer a one-off local DB mutation. After
   counter rebuild, tenant_lifecycle is alive 1113, sold 71, dead 35, inactive 0;
-  shed_lifecycle has 141 rows. SSR admin-web proof should use this
+  identity_state is 1094 clean and 125 needs_review. Data Quality has 54 open
+  lifecycle/status conflicts plus 79 open BQ attribute review conflict rows
+  covering 80 occurrences: 59 sex and 21 breed. shed_lifecycle has 141 rows.
+  SSR admin-web proof should use this
   post-BQ-reconciled state, not the historical 711/512, 1215-alive, or 1215/8
   split.
   The previous local closeout proof with migrations through 000014 rendered `/`,
   `/counts`, `/herd`, `/goats/{goat_id}`, `/import-review`, and `/data-quality`
   through the Mesha admin-web; reruns after 000015 and BQ reconciliation must
   keep those route checks and token-leak checks while expecting 1219 total
-  passports, 4 duplicate-old-tag Import Review rows, 54 Data Quality
-  status-mismatch conflicts, and tenant_lifecycle counters alive 1113, sold 71,
-  dead 35, inactive 0.
+  passports, 4 duplicate-old-tag Import Review rows, 54 lifecycle
+  status-mismatch conflicts, 79 BQ attribute review conflict rows, identity
+  state 1094 clean / 125 needs_review, and tenant_lifecycle counters alive 1113,
+  sold 71, dead 35, inactive 0.
   C-lite suffix derivation from Farm/Shed/Partition is rejected because
   Partition and Shed are not one-to-one with suffix context and a wrong derived
   old_tag scope is worse than unresolved evidence. Duplicate same-scope old_tag
@@ -878,8 +886,9 @@ This order is intentional and should not be inferred from conversation memory:
 1. Keep the local admin demo reproducible with source breed/category labels
    admitted into passport creation when nonblank and otherwise eligible.
    The UI now shows clean goats, passport detail with timeline, review buckets,
-   live Import Review rows, correction queue reads, identity counts, and honest
-   empty states where the local DB has no conflicts/candidates. Defined Phase 1B
+   live Import Review rows, correction queue reads, identity counts, live Data
+   Quality conflicts when BQ review conflicts exist, and honest empty states for
+   empty candidate/correction queues. Defined Phase 1B
    correction/candidate/conflict/identifier actions are live; source
    breed/category labels such as Anantapur Sheep should appear as goat passport
    breed/category values after apply, not as review blockers. Import Review row

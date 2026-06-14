@@ -40,12 +40,14 @@ Rules:
   created passports, 4 duplicate-old-tag import-review rows, 0 errors, and
   tenant_lifecycle counters alive=1113, sold=71, dead=35, inactive=0 after
   `backend/cmd/bq-reconcile`, final `rfid-apply`, and counter rebuild. It also
-  expects 54 Data Quality `status_mismatch` conflicts for identifier/lifecycle
-  disagreements, 891 goats assigned to shed-level current locations, 56
-  park-only goats, and 272 unmatched passports left unchanged. The proof covers overview, counts,
-  herd search, a real goat passport, live Import Review rows, and honest Data
-  Quality empty states when the local DB has no conflicts, candidates, or
-  correction requests. Backend tests cover populated list paths separately.
+  expects identity_state 1094 clean / 125 needs_review, 54 lifecycle
+  `status_mismatch` conflicts, and 79 BQ attribute review conflict rows covering
+  sex/breed disagreements or BQ self-contradictions. Current locations are 891
+  shed-level, 56 park-only, and 272 unmatched passports left unchanged. The proof
+  covers overview, counts, herd search, a real goat passport, live Import Review
+  rows, and the live Data Quality conflict queue when BQ conflicts are present.
+  Candidates and correction requests remain honest empty states unless populated;
+  backend tests cover populated list paths separately.
 - Admin-web is upgraded from the copied dashboard's Next 14 / React 18 stack to
   the frozen framework baseline in
   `context/frontend/final-frontend-mobile-backend-architecture.md`: Next

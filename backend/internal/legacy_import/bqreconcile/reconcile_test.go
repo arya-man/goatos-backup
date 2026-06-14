@@ -331,7 +331,7 @@ func TestPlanFillsMissingSexFromBQ(t *testing.T) {
 	}
 }
 
-func TestPlanCorrectsGenderMismatchFromBQ(t *testing.T) {
+func TestPlanFlagsGenderMismatchFromBQ(t *testing.T) {
 	events := []Event{{
 		GoatID: "123456789012345",
 		Event:  "Shifting",
@@ -351,14 +351,14 @@ func TestPlanCorrectsGenderMismatchFromBQ(t *testing.T) {
 	}}
 
 	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
-	if summary.GenderCorrections != 1 || summary.AttributeCorrections != 1 || summary.SexUpdates != 1 || summary.AttributeConflicts != 0 {
-		t.Fatalf("summary=%#v want gender correction and no attribute conflict", summary)
+	if summary.GenderConflicts != 1 || summary.AttributeConflicts != 1 || summary.GenderCorrections != 0 || summary.SexUpdates != 0 || summary.IdentityReviewUpdates != 1 {
+		t.Fatalf("summary=%#v want gender conflict and review update", summary)
 	}
-	if len(patches) != 1 || patches[0].AfterSex != "male" || patches[0].AfterIdentity != "clean" {
-		t.Fatalf("patches=%#v want sex corrected and identity clean", patches)
+	if len(patches) != 1 || patches[0].AfterSex != "female" || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want sex unchanged and identity review", patches)
 	}
-	if got := patches[0].AttributeChanges[0].Reason; got != "gender_corrected_from_bq" {
-		t.Fatalf("correction reason=%q want gender_corrected_from_bq", got)
+	if got := patches[0].AttrConflicts[0].Reason; got != "gender_mismatch" {
+		t.Fatalf("conflict reason=%q want gender_mismatch", got)
 	}
 }
 
@@ -383,7 +383,7 @@ func TestPlanTreatsAnantapurSheepAsCosmeticBreedDrift(t *testing.T) {
 
 	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
 	if summary.BreedCosmeticDrifts != 1 || summary.BreedCorrections != 1 || summary.AttributeCorrections != 1 || summary.BreedConflicts != 0 {
-		t.Fatalf("summary=%#v want cosmetic breed correction", summary)
+		t.Fatalf("summary=%#v want cosmetic breed label normalization", summary)
 	}
 	if len(patches) != 1 || patches[0].AfterBreed != "Anantapur" || patches[0].AfterIdentity != "clean" {
 		t.Fatalf("patches=%#v want BQ breed label normalized without review", patches)
@@ -393,7 +393,7 @@ func TestPlanTreatsAnantapurSheepAsCosmeticBreedDrift(t *testing.T) {
 	}
 }
 
-func TestPlanCorrectsRealBreedMismatchFromBQ(t *testing.T) {
+func TestPlanFlagsRealBreedMismatchFromBQ(t *testing.T) {
 	events := []Event{{
 		GoatID: "123456789012345",
 		Event:  "Shifting",
@@ -413,14 +413,111 @@ func TestPlanCorrectsRealBreedMismatchFromBQ(t *testing.T) {
 	}}
 
 	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
-	if summary.BreedCorrections != 1 || summary.AttributeCorrections != 1 || summary.AttributeConflicts != 0 || summary.IdentityReviewUpdates != 0 {
-		t.Fatalf("summary=%#v want breed correction and no review update", summary)
+	if summary.BreedConflicts != 1 || summary.AttributeConflicts != 1 || summary.BreedCorrections != 0 || summary.AttributeCorrections != 0 || summary.IdentityReviewUpdates != 1 {
+		t.Fatalf("summary=%#v want breed conflict and review update", summary)
 	}
-	if len(patches) != 1 || patches[0].AfterBreed != "Beetal" || patches[0].AfterIdentity != "clean" {
-		t.Fatalf("patches=%#v want BQ breed correction", patches)
+	if len(patches) != 1 || patches[0].AfterBreed != "Sirohi" || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want breed unchanged and identity review", patches)
 	}
-	if got := patches[0].AttributeChanges[0].Reason; got != "breed_corrected_from_bq" {
-		t.Fatalf("correction reason=%q want breed_corrected_from_bq", got)
+	if got := patches[0].AttrConflicts[0].Reason; got != "breed_mismatch" {
+		t.Fatalf("conflict reason=%q want breed_mismatch", got)
+	}
+}
+
+func TestPlanFlagsBQGenderSelfConflict(t *testing.T) {
+	events := []Event{
+		{
+			GoatID: "123456789012345",
+			Event:  "Shifting",
+			Date:   "2026-02-03",
+			Gender: "Male",
+			Breed:  "Sojat",
+		},
+		{
+			GoatID: "123456789012345",
+			Event:  "Shifting",
+			Date:   "2026-02-04",
+			Gender: "Female",
+			Breed:  "Sojat",
+		},
+	}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Sojat",
+		Sex:             "female",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.GenderConflicts != 1 || summary.AttributeConflicts != 1 || summary.SexUpdates != 0 || summary.IdentityReviewUpdates != 1 {
+		t.Fatalf("summary=%#v want BQ gender self-conflict", summary)
+	}
+	if len(patches) != 1 || patches[0].AfterSex != "female" || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want sex unchanged and review", patches)
+	}
+	if got := patches[0].AttrConflicts[0].Reason; got != "bq_gender_self_conflict" {
+		t.Fatalf("conflict reason=%q want bq_gender_self_conflict", got)
+	}
+}
+
+func TestPlanCreatesMissingAttributeConflictForAlreadyReviewGoat(t *testing.T) {
+	events := []Event{{
+		GoatID: "123456789012345",
+		Event:  "Shifting",
+		Date:   "2026-02-03",
+		Gender: "Male",
+		Breed:  "Sojat",
+	}}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Sojat",
+		Sex:             "female",
+		LifecycleStatus: "alive",
+		IdentityState:   "needs_review",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.AttributeConflicts != 1 || summary.PatchesPlanned != 1 || summary.IdentityReviewUpdates != 0 {
+		t.Fatalf("summary=%#v want missing attribute conflict patch without identity update", summary)
+	}
+	if len(patches) != 1 || patches[0].AfterIdentity != "needs_review" || len(patches[0].AttrConflicts) != 1 {
+		t.Fatalf("patches=%#v want one conflict-only patch", patches)
+	}
+}
+
+func TestPlanSkipsExistingAttributeConflictForAlreadyReviewGoat(t *testing.T) {
+	events := []Event{{
+		GoatID: "123456789012345",
+		Event:  "Shifting",
+		Date:   "2026-02-03",
+		Gender: "Male",
+		Breed:  "Sojat",
+	}}
+	goats := []LocalGoat{{
+		GoatID:                     "00000000-0000-4000-8000-000000000101",
+		Breed:                      "Sojat",
+		Sex:                        "female",
+		LifecycleStatus:            "alive",
+		IdentityState:              "needs_review",
+		HasOpenBQAttributeConflict: true,
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.AttributeConflicts != 1 || summary.PatchesPlanned != 0 || summary.IdentityReviewUpdates != 0 {
+		t.Fatalf("summary=%#v want current attribute conflict counted without patch", summary)
+	}
+	if len(patches) != 0 {
+		t.Fatalf("patches=%#v want no patch when conflict row already exists", patches)
 	}
 }
 
