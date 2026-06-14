@@ -86,11 +86,13 @@ freshness/status; it must not query BigQuery from browser code. Current location
 correction uses the BQ dashboard location taxonomy: CBE and CPT remain
 park-scope locations for old-tag identity, while their BQ shed labels are
 represented as child shed locations for matched goats. The replayable
-implementation for the current lifecycle/location correction is
+implementation for the current lifecycle/location correction and BQ
+attribute-conflict surfacing is
 `backend/cmd/bq-reconcile`: it consumes read-only BQ event and latest-location
 exports, dry-runs by default, applies only with `--execute`, writes audit rows
-for changed goats, and requires identity-counter rebuilds before dashboards are
-trusted.
+for changed goats, opens Data Quality conflicts for BQ-vs-passport gender/breed
+disagreements instead of silently overwriting nonblank passport fields, and
+requires identity-counter rebuilds before dashboards are trusted.
 
 ## Architecture Guarantees
 

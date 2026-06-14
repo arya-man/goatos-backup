@@ -557,13 +557,17 @@ RFID/BQ source-of-truth staging and reconciliation:
   until the committed BQ sync/reconciliation path has run and counters are
   rebuilt.
   `backend/cmd/bq-reconcile` is the replayable lifecycle/current-location
-  correction path for fresh local/dev/stg/prod databases. It consumes a
+  correction and attribute-conflict surfacing path for fresh local/dev/stg/prod
+  databases. It consumes a
   read-only legacy BQ event export plus optional latest-location export as JSON
   array or JSONL with strict `YYYY-MM-DD` event dates, dry-runs by default,
   requires explicit `--execute` plus GOATOS_ENV for mutation, takes an advisory
   tenant lock, updates only deterministic RFID/scoped-old-tag matches, writes a
   `goat.bq_reconciled` audit row for every changed goat, and emits no goat
-  creation or outbox events.
+  creation or outbox events. It fills safe missing sex values from BQ, keeps
+  nonblank passport sex/breed unchanged when BQ disagrees, and opens Data
+  Quality `status_mismatch` conflicts for those disagreements so they are not
+  hidden as clean passports.
   Rebuild identity counters after every execute before trusting the dashboard.
   real staging writes legacy_import_runs as running -> completed or failed and
   inserts legacy_import_rows in bounded batches
@@ -665,7 +669,12 @@ RFID/BQ source-of-truth staging and reconciliation:
   evidence-stream disagreements plus terminal-after-activity cases are marked
   `identity_state = needs_review` and opened as 54 Data Quality
   `status_mismatch` conflicts rather than silently trusting the old tag or
-  resurrecting terminal goats. The
+  resurrecting terminal goats. A follow-up BQ attribute reconciliation pass on
+  the same fresh export found 46 gender conflict items and 1 real breed conflict
+  item across 43 matched passports; those passports are now marked
+  `identity_state = needs_review` with BQ attribute conflict evidence. The pass
+  also reports 15 cosmetic Anantapur Sheep/Anantapur breed-label drifts without
+  treating them as real breed conflicts. The
   source proof found 508
   Anantapur Sheep rows in the RFID source and 504 created Anantapur Sheep goat
   passports; the 4-row delta remains blocked by other apply gates, not by the

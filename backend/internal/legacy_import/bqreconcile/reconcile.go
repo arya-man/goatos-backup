@@ -31,6 +31,7 @@ const (
 )
 
 var nonAlnum = regexp.MustCompile(`[^A-Z0-9]+`)
+var breedLabelClean = regexp.MustCompile(`[^a-z0-9]+`)
 
 type Event struct {
 	Age         string `json:"age"`
@@ -48,6 +49,8 @@ type Event struct {
 
 type LocalGoat struct {
 	GoatID            string
+	Breed             string
+	Sex               string
 	LifecycleStatus   string
 	IdentityState     string
 	CurrentLocationID string
@@ -96,6 +99,11 @@ type Summary struct {
 	IdentityReviewUpdates   int            `json:"identity_review_updates"`
 	IdentityCleanUpdates    int            `json:"identity_clean_updates"`
 	LifecycleConflicts      int            `json:"lifecycle_conflicts"`
+	AttributeConflicts      int            `json:"attribute_conflicts"`
+	GenderConflicts         int            `json:"gender_conflicts"`
+	BreedConflicts          int            `json:"breed_conflicts"`
+	SexUpdates              int            `json:"sex_updates"`
+	BreedCosmeticDrifts     int            `json:"breed_cosmetic_drifts"`
 	StaleConflictsClosed    int            `json:"stale_lifecycle_conflicts_closed"`
 	PatchesPlanned          int            `json:"patches_planned"`
 	PatchesApplied          int            `json:"patches_applied"`
@@ -105,6 +113,8 @@ type Summary struct {
 
 type patch struct {
 	GoatID          string
+	BeforeSex       string
+	AfterSex        string
 	BeforeLifecycle string
 	AfterLifecycle  string
 	BeforeIdentity  string
@@ -122,10 +132,13 @@ type patch struct {
 	LatestFarmCode  string
 	LatestShed      string
 	Conflict        *lifecycleConflict
+	AttrConflicts   []attributeConflict
 }
 
 type goatEvidence struct {
 	events         []Event
+	rfidEvents     []Event
+	oldTagEvents   []Event
 	keys           map[string]struct{}
 	all            lifecycleEvidence
 	rfid           lifecycleEvidence
@@ -170,6 +183,17 @@ type lifecycleConflict struct {
 	LaterLifecycle    string
 	LaterEventDate    string
 	RecommendedState  string
+}
+
+type attributeConflict struct {
+	Attribute        string
+	Reason           string
+	LocalValue       string
+	BQValue          string
+	IdentifierKind   string
+	IdentifierKey    string
+	LatestEventDate  string
+	RecommendedState string
 }
 
 type queryer interface {
@@ -341,8 +365,10 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 		applyLifecycleEvent(&ev.all, event)
 		switch identifierKindForKey(key) {
 		case "rfid":
+			ev.rfidEvents = append(ev.rfidEvents, event)
 			applyLifecycleEvent(&ev.rfid, event)
 		case "old_tag":
+			ev.oldTagEvents = append(ev.oldTagEvents, event)
 			applyLifecycleEvent(&ev.oldTag, event)
 		}
 	}
@@ -379,12 +405,26 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 	for goatID, evidence := range evidenceByGoat {
 		goat := byGoat[goatID]
 		nextLifecycle, conflict := targetLifecycle(evidence)
+		nextSex, attrConflicts, cosmeticDrifts := targetAttributes(goat, evidence)
 		nextIdentity := goat.IdentityState
 		if conflict != nil {
 			nextIdentity = "needs_review"
 			summary.LifecycleConflicts++
 			summary.currentLifecycleConflictGoatIDs[goatID] = struct{}{}
 		}
+		if len(attrConflicts) > 0 {
+			nextIdentity = "needs_review"
+			summary.AttributeConflicts += len(attrConflicts)
+			for _, conflict := range attrConflicts {
+				switch conflict.Attribute {
+				case "sex":
+					summary.GenderConflicts++
+				case "breed":
+					summary.BreedConflicts++
+				}
+			}
+		}
+		summary.BreedCosmeticDrifts += cosmeticDrifts
 		nextCurrent := goat.CurrentLocationID
 		nextFarm := goat.FarmID
 		nextPark := goat.ParkID
@@ -417,6 +457,7 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 			nextLifecycle = goat.LifecycleStatus
 		}
 		if nextLifecycle == goat.LifecycleStatus &&
+			nextSex == goat.Sex &&
 			nextIdentity == goat.IdentityState &&
 			nextCurrent == goat.CurrentLocationID &&
 			nextFarm == goat.FarmID &&
@@ -426,6 +467,9 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 		}
 		if nextLifecycle != goat.LifecycleStatus {
 			summary.LifecycleUpdates[nextLifecycle]++
+		}
+		if nextSex != goat.Sex {
+			summary.SexUpdates++
 		}
 		if nextIdentity != goat.IdentityState {
 			summary.IdentityReviewUpdates++
@@ -437,6 +481,8 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 		}
 		patches = append(patches, patch{
 			GoatID:          goatID,
+			BeforeSex:       goat.Sex,
+			AfterSex:        nextSex,
 			BeforeLifecycle: goat.LifecycleStatus,
 			AfterLifecycle:  nextLifecycle,
 			BeforeIdentity:  goat.IdentityState,
@@ -454,6 +500,7 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 			LatestFarmCode:  latestFarm,
 			LatestShed:      latestShed,
 			Conflict:        conflict,
+			AttrConflicts:   attrConflicts,
 		})
 	}
 	summary.PatchesPlanned = len(patches)
@@ -690,6 +737,129 @@ func lifecycleConflictFromIdentifier(rfidLifecycle, oldTagLifecycle string, keys
 	}
 }
 
+func targetAttributes(goat LocalGoat, evidence *goatEvidence) (string, []attributeConflict, int) {
+	nextSex := strings.TrimSpace(goat.Sex)
+	events, identifierKind, identifierKey := preferredAttributeEvents(evidence)
+	bqSex, sexDate := latestBQSex(events)
+	bqBreed, breedDate := latestBQBreed(events)
+	conflicts := []attributeConflict{}
+	if bqSex != "" {
+		localSex := normalizeSex(goat.Sex)
+		switch {
+		case localSex == "":
+			nextSex = bqSex
+		case localSex != bqSex:
+			conflicts = append(conflicts, attributeConflict{
+				Attribute:        "sex",
+				Reason:           "gender_mismatch",
+				LocalValue:       localSex,
+				BQValue:          bqSex,
+				IdentifierKind:   identifierKind,
+				IdentifierKey:    identifierKey,
+				LatestEventDate:  sexDate,
+				RecommendedState: "BQ gender and Goat OS passport sex disagree; keep the passport value unchanged and review source evidence before changing canonical sex.",
+			})
+		}
+	}
+	cosmeticDrifts := 0
+	if bqBreed != "" {
+		localBreed := strings.TrimSpace(goat.Breed)
+		switch {
+		case localBreed == "":
+			conflicts = append(conflicts, attributeConflict{
+				Attribute:        "breed",
+				Reason:           "breed_missing",
+				LocalValue:       "",
+				BQValue:          bqBreed,
+				IdentifierKind:   identifierKind,
+				IdentifierKey:    identifierKey,
+				LatestEventDate:  breedDate,
+				RecommendedState: "BQ has a breed label but Goat OS passport breed is blank; review before changing canonical breed.",
+			})
+		case normalizedBreedLabel(localBreed) == normalizedBreedLabel(bqBreed):
+			// exact/case-only match
+		case cosmeticBreedEqual(localBreed, bqBreed):
+			cosmeticDrifts = 1
+		default:
+			conflicts = append(conflicts, attributeConflict{
+				Attribute:        "breed",
+				Reason:           "breed_mismatch",
+				LocalValue:       localBreed,
+				BQValue:          bqBreed,
+				IdentifierKind:   identifierKind,
+				IdentifierKey:    identifierKey,
+				LatestEventDate:  breedDate,
+				RecommendedState: "BQ breed and Goat OS passport breed disagree; keep the passport value unchanged and review source evidence before changing canonical breed.",
+			})
+		}
+	}
+	return nextSex, conflicts, cosmeticDrifts
+}
+
+func preferredAttributeEvents(evidence *goatEvidence) ([]Event, string, string) {
+	if len(evidence.rfidEvents) > 0 {
+		return evidence.rfidEvents, "rfid", firstKeyWithPrefix(evidence.keys, "rfid:")
+	}
+	if len(evidence.oldTagEvents) > 0 {
+		return evidence.oldTagEvents, "old_tag", firstKeyWithPrefix(evidence.keys, "old_tag:")
+	}
+	return evidence.events, "matched_identifier", firstKeyWithPrefix(evidence.keys, "")
+}
+
+func latestBQSex(events []Event) (string, string) {
+	var sex, date string
+	for _, event := range events {
+		candidate := normalizeSex(event.Gender)
+		if candidate == "" {
+			continue
+		}
+		eventDate := strings.TrimSpace(event.Date)
+		if sex == "" || eventDate > date {
+			sex = candidate
+			date = eventDate
+		}
+	}
+	return sex, date
+}
+
+func latestBQBreed(events []Event) (string, string) {
+	var breed, date string
+	for _, event := range events {
+		candidate := strings.TrimSpace(event.Breed)
+		if candidate == "" {
+			continue
+		}
+		eventDate := strings.TrimSpace(event.Date)
+		if breed == "" || eventDate > date {
+			breed = candidate
+			date = eventDate
+		}
+	}
+	return breed, date
+}
+
+func normalizeSex(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "male", "m":
+		return "male"
+	case "female", "f":
+		return "female"
+	default:
+		return ""
+	}
+}
+
+func normalizedBreedLabel(value string) string {
+	cleaned := breedLabelClean.ReplaceAllString(strings.ToLower(strings.TrimSpace(value)), "_")
+	return strings.Trim(cleaned, "_")
+}
+
+func cosmeticBreedEqual(a, b string) bool {
+	left := strings.TrimSuffix(normalizedBreedLabel(a), "_sheep")
+	right := strings.TrimSuffix(normalizedBreedLabel(b), "_sheep")
+	return left != "" && left == right
+}
+
 func firstKeyWithPrefix(keys map[string]struct{}, prefix string) string {
 	out := make([]string, 0, len(keys))
 	for key := range keys {
@@ -858,6 +1028,8 @@ func loadLocalGoats(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([
 	rows, err := pool.Query(ctx, `
 SELECT
   g.goat_id::text,
+  COALESCE(g.breed, '')::text,
+  COALESCE(g.sex, '')::text,
   g.lifecycle_status,
   g.identity_state,
   COALESCE(g.current_location_id::text, '')::text,
@@ -884,14 +1056,16 @@ ORDER BY g.goat_id::text, gi.identifier_type, gi.normalized_value`, tenantID)
 	byID := map[string]*LocalGoat{}
 	order := []string{}
 	for rows.Next() {
-		var goatID, lifecycle, identity, current, farm, park, shed, idType, value, scope string
-		if err := rows.Scan(&goatID, &lifecycle, &identity, &current, &farm, &park, &shed, &idType, &value, &scope); err != nil {
+		var goatID, breed, sex, lifecycle, identity, current, farm, park, shed, idType, value, scope string
+		if err := rows.Scan(&goatID, &breed, &sex, &lifecycle, &identity, &current, &farm, &park, &shed, &idType, &value, &scope); err != nil {
 			return nil, fmt.Errorf("scan local goat identifier: %w", err)
 		}
 		goat := byID[goatID]
 		if goat == nil {
 			goat = &LocalGoat{
 				GoatID:            goatID,
+				Breed:             breed,
+				Sex:               sex,
 				LifecycleStatus:   lifecycle,
 				IdentityState:     identity,
 				CurrentLocationID: current,
@@ -999,6 +1173,7 @@ SET
   farm_id = $6::uuid,
   park_id = $7::uuid,
   shed_id = $8::uuid,
+  sex = $9,
   row_version = row_version + 1,
   updated_at = now()
 WHERE tenant_id = $1::uuid
@@ -1010,6 +1185,7 @@ WHERE tenant_id = $1::uuid
     OR farm_id IS DISTINCT FROM $6::uuid
     OR park_id IS DISTINCT FROM $7::uuid
     OR shed_id IS DISTINCT FROM $8::uuid
+    OR sex IS DISTINCT FROM $9
   )`,
 			tenantID,
 			patch.GoatID,
@@ -1019,6 +1195,7 @@ WHERE tenant_id = $1::uuid
 			nullableUUID(patch.AfterFarm),
 			nullableUUID(patch.AfterPark),
 			nullableUUID(patch.AfterShed),
+			nullableText(patch.AfterSex),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("apply BQ reconciliation patch for goat %s: %w", patch.GoatID, err)
@@ -1030,13 +1207,21 @@ WHERE tenant_id = $1::uuid
 				return 0, err
 			}
 		}
-		if tag.RowsAffected() == 0 && !conflictInserted {
+		attrConflictInserted := false
+		if len(patch.AttrConflicts) > 0 {
+			attrConflictInserted, err = ensureAttributeConflict(ctx, tx, tenantID, patch)
+			if err != nil {
+				return 0, err
+			}
+		}
+		if tag.RowsAffected() == 0 && !conflictInserted && !attrConflictInserted {
 			continue
 		}
 		applied++
 		before := map[string]string{
 			"lifecycle_status":    patch.BeforeLifecycle,
 			"identity_state":      patch.BeforeIdentity,
+			"sex":                 patch.BeforeSex,
 			"current_location_id": patch.BeforeCurrent,
 			"farm_id":             patch.BeforeFarm,
 			"park_id":             patch.BeforePark,
@@ -1045,6 +1230,7 @@ WHERE tenant_id = $1::uuid
 		after := map[string]string{
 			"lifecycle_status":    patch.AfterLifecycle,
 			"identity_state":      patch.AfterIdentity,
+			"sex":                 patch.AfterSex,
 			"current_location_id": patch.AfterCurrent,
 			"farm_id":             patch.AfterFarm,
 			"park_id":             patch.AfterPark,
@@ -1060,6 +1246,9 @@ WHERE tenant_id = $1::uuid
 		}
 		if patch.Conflict != nil {
 			metadata["identifier_lifecycle_conflict"] = patch.Conflict
+		}
+		if len(patch.AttrConflicts) > 0 {
+			metadata["attribute_conflicts"] = patch.AttrConflicts
 		}
 		beforeJSON, _ := json.Marshal(before)
 		afterJSON, _ := json.Marshal(after)
@@ -1176,6 +1365,88 @@ INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')
 ON CONFLICT (conflict_id, goat_id) DO NOTHING`, conflictID, tenantID, patch.GoatID); err != nil {
 		return false, fmt.Errorf("link BQ lifecycle conflict for goat %s: %w", patch.GoatID, err)
+	}
+	return true, nil
+}
+
+func ensureAttributeConflict(ctx context.Context, tx pgx.Tx, tenantID string, patch patch) (bool, error) {
+	if len(patch.AttrConflicts) == 0 {
+		return false, nil
+	}
+	evidence := map[string]any{
+		"source_context":     "bq_reconcile_attribute_conflict",
+		"source_system":      "legacy_bigquery",
+		"review_note":        "BQ attributes and Goat OS passport attributes disagree; keep canonical fields unchanged until reviewed.",
+		"conflicts":          patch.AttrConflicts,
+		"matched_keys":       patch.MatchedKeys,
+		"latest_event_date":  patch.LatestEventDate,
+		"latest_farm_code":   patch.LatestFarmCode,
+		"latest_destination": patch.LatestShed,
+		"local_before_sex":   patch.BeforeSex,
+		"planned_after_sex":  patch.AfterSex,
+		"planned_identity":   patch.AfterIdentity,
+	}
+	evidenceJSON, _ := json.Marshal(evidence)
+	conflictKey := ""
+	for _, conflict := range patch.AttrConflicts {
+		if strings.TrimSpace(conflict.IdentifierKey) != "" {
+			conflictKey = conflict.IdentifierKey
+			break
+		}
+	}
+	if conflictKey == "" {
+		conflictKey = firstNonEmptyKey(patch.MatchedKeys)
+	}
+	var conflictID string
+	err := tx.QueryRow(ctx, `
+INSERT INTO identity_conflicts (
+  tenant_id,
+  conflict_type,
+  severity,
+  state,
+  identifier_type,
+  identifier_value,
+  goat_ids,
+  source_record_ids,
+  evidence
+)
+SELECT
+  $1::uuid,
+  'status_mismatch',
+  'medium',
+  'open',
+  'rfid',
+  $3,
+  ARRAY[$2::uuid],
+  $4::text[],
+  $5::jsonb
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM identity_conflicts
+  WHERE tenant_id = $1::uuid
+    AND conflict_type = 'status_mismatch'
+    AND state IN ('open', 'needs_field_check')
+    AND goat_ids @> ARRAY[$2::uuid]
+    AND evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+)
+RETURNING conflict_id::text`,
+		tenantID,
+		patch.GoatID,
+		identifierValueFromKey(conflictKey),
+		patch.MatchedKeys,
+		evidenceJSON,
+	).Scan(&conflictID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("insert BQ attribute conflict for goat %s: %w", patch.GoatID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')
+ON CONFLICT (conflict_id, goat_id) DO NOTHING`, conflictID, tenantID, patch.GoatID); err != nil {
+		return false, fmt.Errorf("link BQ attribute conflict for goat %s: %w", patch.GoatID, err)
 	}
 	return true, nil
 }
@@ -1413,6 +1684,23 @@ func nullableUUID(value string) any {
 		return nil
 	}
 	return value
+}
+
+func nullableText(value string) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func firstNonEmptyKey(keys []string) string {
+	for _, key := range keys {
+		if strings.TrimSpace(key) != "" {
+			return key
+		}
+	}
+	return ""
 }
 
 func MaxEventDate(events []Event) string {

@@ -303,6 +303,120 @@ func TestPlanRFIDEvidenceWinsAndFlagsOldTagLifecycleConflict(t *testing.T) {
 	}
 }
 
+func TestPlanFillsMissingSexFromBQ(t *testing.T) {
+	events := []Event{{
+		GoatID: "123456789012345",
+		Event:  "Shifting",
+		Date:   "2026-02-03",
+		Gender: "Male",
+		Breed:  "Sojat",
+	}}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Sojat",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.SexUpdates != 1 || summary.AttributeConflicts != 0 {
+		t.Fatalf("summary=%#v want one sex update and no attribute conflict", summary)
+	}
+	if len(patches) != 1 || patches[0].AfterSex != "male" || patches[0].AfterIdentity != "clean" {
+		t.Fatalf("patches=%#v want sex fill to male without review", patches)
+	}
+}
+
+func TestPlanFlagsGenderMismatchWithoutOverwritingSex(t *testing.T) {
+	events := []Event{{
+		GoatID: "123456789012345",
+		Event:  "Shifting",
+		Date:   "2026-02-03",
+		Gender: "Male",
+		Breed:  "Sojat",
+	}}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Sojat",
+		Sex:             "female",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.GenderConflicts != 1 || summary.AttributeConflicts != 1 || summary.IdentityReviewUpdates != 1 {
+		t.Fatalf("summary=%#v want gender conflict and review update", summary)
+	}
+	if len(patches) != 1 || patches[0].AfterSex != "female" || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want sex unchanged and identity review", patches)
+	}
+	if got := patches[0].AttrConflicts[0].Reason; got != "gender_mismatch" {
+		t.Fatalf("conflict reason=%q want gender_mismatch", got)
+	}
+}
+
+func TestPlanTreatsAnantapurSheepAsCosmeticBreedDrift(t *testing.T) {
+	events := []Event{{
+		GoatID: "123456789012345",
+		Event:  "Shifting",
+		Date:   "2026-02-03",
+		Gender: "Female",
+		Breed:  "Anantapur",
+	}}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Anantapur Sheep",
+		Sex:             "female",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.BreedCosmeticDrifts != 1 || summary.BreedConflicts != 0 || len(patches) != 0 {
+		t.Fatalf("summary=%#v patches=%#v want cosmetic drift only", summary, patches)
+	}
+}
+
+func TestPlanFlagsRealBreedMismatch(t *testing.T) {
+	events := []Event{{
+		GoatID: "123456789012345",
+		Event:  "Shifting",
+		Date:   "2026-02-03",
+		Gender: "Female",
+		Breed:  "Beetal",
+	}}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Sirohi",
+		Sex:             "female",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.BreedConflicts != 1 || summary.AttributeConflicts != 1 || summary.IdentityReviewUpdates != 1 {
+		t.Fatalf("summary=%#v want breed conflict and review update", summary)
+	}
+	if len(patches) != 1 || patches[0].AfterIdentity != "needs_review" {
+		t.Fatalf("patches=%#v want review patch", patches)
+	}
+	if got := patches[0].AttrConflicts[0].Reason; got != "breed_mismatch" {
+		t.Fatalf("conflict reason=%q want breed_mismatch", got)
+	}
+}
+
 func TestPlanSkipsAmbiguousIdentifierMatches(t *testing.T) {
 	events := []Event{{GoatID: "123456789012345", Event: "Shifting"}}
 	goats := []LocalGoat{

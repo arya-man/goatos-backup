@@ -55,7 +55,7 @@ docs/runbooks/local-full-stack-rehearsal.md  local Phase 1 import/API/admin-web 
 docs/runbooks/local-docker-storage.md        local Docker storage safety and cleanup rules
 backend/cmd/rfid-import                      legacy RFID parser/import harness CLI
 backend/cmd/rfid-apply                       staged RFID canonical apply CLI
-backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location correction CLI
+backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location correction and attribute-conflict CLI
 backend/cmd/rebuild-identity-counters        local/reporting counter rebuild after apply
 backend/internal/legacy_import/xlsx.go       workbook parser and sheet-selection behavior
 backend/internal/legacy_import/normalize.go  emitted staging/review/error reason codes
@@ -351,15 +351,15 @@ Rules:
   sync job used by scheduled local/dev/stg/prod syncs, with RBAC, audit,
   idempotency, bounded batches, and freshness/status reporting.
   `backend/cmd/bq-reconcile` is the committed replay path for current
-  lifecycle/current-location corrections from BQ event and latest-location
-  exports. Exported event dates must be strict `YYYY-MM-DD`; malformed dates
-  are rejected before planning because lifecycle ordering depends on them. The
-  command dry-runs by default, requires `--execute` plus GOATOS_ENV for
-  mutation, takes a tenant advisory lock, updates deterministic
-  RFID/scoped-old-tag matches only, lets RFID lifecycle evidence win over
-  reused/scoped old-tag lifecycle evidence, opens Data Quality
-  `status_mismatch` conflicts when those evidence streams disagree, writes
-  `goat.bq_reconciled` audit rows, and requires
+  lifecycle/current-location corrections and BQ attribute-conflict surfacing
+  from BQ event and latest-location exports. Exported event dates must be
+  strict `YYYY-MM-DD`; malformed dates are rejected before planning because
+  lifecycle ordering depends on them. The command dry-runs by default, requires
+  `--execute` plus GOATOS_ENV for mutation, takes a tenant advisory lock,
+  updates deterministic RFID/scoped-old-tag matches only, lets RFID lifecycle
+  evidence win over reused/scoped old-tag lifecycle evidence, opens Data Quality
+  `status_mismatch` conflicts when lifecycle or BQ-vs-passport gender/breed
+  evidence disagrees, writes `goat.bq_reconciled` audit rows, and requires
   `rebuild-identity-counters` afterward. It does not create goats, add
   identifiers, or emit outbox events. The RFID
   workbook parser/normalizer is retained as a legacy parser/regression harness

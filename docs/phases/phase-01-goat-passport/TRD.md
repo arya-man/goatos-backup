@@ -2905,9 +2905,10 @@ dashboard. A dashboard "Sync with BQ" control may exist only as an authenticated
 backend command trigger with RBAC, audit, idempotency, bounded batches, and a
 freshness/status surface; it must not call BigQuery directly from browser or
 Next frontend code. `backend/cmd/bq-reconcile` is the replayable current
-lifecycle/location reconciliation command for fresh local/dev/stg/prod
+lifecycle/location reconciliation and BQ attribute-conflict command for fresh local/dev/stg/prod
 databases: it consumes read-only BQ event and latest-location export JSON/JSONL,
 dry-runs by default, mutates only with `--execute`, audits every changed goat,
+opens Data Quality conflicts for matched-passport gender/breed disagreements,
 and requires counter rebuild before API/dashboard reads are considered fresh. The
 lifecycle reducer follows the legacy accounting shape: Shifting changes location
 and is proof-of-life only when there is no later terminal evidence; Death stays
