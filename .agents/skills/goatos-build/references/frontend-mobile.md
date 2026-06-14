@@ -17,6 +17,12 @@ Rules:
 - Current live dashboard URLs keep running until the new Goat OS dashboards validate against them.
 - Operators use Android task/form app, not BI dashboards.
 - App code depends on generated clients and adapters, not direct vendor SDK calls.
+- Legacy BigQuery is a temporary bridge, not a frontend dependency. Admin-web
+  and mobile screens must not contain BQ table names, column names, or export
+  labels in product UI; those belong behind backend sync/reconciliation
+  adapters. A future "Sync with BQ" control may trigger a backend job and show
+  freshness/status, but the same UI should survive when direct Goat OS capture
+  replaces the BQ bridge.
 - `packages/api-client` is the generated OpenAPI TypeScript client package for
   app/admin/analytics APIs. Admin-web and future mobile screens must use it
   through small app adapters instead of hand-copying DTOs.

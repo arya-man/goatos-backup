@@ -352,6 +352,10 @@ Rules:
   manual "Sync with BQ" UI control, when added, must trigger the same backend
   sync job used by scheduled local/dev/stg/prod syncs, with RBAC, audit,
   idempotency, bounded batches, and freshness/status reporting.
+  BQ table names, column names, and export quirks are temporary bridge details:
+  keep them behind backend adapter/config code, not in React pages, mobile
+  screens, domain names, or generated product labels, so the adapter can be
+  deleted when operators write directly to Goat OS.
   `backend/cmd/bq-reconcile` is the committed replay path for current
   lifecycle/current-location reconciliation and BQ-backed attribute fill/review
   from BQ event and latest-location exports. Exported event dates must be

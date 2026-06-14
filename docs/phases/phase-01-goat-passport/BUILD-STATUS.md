@@ -536,6 +536,10 @@ RFID/BQ source-of-truth staging and reconciliation:
   directly. The future "Sync with BQ" UI control should trigger the same
   backend job used by scheduled syncs, not a browser-side BQ query, and must be
   RBAC-protected, audited, idempotent, bounded, and freshness-visible.
+  BQ table names, column names, and export quirks are temporary bridge details
+  and must stay inside backend adapter/config code. Admin-web and mobile screens
+  should use Goat OS product terms only so the BQ bridge can be removed when
+  operators write directly into Goat OS.
   Missing-passport backfill is deliberately fail-closed for the current BQ
   exports. The dashboard aggregate table proves the 2011 active-goat count and
   farm/shed/breed buckets but has no per-goat identity; the BQ event and
@@ -580,7 +584,9 @@ RFID/BQ source-of-truth staging and reconciliation:
   Rebuild identity counters after every execute before trusting the dashboard.
   Import Review no longer requires users to remember a run UUID: the backend
   exposes `GET /admin/import-runs` for recent tenant runs, and admin-web shows a
-  recent-run picker before falling back to manual older-run UUID entry.
+  recent-run picker before falling back to manual older-run UUID entry. Import
+  Review summary counts are navigation controls; highlighted review/error
+  counts must filter or navigate to the affected rows, not sit as static pills.
   real staging writes legacy_import_runs as running -> completed or failed and
   inserts legacy_import_rows in bounded batches
   source_row_key uses policy source_key_recipe fields in order:

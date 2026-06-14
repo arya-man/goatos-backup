@@ -274,6 +274,18 @@ The old live dashboard repos remain untouched. Git history is the reference for
 deleted legacy routes; new admin screens must call Mesha app/admin/analytics
 APIs through generated clients.
 
+Legacy BigQuery is a temporary upstream while Goat OS backend, web, and mobile
+capture workflows are being completed. During this bridge period the flow is:
+
+```text
+legacy BQ export -> backend sync/reconcile -> Goat OS DB -> backend API -> admin-web
+```
+
+Keep BQ table names, column names, and export-specific parsing inside backend
+adapter/config code. Do not copy those names into React pages or generated UI
+labels. When operators write directly into Goat OS, the BQ adapter should be
+removable without changing admin-web screens.
+
 ## Import Review
 
 `/import-review` is read-only. Without an `import_run_id`, it lists recent
@@ -286,7 +298,9 @@ Provide `import_run_id` as a query parameter only to open a specific older run:
 
 The row table is keyset-paginated, supports `processing_state` and `reason_code`
 filters, and shows only whitelisted review fields. Nullable run metrics that are
-not tracked by Phase 1 import/apply are rendered as "Not tracked." Import-row
+not tracked by Phase 1 import/apply are rendered as "Not tracked." The run
+summary counts are navigation controls: click rows processed, goats created,
+needs review, or errors to filter the row table for that run. Import-row
 review/fix actions are still deferred; defined identity/correction decisions
 live on Data Quality and Goat Passport.
 

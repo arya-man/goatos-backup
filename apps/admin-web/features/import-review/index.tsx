@@ -1,6 +1,6 @@
 import { AlertTriangle, Download, FileWarning, History } from "lucide-react";
 import { redirect } from "next/navigation";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, StatPill, ValueList } from "@/components/admin-primitives";
+import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, getImportRun, listImportRunRows, listImportRuns, type ImportRowState } from "@/lib/api/server";
@@ -137,12 +137,35 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
         <ErrorPanel error={summary.error} />
       ) : (
         <div className="space-y-5">
-          <Panel title="Import run summary" description="Reason buckets can overlap; counts by reason do not necessarily sum to rows needing review.">
+          <Panel title="Import run summary" description="Reason buckets can overlap; counts by reason do not necessarily sum to rows needing review. Click a count to filter the rows below.">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatPill label="rows processed" value={summary.data.import_run.summary.rows_processed} />
-              <StatPill label="goats created" value={summary.data.import_run.summary.goats_created} tone="good" />
-              <StatPill label="needs review" value={summary.data.import_run.summary.rows_needing_review} tone="warn" />
-              <StatPill label="errors" value={summary.data.import_run.summary.error_count} tone={summary.data.import_run.summary.error_count > 0 ? "warn" : "neutral"} />
+              <SummaryStatLink
+                label="rows processed"
+                value={summary.data.import_run.summary.rows_processed}
+                href={rowsFilterHref(importRunId)}
+                active={!processingState && !reasonCode}
+              />
+              <SummaryStatLink
+                label="goats created"
+                value={summary.data.import_run.summary.goats_created}
+                href={rowsFilterHref(importRunId, { processing_state: "created_goat" })}
+                tone="good"
+                active={processingState === "created_goat"}
+              />
+              <SummaryStatLink
+                label="needs review"
+                value={summary.data.import_run.summary.rows_needing_review}
+                href={rowsFilterHref(importRunId, { processing_state: "needs_review" })}
+                tone="warn"
+                active={processingState === "needs_review"}
+              />
+              <SummaryStatLink
+                label="errors"
+                value={summary.data.import_run.summary.error_count}
+                href={rowsFilterHref(importRunId, { processing_state: "error" })}
+                tone={summary.data.import_run.summary.error_count > 0 ? "warn" : "neutral"}
+                active={processingState === "error"}
+              />
             </div>
             <div className="mt-4">
               <ValueList
@@ -164,10 +187,17 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
           </Panel>
 
           <Panel
+            action={
+              processingState || reasonCode ? (
+                <a className="text-sm font-semibold text-[#14f1d9] hover:text-white" href={rowsFilterHref(importRunId)}>
+                  Clear filters
+                </a>
+              ) : null
+            }
             title="Review rows"
-            description="Rows are tenant-scoped and paginated. The page reads the selected run only."
+            description={rowsDescription(processingState, reasonCode)}
           >
-            <form className="mb-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action="/import-review">
+            <form id="review-rows" className="mb-4 scroll-mt-24 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action="/import-review">
               <input type="hidden" name="import_run_id" value={importRunId} />
               <Select name="processing_state" label="State" defaultValue={processingState ?? ""} options={rowStates} />
               <Select name="reason_code" label="Reason" defaultValue={reasonCode ?? ""} options={reasonOptions} />
@@ -242,6 +272,38 @@ function tracked(value: number | null): string | number {
   return value === null ? "Not tracked" : value;
 }
 
+function SummaryStatLink({
+  label,
+  value,
+  href,
+  tone = "neutral",
+  active = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  href: string;
+  tone?: "neutral" | "good" | "warn";
+  active?: boolean;
+}) {
+  const tones = {
+    neutral: "border-[#334155] text-[#c7d1dc]",
+    good: "border-[#1f8f65] text-[#7dd3a7]",
+    warn: "border-[#a16207] text-[#facc15]",
+  };
+  const activeClass = active ? "bg-[#151d25] ring-1 ring-[#14f1d9]" : "bg-transparent hover:bg-[#151b22]";
+
+  return (
+    <a
+      href={href}
+      className={`block rounded-md border px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14f1d9] ${tones[tone]} ${activeClass}`}
+      aria-label={`Filter review rows by ${label}`}
+    >
+      <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
+      <div className="mt-1 text-lg font-semibold">{value}</div>
+    </a>
+  );
+}
+
 function MiniStat({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "good" | "warn" }) {
   const toneClass =
     tone === "good" ? "text-[#7ddda4]" : tone === "warn" ? "text-[#facc15]" : "text-[#f8fafc]";
@@ -261,6 +323,26 @@ function normalizeRowState(value: string | undefined): ImportRowState | undefine
 function normalizeReason(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed || undefined;
+}
+
+function rowsFilterHref(importRunId: string, filters: { processing_state?: ImportRowState; reason_code?: string } = {}) {
+  const params = new URLSearchParams({ import_run_id: importRunId });
+  if (filters.processing_state) params.set("processing_state", filters.processing_state);
+  if (filters.reason_code) params.set("reason_code", filters.reason_code);
+  return `/import-review?${params.toString()}#review-rows`;
+}
+
+function rowsDescription(processingState?: ImportRowState, reasonCode?: string): string {
+  const filters = [
+    processingState ? `state ${processingState}` : null,
+    reasonCode ? `reason ${reasonCode}` : null,
+  ].filter(Boolean);
+
+  if (filters.length === 0) {
+    return "Rows are tenant-scoped and paginated. Use the summary counts or filters to narrow this run.";
+  }
+
+  return `Showing ${filters.join(" and ")} rows for this run.`;
 }
 
 function Cell({ label, value }: { label: string; value: React.ReactNode }) {
