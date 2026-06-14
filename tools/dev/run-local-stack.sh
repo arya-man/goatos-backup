@@ -17,6 +17,32 @@ export GOATOS_AUTH_AUDIENCE="${GOATOS_AUTH_AUDIENCE:-goatos-api}"
 export GOATOS_AUTH_HS256_SECRET="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}"
 export GOATOS_AUTH_MAX_TOKEN_TTL="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 export GOATOS_HTTP_ADDR="${GOATOS_HTTP_ADDR:-$host:$api_port}"
+detect_docker_database_url() {
+  local port=""
+
+  if command -v docker >/dev/null 2>&1; then
+    port="$(
+      docker ps --filter "name=goatos-local-current" --format '{{.Ports}}' 2>/dev/null \
+        | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' \
+        | head -n 1
+    )"
+
+    if [ -z "$port" ]; then
+      port="$(
+        docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+          | grep 'goatos' \
+          | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' \
+          | head -n 1
+      )"
+    fi
+  fi
+
+  if [ -n "$port" ]; then
+    printf 'postgres://postgres:goatos@127.0.0.1:%s/goatos?sslmode=disable\n' "$port"
+  fi
+}
+
+export DATABASE_URL="${DATABASE_URL:-$(detect_docker_database_url)}"
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable}"
 export GOATOS_API_BASE_URL="$api_base_url"
 export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-${GOATOS_LOCAL_TENANT_ID:-00000000-0000-4000-8000-000000000001}}"

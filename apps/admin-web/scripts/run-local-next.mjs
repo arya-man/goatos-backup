@@ -13,7 +13,8 @@ const defaultTenantId = "00000000-0000-4000-8000-000000000001";
 const defaultUserId = "90000000-0000-4000-8000-000000000101";
 const defaultRole = "ceo_internal";
 const defaultApiBaseUrl = "http://127.0.0.1:8080";
-const defaultDatabaseUrl = "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable";
+const defaultDatabaseUrl =
+  detectDockerDatabaseUrl() || "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable";
 const defaultHS256Secret = "goatos-local-dev-secret-32-bytes-min";
 
 if (mode !== "dev" && mode !== "start") {
@@ -112,6 +113,30 @@ async function prepareLocalEnvironment() {
   await validateBackendAuth(envWithToken);
   console.log(`Local admin token refreshed. Open http://${host}:${port}`);
   return envWithToken;
+}
+
+function detectDockerDatabaseUrl() {
+  const port = detectDockerPostgresPort("goatos-local-current") || detectDockerPostgresPort("goatos");
+  if (!port) return "";
+  return `postgres://postgres:goatos@127.0.0.1:${port}/goatos?sslmode=disable`;
+}
+
+function detectDockerPostgresPort(namePattern) {
+  try {
+    const args =
+      namePattern === "goatos-local-current"
+        ? ["ps", "--filter", "name=goatos-local-current", "--format", "{{.Ports}}"]
+        : ["ps", "--format", "{{.Names}} {{.Ports}}"];
+    const output = execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    for (const line of output.split("\n")) {
+      if (namePattern !== "goatos-local-current" && !line.includes(namePattern)) continue;
+      const match = line.match(/127\.0\.0\.1:(\d+)->5432\/tcp/);
+      if (match) return match[1];
+    }
+  } catch {
+    return "";
+  }
+  return "";
 }
 
 function runGo(args, env) {
