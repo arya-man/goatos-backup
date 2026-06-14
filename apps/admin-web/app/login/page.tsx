@@ -1,14 +1,20 @@
 import Image from "next/image";
 import Link from "next/link";
 import logoImg from "@/lib/logo.png";
+import { getAdminRuntimeStatus, searchGoats } from "@/lib/api/server";
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
-  const showLocalDashboardShortcut =
+export default async function LoginPage() {
+  const runtimeStatus = getAdminRuntimeStatus();
+  const shouldCheckLocalDashboard =
     process.env.GOATOS_ENV === "local" &&
     process.env.GOATOS_AUTH_MODE === "bearer" &&
-    Boolean(process.env.GOATOS_BEARER_TOKEN);
+    runtimeStatus.hasBearerToken;
+  const localDashboardCheck = shouldCheckLocalDashboard ? await searchGoats({ limit: 1 }) : null;
+  const showLocalDashboardShortcut = localDashboardCheck?.ok === true;
+  const showLocalAuthRepair =
+    shouldCheckLocalDashboard && localDashboardCheck !== null && localDashboardCheck.ok === false;
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#0b0e13] text-[#f8fafc]">
@@ -79,10 +85,24 @@ export default function LoginPage() {
               {showLocalDashboardShortcut ? (
                 <Link
                   href="/"
+                  prefetch={false}
                   className="mt-5 flex h-12 w-full items-center justify-center rounded-xl border border-[#14f1d9]/40 bg-[#14f1d9]/10 px-4 text-sm font-black text-[#14f1d9] transition hover:border-[#14f1d9] hover:bg-[#14f1d9]/15 focus:outline-none focus:ring-2 focus:ring-[#14f1d9]/50"
                 >
                   Open local dashboard
                 </Link>
+              ) : null}
+
+              {showLocalAuthRepair ? (
+                <div className="mt-5 rounded-xl border border-[#f59e0b]/35 bg-[#f59e0b]/10 p-4">
+                  <div className="text-sm font-black text-[#fbbf24]">Local dashboard is not ready</div>
+                  <p className="mt-2 text-sm leading-6 text-[#d6b986]">
+                    The admin server has a local token, but the backend is rejecting it. Restart the local
+                    stack so it mints a fresh token before opening the dashboard.
+                  </p>
+                  <div className="mt-3 rounded-lg border border-[#334155] bg-[#0b0e13] px-3 py-2 font-mono text-sm text-[#14f1d9]">
+                    make dev-local
+                  </div>
+                </div>
               ) : null}
             </div>
           </div>
