@@ -1,4 +1,4 @@
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters dev-local
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh
@@ -27,6 +27,27 @@ check: guardrails docker-storage-scripts-test
 
 dev-local:
 	bash tools/dev/run-local-stack.sh
+
+dev-local-service-install:
+	bash tools/dev/local-stack-service.sh install
+
+dev-local-service-start:
+	bash tools/dev/local-stack-service.sh start
+
+dev-local-service-stop:
+	bash tools/dev/local-stack-service.sh stop
+
+dev-local-service-restart:
+	bash tools/dev/local-stack-service.sh restart
+
+dev-local-service-status:
+	bash tools/dev/local-stack-service.sh status
+
+dev-local-service-logs:
+	bash tools/dev/local-stack-service.sh logs
+
+dev-local-service-uninstall:
+	bash tools/dev/local-stack-service.sh uninstall
 
 validate-migrations:
 	bash backend/tests/integration/validate-postgres-migrations.sh

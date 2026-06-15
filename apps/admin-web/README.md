@@ -64,6 +64,28 @@ shows `401 invalid_bearer_token`; it replaces stale shell tokens automatically.
 
 Open `http://127.0.0.1:3300`.
 
+For a durable local dashboard on this Mac, install the user LaunchAgent once:
+
+```bash
+cd /Users/ravi/mesha/goatos
+make dev-local-service-install
+```
+
+That keeps the local API (`127.0.0.1:8080`) and admin-web
+(`127.0.0.1:3300`) running behind a macOS user service. The local Postgres DB is
+still the Docker container; the durable service supervises the two host
+processes and restarts them if either one dies.
+
+Useful service commands:
+
+```bash
+make dev-local-service-status
+make dev-local-service-restart
+make dev-local-service-stop
+make dev-local-service-logs
+make dev-local-service-uninstall
+```
+
 For direct admin-web-only checks:
 
 ```bash

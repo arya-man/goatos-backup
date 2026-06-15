@@ -395,6 +395,26 @@ Use this path instead of reusing an old `GOATOS_BEARER_TOKEN` from a shell. If
 the browser shows `401 invalid_bearer_token`, restart through `make dev-local`
 so the backend and admin-web share the same local auth issuer/audience/secret.
 
+For day-to-day local use where the browser should keep working after terminal
+tabs close, install the macOS user LaunchAgent:
+
+```bash
+cd <goatos-repo>
+make dev-local-service-install
+```
+
+This still uses the local Docker Postgres database for data. The LaunchAgent
+only supervises the host API/admin-web processes (`127.0.0.1:8080` and
+`127.0.0.1:3300`) and restarts the stack if either process exits or fails health
+checks.
+
+```bash
+make dev-local-service-status
+make dev-local-service-restart
+make dev-local-service-stop
+make dev-local-service-logs
+```
+
 For the real local post-000015 proof, pass the proven import run id so
 `/import-review` opens the live run directly:
 
