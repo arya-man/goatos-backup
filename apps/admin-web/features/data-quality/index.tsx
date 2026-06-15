@@ -480,7 +480,7 @@ function ConflictResolver({
                   <label key={`${identifier.goat_id}:${identifier.identifier_id}`} className="flex items-start gap-3 rounded-md border border-[#293241] bg-[#0f1115] p-3 text-sm text-[#c7d1dc]">
                     <input type="checkbox" name="identifier_action_id" value={identifier.identifier_id} className="mt-1 h-4 w-4 accent-[#14f1d9]" />
                     <span>
-                      <span className="block font-semibold text-white">{identifier.identifier_type} · {identifier.identifier_value}</span>
+                      <span className="block font-semibold text-white">{formatLabel(identifier.identifier_type)} · {identifier.identifier_value}</span>
                       <span className="block text-xs text-[#93a4b8]">{identifier.goat_display_id} · {identifier.scope_key || "global"} · {identifier.status}</span>
                     </span>
                   </label>
@@ -663,7 +663,7 @@ function GoatReviewCard({ item }: { item: ConflictDetailResponse["goats"][number
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {item.identifiers.map((identifier) => (
               <div key={identifier.identifier_id} className="rounded border border-[#293241] px-3 py-2 text-sm text-[#c7d1dc]">
-                <div className="font-semibold text-white">{identifier.identifier_type}</div>
+                <div className="font-semibold text-white">{formatLabel(identifier.identifier_type)}</div>
                 <div className="break-all">{identifier.identifier_value}</div>
                 <div className="mt-1 text-xs text-[#93a4b8]">{identifier.scope_key || "global"} · {identifier.status}</div>
               </div>
@@ -829,7 +829,7 @@ function goatOptionLabel(item: ConflictDetailResponse["goats"][number]): string 
 
 function conflictIdentifierLabel(identifier: ConflictDetailResponse["conflict"]["identifier"]): ReactNode {
   if (!identifier) return "No identifier";
-  return `${identifier.identifier_type} · ${identifier.identifier_value} · ${identifier.scope_key || "global"}`;
+  return `${formatLabel(identifier.identifier_type)} · ${identifier.identifier_value} · ${identifier.scope_key || "global"}`;
 }
 
 function conflictDetailHref(
