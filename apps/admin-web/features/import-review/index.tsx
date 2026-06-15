@@ -2,6 +2,7 @@ import { AlertTriangle, Download, FileWarning, History } from "lucide-react";
 import { redirect } from "next/navigation";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
+import { formatLabel } from "@/lib/display-utils";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, getImportRun, listImportRunRows, listImportRuns, type ImportRowState } from "@/lib/api/server";
 
@@ -55,7 +56,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                           <History className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
                           {index === 0 ? "Latest run" : `Run ${index + 1}`}
                           <span className="rounded border border-[#334155] px-2 py-0.5 text-xs font-medium text-[#93a4b8]">
-                            {run.status}
+                            {formatLabel(run.status)}
                           </span>
                         </div>
                         <div className="mt-2 text-sm text-[#c7d1dc]">
@@ -171,7 +172,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
               <ValueList
                 values={[
                   ["import run", <span key="run">Run {shortId(summary.data.import_run.import_run_id)} · <Mono>{summary.data.import_run.import_run_id}</Mono></span>],
-                  ["status", summary.data.import_run.status],
+                  ["status", formatLabel(summary.data.import_run.status)],
                   ["source", `${summary.data.import_run.source_system} · ${summary.data.import_run.source_dataset}`],
                   ["policy", summary.data.import_run.policy_version],
                   ["started", dateTime(summary.data.import_run.created_at)],
@@ -222,10 +223,10 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                           Row {row.row_number}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#c7d1dc]">
-                          <span className="rounded border border-[#334155] px-2 py-1">{row.row_state}</span>
+                          <span className="rounded border border-[#334155] px-2 py-1">{formatLabel(row.row_state)}</span>
                           {row.review_reasons.map((reason) => (
-                            <span key={reason} className="rounded border border-[#a16207] px-2 py-1 text-[#facc15]">
-                              {reason}
+                            <span key={reason} className="rounded border border-[#a16207] px-2 py-1 text-[#facc15]" title={reason}>
+                              {formatLabel(reason)}
                             </span>
                           ))}
                         </div>
@@ -291,15 +292,23 @@ function SummaryStatLink({
     warn: "border-[#a16207] text-[#facc15]",
   };
   const activeClass = active ? "bg-[#151d25] ring-1 ring-[#14f1d9]" : "bg-transparent hover:bg-[#151b22]";
+  const actionLabel = active ? "Showing below" : "View rows";
 
   return (
     <a
       href={href}
-      className={`block rounded-md border px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14f1d9] ${tones[tone]} ${activeClass}`}
-      aria-label={`Filter review rows by ${label}`}
+      className={`group block rounded-md border px-3 py-2.5 transition hover:-translate-y-0.5 hover:shadow-[0_0_0_1px_rgba(20,241,217,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14f1d9] ${tones[tone]} ${activeClass}`}
+      aria-label={`Filter review rows by ${label}; ${String(value)} rows`}
     >
-      <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
+          <div className="mt-1 text-lg font-semibold">{value}</div>
+        </div>
+        <span className="mt-1 whitespace-nowrap rounded border border-current/30 px-2 py-1 text-xs font-semibold">
+          {actionLabel}
+        </span>
+      </div>
     </a>
   );
 }
@@ -393,7 +402,7 @@ function Select({ name, label, defaultValue, options }: { name: string; label: s
         <option value="">Any</option>
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {formatLabel(option)}
           </option>
         ))}
       </select>

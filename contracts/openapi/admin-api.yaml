@@ -760,6 +760,36 @@ components:
         - disputed
         - merged
         - inactive
+    LocationPath:
+      type: object
+      additionalProperties: false
+      required:
+        - display
+      properties:
+        display:
+          type: string
+          minLength: 1
+          maxLength: 200
+        farm_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        park_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        shed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        cohort_id:
+          type:
+            - string
+            - "null"
+          format: uuid
     GoatSummary:
       type: object
       additionalProperties: false
@@ -836,9 +866,7 @@ components:
         identity_state:
           $ref: "#/components/schemas/IdentityState"
         location_path:
-          type: string
-          minLength: 1
-          maxLength: 200
+          $ref: "#/components/schemas/LocationPath"
         warnings:
           type: array
           items:

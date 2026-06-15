@@ -1,5 +1,6 @@
 import { AlertCircle, Loader2, LogIn } from "lucide-react";
 import { CursorPagination } from "@/components/cursor-pagination";
+import { formatLabel } from "@/lib/display-utils";
 import type { ApiUiError } from "@/lib/api/server";
 
 export function PageHeader({
@@ -281,7 +282,7 @@ export function FormSelect({
         <option value="">{emptyLabel}</option>
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {formatLabel(option)}
           </option>
         ))}
       </select>

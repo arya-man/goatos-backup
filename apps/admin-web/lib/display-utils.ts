@@ -41,6 +41,7 @@ const SPECIAL_WORDS: Record<string, string> = {
   icu: "ICU",
   mtd: "MTD",
   pct: "%",
+  rfid: "RFID",
 };
 
 /** Convert snake_case or raw field names to Title Case, preserving CBE/CPT as uppercase */

@@ -30,7 +30,13 @@
         "management_stage": "warmup",
         "health_status": "healthy",
         "identity_state": "needs_review",
-        "location_path": "Synthetic CBE / Park A / Shed 01",
+        "location_path": {
+          "display": "Synthetic CBE / Park A / Shed 01",
+          "farm_id": null,
+          "park_id": null,
+          "shed_id": null,
+          "cohort_id": null
+        },
         "warnings": []
       },
       "identifiers": [
@@ -70,7 +76,13 @@
         "management_stage": "warmup",
         "health_status": "healthy",
         "identity_state": "needs_review",
-        "location_path": "Synthetic CBE / Park A / Shed 01",
+        "location_path": {
+          "display": "Synthetic CBE / Park A / Shed 01",
+          "farm_id": null,
+          "park_id": null,
+          "shed_id": null,
+          "cohort_id": null
+        },
         "warnings": [
           {
             "code": "needs_review",

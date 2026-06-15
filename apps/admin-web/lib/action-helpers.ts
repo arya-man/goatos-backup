@@ -78,14 +78,16 @@ export function safeReturnTo(formData: FormData, fallback = "/"): string {
 }
 
 function withActionMessage(path: string, status: "success" | "error", message: string): string {
-  const [pathname, query = ""] = path.split("?", 2);
+  const [pathWithoutHash, hash = ""] = path.split("#", 2);
+  const [pathname, query = ""] = pathWithoutHash.split("?", 2);
   const params = new URLSearchParams(query);
   params.delete("action_status");
   params.delete("action_message");
   params.set("action_status", status);
   params.set("action_message", message.slice(0, 240));
   const qs = params.toString();
-  return qs ? `${pathname}?${qs}` : pathname;
+  const next = qs ? `${pathname}?${qs}` : pathname;
+  return hash ? `${next}#${hash}` : next;
 }
 
 function stringField(formData: FormData, key: string): string | undefined {

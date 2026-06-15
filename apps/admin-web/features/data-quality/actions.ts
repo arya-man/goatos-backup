@@ -24,6 +24,8 @@ import {
 
 const correctionStates: CorrectionRequestState[] = ["approved", "rejected", "needs_field_check", "closed"];
 const identifierTypes: IdentifierType[] = ["old_tag", "rfid", "visual_tag", "sheet_row_id", "purchase_load_id", "temp_field_id", "external_system_id"];
+const conflictActions = ["merge", "reject", "field_check", "dispute_identifier"] as const;
+type ConflictAction = (typeof conflictActions)[number];
 
 export async function createCorrectionRequestAction(formData: FormData) {
   let status: "success" | "error" = "success";
@@ -111,31 +113,52 @@ export async function resolveConflictAction(formData: FormData) {
   let status: "success" | "error" = "success";
   let message = "";
   try {
-    const action = requiredString(formData, "conflict_action");
-    if (action !== "merge" && action !== "reject") {
-      throw new Error("conflict_action is not supported");
-    }
+    const action = requiredConflictAction(formData);
     const common = {
       affected_goat_ids: affectedGoatIDs(formData),
-      identifier_actions: [],
       evidence_refs: requiredEvidenceRef(formData),
       reason: requiredString(formData, "reason"),
       row_version: requiredNumber(formData, "row_version"),
     };
-    const body: ResolveConflictRequestBody =
-      action === "merge"
-        ? {
-            decision_type: "merge_goats",
-            decision_result: "same_goat_merge",
-            survivor_goat_id: requiredString(formData, "survivor_goat_id"),
-            ...common,
-          }
-        : {
-            decision_type: "reject_match",
-            decision_result: "candidate_rejected",
-            survivor_goat_id: null,
-            ...common,
-          };
+    let body: ResolveConflictRequestBody;
+    switch (action) {
+      case "merge":
+        body = {
+          decision_type: "merge_goats",
+          decision_result: "same_goat_merge",
+          survivor_goat_id: requiredString(formData, "survivor_goat_id"),
+          identifier_actions: [],
+          ...common,
+        };
+        break;
+      case "reject":
+        body = {
+          decision_type: "reject_match",
+          decision_result: "candidate_rejected",
+          survivor_goat_id: null,
+          identifier_actions: [],
+          ...common,
+        };
+        break;
+      case "field_check":
+        body = {
+          decision_type: "request_field_verification",
+          decision_result: "field_verification_required",
+          survivor_goat_id: null,
+          identifier_actions: [],
+          ...common,
+        };
+        break;
+      case "dispute_identifier":
+        body = {
+          decision_type: "mark_identifier_disputed",
+          decision_result: "different_goats_identifier_disputed",
+          survivor_goat_id: null,
+          identifier_actions: disputedIdentifierActions(formData),
+          ...common,
+        };
+        break;
+    }
     const result = await resolveIdentityConflict(requiredString(formData, "conflict_id"), body, requiredString(formData, "idempotency_key"));
     if (!result.ok) {
       status = "error";
@@ -148,4 +171,27 @@ export async function resolveConflictAction(formData: FormData) {
     message = error instanceof Error ? error.message : "Unable to resolve conflict.";
   }
   actionRedirect(formData, status, message);
+}
+
+function requiredConflictAction(formData: FormData): ConflictAction {
+  const action = requiredString(formData, "conflict_action");
+  if (!conflictActions.includes(action as ConflictAction)) {
+    throw new Error("conflict_action is not supported");
+  }
+  return action as ConflictAction;
+}
+
+function disputedIdentifierActions(formData: FormData): NonNullable<ResolveConflictRequestBody["identifier_actions"]> {
+  const ids = formData
+    .getAll("identifier_action_id")
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (ids.length === 0) {
+    throw new Error("Select at least one identifier to dispute.");
+  }
+  return ids.map((identifier_id) => ({
+    action: "dispute",
+    identifier_id,
+  }));
 }

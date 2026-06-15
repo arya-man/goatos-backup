@@ -328,6 +328,17 @@ export interface components {
         IdentifierStatus: "active" | "retired" | "disputed" | "duplicate" | "invalid";
         /** @enum {string} */
         IdentityState: "clean" | "needs_review" | "disputed" | "merged" | "inactive";
+        LocationPath: {
+            display: string;
+            /** Format: uuid */
+            farm_id?: string | null;
+            /** Format: uuid */
+            park_id?: string | null;
+            /** Format: uuid */
+            shed_id?: string | null;
+            /** Format: uuid */
+            cohort_id?: string | null;
+        };
         GoatSummary: {
             /** Format: uuid */
             goat_id: string;
@@ -343,7 +354,7 @@ export interface components {
             management_stage: string | null;
             health_status: string | null;
             identity_state: components["schemas"]["IdentityState"];
-            location_path: string;
+            location_path: components["schemas"]["LocationPath"];
             warnings: {
                 code: string;
                 message: string;
