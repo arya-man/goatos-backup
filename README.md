@@ -90,9 +90,10 @@ Completed so far:
   buttons for all messy Import Review rows and the current row filter, with
   server-side token handling. The UI also
   exposes already-built Phase 1 actions for correction request create/resolve,
-  candidate reject, conflict reject/merge, and goat identifier add/retire
-  through server-side actions. Non-Phase-1 legacy modules and undefined
-  review/fix actions stay disabled or honest placeholders.
+  candidate reject, conflict reject/merge, field-check requests,
+  identifier-dispute marking, and goat identifier add/retire through
+  server-side actions. Non-Phase-1 legacy modules and undefined review/fix
+  actions stay disabled or honest placeholders.
 - Local dev token/grant helpers plus auth smoke for backend and admin-web client plumbing.
 - Legacy BigQuery is now the temporary upstream for current herd
   reconciliation/backfill until operators move daily updates into Goat OS mobile

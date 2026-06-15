@@ -639,6 +639,7 @@ func sameConflictIdentifier(existingType, existingValue, plannedType, plannedVal
 }
 
 func conflictIdentifierParts(key string) (string, string) {
+	key = primaryIdentifierKey(key)
 	switch identifierKindForKey(key) {
 	case "rfid":
 		return "rfid", identifierValueFromKey(key)
@@ -647,6 +648,21 @@ func conflictIdentifierParts(key string) (string, string) {
 	default:
 		return "external_system_id", identifierValueFromKey(key)
 	}
+}
+
+func primaryIdentifierKey(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	parts := strings.Split(key, "|")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if identifierKindForKey(part) != "" {
+			return part
+		}
+	}
+	return strings.TrimSpace(parts[0])
 }
 
 func lifecycleConflictKey(conflict *lifecycleConflict, matchedKeys []string) string {
@@ -1288,6 +1304,7 @@ func bqEventKey(event Event) string {
 }
 
 func identifierKindForKey(key string) string {
+	key = strings.TrimSpace(key)
 	switch {
 	case strings.HasPrefix(key, "rfid:"):
 		return "rfid"
@@ -2565,6 +2582,7 @@ func sortedIDSet(ids map[string]struct{}) []string {
 }
 
 func identifierValueFromKey(key string) string {
+	key = strings.TrimSpace(key)
 	parts := strings.Split(key, ":")
 	if len(parts) == 0 {
 		return ""

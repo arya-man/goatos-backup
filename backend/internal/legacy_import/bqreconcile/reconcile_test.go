@@ -19,6 +19,42 @@ func TestCanonicalIdentifierNormalizesExcelValues(t *testing.T) {
 	}
 }
 
+func TestConflictIdentifierPartsUsesPrimaryCompositeKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		key       string
+		wantType  string
+		wantValue string
+	}{
+		{
+			name:      "old tag first does not pick rfid value",
+			key:       "old_tag:park:cpt:356|rfid:global:901007000504678",
+			wantType:  "old_tag",
+			wantValue: "356",
+		},
+		{
+			name:      "rfid first stays rfid",
+			key:       "rfid:global:901007000504678|old_tag:park:cpt:356",
+			wantType:  "rfid",
+			wantValue: "901007000504678",
+		},
+		{
+			name:      "fallback external key",
+			key:       "source:legacy:ABC123",
+			wantType:  "external_system_id",
+			wantValue: "ABC123",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotType, gotValue := conflictIdentifierParts(tt.key)
+			if gotType != tt.wantType || gotValue != tt.wantValue {
+				t.Fatalf("conflictIdentifierParts(%q)=(%q,%q) want (%q,%q)", tt.key, gotType, gotValue, tt.wantType, tt.wantValue)
+			}
+		})
+	}
+}
+
 func TestPlanMatchesRFIDAndScopedOldTag(t *testing.T) {
 	events := []Event{
 		{GoatID: "123456789012345", Farm: "CBE", Event: "Shifting", Date: "2026-06-08", DstShed: "gandhi 2"},

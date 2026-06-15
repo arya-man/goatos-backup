@@ -16,8 +16,8 @@ The current console provides:
   conflict/candidate/correction queues, and live Import Review with a recent-run
   picker plus summary/row screens;
 - server-side forms for the already-built Phase 1 actions: correction request
-  create/resolve, candidate reject, conflict reject/merge, and goat identifier
-  add/retire.
+  create/resolve, candidate reject, conflict reject/merge, field-check
+  requests, identifier-dispute marking, and goat identifier add/retire.
 
 ## Framework Baseline
 

@@ -365,6 +365,7 @@ function ConflictResolver({
   const canDispute = supportsDispute && identifiers.length > 0;
   const canMerge = supportsMerge && data.goats.length > 1;
   const isActionable = data.conflict.state === "open" || data.conflict.state === "needs_field_check";
+  const canRequestFieldCheck = supportsFieldCheck && data.conflict.state !== "needs_field_check";
 
   return (
     <div id="conflict-resolver" className="mb-5 scroll-mt-6">
@@ -435,29 +436,35 @@ function ConflictResolver({
         </div>
 
         {isActionable ? (
-        <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          {supportsFieldCheck ? (
-            <DecisionForm
-              icon={<ShieldAlert className="h-5 w-5 text-[#facc15]" aria-hidden="true" />}
-              title="Request field check"
-              description="Use when the evidence is contradictory or a worker/admin must inspect the goat before changing the passport."
-              action="field_check"
-              conflictID={data.conflict.conflict_id}
-              rowVersion={data.conflict.row_version}
-              affectedGoatIDs={affectedValue}
-              returnTo={decisionReturnTo}
-              evidenceDefaultID={evidenceDefaultID}
-              reasonPlaceholder="What exactly should be checked before resolving this conflict?"
-              submitLabel="Request field check"
-              confirmMessage="Send this conflict for field verification?"
-            />
-          ) : (
-            <DecisionUnavailable
-              icon={<ShieldAlert className="h-5 w-5 text-[#facc15]" aria-hidden="true" />}
-              title="Request field check"
-              description="The backend did not advertise field-check as an allowed decision for this conflict."
-            />
-          )}
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            {canRequestFieldCheck ? (
+              <DecisionForm
+                icon={<ShieldAlert className="h-5 w-5 text-[#facc15]" aria-hidden="true" />}
+                title="Request field check"
+                description="Use when the evidence is contradictory or a worker/admin must inspect the goat before changing the passport."
+                action="field_check"
+                conflictID={data.conflict.conflict_id}
+                rowVersion={data.conflict.row_version}
+                affectedGoatIDs={affectedValue}
+                returnTo={decisionReturnTo}
+                evidenceDefaultID={evidenceDefaultID}
+                reasonPlaceholder="What exactly should be checked before resolving this conflict?"
+                submitLabel="Request field check"
+                confirmMessage="Send this conflict for field verification?"
+              />
+            ) : supportsFieldCheck ? (
+              <DecisionUnavailable
+                icon={<ShieldAlert className="h-5 w-5 text-[#facc15]" aria-hidden="true" />}
+                title="Field check already requested"
+                description="This conflict is already waiting on field verification. Resolve it when new evidence is available."
+              />
+            ) : (
+              <DecisionUnavailable
+                icon={<ShieldAlert className="h-5 w-5 text-[#facc15]" aria-hidden="true" />}
+                title="Request field check"
+                description="The backend did not advertise field-check as an allowed decision for this conflict."
+              />
+            )}
 
           {canDispute ? (
             <form action={resolveConflictAction} className="rounded-lg border border-[#334155] bg-[#10141b] p-4">

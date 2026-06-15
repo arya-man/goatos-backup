@@ -34,7 +34,8 @@ Rules:
   counts, Import Review with recent-run picker, data quality queues, correction request queue reads,
   Import Review backend-owned CSV downloads relayed through the Next server,
   and server-side forms for correction create/resolve, candidate reject,
-  conflict reject/merge, and goat identifier add/retire. The visible shell uses
+  conflict reject/merge, field-check requests, identifier-dispute marking, and
+  goat identifier add/retire. The visible shell uses
   Mesha branding; Goat OS and VGoat labels are internal/legacy labels and must
   not appear in rendered admin-web UI copy.
 - Fresh local closeout proof on June 12, 2026 rendered the Mesha admin-web

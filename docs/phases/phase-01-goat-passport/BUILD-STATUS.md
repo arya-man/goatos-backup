@@ -171,8 +171,9 @@ cover the overview, herd search, per-goat passport detail with live timeline,
 identity counts, data-quality queues, correction queue reads, and live Import
 Review summary/row data through backend APIs using server-side bearer auth. The
 defined safe Phase 1B actions are wired through server actions: correction
-request create/resolve, candidate reject, conflict reject/merge, and goat
-identifier add/retire. Import Review requires an import_run_id, shows nullable
+request create/resolve, candidate reject, conflict reject/merge,
+field-check requests, identifier-dispute marking, and goat identifier
+add/retire. Import Review requires an import_run_id, shows nullable
 or untracked metrics as "Not tracked", includes a derived rejected-row count,
 offers backend-owned CSV downloads for the same whitelisted row fields visible
 in the UI, and does not read CSVs, local files, Sheets, App Script, BigQuery, or
@@ -1224,7 +1225,8 @@ client plumbing, local dev token/grant helpers, local auth smoke, server-side
 bearer adapters, live identity-read screens, live goat timeline, live Import
 Review rows, live correction-request queue reads, plus server-action forms for
 the already-defined Phase 1 decisions: correction request create/resolve,
-candidate reject, conflict reject/merge, and goat identifier add/retire.
+candidate reject, conflict reject/merge, field-check requests,
+identifier-dispute marking, and goat identifier add/retire.
 Source breed/category import rows remain visible in Import Review until an
 explicit breed/category mapping policy exists. Candidate approve, conflict create_goat, admin goat create/update,
 import-run create, and messy-row fix/approve actions remain deferred.
