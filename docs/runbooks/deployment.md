@@ -1,0 +1,154 @@
+# Deployment Runbook — goatos-dev / goatos-stg / goatos-prod
+
+Status: deploy procedure + config are committed here. Actual cloud provisioning
+and deploy execution are **external operator actions** and are blocked from the
+build workspace (see "What is blocked" below). This runbook is the contract for
+how a Goat OS backend release reaches a shared/staging/production environment in
+the correct organization.
+
+Read the org boundary first: `docs/runbooks/google-cloud-environments.md`.
+
+## Org / project guardrail (run before ANY cloud command)
+
+Goat OS cloud work targets the Mesha/VGoats organization only.
+
+```text
+Organization: vgoats.com  (org id 563962826703)
+Folder:       goat-os      (folder id 188649904255)
+Projects:     goatos-dev | goatos-stg | goatos-prod   (already created, billing linked)
+Never:        Heva / Slice orgs, hevaplatform, goatos-sheets (legacy, untouched)
+```
+
+Before any create/update/delete/IAM/billing/deploy command, verify and state the
+active account, org, folder, project, and target repo:
+
+```bash
+gcloud config list --format="text(core.account,core.project)"   # expect ravi@mesha.sg, project explicit
+```
+
+If the active context is not Mesha/VGoats, stop and fix context first.
+
+## Environment posture
+
+| Env | Purpose | Data | Auth |
+| --- | --- | --- | --- |
+| `goatos-dev` | real-data debug clone, non-authoritative | real-shaped clone | `jwks` (real IdP) — HS256 only for throwaway local rehearsal |
+| `goatos-stg` | scale rehearsal + load tests | 1M synthetic baseline | `jwks` |
+| `goatos-prod` | live truth | production | `jwks` only |
+
+The local dev-token demo (`make dev-local`, `mint-dev-token`, `seed-dev-grant`)
+is **local-only** and is not a deployment path. `seed-dev-grant` refuses
+non-local database targets by design.
+
+## Required backend config per environment
+
+The API binary (`backend/cmd/api`) is configured entirely through env vars. A
+per-env template lives at `infra/envs/<env>/goatos-api.env.example`. Production
+values come from Secret Manager, never from committed files.
+
+```text
+# HTTP
+GOATOS_HTTP_ADDR=:8080
+
+# Database (Cloud SQL connection string / socket)
+DATABASE_URL=postgres://.../goatos?sslmode=...
+
+# Auth — PRODUCTION MUST USE jwks (see docs/runbooks/auth.md)
+GOATOS_AUTH_MODE=jwks
+GOATOS_AUTH_ISSUER=<idp issuer URL>
+GOATOS_AUTH_AUDIENCE=<goat-os api audience>
+GOATOS_AUTH_JWKS_URL=<idp JWKS endpoint>
+GOATOS_AUTH_CLOCK_SKEW=60s            # optional
+GOATOS_AUTH_ALLOWED_ALGS=RS256,ES256  # optional
+GOATOS_AUTH_JWKS_CACHE_TTL=10m        # optional
+GOATOS_AUTH_MAX_TOKEN_TTL=24h         # optional ceiling
+
+# Environment + observability
+GOATOS_ENV=stg|prod                    # NOT local/dev/test for shared envs
+GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
+```
+
+`GOATOS_AUTH_MODE=bearer` (HS256) logs a loud non-production warning when
+`GOATOS_ENV` is not local/dev/test. Shared/staging/prod must run `jwks`.
+
+## Release steps
+
+1. **Build + publish image.** Build `backend/cmd/api` (and the worker entrypoints
+   `outbox-relay`, `rebuild-identity-counters`, `update-identity-counters`) into
+   a container, tag by git SHA, push to the project's Artifact Registry. Record
+   the SHA — it is the rollback handle.
+2. **Apply migrations.** Migrations live in `backend/migrations/postgres/`
+   (`000001`..`000021`, forward-only, never edit an applied migration). Apply
+   them against the target Cloud SQL database with the same runner CI uses
+   (`make validate-migrations` validates them locally first). Migrations must run
+   to completion before the new image serves traffic.
+3. **Seed the admin grant (first deploy only).** Production authorization comes
+   from active `user_scope_grants` rows for the IdP `sub`, not from token claims.
+   Insert the initial `ceo_internal`/`admin` tenant-scope grant for the seeded
+   operator identity through a reviewed migration or an explicit, audited grant
+   script — `seed-dev-grant` is local-only and will refuse the target.
+4. **Deploy.** Roll the new image. Keep the previous revision available for
+   rollback.
+5. **Smoke.** See "Smoke checks" — must pass before announcing the release.
+6. **Counters.** After any large data load, run `rebuild-identity-counters` for
+   the tenant, then confirm analytics freshness is not `rebuild_required`.
+
+## Smoke checks
+
+```text
+GET /healthz   -> 200 (no auth)
+GET /readyz    -> 200 (DB reachable)
+A real bearer token (from the IdP) on a read route (e.g. GET /goats/search) -> 200
+A token with wrong issuer/audience/alg -> 401
+GET /analytics/identity/counts -> 200 with freshness fields, no rebuild_required after a clean rebuild
+```
+
+`backend/tests/integration/smoke-auth-local.sh` is the local analogue; the
+production smoke uses a real IdP token instead of a minted HS256 token.
+
+## Rollback
+
+```text
+1. Redeploy the previous image SHA (fast path; no data change).
+2. If a migration caused the failure: a forward-only fix migration is preferred.
+   Only use a down-migration if the change is provably reversible and no rows
+   depend on it. Never hand-edit data to "undo" — write a corrective migration.
+3. Counters/projections are rebuildable: re-run rebuild-identity-counters after
+   any rollback that touched identity data.
+```
+
+## Monitoring / alerts (per env)
+
+Wire these before calling an environment production-ready:
+
+```text
+API latency (p50/p95/p99) and error rate per route
+DB pressure: connections, slow queries, Cloud SQL CPU/mem
+Outbox lag: pending/oldest-unpublished age, dead_letter count
+Counter freshness: rebuild_required true, projection staleness
+Import/sync run failures and conflict volume
+```
+
+Observability uses `GOATOS_OBS_SINK=gcm` (Google Cloud Monitoring/Logging/Trace)
+per `docs/decisions/observability.md`. OpenTelemetry spans/metrics exporters are
+a deferred hardening item.
+
+## What is blocked (external operator action, not Phase 1 code)
+
+The following require cloud access in the verified `vgoats.com` context and are
+**not** performed from the build workspace:
+
+```text
+- Authoring/validating Terraform under infra/modules + infra/envs and running
+  terraform plan/apply (the module + env dirs are scaffolded but empty).
+- Provisioning Cloud SQL, GCS, Pub/Sub topics, Secret Manager secrets, service
+  accounts, and Artifact Registry per project.
+- Standing up a production IdP/JWKS endpoint and loading signing keys/secrets.
+- Wiring the Pub/Sub outbox publisher + worker deploy (see event egress
+  follow-up in BUILD-STATUS).
+- Running the migration apply, image deploy, and smoke against real projects.
+```
+
+These are production-launch tasks. The Phase 1 backend, migrations, auth modes
+(including `jwks`), and worker entrypoints are built and locally verified; what
+remains is provisioning + deploy execution under the correct org.
