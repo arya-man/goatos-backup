@@ -1405,6 +1405,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ConflictGoatReview"
+        legacy_evidence:
+          $ref: "#/components/schemas/ConflictLegacyEvidence"
         source_records:
           type: array
           items:
@@ -1441,6 +1443,71 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    ConflictLegacyEvidence:
+      type: object
+      additionalProperties: false
+      properties:
+        source_system:
+          type: string
+          maxLength: 120
+        source_context:
+          type: string
+          maxLength: 160
+        review_note:
+          type: string
+          maxLength: 500
+        latest_event_date:
+          type: string
+          maxLength: 40
+        latest_farm_code:
+          type: string
+          maxLength: 40
+        latest_destination:
+          type: string
+          maxLength: 160
+        matched_keys:
+          type: array
+          items:
+            type: string
+            maxLength: 220
+        conflicts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConflictLegacyEvidenceItem"
+    ConflictLegacyEvidenceItem:
+      type: object
+      additionalProperties: false
+      properties:
+        attribute:
+          type: string
+          maxLength: 80
+        reason:
+          type: string
+          maxLength: 160
+        passport_value:
+          type: string
+          maxLength: 220
+        legacy_value:
+          type: string
+          maxLength: 220
+        rfid_lifecycle:
+          type: string
+          maxLength: 80
+        old_tag_lifecycle:
+          type: string
+          maxLength: 80
+        identifier_kind:
+          type: string
+          maxLength: 80
+        identifier_key:
+          type: string
+          maxLength: 240
+        latest_event_date:
+          type: string
+          maxLength: 40
+        recommended_action:
+          type: string
+          maxLength: 500
     ResolveConflictRequest:
       type: object
       additionalProperties: false

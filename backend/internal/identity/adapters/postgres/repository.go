@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -312,11 +314,15 @@ func (r *Repository) ListConflicts(ctx context.Context, params ports.ListConflic
 		where = append(where, fmt.Sprintf("c.conflict_type = $%d", len(args)))
 	}
 	if params.Cursor != nil && *params.Cursor != "" {
-		args = append(args, *params.Cursor)
-		where = append(where, fmt.Sprintf("c.conflict_id::text > $%d", len(args)))
+		cursorCreatedAt, cursorConflictID, err := decodeConflictListCursor(*params.Cursor)
+		if err != nil {
+			return nil, nil, err
+		}
+		args = append(args, cursorCreatedAt, cursorConflictID)
+		where = append(where, fmt.Sprintf("(c.created_at < $%d::timestamptz OR (c.created_at = $%d::timestamptz AND c.conflict_id > $%d::uuid))", len(args)-1, len(args)-1, len(args)))
 	}
 
-	query := conflictSummarySelect() + " WHERE " + strings.Join(where, " AND ") + " ORDER BY c.created_at DESC LIMIT $2"
+	query := conflictSummarySelect() + " WHERE " + strings.Join(where, " AND ") + " ORDER BY c.created_at DESC, c.conflict_id ASC LIMIT $2"
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, nil, err
@@ -336,11 +342,55 @@ func (r *Repository) ListConflicts(ctx context.Context, params ports.ListConflic
 	}
 	var next *string
 	if len(items) > params.Limit {
-		cursor := items[params.Limit-1].ConflictID
+		cursor, err := encodeConflictListCursor(items[params.Limit-1])
+		if err != nil {
+			return nil, nil, err
+		}
 		next = &cursor
 		items = items[:params.Limit]
 	}
 	return items, next, nil
+}
+
+type conflictListCursor struct {
+	Version    int    `json:"v"`
+	CreatedAt  string `json:"created_at"`
+	ConflictID string `json:"conflict_id"`
+}
+
+func encodeConflictListCursor(item domain.ConflictSummary) (string, error) {
+	payload := conflictListCursor{
+		Version:    1,
+		CreatedAt:  item.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ConflictID: item.ConflictID,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeConflictListCursor(value string) (time.Time, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}, "", ports.ErrInvalidCursor
+	}
+	var cursor conflictListCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return time.Time{}, "", ports.ErrInvalidCursor
+	}
+	if cursor.Version != 1 || cursor.CreatedAt == "" || cursor.ConflictID == "" {
+		return time.Time{}, "", ports.ErrInvalidCursor
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, cursor.CreatedAt)
+	if err != nil || createdAt.IsZero() {
+		return time.Time{}, "", ports.ErrInvalidCursor
+	}
+	if _, err := uuidParam(cursor.ConflictID); err != nil {
+		return time.Time{}, "", ports.ErrInvalidCursor
+	}
+	return createdAt, cursor.ConflictID, nil
 }
 
 // CountReviewQueues returns total open conflicts (state='open') and actionable
@@ -439,10 +489,16 @@ func (r *Repository) GetConflict(ctx context.Context, tenantID, conflictID strin
 		sourceRecords = append(sourceRecords, rec)
 	}
 
+	legacyEvidence, err := r.getConflictLegacyEvidence(ctx, tenantID, conflictID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &domain.ConflictDetailResult{
-		Conflict:      summary,
-		Goats:         goats,
-		SourceRecords: sourceRecords,
+		Conflict:       summary,
+		Goats:          goats,
+		SourceRecords:  sourceRecords,
+		LegacyEvidence: legacyEvidence,
 		DecisionOptions: []string{
 			"same_goat_merge",
 			"different_goats_mark_identifier_disputed",
@@ -451,6 +507,115 @@ func (r *Repository) GetConflict(ctx context.Context, tenantID, conflictID strin
 			"needs_field_verification",
 		},
 	}, nil
+}
+
+func (r *Repository) getConflictLegacyEvidence(ctx context.Context, tenantID, conflictID string) (*domain.ConflictLegacyEvidence, error) {
+	var raw []byte
+	if err := r.pool.QueryRow(ctx, `
+SELECT evidence
+FROM identity_conflicts
+WHERE tenant_id = $1::uuid
+  AND conflict_id = $2::uuid`, tenantID, conflictID).Scan(&raw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ports.ErrNotFound
+		}
+		return nil, fmt.Errorf("load conflict legacy evidence: %w", err)
+	}
+	return parseConflictLegacyEvidence(raw)
+}
+
+type conflictLegacyEvidencePayload struct {
+	SourceSystem      string                              `json:"source_system"`
+	SourceContext     string                              `json:"source_context"`
+	ReviewNote        string                              `json:"review_note"`
+	LatestEventDate   string                              `json:"latest_event_date"`
+	LatestFarmCode    string                              `json:"latest_farm_code"`
+	LatestDestination string                              `json:"latest_destination"`
+	MatchedKeys       []string                            `json:"matched_keys"`
+	Conflicts         []conflictLegacyEvidenceItemPayload `json:"conflicts"`
+	Reason            string                              `json:"reason"`
+	RFIDLifecycle     string                              `json:"rfid_lifecycle"`
+	OldTagLifecycle   string                              `json:"old_tag_lifecycle"`
+	IdentifierKind    string                              `json:"identifier_kind"`
+	IdentifierKey     string                              `json:"identifier_key"`
+	RecommendedState  string                              `json:"recommended_state"`
+	TerminalDate      string                              `json:"terminal_event_date"`
+	LaterDate         string                              `json:"later_event_date"`
+}
+
+type conflictLegacyEvidenceItemPayload struct {
+	Attribute        string `json:"Attribute"`
+	Reason           string `json:"Reason"`
+	LocalValue       string `json:"LocalValue"`
+	BQValue          string `json:"BQValue"`
+	IdentifierKind   string `json:"IdentifierKind"`
+	IdentifierKey    string `json:"IdentifierKey"`
+	LatestEventDate  string `json:"LatestEventDate"`
+	RecommendedState string `json:"RecommendedState"`
+}
+
+func parseConflictLegacyEvidence(raw []byte) (*domain.ConflictLegacyEvidence, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var payload conflictLegacyEvidencePayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode conflict legacy evidence: %w", err)
+	}
+	if payload.SourceSystem == "" &&
+		payload.SourceContext == "" &&
+		payload.ReviewNote == "" &&
+		len(payload.Conflicts) == 0 &&
+		payload.Reason == "" {
+		return nil, nil
+	}
+
+	out := &domain.ConflictLegacyEvidence{
+		SourceSystem:      payload.SourceSystem,
+		SourceContext:     payload.SourceContext,
+		ReviewNote:        payload.ReviewNote,
+		LatestEventDate:   payload.LatestEventDate,
+		LatestFarmCode:    payload.LatestFarmCode,
+		LatestDestination: payload.LatestDestination,
+		MatchedKeys:       payload.MatchedKeys,
+	}
+	for _, item := range payload.Conflicts {
+		out.Conflicts = append(out.Conflicts, domain.ConflictLegacyEvidenceItem{
+			Attribute:         item.Attribute,
+			Reason:            item.Reason,
+			PassportValue:     nonEmptyPtr(item.LocalValue),
+			LegacyValue:       nonEmptyPtr(item.BQValue),
+			IdentifierKind:    item.IdentifierKind,
+			IdentifierKey:     item.IdentifierKey,
+			LatestEventDate:   item.LatestEventDate,
+			RecommendedAction: item.RecommendedState,
+		})
+	}
+	if payload.Reason != "" {
+		eventDate := payload.LatestEventDate
+		if eventDate == "" {
+			eventDate = payload.LaterDate
+		}
+		out.Conflicts = append(out.Conflicts, domain.ConflictLegacyEvidenceItem{
+			Attribute:         "lifecycle",
+			Reason:            payload.Reason,
+			RFIDLifecycle:     nonEmptyPtr(payload.RFIDLifecycle),
+			OldTagLifecycle:   nonEmptyPtr(payload.OldTagLifecycle),
+			IdentifierKind:    payload.IdentifierKind,
+			IdentifierKey:     payload.IdentifierKey,
+			LatestEventDate:   eventDate,
+			RecommendedAction: payload.RecommendedState,
+		})
+	}
+	return out, nil
+}
+
+func nonEmptyPtr(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (r *Repository) listIdentifiers(ctx context.Context, tenantID, goatID string) ([]domain.GoatIdentifier, error) {

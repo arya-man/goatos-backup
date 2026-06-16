@@ -46,9 +46,13 @@ type CountDimensions struct {
 	TenantID           string  `json:"tenant_id"`
 	CustodianPartyID   *string `json:"custodian_party_id"`
 	FarmID             *string `json:"farm_id"`
+	FarmName           *string `json:"farm_name,omitempty"`
 	ParkID             *string `json:"park_id"`
+	ParkName           *string `json:"park_name,omitempty"`
 	ShedID             *string `json:"shed_id"`
+	ShedName           *string `json:"shed_name,omitempty"`
 	CohortID           *string `json:"cohort_id"`
+	CohortName         *string `json:"cohort_name,omitempty"`
 	LifecycleStatus    *string `json:"lifecycle_status"`
 	ReproductiveStatus *string `json:"reproductive_status"`
 	GrowthCohortTag    *string `json:"growth_cohort_tag"`
@@ -56,6 +60,7 @@ type CountDimensions struct {
 	HealthStatus       *string `json:"health_status"`
 	IdentityState      *string `json:"identity_state"`
 	BreedID            *string `json:"breed_id"`
+	BreedName          *string `json:"breed_name,omitempty"`
 	Sex                *string `json:"sex"`
 }
 

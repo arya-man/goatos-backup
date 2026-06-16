@@ -256,21 +256,41 @@ components:
             - string
             - "null"
           format: uuid
+        farm_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         park_id:
           type:
             - string
             - "null"
           format: uuid
+        park_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         shed_id:
           type:
             - string
             - "null"
           format: uuid
+        shed_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         cohort_id:
           type:
             - string
             - "null"
           format: uuid
+        cohort_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         lifecycle_status:
           type:
             - string
@@ -305,6 +325,11 @@ components:
             - string
             - "null"
           format: uuid
+        breed_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         sex:
           type:
             - string

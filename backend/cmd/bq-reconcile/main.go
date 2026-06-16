@@ -42,8 +42,6 @@ func run(args []string) error {
 	fs.BoolVar(&backfillMissing, "backfill-missing", false, "blocked unless a deterministic per-goat current BQ identity export is added; event-history exports cannot safely create missing passports")
 	fs.StringVar(&candidatesCSV, "backfill-candidates-csv", "", "deterministic safe old-tag passport backfill: explicit candidate CSV path. This is the ONLY path that creates old-tag-only passports; event-only exports never create goats.")
 	fs.StringVar(&reportDir, "report-dir", "", "optional directory for backfilled/skipped CSV artifacts")
-	var resolveSelfConflicts bool
-	fs.BoolVar(&resolveSelfConflicts, "resolve-self-conflicts", false, "deterministically close open attribute conflicts that are purely BQ self-contradiction (keep Mesha passport); leaves genuine passport-vs-BQ mismatches for human review")
 	fs.BoolVar(&execute, "execute", false, "apply planned updates; default is dry-run")
 	fs.DurationVar(&timeout, "timeout", 10*time.Minute, "command timeout")
 	fs.StringVar(&traceID, "trace-id", "", "optional audit trace id")
@@ -94,26 +92,6 @@ func run(args []string) error {
 		ReportDir:         reportDir,
 		Execute:           execute,
 		TraceID:           traceID,
-	}
-
-	// Deterministic bulk close of purely-BQ-self-contradiction attribute
-	// conflicts (keep Mesha passport). Distinct path; env/local-DB gated above.
-	if resolveSelfConflicts {
-		result, err := bqreconcile.RunSelfConflictResolve(ctx, pool, opts)
-		if err != nil {
-			return err
-		}
-		out, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(out))
-		if execute {
-			fmt.Fprintln(os.Stderr, "Self-conflict resolve applied (local/dev only). Rebuild identity counters before trusting dashboard counts.")
-		} else {
-			fmt.Fprintln(os.Stderr, "dry-run only; rerun with --execute (local/dev) to apply, then run rebuild-identity-counters.")
-		}
-		return nil
 	}
 
 	// Deterministic explicit old-tag passport backfill is a distinct, fail-closed

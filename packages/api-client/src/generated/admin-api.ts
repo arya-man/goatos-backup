@@ -512,6 +512,7 @@ export interface components {
         ConflictDetailResponse: {
             conflict: components["schemas"]["ConflictSummary"];
             goats: components["schemas"]["ConflictGoatReview"][];
+            legacy_evidence?: components["schemas"]["ConflictLegacyEvidence"];
             source_records: {
                 source_system: string;
                 source_record_id: string;
@@ -519,6 +520,28 @@ export interface components {
             }[];
             decision_options: ("same_goat_merge" | "different_goats_mark_identifier_disputed" | "create_new_goat" | "reject_candidate" | "needs_field_verification")[];
             trace_id: string;
+        };
+        ConflictLegacyEvidence: {
+            source_system?: string;
+            source_context?: string;
+            review_note?: string;
+            latest_event_date?: string;
+            latest_farm_code?: string;
+            latest_destination?: string;
+            matched_keys?: string[];
+            conflicts?: components["schemas"]["ConflictLegacyEvidenceItem"][];
+        };
+        ConflictLegacyEvidenceItem: {
+            attribute?: string;
+            reason?: string;
+            passport_value?: string;
+            legacy_value?: string;
+            rfid_lifecycle?: string;
+            old_tag_lifecycle?: string;
+            identifier_kind?: string;
+            identifier_key?: string;
+            latest_event_date?: string;
+            recommended_action?: string;
         };
         ResolveConflictRequest: {
             /** @enum {string} */

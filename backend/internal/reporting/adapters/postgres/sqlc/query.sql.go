@@ -48,52 +48,62 @@ func (q *Queries) GetIdentityCounterProjectionState(ctx context.Context, tenantI
 
 const listIdentityCounts = `-- name: ListIdentityCounts :many
 SELECT
-  counter_id::text AS counter_id,
-  counter_grain,
-  tenant_id::text AS tenant_id,
-  COALESCE(custodian_party_id::text, '')::text AS custodian_party_id,
-  COALESCE(farm_id::text, '')::text AS farm_id,
-  COALESCE(park_id::text, '')::text AS park_id,
-  COALESCE(shed_id::text, '')::text AS shed_id,
-  COALESCE(cohort_id::text, '')::text AS cohort_id,
-  lifecycle_status,
-  reproductive_status,
-  growth_cohort_tag,
-  management_stage,
-  health_status,
-  identity_state,
-  COALESCE(breed_id::text, '')::text AS breed_id,
-  sex,
-  count_value,
-  as_of_recorded_at,
-  COALESCE(source_import_run_id::text, '')::text AS source_import_run_id,
-  is_rebuilding,
-  updated_at
-FROM goat_identity_counters
-WHERE counter_grain = $1
-  AND tenant_id = $2
-  AND ($3::uuid IS NULL OR custodian_party_id = $3::uuid)
-  AND ($4::uuid IS NULL OR farm_id = $4::uuid)
-  AND ($5::uuid IS NULL OR park_id = $5::uuid)
-  AND ($6::uuid IS NULL OR shed_id = $6::uuid)
-  AND ($7::uuid IS NULL OR cohort_id = $7::uuid)
-  AND ($8::text IS NULL OR lifecycle_status = $8::text)
-  AND ($9::text IS NULL OR reproductive_status = $9::text)
-  AND ($10::text IS NULL OR growth_cohort_tag = $10::text)
-  AND ($11::text IS NULL OR management_stage = $11::text)
-  AND ($12::text IS NULL OR health_status = $12::text)
-  AND ($13::text IS NULL OR identity_state = $13::text)
-  AND ($14::uuid IS NULL OR breed_id = $14::uuid)
-  AND ($15::text IS NULL OR sex = $15::text)
+  c.counter_id::text AS counter_id,
+  c.counter_grain,
+  c.tenant_id::text AS tenant_id,
+  COALESCE(c.custodian_party_id::text, '')::text AS custodian_party_id,
+  COALESCE(c.farm_id::text, '')::text AS farm_id,
+  farm.name AS farm_name,
+  COALESCE(c.park_id::text, '')::text AS park_id,
+  park.name AS park_name,
+  COALESCE(c.shed_id::text, '')::text AS shed_id,
+  shed.name AS shed_name,
+  COALESCE(c.cohort_id::text, '')::text AS cohort_id,
+  cohort.name AS cohort_name,
+  c.lifecycle_status,
+  c.reproductive_status,
+  c.growth_cohort_tag,
+  c.management_stage,
+  c.health_status,
+  c.identity_state,
+  COALESCE(c.breed_id::text, '')::text AS breed_id,
+  breed.canonical_name AS breed_name,
+  c.sex,
+  c.count_value,
+  c.as_of_recorded_at,
+  COALESCE(c.source_import_run_id::text, '')::text AS source_import_run_id,
+  c.is_rebuilding,
+  c.updated_at
+FROM goat_identity_counters c
+LEFT JOIN locations farm ON farm.tenant_id = c.tenant_id AND farm.location_id = c.farm_id
+LEFT JOIN locations park ON park.tenant_id = c.tenant_id AND park.location_id = c.park_id
+LEFT JOIN locations shed ON shed.tenant_id = c.tenant_id AND shed.location_id = c.shed_id
+LEFT JOIN locations cohort ON cohort.tenant_id = c.tenant_id AND cohort.location_id = c.cohort_id
+LEFT JOIN breeds breed ON breed.breed_id = c.breed_id
+WHERE c.counter_grain = $1
+  AND c.tenant_id = $2
+  AND ($3::uuid IS NULL OR c.custodian_party_id = $3::uuid)
+  AND ($4::uuid IS NULL OR c.farm_id = $4::uuid)
+  AND ($5::uuid IS NULL OR c.park_id = $5::uuid)
+  AND ($6::uuid IS NULL OR c.shed_id = $6::uuid)
+  AND ($7::uuid IS NULL OR c.cohort_id = $7::uuid)
+  AND ($8::text IS NULL OR c.lifecycle_status = $8::text)
+  AND ($9::text IS NULL OR c.reproductive_status = $9::text)
+  AND ($10::text IS NULL OR c.growth_cohort_tag = $10::text)
+  AND ($11::text IS NULL OR c.management_stage = $11::text)
+  AND ($12::text IS NULL OR c.health_status = $12::text)
+  AND ($13::text IS NULL OR c.identity_state = $13::text)
+  AND ($14::uuid IS NULL OR c.breed_id = $14::uuid)
+  AND ($15::text IS NULL OR c.sex = $15::text)
   AND (
     $16::bigint IS NULL
-    OR count_value < $16::bigint
+    OR c.count_value < $16::bigint
     OR (
-      count_value = $16::bigint
-      AND counter_id > $17::uuid
+      c.count_value = $16::bigint
+      AND c.counter_id > $17::uuid
     )
   )
-ORDER BY count_value DESC, counter_id ASC
+ORDER BY c.count_value DESC, c.counter_id ASC
 LIMIT $18
 `
 
@@ -124,9 +134,13 @@ type ListIdentityCountsRow struct {
 	TenantID           string
 	CustodianPartyID   string
 	FarmID             string
+	FarmName           pgtype.Text
 	ParkID             string
+	ParkName           pgtype.Text
 	ShedID             string
+	ShedName           pgtype.Text
 	CohortID           string
+	CohortName         pgtype.Text
 	LifecycleStatus    pgtype.Text
 	ReproductiveStatus pgtype.Text
 	GrowthCohortTag    pgtype.Text
@@ -134,6 +148,7 @@ type ListIdentityCountsRow struct {
 	HealthStatus       pgtype.Text
 	IdentityState      pgtype.Text
 	BreedID            string
+	BreedName          pgtype.Text
 	Sex                pgtype.Text
 	CountValue         int64
 	AsOfRecordedAt     pgtype.Timestamptz
@@ -176,9 +191,13 @@ func (q *Queries) ListIdentityCounts(ctx context.Context, arg ListIdentityCounts
 			&i.TenantID,
 			&i.CustodianPartyID,
 			&i.FarmID,
+			&i.FarmName,
 			&i.ParkID,
+			&i.ParkName,
 			&i.ShedID,
+			&i.ShedName,
 			&i.CohortID,
+			&i.CohortName,
 			&i.LifecycleStatus,
 			&i.ReproductiveStatus,
 			&i.GrowthCohortTag,
@@ -186,6 +205,7 @@ func (q *Queries) ListIdentityCounts(ctx context.Context, arg ListIdentityCounts
 			&i.HealthStatus,
 			&i.IdentityState,
 			&i.BreedID,
+			&i.BreedName,
 			&i.Sex,
 			&i.CountValue,
 			&i.AsOfRecordedAt,

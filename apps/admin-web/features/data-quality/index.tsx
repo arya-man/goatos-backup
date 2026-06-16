@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
 import type { ReactNode } from "react";
-import { AlertTriangle, ClipboardCheck, GitBranch, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CircleHelp, ClipboardCheck, GitBranch, ShieldAlert } from "lucide-react";
 import { redirect } from "next/navigation";
 import {
   ActionNotice,
@@ -34,6 +34,8 @@ import {
   type CorrectionRequestState,
 } from "@/lib/api/server";
 import { createCorrectionRequestAction, rejectCandidateAction, resolveConflictAction, resolveCorrectionRequestAction } from "./actions";
+
+export { DataQualityReviewGuidePage } from "./review-guide";
 
 const conflictStates: ConflictState[] = ["open", "needs_field_check", "resolved", "rejected", "closed"];
 const correctionStates: CorrectionRequestState[] = ["open", "assigned", "needs_field_check", "approved", "rejected", "closed"];
@@ -103,6 +105,15 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
         eyebrow="Data Quality"
         title="Review Queues"
         description="The cleanup desk for goats whose records don't fully agree. Conflicts = records disagree, pick what's correct. Match candidates = are these the same goat? Correction requests = manually flag something to fix. Empty queues mean no pending work."
+        actions={
+          <Link
+            href="/data-quality/review-guide"
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-[#334155] px-3 text-sm font-semibold text-[#c7d1dc] hover:border-[#14f1d9]/70 hover:text-white"
+          >
+            <CircleHelp className="h-4 w-4" aria-hidden="true" />
+            Review guide
+          </Link>
+        }
       />
       <ActionNotice status={actionStatus} message={actionMessage} />
       <DialogModal open={Boolean(conflictId)} closeHref={withoutConflictSelection(returnTo)} label="Conflict workbench">
@@ -385,6 +396,10 @@ function ConflictResolver({
           </Link>
         }
       >
+        <div className="mb-4">
+          <LegacyEvidencePanel evidence={data.legacy_evidence} />
+        </div>
+
         <div className="grid gap-4 xl:grid-cols-[1fr_1.05fr]">
           <div className="space-y-4">
             <div className="rounded-lg border border-[#334155] bg-[#10141b] p-4">
@@ -631,6 +646,64 @@ function ConflictResolver({
   );
 }
 
+function LegacyEvidencePanel({ evidence }: { evidence?: ConflictDetailResponse["legacy_evidence"] }) {
+  if (!evidence) {
+    return (
+      <div className="rounded-lg border border-dashed border-[#334155] bg-[#10141b] p-4">
+        <div className="text-sm font-bold text-white">Legacy evidence</div>
+        <p className="mt-2 text-sm leading-6 text-[#93a4b8]">No structured legacy evidence metadata was returned for this conflict.</p>
+      </div>
+    );
+  }
+  const conflicts = evidence.conflicts ?? [];
+  return (
+    <div className="rounded-lg border border-[#334155] bg-[#10141b] p-4">
+      <div className="flex items-center gap-2 text-sm font-bold text-white">
+        <ClipboardCheck className="h-4 w-4 text-[#14f1d9]" aria-hidden="true" />
+        Legacy evidence
+      </div>
+      <p className="mt-2 text-sm leading-6 text-[#93a4b8]">
+        Use this to look up the same identifier in legacy source rows before changing the Mesha passport. Legacy self-conflicts stay review-required; they are not auto-closed.
+      </p>
+      <ValueList
+        values={[
+          ["Source", dash(evidence.source_system ? legacyEvidenceLabel(evidence.source_system) : null)],
+          ["Context", dash(evidence.source_context ? legacyEvidenceLabel(evidence.source_context) : null)],
+          ["Latest event", dash(evidence.latest_event_date)],
+          ["Farm", dash(evidence.latest_farm_code)],
+          ["Destination", dash(evidence.latest_destination)],
+          ["Matched keys", evidence.matched_keys?.length ? evidence.matched_keys.map((key) => <Mono key={key}>{key}</Mono>) : dash(null)],
+        ]}
+      />
+      {evidence.review_note ? <p className="mt-3 text-xs text-[#93a4b8]">{legacyEvidenceText(evidence.review_note)}</p> : null}
+      {conflicts.length === 0 ? (
+        <p className="mt-3 text-sm text-[#93a4b8]">No field-level legacy conflict rows were returned.</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {conflicts.map((item, index) => (
+            <div key={`${item.reason ?? "legacy"}:${item.identifier_key ?? index}`} className="rounded-md border border-[#293241] bg-[#0f1115] p-3">
+              <div className="text-sm font-semibold text-white">{friendlyEvidenceReason(item.reason)}</div>
+              <ValueList
+                values={[
+                  ["Attribute", dash(item.attribute ? formatLabel(item.attribute) : null)],
+                  ["Mesha value", dash(item.passport_value)],
+                  ["Legacy value", dash(item.legacy_value)],
+                  ["RFID lifecycle", dash(item.rfid_lifecycle ? formatLabel(item.rfid_lifecycle) : null)],
+                  ["Old-tag lifecycle", dash(item.old_tag_lifecycle ? formatLabel(item.old_tag_lifecycle) : null)],
+                  ["Identifier", item.identifier_key ? <Mono>{item.identifier_key}</Mono> : dash(null)],
+                  ["Identifier kind", dash(item.identifier_kind ? formatLabel(item.identifier_kind) : null)],
+                  ["Event date", dash(item.latest_event_date)],
+                ]}
+              />
+              {item.recommended_action ? <p className="mt-3 text-xs leading-5 text-[#93a4b8]">{legacyEvidenceText(item.recommended_action)}</p> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DecisionUnavailable({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
   return (
     <div className="rounded-lg border border-dashed border-[#334155] bg-[#0f1115] p-4">
@@ -839,6 +912,50 @@ function goatOptionLabel(item: ConflictDetailResponse["goats"][number]): string 
     goat.lifecycle_status ? formatLabel(goat.lifecycle_status) : "unknown status",
     goat.rfid || goat.primary_old_tag || shortId(goat.goat_id),
   ].join(" · ");
+}
+
+function friendlyEvidenceReason(reason?: string): string {
+  switch (reason) {
+    case "bq_gender_self_conflict":
+      return "Legacy has multiple gender values";
+    case "bq_breed_self_conflict":
+      return "Legacy has multiple breed values";
+    case "gender_mismatch":
+      return "Legacy gender disagrees with Mesha";
+    case "breed_mismatch":
+      return "Legacy breed disagrees with Mesha";
+    case "identifier_lifecycle_disagreement":
+      return "RFID lifecycle disagrees with old-tag lifecycle";
+    case "death_then_later_activity":
+      return "Legacy has activity after a death event";
+    case "sale_then_later_nonpurchase_activity":
+      return "Legacy has activity after a sale event";
+    default:
+      return reason ? formatLabel(reason) : "Legacy evidence mismatch";
+  }
+}
+
+function legacyEvidenceLabel(value: string): string {
+  switch (value) {
+    case "legacy_bigquery":
+      return "Legacy data";
+    case "bq_reconcile_attribute_conflict":
+      return "Legacy attribute disagreement";
+    case "bq_reconcile_identifier_lifecycle_conflict":
+      return "Legacy lifecycle disagreement";
+    default:
+      break;
+  }
+  return legacyEvidenceText(formatLabel(value));
+}
+
+function legacyEvidenceText(value: string): string {
+  return value
+    .replace(/\bBQ\b/g, "Legacy")
+    .replace(/\bBq\b/g, "Legacy")
+    .replace(/\bBigQuery\b/g, "legacy data")
+    .replace(/\bBigquery\b/g, "legacy data")
+    .replace(/\bGoat\s+OS\b/g, "Mesha");
 }
 
 function conflictIdentifierLabel(identifier: ConflictDetailResponse["conflict"]["identifier"]): ReactNode {

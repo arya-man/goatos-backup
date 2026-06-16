@@ -161,12 +161,37 @@ type ConflictSourceRecord struct {
 	EvidenceRefs   []EvidenceRef `json:"evidence_refs"`
 }
 
+type ConflictLegacyEvidenceItem struct {
+	Attribute         string  `json:"attribute,omitempty"`
+	Reason            string  `json:"reason,omitempty"`
+	PassportValue     *string `json:"passport_value,omitempty"`
+	LegacyValue       *string `json:"legacy_value,omitempty"`
+	RFIDLifecycle     *string `json:"rfid_lifecycle,omitempty"`
+	OldTagLifecycle   *string `json:"old_tag_lifecycle,omitempty"`
+	IdentifierKind    string  `json:"identifier_kind,omitempty"`
+	IdentifierKey     string  `json:"identifier_key,omitempty"`
+	LatestEventDate   string  `json:"latest_event_date,omitempty"`
+	RecommendedAction string  `json:"recommended_action,omitempty"`
+}
+
+type ConflictLegacyEvidence struct {
+	SourceSystem      string                       `json:"source_system,omitempty"`
+	SourceContext     string                       `json:"source_context,omitempty"`
+	ReviewNote        string                       `json:"review_note,omitempty"`
+	LatestEventDate   string                       `json:"latest_event_date,omitempty"`
+	LatestFarmCode    string                       `json:"latest_farm_code,omitempty"`
+	LatestDestination string                       `json:"latest_destination,omitempty"`
+	MatchedKeys       []string                     `json:"matched_keys,omitempty"`
+	Conflicts         []ConflictLegacyEvidenceItem `json:"conflicts,omitempty"`
+}
+
 type ConflictDetailResult struct {
-	Conflict        ConflictSummary        `json:"conflict"`
-	Goats           []ConflictGoatReview   `json:"goats"`
-	SourceRecords   []ConflictSourceRecord `json:"source_records"`
-	DecisionOptions []string               `json:"decision_options"`
-	TraceID         string                 `json:"trace_id"`
+	Conflict        ConflictSummary         `json:"conflict"`
+	Goats           []ConflictGoatReview    `json:"goats"`
+	SourceRecords   []ConflictSourceRecord  `json:"source_records"`
+	LegacyEvidence  *ConflictLegacyEvidence `json:"legacy_evidence,omitempty"`
+	DecisionOptions []string                `json:"decision_options"`
+	TraceID         string                  `json:"trace_id"`
 }
 
 type ConflictListResult struct {

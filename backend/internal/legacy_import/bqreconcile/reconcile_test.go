@@ -55,6 +55,18 @@ func TestConflictIdentifierPartsUsesPrimaryCompositeKey(t *testing.T) {
 	}
 }
 
+func TestStaleAttributeConflictRowsSQLExcludesLegacySelfConflicts(t *testing.T) {
+	query := staleAttributeConflictRowsSQL("SELECT count(*)::int")
+	for _, reason := range []string{"bq_gender_self_conflict", "bq_breed_self_conflict"} {
+		if !strings.Contains(query, reason) {
+			t.Fatalf("stale attribute cleanup query should exclude %s: %s", reason, query)
+		}
+	}
+	if !strings.Contains(query, "AND NOT EXISTS") || !strings.Contains(query, "jsonb_array_elements") {
+		t.Fatalf("stale attribute cleanup query should guard against legacy self-conflict evidence: %s", query)
+	}
+}
+
 func TestPlanMatchesRFIDAndScopedOldTag(t *testing.T) {
 	events := []Event{
 		{GoatID: "123456789012345", Farm: "CBE", Event: "Shifting", Date: "2026-06-08", DstShed: "gandhi 2"},

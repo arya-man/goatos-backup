@@ -2246,6 +2246,7 @@ WHERE c.tenant_id = $1::uuid
   AND c.conflict_type = 'status_mismatch'
   AND c.state IN ('open', 'needs_field_check')
   AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+  AND NOT `+legacySelfConflictEvidenceExistsSQL("c")+`
   AND NOT EXISTS (
     SELECT 1
     FROM current_conflict_goats ccg
@@ -2359,9 +2360,10 @@ JOIN unnest($2::uuid[]) AS stale(goat_id)
 WHERE c.tenant_id = $1::uuid
   AND c.conflict_id = cg.conflict_id
   AND cg.tenant_id = c.tenant_id
-  AND c.conflict_type = 'status_mismatch'
-  AND c.state IN ('open', 'needs_field_check')
-  AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'`, tenantID, staleGoatIDs)
+	  AND c.conflict_type = 'status_mismatch'
+	  AND c.state IN ('open', 'needs_field_check')
+	  AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+	  AND NOT `+legacySelfConflictEvidenceExistsSQL("c"), tenantID, staleGoatIDs)
 	if err != nil {
 		return 0, fmt.Errorf("close stale BQ attribute conflict rows: %w", err)
 	}
@@ -2416,10 +2418,11 @@ WHERE g.tenant_id = $1::uuid
       AND cg.goat_id = g.goat_id
       AND c.state IN ('open', 'needs_field_check')
       AND NOT (
-        c.conflict_type = 'status_mismatch'
-        AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
-        AND cg.goat_id = ANY($2::uuid[])
-      )
+	        c.conflict_type = 'status_mismatch'
+	        AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+	        AND NOT `+legacySelfConflictEvidenceExistsSQL("c")+`
+	        AND cg.goat_id = ANY($2::uuid[])
+	      )
   )`, tenantID, staleGoatIDs).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count cleanable BQ attribute goats: %w", err)
 	}
@@ -2569,9 +2572,18 @@ JOIN identity_conflict_goats cg
 JOIN unnest($2::uuid[]) AS stale(goat_id)
   ON stale.goat_id = cg.goat_id
 WHERE c.tenant_id = $1::uuid
-  AND c.conflict_type = 'status_mismatch'
-  AND c.state IN ('open', 'needs_field_check')
-  AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'`
+	  AND c.conflict_type = 'status_mismatch'
+	  AND c.state IN ('open', 'needs_field_check')
+	  AND c.evidence->>'source_context' = 'bq_reconcile_attribute_conflict'
+	  AND NOT ` + legacySelfConflictEvidenceExistsSQL("c")
+}
+
+func legacySelfConflictEvidenceExistsSQL(alias string) string {
+	return fmt.Sprintf(`EXISTS (
+	    SELECT 1
+	    FROM jsonb_array_elements(COALESCE(%s.evidence->'conflicts', '[]'::jsonb)) e
+	    WHERE e->>'Reason' IN ('bq_gender_self_conflict', 'bq_breed_self_conflict')
+	  )`, alias)
 }
 
 func sortedIDSet(ids map[string]struct{}) []string {

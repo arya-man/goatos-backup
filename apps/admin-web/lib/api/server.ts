@@ -98,6 +98,19 @@ export type CountSearchParams = {
   grain: CounterGrain;
   limit: number;
   cursor?: string;
+  custodian_party_id?: string;
+  farm_id?: string;
+  park_id?: string;
+  shed_id?: string;
+  cohort_id?: string;
+  lifecycle_status?: string;
+  reproductive_status?: string;
+  growth_cohort_tag?: string;
+  management_stage?: string;
+  health_status?: string;
+  identity_state?: AnalyticsApiComponents["schemas"]["IdentityState"];
+  breed_id?: string;
+  sex?: string;
 };
 
 export type ConflictSearchParams = {

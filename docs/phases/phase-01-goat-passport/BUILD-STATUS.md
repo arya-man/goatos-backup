@@ -183,6 +183,16 @@ formula-safe for spreadsheet opening, and is relayed server-side so bearer
 tokens never enter browser code. Source breed/category import rows remain
 visible in review until a business-approved breed/category representation
 policy exists.
+Data Quality conflict details expose structured legacy evidence and link to the
+reviewer guide in `docs/runbooks/data-quality-legacy-review-guide.md`; legacy
+self-conflicts stay open for human review and are not closed by reconcile
+cleanup.
+The live identity Counts route renders Phase 1 counter-backed goat properties:
+active lifecycle total, breeds tracked, growth cohort buckets, breed counts,
+overall sex counts, and current location buckets via park/shed counters.
+Farm value and total weight are not Phase 1 counters, and crossed breakdowns
+such as growth cohort by sex require additional counter grains before they can
+be treated as backend-owned live charts.
 Import run create and admin goat create/update remain honest
 placeholders or backend 501/deferred paths. Import Review row actions and
 candidate approve should be split before implementation: non-create paths can
@@ -977,6 +987,12 @@ backend/internal/reporting owns goat_identity_counters reads and rebuilds.
 wires it to reporting-owned service/repository code; backend/internal/identity
 has a boundary check preventing new goat_identity_counters ownership outside
 generated sqlc schema/model dumps.
+
+Counter dimensions expose optional display labels for location and breed joins
+so admin surfaces can render human-readable breed, park, shed, farm, and cohort
+names without querying legacy tables directly. Canonical `farm_id` is currently
+empty in the local imported goat rows; current location reporting should use
+park/shed counters unless a business-approved farm/holding mapping is added.
 
 Count reads are paginated and never silently truncated. The endpoint requires
 `limit` 1..500 and accepts optional opaque base64url keyset `cursor` values.

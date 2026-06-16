@@ -158,8 +158,37 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 		len(detail.SourceRecords[0].EvidenceRefs) != 1 {
 		t.Fatalf("unexpected conflict source records: %#v", detail.SourceRecords)
 	}
+	if detail.LegacyEvidence == nil ||
+		detail.LegacyEvidence.SourceContext != "bq_reconcile_attribute_conflict" ||
+		len(detail.LegacyEvidence.Conflicts) != 1 ||
+		detail.LegacyEvidence.Conflicts[0].Reason != "bq_gender_self_conflict" ||
+		detail.LegacyEvidence.Conflicts[0].LegacyValue == nil ||
+		*detail.LegacyEvidence.Conflicts[0].LegacyValue != "female|male" {
+		t.Fatalf("unexpected legacy evidence: %#v", detail.LegacyEvidence)
+	}
 	if _, err := repo.GetConflict(ctx, secondTenant, "20000000-0000-4000-8000-000000000001"); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("cross-tenant conflict lookup should return ErrNotFound, got %v", err)
+	}
+
+	firstConflictPage, conflictCursor, err := repo.ListConflicts(ctx, ports.ListConflictsParams{TenantID: meshaTenant, Limit: 1})
+	if err != nil {
+		t.Fatalf("ListConflicts first page: %v", err)
+	}
+	if len(firstConflictPage) != 1 || conflictCursor == nil {
+		t.Fatalf("unexpected first conflict page: items=%#v cursor=%v", firstConflictPage, conflictCursor)
+	}
+	secondConflictPage, nextConflictCursor, err := repo.ListConflicts(ctx, ports.ListConflictsParams{TenantID: meshaTenant, Limit: 10, Cursor: conflictCursor})
+	if err != nil {
+		t.Fatalf("ListConflicts second page: %v", err)
+	}
+	if len(secondConflictPage) != 1 || nextConflictCursor != nil {
+		t.Fatalf("unexpected second conflict page: items=%#v cursor=%v", secondConflictPage, nextConflictCursor)
+	}
+	if secondConflictPage[0].ConflictID == firstConflictPage[0].ConflictID {
+		t.Fatalf("conflict cursor duplicated first row: first=%s second=%s", firstConflictPage[0].ConflictID, secondConflictPage[0].ConflictID)
+	}
+	if _, _, err := repo.ListConflicts(ctx, ports.ListConflictsParams{TenantID: meshaTenant, Limit: 10, Cursor: strPtr("not-a-valid-cursor")}); !errors.Is(err, ports.ErrInvalidCursor) {
+		t.Fatalf("invalid conflict cursor should return ErrInvalidCursor, got %v", err)
 	}
 
 	runSummary, err := repo.GetImportRun(ctx, meshaTenant, importRunID)
@@ -332,7 +361,25 @@ VALUES (
   '1900',
   ARRAY['10000000-0000-4000-8000-000000000001'::uuid, '10000000-0000-4000-8000-000000000002'::uuid],
   ARRAY['synthetic-source-record-1'],
-  '{"scope_key":"park:CBE"}'::jsonb
+  '{
+    "scope_key":"park:CBE",
+    "source_system":"legacy_bigquery",
+    "source_context":"bq_reconcile_attribute_conflict",
+    "review_note":"Synthetic legacy evidence for reviewer UI.",
+    "latest_event_date":"2026-06-01",
+    "latest_farm_code":"CBE",
+    "matched_keys":["old_tag:park:cbe:1900"],
+    "conflicts":[{
+      "Attribute":"sex",
+      "Reason":"bq_gender_self_conflict",
+      "LocalValue":"female",
+      "BQValue":"female|male",
+      "IdentifierKind":"old_tag",
+      "IdentifierKey":"old_tag:park:cbe:1900",
+      "LatestEventDate":"2026-06-01",
+      "RecommendedState":"Legacy gender has multiple values for this identifier; review source rows before changing canonical sex."
+    }]
+  }'::jsonb
 );
 
 INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
@@ -342,6 +389,27 @@ VALUES
 
 INSERT INTO identity_conflict_source_records (conflict_id, tenant_id, source_system, source_record_id)
 VALUES ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'synthetic_import', 'synthetic-source-record-1');
+
+INSERT INTO identity_conflicts (conflict_id, tenant_id, conflict_type, severity, state, identifier_type, identifier_value, goat_ids, source_record_ids, evidence)
+VALUES (
+  '20000000-0000-4000-8000-000000000002',
+  '`+meshaTenant+`',
+  'status_mismatch',
+  'low',
+  'open',
+  'old_tag',
+  '1901',
+  ARRAY['10000000-0000-4000-8000-000000000002'::uuid],
+  ARRAY[]::text[],
+  '{"scope_key":"park:CPT"}'::jsonb
+);
+
+UPDATE identity_conflicts
+SET created_at = '2026-06-10 00:00:00+00'
+WHERE conflict_id IN (
+  '20000000-0000-4000-8000-000000000001',
+  '20000000-0000-4000-8000-000000000002'
+);
 
 INSERT INTO goat_identity_events (
   identity_event_id,

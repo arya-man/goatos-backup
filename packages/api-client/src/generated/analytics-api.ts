@@ -48,12 +48,16 @@ export interface components {
             custodian_party_id?: string | null;
             /** Format: uuid */
             farm_id?: string | null;
+            farm_name?: string | null;
             /** Format: uuid */
             park_id?: string | null;
+            park_name?: string | null;
             /** Format: uuid */
             shed_id?: string | null;
+            shed_name?: string | null;
             /** Format: uuid */
             cohort_id?: string | null;
+            cohort_name?: string | null;
             lifecycle_status?: string | null;
             reproductive_status?: string | null;
             growth_cohort_tag?: string | null;
@@ -62,6 +66,7 @@ export interface components {
             identity_state?: components["schemas"]["IdentityState"] | null;
             /** Format: uuid */
             breed_id?: string | null;
+            breed_name?: string | null;
             sex?: string | null;
         };
         IdentityCount: {
