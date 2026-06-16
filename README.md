@@ -338,27 +338,36 @@ Frontend screens, production auth, production event egress, and cloud deploy are
 still pending.
 ```
 
-### Phase 2: SOP Tasks And Vaccination
+### Phase 2: SOP Forms, Task Engine, And Shifting
 
 Status: **planned next product workflow**
 
 Goal:
 
 ```text
-Replace loose vaccination tracking with assigned tasks, proof, and verification.
+Replace the first Slack/App Script operating workflow with assigned Android
+tasks, versioned SOP forms, proof, verification, and backend-owned domain
+events.
 ```
 
 Includes:
 
-- Vaccination schedules.
-- Task generation.
+- SOP definition/versioning.
+- Admin web SOP configuration and preview.
+- Task generation and assignment.
 - Operator assignment.
 - Android/operator task view.
+- Shifting SOP as the first implementation.
+- Repeat-for-each-goat batch submission.
+- Conditional required fields and approval gates.
 - Photo/video proof.
 - Park head and central verification.
-- Goat timeline update after approval.
+- Goat location/movement history update after approval.
 
 This is the first real field-work module after the goat passport foundation.
+Vaccination remains a natural next SOP on the same engine, but Shifting is the
+first walking skeleton because it is daily, barebones, and directly proves
+current-location truth.
 
 ### Phase 3: Health, Treatment, Death, And Verification
 
@@ -544,7 +553,7 @@ Recommended next execution order:
    management.
 4. Prepare production deploy/event work separately: cloud deployment and event
    egress.
-5. Start Phase 2 vaccination task workflow.
+5. Start Phase 2 SOP/task workflow with Shifting as the first production SOP.
 6. Later connect hardware feeding panel data under Phase 5/9.
 
 ## Build Principle

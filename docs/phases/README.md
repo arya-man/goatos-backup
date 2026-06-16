@@ -70,4 +70,8 @@ adapter, analytics, and SDK boundaries are mechanically enforced".
 phase-01-goat-passport/
   PRD.md
   TRD.md
+
+phase-02-sop-task-engine/
+  PRD.md
+  TRD.md
 ```

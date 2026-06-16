@@ -6,6 +6,8 @@ task lifecycle, weekly assignment, verification, or Slack-form replacement.
 Canonical docs:
 
 - `context/forms/final-forms-sop-engine.md`
+- `docs/phases/phase-02-sop-task-engine/PRD.md`
+- `docs/phases/phase-02-sop-task-engine/TRD.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/execution/next-contracts.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
@@ -29,3 +31,7 @@ Rules:
   original media, rectified media, verifier, and corrected answer where needed.
 - Dynamic pickers come from backend reference data/offline caches, not hardcoded
   Slack dropdowns.
+- Phase 2 starts with the Shifting SOP as the walking skeleton for the reusable
+  SOP/task engine. Vaccination, health, feed, death, birth/abortion,
+  procurement, and other Slack-derived workflows must migrate onto the same DSL
+  and runtime rather than creating one-off forms.

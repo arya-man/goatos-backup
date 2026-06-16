@@ -26,9 +26,9 @@ If work is overdue, who gets escalated?
 What proof shows the work was actually done?
 ```
 
-This starts in Phase 2 for vaccination and becomes a full module in Phase 4.
-The same engine later assigns feeding, health follow-ups, weighing, movement,
-breeding checks, device inspections, and verification work.
+This starts in Phase 2 for Shifting and becomes a full module in Phase 4. The
+same engine later assigns vaccination, feeding, health follow-ups, weighing,
+movement, breeding checks, device inspections, and verification work.
 
 Backfill is not "give it to anybody." Goat OS must pick a backup by skill,
 park/shed scope, current load, and task risk. The new assignee and park head
@@ -53,10 +53,11 @@ When can raw video expire?
 What audit trail proves the work was accepted, rejected, or reworked?
 ```
 
-Phase 2 uses this engine for vaccination proof. Phase 3 uses it for health,
-treatment, death, and abortion. Phase 4 uses it for attendance and operator
-entry logs. Phase 7 uses it for procurement load, transit, and arrival proof.
-Phase 8 uses it for dispatch/exit proof.
+Phase 2 uses this engine for Shifting proof first, then vaccination proof on the
+same foundation. Phase 3 uses it for health, treatment, death, and abortion.
+Phase 4 uses it for attendance and operator entry logs. Phase 7 uses it for
+procurement load, transit, and arrival proof. Phase 8 uses it for dispatch/exit
+proof.
 
 ## Promise Safety Is A Cross-Phase Vertical Slice
 
@@ -161,25 +162,28 @@ Dev B builds the admin search/profile screens, goat timeline UI, dirty-data
 review screen, and mobile goat lookup/scan UI.
 ```
 
-## Phase 2: SOP Tasks And Vaccination
+## Phase 2: SOP Forms, Task Engine, And Shifting
 
 Build the first real field workflow.
 
 What users get:
 
-- Admin creates vaccination SOP/schedule.
-- System generates due vaccination tasks.
-- Workforce/roster assigns vaccination work to operators for the week.
-- If an operator is absent, the task backfills to a qualified backup by
-  vaccinator skill, park/shed scope, and current load.
+- Admin creates and publishes versioned SOP definitions.
+- System creates assigned tasks from SOP definitions.
+- Shifting is the first implemented SOP because it is daily, simple enough to
+  prove the engine, and directly updates current location truth from Phase 1.
+- Workforce/roster integration starts with scoped assignment placeholders and
+  grows into Phase 4 fallback/backfill.
+- If an operator is absent, the task backfills to a qualified backup by SOP
+  capability, park/shed scope, and current load.
 - Backfill notifies the new assignee and park head; if no eligible backup
   exists, it escalates instead of silently dropping the work.
-- Park head can see incomplete/overdue vaccination work by operator/team/shed.
+- Park head can see incomplete/overdue SOP work by operator/team/shed.
 - Operator sees assigned tasks on Android.
 - Operator scans/selects goat, fills the form, uploads photo/video proof.
 - Park head verifies on ground.
 - Central verifier verifies proof video/photo.
-- Approved vaccination becomes canonical goat history.
+- Approved Shifting becomes canonical movement/location history.
 - Missed/pending tasks move forward with reason.
 - Task views preserve the current Slack mental model: "assigned to me", due
   today, open, completed, and verifier correction/rework.
@@ -187,17 +191,19 @@ What users get:
 In short:
 
 ```text
-This replaces Slack vaccination forms with a real Goat OS task loop:
-assign -> execute -> proof -> verify -> close.
+This replaces the first Slack/App Script operating workflow with a real Goat OS
+task loop:
+configure SOP -> assign -> execute -> proof -> verify -> apply domain event.
 ```
 
 Two-dev split:
 
 ```text
-Dev A builds SOP config, task generation, assignment, vaccination submit API,
-proof media APIs, idempotency, and verification records.
+Dev A builds SOP config/versioning, task generation, Shifting submit API, proof
+media APIs, idempotency, movement/location event application, and verification
+records.
 
-Dev B builds the admin SOP/task screens, Android task list, vaccination form
+Dev B builds the admin SOP/task screens, Android task list, Shifting form
 runner, camera proof capture, offline retry states, and verifier queue UI.
 ```
 
