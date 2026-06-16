@@ -202,7 +202,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                       <input type="hidden" name="idempotency_key" value={randomUUID()} />
                       <input type="hidden" name="return_to" value={returnTo} />
                       <p className="text-sm font-semibold text-white">Confirm same goat → merge</p>
-                      <p className="mt-1 text-xs text-[#93a4b8]">Keep one passport as the survivor; the other is merged into it through the audited backend decision. Reversal needs a separate reviewed correction.</p>
+                      <p className="mt-1 text-xs text-[#93a4b8]">Keep one passport as the survivor; the other is merged into it through the audited backend decision. Reversal needs a separate reviewed correction. To instead attach an identifier to one existing goat (the approve attach_identifier outcome), use that goat&apos;s passport identifier panel.</p>
                       <label className="mt-3 block">
                         <span className="text-xs uppercase text-[#93a4b8]">Survivor passport</span>
                         <select

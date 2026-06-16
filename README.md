@@ -222,8 +222,9 @@ Intentionally blocked / deferred (not unfinished Phase 1 code):
 Immediate next order:
 
 ```text
-1. Reconcile the candidate-approve + Import Review row-action admin-web UI with
-   any concurrent admin-web edits, then run the visual smoke.
+1. Run the live admin-web visual smoke for the candidate approve + Import Review
+   row-action UI (make dev-local, then smoke:visual:live) and inspect the
+   screenshots; it is the one remaining Phase 1 UI QA step.
 2. Make the product decision for conflict create_goat (required operator fields,
    primary identifier evidence, breed/species/status/sex, ownership/custody/
    location, duplicate checks); implement only after that contract is written.
@@ -539,9 +540,9 @@ and AI all depend on correct goat identity.
 
 Recommended next execution order:
 
-1. Keep the local Phase 1 proof reproducible while moving remaining workflow
-   stubs into Phase 1B slices: candidate approve attach/merge, Import Review
-   row reject/fix/re-apply, and the conflict create_goat field-set decision.
+1. Candidate approve (attach/merge) and Import Review row reject/fix/reapply are
+   implemented; run the live admin-web visual smoke for them, then make the
+   conflict create_goat field-set product decision before implementing it.
 2. Keep later app/admin creation work separate: import-run create and admin
    goat create/update.
 3. Add production identity-provider integration later: JWKS/asymmetric token

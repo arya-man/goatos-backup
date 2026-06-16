@@ -31,10 +31,13 @@ INTENTIONALLY BLOCKED / DEFERRED (not unfinished Phase 1 code):
   Pub/Sub production event egress               (production-readiness follow-up)
   production IdP/JWKS provisioning + secrets, cloud deploy under vgoats.com
 
-Admin-web UI for candidate approve + Import Review row actions is wired in the
-working tree but left uncommitted because apps/admin-web/features/data-quality
-is under concurrent edit; the committed backend APIs + generated client are
-ready for it.
+Admin-web UI is committed: candidate approve (merge) form in Data Quality, and
+per-row reject/fix/reapply forms in Import Review. The candidate-queue approve
+form intentionally exposes merge (same-goat); the approve attach_identifier
+outcome is driven from the goat passport identifier panel (and the approve API)
+rather than the candidate queue, because the candidate summary does not carry the
+target goat row_version that an attach guard needs. Live admin-web visual smoke
+(make dev-local + smoke:visual:live) is the one remaining UI QA step.
 ```
 
 ## Built And Pushed

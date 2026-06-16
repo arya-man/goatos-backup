@@ -12,7 +12,7 @@ import { reviewImportRowAction } from "./actions";
 
 type ReviewRow = ImportRunRowsResponse["items"][number];
 
-const rowStates: ImportRowState[] = ["pending", "auto_linked", "created_goat", "needs_review", "error"];
+const rowStates: ImportRowState[] = ["pending", "auto_linked", "created_goat", "needs_review", "rejected", "error"];
 const reasonOptions = [
   "blank_old_tag_suffix",
   "species_or_breed_requires_review",
