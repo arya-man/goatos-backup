@@ -15,6 +15,7 @@ tags:
   - name: Identity Candidates
   - name: Admin Goats
   - name: Correction Requests
+  - name: Legacy Sync
 paths:
   /admin/import-runs:
     get:
@@ -554,6 +555,159 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/legacy-sync/sources:
+    get:
+      tags:
+        - Legacy Sync
+      operationId: listLegacySyncSources
+      summary: List registered and observed legacy source freshness.
+      description: >
+        Returns backend-owned source registry rows plus observed unregistered
+        sources. Admin-web uses this instead of reading BigQuery or Sheets
+        directly.
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - identity
+              - lifecycle
+              - current_location
+              - active_count
+      responses:
+        "200":
+          description: Legacy sync sources.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacySyncSourceListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/legacy-sync/status:
+    get:
+      tags:
+        - Legacy Sync
+      operationId: getLegacySyncStatus
+      summary: Get overall legacy sync freshness.
+      description: Overall freshness is the worst critical source freshness plus counter freshness; noncritical degraded sources remain visible but do not make Phase 1 identity dashboards red.
+      responses:
+        "200":
+          description: Legacy sync status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacySyncOverallStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/legacy-sync/runs:
+    get:
+      tags:
+        - Legacy Sync
+      operationId: listLegacySyncRuns
+      summary: List recent legacy sync runs.
+      parameters:
+        - name: limit
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: Legacy sync runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacySyncRunListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Legacy Sync
+      operationId: createLegacySyncRun
+      summary: Create a backend-owned legacy sync run.
+      description: >
+        Dry-runs are non-mutating and may be cold starts. Execute and nightly
+        deep reconcile are accepted only as explicit blocked v1 runs until the
+        backend executor is configured; they do not apply deltas, rebuild
+        counters, or advance success watermarks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLegacySyncRunRequest"
+      responses:
+        "201":
+          description: Legacy sync run accepted or completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateLegacySyncRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/legacy-sync/runs/{sync_run_id}:
+    get:
+      tags:
+        - Legacy Sync
+      operationId: getLegacySyncRun
+      summary: Get legacy sync run details and Source & Correction Log.
+      parameters:
+        - $ref: "#/components/parameters/SyncRunId"
+      responses:
+        "200":
+          description: Legacy sync run detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacySyncRunDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/legacy-sync/runs/{sync_run_id}/cancel:
+    post:
+      tags:
+        - Legacy Sync
+      operationId: cancelLegacySyncRun
+      summary: Request cancellation for a legacy sync run.
+      description: Cancellation records operator intent. If apply already started, atomic apply finishes or rolls back normally; successful watermarks do not advance unless apply plus counter rebuild already completed.
+      parameters:
+        - $ref: "#/components/parameters/SyncRunId"
+      responses:
+        "200":
+          description: Legacy sync run after cancel request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelLegacySyncRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
 components:
   securitySchemes:
     bearerAuth:
@@ -598,6 +752,13 @@ components:
         format: uuid
     CorrectionRequestId:
       name: correction_request_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SyncRunId:
+      name: sync_run_id
       in: path
       required: true
       schema:
@@ -2130,6 +2291,556 @@ components:
             $ref: "#/components/schemas/EventSummary"
         idempotency:
           $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LegacySyncDomain:
+      type: string
+      enum:
+        - all
+        - identity
+        - lifecycle
+        - current_location
+        - active_count
+    LegacySyncSourceDomain:
+      type: string
+      enum:
+        - identity
+        - lifecycle
+        - current_location
+        - active_count
+        - feed
+        - unknown
+    LegacySyncMode:
+      type: string
+      enum:
+        - dry_run
+        - execute
+        - nightly_deep_reconcile
+    LegacySyncRunStatus:
+      type: string
+      enum:
+        - planning
+        - running
+        - completed
+        - failed
+        - canceled
+        - blocked
+    LegacySyncStepStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+        - canceled
+        - blocked
+    LegacySyncFreshnessStatus:
+      type: string
+      enum:
+        - green
+        - yellow
+        - red
+        - unknown
+    LegacySyncCriticality:
+      type: string
+      enum:
+        - critical
+        - noncritical
+    LegacySyncCounterCheckStatus:
+      type: string
+      enum:
+        - pending
+        - succeeded
+        - failed
+        - skipped
+    LegacySyncSource:
+      type: object
+      additionalProperties: false
+      required:
+        - source_id
+        - source_name
+        - domain
+        - source_kind
+        - source_ref
+        - cadence_seconds
+        - green_within_seconds
+        - yellow_within_seconds
+        - criticality
+        - enabled
+        - known_degraded
+        - notes
+        - freshness_status
+        - status_reason
+        - source_watermark_at
+        - observed_at
+        - rows_seen
+        - is_unknown_source
+      properties:
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+        source_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        domain:
+          $ref: "#/components/schemas/LegacySyncSourceDomain"
+        source_kind:
+          type: string
+          enum:
+            - scheduled_query
+            - table
+            - view
+            - export
+        source_ref:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        cadence_seconds:
+          type: integer
+          minimum: 1
+        green_within_seconds:
+          type: integer
+          minimum: 1
+        yellow_within_seconds:
+          type: integer
+          minimum: 1
+        criticality:
+          $ref: "#/components/schemas/LegacySyncCriticality"
+        enabled:
+          type: boolean
+        known_degraded:
+          type: boolean
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        freshness_status:
+          $ref: "#/components/schemas/LegacySyncFreshnessStatus"
+        status_reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        source_watermark_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        observed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        rows_seen:
+          type: integer
+          minimum: 0
+        is_unknown_source:
+          type: boolean
+    LegacySyncSourceListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegacySyncSource"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LegacySyncCounterStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - freshness_status
+        - status_reason
+        - updated_at
+        - rebuild_required
+      properties:
+        freshness_status:
+          $ref: "#/components/schemas/LegacySyncFreshnessStatus"
+        status_reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        rebuild_required:
+          type: boolean
+    LegacySyncOverallStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - overall_freshness
+        - critical_freshness
+        - counter_freshness
+        - sources
+        - trace_id
+      properties:
+        overall_freshness:
+          $ref: "#/components/schemas/LegacySyncFreshnessStatus"
+        critical_freshness:
+          $ref: "#/components/schemas/LegacySyncFreshnessStatus"
+        counter_freshness:
+          $ref: "#/components/schemas/LegacySyncCounterStatus"
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegacySyncSource"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LegacySyncRunSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - rows_read
+        - rows_planned
+        - rows_applied
+        - rows_skipped
+        - goats_created
+        - goats_updated
+        - conflicts_opened
+        - conflicts_refreshed
+      properties:
+        rows_read:
+          type: integer
+          minimum: 0
+        rows_planned:
+          type: integer
+          minimum: 0
+        rows_applied:
+          type: integer
+          minimum: 0
+        rows_skipped:
+          type: integer
+          minimum: 0
+        goats_created:
+          type: integer
+          minimum: 0
+        goats_updated:
+          type: integer
+          minimum: 0
+        conflicts_opened:
+          type: integer
+          minimum: 0
+        conflicts_refreshed:
+          type: integer
+          minimum: 0
+    LegacySyncRun:
+      type: object
+      additionalProperties: false
+      required:
+        - sync_run_id
+        - mode
+        - domain
+        - status
+        - cold_start
+        - source_window_start
+        - source_window_end
+        - eta_seconds
+        - summary
+        - counters_rebuilt
+        - counter_check_status
+        - freshness_status
+        - blocked_reason
+        - cancel_requested_at
+        - started_at
+        - completed_at
+      properties:
+        sync_run_id:
+          type: string
+          format: uuid
+        mode:
+          $ref: "#/components/schemas/LegacySyncMode"
+        domain:
+          $ref: "#/components/schemas/LegacySyncDomain"
+        status:
+          $ref: "#/components/schemas/LegacySyncRunStatus"
+        cold_start:
+          type: boolean
+        source_window_start:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_window_end:
+          type:
+            - string
+            - "null"
+          format: date-time
+        eta_seconds:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        summary:
+          $ref: "#/components/schemas/LegacySyncRunSummary"
+        counters_rebuilt:
+          type: boolean
+        counter_check_status:
+          $ref: "#/components/schemas/LegacySyncCounterCheckStatus"
+        freshness_status:
+          $ref: "#/components/schemas/LegacySyncFreshnessStatus"
+        blocked_reason:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        cancel_requested_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LegacySyncRunStep:
+      type: object
+      additionalProperties: false
+      required:
+        - sync_step_id
+        - source_id
+        - step_name
+        - status
+        - rows_read
+        - rows_planned
+        - rows_applied
+        - rows_skipped
+        - details
+        - started_at
+        - completed_at
+      properties:
+        sync_step_id:
+          type: string
+          format: uuid
+        source_id:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        step_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          $ref: "#/components/schemas/LegacySyncStepStatus"
+        rows_read:
+          type: integer
+          minimum: 0
+        rows_planned:
+          type: integer
+          minimum: 0
+        rows_applied:
+          type: integer
+          minimum: 0
+        rows_skipped:
+          type: integer
+          minimum: 0
+        details:
+          type: object
+          additionalProperties: true
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LegacySyncEvidenceReason:
+      type: string
+      enum:
+        - bq_gender_self_conflict
+        - bq_breed_self_conflict
+        - legacy_changed_after_human_review
+        - status_mismatch
+        - unregistered_source
+    LegacySyncResult:
+      type: string
+      enum:
+        - applied
+        - skipped
+        - blocked
+        - conflict_opened
+        - conflict_refreshed
+        - preserved_human_decision
+        - reconciled
+    LegacySyncSourceCorrectionLogItem:
+      type: object
+      additionalProperties: false
+      required:
+        - sync_run_conflict_id
+        - source_id
+        - source_record_id
+        - conflict_id
+        - goat_id
+        - evidence_reason
+        - result
+        - old_goatos_value
+        - new_legacy_value
+        - previous_decision_id
+        - previous_decision_at
+        - audit_id
+        - created_at
+      properties:
+        sync_run_conflict_id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+        source_record_id:
+          type: string
+          minLength: 1
+          maxLength: 500
+        conflict_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        evidence_reason:
+          $ref: "#/components/schemas/LegacySyncEvidenceReason"
+        result:
+          $ref: "#/components/schemas/LegacySyncResult"
+        old_goatos_value:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        new_legacy_value:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        previous_decision_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        previous_decision_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        audit_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    LegacySyncRunDetailResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - run
+        - steps
+        - sources
+        - source_correction_log
+        - trace_id
+      properties:
+        run:
+          $ref: "#/components/schemas/LegacySyncRun"
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegacySyncRunStep"
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegacySyncSource"
+        source_correction_log:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegacySyncSourceCorrectionLogItem"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LegacySyncRunListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/LegacySyncRun"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreateLegacySyncRunRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+        - domain
+      properties:
+        mode:
+          $ref: "#/components/schemas/LegacySyncMode"
+        domain:
+          $ref: "#/components/schemas/LegacySyncDomain"
+        source_window_start:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_window_end:
+          type:
+            - string
+            - "null"
+          format: date-time
+    CreateLegacySyncRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - run
+        - trace_id
+      properties:
+        run:
+          $ref: "#/components/schemas/LegacySyncRun"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CancelLegacySyncRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - run
+        - trace_id
+      properties:
+        run:
+          $ref: "#/components/schemas/LegacySyncRun"
         trace_id:
           type: string
           minLength: 1

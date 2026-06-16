@@ -32,6 +32,7 @@ Rules:
   Server-side adapters keep bearer tokens out of browser code; live screens
   cover the overview, herd search, goat passport with live timeline, identity
   counts, Import Review with recent-run picker, data quality queues, correction request queue reads,
+  Legacy Sync source/run freshness with a backend-triggered sync modal,
   Import Review backend-owned CSV downloads relayed through the Next server,
   and server-side forms for correction create/resolve, candidate reject,
   conflict reject/merge, field-check requests, identifier-dispute marking, and

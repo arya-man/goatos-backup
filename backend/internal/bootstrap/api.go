@@ -11,6 +11,9 @@ import (
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	legacysynchttp "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/http"
+	legacysyncpg "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/postgres"
+	legacysyncapp "github.com/vgoats/goatos/backend/internal/legacy_sync/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
@@ -79,6 +82,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	reportingRepo := reportingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	reportingService := reportingapp.NewService(reportingRepo)
 	reportingHandler := reportinghttp.NewHandler(reportingService, log)
+	legacySyncRepo := legacysyncpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	legacySyncService := legacysyncapp.NewService(legacySyncRepo, cfg.Auth.Environment)
+	legacySyncHandler := legacysynchttp.NewHandler(legacySyncService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authz, err := buildAuthMiddleware(cfg.Auth, verifier, grantSource, log)
 	if err != nil {
@@ -99,6 +105,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	})
 	identityhttp.Register(mux, identityHandler)
 	reportinghttp.Register(mux, reportingHandler)
+	legacysynchttp.Register(mux, legacySyncHandler)
 
 	// PanicRecovery is outermost so it catches panics in auth and RequestContext.
 	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(authz.Wrap(mux)))

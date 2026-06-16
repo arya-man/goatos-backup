@@ -17,6 +17,7 @@ function formatSegment(segment: string): string {
     counts: "Counts",
     "data-quality": "Data Quality",
     "import-review": "Import Review",
+    "legacy-sync": "Legacy Sync",
   };
   if (upperCaseWords[decoded.toLowerCase()]) return upperCaseWords[decoded.toLowerCase()];
   return decoded

@@ -150,7 +150,7 @@ Completed so far:
   the RFID import plus 1449 created by the deterministic safe old-tag backfill)
   and 4 import-review rows from the RFID import run. A BQ reconciliation pass and
   the old-tag backfill both run through `backend/cmd/bq-reconcile`. The current
-  local DB has `tenant_lifecycle` counters `alive=2085`, `sold=545`, `dead=35`,
+  local DB has `tenant_lifecycle` counters `alive=2086`, `sold=544`, `dead=35`,
   and `inactive=3`; BQ
   lifecycle is reduced conservatively per identifier. Shifting or Abortion
   evidence without terminal Sale/Death is proof-of-life, Death is sticky, Sale
@@ -164,18 +164,14 @@ Completed so far:
   passport attribute checks look across all matched BQ evidence so RFID/old-tag
   sex or breed contradictions become review conflicts instead of hidden clean
   passports. Current
-  disagreements and terminal-after-activity cases are surfaced as 54 lifecycle
-  Data Quality `status_mismatch` conflicts for operator review. The current DB
-  also has 106 open BQ attribute review conflict rows, covering 108 reason
-  occurrences: 73 sex and 35 breed. Goat identity state is 2537 `clean` and 131
-  `needs_review` (the backfill adds only `clean` old-tag passports and opens no
-  new conflicts); these review states are the intended safety net for BQ/passport
-  disagreements. A follow-up BQ
-  location pass seeded 154 CBE/CPT shed locations; after the old-tag backfill the
-  current DB has 1711 goats with shed-level current locations, 685 park-only
-  goats, and 272 existing RFID-import passports that cannot be joined to BQ by
-  RFID or scoped old tag pending
-  identifier reconciliation.
+  disagreements and terminal-after-activity cases are surfaced as 232 open Data
+  Quality conflicts for operator review. Goat identity state is 2465 `clean` and
+  203 `needs_review`; these review states are the intended safety net for
+  BQ/passport disagreements. A follow-up BQ
+  location pass seeded 154 CBE/CPT shed locations. A current local DB
+  measurement against `goats` joined to `locations` found 1702 goats with
+  shed-level current locations, 631 park-only goats, and 335 goats with no
+  current location.
   Overview, herd search, goat passport with live identity timeline, identity
   counts, live Import Review, and live correction-request queue reads rendered
   against the final run. Earlier UI proof rendered honest empty states before BQ

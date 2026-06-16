@@ -47,6 +47,12 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/admin/import-runs/70000000-0000-4000-8000-000000000001"},
 		{"GET", "/admin/import-runs/70000000-0000-4000-8000-000000000001/rows"},
 		{"POST", "/admin/import-runs"},
+		{"GET", "/admin/legacy-sync/sources"},
+		{"GET", "/admin/legacy-sync/status"},
+		{"GET", "/admin/legacy-sync/runs"},
+		{"POST", "/admin/legacy-sync/runs"},
+		{"GET", "/admin/legacy-sync/runs/70000000-0000-4000-8000-000000000001"},
+		{"POST", "/admin/legacy-sync/runs/70000000-0000-4000-8000-000000000001/cancel"},
 		{"GET", "/admin/identity/candidates"},
 		{"POST", "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve"},
 		{"POST", "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/reject"},
@@ -84,6 +90,22 @@ func TestCreateImportRunIsProductAdminOnly(t *testing.T) {
 	}
 	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
 		t.Fatal("verifier authorized for product-admin-only import management")
+	}
+}
+
+func TestCreateLegacySyncRunIsProductAdminOnly(t *testing.T) {
+	route, ok := Match("POST", "/admin/legacy-sync/runs")
+	if !ok {
+		t.Fatal("create legacy sync run route missing")
+	}
+	if !route.AdminOnly || !RolesAuthorize([]string{RoleAdmin}, route.Permissions, route.AdminOnly) {
+		t.Fatalf("admin route not admin-authorized: %#v", route)
+	}
+	if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+		t.Fatal("ceo_internal should be authorized as Goat OS product admin")
+	}
+	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
+		t.Fatal("verifier authorized for product-admin-only legacy sync management")
 	}
 }
 

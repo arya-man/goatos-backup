@@ -105,14 +105,40 @@ Keep the conflict open until the old-tag side is explained. If the old tag was
 reused, dispute or retire the identifier. If the RFID lifecycle is wrong,
 request field check or create a correction with evidence.
 
+### 4. Legacy Changed After Human Review
+
+Examples:
+
+- a reviewer already approved the Mesha sex value, then a later legacy row says
+  a different sex
+- a correction request was resolved, then a newer legacy export disagrees with
+  that resolved Goat OS value
+
+Required review:
+
+- Treat the recorded Goat OS decision as canonical while the new evidence is
+  reviewed.
+- Open the Legacy Sync run detail and inspect the Source & Correction Log for
+  source ID, source window, previous decision timestamp, old Goat OS value, and
+  new legacy value.
+- Confirm whether the later source row belongs to the same physical goat or is
+  identifier reuse, a wrong bridge, or a source correction that should now be
+  approved in Goat OS.
+
+Do not overwrite the passport silently. If the new legacy value should win,
+approve a new Goat OS correction with evidence; that decision becomes the next
+canonical audited state.
+
 ## Evidence To Record
 
 Every decision should include:
 
 - conflict ID or source row ID
+- sync run ID and source ID when the item came from Legacy Sync
 - source system (`legacy_bigquery`, Sheet name, or import run)
+- source window or date range checked
 - identifier checked (RFID or old tag with farm/scope)
-- date range checked
+- legacy row or event date range checked
 - reason another reviewer can follow
 
 ## Forbidden Shortcut

@@ -46,6 +46,7 @@ const routes = [
   { name: "counts-core-farms", path: "/counts?view=core-farms" },
   { name: "herd", path: "/herd" },
   { name: "import-review", path: `/import-review?import_run_id=${encodeURIComponent(importRunId)}` },
+  { name: "legacy-sync", path: "/legacy-sync" },
   { name: "data-quality", path: "/data-quality" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];

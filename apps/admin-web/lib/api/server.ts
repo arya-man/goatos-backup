@@ -39,6 +39,16 @@ export type ImportRunResponse = AdminApiComponents["schemas"]["ImportRunResponse
 export type ImportRunListResponse = AdminApiComponents["schemas"]["ImportRunListResponse"];
 export type ImportRunRow = AdminApiComponents["schemas"]["ImportRunRow"];
 export type ImportRunRowsResponse = AdminApiComponents["schemas"]["ImportRunRowsResponse"];
+export type LegacySyncDomain = AdminApiComponents["schemas"]["LegacySyncDomain"];
+export type LegacySyncMode = AdminApiComponents["schemas"]["LegacySyncMode"];
+export type LegacySyncSource = AdminApiComponents["schemas"]["LegacySyncSource"];
+export type LegacySyncOverallStatusResponse = AdminApiComponents["schemas"]["LegacySyncOverallStatusResponse"];
+export type LegacySyncRun = AdminApiComponents["schemas"]["LegacySyncRun"];
+export type LegacySyncRunListResponse = AdminApiComponents["schemas"]["LegacySyncRunListResponse"];
+export type LegacySyncRunDetailResponse = AdminApiComponents["schemas"]["LegacySyncRunDetailResponse"];
+export type CreateLegacySyncRunRequest = AdminApiComponents["schemas"]["CreateLegacySyncRunRequest"];
+export type CreateLegacySyncRunResponse = AdminApiComponents["schemas"]["CreateLegacySyncRunResponse"];
+export type CancelLegacySyncRunResponse = AdminApiComponents["schemas"]["CancelLegacySyncRunResponse"];
 export type AdminCorrectionRequestListResponse = AdminApiComponents["schemas"]["CorrectionRequestListResponse"];
 export type AdminCorrectionRequestResponse = AdminApiComponents["schemas"]["CorrectionRequestResponse"];
 export type ResolveCorrectionRequestBody = AdminApiComponents["schemas"]["ResolveCorrectionRequest"];
@@ -140,6 +150,10 @@ export type ImportRunRowsParams = {
 };
 
 export type ImportRunsParams = {
+  limit: number;
+};
+
+export type LegacySyncRunsParams = {
   limit: number;
 };
 
@@ -426,6 +440,76 @@ export async function listImportRunRows(params: ImportRunRowsParams): Promise<Ap
         processing_state: params.processing_state,
         reason_code: params.reason_code,
       }),
+    }),
+  );
+}
+
+export async function getLegacySyncStatus(): Promise<ApiResult<LegacySyncOverallStatusResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<LegacySyncOverallStatusResponse>("/admin/legacy-sync/status", { cache: "no-store" }),
+  );
+}
+
+export async function listLegacySyncRuns(params: LegacySyncRunsParams): Promise<ApiResult<LegacySyncRunListResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<LegacySyncRunListResponse>("/admin/legacy-sync/runs", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit }),
+    }),
+  );
+}
+
+export async function getLegacySyncRun(syncRunId: string): Promise<ApiResult<LegacySyncRunDetailResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/legacy-sync/runs/${encodeURIComponent(syncRunId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<LegacySyncRunDetailResponse>(path, { cache: "no-store" }));
+}
+
+export async function createLegacySyncRun(body: CreateLegacySyncRunRequest): Promise<ApiResult<CreateLegacySyncRunResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<CreateLegacySyncRunResponse>("/admin/legacy-sync/runs", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function cancelLegacySyncRun(syncRunId: string): Promise<ApiResult<CancelLegacySyncRunResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/legacy-sync/runs/${encodeURIComponent(syncRunId)}/cancel` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<CancelLegacySyncRunResponse>(path, {
+      method: "POST",
+      cache: "no-store",
     }),
   );
 }

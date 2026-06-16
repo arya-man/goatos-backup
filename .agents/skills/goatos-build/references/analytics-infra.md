@@ -38,6 +38,13 @@ Rules:
   Missing-passport backfill remains blocked until an accessible BQ/source export
   provides one deterministic current identity row per missing passport; aggregate
   dashboard counts and event-history keys must not be used to invent passports.
+- `backend/internal/legacy_sync` owns the Phase 1 Legacy Sync source registry,
+  per-source freshness, run status, source/correction log, and admin API
+  surface. Freshness is per source: critical sources and counter freshness drive
+  the overall identity dashboard freshness, while noncritical degraded or
+  unregistered sources stay visible without making the Phase 1 identity
+  dashboard red. Healthy 60-minute and 12-hour sources must use their own
+  thresholds, not a global 60-minute freshness rule.
 - AI analyst work is blocked until canonical dbt marts, Cube metrics, dashboard
   parity tests, an analytics skill, offline evals, and provenance/freshness
   footers exist. AI uses Cube first, curated marts second, and raw SQL only for

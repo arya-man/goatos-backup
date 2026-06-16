@@ -648,6 +648,121 @@ type LegacyStatusMapping struct {
 	UpdatedAt          pgtype.Timestamptz
 }
 
+type LegacySyncRun struct {
+	SyncRunID          pgtype.UUID
+	TenantID           pgtype.UUID
+	RequestedBy        pgtype.UUID
+	Mode               string
+	Domain             string
+	Status             string
+	ColdStart          bool
+	SourceWindowStart  pgtype.Timestamptz
+	SourceWindowEnd    pgtype.Timestamptz
+	EtaSeconds         pgtype.Int4
+	RowsRead           int32
+	RowsPlanned        int32
+	RowsApplied        int32
+	RowsSkipped        int32
+	GoatsCreated       int32
+	GoatsUpdated       int32
+	ConflictsOpened    int32
+	ConflictsRefreshed int32
+	CountersRebuilt    bool
+	CounterCheckStatus string
+	FreshnessStatus    string
+	BlockedReason      pgtype.Text
+	CancelRequestedAt  pgtype.Timestamptz
+	StartedAt          pgtype.Timestamptz
+	CompletedAt        pgtype.Timestamptz
+	TraceID            pgtype.Text
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type LegacySyncRunConflict struct {
+	SyncRunConflictID  pgtype.UUID
+	TenantID           pgtype.UUID
+	SyncRunID          pgtype.UUID
+	SourceID           string
+	SourceRecordID     string
+	SourceConflictKey  string
+	ConflictID         pgtype.UUID
+	GoatID             pgtype.UUID
+	EvidenceReason     string
+	Result             string
+	OldGoatosValue     pgtype.Text
+	NewLegacyValue     pgtype.Text
+	PreviousDecisionID pgtype.UUID
+	PreviousDecisionAt pgtype.Timestamptz
+	AuditID            pgtype.UUID
+	Evidence           []byte
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type LegacySyncRunStep struct {
+	SyncStepID  pgtype.UUID
+	SyncRunID   pgtype.UUID
+	SourceID    pgtype.Text
+	StepName    string
+	Status      string
+	RowsRead    int32
+	RowsPlanned int32
+	RowsApplied int32
+	RowsSkipped int32
+	Details     []byte
+	StartedAt   pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type LegacySyncSource struct {
+	SourceID            string
+	SourceName          string
+	Domain              string
+	SourceKind          string
+	BqProject           pgtype.Text
+	BqDataset           pgtype.Text
+	BqTableOrConfig     pgtype.Text
+	CadenceSeconds      int32
+	GreenWithinSeconds  int32
+	YellowWithinSeconds int32
+	Criticality         string
+	Enabled             bool
+	KnownDegraded       bool
+	Notes               pgtype.Text
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+}
+
+type LegacySyncSourceStatus struct {
+	TenantID             pgtype.UUID
+	SourceID             string
+	FreshnessStatus      string
+	StatusReason         string
+	SourceWatermarkAt    pgtype.Timestamptz
+	ObservedAt           pgtype.Timestamptz
+	LastSuccessSyncRunID pgtype.UUID
+	LatestError          pgtype.Text
+	RowsSeen             int32
+	IsUnknownSource      bool
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type LegacySyncSourceWatermark struct {
+	TenantID               pgtype.UUID
+	SourceID               string
+	LastSuccessWindowStart pgtype.Timestamptz
+	LastSuccessWindowEnd   pgtype.Timestamptz
+	LastSuccessAt          pgtype.Timestamptz
+	LastSuccessSyncRunID   pgtype.UUID
+	Checkpoint             []byte
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
 type Location struct {
 	LocationID       pgtype.UUID
 	TenantID         pgtype.UUID

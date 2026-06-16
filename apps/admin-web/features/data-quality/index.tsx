@@ -422,7 +422,7 @@ function ConflictResolver({
                 ]}
               />
               <p className="mt-3 text-xs text-[#93a4b8]">
-                Mesha stores review decisions in its own DB and audit trail. Future source syncs preserve resolved decisions and only reopen a case when evidence changes.
+                Mesha stores review decisions in its own DB and audit trail. Future source syncs preserve resolved decisions and only reopen a case when evidence changes. Legacy Sync run details show the Source & Correction Log for later source disagreements.
               </p>
             </div>
 
@@ -920,6 +920,8 @@ function friendlyEvidenceReason(reason?: string): string {
       return "Legacy has multiple gender values";
     case "bq_breed_self_conflict":
       return "Legacy has multiple breed values";
+    case "legacy_changed_after_human_review":
+      return "Legacy changed after human review";
     case "gender_mismatch":
       return "Legacy gender disagrees with Mesha";
     case "breed_mismatch":

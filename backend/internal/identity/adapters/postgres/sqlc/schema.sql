@@ -1378,6 +1378,170 @@ CREATE TABLE public.legacy_status_mappings (
 
 
 --
+-- Name: legacy_sync_run_conflicts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.legacy_sync_run_conflicts (
+    sync_run_conflict_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    sync_run_id uuid NOT NULL,
+    source_id text NOT NULL,
+    source_record_id text NOT NULL,
+    source_conflict_key text NOT NULL,
+    conflict_id uuid,
+    goat_id uuid,
+    evidence_reason text NOT NULL,
+    result text NOT NULL,
+    old_goatos_value text,
+    new_legacy_value text,
+    previous_decision_id uuid,
+    previous_decision_at timestamp with time zone,
+    audit_id uuid,
+    evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT legacy_sync_run_conflicts_reason_check CHECK ((evidence_reason = ANY (ARRAY['bq_gender_self_conflict'::text, 'bq_breed_self_conflict'::text, 'legacy_changed_after_human_review'::text, 'status_mismatch'::text, 'unregistered_source'::text]))),
+    CONSTRAINT legacy_sync_run_conflicts_result_check CHECK ((result = ANY (ARRAY['applied'::text, 'skipped'::text, 'blocked'::text, 'conflict_opened'::text, 'conflict_refreshed'::text, 'preserved_human_decision'::text, 'reconciled'::text])))
+);
+
+
+--
+-- Name: legacy_sync_run_steps; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.legacy_sync_run_steps (
+    sync_step_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    sync_run_id uuid NOT NULL,
+    source_id text,
+    step_name text NOT NULL,
+    status text NOT NULL,
+    rows_read integer DEFAULT 0 NOT NULL,
+    rows_planned integer DEFAULT 0 NOT NULL,
+    rows_applied integer DEFAULT 0 NOT NULL,
+    rows_skipped integer DEFAULT 0 NOT NULL,
+    details jsonb DEFAULT '{}'::jsonb NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT legacy_sync_run_steps_counts_check CHECK (((rows_read >= 0) AND (rows_planned >= 0) AND (rows_applied >= 0) AND (rows_skipped >= 0))),
+    CONSTRAINT legacy_sync_run_steps_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text, 'blocked'::text])))
+);
+
+
+--
+-- Name: legacy_sync_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.legacy_sync_runs (
+    sync_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    requested_by uuid NOT NULL,
+    mode text NOT NULL,
+    domain text NOT NULL,
+    status text NOT NULL,
+    cold_start boolean DEFAULT false NOT NULL,
+    source_window_start timestamp with time zone,
+    source_window_end timestamp with time zone,
+    eta_seconds integer,
+    rows_read integer DEFAULT 0 NOT NULL,
+    rows_planned integer DEFAULT 0 NOT NULL,
+    rows_applied integer DEFAULT 0 NOT NULL,
+    rows_skipped integer DEFAULT 0 NOT NULL,
+    goats_created integer DEFAULT 0 NOT NULL,
+    goats_updated integer DEFAULT 0 NOT NULL,
+    conflicts_opened integer DEFAULT 0 NOT NULL,
+    conflicts_refreshed integer DEFAULT 0 NOT NULL,
+    counters_rebuilt boolean DEFAULT false NOT NULL,
+    counter_check_status text DEFAULT 'pending'::text NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    blocked_reason text,
+    cancel_requested_at timestamp with time zone,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    trace_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT legacy_sync_runs_counter_check CHECK ((counter_check_status = ANY (ARRAY['pending'::text, 'succeeded'::text, 'failed'::text, 'skipped'::text]))),
+    CONSTRAINT legacy_sync_runs_counts_check CHECK (((rows_read >= 0) AND (rows_planned >= 0) AND (rows_applied >= 0) AND (rows_skipped >= 0) AND (goats_created >= 0) AND (goats_updated >= 0) AND (conflicts_opened >= 0) AND (conflicts_refreshed >= 0))),
+    CONSTRAINT legacy_sync_runs_domain_check CHECK ((domain = ANY (ARRAY['all'::text, 'identity'::text, 'lifecycle'::text, 'current_location'::text, 'active_count'::text]))),
+    CONSTRAINT legacy_sync_runs_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT legacy_sync_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text, 'nightly_deep_reconcile'::text]))),
+    CONSTRAINT legacy_sync_runs_status_check CHECK ((status = ANY (ARRAY['planning'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text, 'blocked'::text])))
+);
+
+
+--
+-- Name: legacy_sync_source_status; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.legacy_sync_source_status (
+    tenant_id uuid NOT NULL,
+    source_id text NOT NULL,
+    freshness_status text NOT NULL,
+    status_reason text NOT NULL,
+    source_watermark_at timestamp with time zone,
+    observed_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_success_sync_run_id uuid,
+    latest_error text,
+    rows_seen integer DEFAULT 0 NOT NULL,
+    is_unknown_source boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT legacy_sync_source_status_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT legacy_sync_source_status_rows_check CHECK ((rows_seen >= 0))
+);
+
+
+--
+-- Name: legacy_sync_source_watermarks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.legacy_sync_source_watermarks (
+    tenant_id uuid NOT NULL,
+    source_id text NOT NULL,
+    last_success_window_start timestamp with time zone,
+    last_success_window_end timestamp with time zone,
+    last_success_at timestamp with time zone,
+    last_success_sync_run_id uuid,
+    checkpoint jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: legacy_sync_sources; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.legacy_sync_sources (
+    source_id text NOT NULL,
+    source_name text NOT NULL,
+    domain text NOT NULL,
+    source_kind text NOT NULL,
+    bq_project text,
+    bq_dataset text,
+    bq_table_or_config text,
+    cadence_seconds integer NOT NULL,
+    green_within_seconds integer NOT NULL,
+    yellow_within_seconds integer NOT NULL,
+    criticality text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    known_degraded boolean DEFAULT false NOT NULL,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT legacy_sync_sources_cadence_check CHECK ((cadence_seconds > 0)),
+    CONSTRAINT legacy_sync_sources_criticality_check CHECK ((criticality = ANY (ARRAY['critical'::text, 'noncritical'::text]))),
+    CONSTRAINT legacy_sync_sources_domain_check CHECK ((domain = ANY (ARRAY['identity'::text, 'lifecycle'::text, 'current_location'::text, 'active_count'::text, 'feed'::text, 'unknown'::text]))),
+    CONSTRAINT legacy_sync_sources_green_check CHECK ((green_within_seconds >= cadence_seconds)),
+    CONSTRAINT legacy_sync_sources_kind_check CHECK ((source_kind = ANY (ARRAY['scheduled_query'::text, 'table'::text, 'view'::text, 'export'::text]))),
+    CONSTRAINT legacy_sync_sources_source_id_check CHECK ((source_id ~ '^[a-z0-9][a-z0-9_:-]{1,119}$'::text)),
+    CONSTRAINT legacy_sync_sources_yellow_check CHECK ((yellow_within_seconds >= green_within_seconds))
+);
+
+
+--
 -- Name: location_aliases; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2070,6 +2234,54 @@ ALTER TABLE ONLY public.legacy_status_mappings
 
 ALTER TABLE ONLY public.legacy_status_mappings
     ADD CONSTRAINT legacy_status_mappings_unique_label UNIQUE (source_system, normalized_raw_label);
+
+
+--
+-- Name: legacy_sync_run_conflicts legacy_sync_run_conflicts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_run_conflicts
+    ADD CONSTRAINT legacy_sync_run_conflicts_pkey PRIMARY KEY (sync_run_conflict_id);
+
+
+--
+-- Name: legacy_sync_run_steps legacy_sync_run_steps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_run_steps
+    ADD CONSTRAINT legacy_sync_run_steps_pkey PRIMARY KEY (sync_step_id);
+
+
+--
+-- Name: legacy_sync_runs legacy_sync_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_runs
+    ADD CONSTRAINT legacy_sync_runs_pkey PRIMARY KEY (sync_run_id);
+
+
+--
+-- Name: legacy_sync_source_status legacy_sync_source_status_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_source_status
+    ADD CONSTRAINT legacy_sync_source_status_pkey PRIMARY KEY (tenant_id, source_id);
+
+
+--
+-- Name: legacy_sync_source_watermarks legacy_sync_source_watermarks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_source_watermarks
+    ADD CONSTRAINT legacy_sync_source_watermarks_pkey PRIMARY KEY (tenant_id, source_id);
+
+
+--
+-- Name: legacy_sync_sources legacy_sync_sources_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_sources
+    ADD CONSTRAINT legacy_sync_sources_pkey PRIMARY KEY (source_id);
 
 
 --
@@ -2999,6 +3211,48 @@ CREATE INDEX legacy_import_runs_tenant_started_idx ON public.legacy_import_runs 
 --
 
 CREATE INDEX legacy_status_mappings_lookup_idx ON public.legacy_status_mappings USING btree (source_system, normalized_raw_label);
+
+
+--
+-- Name: legacy_sync_run_conflicts_run_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_sync_run_conflicts_run_idx ON public.legacy_sync_run_conflicts USING btree (sync_run_id, created_at DESC);
+
+
+--
+-- Name: legacy_sync_run_conflicts_unique_open_source_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX legacy_sync_run_conflicts_unique_open_source_key ON public.legacy_sync_run_conflicts USING btree (tenant_id, source_conflict_key);
+
+
+--
+-- Name: legacy_sync_run_steps_run_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_sync_run_steps_run_idx ON public.legacy_sync_run_steps USING btree (sync_run_id, started_at, sync_step_id);
+
+
+--
+-- Name: legacy_sync_runs_one_active_tenant_domain_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX legacy_sync_runs_one_active_tenant_domain_idx ON public.legacy_sync_runs USING btree (tenant_id, domain) WHERE (status = ANY (ARRAY['planning'::text, 'running'::text]));
+
+
+--
+-- Name: legacy_sync_runs_tenant_started_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_sync_runs_tenant_started_idx ON public.legacy_sync_runs USING btree (tenant_id, started_at DESC, sync_run_id DESC);
+
+
+--
+-- Name: legacy_sync_source_status_tenant_freshness_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX legacy_sync_source_status_tenant_freshness_idx ON public.legacy_sync_source_status USING btree (tenant_id, freshness_status, source_id);
 
 
 --
@@ -4604,6 +4858,70 @@ ALTER TABLE ONLY public.legacy_import_runs
 
 ALTER TABLE ONLY public.legacy_status_mappings
     ADD CONSTRAINT legacy_status_mappings_display_status_code_fkey FOREIGN KEY (display_status_code) REFERENCES public.status_definitions(status_code);
+
+
+--
+-- Name: legacy_sync_run_conflicts legacy_sync_run_conflicts_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_run_conflicts
+    ADD CONSTRAINT legacy_sync_run_conflicts_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE CASCADE;
+
+
+--
+-- Name: legacy_sync_run_conflicts legacy_sync_run_conflicts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_run_conflicts
+    ADD CONSTRAINT legacy_sync_run_conflicts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: legacy_sync_run_steps legacy_sync_run_steps_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_run_steps
+    ADD CONSTRAINT legacy_sync_run_steps_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE CASCADE;
+
+
+--
+-- Name: legacy_sync_runs legacy_sync_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_runs
+    ADD CONSTRAINT legacy_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: legacy_sync_source_status legacy_sync_source_status_last_success_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_source_status
+    ADD CONSTRAINT legacy_sync_source_status_last_success_sync_run_id_fkey FOREIGN KEY (last_success_sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: legacy_sync_source_status legacy_sync_source_status_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_source_status
+    ADD CONSTRAINT legacy_sync_source_status_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: legacy_sync_source_watermarks legacy_sync_source_watermarks_last_success_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_source_watermarks
+    ADD CONSTRAINT legacy_sync_source_watermarks_last_success_sync_run_id_fkey FOREIGN KEY (last_success_sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: legacy_sync_source_watermarks legacy_sync_source_watermarks_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legacy_sync_source_watermarks
+    ADD CONSTRAINT legacy_sync_source_watermarks_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

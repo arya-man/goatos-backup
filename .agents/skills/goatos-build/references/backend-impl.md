@@ -25,6 +25,7 @@ backend/internal/platform       shared platform adapters
 backend/internal/platform/localtarget local/dev database target guard for DB-writing rehearsal CLIs
 backend/internal/identity       Phase 1 Goat Passport module
 backend/internal/legacy_import  Phase 1 import staging and reconciliation inputs
+backend/internal/legacy_sync    Phase 1 Legacy Sync source registry/run status surface
 backend/internal/outbox         Phase 1 local/dev outbox relay foundation
 backend/internal/reporting      Phase 1 analytics count reads/rebuild/incremental updates
 ```
@@ -46,6 +47,16 @@ Legacy import module layout:
 legacy_import                   parser, normalization, key/hash, runner orchestration
 legacy_import/adapters/postgres repository for staging and RFID apply SQL
 legacy_import/adapters/postgres/sqlc generated import policy/staging/apply SQL
+```
+
+Legacy Sync module layout:
+
+```text
+legacy_sync/domain              source/run/status DTOs and typed evidence reasons
+legacy_sync/app                 source freshness, cold-start, execute/counter guards
+legacy_sync/ports               backend-owned repository interface
+legacy_sync/adapters/http       admin Legacy Sync API handlers
+legacy_sync/adapters/postgres   runtime source/run/status repository
 ```
 
 Local import rehearsal routing:
@@ -352,6 +363,16 @@ Rules:
   manual "Sync with BQ" UI control, when added, must trigger the same backend
   sync job used by scheduled local/dev/stg/prod syncs, with RBAC, audit,
   idempotency, bounded batches, and freshness/status reporting.
+  `backend/internal/legacy_sync` is the committed v1 runtime surface for source
+  registry, per-source freshness, run steps, source/correction logs, and admin
+  API status. It does not let admin-web query legacy tools directly. Execute
+  and nightly modes are explicit blocked v1 runs until the backend executor is
+  configured; dry-runs remain non-mutating and cold-start explicit. Live
+  scheduled-query inventory for `goatos-sheets` remains an operator-verified
+  input and must not be hardcoded from repo memory.
+  The landed `backend/internal/legacy_import/bqreconcile` planner/apply logic
+  remains the stable reconciliation implementation; do not resurrect
+  self-conflict resolver files or old command flags.
   BQ table names, column names, and export quirks are temporary bridge details:
   keep them behind backend adapter/config code, not in React pages, mobile
   screens, domain names, or generated product labels, so the adapter can be

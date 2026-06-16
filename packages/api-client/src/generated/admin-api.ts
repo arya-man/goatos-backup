@@ -320,6 +320,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/legacy-sync/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List registered and observed legacy source freshness.
+         * @description Returns backend-owned source registry rows plus observed unregistered sources. Admin-web uses this instead of reading BigQuery or Sheets directly.
+         */
+        get: operations["listLegacySyncSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/legacy-sync/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get overall legacy sync freshness.
+         * @description Overall freshness is the worst critical source freshness plus counter freshness; noncritical degraded sources remain visible but do not make Phase 1 identity dashboards red.
+         */
+        get: operations["getLegacySyncStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/legacy-sync/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List recent legacy sync runs. */
+        get: operations["listLegacySyncRuns"];
+        put?: never;
+        /**
+         * Create a backend-owned legacy sync run.
+         * @description Dry-runs are non-mutating and may be cold starts. Execute and nightly deep reconcile are accepted only as explicit blocked v1 runs until the backend executor is configured; they do not apply deltas, rebuild counters, or advance success watermarks.
+         */
+        post: operations["createLegacySyncRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/legacy-sync/runs/{sync_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get legacy sync run details and Source & Correction Log. */
+        get: operations["getLegacySyncRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/legacy-sync/runs/{sync_run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request cancellation for a legacy sync run.
+         * @description Cancellation records operator intent. If apply already started, atomic apply finishes or rolls back normally; successful watermarks do not advance unless apply plus counter rebuild already completed.
+         */
+        post: operations["cancelLegacySyncRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -730,6 +828,168 @@ export interface components {
             trace_id: string;
         };
         /** @enum {string} */
+        LegacySyncDomain: "all" | "identity" | "lifecycle" | "current_location" | "active_count";
+        /** @enum {string} */
+        LegacySyncSourceDomain: "identity" | "lifecycle" | "current_location" | "active_count" | "feed" | "unknown";
+        /** @enum {string} */
+        LegacySyncMode: "dry_run" | "execute" | "nightly_deep_reconcile";
+        /** @enum {string} */
+        LegacySyncRunStatus: "planning" | "running" | "completed" | "failed" | "canceled" | "blocked";
+        /** @enum {string} */
+        LegacySyncStepStatus: "pending" | "running" | "completed" | "failed" | "canceled" | "blocked";
+        /** @enum {string} */
+        LegacySyncFreshnessStatus: "green" | "yellow" | "red" | "unknown";
+        /** @enum {string} */
+        LegacySyncCriticality: "critical" | "noncritical";
+        /** @enum {string} */
+        LegacySyncCounterCheckStatus: "pending" | "succeeded" | "failed" | "skipped";
+        LegacySyncSource: {
+            source_id: string;
+            source_name: string;
+            domain: components["schemas"]["LegacySyncSourceDomain"];
+            /** @enum {string} */
+            source_kind: "scheduled_query" | "table" | "view" | "export";
+            source_ref: string | null;
+            cadence_seconds: number;
+            green_within_seconds: number;
+            yellow_within_seconds: number;
+            criticality: components["schemas"]["LegacySyncCriticality"];
+            enabled: boolean;
+            known_degraded: boolean;
+            notes: string | null;
+            freshness_status: components["schemas"]["LegacySyncFreshnessStatus"];
+            status_reason: string;
+            /** Format: date-time */
+            source_watermark_at: string | null;
+            /** Format: date-time */
+            observed_at: string | null;
+            rows_seen: number;
+            is_unknown_source: boolean;
+        };
+        LegacySyncSourceListResponse: {
+            items: components["schemas"]["LegacySyncSource"][];
+            trace_id: string;
+        };
+        LegacySyncCounterStatus: {
+            freshness_status: components["schemas"]["LegacySyncFreshnessStatus"];
+            status_reason: string;
+            /** Format: date-time */
+            updated_at: string | null;
+            rebuild_required: boolean;
+        };
+        LegacySyncOverallStatusResponse: {
+            overall_freshness: components["schemas"]["LegacySyncFreshnessStatus"];
+            critical_freshness: components["schemas"]["LegacySyncFreshnessStatus"];
+            counter_freshness: components["schemas"]["LegacySyncCounterStatus"];
+            sources: components["schemas"]["LegacySyncSource"][];
+            trace_id: string;
+        };
+        LegacySyncRunSummary: {
+            rows_read: number;
+            rows_planned: number;
+            rows_applied: number;
+            rows_skipped: number;
+            goats_created: number;
+            goats_updated: number;
+            conflicts_opened: number;
+            conflicts_refreshed: number;
+        };
+        LegacySyncRun: {
+            /** Format: uuid */
+            sync_run_id: string;
+            mode: components["schemas"]["LegacySyncMode"];
+            domain: components["schemas"]["LegacySyncDomain"];
+            status: components["schemas"]["LegacySyncRunStatus"];
+            cold_start: boolean;
+            /** Format: date-time */
+            source_window_start: string | null;
+            /** Format: date-time */
+            source_window_end: string | null;
+            eta_seconds: number | null;
+            summary: components["schemas"]["LegacySyncRunSummary"];
+            counters_rebuilt: boolean;
+            counter_check_status: components["schemas"]["LegacySyncCounterCheckStatus"];
+            freshness_status: components["schemas"]["LegacySyncFreshnessStatus"];
+            blocked_reason: string | null;
+            /** Format: date-time */
+            cancel_requested_at: string | null;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+        };
+        LegacySyncRunStep: {
+            /** Format: uuid */
+            sync_step_id: string;
+            source_id: string | null;
+            step_name: string;
+            status: components["schemas"]["LegacySyncStepStatus"];
+            rows_read: number;
+            rows_planned: number;
+            rows_applied: number;
+            rows_skipped: number;
+            details: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+        };
+        /** @enum {string} */
+        LegacySyncEvidenceReason: "bq_gender_self_conflict" | "bq_breed_self_conflict" | "legacy_changed_after_human_review" | "status_mismatch" | "unregistered_source";
+        /** @enum {string} */
+        LegacySyncResult: "applied" | "skipped" | "blocked" | "conflict_opened" | "conflict_refreshed" | "preserved_human_decision" | "reconciled";
+        LegacySyncSourceCorrectionLogItem: {
+            /** Format: uuid */
+            sync_run_conflict_id: string;
+            source_id: string;
+            source_record_id: string;
+            /** Format: uuid */
+            conflict_id: string | null;
+            /** Format: uuid */
+            goat_id: string | null;
+            evidence_reason: components["schemas"]["LegacySyncEvidenceReason"];
+            result: components["schemas"]["LegacySyncResult"];
+            old_goatos_value: string | null;
+            new_legacy_value: string | null;
+            /** Format: uuid */
+            previous_decision_id: string | null;
+            /** Format: date-time */
+            previous_decision_at: string | null;
+            /** Format: uuid */
+            audit_id: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        LegacySyncRunDetailResponse: {
+            run: components["schemas"]["LegacySyncRun"];
+            steps: components["schemas"]["LegacySyncRunStep"][];
+            sources: components["schemas"]["LegacySyncSource"][];
+            source_correction_log: components["schemas"]["LegacySyncSourceCorrectionLogItem"][];
+            trace_id: string;
+        };
+        LegacySyncRunListResponse: {
+            items: components["schemas"]["LegacySyncRun"][];
+            trace_id: string;
+        };
+        CreateLegacySyncRunRequest: {
+            mode: components["schemas"]["LegacySyncMode"];
+            domain: components["schemas"]["LegacySyncDomain"];
+            /** Format: date-time */
+            source_window_start?: string | null;
+            /** Format: date-time */
+            source_window_end?: string | null;
+        };
+        CreateLegacySyncRunResponse: {
+            run: components["schemas"]["LegacySyncRun"];
+            trace_id: string;
+        };
+        CancelLegacySyncRunResponse: {
+            run: components["schemas"]["LegacySyncRun"];
+            trace_id: string;
+        };
+        /** @enum {string} */
         CorrectionRequestState: "open" | "assigned" | "needs_field_check" | "approved" | "rejected" | "closed";
         CorrectionRequest: {
             /** Format: uuid */
@@ -832,6 +1092,7 @@ export interface components {
         GoatId: string;
         IdentifierId: string;
         CorrectionRequestId: string;
+        SyncRunId: string;
         Limit: number;
         Cursor: string;
         IdempotencyKey: string;
@@ -1394,6 +1655,156 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    listLegacySyncSources: {
+        parameters: {
+            query?: {
+                domain?: "identity" | "lifecycle" | "current_location" | "active_count";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Legacy sync sources. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegacySyncSourceListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getLegacySyncStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Legacy sync status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegacySyncOverallStatusResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listLegacySyncRuns: {
+        parameters: {
+            query: {
+                limit: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Legacy sync runs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegacySyncRunListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createLegacySyncRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLegacySyncRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Legacy sync run accepted or completed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateLegacySyncRunResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getLegacySyncRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sync_run_id: components["parameters"]["SyncRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Legacy sync run detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegacySyncRunDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    cancelLegacySyncRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sync_run_id: components["parameters"]["SyncRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Legacy sync run after cancel request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelLegacySyncRunResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
         };
     };
 }

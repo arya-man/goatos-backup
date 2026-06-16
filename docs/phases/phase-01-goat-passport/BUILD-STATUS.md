@@ -39,6 +39,7 @@ backend/migrations/postgres/000011_phase_1_rfid_breed_cross_mappings.sql
 backend/migrations/postgres/000012_phase_1_rfid_blank_suffix_apply_candidates.sql
 backend/migrations/postgres/000013_phase_1_import_review_read_indexes.sql
 backend/migrations/postgres/000014_phase_1b_read_foundation_indexes.sql
+backend/migrations/postgres/000020_phase_1_legacy_sync_runtime.sql
 backend/tests/integration/validate-postgres-migrations.sh
 make validate-migrations
 ```
@@ -64,6 +65,7 @@ backend/internal/identity/ports
 backend/internal/identity/adapters/http
 backend/internal/identity/adapters/postgres
 backend/internal/identity/adapters/postgres/sqlc
+backend/internal/legacy_sync
 backend/internal/reporting
 backend/internal/reporting/adapters/postgres/sqlc
 backend/sqlc.yaml
@@ -187,6 +189,14 @@ Data Quality conflict details expose structured legacy evidence and link to the
 reviewer guide in `docs/runbooks/data-quality-legacy-review-guide.md`; legacy
 self-conflicts stay open for human review and are not closed by reconcile
 cleanup.
+Legacy Sync now has a backend-owned Phase 1 control-plane API and admin-web
+surface for source freshness, dry-run requests, run progress, and Source &
+Correction Log visibility. Execute and nightly modes are explicit blocked v1
+runs until the backend executor is configured. The v1 seeds only the confirmed Phase 1
+critical sources, treats unknown sources as visible unregistered/noncritical
+items that are never silently green, honors per-source 60m and 12h thresholds,
+and blocks mutation until the production-safe executor and live scheduled-query
+inventory are configured.
 The live identity Counts route renders Phase 1 counter-backed goat properties:
 active lifecycle total, breeds tracked, growth cohort buckets, breed counts,
 overall sex counts, and current location buckets via park/shed counters.
@@ -693,7 +703,7 @@ RFID/BQ source-of-truth staging and reconciliation:
   only by a later Purchase, and later non-purchase activity such as Shifting,
   Birth, or Abortion after a terminal event keeps the conservative terminal
   state while opening a review conflict. Counters were
-  rebuilt to tenant_lifecycle alive 1109, sold 71, dead 35, inactive 0. RFID
+  rebuilt to tenant_lifecycle alive 1113, sold 71, dead 35, inactive 0. RFID
   evidence is evaluated separately from reused/scoped old-tag evidence; current
   evidence-stream disagreements plus terminal-after-activity cases are marked
   `identity_state = needs_review` and opened as 54 Data Quality
@@ -916,8 +926,8 @@ This order is intentional and should not be inferred from conversation memory:
    admitted into passport creation when nonblank and otherwise eligible.
    The UI now shows clean goats, passport detail with timeline, review buckets,
    live Import Review rows, correction queue reads, identity counts, live Data
-   Quality conflicts when BQ review conflicts exist, and honest empty states for
-   empty candidate/correction queues. Defined Phase 1B
+   Quality conflicts when BQ review conflicts exist, Legacy Sync freshness/run
+   monitoring, and honest empty states for empty candidate/correction queues. Defined Phase 1B
    correction/candidate/conflict/identifier actions are live; source
    breed/category labels such as Anantapur Sheep should appear as goat passport
    breed/category values after apply, not as review blockers. Import Review row

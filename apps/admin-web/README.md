@@ -15,6 +15,8 @@ The current console provides:
 - herd search, goat passport with live identity timeline, identity counts,
   conflict/candidate/correction queues, and live Import Review with a recent-run
   picker plus summary/row screens;
+- live Legacy Sync source freshness, run history, run detail/progress, and
+  backend-triggered dry-run controls;
 - server-side forms for the already-built Phase 1 actions: correction request
   create/resolve, candidate reject, conflict reject/merge, field-check
   requests, identifier-dispute marking, and goat identifier add/retire.
@@ -139,7 +141,7 @@ npm run smoke:visual:live
 The smoke requires the same server-only env values, fetches a real goat_id from
 `GET /goats/search`, captures desktop and narrow screenshots under the ignored
 `.codex-goatos-render/admin-web-screenshots/` directory, exercises the live
-overview/counts/herd/passport/Import Review/Data Quality surfaces, and fails if
+overview/counts/herd/passport/Import Review/Data Quality/Legacy Sync surfaces, and fails if
 it renders configuration-error pages, detects layout overflow/clipping,
 detects serious or critical accessibility issues, renders debug trace footers,
 or leaks the bearer token into HTML.
@@ -307,6 +309,20 @@ Keep BQ table names, column names, and export-specific parsing inside backend
 adapter/config code. Do not copy those names into React pages or generated UI
 labels. When operators write directly into Goat OS, the BQ adapter should be
 removable without changing admin-web screens.
+
+## Legacy Sync
+
+`/legacy-sync` is the backend-owned bridge from legacy evidence to Goat OS. It
+shows source freshness, critical/noncritical status, counter freshness, recent
+runs, step timelines, source windows, and the Source & Correction Log. The page
+can start a backend dry-run request; execute and nightly modes remain blocked in
+v1 until the backend executor is configured. It never queries BigQuery, Sheets,
+CSVs, or private source rows from React.
+
+Execute paths are intentionally guarded. Production/staging mutation stays
+blocked until the production-safe executor, live scheduled-query inventory, and
+counter freshness gates are explicitly configured. Unknown sources are visible
+as unregistered/noncritical and are never rendered as silently green.
 
 ## Import Review
 

@@ -18,6 +18,7 @@ import {
   Milk,
   PanelLeft,
   PanelLeftClose,
+  RefreshCw,
   Receipt,
   Search,
   ShoppingCart,
@@ -43,6 +44,7 @@ const commandItems: NavItem[] = [
   { icon: BarChart3, label: "Counts", href: "/counts" },
   { icon: Search, label: "Herd Search", href: "/herd" },
   { icon: DatabaseZap, label: "Import Review", href: "/import-review" },
+  { icon: RefreshCw, label: "Legacy Sync", href: "/legacy-sync" },
   { icon: FileSearch, label: "Data Quality", href: "/data-quality" },
 ];
 
