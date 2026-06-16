@@ -191,48 +191,44 @@ The backend identity/reporting/event foundation is built and green.
 
 ### Not Finished Yet
 
-Phase 1 is **not shippable to users yet**.
+The local Phase 1 identity/admin-review spine is complete; Phase 1 is **not
+production-launch-ready yet**.
 
-Still pending before Phase 1 is usable end-to-end:
+Done in the Phase 1 closeout (see
+`docs/phases/phase-01-goat-passport/CLOSEOUT-SCOPE.md`):
 
-- Production identity-provider/login integration: JWKS/asymmetric token
-  verification, sessions, key rotation, revocation, and secret management.
-- The remaining typed `not_implemented` endpoints are:
-  `POST /admin/import-runs`, `POST /admin/goats`, and
-  `PATCH /admin/goats/{goat_id}`.
-- Correction request list APIs and goat timeline reads are live Phase 1B
-  surfaces. Defined correction/candidate/conflict/identifier actions are wired
-  in admin-web. Source breed/category import rows remain in review until an
-  explicit breed/category mapping policy is approved. Admin goat create/update
-  APIs, import-run create, and messy-row fix/approve actions remain deferred.
-- Candidate approve and conflict `create_goat` routes exist, but they are not
-  the same blocker. Candidate approve can be split into non-create outcomes
-  that reuse existing identifier-attach or merge invariants, while
-  approve-to-create remains blocked on the conflict `create_goat` contract.
-  Conflict `create_goat` itself still needs the operator-entered creation field
-  set before code may mint a goat from a conflict.
-- Real production event publishing.
-- Remaining dirty-data actions: candidate approve attach/merge, Import Review
-  row reject/fix/re-apply, and the create-dependent paths gated by conflict
-  `create_goat`.
-- Deployment setup for shared/staging/prod environments.
+- Candidate approve (attach identifier / merge goats) and Import Review row
+  actions (reject / fix sex-breed / reapply) — backend + admin-web UI.
+- Provider-agnostic JWKS/asymmetric bearer verification mode.
+- Deployment runbook + per-env config.
 
-Immediate Phase 1B order:
+Still pending before Phase 1 is production-launch-ready:
+
+- Production identity-provider provisioning behind the JWKS mode: real IdP
+  endpoint, signing keys, sessions, key rotation, revocation, and secret
+  management.
+- Real production event publishing (Pub/Sub egress) and the outbox publisher
+  worker deploy.
+- Deployment/provisioning of shared/staging/prod under `vgoats.com`.
+
+Intentionally blocked / deferred (not unfinished Phase 1 code):
+
+- Conflict `create_goat` and approve-to-create: blocked until the
+  operator-entered goat-creation field set is product-approved.
+- `POST /admin/import-runs`, `POST /admin/goats`,
+  `PATCH /admin/goats/{goat_id}`: deferred to the Phase 2+ admin workflow.
+- Legacy Sync real executor: production sync follow-up.
+
+Immediate next order:
 
 ```text
-1. Define and implement the non-create candidate approve outcomes as their own
-   canonical mutation slice: attach identifier and merge goats; return a typed
-   blocker for approve-to-create until `create_goat` is defined.
-2. Define and implement Import Review row actions that do not require new
-   product semantics: row_version, terminal reject with audit,
-   fix-with-evidence for known row-local fields, and re-apply through the
-   existing RFID apply path when safe.
-3. Make the product decision for conflict `create_goat`: required operator
-   fields, primary identifier evidence, breed/species/status/sex rules,
-   ownership/custody/location requirements, and duplicate checks. Implement it
-   only after that contract is written.
-4. Prepare production auth, event egress, and deploy without calling the local
-   dev-token demo shippable.
+1. Reconcile the candidate-approve + Import Review row-action admin-web UI with
+   any concurrent admin-web edits, then run the visual smoke.
+2. Make the product decision for conflict create_goat (required operator fields,
+   primary identifier evidence, breed/species/status/sex, ownership/custody/
+   location, duplicate checks); implement only after that contract is written.
+3. Provision production auth (IdP/JWKS + secrets), event egress, and cloud
+   deploy under vgoats.com without calling the local dev-token demo shippable.
 ```
 
 Important:

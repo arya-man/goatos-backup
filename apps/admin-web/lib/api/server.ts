@@ -34,6 +34,7 @@ export type ResolveConflictRequestBody = AdminApiComponents["schemas"]["ResolveC
 export type ResolveConflictResponse = AdminApiComponents["schemas"]["ResolveConflictResponse"];
 export type CandidateListResponse = AdminApiComponents["schemas"]["CandidateListResponse"];
 export type ReviewCandidateRequestBody = AdminApiComponents["schemas"]["ReviewCandidateRequest"];
+export type ApproveCandidateRequestBody = AdminApiComponents["schemas"]["ApproveCandidateRequest"];
 export type CandidateDecisionResponse = AdminApiComponents["schemas"]["CandidateDecisionResponse"];
 export type ImportRunResponse = AdminApiComponents["schemas"]["ImportRunResponse"];
 export type ImportRunListResponse = AdminApiComponents["schemas"]["ImportRunListResponse"];
@@ -62,6 +63,8 @@ export type BulkResolveConflictsRequest = AdminApiComponents["schemas"]["BulkRes
 export type BulkResolveConflictItem = AdminApiComponents["schemas"]["BulkResolveConflictItem"];
 export type BulkResolveConflictsResult = AdminApiComponents["schemas"]["BulkResolveConflictsResult"];
 export type ImportRowState = AdminApiComponents["schemas"]["ImportRowState"];
+export type ReviewImportRowRequestBody = AdminApiComponents["schemas"]["ReviewImportRowRequest"];
+export type ReviewImportRowResponse = AdminApiComponents["schemas"]["ReviewImportRowResponse"];
 export type CorrectionRequestState = AdminApiComponents["schemas"]["CorrectionRequestState"];
 
 export type ApiErrorKind =
@@ -418,6 +421,28 @@ export async function rejectIdentityCandidate(
   );
 }
 
+export async function approveIdentityCandidate(
+  candidateId: string,
+  body: ApproveCandidateRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<CandidateDecisionResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path = `/admin/identity/candidates/${encodeURIComponent(candidateId)}/approve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<CandidateDecisionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function getImportRun(importRunId: string): Promise<ApiResult<ImportRunResponse>> {
   const config = getServerConfig();
   if (!config.ok) return config;
@@ -461,6 +486,30 @@ export async function listImportRunRows(params: ImportRunRowsParams): Promise<Ap
         processing_state: params.processing_state,
         reason_code: params.reason_code,
       }),
+    }),
+  );
+}
+
+export async function reviewImportRunRow(
+  importRunId: string,
+  importRowId: string,
+  body: ReviewImportRowRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<ReviewImportRowResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  const path =
+    `/admin/import-runs/${encodeURIComponent(importRunId)}/rows/${encodeURIComponent(importRowId)}/review` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<ReviewImportRowResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
     }),
   );
 }

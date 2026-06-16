@@ -831,13 +831,10 @@ export interface components {
             identifier_value?: string | null;
             /** @description Identifier scope (e.g. global for RFID, park:<code> for old_tag). */
             scope_key?: string | null;
-            /** @default false */
-            is_primary_for_goat: boolean;
-            /**
-             * @description attach_identifier only; deterministically extract a global-scope RFID from the candidate's linked legacy row instead of supplying an explicit identifier.
-             * @default false
-             */
-            extract_from_legacy_row: boolean;
+            /** @description attach_identifier only; optional, defaults to false server-side. */
+            is_primary_for_goat?: boolean;
+            /** @description attach_identifier only; deterministically extract a global-scope RFID from the candidate's linked legacy row instead of supplying an explicit identifier. Optional, defaults to false server-side. */
+            extract_from_legacy_row?: boolean;
             /**
              * Format: uuid
              * @description merge_goats only; the surviving goat, which must be one of the candidate's goats.

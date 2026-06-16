@@ -33,7 +33,7 @@ import {
   type ConflictType,
   type CorrectionRequestState,
 } from "@/lib/api/server";
-import { createCorrectionRequestAction, rejectCandidateAction, resolveConflictAction, resolveCorrectionRequestAction } from "./actions";
+import { approveCandidateAction, createCorrectionRequestAction, rejectCandidateAction, resolveConflictAction, resolveCorrectionRequestAction } from "./actions";
 import { ConflictBulkReview, type BulkReviewRow } from "./bulk-review";
 import { ReviewQueuesLayout } from "./review-queues-layout";
 import { isReviewGroup, reviewGroupFilterOptions, reviewGroupLabel, type ReviewGroup } from "./review-groups";
@@ -194,6 +194,44 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                     <span>by {candidate.created_by}</span>
                     <span>row v{candidate.row_version}</span>
                   </div>
+                  {candidate.proposed_goat_id && candidate.candidate_goat_id && candidate.proposed_goat_id !== candidate.candidate_goat_id ? (
+                    <form action={approveCandidateAction} className="mt-4 rounded-md border border-[#14f1d9]/40 bg-[#0f1115] p-3">
+                      <input type="hidden" name="candidate_id" value={candidate.candidate_id} />
+                      <input type="hidden" name="row_version" value={candidate.row_version} />
+                      <input type="hidden" name="affected_goat_ids" value={`${candidate.proposed_goat_id},${candidate.candidate_goat_id}`} />
+                      <input type="hidden" name="idempotency_key" value={randomUUID()} />
+                      <input type="hidden" name="return_to" value={returnTo} />
+                      <p className="text-sm font-semibold text-white">Confirm same goat → merge</p>
+                      <p className="mt-1 text-xs text-[#93a4b8]">Keep one passport as the survivor; the other is merged into it through the audited backend decision. Reversal needs a separate reviewed correction.</p>
+                      <label className="mt-3 block">
+                        <span className="text-xs uppercase text-[#93a4b8]">Survivor passport</span>
+                        <select
+                          name="survivor_goat_id"
+                          required
+                          defaultValue=""
+                          className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+                        >
+                          <option value="">Select survivor</option>
+                          <option value={candidate.proposed_goat_id}>proposed · {shortId(candidate.proposed_goat_id)}</option>
+                          <option value={candidate.candidate_goat_id}>candidate · {shortId(candidate.candidate_goat_id)}</option>
+                        </select>
+                      </label>
+                      <div className="mt-3">
+                        <EvidenceFields defaultType="goat" defaultID={candidate.candidate_goat_id ?? candidate.proposed_goat_id ?? candidate.candidate_id} />
+                      </div>
+                      <div className="mt-3">
+                        <FormTextArea name="reason" label="Merge reason" required placeholder="Why these records are the same goat." rows={2} />
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <ConfirmSubmitButton
+                          message="Approve and merge these passports? This is a sensitive canonical change."
+                          className="h-10 rounded-md border border-[#14f1d9] px-3 text-sm font-semibold text-[#14f1d9] hover:bg-[#102018]"
+                        >
+                          Approve &amp; merge
+                        </ConfirmSubmitButton>
+                      </div>
+                    </form>
+                  ) : null}
                   <form action={rejectCandidateAction} className="mt-4 rounded-md border border-[#334155] bg-[#0f1115] p-3">
                     <input type="hidden" name="candidate_id" value={candidate.candidate_id} />
                     <input type="hidden" name="row_version" value={candidate.row_version} />
@@ -204,7 +242,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                       <FormTextArea name="reason" label="Reject reason" required placeholder="Why this candidate is not the same goat." rows={2} />
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-3">
-                      <p className="text-xs text-[#93a4b8]">Reject records a candidate decision only; candidate approve remains contract-blocked.</p>
+                      <p className="text-xs text-[#93a4b8]">Reject records a candidate decision only (these are different goats). Approve &amp; merge confirms they are the same goat.</p>
                       <ConfirmSubmitButton
                         message="Reject this candidate match?"
                         className="h-10 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"

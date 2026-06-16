@@ -2251,13 +2251,13 @@ components:
           description: Identifier scope (e.g. global for RFID, park:<code> for old_tag).
         is_primary_for_goat:
           type: boolean
-          default: false
+          description: attach_identifier only; optional, defaults to false server-side.
         extract_from_legacy_row:
           type: boolean
-          default: false
           description: >-
             attach_identifier only; deterministically extract a global-scope RFID from
             the candidate's linked legacy row instead of supplying an explicit identifier.
+            Optional, defaults to false server-side.
         survivor_goat_id:
           type:
             - string

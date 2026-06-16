@@ -10,11 +10,13 @@ import {
   requiredString,
 } from "@/lib/action-helpers";
 import {
+  approveIdentityCandidate,
   bulkResolveConflicts,
   createCorrectionRequest,
   rejectIdentityCandidate,
   resolveCorrectionRequest,
   resolveIdentityConflict,
+  type ApproveCandidateRequestBody,
   type BulkResolveConflictItem,
   type BulkResolveConflictsRequest,
   type CorrectionRequestState,
@@ -81,6 +83,36 @@ export async function rejectCandidateAction(formData: FormData) {
   } catch (error) {
     status = "error";
     message = error instanceof Error ? error.message : "Unable to reject candidate.";
+  }
+  actionRedirect(formData, status, message);
+}
+
+export async function approveCandidateAction(formData: FormData) {
+  let status: "success" | "error" = "success";
+  let message = "";
+  try {
+    // Candidate approve in the review queue confirms the two records are the same
+    // goat and merges them (survivor keeps the canonical passport). Attach-identifier
+    // approve is driven from the goat passport, where the goat row_version is known.
+    const survivorGoatId = requiredString(formData, "survivor_goat_id");
+    const body: ApproveCandidateRequestBody = {
+      decision_type: "merge_goats",
+      survivor_goat_id: survivorGoatId,
+      affected_goat_ids: affectedGoatIDs(formData),
+      reason: requiredString(formData, "reason"),
+      evidence_refs: requiredEvidenceRef(formData),
+      row_version: requiredNumber(formData, "row_version"),
+    };
+    const result = await approveIdentityCandidate(requiredString(formData, "candidate_id"), body, requiredString(formData, "idempotency_key"));
+    if (!result.ok) {
+      status = "error";
+      message = actionErrorMessage(result.error);
+    } else {
+      message = `Candidate ${result.data.candidate_id} approved; goats merged into ${survivorGoatId}.`;
+    }
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Unable to approve candidate.";
   }
   actionRedirect(formData, status, message);
 }

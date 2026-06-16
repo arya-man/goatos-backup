@@ -237,7 +237,7 @@ such as growth cohort by sex require additional counter grains before they can
 be treated as backend-owned live charts.
 Import run create and admin goat create/update remain honest
 placeholders or backend 501/deferred paths. Import Review row actions and
-candidate approve should be split before implementation: non-create paths can
+candidate approve are now implemented (see Phase 1 Closeout): non-create paths
 reuse existing row-local fix/reject, identifier attach, merge, and RFID apply
 invariants, while any path that mints a new goat stays blocked on the conflict
 `create_goat` contract. Conflict `create_goat` itself still needs the
@@ -965,7 +965,7 @@ This order is intentional and should not be inferred from conversation memory:
    correction/candidate/conflict/identifier actions are live; source
    breed/category labels such as Anantapur Sheep should appear as goat passport
    breed/category values after apply, not as review blockers. Import Review row
-   fix/approve actions remain deferred.
+   reject/fix/reapply actions are implemented (admin.run.manage).
 
 2. Keep the local runbook and proof reproducible: fresh Docker Postgres, all
    migrations, BQ-backed reconciliation/import input, normal apply where the
@@ -1291,8 +1291,9 @@ the already-defined Phase 1 decisions: correction request create/resolve,
 candidate reject, conflict reject/merge, field-check requests,
 identifier-dispute marking, and goat identifier add/retire.
 Source breed/category import rows remain visible in Import Review until an
-explicit breed/category mapping policy exists. Candidate approve, conflict create_goat, admin goat create/update,
-import-run create, and messy-row fix/approve actions remain deferred.
+explicit breed/category mapping policy exists. Candidate approve (attach/merge)
+and Import Review row actions (reject/fix/reapply) are implemented. Conflict
+create_goat, admin goat create/update, and import-run create remain deferred.
 
 Remaining typed not_implemented endpoint surface:
 

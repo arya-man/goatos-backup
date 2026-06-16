@@ -2575,10 +2575,12 @@ does not bump goat `row_version`, and does not write `goat_identity_events` or
 `outbox_messages` unless a candidate/conflict aggregate event contract is later
 defined.
 
-`POST /admin/identity/candidates/{candidate_id}/approve` remains typed
-`not_implemented` until canonical mutation semantics are contract-defined. Do
-not mark a candidate approved without applying a defined merge/create/identifier
-mutation.
+`POST /admin/identity/candidates/{candidate_id}/approve` is implemented for the
+`attach_identifier` and `merge_goats` outcomes (single transaction each, reusing
+the identifier-attach and merge invariants; merge is bound to the candidate's own
+goats). The candidate is only marked approved in the same transaction that applies
+the identifier/merge mutation. Approve-to-create (`create_goat`) stays typed
+`not_implemented` until the operator-entered goat-creation field set is defined.
 
 For `reject_match`, the resolver records a rejected decision, marks the conflict
 `rejected`, and does not mutate goat identity. For

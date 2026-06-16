@@ -1,11 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { AlertTriangle, Download, FileWarning, History } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, ValueList } from "@/components/admin-primitives";
+import { ActionNotice, EmptyPanel, ErrorPanel, FormField, FormTextArea, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, ValueList } from "@/components/admin-primitives";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { formatLabel } from "@/lib/display-utils";
-import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
-import { firstAuthRequiredError, getImportRun, listImportRunRows, listImportRuns, type ImportRowState } from "@/lib/api/server";
+import { boundedInt, hrefPreviousCursor, hrefWithCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
+import { firstAuthRequiredError, getImportRun, listImportRunRows, listImportRuns, type ImportRowState, type ImportRunRowsResponse } from "@/lib/api/server";
+import { reviewImportRowAction } from "./actions";
+
+type ReviewRow = ImportRunRowsResponse["items"][number];
 
 const rowStates: ImportRowState[] = ["pending", "auto_linked", "created_goat", "needs_review", "error"];
 const reasonOptions = [
@@ -114,6 +119,9 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
   if (authError) {
     redirect("/login");
   }
+  const returnTo = hrefWithoutAction("/import-review", searchParams);
+  const actionStatus = one(searchParams, "action_status");
+  const actionMessage = one(searchParams, "action_message");
 
   return (
     <>
@@ -134,6 +142,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
           </div>
         }
       />
+      <ActionNotice status={actionStatus} message={actionMessage} />
 
       {!summary.ok ? (
         <ErrorPanel error={summary.error} />
@@ -235,6 +244,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                         {row.error_reason}
                       </div>
                     ) : null}
+                    <RowReviewActions row={row} importRunId={importRunId} returnTo={returnTo} />
                   </div>
                 ))}
                 <NextPageLink
@@ -268,6 +278,107 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
         </div>
       )}
     </>
+  );
+}
+
+function RowReviewActions({ row, importRunId, returnTo }: { row: ReviewRow; importRunId: string; returnTo: string }) {
+  const eligibleState = row.row_state === "needs_review" || row.row_state === "error" || row.row_state === "pending";
+  const canReapply = row.row_state === "needs_review" && !row.matched_goat_id;
+  const canFix = row.row_state === "needs_review";
+  if (!eligibleState) return null;
+  return (
+    <div className="mt-3 grid gap-3 lg:grid-cols-3">
+      <RowActionForm
+        row={row}
+        importRunId={importRunId}
+        returnTo={returnTo}
+        action="reject"
+        title="Reject row"
+        intent="Terminally reject this staged row. No goat is created or changed."
+        submitLabel="Reject"
+        danger
+      />
+      {canFix ? (
+        <RowActionForm
+          row={row}
+          importRunId={importRunId}
+          returnTo={returnTo}
+          action="fix"
+          title="Fix sex / breed"
+          intent="Patch the staged sex and/or breed only. The row stays in review."
+          submitLabel="Apply fix"
+        >
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <FormField name="sex" label="Sex" placeholder="leave blank to keep" />
+            <FormField name="breed" label="Breed" placeholder="leave blank to keep" />
+          </div>
+        </RowActionForm>
+      ) : null}
+      {canReapply ? (
+        <RowActionForm
+          row={row}
+          importRunId={importRunId}
+          returnTo={returnTo}
+          action="reapply"
+          title="Re-apply row"
+          intent="Requeue this row to pending so the approved RFID apply path retries it. The apply path mints the goat, not this action."
+          submitLabel="Re-apply"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function RowActionForm({
+  row,
+  importRunId,
+  returnTo,
+  action,
+  title,
+  intent,
+  submitLabel,
+  danger,
+  children,
+}: {
+  row: ReviewRow;
+  importRunId: string;
+  returnTo: string;
+  action: "reject" | "fix" | "reapply";
+  title: string;
+  intent: string;
+  submitLabel: string;
+  danger?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <form action={reviewImportRowAction} className="rounded-md border border-[#334155] bg-[#0f1115] p-3">
+      <input type="hidden" name="action" value={action} />
+      <input type="hidden" name="import_run_id" value={importRunId} />
+      <input type="hidden" name="import_row_id" value={row.import_row_id} />
+      <input type="hidden" name="row_version" value={row.row_version} />
+      <input type="hidden" name="idempotency_key" value={randomUUID()} />
+      <input type="hidden" name="return_to" value={returnTo} />
+      <input type="hidden" name="evidence_type" value="import_run" />
+      <input type="hidden" name="evidence_id" value={importRunId} />
+      <div className="text-sm font-semibold text-white">{title}</div>
+      <p className="mt-1 text-xs text-[#93a4b8]">{intent}</p>
+      {children}
+      <div className="mt-2">
+        <FormTextArea name="reason" label="Reason" required rows={2} placeholder="Why this action is correct." />
+      </div>
+      <div className="mt-2 flex justify-end">
+        <ConfirmSubmitButton
+          message={`Apply "${submitLabel}" to row ${row.row_number}?`}
+          className={
+            danger
+              ? "h-9 rounded-md border border-[#7f1d1d] px-3 text-sm font-semibold text-[#fecaca] hover:bg-[#1d1214]"
+              : "h-9 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]"
+          }
+        >
+          {submitLabel}
+        </ConfirmSubmitButton>
+      </div>
+    </form>
   );
 }
 
