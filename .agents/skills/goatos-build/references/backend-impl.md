@@ -371,12 +371,29 @@ Rules:
   audit rows, and requires
   `rebuild-identity-counters` afterward. When `--import-run-id` is supplied, it
   may fill sole-reason `blank_gender` staging rows from deterministic BQ RFID
-  evidence and requeue them for the normal `rfid-apply` path. It does not create
-  goats directly, add identifiers, or emit outbox events.
+  evidence and requeue them for the normal `rfid-apply` path. The event-replay
+  reconcile path does not create goats directly, add identifiers, or emit outbox
+  events.
   `--backfill-missing` flag is intentionally blocked until an accessible
   per-goat current identity export exists. The legacy dashboard aggregate table
   can prove count gaps but cannot create passports, and event/location exports
   are valid only for reconciling existing matched passports.
+  The only path that creates passports is the explicit, deterministic
+  `--backfill-candidates-csv <path>` (dry-run by default; `--execute` plus
+  GOATOS_ENV required; optional `--report-dir` writes created/skipped CSVs). It
+  reads a pre-vetted safe old-tag candidate CSV (one row per unique
+  farm/old-tag/scope), creates old-tag-only passports
+  (`identity_state='clean'`, Mesha custodian, no RFID) under the shared
+  `bq-reconcile` advisory lock, maps status->lifecycle against supported
+  `status_definitions` (`active->alive`, `sold->sold`, `inactive->inactive`),
+  sets breed/sex/park/shed only from deterministic candidate fields, and writes
+  `goat.old_tag_backfill_created` audit rows. It is idempotent: the active
+  old_tag identity set is reloaded inside the write transaction, and the
+  partial-unique `(identifier_type, normalized_value, scope_key) WHERE
+  status='active'` index is the backstop, so replay creates zero goats. It never
+  updates existing goats and skips (and exports) ambiguous, duplicate,
+  already-present, scope-mismatched, or unsupported-status rows.
+  `rebuild-identity-counters` is required afterward.
   The RFID
   workbook parser/normalizer is retained as a legacy parser/regression harness
   and accepts the Shape-2 source headers:

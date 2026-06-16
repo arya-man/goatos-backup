@@ -28,6 +28,8 @@ func run(args []string) error {
 	var eventsPath string
 	var locationsPath string
 	var backfillMissing bool
+	var candidatesCSV string
+	var reportDir string
 	var execute bool
 	var timeout time.Duration
 	var traceID string
@@ -37,6 +39,8 @@ func run(args []string) error {
 	fs.StringVar(&eventsPath, "events-json", "", "BQ event export JSON array or JSONL file")
 	fs.StringVar(&locationsPath, "locations-json", "", "optional BQ latest-location export JSON array or JSONL file")
 	fs.BoolVar(&backfillMissing, "backfill-missing", false, "blocked unless a deterministic per-goat current BQ identity export is added; event-history exports cannot safely create missing passports")
+	fs.StringVar(&candidatesCSV, "backfill-candidates-csv", "", "deterministic safe old-tag passport backfill: explicit candidate CSV path. This is the ONLY path that creates old-tag-only passports; event-only exports never create goats.")
+	fs.StringVar(&reportDir, "report-dir", "", "optional directory for backfilled/skipped CSV artifacts")
 	fs.BoolVar(&execute, "execute", false, "apply planned updates; default is dry-run")
 	fs.DurationVar(&timeout, "timeout", 10*time.Minute, "command timeout")
 	fs.StringVar(&traceID, "trace-id", "", "optional audit trace id")
@@ -62,15 +66,39 @@ func run(args []string) error {
 	}
 	defer pool.Close()
 
-	result, err := bqreconcile.Run(ctx, pool, bqreconcile.Options{
-		TenantID:        tenantID,
-		ImportRunID:     importRunID,
-		EventsPath:      eventsPath,
-		LocationsPath:   locationsPath,
-		BackfillMissing: backfillMissing,
-		Execute:         execute,
-		TraceID:         traceID,
-	})
+	opts := bqreconcile.Options{
+		TenantID:          tenantID,
+		ImportRunID:       importRunID,
+		EventsPath:        eventsPath,
+		LocationsPath:     locationsPath,
+		BackfillMissing:   backfillMissing,
+		CandidatesCSVPath: candidatesCSV,
+		ReportDir:         reportDir,
+		Execute:           execute,
+		TraceID:           traceID,
+	}
+
+	// Deterministic explicit old-tag passport backfill is a distinct, fail-closed
+	// path. It is mutually exclusive with the event-history reconcile path.
+	if strings.TrimSpace(candidatesCSV) != "" {
+		result, err := bqreconcile.RunCandidateBackfill(ctx, pool, opts)
+		if err != nil {
+			return err
+		}
+		out, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(out))
+		if execute {
+			fmt.Fprintln(os.Stderr, "Old-tag passport backfill applied. Rebuild identity counters before trusting dashboard counts.")
+		} else {
+			fmt.Fprintln(os.Stderr, "dry-run only; rerun with --execute to apply. Rebuild identity counters after execute.")
+		}
+		return nil
+	}
+
+	result, err := bqreconcile.Run(ctx, pool, opts)
 	if err != nil {
 		return err
 	}

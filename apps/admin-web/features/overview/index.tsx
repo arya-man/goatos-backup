@@ -51,33 +51,41 @@ export async function OverviewPage() {
         <KPICard
           label="Active goats"
           value={activeGoats === null ? "Not tracked" : activeGoats.toLocaleString("en-IN")}
-          subtitle="tenant_lifecycle alive"
+          subtitle="tenant_lifecycle alive · open Herd Search"
           icon={<Activity size={18} />}
           delay={0}
           variant={activeGoats === null ? "amber" : "positive"}
+          href="/herd"
+          navLabel="Open Herd Search"
         />
         <KPICard
           label="Open conflicts"
           value={conflicts.ok ? conflicts.data.items.length.toLocaleString("en-IN") : "Not tracked"}
-          subtitle="visible page sample"
+          subtitle="open Data Quality conflicts"
           icon={<AlertTriangle size={18} />}
           delay={1}
           variant={conflicts.ok && conflicts.data.items.length > 0 ? "amber" : "default"}
+          href="/data-quality?state=open"
+          navLabel="Open Data Quality conflicts"
         />
         <KPICard
           label="Match candidates"
           value={candidates.ok ? candidates.data.items.length.toLocaleString("en-IN") : "Not tracked"}
-          subtitle="actionable page sample"
+          subtitle="open Data Quality candidates"
           icon={<FileSearch size={18} />}
           delay={2}
+          href="/data-quality"
+          navLabel="Open Data Quality candidates"
         />
         <KPICard
           label="Import review"
           value={reviewRows === null ? "No run" : reviewRows.toLocaleString("en-IN")}
-          subtitle={selectedImportRunId ? `run ${shortId(selectedImportRunId)}` : "No import runs found"}
+          subtitle={selectedImportRunId ? `run ${shortId(selectedImportRunId)} · open latest` : "No import runs found"}
           icon={<DatabaseZap size={18} />}
           delay={3}
           variant={reviewRows === null ? "amber" : "default"}
+          href={selectedImportRunId ? `/import-review?import_run_id=${encodeURIComponent(selectedImportRunId)}` : "/import-review"}
+          navLabel="Open latest Import Review run"
         />
       </div>
 
@@ -154,7 +162,7 @@ export async function OverviewPage() {
         <Panel
           title="Data Quality"
           description="Live conflict and candidate read queues. Empty queues are shown honestly."
-          action={<Nav href="/data-quality" label="Open Data Quality" icon={<FileSearch className="h-4 w-4" aria-hidden="true" />} />}
+          action={<Nav href="/data-quality?state=open" label="Open Data Quality" icon={<FileSearch className="h-4 w-4" aria-hidden="true" />} />}
         >
           {!conflicts.ok ? (
             <ErrorPanel error={conflicts.error} />

@@ -84,13 +84,15 @@ type LocationTarget struct {
 }
 
 type Options struct {
-	TenantID        string
-	ImportRunID     string
-	EventsPath      string
-	LocationsPath   string
-	BackfillMissing bool
-	Execute         bool
-	TraceID         string
+	TenantID          string
+	ImportRunID       string
+	EventsPath        string
+	LocationsPath     string
+	BackfillMissing   bool
+	CandidatesCSVPath string
+	ReportDir         string
+	Execute           bool
+	TraceID           string
 }
 
 type Summary struct {

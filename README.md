@@ -125,15 +125,27 @@ Completed so far:
   accessible per-goat current identity export/bridge is available; creating
   passports directly from aggregate counts or event-history keys would be fake
   data.
+  The one supported way to create missing passports is the explicit,
+  deterministic `bq-reconcile --backfill-candidates-csv <path>` path. It reads a
+  pre-vetted safe old-tag candidate CSV (one unique farm/old-tag/scope row each),
+  creates old-tag-only passports (`identity_state='clean'`, Mesha custodian, no
+  RFID), maps status to a supported lifecycle (`active->alive`, `sold->sold`,
+  `inactive->inactive`), sets breed/sex/park/shed only from deterministic
+  candidate fields, writes `goat.old_tag_backfill_created` audit rows, never
+  updates existing goats, and is idempotent on replay (the partial-unique active
+  old_tag index is the backstop). It is dry-run by default and requires
+  `--execute` plus GOATOS_ENV.
   BQ dashboard shed
   taxonomy is now seeded under the existing CBE/CPT park locations so matched
   goats can carry specific shed current locations without breaking old-tag
   park-scope identity rules.
 - Phase 1 local end-to-end proof has passed against the local backend and
-  Mesha-style SSR admin-web. Current local DB has 1219 goat passports and 4
-  import-review rows from the RFID import run. A BQ reconciliation pass now runs
-  through `backend/cmd/bq-reconcile`. The current local DB has
-  `tenant_lifecycle` counters `alive=1113`, `sold=71`, and `dead=35`; BQ
+  Mesha-style SSR admin-web. Current local DB has 2668 goat passports (1219 from
+  the RFID import plus 1449 created by the deterministic safe old-tag backfill)
+  and 4 import-review rows from the RFID import run. A BQ reconciliation pass and
+  the old-tag backfill both run through `backend/cmd/bq-reconcile`. The current
+  local DB has `tenant_lifecycle` counters `alive=2085`, `sold=545`, `dead=35`,
+  and `inactive=3`; BQ
   lifecycle is reduced conservatively per identifier. Shifting or Abortion
   evidence without terminal Sale/Death is proof-of-life, Death is sticky, Sale
   is reversed only by a later Purchase, and later non-purchase activity such as
@@ -149,12 +161,14 @@ Completed so far:
   disagreements and terminal-after-activity cases are surfaced as 54 lifecycle
   Data Quality `status_mismatch` conflicts for operator review. The current DB
   also has 106 open BQ attribute review conflict rows, covering 108 reason
-  occurrences: 73 sex and 35 breed. Goat identity state is 1088 `clean` and 131
-  `needs_review`; these review states are the intended safety net for BQ/passport
+  occurrences: 73 sex and 35 breed. Goat identity state is 2537 `clean` and 131
+  `needs_review` (the backfill adds only `clean` old-tag passports and opens no
+  new conflicts); these review states are the intended safety net for BQ/passport
   disagreements. A follow-up BQ
-  location pass seeded 154 CBE/CPT shed locations; the current DB has 891 goats
-  with shed-level current locations, 56 park-only goats, and 272 existing
-  passports that cannot be joined to BQ by RFID or scoped old tag pending
+  location pass seeded 154 CBE/CPT shed locations; after the old-tag backfill the
+  current DB has 1711 goats with shed-level current locations, 685 park-only
+  goats, and 272 existing RFID-import passports that cannot be joined to BQ by
+  RFID or scoped old tag pending
   identifier reconciliation.
   Overview, herd search, goat passport with live identity timeline, identity
   counts, live Import Review, and live correction-request queue reads rendered
