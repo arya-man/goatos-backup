@@ -22,7 +22,7 @@ IdP/JWKS provisioning, secrets, event egress to a real broker, and cloud deploy.
 | A | Candidate approve (attach / merge) | **implement** | Listed as Phase 1B-required. Non-create outcomes reuse existing identifier-attach and merge invariants. Approve-to-create stays blocked on conflict `create_goat`. |
 | B | Import Review row actions (reject / fix / re-apply) | **implement** | Listed as Phase 1B-required. Needs a new migration for `legacy_import_rows.row_version` + row-action audit. Re-apply reuses the existing RFID apply path. New-goat-from-row stays blocked on conflict `create_goat`. |
 | C | Data Quality queue proof | **verify** | 232 open conflicts are all `status_mismatch` BQ review workload (ambiguous sex/breed/lifecycle), not missing code. No auto-resolve. Confirm bulk actions are current-page-only and non-actionable rows cannot be selected. Match Candidates UI WIP validated and preserved. |
-| D | Conflict `create_goat` | **reclassify** | No product-approved operator-entered new-goat field set exists (confirmed across PRD/TRD/BUILD-STATUS). Stays typed-blocked and is removed from Phase 1 required work. Not a Phase 1 code blocker. |
+| D | Conflict `create_goat` | **reclassify** | Deferred by operating model, not just a missing field set. Phase 1 is legacy-port-only: new goats enter **solely** through the approved import/apply path (RFID import + BQ reconcile + old-tag backfill from BQ/Sheets). Hand-creating a goat from a review screen has no legitimate source yet and would diverge from the legacy data being ported. Manual `create_goat` waits until Phase 2 SOP ships and creation happens directly on Goat OS via backend + mobile (birth/procurement/field events); only then does it also need the operator-entered field set + duplicate checks. Stays typed-blocked; not a Phase 1 code blocker. |
 | E | Legacy Sync real executor | **reclassify** | Docs define Legacy Sync v1 as the control/status surface; the real configured executor is a production sync follow-up that needs the production-safe scheduled-query inventory + config. Honest "Not Synced / Blocked" is correct when no watermark exists. No fake watermarks. |
 | F | `POST /admin/import-runs`, `POST /admin/goats`, `PATCH /admin/goats/{goat_id}` | **reclassify** | Phase 2+/admin production workflow. Current import is the CLI/apply path; manual admin goat create/update requires the same approved duplicate-check + required-field set as conflict `create_goat`. Not required for local Phase 1 identity closeout. |
 | G | Production auth foundation | **implement** | Provider-agnostic JWKS / asymmetric (RS256/ES256) bearer verification mode behind the existing `TokenVerifier` port, with issuer/audience/kid/alg validation, key cache/refresh, and exp/nbf/skew handling. HS256 dev mode stays local-only. Required env/secrets documented. Not wired to Heva/Slice or any specific IdP. |
@@ -85,8 +85,11 @@ under vgoats.com remain external launch work).
 
 ## Deliberately-blocked surfaces (not Phase 1 code gaps)
 
-- Conflict `create_goat` and approve-to-create: blocked until the operator-entered
-  goat creation field set is product-approved (item D).
+- Conflict `create_goat` and approve-to-create: blocked because Phase 1 is
+  legacy-port-only — new goats come solely from the approved import/apply path
+  (BQ/Sheets port). Manual creation is not enabled until Phase 2 SOP makes
+  creation happen directly on Goat OS via backend + mobile, and a product-approved
+  operator field set + duplicate checks exist (item D).
 - `POST /admin/import-runs`, `POST /admin/goats`, `PATCH /admin/goats/{goat_id}`:
   deferred to Phase 2+/admin production workflow (item F).
 - Legacy Sync execute/nightly: blocked until the production-safe executor + live

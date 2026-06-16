@@ -25,7 +25,9 @@ VERIFIED (no code change):
   missing code; bulk actions are current-page-only and skip non-actionable rows.
 
 INTENTIONALLY BLOCKED / DEFERRED (not unfinished Phase 1 code):
-  conflict create_goat                          (no approved operator field set)
+  conflict create_goat        (legacy-port-only phase: new goats come only from the
+                               approved import/apply path; manual create waits for
+                               Phase 2 SOP direct-on-DB creation + approved field set)
   POST /admin/import-runs, /admin/goats, PATCH /admin/goats/{id}  (Phase 2+ admin)
   Legacy Sync real executor                     (production sync follow-up)
   Pub/Sub production event egress               (production-readiness follow-up)
