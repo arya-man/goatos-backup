@@ -108,7 +108,7 @@ export function DataQualityReviewGuidePage() {
               </div>
             ))}
             <p className="border-l border-[#334155] py-1 pl-4 text-sm leading-6 text-[#93a4b8]">
-              A bulk batch is applied together. If any selected conflict has changed since the page loaded, none are changed — reload and retry. Bulk
+              A bulk batch is applied together. If any selected conflict has changed since the page loaded, none are changed - reload and retry. Bulk
               actions only cover the rows visible on the current page; there is no select-all-across-pages and no spreadsheet import or export. After a bulk
               change, identity counters may show as needing a rebuild until the next counter run.
             </p>

@@ -168,7 +168,7 @@ Decisions and where they apply:
 Batch rules:
 
 - All-or-nothing: every selected conflict must still be open and at the expected
-  row version. If any has changed since the page loaded, none are changed —
+  row version. If any has changed since the page loaded, none are changed -
   reload and retry.
 - Selection is per page. There is no select-all-across-pages and no spreadsheet
   import or export.
@@ -184,7 +184,7 @@ temporary system behavior; closing the review item still requires a recorded
 reason.
 
 Bulk **Keep Mesha passport** is allowed for self-conflicts only because it forces
-a reason on every conflict and records an audit row — that reason is the human
+a reason on every conflict and records an audit row - that reason is the human
 explanation. Never reach for **Use legacy value** to make a self-conflict go
 away: the system blocks it precisely because a self-contradiction has no single
 clean legacy value to trust.

@@ -129,7 +129,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
         <ConflictResolver detail={detail} conflictId={conflictId} returnTo={returnTo} closeHref={withoutConflictSelection(returnTo)} />
       </DialogModal>
       <div className={hideCandidates ? "grid gap-5" : "grid gap-5 xl:grid-cols-[1.05fr_0.95fr]"}>
-        <Panel title="Identity Conflicts" description="Goats whose details disagree between the legacy data and the Mesha passport (sex, breed, alive/sold). Filter by review group, then tick conflicts to resolve in bulk, or open one to choose what's correct.">
+        <Panel title="Identity Conflicts" description="Legacy-versus-passport disagreements grouped for audited review decisions.">
           <form className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" action="/data-quality">
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
             <Select name="conflict_type" label="Type" defaultValue={conflictType ?? ""} options={conflictTypes} />
@@ -228,7 +228,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       </div>
 
       <div className="mt-5">
-        <Panel title="Correction Requests" description="Manually flag a goat record to fix or re-check (wrong tag, wrong location, possible duplicate) when the system did not auto-catch it — then resolve it here.">
+        <Panel title="Correction Requests" description="Manually flag a goat record to fix or re-check (wrong tag, wrong location, possible duplicate) when the system did not auto-catch it - then resolve it here.">
           <form action={createCorrectionRequestAction} className="mb-5 rounded-md border border-[#334155] bg-[#10141b] p-3">
             <input type="hidden" name="idempotency_key" value={randomUUID()} />
             <input type="hidden" name="return_to" value={returnTo} />

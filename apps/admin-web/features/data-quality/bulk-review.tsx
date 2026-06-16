@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CheckSquare, Info } from "lucide-react";
+import { CheckSquare, ExternalLink, Info, X } from "lucide-react";
 import { bulkResolveConflictsAction } from "./actions";
 import {
   bulkDecisions,
@@ -97,8 +97,9 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
             <button
               type="button"
               onClick={clearSelection}
-              className="h-10 rounded-md border border-[#334155] px-3 text-xs font-semibold text-[#c7d1dc] hover:border-[#14f1d9]/70 hover:text-white"
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-[#334155] px-3 text-xs font-semibold text-[#c7d1dc] hover:border-[#14f1d9]/70 hover:text-white"
             >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
               Clear
             </button>
           </div>
@@ -106,13 +107,13 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
           {groupSummary.length > 1 ? (
             <p className="mt-2 flex items-start gap-2 text-xs text-[#facc15]">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Selection spans more than one review group ({groupSummary.map(([g, n]) => `${reviewGroupLabel(g)} ${n}`).join(", ")}). Bulk actions apply
-              only when every selected conflict allows the same decision. Filter by one review group for the widest set of actions.
+              Mixed review groups: {groupSummary.map(([g, n]) => `${reviewGroupLabel(g)} ${n}`).join(", ")}. Some decisions may be unavailable for this
+              selection.
             </p>
           ) : null}
 
           <div className="mt-3">
-            <label className="text-xs uppercase text-[#93a4b8]">Reason (recorded on every conflict)</label>
+            <label className="text-xs uppercase text-[#93a4b8]">Reason</label>
             <textarea
               value={reason}
               onChange={(event) => {
@@ -121,7 +122,7 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
               }}
               rows={2}
               maxLength={2000}
-              placeholder="Why this decision is correct for the selected conflicts. Required and audited per conflict."
+              placeholder="Reviewed legacy rows, passport value, and source evidence."
               className="mt-1 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 py-2 text-sm text-white outline-none focus:border-[#14f1d9]"
             />
           </div>
@@ -172,14 +173,16 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
                 applied together; if any conflict has changed since this page loaded, none are changed and you can reload and retry.
               </p>
               <div className="mt-3 flex gap-2">
-                <button type="submit" className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015] hover:bg-[#0fd3bd]">
+                <button type="submit" className="inline-flex h-10 items-center gap-2 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015] hover:bg-[#0fd3bd]">
+                  <CheckSquare className="h-4 w-4" aria-hidden="true" />
                   Apply to {selectedCount} conflict{selectedCount === 1 ? "" : "s"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setPending(null)}
-                  className="h-10 rounded-md border border-[#334155] px-3 text-sm font-semibold text-[#c7d1dc] hover:border-[#14f1d9]/70 hover:text-white"
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-[#334155] px-3 text-sm font-semibold text-[#c7d1dc] hover:border-[#14f1d9]/70 hover:text-white"
                 >
+                  <X className="h-4 w-4" aria-hidden="true" />
                   Cancel
                 </button>
               </div>
@@ -240,8 +243,9 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
                   <td className="p-2 align-top text-[#c7d1dc]">{row.stateLabel}</td>
                   <td className="p-2 align-top text-[#93a4b8]">{row.createdAtLabel}</td>
                   <td className="p-2 align-top text-right">
-                    <Link href={row.detailHref} className="inline-flex h-10 items-center px-2 text-xs font-semibold text-[#14f1d9] hover:underline">
-                      Review ↗
+                    <Link href={row.detailHref} className="inline-flex h-10 items-center gap-1.5 px-2 text-xs font-semibold text-[#14f1d9] hover:underline">
+                      Review
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     </Link>
                   </td>
                 </tr>
@@ -251,7 +255,7 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
         </table>
       </div>
       <p className="text-xs text-[#64748b]">
-        Tick conflicts to bulk-resolve, or open one with Review to see full per-goat evidence before deciding. Select all only covers the rows on this page.
+        Current page selection only. Full per-goat evidence stays in each row workbench.
       </p>
     </div>
   );
