@@ -1030,6 +1030,43 @@ func postRejectCandidateWithRepo(t *testing.T, repo ports.Repository, actorID st
 	return rec
 }
 
+func TestReviewImportRunRowDispatchesAndValidates(t *testing.T) {
+	ok := postReviewImportRunRow(t, "idem-review-handler-0001", `{"action":"reject","row_version":1,"reason":"dup tag","evidence_refs":[{"evidence_type":"import_run","evidence_id":"30000000-0000-4000-8000-000000000001"}]}`)
+	if ok.Code != http.StatusOK {
+		t.Fatalf("dispatch status = %d body=%s", ok.Code, ok.Body.String())
+	}
+	var response domain.ReviewImportRowResponse
+	if err := json.Unmarshal(ok.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.Row.RowState != "rejected" {
+		t.Fatalf("unexpected review response: %#v", response.Row)
+	}
+
+	bad := postReviewImportRunRow(t, "idem-review-handler-bad-0001", `{"action":"delete","row_version":1,"reason":"x","evidence_refs":[{"evidence_type":"import_run","evidence_id":"30000000-0000-4000-8000-000000000001"}]}`)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("bad action status = %d body=%s", bad.Code, bad.Body.String())
+	}
+}
+
+func postReviewImportRunRow(t *testing.T, idempotencyKey string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/import-runs/30000000-0000-4000-8000-000000000001/rows/70000000-0000-4000-8000-000000000001/review", strings.NewReader(body))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", "90000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-review-import-row")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
 func postApproveCandidate(t *testing.T, actorID string, idempotencyKey string, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -1324,6 +1361,12 @@ func (h handlerRepo) ApproveCandidate(_ context.Context, cmd ports.ApproveCandid
 			CreatedAt:      time.Now().UTC(),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000401", EventType: "goat.identifier.added"}},
+	}, nil
+}
+
+func (h handlerRepo) ReviewImportRow(_ context.Context, cmd ports.ReviewImportRowCommand) (*ports.ReviewImportRowResult, error) {
+	return &ports.ReviewImportRowResult{
+		Row: domain.ImportRunRow{ImportRowID: cmd.ImportRowID, RowNumber: 1, RowState: "rejected", RowVersion: cmd.RowVersion + 1, ReviewReasons: []string{}},
 	}, nil
 }
 

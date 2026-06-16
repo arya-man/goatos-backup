@@ -756,6 +756,7 @@ SELECT
   COALESCE(source_record_id, '')::text AS source_record_id,
   row_number,
   processing_state AS row_state,
+  row_version,
   source_row_key,
   COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
   COALESCE(error_reason, '')::text AS error_reason,
@@ -817,6 +818,7 @@ type ListImportRunRowsRow struct {
 	SourceRecordID string
 	RowNumber      int32
 	RowState       string
+	RowVersion     int32
 	SourceRowKey   string
 	MatchedGoatID  string
 	ErrorReason    string
@@ -852,6 +854,7 @@ func (q *Queries) ListImportRunRows(ctx context.Context, arg ListImportRunRowsPa
 			&i.SourceRecordID,
 			&i.RowNumber,
 			&i.RowState,
+			&i.RowVersion,
 			&i.SourceRowKey,
 			&i.MatchedGoatID,
 			&i.ErrorReason,

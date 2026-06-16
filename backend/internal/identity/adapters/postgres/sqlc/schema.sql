@@ -1319,6 +1319,7 @@ CREATE TABLE public.legacy_import_rows (
     matched_goat_id uuid,
     error_reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT legacy_import_rows_processing_state_check CHECK ((processing_state = ANY (ARRAY['pending'::text, 'auto_linked'::text, 'created_goat'::text, 'needs_review'::text, 'rejected'::text, 'error'::text]))),
     CONSTRAINT legacy_import_rows_row_number_check CHECK ((row_number > 0))
 );

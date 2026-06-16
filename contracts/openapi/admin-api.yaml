@@ -129,6 +129,44 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/import-runs/{import_run_id}/rows/{import_row_id}/review:
+    post:
+      tags:
+        - Import Runs
+      operationId: reviewImportRunRow
+      summary: Apply a safe review action to a staged import row.
+      description: >-
+        reject terminates the row; fix patches whitelisted normalized sex/breed;
+        reapply requeues an eligible needs_review row to pending so the approved
+        RFID apply path can mint the goat. This endpoint never mints a goat
+        itself. Requires import.run.manage.
+      parameters:
+        - $ref: "#/components/parameters/ImportRunId"
+        - $ref: "#/components/parameters/ImportRowId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewImportRowRequest"
+      responses:
+        "200":
+          description: Updated import row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewImportRowResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/import-runs/{import_run_id}/rows.csv:
     get:
       tags:
@@ -724,6 +762,13 @@ components:
   parameters:
     ImportRunId:
       name: import_run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ImportRowId:
+      name: import_row_id
       in: path
       required: true
       schema:
@@ -1352,6 +1397,7 @@ components:
         - row_number
         - source_record_id
         - row_state
+        - row_version
         - review_reasons
         - rfid
         - old_tag
@@ -1377,6 +1423,9 @@ components:
           maxLength: 500
         row_state:
           $ref: "#/components/schemas/ImportRowState"
+        row_version:
+          type: integer
+          minimum: 1
         review_reasons:
           type: array
           items:
@@ -1450,6 +1499,67 @@ components:
             - string
             - "null"
           maxLength: 500
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ReviewImportRowRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+        - row_version
+        - reason
+        - evidence_refs
+      properties:
+        action:
+          type: string
+          enum:
+            - reject
+            - fix
+            - reapply
+          description: >-
+            reject terminates the row; fix patches whitelisted sex/breed; reapply
+            requeues an eligible needs_review row to pending for the RFID apply path.
+        row_version:
+          type: integer
+          minimum: 1
+          description: Import row row_version for optimistic concurrency.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        sex:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+          description: fix only; patches the staged normalized sex value.
+        breed:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+          description: fix only; patches the staged normalized breed value.
+    ReviewImportRowResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - row
+        - idempotency
+        - trace_id
+      properties:
+        row:
+          $ref: "#/components/schemas/ImportRunRow"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
         trace_id:
           type: string
           minLength: 1

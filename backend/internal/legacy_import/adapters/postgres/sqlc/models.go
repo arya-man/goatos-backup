@@ -606,6 +606,7 @@ type LegacyImportRow struct {
 	MatchedGoatID          pgtype.UUID
 	ErrorReason            pgtype.Text
 	CreatedAt              pgtype.Timestamptz
+	RowVersion             int32
 }
 
 type LegacyImportRun struct {

@@ -227,6 +227,101 @@ func (q *Queries) CreateCorrectionRequest(ctx context.Context, arg CreateCorrect
 	return i, err
 }
 
+const fixImportRunRowPayload = `-- name: FixImportRunRowPayload :one
+UPDATE legacy_import_rows
+SET
+  normalized_payload = normalized_payload
+    || CASE WHEN $1::text IS NOT NULL
+            THEN jsonb_build_object('gender', $1::text) ELSE '{}'::jsonb END
+    || CASE WHEN $2::text IS NOT NULL
+            THEN jsonb_build_object('breed', $2::text) ELSE '{}'::jsonb END,
+  row_version = row_version + 1
+WHERE tenant_id = $3
+  AND import_run_id = $4
+  AND legacy_row_id = $5
+  AND processing_state IN ('pending', 'needs_review', 'error')
+  AND row_version = $6
+RETURNING
+  legacy_row_id::text AS import_row_id,
+  COALESCE(source_record_id, '')::text AS source_record_id,
+  row_number,
+  processing_state AS row_state,
+  source_row_key,
+  COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
+  COALESCE(error_reason, '')::text AS error_reason,
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
+  COALESCE(normalized_payload->>'breed', '')::text AS breed,
+  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition,
+  row_version,
+  import_run_id::text AS import_run_id
+`
+
+type FixImportRunRowPayloadParams struct {
+	Sex         pgtype.Text
+	Breed       pgtype.Text
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+	LegacyRowID pgtype.UUID
+	RowVersion  int32
+}
+
+type FixImportRunRowPayloadRow struct {
+	ImportRowID    string
+	SourceRecordID string
+	RowNumber      int32
+	RowState       string
+	SourceRowKey   string
+	MatchedGoatID  string
+	ErrorReason    string
+	Rfid           string
+	OldTag         string
+	Breed          string
+	Gender         string
+	Farm           string
+	Shed           string
+	Partition      string
+	RowVersion     int32
+	ImportRunID    string
+}
+
+// Whitelist: only sex and breed may be patched. Both are optional; pass NULL to leave unchanged.
+// Guard: only allow fix from pending, needs_review, or error states.
+// row_version check provides optimistic concurrency.
+func (q *Queries) FixImportRunRowPayload(ctx context.Context, arg FixImportRunRowPayloadParams) (FixImportRunRowPayloadRow, error) {
+	row := q.db.QueryRow(ctx, fixImportRunRowPayload,
+		arg.Sex,
+		arg.Breed,
+		arg.TenantID,
+		arg.ImportRunID,
+		arg.LegacyRowID,
+		arg.RowVersion,
+	)
+	var i FixImportRunRowPayloadRow
+	err := row.Scan(
+		&i.ImportRowID,
+		&i.SourceRecordID,
+		&i.RowNumber,
+		&i.RowState,
+		&i.SourceRowKey,
+		&i.MatchedGoatID,
+		&i.ErrorReason,
+		&i.Rfid,
+		&i.OldTag,
+		&i.Breed,
+		&i.Gender,
+		&i.Farm,
+		&i.Shed,
+		&i.Partition,
+		&i.RowVersion,
+		&i.ImportRunID,
+	)
+	return i, err
+}
+
 const getCandidateForReview = `-- name: GetCandidateForReview :one
 SELECT
   candidate_id::text AS candidate_id,
@@ -832,6 +927,79 @@ func (q *Queries) GetIdentifierPolicy(ctx context.Context, arg GetIdentifierPoli
 	row := q.db.QueryRow(ctx, getIdentifierPolicy, arg.PolicyVersion, arg.IdentifierType)
 	var i GetIdentifierPolicyRow
 	err := row.Scan(&i.NormalizerVersion, &i.PrimaryAllowed)
+	return i, err
+}
+
+const getImportRunRowForReview = `-- name: GetImportRunRowForReview :one
+SELECT
+  legacy_row_id::text AS import_row_id,
+  COALESCE(source_record_id, '')::text AS source_record_id,
+  row_number,
+  processing_state AS row_state,
+  source_row_key,
+  COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
+  COALESCE(error_reason, '')::text AS error_reason,
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
+  COALESCE(normalized_payload->>'breed', '')::text AS breed,
+  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition,
+  row_version,
+  import_run_id::text AS import_run_id
+FROM legacy_import_rows
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND legacy_row_id = $3
+`
+
+type GetImportRunRowForReviewParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+	LegacyRowID pgtype.UUID
+}
+
+type GetImportRunRowForReviewRow struct {
+	ImportRowID    string
+	SourceRecordID string
+	RowNumber      int32
+	RowState       string
+	SourceRowKey   string
+	MatchedGoatID  string
+	ErrorReason    string
+	Rfid           string
+	OldTag         string
+	Breed          string
+	Gender         string
+	Farm           string
+	Shed           string
+	Partition      string
+	RowVersion     int32
+	ImportRunID    string
+}
+
+func (q *Queries) GetImportRunRowForReview(ctx context.Context, arg GetImportRunRowForReviewParams) (GetImportRunRowForReviewRow, error) {
+	row := q.db.QueryRow(ctx, getImportRunRowForReview, arg.TenantID, arg.ImportRunID, arg.LegacyRowID)
+	var i GetImportRunRowForReviewRow
+	err := row.Scan(
+		&i.ImportRowID,
+		&i.SourceRecordID,
+		&i.RowNumber,
+		&i.RowState,
+		&i.SourceRowKey,
+		&i.MatchedGoatID,
+		&i.ErrorReason,
+		&i.Rfid,
+		&i.OldTag,
+		&i.Breed,
+		&i.Gender,
+		&i.Farm,
+		&i.Shed,
+		&i.Partition,
+		&i.RowVersion,
+		&i.ImportRunID,
+	)
 	return i, err
 }
 
@@ -2006,6 +2174,95 @@ func (q *Queries) NewUUID(ctx context.Context) (string, error) {
 	return uuid, err
 }
 
+const reapplyImportRunRow = `-- name: ReapplyImportRunRow :one
+UPDATE legacy_import_rows
+SET
+  processing_state = 'pending',
+  error_reason = NULL,
+  row_version = row_version + 1
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND legacy_row_id = $3
+  AND processing_state = 'needs_review'
+  AND matched_goat_id IS NULL
+  AND row_version = $4
+RETURNING
+  legacy_row_id::text AS import_row_id,
+  COALESCE(source_record_id, '')::text AS source_record_id,
+  row_number,
+  processing_state AS row_state,
+  source_row_key,
+  COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
+  COALESCE(error_reason, '')::text AS error_reason,
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
+  COALESCE(normalized_payload->>'breed', '')::text AS breed,
+  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition,
+  row_version,
+  import_run_id::text AS import_run_id
+`
+
+type ReapplyImportRunRowParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+	LegacyRowID pgtype.UUID
+	RowVersion  int32
+}
+
+type ReapplyImportRunRowRow struct {
+	ImportRowID    string
+	SourceRecordID string
+	RowNumber      int32
+	RowState       string
+	SourceRowKey   string
+	MatchedGoatID  string
+	ErrorReason    string
+	Rfid           string
+	OldTag         string
+	Breed          string
+	Gender         string
+	Farm           string
+	Shed           string
+	Partition      string
+	RowVersion     int32
+	ImportRunID    string
+}
+
+// Requeue a needs_review row back to pending so the rfid-apply worker retries it.
+// Guard: must be in needs_review and must not have a matched_goat_id (goat already minted).
+// row_version check provides optimistic concurrency.
+func (q *Queries) ReapplyImportRunRow(ctx context.Context, arg ReapplyImportRunRowParams) (ReapplyImportRunRowRow, error) {
+	row := q.db.QueryRow(ctx, reapplyImportRunRow,
+		arg.TenantID,
+		arg.ImportRunID,
+		arg.LegacyRowID,
+		arg.RowVersion,
+	)
+	var i ReapplyImportRunRowRow
+	err := row.Scan(
+		&i.ImportRowID,
+		&i.SourceRecordID,
+		&i.RowNumber,
+		&i.RowState,
+		&i.SourceRowKey,
+		&i.MatchedGoatID,
+		&i.ErrorReason,
+		&i.Rfid,
+		&i.OldTag,
+		&i.Breed,
+		&i.Gender,
+		&i.Farm,
+		&i.Shed,
+		&i.Partition,
+		&i.RowVersion,
+		&i.ImportRunID,
+	)
+	return i, err
+}
+
 const rejectIdentityMatchCandidate = `-- name: RejectIdentityMatchCandidate :one
 UPDATE identity_match_candidates
 SET
@@ -2080,6 +2337,92 @@ func (q *Queries) RejectIdentityMatchCandidate(ctx context.Context, arg RejectId
 		&i.ReviewedBy,
 		&i.ReviewedAt,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const rejectImportRunRow = `-- name: RejectImportRunRow :one
+UPDATE legacy_import_rows
+SET
+  processing_state = 'rejected',
+  row_version = row_version + 1
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND legacy_row_id = $3
+  AND processing_state IN ('pending', 'needs_review', 'error')
+  AND row_version = $4
+RETURNING
+  legacy_row_id::text AS import_row_id,
+  COALESCE(source_record_id, '')::text AS source_record_id,
+  row_number,
+  processing_state AS row_state,
+  source_row_key,
+  COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
+  COALESCE(error_reason, '')::text AS error_reason,
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
+  COALESCE(normalized_payload->>'breed', '')::text AS breed,
+  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition,
+  row_version,
+  import_run_id::text AS import_run_id
+`
+
+type RejectImportRunRowParams struct {
+	TenantID    pgtype.UUID
+	ImportRunID pgtype.UUID
+	LegacyRowID pgtype.UUID
+	RowVersion  int32
+}
+
+type RejectImportRunRowRow struct {
+	ImportRowID    string
+	SourceRecordID string
+	RowNumber      int32
+	RowState       string
+	SourceRowKey   string
+	MatchedGoatID  string
+	ErrorReason    string
+	Rfid           string
+	OldTag         string
+	Breed          string
+	Gender         string
+	Farm           string
+	Shed           string
+	Partition      string
+	RowVersion     int32
+	ImportRunID    string
+}
+
+// Guard: only allow rejection from pending, needs_review, or error states.
+// row_version check provides optimistic concurrency.
+func (q *Queries) RejectImportRunRow(ctx context.Context, arg RejectImportRunRowParams) (RejectImportRunRowRow, error) {
+	row := q.db.QueryRow(ctx, rejectImportRunRow,
+		arg.TenantID,
+		arg.ImportRunID,
+		arg.LegacyRowID,
+		arg.RowVersion,
+	)
+	var i RejectImportRunRowRow
+	err := row.Scan(
+		&i.ImportRowID,
+		&i.SourceRecordID,
+		&i.RowNumber,
+		&i.RowState,
+		&i.SourceRowKey,
+		&i.MatchedGoatID,
+		&i.ErrorReason,
+		&i.Rfid,
+		&i.OldTag,
+		&i.Breed,
+		&i.Gender,
+		&i.Farm,
+		&i.Shed,
+		&i.Partition,
+		&i.RowVersion,
+		&i.ImportRunID,
 	)
 	return i, err
 }

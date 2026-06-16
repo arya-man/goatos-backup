@@ -48,6 +48,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}", h.GetImportRun)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows", h.ListImportRunRows)
 	mux.HandleFunc("GET /admin/import-runs/{import_run_id}/rows.csv", h.ExportImportRunRowsCSV)
+	mux.HandleFunc("POST /admin/import-runs/{import_run_id}/rows/{import_row_id}/review", h.ReviewImportRunRow)
 	mux.HandleFunc("POST /admin/import-runs", h.NotImplemented("legacy_import_deferred"))
 	mux.HandleFunc("GET /admin/identity/candidates", h.ListCandidates)
 	mux.HandleFunc("POST /admin/identity/candidates/{candidate_id}/approve", h.ApproveCandidate)
@@ -214,6 +215,30 @@ func (h *Handler) ListImportRunRows(w http.ResponseWriter, r *http.Request) {
 		ProcessingState: optionalQuery(q.Get("processing_state")),
 		ReasonCode:      optionalQuery(q.Get("reason_code")),
 	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) ReviewImportRunRow(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.ReviewImportRow(r.Context(), app.ReviewImportRowInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		ImportRunID:    r.PathValue("import_run_id"),
+		ImportRowID:    r.PathValue("import_row_id"),
+		RawBody:        body,
+	})
 	h.respond(w, r, result, err)
 }
 

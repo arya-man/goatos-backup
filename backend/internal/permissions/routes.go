@@ -23,6 +23,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getImportRun", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}", Permissions: []string{ImportRunView}},
 	{OperationID: "listImportRunRows", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}/rows", Permissions: []string{ImportRunView}},
 	{OperationID: "exportImportRunRowsCSV", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}/rows.csv", Permissions: []string{ImportRunView}},
+	{OperationID: "reviewImportRunRow", Method: "POST", Pattern: "/admin/import-runs/{import_run_id}/rows/{import_row_id}/review", Permissions: []string{ImportRunManage}, AdminOnly: true},
 	{OperationID: "listLegacySyncSources", Method: "GET", Pattern: "/admin/legacy-sync/sources", Permissions: []string{ImportRunView}},
 	{OperationID: "getLegacySyncStatus", Method: "GET", Pattern: "/admin/legacy-sync/status", Permissions: []string{ImportRunView}},
 	{OperationID: "listLegacySyncRuns", Method: "GET", Pattern: "/admin/legacy-sync/runs", Permissions: []string{ImportRunView}},

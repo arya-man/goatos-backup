@@ -902,6 +902,10 @@ func (f *fakeRepo) ApproveCandidate(_ context.Context, cmd ports.ApproveCandidat
 	}, nil
 }
 
+func (f *fakeRepo) ReviewImportRow(_ context.Context, cmd ports.ReviewImportRowCommand) (*ports.ReviewImportRowResult, error) {
+	return &ports.ReviewImportRowResult{Row: domain.ImportRunRow{ImportRowID: cmd.ImportRowID, RowState: cmd.Action, RowVersion: cmd.RowVersion + 1}}, nil
+}
+
 func (f *fakeRepo) Ping(context.Context) error { return nil }
 
 func candidateSummaryFixture(id, state string, rowVersion int) domain.CandidateSummary {

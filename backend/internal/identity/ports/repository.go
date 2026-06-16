@@ -287,6 +287,35 @@ type ApproveCandidateResult struct {
 	FirstResultID *string
 }
 
+// ReviewImportRowCommand drives a safe import-row review action. Action is one of
+// reject (terminal), fix (patch whitelisted normalized sex/breed), or reapply
+// (requeue an eligible needs_review row to pending for the approved RFID apply
+// path). It never mints a goat directly.
+type ReviewImportRowCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	ImportRunID          string
+	ImportRowID          string
+	Action               string
+	RowVersion           int
+	Reason               string
+	EvidenceRefs         []domain.EvidenceRef
+	// fix-only optional patches; nil leaves the field unchanged.
+	FixSex   *string
+	FixBreed *string
+}
+
+type ReviewImportRowResult struct {
+	Row           domain.ImportRunRow
+	Replayed      bool
+	FirstResultID *string
+}
+
 type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
@@ -312,5 +341,6 @@ type Repository interface {
 	ResolveConflict(ctx context.Context, cmd ResolveConflictCommand) (*ResolveConflictResult, error)
 	RejectCandidate(ctx context.Context, cmd RejectCandidateCommand) (*RejectCandidateResult, error)
 	ApproveCandidate(ctx context.Context, cmd ApproveCandidateCommand) (*ApproveCandidateResult, error)
+	ReviewImportRow(ctx context.Context, cmd ReviewImportRowCommand) (*ReviewImportRowResult, error)
 	Ping(ctx context.Context) error
 }

@@ -207,6 +207,7 @@ SELECT
   COALESCE(source_record_id, '')::text AS source_record_id,
   row_number,
   processing_state AS row_state,
+  row_version,
   source_row_key,
   COALESCE(matched_goat_id::text, '')::text AS matched_goat_id,
   COALESCE(error_reason, '')::text AS error_reason,

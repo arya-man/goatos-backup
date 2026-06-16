@@ -59,6 +59,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/import-runs/{import_run_id}/rows/{import_row_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a safe review action to a staged import row.
+         * @description reject terminates the row; fix patches whitelisted normalized sex/breed; reapply requeues an eligible needs_review row to pending so the approved RFID apply path can mint the goat. This endpoint never mints a goat itself. Requires import.run.manage.
+         */
+        post: operations["reviewImportRunRow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/import-runs/{import_run_id}/rows.csv": {
         parameters: {
             query?: never;
@@ -571,6 +591,7 @@ export interface components {
             row_number: number;
             source_record_id: string | null;
             row_state: components["schemas"]["ImportRowState"];
+            row_version: number;
             review_reasons: string[];
             rfid: string | null;
             old_tag: string | null;
@@ -587,6 +608,26 @@ export interface components {
         ImportRunRowsResponse: {
             items: components["schemas"]["ImportRunRow"][];
             next_cursor: string | null;
+            trace_id: string;
+        };
+        ReviewImportRowRequest: {
+            /**
+             * @description reject terminates the row; fix patches whitelisted sex/breed; reapply requeues an eligible needs_review row to pending for the RFID apply path.
+             * @enum {string}
+             */
+            action: "reject" | "fix" | "reapply";
+            /** @description Import row row_version for optimistic concurrency. */
+            row_version: number;
+            reason: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            /** @description fix only; patches the staged normalized sex value. */
+            sex?: string | null;
+            /** @description fix only; patches the staged normalized breed value. */
+            breed?: string | null;
+        };
+        ReviewImportRowResponse: {
+            row: components["schemas"]["ImportRunRow"];
+            idempotency: components["schemas"]["IdempotencyMeta"];
             trace_id: string;
         };
         /** @enum {string} */
@@ -1133,6 +1174,7 @@ export interface components {
     };
     parameters: {
         ImportRunId: string;
+        ImportRowId: string;
         ConflictId: string;
         CandidateId: string;
         GoatId: string;
@@ -1263,6 +1305,40 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    reviewImportRunRow: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                import_run_id: components["parameters"]["ImportRunId"];
+                import_row_id: components["parameters"]["ImportRowId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewImportRowRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated import row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewImportRowResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     exportImportRunRowsCSV: {

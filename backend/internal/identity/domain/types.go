@@ -393,6 +393,7 @@ type ImportRunRow struct {
 	SourceRecordID  *string  `json:"source_record_id"`
 	RowNumber       int      `json:"row_number"`
 	RowState        string   `json:"row_state"`
+	RowVersion      int      `json:"row_version"`
 	ReviewReasons   []string `json:"review_reasons"`
 	RFID            *string  `json:"rfid"`
 	OldTag          *string  `json:"old_tag"`
@@ -410,4 +411,10 @@ type ImportRunRowsResponse struct {
 	Items      []ImportRunRow `json:"items"`
 	NextCursor *string        `json:"next_cursor"`
 	TraceID    string         `json:"trace_id"`
+}
+
+type ReviewImportRowResponse struct {
+	Row         ImportRunRow    `json:"row"`
+	Idempotency IdempotencyMeta `json:"idempotency"`
+	TraceID     string          `json:"trace_id"`
 }

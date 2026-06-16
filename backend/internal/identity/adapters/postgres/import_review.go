@@ -178,6 +178,7 @@ func importRunRowFromSQLC(row identitydb.ListImportRunRowsRow) domain.ImportRunR
 		SourceRecordID:  nonEmptyStringPtr(row.SourceRecordID),
 		RowNumber:       int(row.RowNumber),
 		RowState:        row.RowState,
+		RowVersion:      int(row.RowVersion),
 		ReviewReasons:   ensureStringSlice(row.ReviewReasons),
 		RFID:            nonEmptyStringPtr(row.Rfid),
 		OldTag:          nonEmptyStringPtr(row.OldTag),
