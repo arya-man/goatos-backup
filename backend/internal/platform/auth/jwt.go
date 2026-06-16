@@ -160,6 +160,13 @@ type rawClaims struct {
 }
 
 func (c rawClaims) validate(issuer, audience string, now time.Time, maxTTL time.Duration) (Claims, error) {
+	return c.validateWithSkew(issuer, audience, now, maxTTL, 0)
+}
+
+// validateWithSkew validates the raw claims applying an optional clockSkew
+// tolerance to exp and nbf. Both HS256Verifier and JWKSVerifier call this so
+// the validation rules cannot diverge.
+func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxTTL, clockSkew time.Duration) (Claims, error) {
 	subject := strings.TrimSpace(c.Subject)
 	tenantID := strings.TrimSpace(c.TenantID)
 	if !isUUID(subject) || !isUUID(tenantID) {
@@ -177,10 +184,12 @@ func (c rawClaims) validate(issuer, audience string, now time.Time, maxTTL time.
 		return Claims{}, ErrInvalidToken
 	}
 	exp := time.Unix(expUnix, 0).UTC()
-	if !now.Before(exp) {
+	// exp must be in the future, allowing for clockSkew tolerance.
+	if !now.Before(exp.Add(clockSkew)) {
 		return Claims{}, ErrInvalidToken
 	}
-	if exp.After(now.Add(maxTTL)) {
+	// exp must not exceed now + maxTTL (no skew applied to the ceiling).
+	if maxTTL > 0 && exp.After(now.Add(maxTTL)) {
 		return Claims{}, ErrInvalidToken
 	}
 	nbfUnix, err := parseNumericDate(c.NotBefore)
@@ -188,7 +197,8 @@ func (c rawClaims) validate(issuer, audience string, now time.Time, maxTTL time.
 		return Claims{}, ErrInvalidToken
 	}
 	nbf := time.Unix(nbfUnix, 0).UTC()
-	if now.Before(nbf) {
+	// nbf must not be in the future, allowing for clockSkew tolerance.
+	if now.Add(clockSkew).Before(nbf) {
 		return Claims{}, ErrInvalidToken
 	}
 	return Claims{

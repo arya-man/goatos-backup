@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -30,6 +31,11 @@ type Config struct {
 	Auth     AuthConfig
 }
 
+// AuthModeJWKS selects asymmetric RS256/ES256 token verification via a remote
+// JWKS endpoint. This is the intended production auth mode. Requires
+// GOATOS_AUTH_ISSUER, GOATOS_AUTH_AUDIENCE, and GOATOS_AUTH_JWKS_URL.
+const AuthModeJWKS = "jwks"
+
 type AuthConfig struct {
 	Mode              string
 	Issuer            string
@@ -38,6 +44,11 @@ type AuthConfig struct {
 	MaxTokenTTL       time.Duration
 	DevHeadersAllowed bool
 	Environment       string
+	// JWKS mode fields.
+	JWKSUrl      string
+	ClockSkew    time.Duration
+	AllowedAlgs  []string
+	JWKSCacheTTL time.Duration
 }
 
 type API struct {
@@ -61,12 +72,17 @@ func ConfigFromEnv() Config {
 			MaxTokenTTL:       authMaxTokenTTLFromEnv(),
 			DevHeadersAllowed: strings.EqualFold(os.Getenv("GOATOS_DEV_HEADERS_ALLOW"), "true"),
 			Environment:       os.Getenv("GOATOS_ENV"),
+			// JWKS mode env vars.
+			JWKSUrl:      os.Getenv("GOATOS_AUTH_JWKS_URL"),
+			ClockSkew:    authDurationFromEnv("GOATOS_AUTH_CLOCK_SKEW"),
+			AllowedAlgs:  authAllowedAlgsFromEnv(),
+			JWKSCacheTTL: authDurationFromEnv("GOATOS_AUTH_JWKS_CACHE_TTL"),
 		},
 	}
 }
 
 func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
-	verifier, err := buildAuthVerifier(cfg.Auth)
+	verifier, err := buildAuthVerifier(cfg.Auth, log)
 	if err != nil {
 		return nil, err
 	}
@@ -120,18 +136,36 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}, nil
 }
 
-func buildAuthVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error) {
+func buildAuthVerifier(cfg AuthConfig, log *slog.Logger) (httpmiddleware.TokenVerifier, error) {
 	mode := strings.TrimSpace(cfg.Mode)
 	if mode == "" {
 		mode = httpmiddleware.AuthModeBearer
 	}
 	switch mode {
 	case httpmiddleware.AuthModeBearer:
+		// HS256 bearer is a local/dev convenience only. Warn loudly when used
+		// in a non-development environment so operators know to switch to jwks.
+		if log != nil && !httpmiddleware.DevHeadersEnvironmentAllowed(cfg.Environment) {
+			log.Warn("HS256 bearer auth mode is not a production auth mode; set GOATOS_AUTH_MODE=jwks for production deployments")
+		}
 		return platformauth.NewHS256Verifier(platformauth.Config{
 			Issuer:   cfg.Issuer,
 			Audience: cfg.Audience,
 			Secret:   []byte(cfg.HS256Secret),
 			MaxTTL:   cfg.MaxTokenTTL,
+		})
+	case AuthModeJWKS:
+		if strings.TrimSpace(cfg.JWKSUrl) == "" {
+			return nil, fmt.Errorf("%w: GOATOS_AUTH_JWKS_URL is required for jwks mode", httpmiddleware.ErrInvalidAuthConfig)
+		}
+		return platformauth.NewJWKSVerifier(platformauth.JWKSConfig{
+			JWKSURL:     cfg.JWKSUrl,
+			Issuer:      cfg.Issuer,
+			Audience:    cfg.Audience,
+			AllowedAlgs: cfg.AllowedAlgs,
+			ClockSkew:   cfg.ClockSkew,
+			MaxTTL:      cfg.MaxTokenTTL,
+			CacheTTL:    cfg.JWKSCacheTTL,
 		})
 	case httpmiddleware.AuthModeDevHeaders:
 		if !cfg.DevHeadersAllowed || !httpmiddleware.DevHeadersEnvironmentAllowed(cfg.Environment) {
@@ -146,6 +180,12 @@ func buildAuthVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error) {
 func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
 	mode := strings.TrimSpace(cfg.Mode)
 	if mode == "" {
+		mode = httpmiddleware.AuthModeBearer
+	}
+	// jwks is a verifier-selection concern; the middleware treats it the same
+	// as bearer (token presented in Authorization: Bearer header, verified via
+	// the injected TokenVerifier).
+	if mode == AuthModeJWKS {
 		mode = httpmiddleware.AuthModeBearer
 	}
 	return httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
@@ -168,4 +208,40 @@ func authMaxTokenTTLFromEnv() time.Duration {
 		return -1
 	}
 	return ttl
+}
+
+// authDurationFromEnv parses a time.Duration from the named environment
+// variable. Returns zero (not an error) when the variable is unset.
+func authDurationFromEnv(envKey string) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(envKey))
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
+}
+
+// authAllowedAlgsFromEnv parses GOATOS_AUTH_ALLOWED_ALGS as a comma-separated
+// list of algorithm names (e.g. "RS256,ES256"). Returns nil when unset, which
+// causes JWKSVerifier to use its default allow-list.
+func authAllowedAlgsFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("GOATOS_AUTH_ALLOWED_ALGS"))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	algs := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			algs = append(algs, p)
+		}
+	}
+	if len(algs) == 0 {
+		return nil
+	}
+	return algs
 }

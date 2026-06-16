@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -8,7 +10,7 @@ import (
 )
 
 func TestBuildAuthVerifierDefaultsToBearerAndRejectsWeakConfig(t *testing.T) {
-	if _, err := buildAuthVerifier(AuthConfig{}); err == nil {
+	if _, err := buildAuthVerifier(AuthConfig{}, nil); err == nil {
 		t.Fatal("empty auth config should default to bearer and reject missing secret")
 	}
 	if _, err := buildAuthVerifier(AuthConfig{
@@ -16,7 +18,7 @@ func TestBuildAuthVerifierDefaultsToBearerAndRejectsWeakConfig(t *testing.T) {
 		Issuer:      "goatos-test",
 		Audience:    "goatos-api",
 		HS256Secret: "short",
-	}); err == nil {
+	}, nil); err == nil {
 		t.Fatal("weak bearer secret accepted")
 	}
 	if _, err := buildAuthVerifier(AuthConfig{
@@ -24,35 +26,61 @@ func TestBuildAuthVerifierDefaultsToBearerAndRejectsWeakConfig(t *testing.T) {
 		Audience:    "goatos-api",
 		HS256Secret: "0123456789abcdef0123456789abcdef",
 		MaxTokenTTL: 24 * time.Hour,
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("valid default bearer config rejected: %v", err)
 	}
 }
 
 func TestBuildAuthVerifierRejectsUnknownModeAndProdDevHeaders(t *testing.T) {
-	if _, err := buildAuthVerifier(AuthConfig{Mode: "surprise"}); err == nil {
+	if _, err := buildAuthVerifier(AuthConfig{Mode: "surprise"}, nil); err == nil {
 		t.Fatal("unknown auth mode accepted")
 	}
 	if _, err := buildAuthVerifier(AuthConfig{
 		Mode:              httpmiddleware.AuthModeDevHeaders,
 		Environment:       "staging",
 		DevHeadersAllowed: true,
-	}); err == nil {
+	}, nil); err == nil {
 		t.Fatal("dev headers accepted staging environment")
 	}
 	if _, err := buildAuthVerifier(AuthConfig{
 		Mode:              httpmiddleware.AuthModeDevHeaders,
 		Environment:       "local-prod",
 		DevHeadersAllowed: true,
-	}); err == nil {
+	}, nil); err == nil {
 		t.Fatal("dev headers accepted non-allowlisted environment")
 	}
 	if _, err := buildAuthVerifier(AuthConfig{
 		Mode:              httpmiddleware.AuthModeDevHeaders,
 		Environment:       "local",
 		DevHeadersAllowed: true,
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("local dev headers rejected: %v", err)
+	}
+}
+
+func TestBuildAuthVerifierJWKSMode(t *testing.T) {
+	// Missing JWKS URL should fail closed.
+	if _, err := buildAuthVerifier(AuthConfig{
+		Mode:     AuthModeJWKS,
+		Issuer:   "goatos-test",
+		Audience: "goatos-api",
+	}, nil); err == nil {
+		t.Fatal("jwks mode without URL should be rejected")
+	}
+
+	// A valid jwks config pointing at a real (test) server should succeed.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	if _, err := buildAuthVerifier(AuthConfig{
+		Mode:     AuthModeJWKS,
+		Issuer:   "goatos-test",
+		Audience: "goatos-api",
+		JWKSUrl:  srv.URL + "/.well-known/jwks.json",
+	}, nil); err != nil {
+		t.Fatalf("valid jwks config rejected: %v", err)
 	}
 }
 
