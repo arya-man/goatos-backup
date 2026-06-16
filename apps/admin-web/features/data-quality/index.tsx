@@ -34,6 +34,8 @@ import {
   type CorrectionRequestState,
 } from "@/lib/api/server";
 import { createCorrectionRequestAction, rejectCandidateAction, resolveConflictAction, resolveCorrectionRequestAction } from "./actions";
+import { ConflictBulkReview, type BulkReviewRow } from "./bulk-review";
+import { isReviewGroup, reviewGroupFilterOptions, reviewGroupLabel, type ReviewGroup } from "./review-groups";
 
 export { DataQualityReviewGuidePage } from "./review-guide";
 
@@ -72,6 +74,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
   const state = normalizeState(one(searchParams, "state"));
   const correctionState = normalizeCorrectionState(one(searchParams, "correction_state"));
   const conflictType = normalizeConflictType(one(searchParams, "conflict_type"));
+  const reviewGroup = normalizeReviewGroup(one(searchParams, "review_group"));
   const conflictId = one(searchParams, "conflict_id");
   const returnTo = hrefWithoutAction("/data-quality", searchParams);
   const actionStatus = one(searchParams, "action_status");
@@ -82,6 +85,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       cursor: one(searchParams, "conflict_cursor"),
       state,
       conflict_type: conflictType,
+      review_group: reviewGroup,
     }),
     listCandidates({
       limit: candidateLimit,
@@ -98,6 +102,11 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
   if (authError) {
     redirect("/login");
   }
+
+  // Hide the Match Candidates panel while it is empty (no duplicate proposer
+  // runs yet), so Identity Conflicts uses the full row instead of leaving a
+  // dead column. Errors still render so the operator sees a failed load.
+  const hideCandidates = candidates.ok && candidates.data.items.length === 0;
 
   return (
     <>
@@ -119,11 +128,12 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       <DialogModal open={Boolean(conflictId)} closeHref={withoutConflictSelection(returnTo)} label="Conflict workbench">
         <ConflictResolver detail={detail} conflictId={conflictId} returnTo={returnTo} closeHref={withoutConflictSelection(returnTo)} />
       </DialogModal>
-      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <Panel title="Identity Conflicts" description="Goats whose details disagree between the legacy data and the Mesha passport (sex, breed, alive/sold). Click one to open it and choose what's correct.">
-          <form className="mb-4 grid gap-3 sm:grid-cols-4" action="/data-quality">
+      <div className={hideCandidates ? "grid gap-5" : "grid gap-5 xl:grid-cols-[1.05fr_0.95fr]"}>
+        <Panel title="Identity Conflicts" description="Goats whose details disagree between the legacy data and the Mesha passport (sex, breed, alive/sold). Filter by review group, then tick conflicts to resolve in bulk, or open one to choose what's correct.">
+          <form className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" action="/data-quality">
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
             <Select name="conflict_type" label="Type" defaultValue={conflictType ?? ""} options={conflictTypes} />
+            <ReviewGroupSelect defaultValue={reviewGroup ?? ""} />
             <RowsPerPageSelect name="conflict_limit" defaultValue={String(conflictLimit)} />
             <div className="flex items-end">
               <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Apply</button>
@@ -135,34 +145,20 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
             <EmptyPanel message="No conflicts returned for these filters." />
           ) : (
             <div className="space-y-3">
-              {conflicts.data.items.map((conflict) => {
-                const isSelected = conflict.conflict_id === conflictId;
-                return (
-                <Link
-                  key={conflict.conflict_id}
-                  href={conflictDetailHref(conflict.conflict_id, searchParams, conflictLimit, candidateLimit, correctionLimit)}
-                  className={`block rounded-md border p-3 ${
-                    isSelected
-                      ? "border-[#14f1d9] bg-[#111923]"
-                      : "border-[#293241] bg-[#10141b] hover:border-[#14f1d9]/70 hover:bg-[#111923]"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-white">{formatLabel(conflict.conflict_type)}</div>
-                      <div className="mt-1 text-sm text-[#93a4b8]">{conflictIdentifierLabel(conflict.identifier)}</div>
-                    </div>
-                    <span className="rounded border border-[#334155] px-2 py-1 text-xs font-semibold text-[#c7d1dc]">{formatLabel(conflict.state)}</span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-[#c7d1dc]">
-                    <span>goats {conflict.goat_count}</span>
-                    <span>sources {conflict.source_record_count}</span>
-                    <span>{dateTime(conflict.created_at)}</span>
-                  </div>
-                  {isSelected ? <div className="mt-2 text-xs font-semibold text-[#14f1d9]">Open in popup ↗</div> : null}
-                </Link>
-                );
-              })}
+              <ConflictBulkReview
+                rows={conflicts.data.items.map((conflict): BulkReviewRow => ({
+                  conflictId: conflict.conflict_id,
+                  rowVersion: conflict.row_version,
+                  conflictTypeLabel: formatLabel(conflict.conflict_type),
+                  identifierLabel: conflictIdentifierText(conflict.identifier),
+                  reviewGroup: conflict.review_group,
+                  stateLabel: formatLabel(conflict.state),
+                  goatCount: conflict.goat_count,
+                  createdAtLabel: dateTime(conflict.created_at),
+                  detailHref: conflictDetailHref(conflict.conflict_id, searchParams, conflictLimit, candidateLimit, correctionLimit),
+                }))}
+                returnTo={returnTo}
+              />
               <NextPageLink
                 href={hrefWithPagedCursor("/data-quality", searchParams, "conflict_cursor", conflicts.data.next_cursor, "conflict_page")}
                 previousHref={hrefPreviousPagedCursor("/data-quality", searchParams, "conflict_cursor", "conflict_page")}
@@ -174,6 +170,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           )}
         </Panel>
 
+        {hideCandidates ? null : (
         <Panel title="Match Candidates" description="Records that might be the SAME goat (a possible duplicate). Confirm a match or reject it. Empty means none are suspected right now.">
           {!candidates.ok ? (
             <ErrorPanel error={candidates.error} />
@@ -227,6 +224,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
             </div>
           )}
         </Panel>
+        )}
       </div>
 
       <div className="mt-5">
@@ -891,12 +889,36 @@ function Select({ name, label, defaultValue, options }: { name: string; label: s
 
 const evidenceTypes = ["source_record", "identifier", "goat", "event", "media", "decision", "import_run", "conflict", "location", "actor"];
 
+function ReviewGroupSelect({ defaultValue }: { defaultValue: string }) {
+  return (
+    <label>
+      <span className="text-xs uppercase text-[#93a4b8]">Review group</span>
+      <select
+        name="review_group"
+        defaultValue={defaultValue}
+        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+      >
+        <option value="">Any</option>
+        {reviewGroupFilterOptions.map((group) => (
+          <option key={group} value={group}>
+            {reviewGroupLabel(group)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function normalizeState(value: string | undefined): ConflictState | undefined {
   return conflictStates.includes(value as ConflictState) ? (value as ConflictState) : undefined;
 }
 
 function normalizeConflictType(value: string | undefined): ConflictType | undefined {
   return conflictTypes.includes(value as ConflictType) ? (value as ConflictType) : undefined;
+}
+
+function normalizeReviewGroup(value: string | undefined): ReviewGroup | undefined {
+  return isReviewGroup(value) ? value : undefined;
 }
 
 function normalizeCorrectionState(value: string | undefined): CorrectionRequestState | undefined {
@@ -965,6 +987,11 @@ function conflictIdentifierLabel(identifier: ConflictDetailResponse["conflict"][
   return `${formatLabel(identifier.identifier_type)} · ${identifier.identifier_value} · ${identifier.scope_key || "global"}`;
 }
 
+function conflictIdentifierText(identifier: ConflictDetailResponse["conflict"]["identifier"]): string {
+  if (!identifier) return "No identifier";
+  return `${formatLabel(identifier.identifier_type)} · ${identifier.identifier_value} · ${identifier.scope_key || "global"}`;
+}
+
 function conflictDetailHref(
   conflictID: string,
   params: RouteSearchParams,
@@ -975,6 +1002,7 @@ function conflictDetailHref(
   const next = new URLSearchParams();
   copyParam(params, next, "state");
   copyParam(params, next, "conflict_type");
+  copyParam(params, next, "review_group");
   copyParam(params, next, "conflict_cursor");
   copyParam(params, next, "conflict_page");
   copyParam(params, next, "candidate_cursor");

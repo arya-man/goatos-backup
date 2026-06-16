@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ArrowLeft, CircleHelp, Database, FileSearch, ShieldAlert } from "lucide-react";
+import { ArrowLeft, CircleHelp, Database, FileSearch, ListChecks, ShieldAlert } from "lucide-react";
 import { Mono, PageHeader, Panel } from "@/components/admin-primitives";
+import { bulkDecisions, reviewGroupLabel } from "./review-groups";
 
 const conflictGroups = [
   {
@@ -84,6 +85,33 @@ export function DataQualityReviewGuidePage() {
                 </div>
               </div>
             ))}
+          </div>
+        </Panel>
+
+        <Panel
+          title="Bulk review actions"
+          description="On the Data Quality queue you can filter by review group, tick the conflicts you have reviewed, and apply one decision to the whole selection. Every bulk decision records the reason on each conflict and is audited."
+        >
+          <div className="grid gap-3">
+            {bulkDecisions.map((decision) => (
+              <div key={decision.type} className="border-l border-[#334155] py-1 pl-4">
+                <div className="flex items-start gap-3">
+                  <ListChecks className="mt-0.5 h-5 w-5 text-[#14f1d9]" aria-hidden="true" />
+                  <div>
+                    <h2 className="text-sm font-bold text-white">{decision.label}</h2>
+                    <p className="mt-2 text-sm leading-6 text-[#c7d1dc]">{decision.intent}</p>
+                    <p className="mt-2 text-xs text-[#93a4b8]">
+                      Applies to: {decision.appliesTo.map((group) => reviewGroupLabel(group)).join(", ")}.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <p className="border-l border-[#334155] py-1 pl-4 text-sm leading-6 text-[#93a4b8]">
+              A bulk batch is applied together. If any selected conflict has changed since the page loaded, none are changed — reload and retry. Bulk
+              actions only cover the rows visible on the current page; there is no select-all-across-pages and no spreadsheet import or export. After a bulk
+              change, identity counters may show as needing a rebuild until the next counter run.
+            </p>
           </div>
         </Panel>
       </div>

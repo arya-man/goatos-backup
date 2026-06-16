@@ -141,8 +141,50 @@ Every decision should include:
 - legacy row or event date range checked
 - reason another reviewer can follow
 
+## Bulk Review
+
+The Data Quality queue supports reviewing many conflicts at once. Filter by
+review group, tick the conflicts you have already investigated, then apply one
+decision to the whole selection. A reason is required and is recorded on every
+conflict in the batch; each resolved conflict gets its own audit row sharing a
+single bulk request id.
+
+Decisions and where they apply:
+
+- **Keep Mesha passport** (`keep_passport_value`): keep the Mesha passport value
+  and close the selected conflicts as reviewed. No goat fields change. Valid for
+  the legacy self-conflict, sex mismatch, breed mismatch, and sex+breed mismatch
+  groups.
+- **Use legacy value** (`use_legacy_value`): overwrite the Mesha passport sex or
+  breed with the single clean legacy value, then close the conflicts. Valid only
+  for the legacy sex/breed/value mismatch groups. It is rejected for legacy
+  self-conflicts (which carry more than one legacy value) and for any breed that
+  is not an approved canonical breed; resolve the breed catalog first in that
+  case.
+- **Acknowledge lifecycle flag** (`acknowledge_lifecycle_flag`): acknowledge the
+  reused-tag / lifecycle flag and close the selected conflicts. No goat fields
+  change. Valid only for the lifecycle / reused-tag group.
+
+Batch rules:
+
+- All-or-nothing: every selected conflict must still be open and at the expected
+  row version. If any has changed since the page loaded, none are changed —
+  reload and retry.
+- Selection is per page. There is no select-all-across-pages and no spreadsheet
+  import or export.
+- After a bulk change, the response flags that identity counters need a rebuild.
+  Counters are not rewritten inside the request; run the counter rebuild out of
+  band so dashboards catch up.
+
 ## Forbidden Shortcut
 
-Do not bulk-resolve BQ self-contradictions just because the Mesha passport is
-left unchanged. Leaving the passport unchanged is safe as a temporary system
-behavior; closing the review item requires a human explanation.
+Do not close BQ self-contradictions with no human explanation just because the
+Mesha passport is left unchanged. Leaving the passport unchanged is safe as a
+temporary system behavior; closing the review item still requires a recorded
+reason.
+
+Bulk **Keep Mesha passport** is allowed for self-conflicts only because it forces
+a reason on every conflict and records an audit row — that reason is the human
+explanation. Never reach for **Use legacy value** to make a self-conflict go
+away: the system blocks it precisely because a self-contradiction has no single
+clean legacy value to trust.

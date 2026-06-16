@@ -57,6 +57,10 @@ export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentif
 export type RetireIdentifierRequestBody = AdminApiComponents["schemas"]["RetireIdentifierRequest"];
 export type ConflictState = AdminApiComponents["schemas"]["ConflictState"];
 export type ConflictType = AdminApiComponents["schemas"]["ConflictType"];
+export type ReviewGroup = AdminApiComponents["schemas"]["ReviewGroup"];
+export type BulkResolveConflictsRequest = AdminApiComponents["schemas"]["BulkResolveConflictsRequest"];
+export type BulkResolveConflictItem = AdminApiComponents["schemas"]["BulkResolveConflictItem"];
+export type BulkResolveConflictsResult = AdminApiComponents["schemas"]["BulkResolveConflictsResult"];
 export type ImportRowState = AdminApiComponents["schemas"]["ImportRowState"];
 export type CorrectionRequestState = AdminApiComponents["schemas"]["CorrectionRequestState"];
 
@@ -128,6 +132,7 @@ export type ConflictSearchParams = {
   cursor?: string;
   state?: ConflictState;
   conflict_type?: ConflictType;
+  review_group?: ReviewGroup;
 };
 
 export type CandidateSearchParams = {
@@ -355,6 +360,22 @@ export async function resolveIdentityConflict(
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function bulkResolveConflicts(body: BulkResolveConflictsRequest): Promise<ApiResult<BulkResolveConflictsResult>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<BulkResolveConflictsResult>("/admin/identity/conflicts/bulk-resolve", {
+      method: "POST",
+      cache: "no-store",
       body,
     }),
   );

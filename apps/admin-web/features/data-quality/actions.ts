@@ -10,10 +10,13 @@ import {
   requiredString,
 } from "@/lib/action-helpers";
 import {
+  bulkResolveConflicts,
   createCorrectionRequest,
   rejectIdentityCandidate,
   resolveCorrectionRequest,
   resolveIdentityConflict,
+  type BulkResolveConflictItem,
+  type BulkResolveConflictsRequest,
   type CorrectionRequestState,
   type CreateCorrectionRequestBody,
   type IdentifierType,
@@ -21,6 +24,7 @@ import {
   type ResolveConflictRequestBody,
   type ReviewCandidateRequestBody,
 } from "@/lib/api/server";
+import { bulkDecisionTypes, type BulkDecisionType } from "./review-groups";
 
 const correctionStates: CorrectionRequestState[] = ["approved", "rejected", "needs_field_check", "closed"];
 const identifierTypes: IdentifierType[] = ["old_tag", "rfid", "visual_tag", "sheet_row_id", "purchase_load_id", "temp_field_id", "external_system_id"];
@@ -171,6 +175,63 @@ export async function resolveConflictAction(formData: FormData) {
     message = error instanceof Error ? error.message : "Unable to resolve conflict.";
   }
   actionRedirect(formData, status, message);
+}
+
+export async function bulkResolveConflictsAction(formData: FormData) {
+  let status: "success" | "error" = "success";
+  let message = "";
+  try {
+    const decisionType = requiredString(formData, "decision_type");
+    if (!bulkDecisionTypes.includes(decisionType as BulkDecisionType)) {
+      throw new Error("decision_type is not supported");
+    }
+    const conflicts = bulkSelectedConflicts(formData);
+    if (conflicts.length === 0) {
+      throw new Error("Select at least one conflict to resolve.");
+    }
+    const body: BulkResolveConflictsRequest = {
+      decision_type: decisionType as BulkResolveConflictsRequest["decision_type"],
+      conflicts,
+      reason: requiredString(formData, "reason"),
+    };
+    const result = await bulkResolveConflicts(body);
+    if (!result.ok) {
+      status = "error";
+      message = actionErrorMessage(result.error);
+    } else {
+      const data = result.data;
+      const parts = [`Resolved ${data.resolved_conflict_ids.length} conflict${data.resolved_conflict_ids.length === 1 ? "" : "s"}.`];
+      if (data.goats_mutated > 0) parts.push(`${data.goats_mutated} goat${data.goats_mutated === 1 ? "" : "s"} updated.`);
+      if (data.goats_returned_clean > 0) parts.push(`${data.goats_returned_clean} returned to clean.`);
+      if (data.counters_rebuild_required) parts.push("Counter rebuild required.");
+      message = parts.join(" ");
+    }
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Unable to bulk-resolve conflicts.";
+  }
+  actionRedirect(formData, status, message);
+}
+
+// bulkSelectedConflicts parses the "conflict_id:row_version" pairs submitted by
+// the bulk-review panel, de-duplicating by conflict_id.
+function bulkSelectedConflicts(formData: FormData): BulkResolveConflictItem[] {
+  const seen = new Set<string>();
+  const items: BulkResolveConflictItem[] = [];
+  for (const raw of formData.getAll("selected_conflict")) {
+    if (typeof raw !== "string") continue;
+    const separator = raw.lastIndexOf(":");
+    if (separator <= 0) continue;
+    const conflictId = raw.slice(0, separator).trim();
+    const rowVersion = Number.parseInt(raw.slice(separator + 1), 10);
+    if (!conflictId || seen.has(conflictId)) continue;
+    if (!Number.isFinite(rowVersion) || rowVersion < 1) {
+      throw new Error("A selected conflict had an invalid row version; reload and retry.");
+    }
+    seen.add(conflictId);
+    items.push({ conflict_id: conflictId, row_version: rowVersion });
+  }
+  return items;
 }
 
 function requiredConflictAction(formData: FormData): ConflictAction {
