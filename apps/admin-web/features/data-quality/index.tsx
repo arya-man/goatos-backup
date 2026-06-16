@@ -328,7 +328,15 @@ function ConflictResolver({
   if (!detail?.ok) {
     return (
       <div id="conflict-resolver">
-        <Panel title="Conflict workbench" description="The selected conflict could not be loaded.">
+        <Panel
+          title="Conflict workbench"
+          description="The selected conflict could not be loaded."
+          action={
+            <Link href={closeHref} className="rounded-md border border-[#334155] px-3 py-2 text-sm font-semibold text-[#c7d1dc] hover:border-[#14f1d9]/70 hover:text-white">
+              Close
+            </Link>
+          }
+        >
           <ErrorPanel
             error={
               detail?.error ?? {
