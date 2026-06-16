@@ -197,8 +197,11 @@ production-launch-ready yet**.
 Done in the Phase 1 closeout (see
 `docs/phases/phase-01-goat-passport/CLOSEOUT-SCOPE.md`):
 
-- Candidate approve (attach identifier / merge goats) and Import Review row
-  actions (reject / fix sex-breed / reapply) — backend + admin-web UI.
+- Candidate approve: attach-identifier and merge-goats outcomes (backend +
+  client). The candidate-queue admin-web form drives the merge (same-goat)
+  outcome; attach-identifier is driven from the goat passport identifier panel.
+- Import Review row actions (reject / fix sex-breed / reapply) — backend +
+  admin-web UI.
 - Provider-agnostic JWKS/asymmetric bearer verification mode.
 - Deployment runbook + per-env config.
 
