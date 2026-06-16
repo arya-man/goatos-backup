@@ -17,7 +17,6 @@ import {
   RowsPerPageSelect,
   ValueList,
 } from "@/components/admin-primitives";
-import { CollapsiblePanel } from "@/components/collapsible-panel";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { DialogModal } from "@/components/dialog-modal";
 import { dateTime, dash, shortId } from "@/lib/format";
@@ -36,6 +35,7 @@ import {
 } from "@/lib/api/server";
 import { createCorrectionRequestAction, rejectCandidateAction, resolveConflictAction, resolveCorrectionRequestAction } from "./actions";
 import { ConflictBulkReview, type BulkReviewRow } from "./bulk-review";
+import { ReviewQueuesLayout } from "./review-queues-layout";
 import { isReviewGroup, reviewGroupFilterOptions, reviewGroupLabel, type ReviewGroup } from "./review-groups";
 
 export { DataQualityReviewGuidePage } from "./review-guide";
@@ -125,7 +125,10 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       <DialogModal open={Boolean(conflictId)} closeHref={withoutConflictSelection(returnTo)} label="Conflict workbench">
         <ConflictResolver detail={detail} conflictId={conflictId} returnTo={returnTo} closeHref={withoutConflictSelection(returnTo)} />
       </DialogModal>
-      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+      <ReviewQueuesLayout
+        candidateCount={candidates.ok ? candidates.data.items.length : 0}
+        defaultMatchOpen={candidates.ok && candidates.data.items.length > 0}
+        conflicts={
         <Panel title="Identity Conflicts" description="Legacy-versus-passport disagreements grouped for audited review decisions.">
           <form className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" action="/data-quality">
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
@@ -168,14 +171,9 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
             </div>
           )}
         </Panel>
-
-        <CollapsiblePanel
-          title="Match Candidates"
-          description="Records that might be the SAME goat (a possible duplicate). Confirm a match or reject it. Empty means none are suspected right now."
-          defaultOpen={candidates.ok && candidates.data.items.length > 0}
-          count={candidates.ok ? candidates.data.items.length : undefined}
-        >
-          {!candidates.ok ? (
+        }
+        candidatesBody={
+          !candidates.ok ? (
             <ErrorPanel error={candidates.error} />
           ) : candidates.data.items.length === 0 ? (
             <EmptyPanel message="No candidates returned." />
@@ -225,9 +223,9 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                 itemCount={candidates.data.items.length}
               />
             </div>
-          )}
-        </CollapsiblePanel>
-      </div>
+          )
+        }
+      />
 
       <div className="mt-5">
         <Panel title="Correction Requests" description="Manually flag a goat record to fix or re-check (wrong tag, wrong location, possible duplicate) when the system did not auto-catch it - then resolve it here.">
