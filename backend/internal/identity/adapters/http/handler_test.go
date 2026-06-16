@@ -41,6 +41,39 @@ func TestReviewSummaryReturnsTotals(t *testing.T) {
 	}
 }
 
+func TestBulkResolveConflictsRouteReturnsResult(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	reqBody := `{"decision_type":"keep_passport_value","reason":"reviewed legacy evidence","conflicts":[{"conflict_id":"20000000-0000-4000-8000-000000000001","row_version":3}]}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/identity/conflicts/bulk-resolve", strings.NewReader(reqBody))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", "90000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-bulk")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if body["decision_type"] != "keep_passport_value" || body["bulk_request_id"] != "req-bulk" || body["trace_id"] != "req-bulk" {
+		t.Fatalf("unexpected bulk response: %#v", body)
+	}
+	if body["counters_rebuild_required"] != true || body["goats_returned_clean"] != float64(1) {
+		t.Fatalf("unexpected bulk flags: %#v", body)
+	}
+	resolved, ok := body["resolved_conflict_ids"].([]any)
+	if !ok || len(resolved) != 1 || resolved[0] != "20000000-0000-4000-8000-000000000001" {
+		t.Fatalf("unexpected resolved ids: %#v", body["resolved_conflict_ids"])
+	}
+}
+
 func TestGetGoatPassportContractShape(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
@@ -1111,6 +1144,16 @@ func (handlerRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]
 
 func (handlerRepo) CountReviewQueues(context.Context, string) (int, int, error) {
 	return 7, 2, nil
+}
+
+func (handlerRepo) BulkResolveConflicts(_ context.Context, cmd ports.BulkResolveConflictsCommand) (*domain.BulkResolveConflictsResult, error) {
+	return &domain.BulkResolveConflictsResult{
+		BulkRequestID:           cmd.BulkRequestID,
+		DecisionType:            cmd.DecisionType,
+		ResolvedConflictIDs:     cmd.ConflictIDs,
+		GoatsReturnedClean:      len(cmd.ConflictIDs),
+		CountersRebuildRequired: true,
+	}, nil
 }
 
 func (handlerRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {

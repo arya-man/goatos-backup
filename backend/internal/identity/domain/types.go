@@ -144,8 +144,23 @@ type ConflictSummary struct {
 	GoatCount         int                  `json:"goat_count"`
 	SourceRecordCount int                  `json:"source_record_count"`
 	State             string               `json:"state"`
-	RowVersion        int                  `json:"row_version"`
-	CreatedAt         time.Time            `json:"created_at"`
+	// ReviewGroup is the UI-safe review category used for filtering and bulk
+	// applicability: legacy_self_conflict, legacy_sex_mismatch,
+	// legacy_breed_mismatch, legacy_value_mismatch, lifecycle_reused_tag, or "".
+	ReviewGroup string    `json:"review_group"`
+	RowVersion  int       `json:"row_version"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// BulkResolveConflictsResult is the outcome of a bulk conflict resolution.
+type BulkResolveConflictsResult struct {
+	BulkRequestID           string   `json:"bulk_request_id"`
+	DecisionType            string   `json:"decision_type"`
+	ResolvedConflictIDs     []string `json:"resolved_conflict_ids"`
+	GoatsMutated            int      `json:"goats_mutated"`
+	GoatsReturnedClean      int      `json:"goats_returned_clean"`
+	CountersRebuildRequired bool     `json:"counters_rebuild_required"`
+	TraceID                 string   `json:"trace_id"`
 }
 
 type ConflictGoatReview struct {

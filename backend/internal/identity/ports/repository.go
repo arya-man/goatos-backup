@@ -13,6 +13,12 @@ var (
 	ErrIdempotencyPending  = errors.New("idempotency key is not completed")
 	ErrWriteConflict       = errors.New("identity write conflict")
 	ErrInvalidCursor       = errors.New("invalid pagination cursor")
+	// ErrBulkDecisionNotApplicable: the decision is invalid for at least one
+	// selected conflict (wrong group, no single clean legacy value, etc.).
+	ErrBulkDecisionNotApplicable = errors.New("bulk decision not applicable to a selected conflict")
+	// ErrBulkBreedNotCanonical: use_legacy breed does not map to an approved
+	// canonical breed; resolve the breed catalog before bulk-resolving.
+	ErrBulkBreedNotCanonical = errors.New("legacy breed is not an approved canonical breed")
 )
 
 type SearchGoatsParams struct {
@@ -47,6 +53,23 @@ type ListConflictsParams struct {
 	Cursor       *string
 	State        *string
 	ConflictType *string
+	ReviewGroup  *string
+}
+
+// BulkResolveConflictsCommand resolves many conflicts with one human decision.
+// DecisionType is one of keep_passport_value, use_legacy_value,
+// acknowledge_lifecycle_flag. RowVersions maps conflict_id -> expected
+// row_version (optimistic concurrency, per conflict). The whole batch aborts if
+// any conflict is missing, stale, or invalid for the decision.
+type BulkResolveConflictsCommand struct {
+	TenantID      string
+	ActorID       string
+	TraceID       string
+	BulkRequestID string
+	DecisionType  string
+	ConflictIDs   []string
+	RowVersions   map[string]int
+	Reason        string
 }
 
 type ListCandidatesParams struct {
@@ -229,6 +252,7 @@ type Repository interface {
 	FindIdentifierMatches(ctx context.Context, params ResolveIdentifierParams) ([]domain.IdentifierMatch, error)
 	FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (*string, error)
 	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
+	BulkResolveConflicts(ctx context.Context, cmd BulkResolveConflictsCommand) (*domain.BulkResolveConflictsResult, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]domain.CandidateSummary, *string, error)
 	// CountReviewQueues returns the total open-conflict and actionable-candidate

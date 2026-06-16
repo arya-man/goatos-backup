@@ -383,6 +383,12 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrWriteConflict) {
 		return Conflict("write_conflict", "identity write cannot be applied with the supplied state or row_version")
 	}
+	if errors.Is(err, ports.ErrBulkDecisionNotApplicable) {
+		return BadRequest("bulk_decision_not_applicable", "the chosen decision is not valid for at least one selected conflict")
+	}
+	if errors.Is(err, ports.ErrBulkBreedNotCanonical) {
+		return BadRequest("legacy_breed_not_canonical", "a legacy breed value is not an approved canonical breed; resolve the breed catalog first")
+	}
 	if errors.Is(err, ports.ErrInvalidCursor) {
 		return BadRequest("invalid_cursor", "cursor is not valid for this list endpoint")
 	}

@@ -313,6 +313,13 @@ func (r *Repository) ListConflicts(ctx context.Context, params ports.ListConflic
 		args = append(args, *params.ConflictType)
 		where = append(where, fmt.Sprintf("c.conflict_type = $%d", len(args)))
 	}
+	if params.ReviewGroup != nil {
+		clause, ok := reviewGroupWhereClause(*params.ReviewGroup)
+		if !ok {
+			clause = "FALSE"
+		}
+		where = append(where, "("+clause+")")
+	}
 	if params.Cursor != nil && *params.Cursor != "" {
 		cursorCreatedAt, cursorConflictID, err := decodeConflictListCursor(*params.Cursor)
 		if err != nil {
@@ -1028,8 +1035,29 @@ SELECT
   COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), cardinality(c.source_record_ids), 0),
   c.state,
   c.row_version,
-  c.created_at
+  c.created_at,
+  ` + reviewGroupCaseExpr() + `
 FROM identity_conflicts c`
+}
+
+// reviewGroupCaseExpr computes the UI-safe review group for a conflict row
+// (alias c) from its source context + evidence reasons. Aliased review_group.
+func reviewGroupCaseExpr() string {
+	self := `EXISTS (SELECT 1 FROM jsonb_array_elements(c.evidence->'conflicts') e WHERE e->>'Reason' IN ('bq_gender_self_conflict','bq_breed_self_conflict'))`
+	sex := `EXISTS (SELECT 1 FROM jsonb_array_elements(c.evidence->'conflicts') e WHERE e->>'Reason' = 'gender_mismatch')`
+	breed := `EXISTS (SELECT 1 FROM jsonb_array_elements(c.evidence->'conflicts') e WHERE e->>'Reason' = 'breed_mismatch')`
+	return `CASE
+    WHEN c.evidence->>'source_context' = '` + lifecycleConflictContext + `' THEN '` + reviewGroupLifecycleFlag + `'
+    WHEN c.evidence->>'source_context' = '` + attributeConflictContext + `' THEN
+      CASE
+        WHEN ` + self + ` THEN '` + reviewGroupLegacySelfConflict + `'
+        WHEN ` + sex + ` AND ` + breed + ` THEN '` + reviewGroupValueMismatch + `'
+        WHEN ` + sex + ` THEN '` + reviewGroupSexMismatch + `'
+        WHEN ` + breed + ` THEN '` + reviewGroupBreedMismatch + `'
+        ELSE ''
+      END
+    ELSE ''
+  END AS review_group`
 }
 
 func scanConflictSummary(row scanner) (domain.ConflictSummary, error) {
@@ -1051,6 +1079,7 @@ func scanConflictSummary(row scanner) (domain.ConflictSummary, error) {
 		&item.State,
 		&item.RowVersion,
 		&item.CreatedAt,
+		&item.ReviewGroup,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ConflictSummary{}, ports.ErrNotFound

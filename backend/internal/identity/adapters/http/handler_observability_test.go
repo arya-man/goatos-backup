@@ -44,6 +44,9 @@ func (r errRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]do
 func (r errRepo) CountReviewQueues(context.Context, string) (int, int, error) {
 	return 0, 0, r.err
 }
+func (r errRepo) BulkResolveConflicts(context.Context, ports.BulkResolveConflictsCommand) (*domain.BulkResolveConflictsResult, error) {
+	return nil, r.err
+}
 func (r errRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
 	return nil, r.err
 }

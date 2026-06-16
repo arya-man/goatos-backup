@@ -29,6 +29,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listIdentityCandidates", Method: "GET", Pattern: "/admin/identity/candidates", Permissions: []string{GoatViewDirtyData}},
 	{OperationID: "adminListCorrectionRequests", Method: "GET", Pattern: "/admin/identity/correction-requests", Permissions: []string{GoatReviewIdentity}},
 	{OperationID: "resolveCorrectionRequest", Method: "POST", Pattern: "/admin/identity/correction-requests/{correction_request_id}/resolve", Permissions: []string{GoatReviewIdentity}},
+	{OperationID: "bulkResolveIdentityConflicts", Method: "POST", Pattern: "/admin/identity/conflicts/bulk-resolve", Permissions: []string{GoatReviewIdentity}},
 	{OperationID: "resolveIdentityConflict", Method: "POST", Pattern: "/admin/identity/conflicts/{conflict_id}/resolve", Permissions: []string{GoatReviewIdentity}},
 	{OperationID: "approveIdentityCandidate", Method: "POST", Pattern: "/admin/identity/candidates/{candidate_id}/approve", Permissions: []string{GoatReviewIdentity}},
 	{OperationID: "rejectIdentityCandidate", Method: "POST", Pattern: "/admin/identity/candidates/{candidate_id}/reject", Permissions: []string{GoatReviewIdentity}},

@@ -41,6 +41,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 
 	mux.HandleFunc("GET /admin/identity/review-summary", h.ReviewSummary)
 	mux.HandleFunc("GET /admin/identity/conflicts", h.ListConflicts)
+	mux.HandleFunc("POST /admin/identity/conflicts/bulk-resolve", h.BulkResolveConflicts)
 	mux.HandleFunc("GET /admin/identity/conflicts/{conflict_id}", h.GetConflict)
 	mux.HandleFunc("POST /admin/identity/conflicts/{conflict_id}/resolve", h.ResolveConflict)
 	mux.HandleFunc("GET /admin/import-runs", h.ListImportRuns)
@@ -136,8 +137,30 @@ func (h *Handler) ListConflicts(w http.ResponseWriter, r *http.Request) {
 		Cursor:       optionalQuery(q.Get("cursor")),
 		State:        optionalQuery(q.Get("state")),
 		ConflictType: optionalQuery(q.Get("conflict_type")),
+		ReviewGroup:  optionalQuery(q.Get("review_group")),
 	}
 	result, err := h.service.ListConflicts(r.Context(), params, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) BulkResolveConflicts(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return
+	}
+	result, err := h.service.BulkResolveConflicts(r.Context(), app.BulkResolveConflictsInput{
+		TenantID: tenantID(r),
+		ActorID:  actorID(r),
+		TraceID:  traceID(r),
+		RawBody:  body,
+	})
 	h.respond(w, r, result, err)
 }
 

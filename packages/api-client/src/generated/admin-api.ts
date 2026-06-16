@@ -113,6 +113,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/identity/conflicts/bulk-resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve many conflicts with one human decision (evidence reviewed).
+         * @description Applies one decision (keep_passport_value, use_legacy_value, or acknowledge_lifecycle_flag) to a bounded set of conflicts. Each conflict requires its expected row_version; the whole batch aborts if any conflict is missing, stale, or invalid for the decision. use_legacy_value is rejected for legacy self-conflicts and for breeds that are not approved canonical breeds. Each resolved conflict is audited.
+         */
+        post: operations["bulkResolveIdentityConflicts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/identity/conflicts/{conflict_id}": {
         parameters: {
             query?: never;
@@ -482,9 +502,36 @@ export interface components {
             goat_count: number;
             source_record_count: number;
             state: components["schemas"]["ConflictState"];
+            review_group: components["schemas"]["ReviewGroup"];
             row_version: number;
             /** Format: date-time */
             created_at: string;
+        };
+        /**
+         * @description UI-safe review category. Empty when the conflict is not an attribute or lifecycle conflict. Never exposes raw upstream wording.
+         * @enum {string}
+         */
+        ReviewGroup: "" | "legacy_self_conflict" | "legacy_sex_mismatch" | "legacy_breed_mismatch" | "legacy_value_mismatch" | "lifecycle_reused_tag";
+        BulkResolveConflictItem: {
+            /** Format: uuid */
+            conflict_id: string;
+            row_version: number;
+        };
+        BulkResolveConflictsRequest: {
+            /** @enum {string} */
+            decision_type: "keep_passport_value" | "use_legacy_value" | "acknowledge_lifecycle_flag";
+            conflicts: components["schemas"]["BulkResolveConflictItem"][];
+            reason: string;
+        };
+        BulkResolveConflictsResult: {
+            bulk_request_id: string;
+            /** @enum {string} */
+            decision_type: "keep_passport_value" | "use_legacy_value" | "acknowledge_lifecycle_flag";
+            resolved_conflict_ids: string[];
+            goats_mutated: number;
+            goats_returned_clean: number;
+            counters_rebuild_required: boolean;
+            trace_id: string;
         };
         IdentifierReference: {
             identifier_type: components["schemas"]["IdentifierType"];
@@ -971,6 +1018,7 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 state?: components["schemas"]["ConflictState"];
                 conflict_type?: components["schemas"]["ConflictType"];
+                review_group?: components["schemas"]["ReviewGroup"];
             };
             header?: never;
             path?: never;
@@ -989,6 +1037,34 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    bulkResolveIdentityConflicts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkResolveConflictsRequest"];
+            };
+        };
+        responses: {
+            /** @description Bulk resolution result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkResolveConflictsResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     getIdentityConflict: {

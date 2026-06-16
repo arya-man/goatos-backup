@@ -214,6 +214,11 @@ paths:
           required: false
           schema:
             $ref: "#/components/schemas/ConflictType"
+        - name: review_group
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ReviewGroup"
       responses:
         "200":
           description: Conflict queue page.
@@ -225,6 +230,40 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/identity/conflicts/bulk-resolve:
+    post:
+      tags:
+        - Identity Conflicts
+      operationId: bulkResolveIdentityConflicts
+      summary: Resolve many conflicts with one human decision (evidence reviewed).
+      description: >
+        Applies one decision (keep_passport_value, use_legacy_value, or
+        acknowledge_lifecycle_flag) to a bounded set of conflicts. Each conflict
+        requires its expected row_version; the whole batch aborts if any conflict
+        is missing, stale, or invalid for the decision. use_legacy_value is
+        rejected for legacy self-conflicts and for breeds that are not approved
+        canonical breeds. Each resolved conflict is audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkResolveConflictsRequest"
+      responses:
+        "200":
+          description: Bulk resolution result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkResolveConflictsResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/identity/conflicts/{conflict_id}:
     get:
       tags:
@@ -1277,6 +1316,7 @@ components:
         - goat_count
         - source_record_count
         - state
+        - review_group
         - row_version
         - created_at
       properties:
@@ -1304,12 +1344,100 @@ components:
           minimum: 0
         state:
           $ref: "#/components/schemas/ConflictState"
+        review_group:
+          $ref: "#/components/schemas/ReviewGroup"
         row_version:
           type: integer
           minimum: 1
         created_at:
           type: string
           format: date-time
+    ReviewGroup:
+      type: string
+      description: >
+        UI-safe review category. Empty when the conflict is not an attribute or
+        lifecycle conflict. Never exposes raw upstream wording.
+      enum:
+        - ""
+        - legacy_self_conflict
+        - legacy_sex_mismatch
+        - legacy_breed_mismatch
+        - legacy_value_mismatch
+        - lifecycle_reused_tag
+    BulkResolveConflictItem:
+      type: object
+      additionalProperties: false
+      required:
+        - conflict_id
+        - row_version
+      properties:
+        conflict_id:
+          type: string
+          format: uuid
+        row_version:
+          type: integer
+          minimum: 1
+    BulkResolveConflictsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - decision_type
+        - conflicts
+        - reason
+      properties:
+        decision_type:
+          type: string
+          enum:
+            - keep_passport_value
+            - use_legacy_value
+            - acknowledge_lifecycle_flag
+        conflicts:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/BulkResolveConflictItem"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    BulkResolveConflictsResult:
+      type: object
+      additionalProperties: false
+      required:
+        - bulk_request_id
+        - decision_type
+        - resolved_conflict_ids
+        - goats_mutated
+        - goats_returned_clean
+        - counters_rebuild_required
+        - trace_id
+      properties:
+        bulk_request_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        decision_type:
+          type: string
+          enum:
+            - keep_passport_value
+            - use_legacy_value
+            - acknowledge_lifecycle_flag
+        resolved_conflict_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        goats_mutated:
+          type: integer
+          minimum: 0
+        goats_returned_clean:
+          type: integer
+          minimum: 0
+        counters_rebuild_required:
+          type: boolean
+        trace_id:
+          type: string
     IdentifierReference:
       type: object
       additionalProperties: false

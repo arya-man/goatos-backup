@@ -632,6 +632,8 @@ type fakeRepo struct {
 	lastRetireIdentifierCmd ports.RetireGoatIdentifierCommand
 	lastResolveConflictCmd  ports.ResolveConflictCommand
 	lastRejectCandidateCmd  ports.RejectCandidateCommand
+	bulkErr                 error
+	lastBulkCmd             ports.BulkResolveConflictsCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -672,6 +674,14 @@ func (f *fakeRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]
 
 func (f *fakeRepo) CountReviewQueues(context.Context, string) (int, int, error) {
 	return 0, 0, nil
+}
+
+func (f *fakeRepo) BulkResolveConflicts(_ context.Context, cmd ports.BulkResolveConflictsCommand) (*domain.BulkResolveConflictsResult, error) {
+	f.lastBulkCmd = cmd
+	if f.bulkErr != nil {
+		return nil, f.bulkErr
+	}
+	return &domain.BulkResolveConflictsResult{BulkRequestID: cmd.BulkRequestID, DecisionType: cmd.DecisionType, ResolvedConflictIDs: cmd.ConflictIDs}, nil
 }
 
 func (f *fakeRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
