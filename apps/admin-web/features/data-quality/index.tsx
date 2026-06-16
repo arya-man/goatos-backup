@@ -18,6 +18,7 @@ import {
   ValueList,
 } from "@/components/admin-primitives";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { DialogModal } from "@/components/dialog-modal";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { formatLabel } from "@/lib/display-utils";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
@@ -101,12 +102,14 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       <PageHeader
         eyebrow="Data Quality"
         title="Review Queues"
-        description="Live conflict, match-candidate, and correction request queues. Safe admin decisions are wired; split and new-passport decisions stay blocked until their contracts are written."
+        description="The cleanup desk for goats whose records don't fully agree. Conflicts = records disagree, pick what's correct. Match candidates = are these the same goat? Correction requests = manually flag something to fix. Empty queues mean no pending work."
       />
       <ActionNotice status={actionStatus} message={actionMessage} />
-      <ConflictResolver detail={detail} conflictId={conflictId} returnTo={returnTo} closeHref={withoutConflictSelection(returnTo)} />
+      <DialogModal open={Boolean(conflictId)} closeHref={withoutConflictSelection(returnTo)} label="Conflict workbench">
+        <ConflictResolver detail={detail} conflictId={conflictId} returnTo={returnTo} closeHref={withoutConflictSelection(returnTo)} />
+      </DialogModal>
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <Panel title="Identity Conflicts" description="Open and field-check conflicts for the selected filters.">
+        <Panel title="Identity Conflicts" description="Goats whose details disagree between the legacy data and the Mesha passport (sex, breed, alive/sold). Click one to open it and choose what's correct.">
           <form className="mb-4 grid gap-3 sm:grid-cols-4" action="/data-quality">
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
             <Select name="conflict_type" label="Type" defaultValue={conflictType ?? ""} options={conflictTypes} />
@@ -145,7 +148,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
                     <span>sources {conflict.source_record_count}</span>
                     <span>{dateTime(conflict.created_at)}</span>
                   </div>
-                  {isSelected ? <div className="mt-2 text-xs font-semibold text-[#14f1d9]">Open in workbench above ↑</div> : null}
+                  {isSelected ? <div className="mt-2 text-xs font-semibold text-[#14f1d9]">Open in popup ↗</div> : null}
                 </Link>
                 );
               })}
@@ -160,7 +163,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           )}
         </Panel>
 
-        <Panel title="Match Candidates" description="Actionable proposed and needs_review candidate queue.">
+        <Panel title="Match Candidates" description="Records that might be the SAME goat (a possible duplicate). Confirm a match or reject it. Empty means none are suspected right now.">
           {!candidates.ok ? (
             <ErrorPanel error={candidates.error} />
           ) : candidates.data.items.length === 0 ? (
@@ -216,7 +219,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       </div>
 
       <div className="mt-5">
-        <Panel title="Correction Requests" description="Create correction requests and resolve existing requests through the defined Phase 1 review service.">
+        <Panel title="Correction Requests" description="Manually flag a goat record to fix or re-check (wrong tag, wrong location, possible duplicate) when the system did not auto-catch it — then resolve it here.">
           <form action={createCorrectionRequestAction} className="mb-5 rounded-md border border-[#334155] bg-[#10141b] p-3">
             <input type="hidden" name="idempotency_key" value={randomUUID()} />
             <input type="hidden" name="return_to" value={returnTo} />
@@ -317,18 +320,14 @@ function ConflictResolver({
   closeHref: string;
 }) {
   if (!conflictId) {
-    return (
-      <div id="conflict-resolver" className="mb-5">
-        <Panel title="Conflict workbench" description="Open a conflict from the queue to review goat evidence and take a supported admin decision.">
-          <EmptyPanel message="Select a review item from Identity Conflicts. The workbench will open here." />
-        </Panel>
-      </div>
-    );
+    // The workbench only exists inside the popup modal; nothing to render when
+    // no conflict is selected.
+    return null;
   }
 
   if (!detail?.ok) {
     return (
-      <div id="conflict-resolver" className="mb-5">
+      <div id="conflict-resolver">
         <Panel title="Conflict workbench" description="The selected conflict could not be loaded.">
           <ErrorPanel
             error={
@@ -368,10 +367,10 @@ function ConflictResolver({
   const canRequestFieldCheck = supportsFieldCheck && data.conflict.state !== "needs_field_check";
 
   return (
-    <div id="conflict-resolver" className="mb-5 scroll-mt-6">
+    <div id="conflict-resolver">
       <Panel
         title="Conflict workbench"
-        description="Resolve safe cases here. Ambiguous passport splits and new-passport creation stay blocked until their backend contract is written."
+        description="Review the goat evidence below and record your decision. Ambiguous passport splits and new-passport creation stay blocked until their backend contract is written."
         action={
           <Link href={closeHref} className="rounded-md border border-[#334155] px-3 py-2 text-sm font-semibold text-[#c7d1dc] hover:border-[#14f1d9]/70 hover:text-white">
             Close
@@ -860,7 +859,7 @@ function conflictDetailHref(
   next.set("candidate_limit", String(candidateLimit));
   next.set("correction_limit", String(correctionLimit));
   next.set("conflict_id", conflictID);
-  return `/data-quality?${next.toString()}#conflict-resolver`;
+  return `/data-quality?${next.toString()}`;
 }
 
 function copyParam(source: RouteSearchParams, target: URLSearchParams, key: string) {
