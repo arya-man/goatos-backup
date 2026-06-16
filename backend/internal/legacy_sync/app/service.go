@@ -39,6 +39,7 @@ func (s *Service) ListSources(ctx context.Context, tenantID, selectedDomain, tra
 	if sources == nil {
 		sources = []domain.Source{}
 	}
+	sources = s.applySourceFreshness(sources)
 	return &domain.SourceListResponse{Items: sources, TraceID: traceID}, nil
 }
 
@@ -50,6 +51,7 @@ func (s *Service) OverallStatus(ctx context.Context, tenantID, traceID string) (
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
+	sources = s.applySourceFreshness(sources)
 	counter, err := s.repo.OverallCounterStatus(ctx, tenantID)
 	if err != nil {
 		return nil, mapRepoErr(err)
@@ -121,6 +123,7 @@ func (s *Service) CreateRun(ctx context.Context, tenantID, actorID string, req d
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
+	sources = s.applySourceFreshness(sources)
 	criticalFreshness := CriticalFreshness(sources)
 	counter, err := s.repo.OverallCounterStatus(ctx, tenantID)
 	if err != nil {
@@ -197,6 +200,16 @@ func (s *Service) blockedReason(mode, criticalFreshness string, counter domain.C
 	}
 	reason := "legacy sync execute is not implemented in v1; run dry-run and use the approved replay tooling until the executor is configured"
 	return &reason
+}
+
+func (s *Service) applySourceFreshness(sources []domain.Source) []domain.Source {
+	now := s.now()
+	for i := range sources {
+		status, reason := SourceFreshness(now, sources[i])
+		sources[i].FreshnessStatus = status
+		sources[i].StatusReason = reason
+	}
+	return sources
 }
 
 func (s *Service) planSteps(sources []domain.Source, mode string, coldStart bool, runStatus string, blockedReason *string, windowStart, windowEnd *time.Time, counter domain.CounterStatus) []ports.CreateStepParams {

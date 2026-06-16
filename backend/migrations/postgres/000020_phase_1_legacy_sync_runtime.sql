@@ -176,8 +176,8 @@ CREATE TABLE legacy_sync_run_conflicts (
   ))
 );
 
-CREATE UNIQUE INDEX legacy_sync_run_conflicts_unique_open_source_key
-  ON legacy_sync_run_conflicts (tenant_id, source_conflict_key);
+CREATE UNIQUE INDEX legacy_sync_run_conflicts_unique_run_source_key
+  ON legacy_sync_run_conflicts (tenant_id, sync_run_id, source_conflict_key);
 
 CREATE INDEX legacy_sync_run_conflicts_run_idx
   ON legacy_sync_run_conflicts (sync_run_id, created_at DESC);

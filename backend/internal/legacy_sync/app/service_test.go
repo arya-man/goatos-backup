@@ -44,6 +44,42 @@ func TestCreateRunDryRunColdStartCompletesWithoutCounterMutation(t *testing.T) {
 	}
 }
 
+func TestListSourcesComputesFreshnessFromWatermarks(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	watermark := now.Add(-20 * time.Minute)
+	repo := &fakeRepo{
+		sources: []domain.Source{{
+			SourceID:            "phase1_identity_attribute_evidence",
+			SourceName:          "Phase 1 identity attribute evidence",
+			Domain:              domain.DomainIdentity,
+			Criticality:         domain.CriticalityCritical,
+			Enabled:             true,
+			FreshnessStatus:     domain.FreshnessUnknown,
+			StatusReason:        "no successful watermark recorded",
+			GreenWithinSeconds:  1800,
+			YellowWithinSeconds: 2700,
+			SourceWatermarkAt:   &watermark,
+		}},
+	}
+	service := NewService(repo, "prod")
+	service.now = func() time.Time { return now }
+
+	result, err := service.ListSources(context.Background(), testTenant, domain.DomainIdentity, "trace-1")
+	if err != nil {
+		t.Fatalf("ListSources returned error: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("sources=%d want 1", len(result.Items))
+	}
+	source := result.Items[0]
+	if source.FreshnessStatus != domain.FreshnessGreen {
+		t.Fatalf("freshness=%s want green", source.FreshnessStatus)
+	}
+	if source.StatusReason != "source watermark is within green threshold" {
+		t.Fatalf("status reason=%q", source.StatusReason)
+	}
+}
+
 func TestCreateRunExecuteBlocksOutsideLocalDev(t *testing.T) {
 	repo := &fakeRepo{
 		sources: []domain.Source{criticalSource("phase1_lifecycle_event_evidence", domain.DomainLifecycle, domain.FreshnessGreen)},
@@ -229,14 +265,30 @@ func TestLegacyChangedAfterHumanReviewReasonIsRegistered(t *testing.T) {
 }
 
 func criticalSource(sourceID, sourceDomain, freshness string) domain.Source {
+	now := time.Now().UTC()
+	var watermark *time.Time
+	switch freshness {
+	case domain.FreshnessGreen:
+		w := now.Add(-5 * time.Minute)
+		watermark = &w
+	case domain.FreshnessYellow:
+		w := now.Add(-40 * time.Minute)
+		watermark = &w
+	case domain.FreshnessRed:
+		w := now.Add(-2 * time.Hour)
+		watermark = &w
+	}
 	return domain.Source{
-		SourceID:        sourceID,
-		SourceName:      sourceID,
-		Domain:          sourceDomain,
-		Criticality:     domain.CriticalityCritical,
-		Enabled:         true,
-		FreshnessStatus: freshness,
-		StatusReason:    freshness,
+		SourceID:            sourceID,
+		SourceName:          sourceID,
+		Domain:              sourceDomain,
+		Criticality:         domain.CriticalityCritical,
+		Enabled:             true,
+		FreshnessStatus:     freshness,
+		StatusReason:        freshness,
+		GreenWithinSeconds:  1800,
+		YellowWithinSeconds: 2700,
+		SourceWatermarkAt:   watermark,
 	}
 }
 

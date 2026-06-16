@@ -62,6 +62,39 @@ func TestRepositoryPathsWithDockerPostgres(t *testing.T) {
 		}
 
 		if _, err := pool.Exec(ctx, `
+INSERT INTO legacy_sync_source_watermarks (
+  tenant_id,
+  source_id,
+  last_success_window_start,
+  last_success_window_end,
+  last_success_at,
+  checkpoint
+) VALUES (
+  $1,
+  'phase1_current_location_evidence',
+  now() - interval '20 minutes',
+  now() - interval '10 minutes',
+  now() - interval '5 minutes',
+  '{}'::jsonb
+)`, legacySyncMeshaTenant); err != nil {
+			t.Fatalf("seed source watermark: %v", err)
+		}
+		freshSources, err := repo.ListSources(ctx, ports.SourceFilter{TenantID: legacySyncMeshaTenant, Domain: domain.DomainCurrentLocation})
+		if err != nil {
+			t.Fatalf("ListSources with watermark: %v", err)
+		}
+		if len(freshSources) != 1 {
+			t.Fatalf("current-location sources=%d want 1: %#v", len(freshSources), freshSources)
+		}
+		fresh := freshSources[0]
+		if fresh.FreshnessStatus != domain.FreshnessGreen {
+			t.Fatalf("watermark-derived freshness=%s want green: %#v", fresh.FreshnessStatus, fresh)
+		}
+		if fresh.SourceWatermarkAt == nil {
+			t.Fatalf("watermark-derived source should expose source_watermark_at: %#v", fresh)
+		}
+
+		if _, err := pool.Exec(ctx, `
 INSERT INTO legacy_sync_source_status (
   tenant_id,
   source_id,
@@ -212,6 +245,84 @@ INSERT INTO legacy_sync_run_conflicts (
 			t.Fatalf("running cancel should stamp cancel/completed times: %#v", canceled)
 		}
 	})
+
+	t.Run("source correction log key is unique per run", func(t *testing.T) {
+		firstRun, err := repo.CreateRun(ctx, ports.CreateRunParams{
+			TenantID:           legacySyncMeshaTenant,
+			ActorID:            legacySyncActorID,
+			Mode:               domain.ModeDryRun,
+			Domain:             domain.DomainIdentity,
+			Status:             domain.StatusCompleted,
+			CounterCheckStatus: domain.CounterCheckSkipped,
+			FreshnessStatus:    domain.FreshnessGreen,
+			TraceID:            "legacy-sync-repo-log-unique-first",
+		})
+		if err != nil {
+			t.Fatalf("CreateRun first log run: %v", err)
+		}
+		const sourceConflictKey = "legacy-sync-repo-test-refreshable-key"
+		insertRunConflict(t, pool, firstRun.SyncRunID, sourceConflictKey, "conflict_opened")
+
+		if _, err := pool.Exec(ctx, `
+INSERT INTO legacy_sync_run_conflicts (
+  tenant_id,
+  sync_run_id,
+  source_id,
+  source_record_id,
+  source_conflict_key,
+  evidence_reason,
+  result
+) VALUES (
+  $1,
+  $2,
+  'phase1_identity_attribute_evidence',
+  'record-duplicate',
+  $3,
+  'legacy_changed_after_human_review',
+  'conflict_refreshed'
+)`, legacySyncMeshaTenant, firstRun.SyncRunID, sourceConflictKey); err == nil {
+			t.Fatal("duplicate source_conflict_key within the same run should fail")
+		}
+
+		secondRun, err := repo.CreateRun(ctx, ports.CreateRunParams{
+			TenantID:           legacySyncMeshaTenant,
+			ActorID:            legacySyncActorID,
+			Mode:               domain.ModeDryRun,
+			Domain:             domain.DomainIdentity,
+			Status:             domain.StatusCompleted,
+			CounterCheckStatus: domain.CounterCheckSkipped,
+			FreshnessStatus:    domain.FreshnessGreen,
+			TraceID:            "legacy-sync-repo-log-unique-second",
+		})
+		if err != nil {
+			t.Fatalf("CreateRun second log run: %v", err)
+		}
+		insertRunConflict(t, pool, secondRun.SyncRunID, sourceConflictKey, "conflict_refreshed")
+	})
+}
+
+func insertRunConflict(t *testing.T, pool *pgxpool.Pool, runID, sourceConflictKey, result string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO legacy_sync_run_conflicts (
+  tenant_id,
+  sync_run_id,
+  source_id,
+  source_record_id,
+  source_conflict_key,
+  evidence_reason,
+  result
+) VALUES (
+  $1,
+  $2,
+  'phase1_identity_attribute_evidence',
+  'record-' || $3,
+  $3,
+  'legacy_changed_after_human_review',
+  $4
+)`, legacySyncMeshaTenant, runID, sourceConflictKey, result); err != nil {
+		t.Fatalf("insert run conflict %s in run %s: %v", sourceConflictKey, runID, err)
+	}
 }
 
 func startLegacySyncDB(t *testing.T, ctx context.Context) *pgxpool.Pool {

@@ -35,7 +35,7 @@ func (r *Repository) ListSources(ctx context.Context, filter ports.SourceFilter)
 		return nil, err
 	}
 	rows, err := r.pool.Query(ctx, `
-WITH registered AS (
+WITH registered_base AS (
   SELECT
     s.source_id,
     s.source_name,
@@ -49,17 +49,52 @@ WITH registered AS (
     s.enabled,
     s.known_degraded,
     s.notes,
-    COALESCE(st.freshness_status, CASE WHEN s.known_degraded THEN 'red' ELSE 'unknown' END) AS freshness_status,
-    COALESCE(st.status_reason, CASE WHEN s.known_degraded THEN 'source is marked known degraded' ELSE 'no successful watermark recorded' END) AS status_reason,
-    st.source_watermark_at,
-    st.observed_at,
+    COALESCE(st.source_watermark_at, w.last_success_window_end, w.last_success_at) AS source_watermark_at,
+    COALESCE(st.observed_at, w.updated_at) AS observed_at,
     COALESCE(st.rows_seen, 0) AS rows_seen,
     false AS is_unknown_source
   FROM legacy_sync_sources s
   LEFT JOIN legacy_sync_source_status st
     ON st.tenant_id = $1::uuid
    AND st.source_id = s.source_id
+  LEFT JOIN legacy_sync_source_watermarks w
+    ON w.tenant_id = $1::uuid
+   AND w.source_id = s.source_id
   WHERE ($2::text = '' OR s.domain = $2::text)
+),
+registered AS (
+  SELECT
+    source_id,
+    source_name,
+    domain,
+    source_kind,
+    source_ref,
+    cadence_seconds,
+    green_within_seconds,
+    yellow_within_seconds,
+    criticality,
+    enabled,
+    known_degraded,
+    notes,
+    CASE
+      WHEN known_degraded THEN 'red'
+      WHEN source_watermark_at IS NULL THEN 'unknown'
+      WHEN EXTRACT(EPOCH FROM now() - source_watermark_at)::int <= green_within_seconds THEN 'green'
+      WHEN EXTRACT(EPOCH FROM now() - source_watermark_at)::int <= yellow_within_seconds THEN 'yellow'
+      ELSE 'red'
+    END AS freshness_status,
+    CASE
+      WHEN known_degraded THEN 'source is marked known degraded'
+      WHEN source_watermark_at IS NULL THEN 'no successful watermark recorded'
+      WHEN EXTRACT(EPOCH FROM now() - source_watermark_at)::int <= green_within_seconds THEN 'source watermark is within green threshold'
+      WHEN EXTRACT(EPOCH FROM now() - source_watermark_at)::int <= yellow_within_seconds THEN 'source watermark is within yellow threshold'
+      ELSE 'source watermark is older than yellow threshold'
+    END AS status_reason,
+    source_watermark_at,
+    observed_at,
+    rows_seen,
+    is_unknown_source
+  FROM registered_base
 ),
 unregistered AS (
   SELECT

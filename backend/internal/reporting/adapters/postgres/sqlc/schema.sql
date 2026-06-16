@@ -3221,10 +3221,10 @@ CREATE INDEX legacy_sync_run_conflicts_run_idx ON public.legacy_sync_run_conflic
 
 
 --
--- Name: legacy_sync_run_conflicts_unique_open_source_key; Type: INDEX; Schema: public; Owner: -
+-- Name: legacy_sync_run_conflicts_unique_run_source_key; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX legacy_sync_run_conflicts_unique_open_source_key ON public.legacy_sync_run_conflicts USING btree (tenant_id, source_conflict_key);
+CREATE UNIQUE INDEX legacy_sync_run_conflicts_unique_run_source_key ON public.legacy_sync_run_conflicts USING btree (tenant_id, sync_run_id, source_conflict_key);
 
 
 --
