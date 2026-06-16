@@ -53,7 +53,7 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
     redirect("/login");
   }
 
-  const sourceWarnings = status.ok ? status.data.sources.filter((source) => source.freshness_status !== "green" || source.known_degraded || source.is_unknown_source) : [];
+  const sourceWarnings = status.ok ? status.data.sources.filter(sourceNeedsAttention) : [];
 
   return (
     <>
@@ -85,12 +85,20 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
           ) : (
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-3">
-                <StatPill label="overall" value={formatLabel(status.data.overall_freshness)} tone={freshnessTone(status.data.overall_freshness)} />
-                <StatPill label="critical sources" value={formatLabel(status.data.critical_freshness)} tone={freshnessTone(status.data.critical_freshness)} />
+                <StatPill label="overall" value={freshnessSummaryValue(status.data.overall_freshness, status.data.sources)} tone={freshnessTone(status.data.overall_freshness)} />
+                <StatPill
+                  label="critical sources"
+                  value={freshnessSummaryValue(
+                    status.data.critical_freshness,
+                    status.data.sources.filter((source) => source.criticality === "critical"),
+                  )}
+                  tone={freshnessTone(status.data.critical_freshness)}
+                />
                 <StatPill label="counters" value={formatLabel(status.data.counter_freshness.freshness_status)} tone={freshnessTone(status.data.counter_freshness.freshness_status)} />
               </div>
               <ValueList
                 values={[
+                  ["source watermarks", sourceWatermarkSummary(status.data.sources)],
                   ["counter status", status.data.counter_freshness.status_reason],
                   ["counter updated", dateTime(status.data.counter_freshness.updated_at)],
                   ["rebuild required", status.data.counter_freshness.rebuild_required ? "Yes" : "No"],
@@ -100,11 +108,11 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
           )}
         </Panel>
 
-        <Panel title="Source Warnings" description="Unknown sources are visible and noncritical. They are never marked green until registered by the backend source catalog.">
+        <Panel title="Source Readiness" description="Registered sources stay Not Synced until the backend records their first successful watermark. Unregistered observed sources stay visible for catalog review.">
           {!status.ok ? (
             <ErrorPanel error={status.error} />
           ) : sourceWarnings.length === 0 ? (
-            <EmptyPanel message="No source warnings returned." />
+            <EmptyPanel message="All registered sources have fresh watermarks." />
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {sourceWarnings.map((source) => (
@@ -153,24 +161,34 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
 }
 
 function SyncLauncher({ status, closeHref }: { status: LegacySyncOverallStatusResponse | null; closeHref: string }) {
-  const warnings = status?.sources.filter((source) => source.freshness_status !== "green" || source.is_unknown_source || source.known_degraded) ?? [];
+  const attentionSources = status?.sources.filter(sourceNeedsAttention) ?? [];
+  const firstWatermarkSources = attentionSources.filter(isAwaitingFirstWatermark);
+  const warningSources = attentionSources.filter((source) => !isAwaitingFirstWatermark(source));
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        <MiniStatus label="overall" value={status?.overall_freshness ?? "unknown"} />
-        <MiniStatus label="critical" value={status?.critical_freshness ?? "unknown"} />
+        <MiniStatus label="overall" value={status?.overall_freshness ?? "unknown"} sources={status?.sources ?? []} />
+        <MiniStatus label="critical" value={status?.critical_freshness ?? "unknown"} sources={status?.sources.filter((source) => source.criticality === "critical") ?? []} />
         <MiniStatus label="counters" value={status?.counter_freshness.freshness_status ?? "unknown"} />
       </div>
-      {warnings.length > 0 ? (
+      {firstWatermarkSources.length > 0 ? (
+        <div className="rounded-md border border-[#334155] bg-[#10141b] p-3 text-sm text-[#c7d1dc]">
+          <div className="font-semibold text-white">
+            {firstWatermarkSources.length} registered source{firstWatermarkSources.length === 1 ? "" : "s"} awaiting first watermark
+          </div>
+          <p className="mt-1 text-[#93a4b8]">Dry runs record a plan only; they will not clear this state until the executor writes successful source watermarks.</p>
+        </div>
+      ) : null}
+      {warningSources.length > 0 ? (
         <div className="rounded-md border border-[#a16207] bg-[#1f1a0d] p-3 text-sm text-[#fde68a]">
           <div className="flex items-start gap-2 font-semibold">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            {warnings.length} source warning{warnings.length === 1 ? "" : "s"}
+            {warningSources.length} source warning{warningSources.length === 1 ? "" : "s"}
           </div>
           <div className="mt-2 grid gap-2">
-            {warnings.slice(0, 4).map((source) => (
+            {warningSources.slice(0, 4).map((source) => (
               <div key={source.source_id} className="text-xs">
-                {source.source_name}: {source.status_reason}
+                {source.source_name}: {sourceStatusReason(source)}
               </div>
             ))}
           </div>
@@ -335,16 +353,19 @@ function RunCard({ run, selected }: { run: LegacySyncRun; selected: boolean }) {
 }
 
 function SourceCard({ source }: { source: LegacySyncSource }) {
+  const awaitingFirstWatermark = isAwaitingFirstWatermark(source);
   return (
     <div className="rounded-md border border-[#293241] bg-[#10141b] p-3">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="font-semibold text-white">{source.source_name}</div>
           <div className="mt-1 text-xs text-[#93a4b8]">{formatLabel(source.domain)} - {formatLabel(source.criticality)}</div>
         </div>
-        <span className={`rounded border px-2 py-1 text-xs font-semibold ${freshnessClass(source.freshness_status)}`}>{formatLabel(source.freshness_status)}</span>
+        <span className={`shrink-0 whitespace-nowrap rounded border px-2 py-1 text-xs font-semibold ${awaitingFirstWatermark ? "border-[#334155] text-[#c7d1dc]" : freshnessClass(source.freshness_status)}`}>
+          {sourceStatusLabel(source)}
+        </span>
       </div>
-      <div className="mt-3 text-sm text-[#c7d1dc]">{source.status_reason}</div>
+      <div className="mt-3 text-sm text-[#c7d1dc]">{sourceStatusReason(source)}</div>
       <div className="mt-2 grid gap-1 text-xs text-[#93a4b8] sm:grid-cols-2">
         <span>cadence {durationLabel(source.cadence_seconds)}</span>
         <span>green {durationLabel(source.green_within_seconds)}</span>
@@ -404,13 +425,46 @@ function DateTimeField({ name, label }: { name: string; label: string }) {
   );
 }
 
-function MiniStatus({ label, value }: { label: string; value: string }) {
+function MiniStatus({ label, value, sources = [] }: { label: string; value: string; sources?: LegacySyncSource[] }) {
   return (
     <div className={`rounded-md border px-3 py-2 ${freshnessClass(value)}`}>
       <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
-      <div className="mt-1 text-sm font-semibold">{formatLabel(value)}</div>
+      <div className="mt-1 text-sm font-semibold">{freshnessSummaryValue(value, sources)}</div>
     </div>
   );
+}
+
+function sourceNeedsAttention(source: LegacySyncSource): boolean {
+  return source.freshness_status !== "green" || source.known_degraded || source.is_unknown_source;
+}
+
+function isAwaitingFirstWatermark(source: LegacySyncSource): boolean {
+  return !source.is_unknown_source && !source.known_degraded && source.freshness_status === "unknown" && !source.source_watermark_at;
+}
+
+function freshnessSummaryValue(value: string, sources: LegacySyncSource[]): string {
+  if (value === "unknown" && sources.length > 0 && sources.every(isAwaitingFirstWatermark)) {
+    return "Not Synced";
+  }
+  return formatLabel(value);
+}
+
+function sourceWatermarkSummary(sources: LegacySyncSource[]): string {
+  const awaitingCount = sources.filter(isAwaitingFirstWatermark).length;
+  if (awaitingCount === 0) return "all registered source watermarks recorded";
+  return `${awaitingCount} registered source${awaitingCount === 1 ? "" : "s"} awaiting first successful watermark`;
+}
+
+function sourceStatusLabel(source: LegacySyncSource): string {
+  if (isAwaitingFirstWatermark(source)) return "Not Synced";
+  if (source.is_unknown_source) return "Unregistered";
+  return formatLabel(source.freshness_status);
+}
+
+function sourceStatusReason(source: LegacySyncSource): string {
+  if (isAwaitingFirstWatermark(source)) return "no successful source watermark yet";
+  if (source.is_unknown_source) return "source is not registered in the backend catalog";
+  return source.status_reason;
 }
 
 function freshnessTone(value: string): "neutral" | "good" | "warn" {
