@@ -79,6 +79,28 @@ INSERT INTO legacy_sync_source_watermarks (
 )`, legacySyncMeshaTenant); err != nil {
 			t.Fatalf("seed source watermark: %v", err)
 		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO legacy_sync_source_status (
+  tenant_id,
+  source_id,
+  freshness_status,
+  status_reason,
+  source_watermark_at,
+  observed_at,
+  rows_seen,
+  is_unknown_source
+) VALUES (
+  $1,
+  'phase1_current_location_evidence',
+  'red',
+  'stale status row should not hide a fresh success watermark',
+  now() - interval '2 hours',
+  now() - interval '2 hours',
+  99,
+  false
+)`, legacySyncMeshaTenant); err != nil {
+			t.Fatalf("seed stale source status: %v", err)
+		}
 		freshSources, err := repo.ListSources(ctx, ports.SourceFilter{TenantID: legacySyncMeshaTenant, Domain: domain.DomainCurrentLocation})
 		if err != nil {
 			t.Fatalf("ListSources with watermark: %v", err)
@@ -90,8 +112,14 @@ INSERT INTO legacy_sync_source_watermarks (
 		if fresh.FreshnessStatus != domain.FreshnessGreen {
 			t.Fatalf("watermark-derived freshness=%s want green: %#v", fresh.FreshnessStatus, fresh)
 		}
+		if fresh.StatusReason != "source watermark is within green threshold" {
+			t.Fatalf("watermark-derived reason=%q want green threshold", fresh.StatusReason)
+		}
 		if fresh.SourceWatermarkAt == nil {
 			t.Fatalf("watermark-derived source should expose source_watermark_at: %#v", fresh)
+		}
+		if time.Since(*fresh.SourceWatermarkAt) > 15*time.Minute {
+			t.Fatalf("source_watermark_at=%s should use fresh success watermark over stale status", fresh.SourceWatermarkAt.Format(time.RFC3339))
 		}
 
 		if _, err := pool.Exec(ctx, `

@@ -49,8 +49,15 @@ WITH registered_base AS (
     s.enabled,
     s.known_degraded,
     s.notes,
-    COALESCE(st.source_watermark_at, w.last_success_window_end, w.last_success_at) AS source_watermark_at,
-    COALESCE(st.observed_at, w.updated_at) AS observed_at,
+    NULLIF(GREATEST(
+      COALESCE(st.source_watermark_at, '-infinity'::timestamptz),
+      COALESCE(w.last_success_window_end, '-infinity'::timestamptz),
+      COALESCE(w.last_success_at, '-infinity'::timestamptz)
+    ), '-infinity'::timestamptz) AS source_watermark_at,
+    NULLIF(GREATEST(
+      COALESCE(st.observed_at, '-infinity'::timestamptz),
+      COALESCE(w.updated_at, '-infinity'::timestamptz)
+    ), '-infinity'::timestamptz) AS observed_at,
     COALESCE(st.rows_seen, 0) AS rows_seen,
     false AS is_unknown_source
   FROM legacy_sync_sources s
