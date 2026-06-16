@@ -19,6 +19,10 @@ var (
 	// ErrBulkBreedNotCanonical: use_legacy breed does not map to an approved
 	// canonical breed; resolve the breed catalog before bulk-resolving.
 	ErrBulkBreedNotCanonical = errors.New("legacy breed is not an approved canonical breed")
+	// ErrCannotExtractIdentifier: a candidate approve asked to extract the
+	// identifier from the linked legacy row, but no deterministic global-scope
+	// identifier (RFID) is available there. Old-tag attach must be explicit.
+	ErrCannotExtractIdentifier = errors.New("cannot deterministically extract an identifier from the linked legacy row")
 )
 
 type SearchGoatsParams struct {
@@ -245,6 +249,44 @@ type RejectCandidateResult struct {
 	FirstResultID *string
 }
 
+type ApproveCandidateCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	CandidateID          string
+	DecisionType         string
+	// attach_identifier fields
+	GoatID               string
+	GoatRowVersion       int
+	IdentifierType       string
+	IdentifierValue      string
+	NormalizedValue      string
+	ScopeKey             string
+	IsPrimaryForGoat     bool
+	ExtractFromLegacyRow bool
+	// merge_goats fields
+	SurvivorGoatID    string
+	AffectedGoatIDs   []string
+	IdentifierActions []domain.IdentifierAction
+	// common
+	Reason       string
+	EvidenceRefs []domain.EvidenceRef
+	RowVersion   int
+}
+
+type ApproveCandidateResult struct {
+	Candidate     domain.CandidateSummary
+	Decision      domain.DecisionRecordSummary
+	Merge         *domain.MergeResult
+	Events        []domain.EventSummary
+	Replayed      bool
+	FirstResultID *string
+}
+
 type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
@@ -269,5 +311,6 @@ type Repository interface {
 	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	ResolveConflict(ctx context.Context, cmd ResolveConflictCommand) (*ResolveConflictResult, error)
 	RejectCandidate(ctx context.Context, cmd RejectCandidateCommand) (*RejectCandidateResult, error)
+	ApproveCandidate(ctx context.Context, cmd ApproveCandidateCommand) (*ApproveCandidateResult, error)
 	Ping(ctx context.Context) error
 }

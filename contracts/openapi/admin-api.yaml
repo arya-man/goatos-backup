@@ -339,7 +339,14 @@ paths:
       tags:
         - Identity Candidates
       operationId: approveIdentityCandidate
-      summary: Approve a candidate match path when policy allows it.
+      summary: Approve a candidate match by attaching an identifier or merging the candidate's goats.
+      description: >-
+        Applies a safe, non-create approve outcome. decision_type=attach_identifier
+        attaches an explicit (or deterministically RFID-extracted) identifier to one
+        of the candidate's goats; decision_type=merge_goats merges the candidate's two
+        goats using the existing merge invariants. Minting a new goat (approve-to-create)
+        is intentionally not supported here and stays blocked on the conflict create_goat
+        contract.
       parameters:
         - $ref: "#/components/parameters/CandidateId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -348,7 +355,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ReviewCandidateRequest"
+              $ref: "#/components/schemas/ApproveCandidateRequest"
       responses:
         "200":
           description: Candidate approval result.
@@ -2071,6 +2078,93 @@ components:
         row_version:
           type: integer
           minimum: 1
+    ApproveCandidateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - decision_type
+        - reason
+        - evidence_refs
+        - row_version
+      properties:
+        decision_type:
+          type: string
+          enum:
+            - attach_identifier
+            - merge_goats
+          description: >-
+            attach_identifier attaches an identifier to target_goat_id; merge_goats
+            merges the candidate's goats. create_goat / approve-to-create is not a
+            valid value and stays blocked on the conflict create_goat contract.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
+          description: Candidate row_version for optimistic concurrency.
+        target_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: attach_identifier only; must be one of the candidate's goats.
+        goat_row_version:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+          description: attach_identifier only; target goat aggregate row_version guard.
+        identifier_type:
+          oneOf:
+            - $ref: "#/components/schemas/IdentifierType"
+            - type: "null"
+          description: attach_identifier explicit identifier; omit when extract_from_legacy_row is true.
+        identifier_value:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+        scope_key:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 200
+          description: Identifier scope (e.g. global for RFID, park:<code> for old_tag).
+        is_primary_for_goat:
+          type: boolean
+          default: false
+        extract_from_legacy_row:
+          type: boolean
+          default: false
+          description: >-
+            attach_identifier only; deterministically extract a global-scope RFID from
+            the candidate's linked legacy row instead of supplying an explicit identifier.
+        survivor_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: merge_goats only; the surviving goat, which must be one of the candidate's goats.
+        affected_goat_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: merge_goats only; the goats being merged into the survivor.
+        identifier_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/IdentifierAction"
+          description: merge_goats only; optional loser identifier transfer/retire control.
     CandidateDecisionResponse:
       type: object
       additionalProperties: false
@@ -2092,6 +2186,16 @@ components:
             - needs_review
         decision:
           $ref: "#/components/schemas/DecisionRecordSummary"
+        merge:
+          oneOf:
+            - $ref: "#/components/schemas/MergeResult"
+            - type: "null"
+          description: Present for an approve merge_goats outcome.
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventSummary"
+          description: Identity events emitted by an approve that mutated identity.
         idempotency:
           $ref: "#/components/schemas/IdempotencyMeta"
         trace_id:

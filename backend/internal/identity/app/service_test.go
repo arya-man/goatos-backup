@@ -626,6 +626,9 @@ type fakeRepo struct {
 	resolveConflictErr      error
 	rejectCandidateResult   *ports.RejectCandidateResult
 	rejectCandidateErr      error
+	approveCandidateResult  *ports.ApproveCandidateResult
+	approveCandidateErr     error
+	lastApproveCandidateCmd ports.ApproveCandidateCommand
 	lastCorrectionCmd       ports.CreateCorrectionRequestCommand
 	lastResolveCmd          ports.ResolveCorrectionRequestCommand
 	lastAddIdentifierCmd    ports.AddGoatIdentifierCommand
@@ -873,6 +876,27 @@ func (f *fakeRepo) RejectCandidate(_ context.Context, cmd ports.RejectCandidateC
 			DecisionResult: "candidate_rejected",
 			DecisionState:  "rejected",
 			PolicyVersion:  "phase1-manual-correction-review-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+	}, nil
+}
+
+func (f *fakeRepo) ApproveCandidate(_ context.Context, cmd ports.ApproveCandidateCommand) (*ports.ApproveCandidateResult, error) {
+	f.lastApproveCandidateCmd = cmd
+	if f.approveCandidateErr != nil {
+		return nil, f.approveCandidateErr
+	}
+	if f.approveCandidateResult != nil {
+		return f.approveCandidateResult, nil
+	}
+	return &ports.ApproveCandidateResult{
+		Candidate: candidateSummaryFixture(cmd.CandidateID, "approved", cmd.RowVersion+1),
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000401",
+			DecisionType:   cmd.DecisionType,
+			DecisionResult: "identifier_attached",
+			DecisionState:  "approved",
+			PolicyVersion:  "phase1-identifier-v1",
 			CreatedAt:      time.Now().UTC(),
 		},
 	}, nil

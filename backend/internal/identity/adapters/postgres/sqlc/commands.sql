@@ -315,6 +315,47 @@ RETURNING
   reviewed_at,
   created_at;
 
+-- name: ApproveIdentityMatchCandidate :one
+UPDATE identity_match_candidates
+SET
+  state = 'approved',
+  reviewed_by = @reviewed_by,
+  reviewed_at = @reviewed_at,
+  decision_id = @decision_id,
+  row_version = row_version + 1
+WHERE tenant_id = @tenant_id
+  AND candidate_id = @candidate_id
+  AND state IN ('proposed', 'needs_review')
+  AND row_version = @row_version
+RETURNING
+  candidate_id::text AS candidate_id,
+  COALESCE(proposed_goat_id::text, '')::text AS proposed_goat_id,
+  COALESCE(candidate_goat_id::text, '')::text AS candidate_goat_id,
+  match_score::float8 AS match_score,
+  match_reasons,
+  state,
+  created_by,
+  row_version,
+  COALESCE(decision_id::text, '')::text AS decision_id,
+  reviewed_by,
+  reviewed_at,
+  created_at;
+
+-- name: GetLegacyImportRowForCandidate :one
+SELECT
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS normalized_old_tag,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition
+FROM legacy_import_rows
+WHERE tenant_id = @tenant_id AND legacy_row_id = @legacy_row_id;
+
+-- name: GetCandidateLegacyRowID :one
+SELECT COALESCE(legacy_row_id::text, '')::text AS legacy_row_id
+FROM identity_match_candidates
+WHERE tenant_id = @tenant_id AND candidate_id = @candidate_id;
+
 -- name: GuardGoatForIdentifierMutation :one
 UPDATE goats
 SET

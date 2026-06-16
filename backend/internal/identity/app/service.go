@@ -392,6 +392,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrInvalidCursor) {
 		return BadRequest("invalid_cursor", "cursor is not valid for this list endpoint")
 	}
+	if errors.Is(err, ports.ErrCannotExtractIdentifier) {
+		return BadRequest("cannot_extract_identifier", "the linked legacy row has no deterministic RFID to extract; supply an explicit identifier_action instead")
+	}
 	var appErr *Error
 	if errors.As(err, &appErr) {
 		return appErr

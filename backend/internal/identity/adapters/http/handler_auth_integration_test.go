@@ -52,7 +52,7 @@ func TestBearerAuthWiredThroughRealMuxAndHandler(t *testing.T) {
 	}
 }
 
-func TestBearerAuthRunsBeforeRealNotImplementedStub(t *testing.T) {
+func TestBearerAuthRunsBeforeApproveHandler(t *testing.T) {
 	handler := authWrappedIdentityMux(t, grantSourceForRoles(permissions.RoleVerifier))
 	path := "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve"
 
@@ -72,18 +72,24 @@ func TestBearerAuthRunsBeforeRealNotImplementedStub(t *testing.T) {
 		t.Fatalf("forbidden status=%d body=%s", forbiddenRec.Code, forbiddenRec.Body.String())
 	}
 
+	// Authorized request with no body passes auth and reaches the approve
+	// handler, which then rejects the empty body. This proves auth runs before
+	// the handler executes (approve is now implemented, not a 501 stub).
 	authorizedReq := httptest.NewRequest(http.MethodPost, path, nil)
 	authorizedReq.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
 	authorizedRec := httptest.NewRecorder()
 	handler.ServeHTTP(authorizedRec, authorizedReq)
-	if authorizedRec.Code != http.StatusNotImplemented {
+	if authorizedRec.Code != http.StatusBadRequest {
 		t.Fatalf("authorized status=%d body=%s", authorizedRec.Code, authorizedRec.Body.String())
 	}
 	var envelope domain.ErrorEnvelope
 	if err := json.Unmarshal(authorizedRec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if envelope.Code != "candidate_approve_not_implemented" {
+	// The handler ran (past auth) and rejected the request at write-header
+	// validation. The exact first failure for an empty authorized request is the
+	// missing Idempotency-Key; the point is it is a handler 400, not a 401/403.
+	if envelope.Code != "missing_idempotency_key" {
 		t.Fatalf("unexpected envelope: %#v", envelope)
 	}
 }

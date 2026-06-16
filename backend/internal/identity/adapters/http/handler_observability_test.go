@@ -86,6 +86,9 @@ func (r errRepo) ResolveConflict(context.Context, ports.ResolveConflictCommand) 
 func (r errRepo) RejectCandidate(context.Context, ports.RejectCandidateCommand) (*ports.RejectCandidateResult, error) {
 	return nil, r.err
 }
+func (r errRepo) ApproveCandidate(context.Context, ports.ApproveCandidateCommand) (*ports.ApproveCandidateResult, error) {
+	return nil, r.err
+}
 func (r errRepo) Ping(context.Context) error { return r.err }
 
 // newFakeService constructs an app.Service backed by a fake repo.

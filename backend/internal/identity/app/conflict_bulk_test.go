@@ -95,10 +95,10 @@ func TestBulkResolveConflictsRejectsOverLimitAndBadActor(t *testing.T) {
 func TestBulkResolveConflictsMapsRepoErrors(t *testing.T) {
 	body := `{"decision_type":"use_legacy_value","reason":"x","conflicts":[{"conflict_id":"` + bulkConflictID + `","row_version":1}]}`
 	cases := []struct {
-		name   string
+		name    string
 		repoErr error
-		status int
-		code   string
+		status  int
+		code    string
 	}{
 		{"not applicable", ports.ErrBulkDecisionNotApplicable, 400, "bulk_decision_not_applicable"},
 		{"breed not canonical", ports.ErrBulkBreedNotCanonical, 400, "legacy_breed_not_canonical"},

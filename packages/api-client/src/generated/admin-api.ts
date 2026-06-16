@@ -193,7 +193,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approve a candidate match path when policy allows it. */
+        /**
+         * Approve a candidate match by attaching an identifier or merging the candidate's goats.
+         * @description Applies a safe, non-create approve outcome. decision_type=attach_identifier attaches an explicit (or deterministically RFID-extracted) identifier to one of the candidate's goats; decision_type=merge_goats merges the candidate's two goats using the existing merge invariants. Minting a new goat (approve-to-create) is intentionally not supported here and stays blocked on the conflict create_goat contract.
+         */
         post: operations["approveIdentityCandidate"];
         delete?: never;
         options?: never;
@@ -765,12 +768,55 @@ export interface components {
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
         };
+        ApproveCandidateRequest: {
+            /**
+             * @description attach_identifier attaches an identifier to target_goat_id; merge_goats merges the candidate's goats. create_goat / approve-to-create is not a valid value and stays blocked on the conflict create_goat contract.
+             * @enum {string}
+             */
+            decision_type: "attach_identifier" | "merge_goats";
+            reason: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            /** @description Candidate row_version for optimistic concurrency. */
+            row_version: number;
+            /**
+             * Format: uuid
+             * @description attach_identifier only; must be one of the candidate's goats.
+             */
+            target_goat_id?: string | null;
+            /** @description attach_identifier only; target goat aggregate row_version guard. */
+            goat_row_version?: number | null;
+            /** @description attach_identifier explicit identifier; omit when extract_from_legacy_row is true. */
+            identifier_type?: components["schemas"]["IdentifierType"] | null;
+            identifier_value?: string | null;
+            /** @description Identifier scope (e.g. global for RFID, park:<code> for old_tag). */
+            scope_key?: string | null;
+            /** @default false */
+            is_primary_for_goat: boolean;
+            /**
+             * @description attach_identifier only; deterministically extract a global-scope RFID from the candidate's linked legacy row instead of supplying an explicit identifier.
+             * @default false
+             */
+            extract_from_legacy_row: boolean;
+            /**
+             * Format: uuid
+             * @description merge_goats only; the surviving goat, which must be one of the candidate's goats.
+             */
+            survivor_goat_id?: string | null;
+            /** @description merge_goats only; the goats being merged into the survivor. */
+            affected_goat_ids?: string[];
+            /** @description merge_goats only; optional loser identifier transfer/retire control. */
+            identifier_actions?: components["schemas"]["IdentifierAction"][];
+        };
         CandidateDecisionResponse: {
             /** Format: uuid */
             candidate_id: string;
             /** @enum {string} */
             state: "approved" | "rejected" | "needs_review";
             decision: components["schemas"]["DecisionRecordSummary"];
+            /** @description Present for an approve merge_goats outcome. */
+            merge?: components["schemas"]["MergeResult"] | null;
+            /** @description Identity events emitted by an approve that mutated identity. */
+            events?: components["schemas"]["EventSummary"][];
             idempotency: components["schemas"]["IdempotencyMeta"];
             trace_id: string;
         };
@@ -1422,7 +1468,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewCandidateRequest"];
+                "application/json": components["schemas"]["ApproveCandidateRequest"];
             };
         };
         responses: {

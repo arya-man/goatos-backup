@@ -350,6 +350,8 @@ type CandidateDecisionResponse struct {
 	Decision    DecisionRecordSummary `json:"decision"`
 	Idempotency IdempotencyMeta       `json:"idempotency"`
 	TraceID     string                `json:"trace_id"`
+	Merge       *MergeResult          `json:"merge,omitempty"`
+	Events      []EventSummary        `json:"events,omitempty"`
 }
 
 type ImportRunSummary struct {

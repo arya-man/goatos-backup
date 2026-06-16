@@ -11,6 +11,84 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const approveIdentityMatchCandidate = `-- name: ApproveIdentityMatchCandidate :one
+UPDATE identity_match_candidates
+SET
+  state = 'approved',
+  reviewed_by = $1,
+  reviewed_at = $2,
+  decision_id = $3,
+  row_version = row_version + 1
+WHERE tenant_id = $4
+  AND candidate_id = $5
+  AND state IN ('proposed', 'needs_review')
+  AND row_version = $6
+RETURNING
+  candidate_id::text AS candidate_id,
+  COALESCE(proposed_goat_id::text, '')::text AS proposed_goat_id,
+  COALESCE(candidate_goat_id::text, '')::text AS candidate_goat_id,
+  match_score::float8 AS match_score,
+  match_reasons,
+  state,
+  created_by,
+  row_version,
+  COALESCE(decision_id::text, '')::text AS decision_id,
+  reviewed_by,
+  reviewed_at,
+  created_at
+`
+
+type ApproveIdentityMatchCandidateParams struct {
+	ReviewedBy  pgtype.UUID
+	ReviewedAt  pgtype.Timestamptz
+	DecisionID  pgtype.UUID
+	TenantID    pgtype.UUID
+	CandidateID pgtype.UUID
+	RowVersion  int32
+}
+
+type ApproveIdentityMatchCandidateRow struct {
+	CandidateID     string
+	ProposedGoatID  string
+	CandidateGoatID string
+	MatchScore      float64
+	MatchReasons    []byte
+	State           string
+	CreatedBy       string
+	RowVersion      int32
+	DecisionID      string
+	ReviewedBy      pgtype.UUID
+	ReviewedAt      pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) ApproveIdentityMatchCandidate(ctx context.Context, arg ApproveIdentityMatchCandidateParams) (ApproveIdentityMatchCandidateRow, error) {
+	row := q.db.QueryRow(ctx, approveIdentityMatchCandidate,
+		arg.ReviewedBy,
+		arg.ReviewedAt,
+		arg.DecisionID,
+		arg.TenantID,
+		arg.CandidateID,
+		arg.RowVersion,
+	)
+	var i ApproveIdentityMatchCandidateRow
+	err := row.Scan(
+		&i.CandidateID,
+		&i.ProposedGoatID,
+		&i.CandidateGoatID,
+		&i.MatchScore,
+		&i.MatchReasons,
+		&i.State,
+		&i.CreatedBy,
+		&i.RowVersion,
+		&i.DecisionID,
+		&i.ReviewedBy,
+		&i.ReviewedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const completeIdempotencyKey = `-- name: CompleteIdempotencyKey :exec
 UPDATE idempotency_keys
 SET
@@ -205,6 +283,24 @@ func (q *Queries) GetCandidateForReview(ctx context.Context, arg GetCandidateFor
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getCandidateLegacyRowID = `-- name: GetCandidateLegacyRowID :one
+SELECT COALESCE(legacy_row_id::text, '')::text AS legacy_row_id
+FROM identity_match_candidates
+WHERE tenant_id = $1 AND candidate_id = $2
+`
+
+type GetCandidateLegacyRowIDParams struct {
+	TenantID    pgtype.UUID
+	CandidateID pgtype.UUID
+}
+
+func (q *Queries) GetCandidateLegacyRowID(ctx context.Context, arg GetCandidateLegacyRowIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, getCandidateLegacyRowID, arg.TenantID, arg.CandidateID)
+	var legacy_row_id string
+	err := row.Scan(&legacy_row_id)
+	return legacy_row_id, err
 }
 
 const getConflictForResolve = `-- name: GetConflictForResolve :one
@@ -736,6 +832,43 @@ func (q *Queries) GetIdentifierPolicy(ctx context.Context, arg GetIdentifierPoli
 	row := q.db.QueryRow(ctx, getIdentifierPolicy, arg.PolicyVersion, arg.IdentifierType)
 	var i GetIdentifierPolicyRow
 	err := row.Scan(&i.NormalizerVersion, &i.PrimaryAllowed)
+	return i, err
+}
+
+const getLegacyImportRowForCandidate = `-- name: GetLegacyImportRowForCandidate :one
+SELECT
+  COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
+  COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS normalized_old_tag,
+  COALESCE(normalized_payload->>'farm', '')::text AS farm,
+  COALESCE(normalized_payload->>'shed', '')::text AS shed,
+  COALESCE(normalized_payload->>'partition', '')::text AS partition
+FROM legacy_import_rows
+WHERE tenant_id = $1 AND legacy_row_id = $2
+`
+
+type GetLegacyImportRowForCandidateParams struct {
+	TenantID    pgtype.UUID
+	LegacyRowID pgtype.UUID
+}
+
+type GetLegacyImportRowForCandidateRow struct {
+	Rfid             string
+	NormalizedOldTag string
+	Farm             string
+	Shed             string
+	Partition        string
+}
+
+func (q *Queries) GetLegacyImportRowForCandidate(ctx context.Context, arg GetLegacyImportRowForCandidateParams) (GetLegacyImportRowForCandidateRow, error) {
+	row := q.db.QueryRow(ctx, getLegacyImportRowForCandidate, arg.TenantID, arg.LegacyRowID)
+	var i GetLegacyImportRowForCandidateRow
+	err := row.Scan(
+		&i.Rfid,
+		&i.NormalizedOldTag,
+		&i.Farm,
+		&i.Shed,
+		&i.Partition,
+	)
 	return i, err
 }
 

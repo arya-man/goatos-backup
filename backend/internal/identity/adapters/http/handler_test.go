@@ -781,16 +781,32 @@ func TestRejectCandidateReturnsDecisionAndReplay(t *testing.T) {
 	}
 }
 
-func TestApproveCandidateRemainsNotImplemented(t *testing.T) {
-	rec := postApproveCandidate(t, "90000000-0000-4000-8000-000000000001", "idem-candidate-approve-0001", validRejectCandidateBody())
-	if rec.Code != http.StatusNotImplemented {
+func TestApproveCandidateDispatchesAttach(t *testing.T) {
+	rec := postApproveCandidate(t, "90000000-0000-4000-8000-000000000001", "idem-candidate-approve-0001", validApproveCandidateAttachBody())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.CandidateDecisionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.State != "approved" || response.Decision.DecisionType != "attach_identifier" {
+		t.Fatalf("unexpected approve response: %#v", response)
+	}
+}
+
+func TestApproveCandidateRejectsUnsupportedDecisionType(t *testing.T) {
+	// approve-to-create stays blocked: only attach_identifier and merge_goats are accepted.
+	body := `{"decision_type":"create_goat","reason":"x","evidence_refs":[{"evidence_type":"source_record","evidence_id":"r1"}],"row_version":1}`
+	rec := postApproveCandidate(t, "90000000-0000-4000-8000-000000000001", "idem-candidate-approve-bad-0001", body)
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var envelope domain.ErrorEnvelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if envelope.Code != "candidate_approve_not_implemented" {
+	if envelope.Code != "invalid_decision_type" {
 		t.Fatalf("unexpected envelope: %#v", envelope)
 	}
 }
@@ -1106,6 +1122,10 @@ func validRejectCandidateBody() string {
 	return `{"reason":"synthetic candidate rejection reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-candidate-row-1","source_system":"synthetic_import"}],"row_version":1}`
 }
 
+func validApproveCandidateAttachBody() string {
+	return `{"decision_type":"attach_identifier","reason":"same goat, attach scanned RFID","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-candidate-row-1","source_system":"synthetic_import"}],"row_version":1,"target_goat_id":"10000000-0000-4000-8000-000000000001","goat_row_version":1,"identifier_type":"rfid","identifier_value":"RFID_APPROVE_0001"}`
+}
+
 type handlerRepo struct {
 	correctionResult       *ports.CreateCorrectionRequestResult
 	resolveResult          *ports.ResolveCorrectionRequestResult
@@ -1113,6 +1133,7 @@ type handlerRepo struct {
 	retireIdentifierResult *ports.AdminGoatMutationResult
 	resolveConflictResult  *ports.ResolveConflictResult
 	rejectCandidateResult  *ports.RejectCandidateResult
+	approveCandidateResult *ports.ApproveCandidateResult
 	searchParams           *ports.SearchGoatsParams
 }
 
@@ -1285,6 +1306,24 @@ func (h handlerRepo) RejectCandidate(_ context.Context, cmd ports.RejectCandidat
 			PolicyVersion:  "phase1-manual-correction-review-v1",
 			CreatedAt:      time.Now().UTC(),
 		},
+	}, nil
+}
+
+func (h handlerRepo) ApproveCandidate(_ context.Context, cmd ports.ApproveCandidateCommand) (*ports.ApproveCandidateResult, error) {
+	if h.approveCandidateResult != nil {
+		return h.approveCandidateResult, nil
+	}
+	return &ports.ApproveCandidateResult{
+		Candidate: candidateResponseFixture(cmd.CandidateID, "approved", cmd.RowVersion+1),
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000401",
+			DecisionType:   cmd.DecisionType,
+			DecisionResult: "identifier_attached",
+			DecisionState:  "approved",
+			PolicyVersion:  "phase1-identifier-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000401", EventType: "goat.identifier.added"}},
 	}, nil
 }
 
