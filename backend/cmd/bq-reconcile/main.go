@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/legacy_import/bqreconcile"
+	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -60,6 +61,22 @@ func run(args []string) error {
 	defer cancel()
 
 	cfg := platformpg.ConfigFromEnv()
+
+	// The candidate backfill creates passports but does NOT emit
+	// goat_identity_events / outbox rows, so event-driven counter freshness and
+	// analytics egress cannot see these goats. Gate --execute to a local/dev
+	// LOCAL database (same guard as rebuild-identity-counters) BEFORE connecting,
+	// so we never even open a non-local target. Promotion beyond local/dev needs
+	// a production-safe capture + counter-sync path first.
+	if strings.TrimSpace(candidatesCSV) != "" && execute {
+		if err := localtarget.ValidateLocalDatabaseTarget(
+			"bq-reconcile --backfill-candidates-csv --execute",
+			os.Getenv("GOATOS_ENV"), cfg.DatabaseURL, "local", "dev",
+		); err != nil {
+			return err
+		}
+	}
+
 	pool, err := platformpg.Connect(ctx, cfg)
 	if err != nil {
 		return err
@@ -79,7 +96,8 @@ func run(args []string) error {
 	}
 
 	// Deterministic explicit old-tag passport backfill is a distinct, fail-closed
-	// path. It is mutually exclusive with the event-history reconcile path.
+	// path (env/local-DB gated above). It is mutually exclusive with the
+	// event-history reconcile path.
 	if strings.TrimSpace(candidatesCSV) != "" {
 		result, err := bqreconcile.RunCandidateBackfill(ctx, pool, opts)
 		if err != nil {
@@ -91,9 +109,9 @@ func run(args []string) error {
 		}
 		fmt.Println(string(out))
 		if execute {
-			fmt.Fprintln(os.Stderr, "Old-tag passport backfill applied. Rebuild identity counters before trusting dashboard counts.")
+			fmt.Fprintln(os.Stderr, "Old-tag passport backfill applied (local/dev only). It bypasses the goat_identity_events stream, so run rebuild-identity-counters (NOT the incremental updater) before trusting dashboard counts.")
 		} else {
-			fmt.Fprintln(os.Stderr, "dry-run only; rerun with --execute to apply. Rebuild identity counters after execute.")
+			fmt.Fprintln(os.Stderr, "dry-run only; rerun with --execute (local/dev) to apply, then run rebuild-identity-counters.")
 		}
 		return nil
 	}

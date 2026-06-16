@@ -392,8 +392,17 @@ Rules:
   partial-unique `(identifier_type, normalized_value, scope_key) WHERE
   status='active'` index is the backstop, so replay creates zero goats. It never
   updates existing goats and skips (and exports) ambiguous, duplicate,
-  already-present, scope-mismatched, or unsupported-status rows.
-  `rebuild-identity-counters` is required afterward.
+  already-present, scope-mismatched, unsupported-status, or `unknown_park`/
+  `unknown_shed_parent` rows (a farm with no active park location fails closed
+  rather than creating a location-less passport).
+  `--execute` is gated to a local/dev LOCAL database
+  (`localtarget.ValidateLocalDatabaseTarget`, same guard as
+  `rebuild-identity-counters`) because this path does NOT emit
+  `goat_identity_events`/outbox rows — so event-driven counter freshness and
+  analytics egress cannot see these goats. After execute, run
+  `rebuild-identity-counters` (the full table rebuild), NOT the incremental
+  `update-identity-counters` updater. Promoting this path beyond local/dev
+  requires a production-safe capture + counter-sync design first.
   The RFID
   workbook parser/normalizer is retained as a legacy parser/regression harness
   and accepts the Shape-2 source headers:

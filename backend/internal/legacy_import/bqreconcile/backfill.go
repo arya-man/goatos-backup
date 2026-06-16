@@ -409,6 +409,24 @@ func attachLocations(rows []BackfillPlanRow, parks map[string]string, sheds map[
 				}
 			}
 		}
+		if parkID == "" {
+			// Fail closed: a park-scoped old tag whose farm/park is not a known
+			// active location cannot be placed deterministically and would
+			// pollute tenant totals while staying invisible to park/shed
+			// counters. Skip and export instead of creating a location-less goat.
+			reason := "unknown_park"
+			detail := fmt.Sprintf("farm %q has no active park location", rows[i].Farm)
+			if shedID != "" {
+				reason = "unknown_shed_parent"
+				detail = fmt.Sprintf("shed %q resolved but has no parent park", rows[i].LastShed)
+			}
+			rows[i].Action = "skip"
+			rows[i].SkipReason = reason
+			rows[i].Detail = detail
+			rows[i].Lifecycle = ""
+			rows[i].IdentityState = ""
+			continue
+		}
 		rows[i].ParkID = parkID
 		rows[i].ShedID = shedID
 		switch {

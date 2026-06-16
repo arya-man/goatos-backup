@@ -133,8 +133,14 @@ Completed so far:
   `inactive->inactive`), sets breed/sex/park/shed only from deterministic
   candidate fields, writes `goat.old_tag_backfill_created` audit rows, never
   updates existing goats, and is idempotent on replay (the partial-unique active
-  old_tag index is the backstop). It is dry-run by default and requires
-  `--execute` plus GOATOS_ENV.
+  old_tag index is the backstop). Rows whose farm has no active park location
+  fail closed (`unknown_park`) rather than creating a location-less passport. It
+  is dry-run by default; `--execute` is gated to a local/dev local database
+  (same guard as `rebuild-identity-counters`) because it bypasses the
+  `goat_identity_events` stream — so event-driven counter freshness/analytics
+  egress can't see these goats. Run the full `rebuild-identity-counters` (not the
+  incremental updater) afterward; promotion beyond local/dev needs a
+  production-safe capture + counter-sync path first.
   BQ dashboard shed
   taxonomy is now seeded under the existing CBE/CPT park locations so matched
   goats can carry specific shed current locations without breaking old-tag

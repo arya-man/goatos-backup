@@ -49,10 +49,10 @@ func TestPlanBackfillDecisions(t *testing.T) {
 		candidate("bq_current_latest", "CBE", "park:CBE", "1", "Malai", "Male", "Active"),
 		candidate("bq_current_latest", "CPT", "park:CPT", "101", "Malai", "Female", "Sold"),
 		candidate("census", "CPT", "park:CPT", "999", "Beetal", "Male", "Inactive"),
-		candidate("bq_current_latest", "CBE", "park:CBE", "200", "Malai", "Male", "Active"), // already present
+		candidate("bq_current_latest", "CBE", "park:CBE", "200", "Malai", "Male", "Active"),  // already present
 		candidate("bq_current_latest", "CBE", "wrong:CBE", "300", "Malai", "Male", "Active"), // scope mismatch
-		candidate("bq_current_latest", "CBE", "park:CBE", "", "Malai", "Male", "Active"),      // missing identity
-		candidate("bq_current_latest", "CBE", "park:CBE", "400", "Malai", "Male", "Dead"),     // unsupported status
+		candidate("bq_current_latest", "CBE", "park:CBE", "", "Malai", "Male", "Active"),     // missing identity
+		candidate("bq_current_latest", "CBE", "park:CBE", "400", "Malai", "Male", "Dead"),    // unsupported status
 	}
 	for i := range candidates {
 		candidates[i].RowNumber = i + 2
@@ -127,6 +127,27 @@ func TestPlanBackfillDuplicateHandling(t *testing.T) {
 		if r.Action != "skip" || r.SkipReason != "ambiguous_duplicate" {
 			t.Errorf("conflicting dup old_tag %q => action=%q reason=%q, want skip/ambiguous_duplicate", r.OldTag, r.Action, r.SkipReason)
 		}
+	}
+}
+
+func TestAttachLocationsUnknownParkFailsClosed(t *testing.T) {
+	rows := []BackfillPlanRow{
+		{OldTag: "1", Farm: "CBE", Action: "create", Lifecycle: "alive", IdentityState: "clean"},
+		{OldTag: "2", Farm: "ZZZ", Action: "create", Lifecycle: "alive", IdentityState: "clean"},
+		{OldTag: "3", Farm: "CBE", Action: "create", Lifecycle: "alive", IdentityState: "clean", LastShed: "Godel 2 - Part 3"},
+	}
+	parks := map[string]string{"CBE": "park-cbe-id"}
+	sheds := map[string]LocationTarget{"CBE:GODEL 2 - PART 3": {LocationID: "shed-id", ParentLocationID: "park-cbe-id"}}
+	attachLocations(rows, parks, sheds)
+
+	if rows[0].Action != "create" || rows[0].ParkID != "park-cbe-id" || rows[0].CurrentLocID != "park-cbe-id" {
+		t.Errorf("park-only create wrong: action=%q park=%q current=%q", rows[0].Action, rows[0].ParkID, rows[0].CurrentLocID)
+	}
+	if rows[1].Action != "skip" || rows[1].SkipReason != "unknown_park" || rows[1].Lifecycle != "" {
+		t.Errorf("unknown park must fail closed: action=%q reason=%q lifecycle=%q", rows[1].Action, rows[1].SkipReason, rows[1].Lifecycle)
+	}
+	if rows[2].Action != "create" || rows[2].ShedID != "shed-id" || rows[2].ParkID != "park-cbe-id" || rows[2].CurrentLocID != "shed-id" {
+		t.Errorf("shed-resolved create wrong: action=%q shed=%q park=%q current=%q", rows[2].Action, rows[2].ShedID, rows[2].ParkID, rows[2].CurrentLocID)
 	}
 }
 
