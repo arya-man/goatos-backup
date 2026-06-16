@@ -17,6 +17,7 @@ import {
   RowsPerPageSelect,
   ValueList,
 } from "@/components/admin-primitives";
+import { CollapsiblePanel } from "@/components/collapsible-panel";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { DialogModal } from "@/components/dialog-modal";
 import { dateTime, dash, shortId } from "@/lib/format";
@@ -168,7 +169,12 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           )}
         </Panel>
 
-        <Panel title="Match Candidates" description="Records that might be the SAME goat (a possible duplicate). Confirm a match or reject it. Empty means none are suspected right now.">
+        <CollapsiblePanel
+          title="Match Candidates"
+          description="Records that might be the SAME goat (a possible duplicate). Confirm a match or reject it. Empty means none are suspected right now."
+          defaultOpen={candidates.ok && candidates.data.items.length > 0}
+          count={candidates.ok ? candidates.data.items.length : undefined}
+        >
           {!candidates.ok ? (
             <ErrorPanel error={candidates.error} />
           ) : candidates.data.items.length === 0 ? (
@@ -220,7 +226,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
               />
             </div>
           )}
-        </Panel>
+        </CollapsiblePanel>
       </div>
 
       <div className="mt-5">
