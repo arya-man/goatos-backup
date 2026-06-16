@@ -71,7 +71,8 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
   const conflictPage = boundedInt(one(searchParams, "conflict_page"), 1, 1, 1000000);
   const candidatePage = boundedInt(one(searchParams, "candidate_page"), 1, 1, 1000000);
   const correctionPage = boundedInt(one(searchParams, "correction_page"), 1, 1, 1000000);
-  const state = normalizeState(one(searchParams, "state"));
+  const stateParam = one(searchParams, "state");
+  const state = stateParam === undefined ? "open" : normalizeState(stateParam);
   const correctionState = normalizeCorrectionState(one(searchParams, "correction_state"));
   const conflictType = normalizeConflictType(one(searchParams, "conflict_type"));
   const reviewGroup = normalizeReviewGroup(one(searchParams, "review_group"));
@@ -103,11 +104,6 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
     redirect("/login");
   }
 
-  // Hide the Match Candidates panel while it is empty (no duplicate proposer
-  // runs yet), so Identity Conflicts uses the full row instead of leaving a
-  // dead column. Errors still render so the operator sees a failed load.
-  const hideCandidates = candidates.ok && candidates.data.items.length === 0;
-
   return (
     <>
       <PageHeader
@@ -128,7 +124,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
       <DialogModal open={Boolean(conflictId)} closeHref={withoutConflictSelection(returnTo)} label="Conflict workbench">
         <ConflictResolver detail={detail} conflictId={conflictId} returnTo={returnTo} closeHref={withoutConflictSelection(returnTo)} />
       </DialogModal>
-      <div className={hideCandidates ? "grid gap-5" : "grid gap-5 xl:grid-cols-[1.05fr_0.95fr]"}>
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <Panel title="Identity Conflicts" description="Legacy-versus-passport disagreements grouped for audited review decisions.">
           <form className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" action="/data-quality">
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
@@ -146,12 +142,14 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           ) : (
             <div className="space-y-3">
               <ConflictBulkReview
+                key={conflicts.data.items.map((conflict) => `${conflict.conflict_id}:${conflict.row_version}`).join("|")}
                 rows={conflicts.data.items.map((conflict): BulkReviewRow => ({
                   conflictId: conflict.conflict_id,
                   rowVersion: conflict.row_version,
                   conflictTypeLabel: formatLabel(conflict.conflict_type),
                   identifierLabel: conflictIdentifierText(conflict.identifier),
                   reviewGroup: conflict.review_group,
+                  state: conflict.state,
                   stateLabel: formatLabel(conflict.state),
                   goatCount: conflict.goat_count,
                   createdAtLabel: dateTime(conflict.created_at),
@@ -170,7 +168,6 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
           )}
         </Panel>
 
-        {hideCandidates ? null : (
         <Panel title="Match Candidates" description="Records that might be the SAME goat (a possible duplicate). Confirm a match or reject it. Empty means none are suspected right now.">
           {!candidates.ok ? (
             <ErrorPanel error={candidates.error} />
@@ -224,7 +221,6 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
             </div>
           )}
         </Panel>
-        )}
       </div>
 
       <div className="mt-5">

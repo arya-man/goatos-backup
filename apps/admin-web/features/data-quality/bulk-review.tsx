@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { CheckSquare, ExternalLink, Info, X } from "lucide-react";
+import type { AdminApiComponents } from "@goatos/api-client";
 import { bulkResolveConflictsAction } from "./actions";
 import {
   bulkDecisions,
@@ -12,12 +13,15 @@ import {
   type ReviewGroup,
 } from "./review-groups";
 
+type ConflictState = AdminApiComponents["schemas"]["ConflictState"];
+
 export type BulkReviewRow = {
   conflictId: string;
   rowVersion: number;
   conflictTypeLabel: string;
   identifierLabel: string;
   reviewGroup: ReviewGroup;
+  state: ConflictState;
   stateLabel: string;
   goatCount: number;
   createdAtLabel: string;
@@ -31,10 +35,11 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<BulkDecisionType | null>(null);
 
-  const selectedIds = useMemo(() => Object.keys(selected), [selected]);
+  const selectableRows = useMemo(() => rows.filter((row) => isActionableConflictState(row.state)), [rows]);
+  const selectableIds = useMemo(() => selectableRows.map((row) => row.conflictId), [selectableRows]);
+  const selectedIds = useMemo(() => selectableIds.filter((id) => id in selected), [selectableIds, selected]);
   const selectedCount = selectedIds.length;
-  const visibleIds = useMemo(() => rows.map((row) => row.conflictId), [rows]);
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => id in selected);
+  const allVisibleSelected = selectableIds.length > 0 && selectableIds.every((id) => id in selected);
 
   const selectedGroups = useMemo<ReviewGroup[]>(() => {
     const byId = new Map(rows.map((row) => [row.conflictId, row.reviewGroup]));
@@ -56,6 +61,7 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
   const overLimit = selectedCount > MAX_BULK;
 
   function toggleRow(row: BulkReviewRow, checked: boolean) {
+    if (!isActionableConflictState(row.state)) return;
     setPending(null);
     setSelected((current) => {
       const next = { ...current };
@@ -69,7 +75,7 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
     setPending(null);
     setSelected((current) => {
       const next = { ...current };
-      for (const row of rows) {
+      for (const row of selectableRows) {
         if (checked) next[row.conflictId] = row.rowVersion;
         else delete next[row.conflictId];
       }
@@ -200,6 +206,7 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
                   <input
                     type="checkbox"
                     aria-label="Select all visible"
+                    disabled={selectableIds.length === 0}
                     checked={allVisibleSelected}
                     onChange={(event) => toggleAllVisible(event.target.checked)}
                     className="h-4 w-4 accent-[#14f1d9]"
@@ -217,17 +224,19 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
           </thead>
           <tbody>
             {rows.map((row) => {
-              const isSelected = row.conflictId in selected;
+              const actionable = isActionableConflictState(row.state);
+              const isSelected = actionable && row.conflictId in selected;
               return (
                 <tr
                   key={row.conflictId}
-                  className={`border-b border-[#1c2530] ${isSelected ? "bg-[#0f1b1d]" : "bg-[#0d1117] hover:bg-[#111923]"}`}
+                  className={`border-b border-[#1c2530] ${isSelected ? "bg-[#0f1b1d]" : "bg-[#0d1117] hover:bg-[#111923]"} ${actionable ? "" : "opacity-70"}`}
                 >
                   <td className="p-0 align-top">
-                    <label className="flex h-10 w-12 cursor-pointer items-center justify-center">
+                    <label className={`flex h-10 w-12 items-center justify-center ${actionable ? "cursor-pointer" : "cursor-not-allowed"}`}>
                       <input
                         type="checkbox"
-                        aria-label={`Select ${row.conflictTypeLabel}`}
+                        aria-label={actionable ? `Select ${row.conflictTypeLabel}` : `${row.stateLabel} conflicts cannot be bulk selected`}
+                        disabled={!actionable}
                         checked={isSelected}
                         onChange={(event) => toggleRow(row, event.target.checked)}
                         className="h-4 w-4 accent-[#14f1d9]"
@@ -259,4 +268,8 @@ export function ConflictBulkReview({ rows, returnTo }: { rows: BulkReviewRow[]; 
       </p>
     </div>
   );
+}
+
+function isActionableConflictState(state: ConflictState): boolean {
+  return state === "open" || state === "needs_field_check";
 }
