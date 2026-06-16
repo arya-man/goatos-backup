@@ -262,6 +262,19 @@ func (s *Service) ListConflicts(ctx context.Context, params ports.ListConflictsP
 	return &domain.ConflictListResult{Items: items, NextCursor: next, TraceID: traceID}, nil
 }
 
+// ReviewSummary returns the open-conflict and actionable-candidate totals that
+// power the dashboard cards (true counts, not first-page previews).
+func (s *Service) ReviewSummary(ctx context.Context, tenantID, traceID string) (*domain.ReviewSummaryResult, error) {
+	if err := requireTenant(tenantID); err != nil {
+		return nil, err
+	}
+	openConflicts, openCandidates, err := s.repo.CountReviewQueues(ctx, tenantID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &domain.ReviewSummaryResult{OpenConflicts: openConflicts, OpenCandidates: openCandidates, TraceID: traceID}, nil
+}
+
 func (s *Service) GetConflict(ctx context.Context, tenantID, conflictID, traceID string) (*domain.ConflictDetailResult, error) {
 	if err := requireTenant(tenantID); err != nil {
 		return nil, err

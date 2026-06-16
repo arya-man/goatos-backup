@@ -670,6 +670,10 @@ func (f *fakeRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]
 	return nil, nil, nil
 }
 
+func (f *fakeRepo) CountReviewQueues(context.Context, string) (int, int, error) {
+	return 0, 0, nil
+}
+
 func (f *fakeRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
 	return nil, ports.ErrNotFound
 }

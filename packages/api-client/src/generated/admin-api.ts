@@ -79,6 +79,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/identity/review-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open-queue totals (conflicts + candidates) for dashboard cards. */
+        get: operations["getReviewSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/identity/conflicts": {
         parameters: {
             query?: never;
@@ -473,6 +490,13 @@ export interface components {
             identifier_type: components["schemas"]["IdentifierType"];
             identifier_value: string;
             scope_key: string;
+        };
+        ReviewSummaryResponse: {
+            /** @description Total conflicts in state 'open' for the tenant. */
+            open_conflicts: number;
+            /** @description Total match candidates in state 'proposed' or 'needs_review'. */
+            open_candidates: number;
+            trace_id: string;
         };
         ConflictListResponse: {
             items: components["schemas"]["ConflictSummary"][];
@@ -893,6 +917,28 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    getReviewSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Open review-queue totals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSummaryResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listIdentityConflicts: {

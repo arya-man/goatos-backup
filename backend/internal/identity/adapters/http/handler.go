@@ -39,6 +39,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /identity/correction-requests", h.ListCorrectionRequests)
 	mux.HandleFunc("POST /identity/correction-requests", h.CreateCorrectionRequest)
 
+	mux.HandleFunc("GET /admin/identity/review-summary", h.ReviewSummary)
 	mux.HandleFunc("GET /admin/identity/conflicts", h.ListConflicts)
 	mux.HandleFunc("GET /admin/identity/conflicts/{conflict_id}", h.GetConflict)
 	mux.HandleFunc("POST /admin/identity/conflicts/{conflict_id}/resolve", h.ResolveConflict)
@@ -115,6 +116,11 @@ func (h *Handler) GetGoatTimeline(w http.ResponseWriter, r *http.Request) {
 		Limit:    limit,
 		Cursor:   optionalQuery(q.Get("cursor")),
 	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) ReviewSummary(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.ReviewSummary(r.Context(), tenantID(r), traceID(r))
 	h.respond(w, r, result, err)
 }
 

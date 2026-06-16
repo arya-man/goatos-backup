@@ -178,6 +178,23 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/identity/review-summary:
+    get:
+      tags:
+        - Identity Conflicts
+      operationId: getReviewSummary
+      summary: Open-queue totals (conflicts + candidates) for dashboard cards.
+      responses:
+        "200":
+          description: Open review-queue totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewSummaryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /admin/identity/conflicts:
     get:
       tags:
@@ -1311,6 +1328,24 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+    ReviewSummaryResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - open_conflicts
+        - open_candidates
+        - trace_id
+      properties:
+        open_conflicts:
+          type: integer
+          minimum: 0
+          description: Total conflicts in state 'open' for the tenant.
+        open_candidates:
+          type: integer
+          minimum: 0
+          description: Total match candidates in state 'proposed' or 'needs_review'.
+        trace_id:
+          type: string
     ConflictListResponse:
       type: object
       additionalProperties: false

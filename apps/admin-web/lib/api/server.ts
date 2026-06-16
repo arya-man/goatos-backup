@@ -27,6 +27,7 @@ export type CreateCorrectionRequestBody = AppApiComponents["schemas"]["CreateCor
 export type CounterGrain = AnalyticsApiComponents["schemas"]["CounterGrain"];
 export type IdentityCountsResponse = AnalyticsApiComponents["schemas"]["IdentityCountsResponse"];
 
+export type ReviewSummaryResponse = AdminApiComponents["schemas"]["ReviewSummaryResponse"];
 export type ConflictListResponse = AdminApiComponents["schemas"]["ConflictListResponse"];
 export type ConflictDetailResponse = AdminApiComponents["schemas"]["ConflictDetailResponse"];
 export type ResolveConflictRequestBody = AdminApiComponents["schemas"]["ResolveConflictRequest"];
@@ -269,6 +270,18 @@ export async function getIdentityCounts(params: CountSearchParams): Promise<ApiR
       cache: "no-store",
       query: compactQuery({ ...params, tenant_id: config.data.tenantId }),
     }),
+  );
+}
+
+export async function getReviewSummary(): Promise<ApiResult<ReviewSummaryResponse>> {
+  const config = getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient({
+    baseUrl: config.data.baseUrl,
+    bearerToken: config.data.bearerToken,
+  });
+  return request(() =>
+    client.request<ReviewSummaryResponse>("/admin/identity/review-summary", { cache: "no-store" }),
   );
 }
 

@@ -48,11 +48,6 @@ func run(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if execute {
-		if err := validateExecuteEnv(os.Getenv("GOATOS_ENV")); err != nil {
-			return err
-		}
-	}
 	if strings.TrimSpace(traceID) == "" {
 		traceID = "bq-reconcile:" + time.Now().UTC().Format("20060102T150405Z")
 	}
@@ -62,16 +57,20 @@ func run(args []string) error {
 
 	cfg := platformpg.ConfigFromEnv()
 
-	// The candidate backfill creates passports but does NOT emit
-	// goat_identity_events / outbox rows, so event-driven counter freshness and
-	// analytics egress cannot see these goats. Gate --execute to a local/dev
-	// LOCAL database (same guard as rebuild-identity-counters) BEFORE connecting,
-	// so we never even open a non-local target. Promotion beyond local/dev needs
-	// a production-safe capture + counter-sync path first.
-	if strings.TrimSpace(candidatesCSV) != "" && execute {
+	// Gate EVERY --execute path (event-history reconcile AND candidate backfill)
+	// to a local/dev LOCAL database, BEFORE connecting. Both mutate `goats`, and
+	// the only counter-refresh tool (rebuild-identity-counters) is itself
+	// local/dev-only, so allowing stg/prod here would leave dashboard counters
+	// stale with no committed rebuild path. The candidate backfill additionally
+	// emits no goat_identity_events/outbox rows. Promotion beyond local/dev needs
+	// a production-safe counter refresh (and event egress) first.
+	if execute {
+		cmdLabel := "bq-reconcile --execute"
+		if strings.TrimSpace(candidatesCSV) != "" {
+			cmdLabel = "bq-reconcile --backfill-candidates-csv --execute"
+		}
 		if err := localtarget.ValidateLocalDatabaseTarget(
-			"bq-reconcile --backfill-candidates-csv --execute",
-			os.Getenv("GOATOS_ENV"), cfg.DatabaseURL, "local", "dev",
+			cmdLabel, os.Getenv("GOATOS_ENV"), cfg.DatabaseURL, "local", "dev",
 		); err != nil {
 			return err
 		}
@@ -131,13 +130,4 @@ func run(args []string) error {
 		fmt.Fprintln(os.Stderr, "dry-run only; rerun with --execute to apply. Rebuild identity counters after execute.")
 	}
 	return nil
-}
-
-func validateExecuteEnv(env string) error {
-	switch strings.ToLower(strings.TrimSpace(env)) {
-	case "local", "dev", "stg", "stage", "prod", "production":
-		return nil
-	default:
-		return fmt.Errorf("GOATOS_ENV must be set to local/dev/stg/prod before --execute; got %q", env)
-	}
 }

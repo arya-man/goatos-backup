@@ -175,6 +175,13 @@ type ConflictListResult struct {
 	TraceID    string            `json:"trace_id"`
 }
 
+// ReviewSummaryResult holds dashboard-card totals for the open review queues.
+type ReviewSummaryResult struct {
+	OpenConflicts  int    `json:"open_conflicts"`
+	OpenCandidates int    `json:"open_candidates"`
+	TraceID        string `json:"trace_id"`
+}
+
 type CandidateSummary struct {
 	CandidateID     string    `json:"candidate_id"`
 	ProposedGoatID  *string   `json:"proposed_goat_id"`

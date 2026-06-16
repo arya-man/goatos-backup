@@ -23,6 +23,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getImportRun", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}", Permissions: []string{ImportRunView}},
 	{OperationID: "listImportRunRows", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}/rows", Permissions: []string{ImportRunView}},
 	{OperationID: "exportImportRunRowsCSV", Method: "GET", Pattern: "/admin/import-runs/{import_run_id}/rows.csv", Permissions: []string{ImportRunView}},
+	{OperationID: "getReviewSummary", Method: "GET", Pattern: "/admin/identity/review-summary", Permissions: []string{GoatViewDirtyData}},
 	{OperationID: "listIdentityConflicts", Method: "GET", Pattern: "/admin/identity/conflicts", Permissions: []string{GoatViewDirtyData}},
 	{OperationID: "getIdentityConflict", Method: "GET", Pattern: "/admin/identity/conflicts/{conflict_id}", Permissions: []string{GoatViewDirtyData}},
 	{OperationID: "listIdentityCandidates", Method: "GET", Pattern: "/admin/identity/candidates", Permissions: []string{GoatViewDirtyData}},

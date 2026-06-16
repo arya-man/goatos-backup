@@ -231,6 +231,9 @@ type Repository interface {
 	ListConflicts(ctx context.Context, params ListConflictsParams) ([]domain.ConflictSummary, *string, error)
 	GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error)
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]domain.CandidateSummary, *string, error)
+	// CountReviewQueues returns the total open-conflict and actionable-candidate
+	// counts for a tenant (dashboard cards). Indexed, bounded — not a herd scan.
+	CountReviewQueues(ctx context.Context, tenantID string) (openConflicts int, openCandidates int, err error)
 	GetImportRun(ctx context.Context, tenantID, importRunID string) (*domain.ImportRun, error)
 	ListImportRuns(ctx context.Context, params ListImportRunsParams) ([]domain.ImportRun, error)
 	ListImportRunRows(ctx context.Context, params ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error)

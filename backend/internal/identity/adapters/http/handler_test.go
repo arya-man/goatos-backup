@@ -17,6 +17,30 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
+func TestReviewSummaryReturnsTotals(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/identity/review-summary", nil)
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-Request-ID", "req-review")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if body["open_conflicts"] != float64(7) || body["open_candidates"] != float64(2) || body["trace_id"] != "req-review" {
+		t.Fatalf("unexpected review summary: %#v", body)
+	}
+}
+
 func TestGetGoatPassportContractShape(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
@@ -1083,6 +1107,10 @@ func (handlerRepo) FindOpenConflictForIdentifier(context.Context, string, string
 func (handlerRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]domain.ConflictSummary, *string, error) {
 	next := "eyJ2ZXJzaW9uIjoxLCJjcmVhdGVkX2F0Ijoic3ludGhldGljIiwiY29uZmxpY3RfaWQiOiJzeW50aGV0aWMifQ"
 	return []domain.ConflictSummary{conflictResponseFixture("20000000-0000-4000-8000-000000000001", 3)}, &next, nil
+}
+
+func (handlerRepo) CountReviewQueues(context.Context, string) (int, int, error) {
+	return 7, 2, nil
 }
 
 func (handlerRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {

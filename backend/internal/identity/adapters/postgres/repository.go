@@ -343,6 +343,33 @@ func (r *Repository) ListConflicts(ctx context.Context, params ports.ListConflic
 	return items, next, nil
 }
 
+// CountReviewQueues returns total open conflicts (state='open') and actionable
+// candidates (state in proposed/needs_review) for the tenant. Both use the
+// tenant+state queue indexes; bounded counts, not herd scans.
+func (r *Repository) CountReviewQueues(ctx context.Context, tenantID string) (int, int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	var openConflicts int
+	if err := r.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM identity_conflicts
+WHERE tenant_id = $1::uuid
+  AND state = 'open'`, tenantID).Scan(&openConflicts); err != nil {
+		return 0, 0, err
+	}
+
+	var openCandidates int
+	if err := r.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM identity_match_candidates
+WHERE tenant_id = $1::uuid
+  AND state IN ('proposed', 'needs_review')`, tenantID).Scan(&openCandidates); err != nil {
+		return 0, 0, err
+	}
+	return openConflicts, openCandidates, nil
+}
+
 func (r *Repository) GetConflict(ctx context.Context, tenantID, conflictID string) (*domain.ConflictDetailResult, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

@@ -8,27 +8,23 @@ import {
   getAdminRuntimeStatus,
   getIdentityCounts,
   getImportRun,
-  listCandidates,
+  getReviewSummary,
   listConflicts,
   listImportRuns,
   searchGoats,
 } from "@/lib/api/server";
 import { dash, shortId } from "@/lib/format";
 
-// Conflicts/candidates list endpoints return no total, so these cards show a
-// bounded first-page preview, not the full open-queue size.
-const PREVIEW_LIMIT = 5;
-
 export async function OverviewPage() {
   const runtime = getAdminRuntimeStatus();
-  const [counts, conflicts, candidates, herd, recentRuns] = await Promise.all([
+  const [counts, reviewSummary, conflicts, herd, recentRuns] = await Promise.all([
     getIdentityCounts({ grain: "tenant_lifecycle", limit: 20 }),
-    listConflicts({ limit: PREVIEW_LIMIT, state: "open" }),
-    listCandidates({ limit: PREVIEW_LIMIT }),
+    getReviewSummary(),
+    listConflicts({ limit: 5, state: "open" }),
     searchGoats({ limit: 5 }),
     runtime.importRunId ? Promise.resolve(null) : listImportRuns({ limit: 1 }),
   ]);
-  const authError = firstAuthRequiredError(counts, conflicts, candidates, herd, recentRuns);
+  const authError = firstAuthRequiredError(counts, reviewSummary, conflicts, herd, recentRuns);
   if (authError) {
     redirect("/login");
   }
@@ -42,8 +38,8 @@ export async function OverviewPage() {
 
   const activeGoats = counts.ok ? tenantLifecycleCount(counts.data.items, "alive") : null;
   const reviewRows = importRun?.ok ? importRun.data.import_run.summary.rows_needing_review : null;
-  const conflictsPreview = previewValue(conflicts.ok, conflicts.ok ? conflicts.data.items.length : 0);
-  const candidatesPreview = previewValue(candidates.ok, candidates.ok ? candidates.data.items.length : 0);
+  const openConflicts = reviewSummary.ok ? reviewSummary.data.open_conflicts : null;
+  const openCandidates = reviewSummary.ok ? reviewSummary.data.open_candidates : null;
 
   return (
     <>
@@ -66,18 +62,18 @@ export async function OverviewPage() {
         />
         <KPICard
           label="Open conflicts"
-          value={conflictsPreview}
-          subtitle="first-page preview · open Data Quality"
+          value={openConflicts === null ? "Not tracked" : openConflicts.toLocaleString("en-IN")}
+          subtitle="open · Data Quality"
           icon={<AlertTriangle size={18} />}
           delay={1}
-          variant={conflicts.ok && conflicts.data.items.length > 0 ? "amber" : "default"}
+          variant={openConflicts && openConflicts > 0 ? "amber" : "default"}
           href="/data-quality?state=open"
           navLabel="Open Data Quality conflicts"
         />
         <KPICard
           label="Match candidates"
-          value={candidatesPreview}
-          subtitle="first-page preview · open Data Quality"
+          value={openCandidates === null ? "Not tracked" : openCandidates.toLocaleString("en-IN")}
+          subtitle="actionable · Data Quality"
           icon={<FileSearch size={18} />}
           delay={2}
           href="/data-quality"
@@ -199,13 +195,6 @@ export async function OverviewPage() {
       </div>
     </>
   );
-}
-
-// previewValue shows the bounded first-page sample size; "N+" signals the
-// queue may hold more than the preview limit (these endpoints expose no total).
-function previewValue(ok: boolean, count: number): string {
-  if (!ok) return "Not tracked";
-  return count >= PREVIEW_LIMIT ? `${PREVIEW_LIMIT}+` : count.toLocaleString("en-IN");
 }
 
 function tenantLifecycleCount(items: Array<{ count_value: number; dimensions: { lifecycle_status?: string | null } }>, lifecycle: string): number | null {
