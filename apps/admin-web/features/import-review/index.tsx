@@ -1,4 +1,5 @@
 import { AlertTriangle, Download, FileWarning, History } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, ValueList } from "@/components/admin-primitives";
 import { dateTime, dash, shortId } from "@/lib/format";
@@ -138,7 +139,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
         <ErrorPanel error={summary.error} />
       ) : (
         <div className="space-y-5">
-          <Panel title="Import run summary" description="Reason buckets can overlap; counts by reason do not necessarily sum to rows needing review. Click a count to filter the rows below.">
+          <Panel title="Import run summary" description="Reason buckets can overlap; counts by reason do not necessarily sum to rows needing review. Use a summary count as a row-table filter.">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryStatLink
                 label="rows processed"
@@ -168,37 +169,20 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                 active={processingState === "error"}
               />
             </div>
-            <div className="mt-4">
-              <ValueList
-                values={[
-                  ["import run", <span key="run">Run {shortId(summary.data.import_run.import_run_id)} · <Mono>{summary.data.import_run.import_run_id}</Mono></span>],
-                  ["status", formatLabel(summary.data.import_run.status)],
-                  ["source", `${summary.data.import_run.source_system} · ${summary.data.import_run.source_dataset}`],
-                  ["policy", summary.data.import_run.policy_version],
-                  ["started", dateTime(summary.data.import_run.created_at)],
-                  ["completed", dateTime(summary.data.import_run.completed_at)],
-                  ["identifiers added", tracked(summary.data.import_run.summary.identifiers_added)],
-                  ["clean matches", tracked(summary.data.import_run.summary.clean_matches)],
-                  ["duplicates found", tracked(summary.data.import_run.summary.duplicates_found)],
-                  ["missing required fields", tracked(summary.data.import_run.summary.missing_required_fields)],
-                  ["conflicts opened", summary.data.import_run.summary.conflicts_opened],
-                ]}
-              />
-            </div>
           </Panel>
 
           <Panel
             action={
               processingState || reasonCode ? (
-                <a className="text-sm font-semibold text-[#14f1d9] hover:text-white" href={rowsFilterHref(importRunId)}>
-                  Clear filters
-                </a>
-              ) : null
+                  <Link className="text-sm font-semibold text-[#14f1d9] hover:text-white" href={rowsFilterHref(importRunId)} scroll={false}>
+                    Clear filters
+                  </Link>
+                ) : null
             }
             title="Review rows"
             description={rowsDescription(processingState, reasonCode)}
           >
-            <form id="review-rows" className="mb-4 scroll-mt-24 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action="/import-review">
+            <form className="mb-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action="/import-review">
               <input type="hidden" name="import_run_id" value={importRunId} />
               <Select name="processing_state" label="State" defaultValue={processingState ?? ""} options={rowStates} />
               <Select name="reason_code" label="Reason" defaultValue={reasonCode ?? ""} options={reasonOptions} />
@@ -263,6 +247,24 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
               </div>
             )}
           </Panel>
+
+          <Panel title="Import run details" description="Operational metadata for this import run. These values do not control the row filters above.">
+            <ValueList
+              values={[
+                ["import run", <span key="run">Run {shortId(summary.data.import_run.import_run_id)} · <Mono>{summary.data.import_run.import_run_id}</Mono></span>],
+                ["status", formatLabel(summary.data.import_run.status)],
+                ["source", `${summary.data.import_run.source_system} · ${summary.data.import_run.source_dataset}`],
+                ["policy", summary.data.import_run.policy_version],
+                ["started", dateTime(summary.data.import_run.created_at)],
+                ["completed", dateTime(summary.data.import_run.completed_at)],
+                ["identifiers added", tracked(summary.data.import_run.summary.identifiers_added)],
+                ["clean matches", tracked(summary.data.import_run.summary.clean_matches)],
+                ["duplicates found", tracked(summary.data.import_run.summary.duplicates_found)],
+                ["missing required fields", tracked(summary.data.import_run.summary.missing_required_fields)],
+                ["conflicts opened", summary.data.import_run.summary.conflicts_opened],
+              ]}
+            />
+          </Panel>
         </div>
       )}
     </>
@@ -292,24 +294,39 @@ function SummaryStatLink({
     warn: "border-[#a16207] text-[#facc15]",
   };
   const activeClass = active ? "bg-[#151d25] ring-1 ring-[#14f1d9]" : "bg-transparent hover:bg-[#151b22]";
-  const actionLabel = active ? "Showing below" : "View rows";
+  const actionLabel = active ? "Selected" : "Filter";
+  const className = `group block rounded-md border px-3 py-2.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14f1d9] ${tones[tone]} ${activeClass} ${
+    active ? "cursor-default" : "hover:-translate-y-0.5 hover:shadow-[0_0_0_1px_rgba(20,241,217,0.2)]"
+  }`;
+  const content = (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
+        <div className="mt-1 text-lg font-semibold">{value}</div>
+      </div>
+      <span className="mt-1 whitespace-nowrap rounded border border-current/30 px-2 py-1 text-xs font-semibold">
+        {actionLabel}
+      </span>
+    </div>
+  );
+
+  if (active) {
+    return (
+      <div className={className} aria-current="true">
+        {content}
+      </div>
+    );
+  }
 
   return (
-    <a
+    <Link
       href={href}
-      className={`group block rounded-md border px-3 py-2.5 transition hover:-translate-y-0.5 hover:shadow-[0_0_0_1px_rgba(20,241,217,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14f1d9] ${tones[tone]} ${activeClass}`}
+      scroll={false}
+      className={className}
       aria-label={`Filter review rows by ${label}; ${String(value)} rows`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs uppercase text-[#93a4b8]">{label}</div>
-          <div className="mt-1 text-lg font-semibold">{value}</div>
-        </div>
-        <span className="mt-1 whitespace-nowrap rounded border border-current/30 px-2 py-1 text-xs font-semibold">
-          {actionLabel}
-        </span>
-      </div>
-    </a>
+      {content}
+    </Link>
   );
 }
 
@@ -338,7 +355,7 @@ function rowsFilterHref(importRunId: string, filters: { processing_state?: Impor
   const params = new URLSearchParams({ import_run_id: importRunId });
   if (filters.processing_state) params.set("processing_state", filters.processing_state);
   if (filters.reason_code) params.set("reason_code", filters.reason_code);
-  return `/import-review?${params.toString()}#review-rows`;
+  return `/import-review?${params.toString()}`;
 }
 
 function rowsDescription(processingState?: ImportRowState, reasonCode?: string): string {

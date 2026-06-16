@@ -321,10 +321,11 @@ Provide `import_run_id` as a query parameter only to open a specific older run:
 The row table is keyset-paginated, supports `processing_state` and `reason_code`
 filters, and shows only whitelisted review fields. Nullable run metrics that are
 not tracked by Phase 1 import/apply are rendered as "Not tracked." The run
-summary counts are navigation controls: click rows processed, goats created,
-needs review, or errors to filter the row table for that run. Import-row
-review/fix actions are still deferred; defined identity/correction decisions
-live on Data Quality and Goat Passport.
+summary counts are row-table filters: choose rows processed, goats created,
+needs review, or errors to update the row table immediately below the summary.
+Run metadata is shown below the rows so it does not hide the review data.
+Import-row review/fix actions are still deferred; defined identity/correction
+decisions live on Data Quality and Goat Passport.
 
 The page also exposes server-side CSV downloads:
 
