@@ -41,6 +41,48 @@ IdP/JWKS provisioning, secrets, event egress to a real broker, and cloud deploy.
   - Pub/Sub (or chosen broker) event egress adapter + worker deploy,
   - cloud deploy/provisioning of `goatos-dev/stg/prod` under `vgoats.com`.
 
+## Closeout result (what actually shipped this pass)
+
+Committed backend/contract slices:
+
+- **A — candidate approve (attach/merge): implemented + tested.** `POST
+  /admin/identity/candidates/{id}/approve` now dispatches `attach_identifier`
+  (single tx reusing identifier-attach invariants; explicit or deterministic
+  RFID extraction; old-tag scope must be explicit) and `merge_goats` (single tx
+  reusing merge invariants, bound to the candidate's own goats). `create_goat`
+  stays typed-blocked. Docker-Postgres integration + handler tests added.
+- **B — Import Review row actions: implemented + tested.** `POST
+  /admin/import-runs/{run}/rows/{row}/review` with reject / fix (whitelisted
+  sex/breed) / reapply (requeue eligible needs_review → pending for the approved
+  apply path; never mints a goat). New migration `000022` adds
+  `legacy_import_rows.row_version`. Integration + handler tests added.
+- **G — production auth: provider-agnostic JWKS mode implemented + tested.**
+  `GOATOS_AUTH_MODE=jwks` RS256/ES256 verification behind the existing port,
+  stdlib-only, HS256 dev mode preserved and warned in non-local envs.
+- **I — deploy readiness docs/config: committed.** `docs/runbooks/deployment.md`
+  + `infra/envs/<env>/config.md`. Cloud provisioning marked external/blocked.
+
+Verified, no behavior change:
+
+- **C — Data Quality queue:** 232 `status_mismatch` conflicts are open human
+  review workload (ambiguous sex/breed/lifecycle), not missing code; bulk
+  actions are current-page-only and skip non-actionable rows; the only mutating
+  bulk decision excludes ambiguous self-conflicts.
+
+Admin-web UI for A and B is wired in the working tree but intentionally left
+uncommitted: `apps/admin-web/features/data-quality` is under concurrent edit in
+this workspace, so the UI is handed off for the owner of those edits to merge
+rather than risk clobbering parallel work. The backend APIs + generated client
+are committed and ready for that UI.
+
+Reclassified (intentionally blocked / deferred, not unfinished Phase 1 code):
+D (conflict `create_goat`), E (Legacy Sync executor), F (admin goat/import-run
+create-update), H (Pub/Sub egress). See the decision table above.
+
+Final status: **local Phase 1 complete; production Phase 1 not launch-ready**
+(real IdP/JWKS provisioning + secrets, Pub/Sub egress wiring, and cloud deploy
+under vgoats.com remain external launch work).
+
 ## Deliberately-blocked surfaces (not Phase 1 code gaps)
 
 - Conflict `create_goat` and approve-to-create: blocked until the operator-entered

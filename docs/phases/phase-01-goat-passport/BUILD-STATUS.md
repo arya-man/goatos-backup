@@ -1,9 +1,41 @@
 # Phase 1 Build Status
 
-Status: active implementation.
+Status: local Phase 1 complete; production Phase 1 not launch-ready.
 
 This file records what is actually built so future sessions do not rely on
 conversation memory.
+
+## Phase 1 Closeout
+
+See `CLOSEOUT-SCOPE.md` for the per-item closeout decisions. Net result of the
+closeout pass:
+
+```text
+DONE (committed, tested):
+  candidate approve attach/merge  (POST /admin/identity/candidates/{id}/approve;
+    create_goat / approve-to-create still typed-blocked)
+  Import Review row actions       (POST /admin/import-runs/{run}/rows/{row}/review:
+    reject / fix-whitelisted-sex-breed / reapply-requeue; migration 000022 adds
+    legacy_import_rows.row_version; never mints a goat from the endpoint)
+  provider-agnostic JWKS auth     (GOATOS_AUTH_MODE=jwks RS256/ES256; HS256 dev only)
+  deployment runbook + env config (docs/runbooks/deployment.md, infra/envs/<env>)
+
+VERIFIED (no code change):
+  Data Quality queue = open human review workload (232 status_mismatch), not
+  missing code; bulk actions are current-page-only and skip non-actionable rows.
+
+INTENTIONALLY BLOCKED / DEFERRED (not unfinished Phase 1 code):
+  conflict create_goat                          (no approved operator field set)
+  POST /admin/import-runs, /admin/goats, PATCH /admin/goats/{id}  (Phase 2+ admin)
+  Legacy Sync real executor                     (production sync follow-up)
+  Pub/Sub production event egress               (production-readiness follow-up)
+  production IdP/JWKS provisioning + secrets, cloud deploy under vgoats.com
+
+Admin-web UI for candidate approve + Import Review row actions is wired in the
+working tree but left uncommitted because apps/admin-web/features/data-quality
+is under concurrent edit; the committed backend APIs + generated client are
+ready for it.
+```
 
 ## Built And Pushed
 
@@ -542,8 +574,9 @@ candidate review:
   does not mutate goat identity, bump goat row_version, write
   goat_identity_events, or write outbox_messages
   exact idempotent replay rebuilds from DB state, not cached response bodies
-  POST /admin/identity/candidates/{candidate_id}/approve remains typed
-  not_implemented until canonical mutation semantics are contract-defined
+  POST /admin/identity/candidates/{candidate_id}/approve is implemented for
+  attach_identifier and merge_goats outcomes (see Phase 1 Closeout above);
+  approve-to-create / create_goat stays typed-blocked
 RFID/BQ source-of-truth staging and reconciliation:
   CLI supports source discovery, sheet-by-name selection, dry-run staging
   preview, real staging, and sanitized anomaly report generation for local
@@ -888,20 +921,21 @@ AI-worker migration should add a candidate CHECK mirroring
 ## Deferred Work
 
 ```text
-production IdP/JWKS/asymmetric auth, token issuance, rotation, revocation,
-refresh tokens, Secret Manager wiring, rate limiting, clock skew policy, TLS
-termination, and leaked-secret runbook
+asymmetric JWKS verification mode is implemented (GOATOS_AUTH_MODE=jwks,
+RS256/ES256). Still deferred: production IdP token issuance, rotation,
+revocation, refresh tokens, Secret Manager wiring, rate limiting, TLS
+termination, and the leaked-secret runbook (external provisioning)
 AI suggestion worker and candidate-state DB hardening
 remaining admin write handlers except identifier add/retire, correction resolve,
-candidate reject, and built conflict resolve paths
+candidate reject, approve, Import Review row actions, and built conflict resolve paths
 dirty staged-row conflict/candidate creation and auto-link reconciliation
-candidate approve attach/merge outcomes as a scoped contract slice; any
-candidate approve-to-create path remains blocked on conflict create_goat
+candidate approve attach/merge: IMPLEMENTED; approve-to-create stays blocked on
+conflict create_goat
 create_goat conflict decision until required operator-entered goat creation
 fields are contract-defined
-Import Review row reject/fix/re-apply actions as a scoped row-action slice;
-row approval that needs new goat creation remains blocked on conflict
-create_goat
+Import Review row reject/fix/reapply actions: IMPLEMENTED (reapply requeues to
+the existing apply path); row creation of a new goat from a row remains blocked
+on conflict create_goat
 standalone merge command handler
 unmerge command handler/contract
 real Google Pub/Sub outbox publisher and production worker deployment
@@ -968,15 +1002,18 @@ DONE in Phase 1A / Phase 1B
     RetireGoatIdentifier.
   nonblank source breed/category labels no longer block passport creation.
 
-STILL REQUIRED FOR PHASE 1B
-  1. Candidate approve attach/merge semantics; approve-to-create stays blocked
-     until conflict create_goat exists. Attach must not guess an identifier:
-     the request must carry an explicit identifier_action or specify
-     deterministic extraction from the linked legacy row.
-  2. Import Review row actions: row_version, terminal reject with audit,
-     fix-with-evidence for row-local fields, and safe re-apply through the
-     existing RFID apply path.
-  3. Conflict create_goat product contract and isolated implementation.
+DONE IN PHASE 1B CLOSEOUT (see Phase 1 Closeout above)
+  1. Candidate approve attach/merge semantics — implemented. Attach does not
+     guess an identifier: it carries an explicit identifier_action or
+     deterministic RFID extraction from the linked legacy row. Approve-to-create
+     stays blocked until conflict create_goat exists.
+  2. Import Review row actions — implemented (row_version migration 000022,
+     terminal reject with audit, fix-with-evidence for whitelisted sex/breed, and
+     safe reapply that requeues to the existing RFID apply path; never mints a
+     goat from the endpoint).
+
+STILL BLOCKED (product policy, not Phase 1B code)
+  Conflict create_goat product contract and isolated implementation.
 
 DEFERRED TO PHASE 2+
   POST /admin/import-runs, POST /admin/goats, PATCH /admin/goats/{goat_id};

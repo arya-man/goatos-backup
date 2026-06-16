@@ -1000,8 +1000,14 @@ normalized_payload jsonb not null
 processing_state text not null
 matched_goat_id uuid null
 error_reason text null
+row_version int not null default 1
 created_at timestamptz not null
 ```
+
+`row_version` (migration 000022) supports optimistic concurrency for the admin
+Import Review row actions (reject / fix / reapply). Those actions are guarded,
+audited, idempotent staging-row reviews; reapply requeues an eligible row to the
+existing RFID apply path and never mints a goat from the HTTP endpoint.
 
 Constraints:
 

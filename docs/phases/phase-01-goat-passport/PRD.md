@@ -293,7 +293,10 @@ approve-to-create and conflict `create_goat` remain blocked until the
 operator-entered goat creation field set is written.
 
 Phase 1B-0 adds read-only goat timeline plus app/admin correction request list
-APIs. The remaining typed not_implemented endpoints are:
+APIs. Candidate approve (attach/merge) and Import Review row actions
+(reject/fix/reapply) are now implemented as their own scoped slices — see
+`CLOSEOUT-SCOPE.md`. The remaining typed not_implemented endpoints, deferred to
+the Phase 2+ admin production workflow, are:
 
 ```text
 POST /admin/import-runs
@@ -301,15 +304,14 @@ POST /admin/goats
 PATCH /admin/goats/{goat_id}
 ```
 
-Phase 1B then wires the already-built safe action services into admin-web as
-server-side forms: create correction request, reject candidate, resolve
-correction request, resolve conflict as reject/merge, add goat identifier, and
-retire goat identifier. These are not a general messy-row fix workflow and do
-not implement candidate approve or conflict create_goat semantics. Import
-Review row actions must be defined as their own slice: row_version, terminal
-reject with audit, fix-with-evidence for row-local fields, and safe re-apply
-through the existing RFID apply path; any row action that needs new goat
-creation remains blocked by the conflict `create_goat` contract.
+Phase 1B wires the safe action services into admin-web as server-side forms:
+create correction request, reject/approve candidate, resolve correction request,
+resolve conflict as reject/merge, add/retire goat identifier, and Import Review
+row reject/fix/reapply. Candidate approve covers attach_identifier and
+merge_goats only; Import Review reapply requeues an eligible row to the existing
+RFID apply path and never mints a goat from the endpoint. Approve-to-create and
+any row action that would create a new goat remain blocked by the conflict
+`create_goat` contract.
 
 ## Existing Legacy Pieces
 
