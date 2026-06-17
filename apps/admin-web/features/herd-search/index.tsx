@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 import { redirect } from "next/navigation";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dash, shortId } from "@/lib/format";
 import { formAction } from "@/lib/routes";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
@@ -43,7 +44,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
   });
   const authError = firstAuthRequiredError(result);
   if (authError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
 
   return (

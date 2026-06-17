@@ -6,6 +6,7 @@ import { HorizontalBarChart } from "@/components/charts/horizontal-bar";
 import { KPICard } from "@/components/charts/kpi-card";
 import { PieChart } from "@/components/charts/pie-chart";
 import { EmptyPanel, ErrorPanel, Panel } from "@/components/admin-primitives";
+import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dateTime, shortId } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, getIdentityCounts, type IdentityCountsResponse } from "@/lib/api/server";
@@ -32,7 +33,7 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
   ]);
   const authError = firstAuthRequiredError(tenantLifecycle, growthCohort, breedSexLifecycle, parkLifecycle);
   if (authError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
 
   const tenantItems = tenantLifecycle.ok ? tenantLifecycle.data.items : [];
@@ -58,7 +59,7 @@ export async function IdentityCountsPage({ searchParams }: { searchParams: Route
   }
   const shedAuthError = firstAuthRequiredError(shedLifecycle);
   if (shedAuthError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
   const shedRows = shedLifecycle?.ok ? shedLifecycle.data.items : [];
   const shedError = shedLifecycle && !shedLifecycle.ok ? shedLifecycle.error : null;

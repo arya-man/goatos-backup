@@ -33,8 +33,10 @@ DATABASE_URL=<Cloud SQL socket /cloudsql/goatos-dev:asia-south1:<instance>>
 
 For this dev bring-up, the backend Cloud Run service is publicly invokable at
 the Cloud Run layer and relies on Goat OS JWKS/RBAC for app auth. Admin-web uses
-`GOATOS_BEARER_TOKEN` as the app bearer token; do not make the backend
-IAM-private until a separate service-to-service auth design is implemented.
+Firebase Auth client persistence plus an HTTP-only Firebase ID-token cookie so
+SSR calls can forward the signed-in user's `Authorization: Bearer <id_token>` to
+the backend. Do not make the backend IAM-private until a separate
+service-to-service auth design is implemented.
 
 HS256 bearer is only for throwaway local rehearsal. The API rejects HS256 unless
 GOATOS_ENV is local/dev/test, and shared deploys should use jwks even in

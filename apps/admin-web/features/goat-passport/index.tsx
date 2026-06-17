@@ -3,6 +3,7 @@ import { BadgeCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 import { ActionNotice, EmptyPanel, ErrorPanel, FormField, FormSelect, Mono, PageHeader, Panel, StatPill, ValueList } from "@/components/admin-primitives";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dateTime, dash, joinParts, shortId } from "@/lib/format";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
@@ -18,7 +19,7 @@ export async function GoatPassportPage({ goatId, searchParams = {} }: { goatId: 
   const actionMessage = one(searchParams, "action_message");
   const authError = firstAuthRequiredError(result, timeline);
   if (authError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
 
   if (!result.ok) {

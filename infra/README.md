@@ -48,9 +48,12 @@ P5/P6 completed for goatos-dev only:
 
 P7-preapply completed for goatos-dev only:
 - Terraform validates and plans Layer 1 foundation resources: Artifact Registry,
-  stopped small Cloud SQL Postgres shell, Secret Manager containers only,
-  Pub/Sub outbox/DLQ wiring, runtime service accounts, and pre-Cloud-Run IAM.
-- No terraform apply has been run for these resources.
+  small Cloud SQL Postgres shell, Secret Manager containers only, Pub/Sub
+  outbox/DLQ wiring, runtime service accounts, and pre-Cloud-Run IAM.
+
+P8 raw-URL dev dashboard bring-up switches dev Cloud SQL to
+`activation_policy = "ALWAYS"` so migrations and serving can use the instance.
+This is a running-cost posture while the raw dev dashboard is live.
 
 Still blocked on later explicit operator approval in the verified vgoats.com
 context:

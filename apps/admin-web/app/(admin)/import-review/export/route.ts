@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     return textError(400, "Missing import_run_id.");
   }
 
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) {
     return apiError(config.error);
   }

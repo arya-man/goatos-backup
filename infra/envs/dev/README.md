@@ -133,9 +133,10 @@ DLQ topic:         goatos-dev-outbox-events-dlq
 Subscription:      goatos-dev-analytics-export
 ```
 
-Cloud SQL is planned with `activation_policy = "NEVER"` so the instance starts
-stopped after apply and can stay stopped between work sessions until Layer 2
-needs migrations or app connectivity. It still has storage cost after apply.
+Cloud SQL is planned with `activation_policy = "ALWAYS"` for the live raw-URL
+dev dashboard bring-up. This means the instance runs while the dashboard is
+live and carries running CPU/RAM cost plus storage cost. Stop or change this
+posture only through an explicit later dev-ops checkpoint.
 
 Connectivity is public IP plus future Cloud SQL connector/socket:
 

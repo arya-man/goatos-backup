@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { GoogleLogin } from "@/components/auth/google-login";
 import logoImg from "@/lib/logo.png";
 import { getAdminRuntimeStatus, searchGoats } from "@/lib/api/server";
 
@@ -10,7 +11,7 @@ export default async function LoginPage() {
   const shouldCheckLocalDashboard =
     process.env.GOATOS_ENV === "local" &&
     process.env.GOATOS_AUTH_MODE === "bearer" &&
-    runtimeStatus.hasBearerToken;
+    runtimeStatus.hasLocalBearerFallback;
   const localDashboardCheck = shouldCheckLocalDashboard ? await searchGoats({ limit: 1 }) : null;
   const showLocalDashboardShortcut = localDashboardCheck?.ok === true;
   const showLocalAuthRepair =
@@ -67,20 +68,7 @@ export default async function LoginPage() {
                 Use your Mesha Workspace account to continue.
               </p>
 
-              <button
-                type="button"
-                disabled
-                className="mt-8 flex h-12 w-full cursor-not-allowed items-center justify-center gap-3 rounded-xl border border-[#334155] bg-[#10141b] px-4 text-sm font-black text-[#7f8fa3]"
-                aria-describedby="sso-setup-note"
-              >
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[13px] font-black text-[#4285f4]">
-                  G
-                </span>
-                Continue with Google
-              </button>
-              <p id="sso-setup-note" className="mt-3 text-center text-xs leading-5 text-[#7f8fa3]">
-                Google SSO setup is pending for local, staging, and production.
-              </p>
+              <GoogleLogin />
 
               {showLocalDashboardShortcut ? (
                 <Link
@@ -96,8 +84,8 @@ export default async function LoginPage() {
                 <div className="mt-5 rounded-xl border border-[#f59e0b]/35 bg-[#f59e0b]/10 p-4">
                   <div className="text-sm font-black text-[#fbbf24]">Local dashboard is not ready</div>
                   <p className="mt-2 text-sm leading-6 text-[#d6b986]">
-                    The admin server has a local token, but the backend is rejecting it. Restart the local
-                    stack so it mints a fresh token before opening the dashboard.
+                    The admin server has a local fallback token, but the backend is rejecting it. Restart the
+                    local stack before opening the dashboard.
                   </p>
                   <div className="mt-3 rounded-lg border border-[#334155] bg-[#0b0e13] px-3 py-2 font-mono text-sm text-[#14f1d9]">
                     make dev-local

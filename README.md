@@ -182,12 +182,13 @@ Completed so far:
   volume cleanup tooling.
 - Contract validation and migration validation.
 - Docker-backed backend tests for core invariants.
-- Dev Google Cloud bring-up through P7-preapply: context gates are verified,
-  required `goatos-dev` APIs are enabled, a dev-only budget alert exists, the
-  Terraform state bucket is bootstrapped, and the Layer 1 foundation Terraform
-  plan is ready for explicit approval. No app resources have been applied yet:
-  no Cloud SQL instance, Artifact Registry repo, Pub/Sub resources, secrets,
-  Cloud Run services/jobs, images, migrations, or legacy imports are live.
+- Dev Google Cloud bring-up through Layer 1 apply is in progress for
+  `goatos-dev`: context gates are verified, required APIs are enabled, a
+  dev-only budget alert exists, the Terraform state bucket is bootstrapped, and
+  the foundation apply has created the non-SQL Layer 1 resources. Cloud SQL is
+  being brought up in a running dev posture for raw Cloud Run dashboard
+  verification. No Cloud Run services/jobs, images, migrations, or legacy
+  imports are live yet.
 
 In short:
 

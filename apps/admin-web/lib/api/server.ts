@@ -13,6 +13,7 @@ import type {
   AppApiComponents,
   AppApiPaths,
 } from "@goatos/api-client";
+import { getFirebaseIdTokenCookie } from "@/lib/auth/server-session";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 
@@ -171,20 +172,33 @@ export type CorrectionRequestSearchParams = {
   state?: CorrectionRequestState;
 };
 
-export function getServerConfig(requireTenant = false): ApiResult<ServerConfig> {
+export async function getServerConfig(requireTenant = false): Promise<ApiResult<ServerConfig>> {
   const missing: string[] = [];
   const baseUrl = process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080";
-  const bearerToken = process.env.GOATOS_BEARER_TOKEN;
+  const firebaseIdToken = await getFirebaseIdTokenCookie();
+  const localBearerToken =
+    process.env.GOATOS_ENV === "local" && process.env.GOATOS_AUTH_MODE === "bearer"
+      ? process.env.GOATOS_BEARER_TOKEN
+      : undefined;
+  const bearerToken = firebaseIdToken ?? localBearerToken;
   const tenantId = process.env.GOATOS_TENANT_ID;
 
   if (!bearerToken) {
-    missing.push("GOATOS_BEARER_TOKEN");
+    return {
+      ok: false,
+      error: {
+        kind: "unauthorized",
+        status: 401,
+        code: "firebase_session_missing",
+        message: "Sign in with Google to start or refresh your admin session.",
+      },
+    };
   }
   if (requireTenant && !tenantId) {
     missing.push("GOATOS_TENANT_ID");
   }
   if (missing.length > 0) {
-    const labels = missing.map((item) => (item === "GOATOS_BEARER_TOKEN" ? "bearer token" : "tenant id"));
+    const labels = missing.map((item) => (item === "GOATOS_TENANT_ID" ? "tenant id" : item));
     return {
       ok: false,
       error: {
@@ -207,7 +221,10 @@ export function getServerConfig(requireTenant = false): ApiResult<ServerConfig> 
 export function getAdminRuntimeStatus() {
   return {
     baseUrl: process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080",
-    hasBearerToken: Boolean(process.env.GOATOS_BEARER_TOKEN),
+    hasLocalBearerFallback:
+      process.env.GOATOS_ENV === "local" &&
+      process.env.GOATOS_AUTH_MODE === "bearer" &&
+      Boolean(process.env.GOATOS_BEARER_TOKEN),
     hasTenantId: Boolean(process.env.GOATOS_TENANT_ID),
     importRunId: process.env.GOATOS_IMPORT_RUN_ID?.trim() || null,
   };
@@ -229,7 +246,7 @@ export function firstAuthRequiredError(
 }
 
 export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<GoatSearchResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient({
     baseUrl: config.data.baseUrl,
@@ -244,7 +261,7 @@ export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<G
 }
 
 export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPassportResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient({
     baseUrl: config.data.baseUrl,
@@ -255,7 +272,7 @@ export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPas
 }
 
 export async function getGoatTimeline(params: GoatTimelineParams): Promise<ApiResult<GoatTimelineResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient({
     baseUrl: config.data.baseUrl,
@@ -277,7 +294,7 @@ export async function createCorrectionRequest(
   body: CreateCorrectionRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<CorrectionRequestResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient({
     baseUrl: config.data.baseUrl,
@@ -294,7 +311,7 @@ export async function createCorrectionRequest(
 }
 
 export async function getIdentityCounts(params: CountSearchParams): Promise<ApiResult<IdentityCountsResponse>> {
-  const config = getServerConfig(true);
+  const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAnalyticsApiClient({
     baseUrl: config.data.baseUrl,
@@ -309,7 +326,7 @@ export async function getIdentityCounts(params: CountSearchParams): Promise<ApiR
 }
 
 export async function getReviewSummary(): Promise<ApiResult<ReviewSummaryResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -321,7 +338,7 @@ export async function getReviewSummary(): Promise<ApiResult<ReviewSummaryRespons
 }
 
 export async function listConflicts(params: ConflictSearchParams): Promise<ApiResult<ConflictListResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -336,7 +353,7 @@ export async function listConflicts(params: ConflictSearchParams): Promise<ApiRe
 }
 
 export async function getConflictDetail(conflictId: string): Promise<ApiResult<ConflictDetailResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -351,7 +368,7 @@ export async function resolveIdentityConflict(
   body: ResolveConflictRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<ResolveConflictResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -369,7 +386,7 @@ export async function resolveIdentityConflict(
 }
 
 export async function bulkResolveConflicts(body: BulkResolveConflictsRequest): Promise<ApiResult<BulkResolveConflictsResult>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -385,7 +402,7 @@ export async function bulkResolveConflicts(body: BulkResolveConflictsRequest): P
 }
 
 export async function listCandidates(params: CandidateSearchParams): Promise<ApiResult<CandidateListResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -404,7 +421,7 @@ export async function rejectIdentityCandidate(
   body: ReviewCandidateRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<CandidateDecisionResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -426,7 +443,7 @@ export async function approveIdentityCandidate(
   body: ApproveCandidateRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<CandidateDecisionResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -444,7 +461,7 @@ export async function approveIdentityCandidate(
 }
 
 export async function getImportRun(importRunId: string): Promise<ApiResult<ImportRunResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -455,7 +472,7 @@ export async function getImportRun(importRunId: string): Promise<ApiResult<Impor
 }
 
 export async function listImportRuns(params: ImportRunsParams): Promise<ApiResult<ImportRunListResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -470,7 +487,7 @@ export async function listImportRuns(params: ImportRunsParams): Promise<ApiResul
 }
 
 export async function listImportRunRows(params: ImportRunRowsParams): Promise<ApiResult<ImportRunRowsResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -496,7 +513,7 @@ export async function reviewImportRunRow(
   body: ReviewImportRowRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<ReviewImportRowResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -515,7 +532,7 @@ export async function reviewImportRunRow(
 }
 
 export async function getLegacySyncStatus(): Promise<ApiResult<LegacySyncOverallStatusResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -527,7 +544,7 @@ export async function getLegacySyncStatus(): Promise<ApiResult<LegacySyncOverall
 }
 
 export async function listLegacySyncRuns(params: LegacySyncRunsParams): Promise<ApiResult<LegacySyncRunListResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -542,7 +559,7 @@ export async function listLegacySyncRuns(params: LegacySyncRunsParams): Promise<
 }
 
 export async function getLegacySyncRun(syncRunId: string): Promise<ApiResult<LegacySyncRunDetailResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -553,7 +570,7 @@ export async function getLegacySyncRun(syncRunId: string): Promise<ApiResult<Leg
 }
 
 export async function createLegacySyncRun(body: CreateLegacySyncRunRequest): Promise<ApiResult<CreateLegacySyncRunResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -569,7 +586,7 @@ export async function createLegacySyncRun(body: CreateLegacySyncRunRequest): Pro
 }
 
 export async function cancelLegacySyncRun(syncRunId: string): Promise<ApiResult<CancelLegacySyncRunResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -585,7 +602,7 @@ export async function cancelLegacySyncRun(syncRunId: string): Promise<ApiResult<
 }
 
 export async function adminListCorrectionRequests(params: CorrectionRequestSearchParams): Promise<ApiResult<AdminCorrectionRequestListResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -608,7 +625,7 @@ export async function resolveCorrectionRequest(
   body: ResolveCorrectionRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<AdminCorrectionRequestResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -630,7 +647,7 @@ export async function addGoatIdentifier(
   body: AddIdentifierRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<AdminGoatResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -653,7 +670,7 @@ export async function retireGoatIdentifier(
   body: RetireIdentifierRequestBody,
   idempotencyKey: string,
 ): Promise<ApiResult<AdminGoatResponse>> {
-  const config = getServerConfig();
+  const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAdminApiClient({
     baseUrl: config.data.baseUrl,
@@ -687,7 +704,7 @@ function normalizeApiError(error: unknown): ApiUiError {
         kind: "unauthorized",
         status: error.status,
         code,
-        message: "Bearer authentication failed. Refresh the local admin token in the server environment.",
+        message: "Your Google sign-in session is missing or expired. Sign in again to refresh the admin session.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };
@@ -697,7 +714,7 @@ function normalizeApiError(error: unknown): ApiUiError {
         kind: "tenant_scope_mismatch",
         status: error.status,
         code,
-        message: "Configured tenant does not match the bearer token tenant.",
+        message: "Configured tenant does not match the signed-in admin session.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };
@@ -707,7 +724,7 @@ function normalizeApiError(error: unknown): ApiUiError {
         kind: "permission_denied",
         status: error.status,
         code: code ?? "permission_denied",
-        message: "Token is valid, but the active DB grants do not allow this view.",
+        message: "Signed in, but the active DB grants do not allow this view.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };

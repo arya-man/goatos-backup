@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ActionNotice, EmptyPanel, ErrorPanel, FormField, FormTextArea, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect, ValueList } from "@/components/admin-primitives";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { formatLabel } from "@/lib/display-utils";
 import { formAction } from "@/lib/routes";
@@ -34,7 +35,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
     const runs = await listImportRuns({ limit: 10 });
     const authError = firstAuthRequiredError(runs);
     if (authError) {
-      redirect("/login");
+      redirect(INTERNAL_LOGIN_PATH);
     }
     return (
       <>
@@ -118,7 +119,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
   ]);
   const authError = firstAuthRequiredError(summary, rows);
   if (authError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
   const returnTo = hrefWithoutAction("/import-review", searchParams);
   const actionStatus = one(searchParams, "action_status");

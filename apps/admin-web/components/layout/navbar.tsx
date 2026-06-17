@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 import { useSidebar } from "./sidebar-context";
 
 function formatSegment(segment: string): string {
@@ -61,6 +62,7 @@ export function Navbar() {
       </div>
 
       <div className="flex-1" />
+      <SignOutButton />
     </header>
   );
 }

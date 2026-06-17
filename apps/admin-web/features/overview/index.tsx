@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, ClipboardList, DatabaseZap, FileSearch, Search
 import { redirect } from "next/navigation";
 import { KPICard } from "@/components/charts/kpi-card";
 import { EmptyPanel, ErrorPanel, PageHeader, Panel, StatPill } from "@/components/admin-primitives";
+import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import {
   firstAuthRequiredError,
   getAdminRuntimeStatus,
@@ -26,14 +27,14 @@ export async function OverviewPage() {
   ]);
   const authError = firstAuthRequiredError(counts, reviewSummary, conflicts, herd, recentRuns);
   if (authError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
 
   const selectedImportRunId = runtime.importRunId ?? (recentRuns?.ok ? recentRuns.data.items[0]?.import_run_id ?? null : null);
   const importRun = selectedImportRunId ? await getImportRun(selectedImportRunId) : null;
   const importRunAuthError = firstAuthRequiredError(importRun);
   if (importRunAuthError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
 
   const activeGoats = counts.ok ? tenantLifecycleCount(counts.data.items, "alive") : null;

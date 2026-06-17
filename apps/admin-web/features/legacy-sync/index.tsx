@@ -14,6 +14,7 @@ import {
 } from "@/components/admin-primitives";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { DialogModal } from "@/components/dialog-modal";
+import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { formatLabel } from "@/lib/display-utils";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { formAction } from "@/lib/routes";
@@ -51,7 +52,7 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
   ]);
   const authError = firstAuthRequiredError(status, runs, detail);
   if (authError) {
-    redirect("/login");
+    redirect(INTERNAL_LOGIN_PATH);
   }
 
   const sourceWarnings = status.ok ? status.data.sources.filter(sourceNeedsAttention) : [];

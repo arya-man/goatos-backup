@@ -100,7 +100,7 @@ The validated plan is expected to create:
 Artifact Registry Docker repo: asia-south1-docker.pkg.dev/goatos-dev/goatos
 Cloud SQL Postgres shell:      goatos-dev-core-db / database goatos
 Cloud SQL tier:                db-f1-micro
-Cloud SQL activation policy:   NEVER (stopped until Layer 2 needs it)
+Cloud SQL activation policy:   ALWAYS (running while raw dev dashboard is live)
 Cloud SQL connectivity:        public IPv4 + future /cloudsql connector socket
 Pub/Sub:                       outbox topic, analytics subscription, DLQ
 Secret Manager:                regional containers only, no secret versions

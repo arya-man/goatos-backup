@@ -75,7 +75,7 @@ export function ErrorPanel({ error }: { error: ApiUiError }) {
       <div className="rounded-lg border border-dashed border-[#334155] bg-[#11151C] px-4 py-6 text-sm text-[#8899AA]">
         <div className="font-semibold text-[#c7d1dc]">Local API configuration needed</div>
         <p className="mt-1">
-          Start this server with the local backend URL, tenant, and bearer token to load live rows.
+          Start this server with the backend URL and tenant ID to load live rows.
         </p>
       </div>
     );
@@ -109,15 +109,18 @@ export function AuthRequiredPanel({ error }: { error?: ApiUiError }) {
           <div className="mt-4 text-xs font-bold uppercase tracking-wide text-[#14f1d9]">Mesha admin login</div>
           <h1 className="mt-1 text-2xl font-bold text-white">Sign in required</h1>
           <p className="mt-3 text-sm leading-6 text-[#aab7c4]">
-            Your admin session is missing or expired. In local development, restart the local stack so the server mints a fresh admin token; in shared environments this page will hand off to Mesha SSO.
+            Your admin session is missing or expired. Sign in with your Mesha Workspace account to continue.
           </p>
         </div>
         <div className="rounded-lg border border-[#334155] bg-[#10141b] p-4 text-sm text-[#c7d1dc] lg:min-w-[360px]">
-          <div className="font-semibold text-white">Local development</div>
-          <p className="mt-2 text-[#93a4b8]">Run this from the repo root, then refresh this page:</p>
-          <pre className="mt-3 overflow-x-auto rounded-md border border-[#293241] bg-[#0f1115] px-3 py-2 font-mono text-xs text-[#14f1d9]">
-            <code>make dev-local</code>
-          </pre>
+          <div className="font-semibold text-white">Session status</div>
+          <p className="mt-2 text-[#93a4b8]">Use the login page to refresh your Google sign-in session.</p>
+          <a
+            href="/dashboard/login"
+            className="mt-3 inline-flex h-10 items-center justify-center rounded-lg border border-[#14f1d9]/40 px-3 text-sm font-bold text-[#14f1d9] hover:border-[#14f1d9]"
+          >
+            Open login
+          </a>
           {error?.traceId ? <p className="mt-3 font-mono text-xs text-[#64748b]">trace {error.traceId}</p> : null}
         </div>
       </div>

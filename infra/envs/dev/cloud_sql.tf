@@ -8,7 +8,7 @@ resource "google_sql_database_instance" "core" {
     tier              = var.cloud_sql_tier
     edition           = "ENTERPRISE"
     availability_type = "ZONAL"
-    activation_policy = "NEVER"
+    activation_policy = "ALWAYS"
 
     disk_type       = "PD_SSD"
     disk_size       = 10
