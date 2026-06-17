@@ -13,16 +13,26 @@ export function GET() {
 
 type FirebaseRuntimeConfig = {
   config: FirebaseOptions;
+  googleClientId?: string;
+};
+
+type RawFirebaseConfig = FirebaseOptions & {
+  googleClientId?: string;
+  googleSignInClientId?: string;
 };
 
 function firebaseConfigFromEnv(): FirebaseRuntimeConfig | null {
   const raw = process.env.GOATOS_FIREBASE_WEB_CONFIG?.trim();
   if (raw) {
     try {
-      const parsed = JSON.parse(raw) as FirebaseOptions;
+      const parsed = JSON.parse(raw) as RawFirebaseConfig;
       if (!isCompleteFirebaseConfig(parsed)) return null;
       return {
         config: parsed,
+        googleClientId:
+          process.env.GOATOS_GOOGLE_SIGN_IN_CLIENT_ID?.trim() ||
+          parsed.googleSignInClientId ||
+          parsed.googleClientId,
       };
     } catch {
       return null;
@@ -37,7 +47,8 @@ function firebaseConfigFromEnv(): FirebaseRuntimeConfig | null {
     storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   };
   if (!isCompleteFirebaseConfig(config)) return null;
-  return { config };
+  const googleClientId = process.env.GOATOS_GOOGLE_SIGN_IN_CLIENT_ID?.trim() || undefined;
+  return { config, googleClientId };
 }
 
 function isCompleteFirebaseConfig(config: FirebaseOptions): boolean {
