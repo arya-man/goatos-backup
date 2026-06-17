@@ -25,3 +25,7 @@ Rules:
   production/staging-looking, non-local, or Cloud SQL-style socket DB targets.
 - Local auth smoke uses one shared `GOATOS_AUTH_*` config across backend,
   token minting, grant seed, and admin-web generated-client smoke.
+- For the `goatos-dev` Cloud Run bring-up, backend invocation is public at the
+  Cloud Run layer and auth is enforced by Goat OS JWKS/RBAC. Admin-web SSR uses
+  the app bearer token in `Authorization`; do not make the backend IAM-private
+  until a separate service-to-service auth design exists.

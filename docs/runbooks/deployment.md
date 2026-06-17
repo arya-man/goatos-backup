@@ -42,6 +42,17 @@ targets; goatos-dev Cloud SQL use requires the explicit dev Cloud SQL opt-in
 guard, an exact `GOATOS_DEV_CLOUDSQL_CONNECTION_NAME` match, and is for dev
 rehearsal only.
 
+## Dev Cloud Run invocation decision
+
+For the `goatos-dev` bring-up, deploy the backend Cloud Run service as publicly
+invokable at the Cloud Run layer and enforce authentication/authorization inside
+Goat OS with `GOATOS_AUTH_MODE=jwks` and DB-backed RBAC grants. Admin-web
+server-side calls use `GOATOS_BEARER_TOKEN` as the Goat OS app bearer token in
+the standard `Authorization` header; admin-web does not currently mint a
+separate Cloud Run IAM identity token. Making the backend service IAM-private
+before adding a separate service-to-service auth design will fail as a Cloud Run
+403 before the request reaches Goat OS app auth.
+
 ## Required backend config per environment
 
 The API binary (`backend/cmd/api`) is configured entirely through env vars. A
@@ -81,10 +92,13 @@ GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
    admin-web dashboard. Tag by git SHA, push to the project's asia-south1
    Artifact Registry, and record the SHA — it is the rollback handle.
 2. **Apply migrations.** Migrations live in `backend/migrations/postgres/`
-   (`000001`..`000022`, forward-only, never edit an applied migration). Apply
-   them against the target Cloud SQL database with the same runner CI uses
-   (`make validate-migrations` validates them locally first). Migrations must run
-   to completion before the new image serves traffic.
+   (`000001`..`000022`, forward-only, never edit an applied migration).
+   `make validate-migrations` validates the goose-style SQL locally. For a fresh
+   `goatos-dev` Cloud SQL database, run the migration image from
+   `docs/runbooks/containers.md`; it is the sole shared-DB applier and records
+   applied files in `goatos_schema_migrations`. Do not mix it with a separate
+   goose/psql/local validator applier on the same Cloud SQL database. Migrations
+   must run to completion before the new image serves traffic.
 3. **Seed the admin grant (first deploy only).** Production authorization comes
    from active `user_scope_grants` rows for the IdP `sub`, not from token claims.
    Insert the initial `ceo_internal`/`admin` tenant-scope grant for the seeded

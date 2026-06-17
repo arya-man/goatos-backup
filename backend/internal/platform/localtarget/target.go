@@ -21,10 +21,7 @@ const (
 // ValidateLocalDatabaseTarget rejects DB targets that are not safe local/dev
 // Postgres endpoints. It is for local rehearsal and dev helper binaries only.
 func ValidateLocalDatabaseTarget(commandName, env, databaseURL string, allowedEnvs ...string) error {
-	commandName = strings.TrimSpace(commandName)
-	if commandName == "" {
-		commandName = "local command"
-	}
+	commandName = normalizedCommandName(commandName)
 	env = strings.ToLower(strings.TrimSpace(env))
 	if len(allowedEnvs) == 0 {
 		allowedEnvs = []string{"local", "dev"}
@@ -49,6 +46,31 @@ func ValidateLocalDatabaseTarget(commandName, env, databaseURL string, allowedEn
 		return fmt.Errorf("refusing %s against non-local database host %q", commandName, cfg.ConnConfig.Host)
 	}
 	return nil
+}
+
+// ValidateDevCloudSQLDatabaseTarget rejects every target except the explicitly
+// opted-in goatos-dev Cloud SQL instance. Use it for shared dev bring-up jobs
+// where a local fallback would be unsafe.
+func ValidateDevCloudSQLDatabaseTarget(commandName, env, databaseURL string) error {
+	commandName = normalizedCommandName(commandName)
+	env = strings.ToLower(strings.TrimSpace(env))
+	if env != "dev" {
+		return fmt.Errorf("GOATOS_ENV must be dev for %s", commandName)
+	}
+	if strings.TrimSpace(databaseURL) == "" {
+		return fmt.Errorf("DATABASE_URL is required for %s", commandName)
+	}
+	if looksSharedUnsafeTarget(env) || looksSharedUnsafeTarget(databaseURL) {
+		return fmt.Errorf("refusing %s against production/staging-looking target", commandName)
+	}
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return fmt.Errorf("parse DATABASE_URL for %s: %w", commandName, err)
+	}
+	if !isCloudSQLTarget(databaseURL, cfg.ConnConfig.Host) {
+		return fmt.Errorf("refusing %s against non-Cloud SQL database host %q", commandName, cfg.ConnConfig.Host)
+	}
+	return validateDevCloudSQLTarget(commandName, env, databaseURL, cfg.ConnConfig.Host)
 }
 
 // IsLocalHost allows loopback TCP hosts and known local Postgres socket dirs.
@@ -81,6 +103,14 @@ func isAllowedLocalSocketHost(host string) bool {
 		}
 	}
 	return false
+}
+
+func normalizedCommandName(commandName string) string {
+	commandName = strings.TrimSpace(commandName)
+	if commandName == "" {
+		return "local command"
+	}
+	return commandName
 }
 
 func looksSharedUnsafeTarget(value string) bool {

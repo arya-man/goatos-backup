@@ -43,10 +43,34 @@ item.
 `DATABASE_URL` and supports Cloud SQL Unix socket URLs through pgx. The default
 migration directory is `/app/backend/migrations/postgres`.
 
+For the `goatos-dev` Cloud SQL bring-up, `/app/bin/migrate` is dev Cloud
+SQL-only and fails before connecting unless all of these are true:
+
+```text
+GOATOS_ENV=dev
+GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true
+GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>
+DATABASE_URL host is exactly goatos-dev:asia-south1:<instance>
+  or /cloudsql/goatos-dev:asia-south1:<instance>
+```
+
+The migration image records applied files in `goatos_schema_migrations`. For a
+fresh `goatos-dev` Cloud SQL database, the migration image is the sole schema
+applier. Do not run a separate goose/psql/local validator applier against that
+same database; those validators remain local proof that the goose-style source
+SQL still applies cleanly.
+
 `apps/admin-web/Dockerfile` builds the Next standalone production server for the
 dashboard surface. The app is compiled with `basePath: /dashboard`; no
 `assetPrefix` is set because the service will sit behind the same HTTPS load
 balancer path.
+
+For the dev deploy, admin-web server-side API calls send the Goat OS app bearer
+token in the standard `Authorization` header. The backend Cloud Run service must
+therefore be publicly invokable at the Cloud Run layer and enforce auth at the
+Goat OS app layer with JWKS/RBAC. Do not make the backend service IAM-private
+until a separate service-to-service auth design exists that does not replace or
+collide with the app bearer token.
 
 ## Dev Defaults
 

@@ -67,6 +67,7 @@ docs/runbooks/local-docker-storage.md        local Docker storage safety and cle
 backend/cmd/rfid-import                      legacy RFID parser/import harness CLI
 backend/cmd/rfid-apply                       staged RFID canonical apply CLI
 backend/cmd/bq-reconcile                     replayable BQ event export lifecycle/location and BQ-backed attribute fill/review CLI
+backend/cmd/migrate                          dev Cloud SQL-only migration image runner; sole shared dev DB schema applier
 backend/cmd/rebuild-identity-counters        local/reporting counter rebuild after apply
 backend/internal/legacy_import/xlsx.go       workbook parser and sheet-selection behavior
 backend/internal/legacy_import/normalize.go  emitted staging/review/error reason codes
@@ -190,6 +191,10 @@ Rules:
   `GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>`, and a
   DATABASE_URL host that exactly matches that connection name or
   `/cloudsql/goatos-dev:asia-south1:<instance>`.
+- The migration image uses `goatos_schema_migrations` tracking and is the sole
+  applier for a fresh `goatos-dev` Cloud SQL database. Goose-style SQL remains
+  the source format, and local validators are proof only; do not mix migration
+  image and goose/psql/local validator appliers on the same shared DB.
 - Local Docker is the default daily development path for Docker Postgres, tests,
   and small synthetic data; GCP is not required for normal coding. `goatos-dev`
   Cloud SQL later serves explicit cloud rehearsal, while `goatos-stg` later

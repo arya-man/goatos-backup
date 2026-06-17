@@ -51,3 +51,19 @@ func TestSplitSQLStatementsRejectsUnterminatedQuote(t *testing.T) {
 		t.Fatal("unterminated quote accepted")
 	}
 }
+
+func TestValidateMigrationTargetRequiresExplicitDevCloudSQL(t *testing.T) {
+	t.Setenv("GOATOS_ENV", "dev")
+	t.Setenv("GOATOS_ALLOW_DEV_CLOUDSQL_TARGET", "true")
+	t.Setenv("GOATOS_DEV_CLOUDSQL_CONNECTION_NAME", "goatos-dev:asia-south1:goatos-dev-core-db")
+
+	validURL := "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable"
+	if err := validateMigrationTarget(validURL); err != nil {
+		t.Fatalf("valid dev Cloud SQL target rejected: %v", err)
+	}
+
+	localURL := "postgres://postgres:goatos@localhost:5432/goatos?sslmode=disable"
+	if err := validateMigrationTarget(localURL); err == nil {
+		t.Fatal("local target accepted for migration image")
+	}
+}

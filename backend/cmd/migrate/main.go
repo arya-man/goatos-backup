@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -59,6 +60,9 @@ func run(ctx context.Context, args []string, log *slog.Logger) error {
 	defer cancel()
 
 	pgCfg := platformpg.ConfigFromEnv()
+	if err := validateMigrationTarget(pgCfg.DatabaseURL); err != nil {
+		return err
+	}
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err
@@ -66,6 +70,10 @@ func run(ctx context.Context, args []string, log *slog.Logger) error {
 	defer pool.Close()
 
 	return applyMigrations(ctx, pool, migrations, cfg.DryRun, log)
+}
+
+func validateMigrationTarget(databaseURL string) error {
+	return localtarget.ValidateDevCloudSQLDatabaseTarget("migrate", os.Getenv("GOATOS_ENV"), databaseURL)
 }
 
 func parseFlags(args []string) (cliConfig, error) {

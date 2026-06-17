@@ -57,6 +57,71 @@ func TestValidateLocalDatabaseTargetAllowsExplicitDevCloudSQL(t *testing.T) {
 	}
 }
 
+func TestValidateDevCloudSQLDatabaseTargetAllowsOnlyExplicitDevCloudSQL(t *testing.T) {
+	t.Setenv("GOATOS_ALLOW_DEV_CLOUDSQL_TARGET", "true")
+	t.Setenv("GOATOS_DEV_CLOUDSQL_CONNECTION_NAME", "goatos-dev:asia-south1:goatos-dev-core-db")
+
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "socket path",
+			url:  "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable",
+		},
+		{
+			name: "connection name",
+			url:  "user=postgres password=goatos dbname=goatos host=goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateDevCloudSQLDatabaseTarget("migrate", "dev", tc.url); err != nil {
+				t.Fatalf("explicit goatos-dev Cloud SQL target rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateDevCloudSQLDatabaseTargetRejectsLocalAndUnsafeTargets(t *testing.T) {
+	t.Setenv("GOATOS_ALLOW_DEV_CLOUDSQL_TARGET", "true")
+	t.Setenv("GOATOS_DEV_CLOUDSQL_CONNECTION_NAME", "goatos-dev:asia-south1:goatos-dev-core-db")
+
+	cases := []struct {
+		name string
+		env  string
+		url  string
+	}{
+		{
+			name: "local postgres",
+			env:  "dev",
+			url:  "postgres://postgres:goatos@localhost:5432/goatos?sslmode=disable",
+		},
+		{
+			name: "local env",
+			env:  "local",
+			url:  "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable",
+		},
+		{
+			name: "missing connection name",
+			env:  "dev",
+			url:  "user=postgres password=goatos dbname=goatos host=/cloudsql/project:region:instance sslmode=disable",
+		},
+		{
+			name: "spoof substring",
+			env:  "dev",
+			url:  "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db-spoof sslmode=disable",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateDevCloudSQLDatabaseTarget("migrate", tc.env, tc.url); err == nil {
+				t.Fatal("unsafe target accepted")
+			}
+		})
+	}
+}
+
 func TestValidateLocalDatabaseTargetRejectsCloudSQLWithoutFullDevOptIn(t *testing.T) {
 	devURL := "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable"
 	if err := ValidateLocalDatabaseTarget("bq-reconcile --execute", "dev", devURL); err == nil {
