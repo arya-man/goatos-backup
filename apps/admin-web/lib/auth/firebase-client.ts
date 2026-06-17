@@ -6,7 +6,7 @@ import {
   browserLocalPersistence,
   getAuth,
   setPersistence,
-  signInWithPopup,
+  signInWithRedirect,
   signOut,
   type Auth,
   type User,
@@ -30,13 +30,11 @@ export async function getFirebaseAuth(): Promise<Auth> {
   return authPromise;
 }
 
-export async function signInWithGoogle(): Promise<User> {
+export async function startGoogleSignInRedirect(): Promise<void> {
   const auth = await getFirebaseAuth();
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
-  const credential = await signInWithPopup(auth, provider);
-  await syncFirebaseSession(credential.user, true);
-  return credential.user;
+  await signInWithRedirect(auth, provider);
 }
 
 export async function clearFirebaseSession(): Promise<void> {

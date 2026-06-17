@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { Loader2 } from "lucide-react";
-import { getFirebaseAuth, signInWithGoogle, syncFirebaseSession } from "@/lib/auth/firebase-client";
+import { getFirebaseAuth, startGoogleSignInRedirect, syncFirebaseSession } from "@/lib/auth/firebase-client";
 import { DASHBOARD_BASE_PATH } from "@/lib/auth/session-cookie";
 
 export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: string }) {
@@ -54,11 +54,7 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
         onClick={() => {
           setStatus("signing_in");
           setMessage(null);
-          void signInWithGoogle()
-            .then(() => {
-              setStatus("redirecting");
-              window.location.assign(safeNextPath(nextPath));
-            })
+          void startGoogleSignInRedirect()
             .catch((error) => {
               setStatus("error");
               setMessage(error instanceof Error ? error.message : "Google sign-in failed.");
