@@ -198,12 +198,16 @@ Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting.
 ## Smoke checks
 
 ```text
-GET /healthz   -> 204 (no auth)
+GET /livez     -> 204 (no auth; use this for Cloud Run liveness smoke)
 GET /readyz    -> 204 (DB reachable)
 A real bearer token (from the IdP) on a read route (e.g. GET /goats/search) -> 200
 A token with wrong issuer/audience/alg -> 401
 GET /analytics/identity/counts -> 200 with freshness fields, no rebuild_required after a clean rebuild
 ```
+
+`GET /healthz` remains a local/container liveness route, but raw Cloud Run/GFE
+can reserve or intercept that exact path before it reaches the container. Use
+`/livez` for public Cloud Run smoke checks.
 
 `backend/tests/integration/smoke-auth-local.sh` is the local analogue; the
 production smoke uses a real IdP token instead of a minted HS256 token.

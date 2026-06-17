@@ -4,19 +4,36 @@ import type { FirebaseOptions } from "firebase/app";
 export const dynamic = "force-dynamic";
 
 export function GET() {
-  const config = firebaseConfigFromEnv();
-  if (!config) {
+  const runtime = firebaseConfigFromEnv();
+  if (!runtime) {
     return NextResponse.json({ error: "firebase_config_missing" }, { status: 503 });
   }
-  return NextResponse.json({ config }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(runtime, { headers: { "Cache-Control": "no-store" } });
 }
 
-function firebaseConfigFromEnv(): FirebaseOptions | null {
+type FirebaseRuntimeConfig = {
+  config: FirebaseOptions;
+  googleClientId?: string;
+};
+
+type RawFirebaseConfig = FirebaseOptions & {
+  googleClientId?: string;
+  googleSignInClientId?: string;
+};
+
+function firebaseConfigFromEnv(): FirebaseRuntimeConfig | null {
   const raw = process.env.GOATOS_FIREBASE_WEB_CONFIG?.trim();
   if (raw) {
     try {
-      const parsed = JSON.parse(raw) as FirebaseOptions;
-      return isCompleteFirebaseConfig(parsed) ? parsed : null;
+      const parsed = JSON.parse(raw) as RawFirebaseConfig;
+      if (!isCompleteFirebaseConfig(parsed)) return null;
+      return {
+        config: parsed,
+        googleClientId:
+          process.env.GOATOS_GOOGLE_SIGN_IN_CLIENT_ID?.trim() ||
+          parsed.googleSignInClientId ||
+          parsed.googleClientId,
+      };
     } catch {
       return null;
     }
@@ -29,7 +46,9 @@ function firebaseConfigFromEnv(): FirebaseOptions | null {
     messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   };
-  return isCompleteFirebaseConfig(config) ? config : null;
+  if (!isCompleteFirebaseConfig(config)) return null;
+  const googleClientId = process.env.GOATOS_GOOGLE_SIGN_IN_CLIENT_ID?.trim() || undefined;
+  return { config, googleClientId };
 }
 
 function isCompleteFirebaseConfig(config: FirebaseOptions): boolean {

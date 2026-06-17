@@ -142,7 +142,7 @@ func bearerToken(value string) (string, bool) {
 }
 
 func isPublicHealthRoute(r *http.Request) bool {
-	return r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/readyz")
+	return r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/livez" || r.URL.Path == "/readyz")
 }
 
 // DevHeadersEnvironmentAllowed is the exact allowlist for the local/dev header
