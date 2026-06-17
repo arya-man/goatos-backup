@@ -29,11 +29,20 @@ infra/
 Created (see google-cloud-environments.md): org folder goat-os, projects
 goatos-dev/stg/prod, billing linked.
 
-Committed here: per-env backend config templates (envs/<env>/goatos-api.env.example)
-and the deployment procedure (docs/runbooks/deployment.md).
+Committed here: per-env backend config templates, the deployment procedure, and
+P4 goatos-dev Terraform remote-state backend wiring.
 
-BLOCKED on external operator action in the verified vgoats.com context:
-- Terraform module + env composition authoring and terraform plan/apply.
+P4 completed for goatos-dev only:
+- Terraform state bucket `gs://goatos-dev-tf-state` was bootstrapped
+  imperatively in project `goatos-dev`, region `asia-south1`.
+- Bucket posture: uniform bucket-level access enabled, public access prevention
+  enforced, object versioning enabled, no retention lock.
+- Dev Terraform backend path: `gs://goatos-dev-tf-state/terraform/dev`.
+
+Still blocked on later explicit operator approval in the verified vgoats.com
+context:
+- Terraform module + env composition authoring for app resources and
+  terraform plan/apply beyond backend init.
 - Cloud SQL / GCS / Pub/Sub / Secret Manager / IAM / Artifact Registry provisioning.
 - Production IdP/JWKS endpoint + signing-key/secret provisioning.
 - Pub/Sub outbox publisher + worker deploy wiring.

@@ -42,6 +42,23 @@ targets; goatos-dev Cloud SQL use requires the explicit dev Cloud SQL opt-in
 guard, an exact `GOATOS_DEV_CLOUDSQL_CONNECTION_NAME` match, and is for dev
 rehearsal only.
 
+## Terraform state
+
+The `goatos-dev` Terraform state bucket was bootstrapped imperatively before
+Terraform backend init:
+
+```text
+Bucket:       gs://goatos-dev-tf-state
+Project:      goatos-dev
+Location:     asia-south1
+State prefix: terraform/dev
+```
+
+The bucket has uniform bucket-level access, public access prevention enforced,
+and object versioning enabled. It stores Terraform state only: no goat data,
+legacy exports, secrets, app artifacts, container images, or migration payloads.
+Do not delete or modify the state bucket unless explicitly approved.
+
 ## Dev Cloud Run invocation decision
 
 For the `goatos-dev` bring-up, deploy the backend Cloud Run service as publicly
@@ -167,8 +184,8 @@ The following require cloud access in the verified `vgoats.com` context and are
 **not** performed from the build workspace:
 
 ```text
-- Authoring/validating Terraform under infra/modules + infra/envs and running
-  terraform plan/apply (the module + env dirs are scaffolded but empty).
+- Authoring/validating Terraform app-resource modules under infra/modules +
+  infra/envs and running terraform plan/apply beyond the P4 dev backend init.
 - Provisioning Cloud SQL, GCS, Pub/Sub topics, Secret Manager secrets, service
   accounts, and Artifact Registry per project.
 - Standing up a production IdP/JWKS endpoint and loading signing keys/secrets.

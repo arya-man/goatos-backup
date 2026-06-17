@@ -23,6 +23,11 @@ build/
 .turbo/
 coverage/
 
+# Terraform local state/cache
+.terraform/
+*.tfstate
+*.tfstate.*
+
 # logs / local
 firebase-debug.log
 *.log
