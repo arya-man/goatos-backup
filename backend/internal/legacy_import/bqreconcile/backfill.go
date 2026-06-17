@@ -93,9 +93,12 @@ type BackfillSummary struct {
 	CandidatesCSV      string         `json:"candidates_csv"`
 	CandidatesCSVHash  string         `json:"candidates_csv_sha256"`
 	CandidatesRead     int            `json:"candidates_read"`
+	LatestOverrides    int            `json:"latest_location_lifecycle_overrides"`
 	PlannedCreates     int            `json:"planned_creates"`
 	PlannedSkips       int            `json:"planned_skips"`
+	PlannedUpdates     int            `json:"planned_existing_lifecycle_updates"`
 	Applied            int            `json:"applied_creates"`
+	AppliedUpdates     int            `json:"applied_existing_lifecycle_updates"`
 	BySource           map[string]int `json:"candidates_by_source"`
 	ByFarm             map[string]int `json:"candidates_by_farm"`
 	ByStatus           map[string]int `json:"candidates_by_status"`
@@ -119,6 +122,14 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 	if err != nil {
 		return nil, err
 	}
+	latestOverrides := 0
+	if strings.TrimSpace(opts.LocationsPath) != "" {
+		locationEvents, err := ReadEventsFile(opts.LocationsPath)
+		if err != nil {
+			return nil, err
+		}
+		candidates, latestOverrides = applyLatestLocationLifecycleEvidence(candidates, locationEvents)
+	}
 
 	summary := &BackfillSummary{
 		DryRun:             !opts.Execute,
@@ -127,6 +138,7 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 		CandidatesCSV:      opts.CandidatesCSVPath,
 		CandidatesCSVHash:  hash,
 		CandidatesRead:     len(candidates),
+		LatestOverrides:    latestOverrides,
 		BySource:           map[string]int{},
 		ByFarm:             map[string]int{},
 		ByStatus:           map[string]int{},
@@ -145,6 +157,10 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 	if err != nil {
 		return nil, err
 	}
+	existingBackfill, err := loadExistingBackfillOldTagGoats(ctx, pool, opts.TenantID)
+	if err != nil {
+		return nil, err
+	}
 	parks, sheds, err := loadParkAndShedLookup(ctx, pool, opts.TenantID)
 	if err != nil {
 		return nil, err
@@ -159,6 +175,7 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 	summary.CurrentTotals = current
 	summarizePlan(summary, rows)
 	summary.ExpectedTotals = expectedTotals(current, rows)
+	summary.PlannedUpdates = applyExpectedLifecycleUpdateDelta(&summary.ExpectedTotals, candidates, existingBackfill)
 
 	if !opts.Execute {
 		if err := writeReports(summary.ReportDir, rows); err != nil {
@@ -167,11 +184,12 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 		return summary, nil
 	}
 
-	applied, finalRows, err := applyCandidateBackfill(ctx, pool, opts, candidates, parks, sheds)
+	applied, appliedUpdates, finalRows, err := applyCandidateBackfill(ctx, pool, opts, candidates, parks, sheds)
 	if err != nil {
 		return nil, err
 	}
 	summary.Applied = applied
+	summary.AppliedUpdates = appliedUpdates
 	// Recount planned creates/skips from the authoritative in-transaction plan.
 	summary.CreatesByLifecycle = map[string]int{}
 	summary.SkipsByReason = map[string]int{}
@@ -260,10 +278,88 @@ func lifecycleFromCandidateStatus(status string) (string, bool) {
 		return "alive", true
 	case "sold":
 		return "sold", true
+	case "dead":
+		return "dead", true
 	case "inactive":
 		return "inactive", true
 	default:
 		return "", false
+	}
+}
+
+type latestBackfillEvidence struct {
+	Status string
+	Event  string
+	Date   string
+	Shed   string
+}
+
+func applyLatestLocationLifecycleEvidence(candidates []Candidate, events []Event) ([]Candidate, int) {
+	latest := map[string]latestBackfillEvidence{}
+	for _, event := range events {
+		scope := derivedScopeKey(event.Farm)
+		normalized := CanonicalIdentifier(event.GoatID)
+		lifecycle, _ := lifecycleForEvent(event)
+		status := candidateStatusFromLifecycle(lifecycle)
+		if scope == "" || normalized == "" || status == "" {
+			continue
+		}
+		key := scope + "|" + normalized
+		next := latestBackfillEvidence{
+			Status: status,
+			Event:  strings.TrimSpace(event.Event),
+			Date:   strings.TrimSpace(event.Date),
+			Shed:   destinationShed(event),
+		}
+		current, ok := latest[key]
+		currentEvent := Event{Date: current.Date, Event: current.Event}
+		if !ok || eventDateAfter(Event{Date: next.Date, Event: next.Event}, &currentEvent) {
+			latest[key] = next
+		}
+	}
+	if len(latest) == 0 {
+		return candidates, 0
+	}
+
+	out := append([]Candidate(nil), candidates...)
+	overrides := 0
+	for i := range out {
+		if !strings.EqualFold(strings.TrimSpace(out[i].Source), "census_plus_bq_unique_farm") {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(out[i].Status), "inactive") {
+			continue
+		}
+		scope := derivedScopeKey(out[i].Farm)
+		normalized := CanonicalIdentifier(out[i].OldTag)
+		if scope == "" || normalized == "" {
+			continue
+		}
+		evidence, ok := latest[scope+"|"+normalized]
+		if !ok || strings.EqualFold(strings.TrimSpace(out[i].Status), evidence.Status) {
+			continue
+		}
+		out[i].Status = evidence.Status
+		out[i].LastEvent = evidence.Event
+		out[i].EventDate = evidence.Date
+		if evidence.Shed != "" {
+			out[i].LastShed = evidence.Shed
+		}
+		overrides++
+	}
+	return out, overrides
+}
+
+func candidateStatusFromLifecycle(lifecycle string) string {
+	switch lifecycle {
+	case "alive":
+		return "Active"
+	case "sold":
+		return "Sold"
+	case "dead":
+		return "Dead"
+	default:
+		return ""
 	}
 }
 
@@ -476,31 +572,93 @@ func expectedTotals(current CountSnapshot, rows []BackfillPlanRow) CountSnapshot
 	return expected
 }
 
+type existingBackfillGoat struct {
+	GoatID    string
+	DisplayID string
+	Lifecycle string
+}
+
+func desiredBackfillLifecycleByKey(candidates []Candidate) map[string]string {
+	rows := planBackfill(candidates, map[string]struct{}{})
+	desired := map[string]string{}
+	for _, row := range rows {
+		if row.Action != "create" || row.Lifecycle == "" {
+			continue
+		}
+		desired[row.ScopeKey+"|"+row.NormalizedValue] = row.Lifecycle
+	}
+	return desired
+}
+
+func applyExpectedLifecycleUpdateDelta(next *CountSnapshot, candidates []Candidate, existing map[string]existingBackfillGoat) int {
+	planned := 0
+	for key, lifecycle := range desiredBackfillLifecycleByKey(candidates) {
+		current, ok := existing[key]
+		if !ok || current.Lifecycle == lifecycle {
+			continue
+		}
+		decrementLifecycle(next, current.Lifecycle)
+		incrementLifecycle(next, lifecycle)
+		planned++
+	}
+	return planned
+}
+
+func incrementLifecycle(snapshot *CountSnapshot, lifecycle string) {
+	switch lifecycle {
+	case "alive":
+		snapshot.Alive++
+	case "sold":
+		snapshot.Sold++
+	case "dead":
+		snapshot.Dead++
+	case "inactive":
+		snapshot.Inactive++
+	}
+}
+
+func decrementLifecycle(snapshot *CountSnapshot, lifecycle string) {
+	switch lifecycle {
+	case "alive":
+		snapshot.Alive--
+	case "sold":
+		snapshot.Sold--
+	case "dead":
+		snapshot.Dead--
+	case "inactive":
+		snapshot.Inactive--
+	}
+}
+
 // applyCandidateBackfill performs the writes inside one transaction guarded by
 // the shared bq-reconcile advisory lock. It re-plans against fresh in-tx state
 // so replay is idempotent.
-func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options, candidates []Candidate, parks map[string]string, sheds map[string]LocationTarget) (int, []BackfillPlanRow, error) {
+func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options, candidates []Candidate, parks map[string]string, sheds map[string]LocationTarget) (int, int, []BackfillPlanRow, error) {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return 0, nil, fmt.Errorf("begin backfill transaction: %w", err)
+		return 0, 0, nil, fmt.Errorf("begin backfill transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
 	// Share the reconcile lock so backfill and reconcile never race on goats.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "bq-reconcile:"+opts.TenantID); err != nil {
-		return 0, nil, fmt.Errorf("acquire backfill lock: %w", err)
+		return 0, 0, nil, fmt.Errorf("acquire backfill lock: %w", err)
 	}
 
 	custodianPartyID, err := resolveMeshaPartyID(ctx, tx)
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	existing, err := loadExistingOldTagKeys(ctx, tx, opts.TenantID)
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	rows := planBackfill(candidates, existing)
 	attachLocations(rows, parks, sheds)
+	updates, err := updateExistingBackfillLifecycles(ctx, tx, opts.TenantID, candidates)
+	if err != nil {
+		return 0, 0, nil, err
+	}
 
 	applied := 0
 	for i := range rows {
@@ -509,13 +667,13 @@ func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Option
 		}
 		goatID, displayID, err := insertBackfillGoat(ctx, tx, opts.TenantID, custodianPartyID, rows[i])
 		if err != nil {
-			return 0, nil, fmt.Errorf("create backfill goat (old_tag %s %s): %w", rows[i].ScopeKey, rows[i].OldTag, err)
+			return 0, 0, nil, fmt.Errorf("create backfill goat (old_tag %s %s): %w", rows[i].ScopeKey, rows[i].OldTag, err)
 		}
 		if err := insertBackfillIdentifier(ctx, tx, opts.TenantID, goatID, rows[i]); err != nil {
-			return 0, nil, fmt.Errorf("attach old_tag identifier for goat %s: %w", goatID, err)
+			return 0, 0, nil, fmt.Errorf("attach old_tag identifier for goat %s: %w", goatID, err)
 		}
 		if err := insertBackfillAudit(ctx, tx, opts.TenantID, opts.TraceID, goatID, displayID, rows[i]); err != nil {
-			return 0, nil, fmt.Errorf("audit backfill goat %s: %w", goatID, err)
+			return 0, 0, nil, fmt.Errorf("audit backfill goat %s: %w", goatID, err)
 		}
 		rows[i].GoatID = goatID
 		rows[i].DisplayID = displayID
@@ -523,9 +681,9 @@ func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Option
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, nil, fmt.Errorf("commit backfill: %w", err)
+		return 0, 0, nil, fmt.Errorf("commit backfill: %w", err)
 	}
-	return applied, rows, nil
+	return applied, updates, rows, nil
 }
 
 func insertBackfillGoat(ctx context.Context, tx pgx.Tx, tenantID, custodianPartyID string, row BackfillPlanRow) (string, string, error) {
@@ -744,6 +902,70 @@ WHERE tenant_id = $1::uuid
 		return nil, err
 	}
 	return set, nil
+}
+
+func loadExistingBackfillOldTagGoats(ctx context.Context, q queryer, tenantID string) (map[string]existingBackfillGoat, error) {
+	rows, err := q.Query(ctx, `
+SELECT i.scope_key, i.normalized_value, g.goat_id::text, g.display_id, g.lifecycle_status
+FROM goat_identifiers i
+JOIN goats g
+  ON g.tenant_id = i.tenant_id
+ AND g.goat_id = i.goat_id
+WHERE i.tenant_id = $1::uuid
+  AND i.identifier_type = 'old_tag'
+  AND i.status = 'active'
+  AND i.source_system = $2
+  AND g.merged_into_goat_id IS NULL`, tenantID, backfillSourceSystem)
+	if err != nil {
+		return nil, fmt.Errorf("load existing backfill old_tag goats: %w", err)
+	}
+	defer rows.Close()
+	existing := map[string]existingBackfillGoat{}
+	for rows.Next() {
+		var scope, normalized, goatID, displayID, lifecycle string
+		if err := rows.Scan(&scope, &normalized, &goatID, &displayID, &lifecycle); err != nil {
+			return nil, fmt.Errorf("scan existing backfill old_tag goat: %w", err)
+		}
+		key := strings.TrimSpace(scope) + "|" + CanonicalIdentifier(normalized)
+		existing[key] = existingBackfillGoat{
+			GoatID:    goatID,
+			DisplayID: displayID,
+			Lifecycle: strings.TrimSpace(lifecycle),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+func updateExistingBackfillLifecycles(ctx context.Context, tx pgx.Tx, tenantID string, candidates []Candidate) (int, error) {
+	applied := 0
+	for key, lifecycle := range desiredBackfillLifecycleByKey(candidates) {
+		scope, normalized, ok := strings.Cut(key, "|")
+		if !ok || scope == "" || normalized == "" || lifecycle == "" {
+			continue
+		}
+		tag, err := tx.Exec(ctx, `
+UPDATE goats g
+SET lifecycle_status = $4,
+    updated_at = now()
+FROM goat_identifiers i
+WHERE i.tenant_id = $1::uuid
+  AND i.goat_id = g.goat_id
+  AND i.identifier_type = 'old_tag'
+  AND i.status = 'active'
+  AND i.source_system = $5
+  AND i.scope_key = $2
+  AND i.normalized_value = $3
+  AND g.merged_into_goat_id IS NULL
+  AND g.lifecycle_status <> $4`, tenantID, scope, normalized, lifecycle, backfillSourceSystem)
+		if err != nil {
+			return 0, fmt.Errorf("update existing backfill lifecycle %s: %w", key, err)
+		}
+		applied += int(tag.RowsAffected())
+	}
+	return applied, nil
 }
 
 func loadParkAndShedLookup(ctx context.Context, q queryer, tenantID string) (map[string]string, map[string]LocationTarget, error) {

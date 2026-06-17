@@ -32,7 +32,7 @@ func TestLifecycleFromCandidateStatus(t *testing.T) {
 		"active":   {"alive", true},
 		"Sold":     {"sold", true},
 		"Inactive": {"inactive", true},
-		"dead":     {"", false},
+		"dead":     {"dead", true},
 		"weird":    {"", false},
 		"":         {"", false},
 	}
@@ -40,6 +40,40 @@ func TestLifecycleFromCandidateStatus(t *testing.T) {
 		got, ok := lifecycleFromCandidateStatus(in)
 		if got != want.want || ok != want.ok {
 			t.Errorf("lifecycleFromCandidateStatus(%q) = (%q,%v), want (%q,%v)", in, got, ok, want.want, want.ok)
+		}
+	}
+}
+
+func TestLatestLocationEvidenceOverridesStaleCandidateStatus(t *testing.T) {
+	candidates := []Candidate{
+		candidate("census_plus_bq_unique_farm", "CPT", "park:CPT", "952", "Beetal", "Male", "Inactive"),
+		candidate("census_plus_bq_unique_farm", "CPT", "park:CPT", "998", "Beetal", "Female", "Inactive"),
+		candidate("census_plus_bq_unique_farm", "CPT", "park:CPT", "SA2328307", "Sirohi", "Female", "Inactive"),
+		candidate("census_plus_bq_unique_farm", "CPT", "park:CPT", "SA2328315", "Sirohi", "Female", "Sold"),
+	}
+	for i := range candidates {
+		candidates[i].RowNumber = i + 2
+	}
+	events := []Event{
+		{Farm: "CPT", GoatID: "952", Event: "Shifting", Date: "2025-08-15", CurrentShed: "Yashoda 2"},
+		{Farm: "CPT", GoatID: "998", Event: "Shifting", Date: "2025-08-15", CurrentShed: "Yashoda 1"},
+		{Farm: "CPT", GoatID: "SA2328307", Event: "Death", Date: "2025-10-09", CurrentShed: "Mandela 2 - Part 10"},
+		{Farm: "CPT", GoatID: "SA2328315", Event: "Shifting", Date: "2025-08-15", CurrentShed: "Yashoda 5"},
+	}
+
+	overridden, count := applyLatestLocationLifecycleEvidence(candidates, events)
+	if count != 3 {
+		t.Fatalf("overrides = %d, want 3", count)
+	}
+	want := map[string]string{
+		"952":       "Active",
+		"998":       "Active",
+		"SA2328307": "Dead",
+		"SA2328315": "Sold",
+	}
+	for _, row := range overridden {
+		if row.Status != want[row.OldTag] {
+			t.Errorf("old_tag %s status=%q, want %q", row.OldTag, row.Status, want[row.OldTag])
 		}
 	}
 }
@@ -52,7 +86,8 @@ func TestPlanBackfillDecisions(t *testing.T) {
 		candidate("bq_current_latest", "CBE", "park:CBE", "200", "Malai", "Male", "Active"),  // already present
 		candidate("bq_current_latest", "CBE", "wrong:CBE", "300", "Malai", "Male", "Active"), // scope mismatch
 		candidate("bq_current_latest", "CBE", "park:CBE", "", "Malai", "Male", "Active"),     // missing identity
-		candidate("bq_current_latest", "CBE", "park:CBE", "400", "Malai", "Male", "Dead"),    // unsupported status
+		candidate("bq_current_latest", "CBE", "park:CBE", "400", "Malai", "Male", "Dead"),
+		candidate("bq_current_latest", "CBE", "park:CBE", "500", "Malai", "Male", "Weird"), // unsupported status
 	}
 	for i := range candidates {
 		candidates[i].RowNumber = i + 2
@@ -77,7 +112,8 @@ func TestPlanBackfillDecisions(t *testing.T) {
 		"200": {"skip", "already_present", ""},
 		"300": {"skip", "scope_mismatch", ""},
 		"":    {"skip", "missing_identity", ""},
-		"400": {"skip", "unsupported_status", ""},
+		"400": {"create", "", "dead"},
+		"500": {"skip", "unsupported_status", ""},
 	}
 	for oldTag, want := range expect {
 		row, ok := planByOldTag(rows, oldTag)
