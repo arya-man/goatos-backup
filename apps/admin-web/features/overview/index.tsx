@@ -92,7 +92,7 @@ export async function OverviewPage() {
         />
       </div>
 
-      <div className="mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+      <div className="mt-6 grid gap-5 xl:grid-cols-2">
         <Panel
           title="Herd Passport Queue"
           description="First page from the live herd search."

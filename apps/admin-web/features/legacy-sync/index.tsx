@@ -80,7 +80,7 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
         </div>
       </DialogModal>
 
-      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Freshness" description="Critical sources and counter freshness determine whether the dashboard can be marked fresh. Noncritical degraded sources stay visible.">
           {!status.ok ? (
             <ErrorPanel error={status.error} />
@@ -125,7 +125,7 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
         </Panel>
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
         <Panel
           title="Recent Runs"
           description="Progress and final status survive refresh because run state is stored in the backend."
