@@ -12,18 +12,31 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 )
 
 func main() {
 	var tenantID string
 	var userID string
+	var externalSubject string
+	var authIssuer string
 	var role string
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope grant")
 	flag.StringVar(&userID, "user-id", "", "user UUID for the grant")
+	flag.StringVar(&externalSubject, "external-subject", "", "non-UUID IdP subject to map into the grant user UUID")
+	flag.StringVar(&authIssuer, "auth-issuer", os.Getenv("GOATOS_AUTH_ISSUER"), "issuer used when mapping an external IdP subject")
 	flag.StringVar(&role, "role", "", "required role: admin, verifier, park_head, operator, or ceo_internal")
 	flag.Parse()
 
+	var err error
+	userID, err = resolveGrantUserID(userID, externalSubject, authIssuer)
+	if err != nil {
+		fail("%v", err)
+	}
+	if !isUUID(tenantID) {
+		fail("invalid or missing tenant id: %q", tenantID)
+	}
 	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if err := validateLocalTarget(os.Getenv("GOATOS_ENV"), databaseURL); err != nil {
 		fail("%v", err)
@@ -56,10 +69,10 @@ WHERE tenant_id = $1
 ORDER BY valid_from DESC, grant_id DESC
 LIMIT 1
 `, tenantID, userID, role).Scan(&grantID); err == nil {
-		fmt.Printf("local dev grant already active %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
+		fmt.Printf("dev grant already active %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
 		return
 	} else if !isNoRows(err) {
-		fail("query local dev grant: %v", err)
+		fail("query dev grant: %v", err)
 	}
 
 	if err := pool.QueryRow(ctx, `
@@ -78,6 +91,48 @@ func validateLocalTarget(env, databaseURL string) error {
 
 func isLocalHost(host string) bool {
 	return localtarget.IsLocalHost(host)
+}
+
+func resolveGrantUserID(userID, externalSubject, authIssuer string) (string, error) {
+	userID = strings.TrimSpace(userID)
+	externalSubject = strings.TrimSpace(externalSubject)
+	authIssuer = strings.TrimSpace(authIssuer)
+	if userID != "" && externalSubject != "" {
+		return "", errors.New("set either -user-id or -external-subject, not both")
+	}
+	if userID == "" {
+		if externalSubject == "" {
+			return "", errors.New("missing -user-id or -external-subject")
+		}
+		if authIssuer == "" {
+			return "", errors.New("GOATOS_AUTH_ISSUER or -auth-issuer is required with -external-subject")
+		}
+		userID = platformauth.StableSubjectID(authIssuer, externalSubject)
+	}
+	if !isUUID(userID) {
+		return "", fmt.Errorf("invalid user id %q", userID)
+	}
+	return userID, nil
+}
+
+func isUUID(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validRole(role string) bool {

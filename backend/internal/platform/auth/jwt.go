@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -32,12 +33,13 @@ type Config struct {
 }
 
 type Claims struct {
-	Subject   string
-	TenantID  string
-	Issuer    string
-	Audience  string
-	Expires   time.Time
-	NotBefore time.Time
+	Subject         string
+	ExternalSubject string
+	TenantID        string
+	Issuer          string
+	Audience        string
+	Expires         time.Time
+	NotBefore       time.Time
 }
 
 func MintHS256Token(cfg Config, subject, tenantID string, ttl time.Duration) (string, error) {
@@ -160,16 +162,30 @@ type rawClaims struct {
 }
 
 func (c rawClaims) validate(issuer, audience string, now time.Time, maxTTL time.Duration) (Claims, error) {
-	return c.validateWithSkew(issuer, audience, now, maxTTL, 0)
+	return c.validateWithSkew(issuer, audience, now, maxTTL, 0, true, false)
 }
 
 // validateWithSkew validates the raw claims applying an optional clockSkew
 // tolerance to exp and nbf. Both HS256Verifier and JWKSVerifier call this so
 // the validation rules cannot diverge.
-func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxTTL, clockSkew time.Duration) (Claims, error) {
+func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxTTL, clockSkew time.Duration, requireTenantID, mapExternalSubject bool) (Claims, error) {
 	subject := strings.TrimSpace(c.Subject)
 	tenantID := strings.TrimSpace(c.TenantID)
-	if !isUUID(subject) || !isUUID(tenantID) {
+	if subject == "" {
+		return Claims{}, ErrInvalidToken
+	}
+	actorID := subject
+	if !isUUID(actorID) {
+		if !mapExternalSubject {
+			return Claims{}, ErrInvalidToken
+		}
+		actorID = StableSubjectID(issuer, subject)
+	}
+	if tenantID == "" {
+		if requireTenantID {
+			return Claims{}, ErrInvalidToken
+		}
+	} else if !isUUID(tenantID) {
 		return Claims{}, ErrInvalidToken
 	}
 	if c.Issuer != issuer {
@@ -202,13 +218,50 @@ func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxT
 		return Claims{}, ErrInvalidToken
 	}
 	return Claims{
-		Subject:   subject,
-		TenantID:  tenantID,
-		Issuer:    c.Issuer,
-		Audience:  aud,
-		Expires:   exp,
-		NotBefore: nbf,
+		Subject:         actorID,
+		ExternalSubject: subject,
+		TenantID:        tenantID,
+		Issuer:          c.Issuer,
+		Audience:        aud,
+		Expires:         exp,
+		NotBefore:       nbf,
 	}, nil
+}
+
+// StableSubjectID maps non-UUID IdP subjects, such as Firebase Auth UIDs, to a
+// deterministic internal UUID for existing actor/grant columns.
+func StableSubjectID(issuer, subject string) string {
+	subject = strings.TrimSpace(subject)
+	if isUUID(subject) {
+		return strings.ToLower(subject)
+	}
+	namespace := [16]byte{0x89, 0x47, 0xf8, 0xfa, 0x12, 0xb2, 0x48, 0xa5, 0xa9, 0xdb, 0x93, 0x64, 0x42, 0x5d, 0x0f, 0x72}
+	h := sha1.New()
+	_, _ = h.Write(namespace[:])
+	_, _ = h.Write([]byte(strings.TrimSpace(issuer)))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(subject))
+	sum := h.Sum(nil)
+	id := append([]byte(nil), sum[:16]...)
+	id[6] = (id[6] & 0x0f) | 0x50
+	id[8] = (id[8] & 0x3f) | 0x80
+	return formatUUID(id)
+}
+
+func formatUUID(id []byte) string {
+	const hex = "0123456789abcdef"
+	out := make([]byte, 36)
+	j := 0
+	for i, b := range id {
+		if i == 4 || i == 6 || i == 8 || i == 10 {
+			out[j] = '-'
+			j++
+		}
+		out[j] = hex[b>>4]
+		out[j+1] = hex[b&0x0f]
+		j += 2
+	}
+	return string(out)
 }
 
 func decodeSegment(segment string, dst any, disallowUnknown bool) error {

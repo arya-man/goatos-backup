@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
+)
 
 func TestValidateLocalTargetAllowsLocalDatabase(t *testing.T) {
 	if err := validateLocalTarget("local", "postgres://postgres:goatos@localhost:5432/goatos?sslmode=disable"); err != nil {
@@ -36,6 +40,40 @@ func TestValidateLocalTargetRejectsCloudSQLSocketURL(t *testing.T) {
 	databaseURL := "user=postgres password=goatos dbname=goatos host=/cloudsql/project:region:instance sslmode=disable"
 	if err := validateLocalTarget("local", databaseURL); err == nil {
 		t.Fatal("cloud sql socket database URL accepted")
+	}
+}
+
+func TestResolveGrantUserIDUsesUUIDDirectly(t *testing.T) {
+	got, err := resolveGrantUserID("90000000-0000-4000-8000-000000000001", "", "")
+	if err != nil {
+		t.Fatalf("resolveGrantUserID: %v", err)
+	}
+	if got != "90000000-0000-4000-8000-000000000001" {
+		t.Fatalf("user_id=%s", got)
+	}
+}
+
+func TestResolveGrantUserIDMapsExternalSubject(t *testing.T) {
+	const issuer = "https://securetoken.google.com/goatos-dev"
+	const externalSubject = "firebase-uid-abc123"
+	got, err := resolveGrantUserID("", externalSubject, issuer)
+	if err != nil {
+		t.Fatalf("resolveGrantUserID: %v", err)
+	}
+	if got != platformauth.StableSubjectID(issuer, externalSubject) {
+		t.Fatalf("user_id=%s", got)
+	}
+}
+
+func TestResolveGrantUserIDRejectsAmbiguousOrMissingInputs(t *testing.T) {
+	if _, err := resolveGrantUserID("", "", "issuer"); err == nil {
+		t.Fatal("missing user inputs accepted")
+	}
+	if _, err := resolveGrantUserID("90000000-0000-4000-8000-000000000001", "firebase-uid", "issuer"); err == nil {
+		t.Fatal("ambiguous user inputs accepted")
+	}
+	if _, err := resolveGrantUserID("", "firebase-uid", ""); err == nil {
+		t.Fatal("external subject without issuer accepted")
 	}
 }
 

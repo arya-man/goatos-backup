@@ -163,7 +163,10 @@ GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
 `local`, `dev`, or `test`. Shared/staging/prod must run `jwks`.
 
 `goatos-dev` uses Google Identity Platform / Firebase Auth as the JWKS IdP.
-Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting.
+Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting. For
+dev Firebase tokens, set issuer `https://securetoken.google.com/goatos-dev`,
+audience `goatos-dev`, and JWKS URL
+`https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`.
 
 ## Release steps
 
@@ -185,11 +188,12 @@ Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting.
    a socket-form `DATABASE_URL` whose host is exactly
    `/cloudsql/goatos-dev:asia-south1:<instance>`.
 3. **Seed the admin grant (first deploy only).** Production authorization comes
-   from active `user_scope_grants` rows for the IdP `sub`, not from token claims.
-   Insert the initial `ceo_internal`/`admin` tenant-scope grant for the seeded
-   operator identity through a reviewed migration or an explicit, audited grant
-   script — `seed-dev-grant` is not a staging/production bootstrap path and
-   will refuse those targets.
+   from active `user_scope_grants` rows, not from token claims. For Firebase
+   dev login, map the non-UUID Firebase UID to the backend's stable internal
+   actor UUID, then insert the initial `ceo_internal`/`admin` tenant-scope grant
+   for that actor and tenant through a reviewed migration or an explicit,
+   audited grant script — `seed-dev-grant` is not a staging/production bootstrap
+   path and will refuse those targets.
 4. **Deploy.** Roll the new image. Keep the previous revision available for
    rollback.
 5. **Smoke.** See "Smoke checks" — must pass before announcing the release.

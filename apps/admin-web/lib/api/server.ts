@@ -230,6 +230,14 @@ export function getAdminRuntimeStatus() {
   };
 }
 
+function apiClientOptions(config: ServerConfig) {
+  return {
+    baseUrl: config.baseUrl,
+    bearerToken: config.bearerToken,
+    tenantId: config.tenantId || undefined,
+  };
+}
+
 export function isAuthRequiredError(error: ApiUiError): boolean {
   return error.kind === "unauthorized" || error.status === 401;
 }
@@ -248,10 +256,7 @@ export function firstAuthRequiredError(
 export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<GoatSearchResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAppApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<GoatSearchResponse>("/goats/search", {
       cache: "no-store",
@@ -263,10 +268,7 @@ export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<G
 export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPassportResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAppApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/goats/${encodeURIComponent(goatId)}` as keyof AppApiPaths & string;
   return request(() => client.request<GoatPassportResponse>(path, { cache: "no-store" }));
 }
@@ -274,10 +276,7 @@ export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPas
 export async function getGoatTimeline(params: GoatTimelineParams): Promise<ApiResult<GoatTimelineResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAppApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/goats/${encodeURIComponent(params.goatId)}/timeline` as keyof AppApiPaths & string;
   return request(() =>
     client.request<GoatTimelineResponse>(path, {
@@ -296,10 +295,7 @@ export async function createCorrectionRequest(
 ): Promise<ApiResult<CorrectionRequestResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAppApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CorrectionRequestResponse>("/identity/correction-requests", {
       method: "POST",
@@ -313,10 +309,7 @@ export async function createCorrectionRequest(
 export async function getIdentityCounts(params: CountSearchParams): Promise<ApiResult<IdentityCountsResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
-  const client = createAnalyticsApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAnalyticsApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<IdentityCountsResponse>("/analytics/identity/counts", {
       cache: "no-store",
@@ -328,10 +321,7 @@ export async function getIdentityCounts(params: CountSearchParams): Promise<ApiR
 export async function getReviewSummary(): Promise<ApiResult<ReviewSummaryResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ReviewSummaryResponse>("/admin/identity/review-summary", { cache: "no-store" }),
   );
@@ -340,10 +330,7 @@ export async function getReviewSummary(): Promise<ApiResult<ReviewSummaryRespons
 export async function listConflicts(params: ConflictSearchParams): Promise<ApiResult<ConflictListResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ConflictListResponse>("/admin/identity/conflicts", {
       cache: "no-store",
@@ -355,10 +342,7 @@ export async function listConflicts(params: ConflictSearchParams): Promise<ApiRe
 export async function getConflictDetail(conflictId: string): Promise<ApiResult<ConflictDetailResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/identity/conflicts/${encodeURIComponent(conflictId)}` as keyof AdminApiPaths & string;
   return request(() => client.request<ConflictDetailResponse>(path, { cache: "no-store" }));
 }
@@ -370,10 +354,7 @@ export async function resolveIdentityConflict(
 ): Promise<ApiResult<ResolveConflictResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/identity/conflicts/${encodeURIComponent(conflictId)}/resolve` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<ResolveConflictResponse>(path, {
@@ -388,10 +369,7 @@ export async function resolveIdentityConflict(
 export async function bulkResolveConflicts(body: BulkResolveConflictsRequest): Promise<ApiResult<BulkResolveConflictsResult>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<BulkResolveConflictsResult>("/admin/identity/conflicts/bulk-resolve", {
       method: "POST",
@@ -404,10 +382,7 @@ export async function bulkResolveConflicts(body: BulkResolveConflictsRequest): P
 export async function listCandidates(params: CandidateSearchParams): Promise<ApiResult<CandidateListResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CandidateListResponse>("/admin/identity/candidates", {
       cache: "no-store",
@@ -423,10 +398,7 @@ export async function rejectIdentityCandidate(
 ): Promise<ApiResult<CandidateDecisionResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/identity/candidates/${encodeURIComponent(candidateId)}/reject` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<CandidateDecisionResponse>(path, {
@@ -445,10 +417,7 @@ export async function approveIdentityCandidate(
 ): Promise<ApiResult<CandidateDecisionResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/identity/candidates/${encodeURIComponent(candidateId)}/approve` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<CandidateDecisionResponse>(path, {
@@ -463,10 +432,7 @@ export async function approveIdentityCandidate(
 export async function getImportRun(importRunId: string): Promise<ApiResult<ImportRunResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/import-runs/${encodeURIComponent(importRunId)}` as keyof AdminApiPaths & string;
   return request(() => client.request<ImportRunResponse>(path, { cache: "no-store" }));
 }
@@ -474,10 +440,7 @@ export async function getImportRun(importRunId: string): Promise<ApiResult<Impor
 export async function listImportRuns(params: ImportRunsParams): Promise<ApiResult<ImportRunListResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ImportRunListResponse>("/admin/import-runs", {
       cache: "no-store",
@@ -489,10 +452,7 @@ export async function listImportRuns(params: ImportRunsParams): Promise<ApiResul
 export async function listImportRunRows(params: ImportRunRowsParams): Promise<ApiResult<ImportRunRowsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/import-runs/${encodeURIComponent(params.importRunId)}/rows` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<ImportRunRowsResponse>(path, {
@@ -515,10 +475,7 @@ export async function reviewImportRunRow(
 ): Promise<ApiResult<ReviewImportRowResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path =
     `/admin/import-runs/${encodeURIComponent(importRunId)}/rows/${encodeURIComponent(importRowId)}/review` as keyof AdminApiPaths & string;
   return request(() =>
@@ -534,10 +491,7 @@ export async function reviewImportRunRow(
 export async function getLegacySyncStatus(): Promise<ApiResult<LegacySyncOverallStatusResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<LegacySyncOverallStatusResponse>("/admin/legacy-sync/status", { cache: "no-store" }),
   );
@@ -546,10 +500,7 @@ export async function getLegacySyncStatus(): Promise<ApiResult<LegacySyncOverall
 export async function listLegacySyncRuns(params: LegacySyncRunsParams): Promise<ApiResult<LegacySyncRunListResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<LegacySyncRunListResponse>("/admin/legacy-sync/runs", {
       cache: "no-store",
@@ -561,10 +512,7 @@ export async function listLegacySyncRuns(params: LegacySyncRunsParams): Promise<
 export async function getLegacySyncRun(syncRunId: string): Promise<ApiResult<LegacySyncRunDetailResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/legacy-sync/runs/${encodeURIComponent(syncRunId)}` as keyof AdminApiPaths & string;
   return request(() => client.request<LegacySyncRunDetailResponse>(path, { cache: "no-store" }));
 }
@@ -572,10 +520,7 @@ export async function getLegacySyncRun(syncRunId: string): Promise<ApiResult<Leg
 export async function createLegacySyncRun(body: CreateLegacySyncRunRequest): Promise<ApiResult<CreateLegacySyncRunResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CreateLegacySyncRunResponse>("/admin/legacy-sync/runs", {
       method: "POST",
@@ -588,10 +533,7 @@ export async function createLegacySyncRun(body: CreateLegacySyncRunRequest): Pro
 export async function cancelLegacySyncRun(syncRunId: string): Promise<ApiResult<CancelLegacySyncRunResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/legacy-sync/runs/${encodeURIComponent(syncRunId)}/cancel` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<CancelLegacySyncRunResponse>(path, {
@@ -604,10 +546,7 @@ export async function cancelLegacySyncRun(syncRunId: string): Promise<ApiResult<
 export async function adminListCorrectionRequests(params: CorrectionRequestSearchParams): Promise<ApiResult<AdminCorrectionRequestListResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<AdminCorrectionRequestListResponse>("/admin/identity/correction-requests", {
       cache: "no-store",
@@ -627,10 +566,7 @@ export async function resolveCorrectionRequest(
 ): Promise<ApiResult<AdminCorrectionRequestResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/identity/correction-requests/${encodeURIComponent(correctionRequestId)}/resolve` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<AdminCorrectionRequestResponse>(path, {
@@ -649,10 +585,7 @@ export async function addGoatIdentifier(
 ): Promise<ApiResult<AdminGoatResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/goats/${encodeURIComponent(goatId)}/identifiers` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<AdminGoatResponse>(path, {
@@ -672,10 +605,7 @@ export async function retireGoatIdentifier(
 ): Promise<ApiResult<AdminGoatResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
-  const client = createAdminApiClient({
-    baseUrl: config.data.baseUrl,
-    bearerToken: config.data.bearerToken,
-  });
+  const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/goats/${encodeURIComponent(goatId)}/identifiers/${encodeURIComponent(identifierId)}/retire` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<AdminGoatResponse>(path, {

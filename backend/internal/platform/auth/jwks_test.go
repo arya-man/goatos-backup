@@ -218,6 +218,38 @@ func TestJWKSVerifierAcceptsValidES256Token(t *testing.T) {
 	}
 }
 
+func TestJWKSVerifierAcceptsExternalIDPSubjectWithoutTenantClaim(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	key := generateRSAKey(t)
+	entries := []jwkEntry{rsaJWKEntry("rsa-kid-1", &key.PublicKey)}
+	var ep atomic.Pointer[[]jwkEntry]
+	ep.Store(&entries)
+	srv := jwksServer(t, &ep)
+
+	v := newTestJWKSVerifier(t, srv, now)
+	externalSubject := "firebase-uid-abc123"
+	token := mintRS256Token(t, "rsa-kid-1", key, map[string]any{
+		"iss": testIssuer,
+		"aud": testAudience,
+		"sub": externalSubject,
+		"exp": now.Add(time.Hour).Unix(),
+		"nbf": now.Add(-time.Minute).Unix(),
+	})
+	claims, err := v.Verify(token)
+	if err != nil {
+		t.Fatalf("Verify external subject token: %v", err)
+	}
+	if claims.Subject != StableSubjectID(testIssuer, externalSubject) {
+		t.Fatalf("subject=%s want stable mapped subject", claims.Subject)
+	}
+	if claims.ExternalSubject != externalSubject {
+		t.Fatalf("external_subject=%s want %s", claims.ExternalSubject, externalSubject)
+	}
+	if claims.TenantID != "" {
+		t.Fatalf("tenant=%s want no tenant claim", claims.TenantID)
+	}
+}
+
 // ── rejection table ───────────────────────────────────────────────────────────
 
 func TestJWKSVerifierRejectsInvalidTokens(t *testing.T) {
@@ -281,10 +313,6 @@ func TestJWKSVerifierRejectsInvalidTokens(t *testing.T) {
 		{
 			name:  "missing sub",
 			token: mintRS256Token(t, "rsa-kid-1", rsaKey, withoutClaim(base, "sub")),
-		},
-		{
-			name:  "missing tenant_id",
-			token: mintRS256Token(t, "rsa-kid-1", rsaKey, withoutClaim(base, "tenant_id")),
 		},
 	}
 

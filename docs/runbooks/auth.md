@@ -52,6 +52,13 @@ client is initialized with account auto-select disabled and the `mesha.sg`
 hosted-domain hint. The Cloud Run admin-web origins must remain registered on
 the Google OAuth web client.
 
+Firebase ID tokens use issuer `https://securetoken.google.com/goatos-dev`,
+audience `goatos-dev`, and Google's SecureToken JWKS endpoint. Firebase UIDs are
+external IdP subjects, not Goat OS UUIDs; the backend maps a non-UUID token
+subject to a stable internal actor UUID before checking `user_scope_grants`.
+Admin-web forwards `X-GoatOS-Tenant-ID` from `GOATOS_TENANT_ID`; roles still
+come only from active DB grant rows for that internal actor UUID and tenant.
+
 Secret Manager containers may hold the eventual issuer, audience, JWKS URL,
 Firebase web config, and admin-web app bearer values, but secret values are
 populated out-of-band in a later approved phase. Do not put token values,

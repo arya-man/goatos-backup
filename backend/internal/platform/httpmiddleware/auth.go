@@ -114,8 +114,16 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			writeAuthError(w, r, http.StatusUnauthorized, "invalid_bearer_token", "bearer token is invalid")
 			return r.Context(), "", "", false
 		}
-		ctx := WithActorID(WithTenantID(r.Context(), claims.TenantID), claims.Subject)
-		return ctx, claims.Subject, claims.TenantID, true
+		tenantID := claims.TenantID
+		if tenantID == "" {
+			tenantID = strings.TrimSpace(TenantIDFromContext(r.Context()))
+		}
+		if !isUUIDString(tenantID) {
+			writeAuthError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
+			return r.Context(), "", "", false
+		}
+		ctx := WithActorID(WithTenantID(r.Context(), tenantID), claims.Subject)
+		return ctx, claims.Subject, tenantID, true
 	case AuthModeDevHeaders:
 		tenantID := strings.TrimSpace(r.Header.Get(headerTenantID))
 		actorID := strings.TrimSpace(r.Header.Get(headerActorID))
@@ -129,6 +137,26 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		writeAuthError(w, r, http.StatusUnauthorized, "invalid_auth_mode", "auth mode is invalid")
 		return r.Context(), "", "", false
 	}
+}
+
+func isUUIDString(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func bearerToken(value string) (string, bool) {

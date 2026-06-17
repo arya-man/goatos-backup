@@ -23,6 +23,7 @@ export type RequestOptions = Omit<RequestInit, "body" | "headers"> & {
 export type GoatOSClientOptions = {
   baseUrl: string;
   bearerToken?: string;
+  tenantId?: string;
   fetchImpl?: typeof fetch;
   defaultHeaders?: HeadersInit;
 };
@@ -59,6 +60,9 @@ export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSC
       const headers = new Headers(options.defaultHeaders);
       for (const [key, value] of new Headers(requestOptions.headers)) {
         headers.set(key, value);
+      }
+      if (options.tenantId) {
+        headers.set("X-GoatOS-Tenant-ID", options.tenantId);
       }
       if (options.bearerToken) {
         headers.set("Authorization", `Bearer ${options.bearerToken}`);

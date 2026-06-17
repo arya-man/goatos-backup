@@ -51,6 +51,66 @@ func TestBearerAuthUsesTokenContextAndIgnoresSpoofHeaders(t *testing.T) {
 	}
 }
 
+func TestBearerAuthUsesHeaderTenantWhenTokenHasNoTenantClaim(t *testing.T) {
+	externalSubject := "firebase-uid-abc123"
+	actorID := platformauth.StableSubjectID(authTestIssuer, externalSubject)
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer},
+		staticVerifier{claims: platformauth.Claims{Subject: actorID, ExternalSubject: externalSubject, Issuer: authTestIssuer, Audience: authTestAudience}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{actorID + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := TenantIDFromContext(r.Context()); got != authTestTenant {
+			t.Fatalf("tenant=%s want header tenant", got)
+		}
+		if got := ActorIDFromContext(r.Context()); got != actorID {
+			t.Fatalf("actor=%s want mapped actor", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(next))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", authTestTenant)
+	req.Header.Set("X-GoatOS-Actor-ID", authTestUser)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBearerAuthRequiresTenantContextWhenTokenHasNoTenantClaim(t *testing.T) {
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer},
+		staticVerifier{claims: platformauth.Claims{Subject: authTestUser, Issuer: authTestIssuer, Audience: authTestAudience}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertAuthErrorCode(t, rec, "missing_tenant_context")
+}
+
 func TestBearerAuthDeniesMissingMalformedAndMissingGrant(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -244,6 +304,18 @@ type grantAdapter struct {
 
 func (g grantAdapter) ActiveTenantRoles(_ context.Context, userID, tenantID string) ([]string, error) {
 	return g.activeTenantRoles(userID, tenantID)
+}
+
+type staticVerifier struct {
+	claims platformauth.Claims
+	err    error
+}
+
+func (s staticVerifier) Verify(string) (platformauth.Claims, error) {
+	if s.err != nil {
+		return platformauth.Claims{}, s.err
+	}
+	return s.claims, nil
 }
 
 func testToken(t *testing.T, sub, tenant string, extra map[string]any) string {
