@@ -1,13 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
-  getFirebaseAuth,
   getFirebaseClientRuntimeConfig,
   signInWithGoogleIdToken,
-  syncFirebaseSession,
 } from "@/lib/auth/firebase-client";
 import { DASHBOARD_BASE_PATH } from "@/lib/auth/session-cookie";
 
@@ -52,46 +49,35 @@ declare global {
 let googleIdentityScriptPromise: Promise<void> | null = null;
 
 export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: string }) {
-  const [status, setStatus] = useState<"checking" | "ready" | "signing_in" | "redirecting" | "error">("checking");
+  const [status, setStatus] = useState<"ready" | "signing_in" | "redirecting" | "error">("ready");
   const [message, setMessage] = useState<string | null>(null);
+  const [googleButtonReady, setGoogleButtonReady] = useState(false);
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const redirectStartedRef = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    let unsubscribe: (() => void) | null = null;
-    void getFirebaseAuth()
-      .then((auth) => {
-        unsubscribe = onAuthStateChanged(auth, (user) => {
-          if (!active) return;
-          if (!user) {
-            setStatus("ready");
-            return;
-          }
-          setStatus("redirecting");
-          void syncFirebaseSession(user, true)
-            .then(() => {
-              window.location.assign(safeNextPath(nextPath));
-            })
-            .catch((error) => {
-              setStatus("error");
-              setMessage(error instanceof Error ? error.message : "The admin session could not be refreshed.");
-            });
-        });
-      })
-      .catch((error) => {
-        setStatus("error");
-        setMessage(error instanceof Error ? error.message : "Firebase sign-in is not configured.");
-      });
-    return () => {
-      active = false;
-      if (unsubscribe) unsubscribe();
-    };
+  const navigateToNext = useCallback(() => {
+    setStatus("redirecting");
+    window.location.replace(safeNextPath(nextPath));
   }, [nextPath]);
+
+  const reserveRedirect = useCallback((nextStatus: "signing_in" | "redirecting") => {
+    if (redirectStartedRef.current) return false;
+    redirectStartedRef.current = true;
+    setStatus(nextStatus);
+    return true;
+  }, []);
+
+  const resetAfterFailure = useCallback((error: unknown, fallback: string) => {
+    redirectStartedRef.current = false;
+    setStatus("ready");
+    setMessage(error instanceof Error ? error.message : fallback);
+  }, []);
 
   useEffect(() => {
     if (status !== "ready" || !googleButtonRef.current) return;
     let cancelled = false;
     googleButtonRef.current.replaceChildren();
+    setGoogleButtonReady(false);
 
     void getFirebaseClientRuntimeConfig()
       .then(async ({ googleClientId }) => {
@@ -114,20 +100,18 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
           use_fedcm_for_button: false,
           callback: (response) => {
             if (!response.credential) {
-              setStatus("error");
+              setStatus("ready");
               setMessage("Google sign-in did not return a credential.");
               return;
             }
-            setStatus("signing_in");
+            if (!reserveRedirect("signing_in")) return;
             setMessage(null);
             void signInWithGoogleIdToken(response.credential)
               .then(() => {
-                setStatus("redirecting");
-                window.location.assign(safeNextPath(nextPath));
+                navigateToNext();
               })
               .catch((error) => {
-                setStatus("error");
-                setMessage(error instanceof Error ? error.message : "Google sign-in failed.");
+                resetAfterFailure(error, "Google sign-in failed.");
               });
           },
         });
@@ -140,9 +124,11 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
           shape: "rectangular",
           width: buttonWidth,
         });
+        setGoogleButtonReady(true);
       })
       .catch((error) => {
         if (cancelled) return;
+        setGoogleButtonReady(false);
         setStatus("error");
         setMessage(error instanceof Error ? error.message : "Google sign-in is not configured.");
       });
@@ -150,23 +136,46 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
     return () => {
       cancelled = true;
     };
-  }, [nextPath, status]);
+  }, [navigateToNext, reserveRedirect, resetAfterFailure, status]);
+
+  const statusText =
+    status === "redirecting" ? "Opening dashboard" : status === "signing_in" ? "Signing in" : "Loading Google";
+  const showBusyStatus = status === "signing_in" || status === "redirecting";
 
   return (
     <div className="mt-8">
-      {status === "ready" ? (
-        <div className="flex min-h-12 w-full justify-center" ref={googleButtonRef} />
-      ) : (
-        <div className="flex h-12 w-full items-center justify-center gap-3 rounded-md border border-[#3a4352] bg-[#141a23] px-4 text-sm font-bold text-[#8b95a5]">
-          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-          {status === "redirecting" ? "Opening dashboard" : status === "signing_in" ? "Signing in" : "Checking session"}
-        </div>
-      )}
-      {message ? (
-        <p className="mt-3 rounded-lg border border-[#7f1d1d] bg-[#1d1214] px-3 py-2 text-sm leading-6 text-[#fecaca]">
-          {message}
-        </p>
-      ) : null}
+      <div className="relative flex h-12 w-full items-center justify-center">
+        <div
+          ref={googleButtonRef}
+          aria-hidden={status === "signing_in" || status === "redirecting" ? "true" : undefined}
+          className={[
+            "flex h-12 w-full max-w-[340px] items-center justify-center transition-opacity duration-150",
+            googleButtonReady ? "opacity-100" : "opacity-0",
+            status === "signing_in" || status === "redirecting" ? "pointer-events-none opacity-60" : "",
+          ].join(" ")}
+        />
+        {!googleButtonReady ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex h-11 w-full max-w-[340px] items-center justify-center gap-3 rounded border border-[#3a4352] bg-[#141a23] px-4 text-sm font-bold text-[#8b95a5]">
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+              {statusText}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-3 min-h-7">
+        {showBusyStatus && googleButtonReady ? (
+          <div className="flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8b95a5]">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            {statusText}
+          </div>
+        ) : null}
+        {message ? (
+          <p className="rounded-lg border border-[#7f1d1d] bg-[#1d1214] px-3 py-2 text-sm leading-6 text-[#fecaca]">
+            {message}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
