@@ -51,7 +51,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 
 func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 	if h.verifier == nil || h.recorder == nil {
-		writeError(w, http.StatusServiceUnavailable, "auth_audit_unconfigured", "auth audit is not configured")
+		writeError(w, r, http.StatusServiceUnavailable, "auth_audit_unconfigured", "auth audit is not configured")
 		return
 	}
 
@@ -60,24 +60,24 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 		Source    string `json:"source"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 2048)).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 		return
 	}
 	action, ok := normalizeAction(body.EventType)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid_auth_event_type", "auth event type is not supported")
+		writeError(w, r, http.StatusBadRequest, "invalid_auth_event_type", "auth event type is not supported")
 		return
 	}
 
 	token, ok := bearerToken(r.Header.Get("Authorization"))
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing_bearer_token", "Authorization: Bearer token is required")
+		writeError(w, r, http.StatusUnauthorized, "missing_bearer_token", "Authorization: Bearer token is required")
 		return
 	}
 
 	claims, err := h.verifier.Verify(token)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid_bearer_token", "bearer token is invalid")
+		writeError(w, r, http.StatusUnauthorized, "invalid_bearer_token", "bearer token is invalid")
 		return
 	}
 
@@ -97,7 +97,7 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 			}),
 			TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
 		})
-		writeError(w, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
+		writeError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
 		return
 	}
 
@@ -236,12 +236,12 @@ type fieldError struct {
 	Message string `json:"message"`
 }
 
-func writeError(w http.ResponseWriter, status int, code, message string) {
+func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	httpresponse.WriteJSON(w, status, errorEnvelope{
 		Code:        code,
 		Message:     message,
 		FieldErrors: []fieldError{},
-		TraceID:     "missing-trace",
+		TraceID:     traceID(r),
 		Retryable:   false,
 	})
 }

@@ -75,6 +75,7 @@ func TestHandlerRecordsFailedSignInWhenVerifiedTokenHasNoTenantContext(t *testin
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	assertErrorTraceID(t, rec)
 	if len(recorder.events) != 1 {
 		t.Fatalf("events=%d want 1", len(recorder.events))
 	}
@@ -98,6 +99,7 @@ func TestHandlerRejectsMissingBearerWithoutAudit(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	assertErrorTraceID(t, rec)
 	if len(recorder.events) != 0 {
 		t.Fatalf("events=%d want 0", len(recorder.events))
 	}
@@ -115,6 +117,7 @@ func TestHandlerRejectsInvalidActionWithoutAudit(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	assertErrorTraceID(t, rec)
 	if len(recorder.events) != 0 {
 		t.Fatalf("events=%d want 0", len(recorder.events))
 	}
@@ -149,6 +152,17 @@ func RequestWrapped(h *Handler) http.Handler {
 	mux := http.NewServeMux()
 	Register(mux, h)
 	return httpmiddleware.RequestContext(nil)(mux)
+}
+
+func assertErrorTraceID(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	var body errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if body.TraceID == "" || body.TraceID == "missing-trace" {
+		t.Fatalf("trace_id=%q body=%s", body.TraceID, rec.Body.String())
+	}
 }
 
 type staticVerifier struct {
