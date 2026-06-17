@@ -143,10 +143,13 @@ func buildAuthVerifier(cfg AuthConfig, log *slog.Logger) (httpmiddleware.TokenVe
 	}
 	switch mode {
 	case httpmiddleware.AuthModeBearer:
-		// HS256 bearer is a local/dev convenience only. Warn loudly when used
-		// in a non-development environment so operators know to switch to jwks.
-		if log != nil && !httpmiddleware.DevHeadersEnvironmentAllowed(cfg.Environment) {
-			log.Warn("HS256 bearer auth mode is not a production auth mode; set GOATOS_AUTH_MODE=jwks for production deployments")
+		// HS256 bearer is a local/dev/test convenience only. Shared
+		// environments must use jwks so a misconfigured deployment fails closed.
+		if !httpmiddleware.DevHeadersEnvironmentAllowed(cfg.Environment) {
+			if log != nil {
+				log.Error("HS256 bearer auth mode is not allowed outside local/dev/test; set GOATOS_AUTH_MODE=jwks")
+			}
+			return nil, fmt.Errorf("%w: GOATOS_AUTH_MODE=bearer is allowed only when GOATOS_ENV is local/dev/test", httpmiddleware.ErrInvalidAuthConfig)
 		}
 		return platformauth.NewHS256Verifier(platformauth.Config{
 			Issuer:   cfg.Issuer,

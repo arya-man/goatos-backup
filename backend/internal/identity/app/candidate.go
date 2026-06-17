@@ -255,14 +255,25 @@ func validateApproveCandidate(body *approveCandidateBody) error {
 			return BadRequest("invalid_identifier_source", "provide exactly one of an explicit identifier (identifier_type+identifier_value) or extract_from_legacy_row")
 		}
 		if hasExplicit {
-			if body.IdentifierType == nil || !allowedIdentifierTypes[strings.TrimSpace(*body.IdentifierType)] {
+			identifierType := ""
+			if body.IdentifierType != nil {
+				identifierType = strings.TrimSpace(*body.IdentifierType)
+			}
+			if body.IdentifierType == nil || !allowedIdentifierTypes[identifierType] {
 				return BadRequest("invalid_identifier_type", "identifier_type is required and must be supported for an explicit attach")
 			}
 			if body.IdentifierValue == nil || strings.TrimSpace(*body.IdentifierValue) == "" || len(strings.TrimSpace(*body.IdentifierValue)) > 200 {
 				return BadRequest("invalid_identifier_value", "identifier_value must be between 1 and 200 characters")
 			}
-			if body.ScopeKey != nil && len(strings.TrimSpace(*body.ScopeKey)) > 200 {
-				return BadRequest("invalid_scope_key", "scope_key must be at most 200 characters")
+			scopeKey := ""
+			if body.ScopeKey != nil {
+				scopeKey = strings.TrimSpace(*body.ScopeKey)
+			}
+			if identifierType != "rfid" && scopeKey == "" {
+				return BadRequest("invalid_scope_key", "scope_key is required for non-RFID identifier attaches")
+			}
+			if len(scopeKey) > 120 {
+				return BadRequest("invalid_scope_key", "scope_key must be at most 120 characters")
 			}
 		}
 	case "merge_goats":

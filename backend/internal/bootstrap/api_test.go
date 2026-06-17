@@ -25,9 +25,26 @@ func TestBuildAuthVerifierDefaultsToBearerAndRejectsWeakConfig(t *testing.T) {
 		Issuer:      "goatos-test",
 		Audience:    "goatos-api",
 		HS256Secret: "0123456789abcdef0123456789abcdef",
+		Environment: "local",
 		MaxTokenTTL: 24 * time.Hour,
 	}, nil); err != nil {
 		t.Fatalf("valid default bearer config rejected: %v", err)
+	}
+}
+
+func TestBuildAuthVerifierRejectsHS256OutsideDevEnvironments(t *testing.T) {
+	for _, env := range []string{"", "stg", "prod", "production"} {
+		t.Run(env, func(t *testing.T) {
+			if _, err := buildAuthVerifier(AuthConfig{
+				Mode:        httpmiddleware.AuthModeBearer,
+				Issuer:      "goatos-test",
+				Audience:    "goatos-api",
+				HS256Secret: "0123456789abcdef0123456789abcdef",
+				Environment: env,
+			}, nil); err == nil {
+				t.Fatal("HS256 accepted outside local/dev/test")
+			}
+		})
 	}
 }
 

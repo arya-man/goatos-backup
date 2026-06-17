@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/vgoats/goatos/backend/internal/identity/app"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
@@ -15,6 +17,7 @@ import (
 const (
 	approveGoatA = "10000000-0000-4000-8000-000000000001"
 	approveGoatB = "10000000-0000-4000-8000-000000000002"
+	approveGoatC = "10000000-0000-4000-8000-000000000003"
 )
 
 func TestApproveCandidateWithDockerPostgres(t *testing.T) {
@@ -94,6 +97,22 @@ func TestApproveCandidateWithDockerPostgres(t *testing.T) {
 		assertNoRows(t, pool, "stale attach idempotency", `SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey)
 		if got := countRows(t, pool, `SELECT count(*) FROM identity_match_candidates WHERE candidate_id = $1 AND state = 'proposed' AND row_version = 1`, candidateID); got != 1 {
 			t.Fatalf("stale candidate state rows = %d", got)
+		}
+	})
+
+	t.Run("attach to goat outside the candidate pair is rejected", func(t *testing.T) {
+		insertApproveGoatC(t, pool)
+		candidateID := insertSyntheticCandidate(t, pool, meshaTenant, "proposed", "system_rule", "2026-06-10T11:30:00Z")
+		goatVersion := goatRowVersion(t, pool, approveGoatC)
+		cmd := approveAttachCommand(t, "idem-approve-foreign-target-0001", candidateID, approveGoatC, goatVersion, "rfid", "RFID_APPROVE_FOREIGN", 1)
+		if _, err := repo.ApproveCandidate(ctx, cmd); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected foreign target write conflict, got %v", err)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_identifiers WHERE goat_id = $1 AND normalized_value = 'RFID_APPROVE_FOREIGN'`, approveGoatC); got != 0 {
+			t.Fatalf("foreign attach wrote identifier rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_match_candidates WHERE candidate_id = $1 AND state = 'proposed' AND row_version = 1`, candidateID); got != 1 {
+			t.Fatalf("foreign attach must not approve candidate; rows = %d", got)
 		}
 	})
 
@@ -206,6 +225,20 @@ func approveMergeCommand(t *testing.T, key, candidateID, survivorGoatID string, 
 	cmd.SurvivorGoatID = survivorGoatID
 	cmd.AffectedGoatIDs = affected
 	return cmd
+}
+
+func insertApproveGoatC(t *testing.T, pool interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id, breed, sex)
+VALUES ($1, $2, 'alive', 'clean', $3, $4, $4, 'Synthetic Boer', 'female')
+ON CONFLICT (goat_id) DO NOTHING`,
+		approveGoatC, meshaTenant, meshaParty, cbeLocation,
+	); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func itoa(v int) string { return strconv.Itoa(v) }

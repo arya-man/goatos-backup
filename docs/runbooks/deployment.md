@@ -37,8 +37,10 @@ If the active context is not Mesha/VGoats, stop and fix context first.
 | `goatos-prod` | live truth | production | `jwks` only |
 
 The local dev-token demo (`make dev-local`, `mint-dev-token`, `seed-dev-grant`)
-is **local-only** and is not a deployment path. `seed-dev-grant` refuses
-non-local database targets by design.
+is not a deployment path. `seed-dev-grant` refuses shared/staging/production
+targets; goatos-dev Cloud SQL use requires the explicit dev Cloud SQL opt-in
+guard, an exact `GOATOS_DEV_CLOUDSQL_CONNECTION_NAME` match, and is for dev
+rehearsal only.
 
 ## Required backend config per environment
 
@@ -52,8 +54,9 @@ GOATOS_HTTP_ADDR=:8080
 
 # Database (Cloud SQL connection string / socket)
 DATABASE_URL=postgres://.../goatos?sslmode=...
+GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance> # dev guard only
 
-# Auth — PRODUCTION MUST USE jwks (see docs/runbooks/auth.md)
+# Auth — shared/staging/prod MUST USE jwks (see docs/runbooks/auth.md)
 GOATOS_AUTH_MODE=jwks
 GOATOS_AUTH_ISSUER=<idp issuer URL>
 GOATOS_AUTH_AUDIENCE=<goat-os api audience>
@@ -68,8 +71,8 @@ GOATOS_ENV=stg|prod                    # NOT local/dev/test for shared envs
 GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
 ```
 
-`GOATOS_AUTH_MODE=bearer` (HS256) logs a loud non-production warning when
-`GOATOS_ENV` is not local/dev/test. Shared/staging/prod must run `jwks`.
+`GOATOS_AUTH_MODE=bearer` (HS256) is rejected unless `GOATOS_ENV` is
+`local`, `dev`, or `test`. Shared/staging/prod must run `jwks`.
 
 ## Release steps
 
@@ -78,7 +81,7 @@ GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
    a container, tag by git SHA, push to the project's Artifact Registry. Record
    the SHA — it is the rollback handle.
 2. **Apply migrations.** Migrations live in `backend/migrations/postgres/`
-   (`000001`..`000021`, forward-only, never edit an applied migration). Apply
+   (`000001`..`000022`, forward-only, never edit an applied migration). Apply
    them against the target Cloud SQL database with the same runner CI uses
    (`make validate-migrations` validates them locally first). Migrations must run
    to completion before the new image serves traffic.
@@ -86,7 +89,8 @@ GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
    from active `user_scope_grants` rows for the IdP `sub`, not from token claims.
    Insert the initial `ceo_internal`/`admin` tenant-scope grant for the seeded
    operator identity through a reviewed migration or an explicit, audited grant
-   script — `seed-dev-grant` is local-only and will refuse the target.
+   script — `seed-dev-grant` is not a staging/production bootstrap path and
+   will refuse those targets.
 4. **Deploy.** Roll the new image. Keep the previous revision available for
    rollback.
 5. **Smoke.** See "Smoke checks" — must pass before announcing the release.
@@ -96,8 +100,8 @@ GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
 ## Smoke checks
 
 ```text
-GET /healthz   -> 200 (no auth)
-GET /readyz    -> 200 (DB reachable)
+GET /healthz   -> 204 (no auth)
+GET /readyz    -> 204 (DB reachable)
 A real bearer token (from the IdP) on a read route (e.g. GET /goats/search) -> 200
 A token with wrong issuer/audience/alg -> 401
 GET /analytics/identity/counts -> 200 with freshness fields, no rebuild_required after a clean rebuild
@@ -144,6 +148,9 @@ The following require cloud access in the verified `vgoats.com` context and are
 - Provisioning Cloud SQL, GCS, Pub/Sub topics, Secret Manager secrets, service
   accounts, and Artifact Registry per project.
 - Standing up a production IdP/JWKS endpoint and loading signing keys/secrets.
+- Wiring Cloud Scheduler / Cloud Run Job for the production-safe legacy sync
+  executor. Initial cadence should be configurable per source; start with
+  15-minute polling only where upstream freshness and BigQuery cost budgets allow.
 - Wiring the Pub/Sub outbox publisher + worker deploy (see event egress
   follow-up in BUILD-STATUS).
 - Running the migration apply, image deploy, and smoke against real projects.

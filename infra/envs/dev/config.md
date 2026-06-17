@@ -10,9 +10,11 @@ dev specifics:
 GOATOS_ENV=dev
 GOATOS_AUTH_MODE=jwks            # real IdP for realistic debugging
 GOATOS_AUTH_AUDIENCE=goatos-api-dev
-DATABASE_URL=<Cloud SQL goatos-dev>
+GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>
+DATABASE_URL=<Cloud SQL socket /cloudsql/goatos-dev:asia-south1:<instance>>
 GOATOS_OBS_SINK=gcm
 ```
 
-HS256 bearer is only for throwaway local rehearsal and logs a non-production
-warning when GOATOS_ENV is not local/dev/test.
+HS256 bearer is only for throwaway local rehearsal. The API rejects HS256 unless
+GOATOS_ENV is local/dev/test, and shared deploys should use jwks even in
+goatos-dev when real IdP testing is available.

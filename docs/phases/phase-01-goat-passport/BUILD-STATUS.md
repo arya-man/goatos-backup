@@ -184,11 +184,17 @@ backend/cmd/mint-dev-token mints bootstrap HS256 local/dev tokens using the
 same backend/internal/platform/auth signing and validation rules as the API
 verifier. backend/cmd/seed-dev-grant inserts explicit active tenant-scope
 user_scope_grants only when GOATOS_ENV is exactly local, dev, or test and the
-database target is local. It rejects production/staging-looking targets, remote
-hosts, and Cloud SQL-style Unix socket paths; it is not a migration and does not
-silently grant admin. backend/tests/integration/smoke-auth-local.sh uses one
-shared GOATOS_AUTH_* config for the API, token minting, local grant seed, and
-admin-web generated-client smoke.
+database target is local unless the explicit goatos-dev Cloud SQL opt-in guard
+is enabled. It rejects production/staging-looking targets and remote hosts;
+goatos-dev Cloud SQL requires GOATOS_ENV=dev,
+GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true,
+GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>, and a
+DATABASE_URL host that is exactly that connection name or
+/cloudsql/goatos-dev:asia-south1:<instance>. It is not a migration and does not
+silently grant admin.
+backend/tests/integration/smoke-auth-local.sh uses one shared GOATOS_AUTH_*
+config for the API, token minting, local grant seed, and admin-web
+generated-client smoke.
 ```
 
 Frontend readiness foundation:
@@ -213,7 +219,7 @@ defined safe Phase 1B actions are wired through server actions: correction
 request create/resolve, candidate reject, conflict reject/merge,
 field-check requests, identifier-dispute marking, and goat identifier
 add/retire. Import Review requires an import_run_id, shows nullable
-or untracked metrics as "Not tracked", includes a derived rejected-row count,
+or untracked metrics as "Not tracked",
 offers backend-owned CSV downloads for the same whitelisted row fields visible
 in the UI, and does not read CSVs, local files, Sheets, App Script, BigQuery, or
 operational DBs directly. The CSV download supports the all-messy scope
@@ -229,7 +235,12 @@ cleanup.
 Legacy Sync now has a backend-owned Phase 1 control-plane API and admin-web
 surface for source freshness, dry-run requests, run progress, and Source &
 Correction Log visibility. Execute and nightly modes are explicit blocked v1
-runs until the backend executor is configured. The v1 seeds only the confirmed Phase 1
+runs until the backend executor is configured. The production-safe executor plan
+is Cloud Scheduler -> Cloud Run Job or protected backend admin endpoint ->
+`bq-reconcile`/import apply -> Goat OS Postgres -> projection refresh ->
+freshness status; the initial cadence is configurable per source, with 15-minute
+polling acceptable for dev/staging and for prod only where upstream freshness and
+BigQuery cost budgets allow. The v1 seeds only the confirmed Phase 1
 critical sources, treats unknown sources as visible unregistered/noncritical
 items that are never silently green, honors per-source 60m and 12h thresholds,
 and blocks mutation until the production-safe executor and live scheduled-query
@@ -287,7 +298,8 @@ make docker-storage-scripts-test
 
 Local Docker is the default daily dev path for Docker Postgres, tests, and small
 synthetic data. GCP setup is not required for normal coding. goatos-dev Cloud
-SQL comes later for explicit cloud rehearsal. goatos-stg later holds the
+SQL is explicit cloud rehearsal only behind the dev Cloud SQL opt-in guard.
+goatos-stg later holds the
 persistent 1M benchmark dataset. Local 1M tests are temporary only:
 create explicit temp volume -> run test -> export summary/report -> delete temp
 volume.
@@ -609,8 +621,14 @@ RFID/BQ source-of-truth staging and reconciliation:
   create passports from aggregate counts or event-history keys.
   local DB-writing import/apply/counter commands share the
   backend/internal/platform/localtarget guard: GOATOS_ENV must be local/dev and
-  DATABASE_URL must point to loopback or approved local socket paths, never
-  production/staging-looking hosts or Cloud SQL sockets
+  DATABASE_URL must point to loopback or approved local socket paths. A
+  goatos-dev Cloud SQL target is allowed only with GOATOS_ENV=dev,
+  GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true,
+  GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>, and a
+  DATABASE_URL host that is exactly that connection name or
+  /cloudsql/goatos-dev:asia-south1:<instance>; spoof substrings,
+  non-asia-south1 regions, production/staging-looking hosts, and
+  goatos-stg/goatos-prod Cloud SQL sockets stay rejected
   source_system and source_dataset come from the approved
   legacy_import_policies row, not CLI flags
   policy phase1-rfid-db-import-v1 must exist and be approved before importing

@@ -94,8 +94,8 @@ func TestReviewImportRowWithDockerPostgres(t *testing.T) {
 		if result.Row.RowState != "needs_review" || result.Row.RowVersion != 2 {
 			t.Fatalf("unexpected fix result: %#v", result.Row)
 		}
-		if got := countRows(t, pool, `SELECT count(*) FROM legacy_import_rows WHERE legacy_row_id = $1 AND normalized_payload->>'gender' = 'female' AND processing_state = 'needs_review'`, rowID); got != 1 {
-			t.Fatalf("fix did not patch gender; rows = %d", got)
+		if got := countRows(t, pool, `SELECT count(*) FROM legacy_import_rows WHERE legacy_row_id = $1 AND normalized_payload->>'sex' = 'female' AND normalized_payload->>'gender' = 'unknown' AND processing_state = 'needs_review'`, rowID); got != 1 {
+			t.Fatalf("fix did not patch canonical sex without rewriting source gender; rows = %d", got)
 		}
 	})
 
@@ -112,6 +112,9 @@ func TestReviewImportRowWithDockerPostgres(t *testing.T) {
 		// No goat is minted by the endpoint; the row is only requeued for the apply path.
 		if got := countRows(t, pool, `SELECT count(*) FROM legacy_import_rows WHERE legacy_row_id = $1 AND processing_state = 'pending'`, rowID); got != 1 {
 			t.Fatalf("reapply requeue rows = %d", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM legacy_import_rows WHERE legacy_row_id = $1 AND normalized_payload ? 'processing_reasons'`, rowID); got != 0 {
+			t.Fatalf("reapply left stale processing_reasons rows = %d", got)
 		}
 	})
 

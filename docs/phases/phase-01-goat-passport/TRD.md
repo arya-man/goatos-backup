@@ -1964,7 +1964,11 @@ backend/cmd/seed-dev-grant
   inserts user_scope_grants with scope_type=tenant and scope_id=tenant_id
   requires explicit tenant-id, user-id, and role
   requires GOATOS_ENV to be exactly local, dev, or test
-  refuses production/staging-looking targets and non-local DB hosts, including Cloud SQL-style Unix socket paths
+  refuses production/staging-looking targets and non-local DB hosts; goatos-dev
+  Cloud SQL requires GOATOS_ENV=dev, GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true,
+  GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>, and a
+  DATABASE_URL host that is exactly that connection name or
+  /cloudsql/goatos-dev:asia-south1:<instance>
 ```
 
 `user_scope_grants` must not be seeded by migrations. Local grant bootstrap is
@@ -2920,7 +2924,12 @@ legacy BigQuery read-only export/reconciliation -> local Docker Postgres ->
 bounded local import/reconciliation tooling -> counter rebuild -> backend API
 smoke -> admin-web typecheck/build.
 DB-writing local rehearsal CLIs use backend/internal/platform/localtarget and
-must reject non-local/staging/prod/Cloud SQL database targets.
+must reject non-local/staging/prod database targets. goatos-dev Cloud SQL is an
+explicit opt-in exception for fresh dev port rehearsals only:
+GOATOS_ENV=dev, GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true,
+GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>, and a
+DATABASE_URL host that exactly matches that connection name or
+/cloudsql/goatos-dev:asia-south1:<instance>.
 Frontend/admin-web must consume backend APIs only and must not import Google
 Sheets, Apps Script, BigQuery, direct CSV exports, or XLSX readers for live
 data. BigQuery access is limited to backend/local operator reconciliation and
@@ -2931,8 +2940,12 @@ is BQ -> backend sync/reconciliation job -> Goat OS Postgres -> backend APIs ->
 dashboard. A dashboard "Sync with BQ" control may exist only as an authenticated
 backend command trigger with RBAC, audit, idempotency, bounded batches, and a
 freshness/status surface; it must not call BigQuery directly from browser or
-Next frontend code. `backend/cmd/bq-reconcile` is the replayable current
-lifecycle/location reconciliation and BQ-backed attribute fill/review command for fresh local/dev/stg/prod
+Next frontend code. The scheduled executor shape is Cloud Scheduler -> Cloud Run
+Job or protected backend admin endpoint -> backend reconciliation/apply job ->
+Postgres/projection refresh. Its cadence is source-configurable; 15 minutes is a
+reasonable starting point where freshness and BigQuery cost budgets allow.
+`backend/cmd/bq-reconcile` is the replayable current lifecycle/location
+reconciliation and BQ-backed attribute fill/review command for fresh local/dev
 databases: it consumes read-only BQ event and latest-location export JSON/JSONL,
 dry-runs by default, mutates only with `--execute`, audits every changed goat,
 fills blank local sex/breed values from deterministic BQ evidence, normalizes

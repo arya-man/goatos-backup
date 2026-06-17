@@ -232,7 +232,7 @@ UPDATE legacy_import_rows
 SET
   normalized_payload = normalized_payload
     || CASE WHEN $1::text IS NOT NULL
-            THEN jsonb_build_object('gender', $1::text) ELSE '{}'::jsonb END
+            THEN jsonb_build_object('sex', $1::text) ELSE '{}'::jsonb END
     || CASE WHEN $2::text IS NOT NULL
             THEN jsonb_build_object('breed', $2::text) ELSE '{}'::jsonb END,
   row_version = row_version + 1
@@ -252,7 +252,7 @@ RETURNING
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,
@@ -942,7 +942,7 @@ SELECT
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,
@@ -2179,6 +2179,7 @@ UPDATE legacy_import_rows
 SET
   processing_state = 'pending',
   error_reason = NULL,
+  normalized_payload = normalized_payload - 'processing_reasons',
   row_version = row_version + 1
 WHERE tenant_id = $1
   AND import_run_id = $2
@@ -2197,7 +2198,7 @@ RETURNING
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,
@@ -2362,7 +2363,7 @@ RETURNING
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,

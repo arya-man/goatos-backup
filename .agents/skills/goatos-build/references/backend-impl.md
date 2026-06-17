@@ -184,8 +184,12 @@ Rules:
   `backend/internal/platform/localtarget`, require explicit tenant input, and
   keep SQL tenant-scoped. The local target guard allows only `GOATOS_ENV=local`
   or `dev` for import/apply/counter rehearsal commands and rejects
-  production/staging-looking database URLs, remote DB hosts, and Cloud SQL Unix
-  sockets.
+  production/staging-looking database URLs and remote DB hosts. goatos-dev Cloud
+  SQL is the only explicit exception: it requires `GOATOS_ENV=dev`,
+  `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true`,
+  `GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>`, and a
+  DATABASE_URL host that exactly matches that connection name or
+  `/cloudsql/goatos-dev:asia-south1:<instance>`.
 - Local Docker is the default daily development path for Docker Postgres, tests,
   and small synthetic data; GCP is not required for normal coding. `goatos-dev`
   Cloud SQL later serves explicit cloud rehearsal, while `goatos-stg` later

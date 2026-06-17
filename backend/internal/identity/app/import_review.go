@@ -217,7 +217,7 @@ func validateReviewImportRow(body *reviewImportRowBody) error {
 		return err
 	}
 	if body.Action == "fix" {
-		if err := normalizeFixField("sex", body.Sex); err != nil {
+		if err := normalizeFixSex(body.Sex); err != nil {
 			return err
 		}
 		if err := normalizeFixField("breed", body.Breed); err != nil {
@@ -230,6 +230,20 @@ func validateReviewImportRow(body *reviewImportRowBody) error {
 		return BadRequest("unexpected_fix_fields", "sex and breed are only allowed for the fix action")
 	}
 	return nil
+}
+
+func normalizeFixSex(value *string) error {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.ToLower(strings.TrimSpace(*value))
+	switch trimmed {
+	case "male", "female":
+		*value = trimmed
+		return nil
+	default:
+		return BadRequest("invalid_sex", "sex must be male or female")
+	}
 }
 
 func normalizeFixField(name string, value *string) error {

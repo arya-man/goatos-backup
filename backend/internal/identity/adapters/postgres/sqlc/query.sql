@@ -214,7 +214,7 @@ SELECT
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,

@@ -3,11 +3,19 @@ package localtarget
 import (
 	"fmt"
 	"net"
+	"os"
 	"path"
 	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const (
+	devCloudSQLAllowEnv          = "GOATOS_ALLOW_DEV_CLOUDSQL_TARGET"
+	devCloudSQLConnectionNameEnv = "GOATOS_DEV_CLOUDSQL_CONNECTION_NAME"
+	devCloudSQLProjectID         = "goatos-dev"
+	devCloudSQLRegion            = "asia-south1"
 )
 
 // ValidateLocalDatabaseTarget rejects DB targets that are not safe local/dev
@@ -27,12 +35,15 @@ func ValidateLocalDatabaseTarget(commandName, env, databaseURL string, allowedEn
 	if strings.TrimSpace(databaseURL) == "" {
 		return fmt.Errorf("DATABASE_URL is required for %s", commandName)
 	}
-	if looksProductionLike(env) || looksProductionLike(databaseURL) {
+	if looksSharedUnsafeTarget(env) || looksSharedUnsafeTarget(databaseURL) {
 		return fmt.Errorf("refusing %s against production/staging-looking target", commandName)
 	}
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return fmt.Errorf("parse DATABASE_URL for %s: %w", commandName, err)
+	}
+	if isCloudSQLTarget(databaseURL, cfg.ConnConfig.Host) {
+		return validateDevCloudSQLTarget(commandName, env, databaseURL, cfg.ConnConfig.Host)
 	}
 	if !IsLocalHost(cfg.ConnConfig.Host) {
 		return fmt.Errorf("refusing %s against non-local database host %q", commandName, cfg.ConnConfig.Host)
@@ -72,7 +83,7 @@ func isAllowedLocalSocketHost(host string) bool {
 	return false
 }
 
-func looksProductionLike(value string) bool {
+func looksSharedUnsafeTarget(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" {
 		return false
@@ -82,7 +93,6 @@ func looksProductionLike(value string) bool {
 		"production",
 		"stage",
 		"staging",
-		"cloudsql",
 		"goatos-stg",
 		"goatos-prod",
 	}
@@ -92,4 +102,111 @@ func looksProductionLike(value string) bool {
 		}
 	}
 	return false
+}
+
+func isCloudSQLTarget(databaseURL, host string) bool {
+	value := strings.ToLower(databaseURL + " " + host)
+	if strings.Contains(value, "cloudsql") || strings.Contains(value, "/cloudsql/") {
+		return true
+	}
+	_, ok := cloudSQLConnectionNameFromHost(host)
+	return ok
+}
+
+func validateDevCloudSQLTarget(commandName, env, databaseURL, host string) error {
+	if env != "dev" {
+		return fmt.Errorf("refusing %s against Cloud SQL target without GOATOS_ENV=dev", commandName)
+	}
+	if !truthy(os.Getenv(devCloudSQLAllowEnv)) {
+		return fmt.Errorf("refusing %s against Cloud SQL target without %s=true", commandName, devCloudSQLAllowEnv)
+	}
+	expected := strings.TrimSpace(os.Getenv(devCloudSQLConnectionNameEnv))
+	if expected == "" {
+		return fmt.Errorf("refusing %s against Cloud SQL target without %s=goatos-dev:asia-south1:<instance>", commandName, devCloudSQLConnectionNameEnv)
+	}
+	if !isExpectedDevConnectionName(expected) {
+		return fmt.Errorf("refusing %s against Cloud SQL target because %s must be goatos-dev:asia-south1:<instance>", commandName, devCloudSQLConnectionNameEnv)
+	}
+	actual, ok := cloudSQLConnectionNameFromHost(host)
+	if !ok {
+		actual, ok = cloudSQLConnectionNameFromText(databaseURL)
+	}
+	if !ok {
+		return fmt.Errorf("refusing %s against Cloud SQL target without exact %s or /cloudsql/%s socket path", commandName, expected, expected)
+	}
+	if actual != expected {
+		return fmt.Errorf("refusing %s against Cloud SQL target %q; expected exact %s", commandName, actual, expected)
+	}
+	return nil
+}
+
+func isExpectedDevConnectionName(value string) bool {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) != 3 {
+		return false
+	}
+	return parts[0] == devCloudSQLProjectID &&
+		parts[1] == devCloudSQLRegion &&
+		strings.TrimSpace(parts[2]) != "" &&
+		!strings.Contains(parts[2], "/") &&
+		!looksSharedUnsafeTarget(value)
+}
+
+func cloudSQLConnectionNameFromHost(host string) (string, bool) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", false
+	}
+	if strings.HasPrefix(host, "/cloudsql/") {
+		return cloudSQLConnectionNameFromPath(host)
+	}
+	if isConnectionNameShape(host) {
+		return host, true
+	}
+	return "", false
+}
+
+func cloudSQLConnectionNameFromPath(value string) (string, bool) {
+	cleaned := path.Clean(strings.TrimSpace(value))
+	connectionName := strings.TrimPrefix(cleaned, "/cloudsql/")
+	if connectionName == cleaned {
+		return "", false
+	}
+	if !isConnectionNameShape(connectionName) {
+		return "", false
+	}
+	return connectionName, true
+}
+
+func cloudSQLConnectionNameFromText(value string) (string, bool) {
+	for _, field := range strings.Fields(value) {
+		if idx := strings.Index(field, "/cloudsql/"); idx >= 0 {
+			if connectionName, ok := cloudSQLConnectionNameFromPath(field[idx:]); ok {
+				return connectionName, true
+			}
+		}
+	}
+	return "", false
+}
+
+func isConnectionNameShape(value string) bool {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" || strings.ContainsAny(part, "/\\") {
+			return false
+		}
+	}
+	return true
+}
+
+func truthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "t", "true", "y", "yes":
+		return true
+	default:
+		return false
+	}
 }

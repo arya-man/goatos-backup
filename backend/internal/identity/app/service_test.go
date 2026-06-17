@@ -509,6 +509,51 @@ func TestAddGoatIdentifierRejectsOldEvidenceIDsAndMissingScope(t *testing.T) {
 	}
 }
 
+func TestApproveCandidateAttachRejectsNonRFIDMissingScope(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	input := ReviewCandidateInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-approve-unit-0001",
+		TraceID:        testTrace,
+		CandidateID:    "80000000-0000-4000-8000-000000000001",
+		RawBody:        []byte(`{"decision_type":"attach_identifier","target_goat_id":"10000000-0000-4000-8000-000000000001","goat_row_version":1,"identifier_type":"old_tag","identifier_value":"1900","reason":"synthetic approve reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`),
+	}
+	_, err := svc.ApproveCandidate(context.Background(), input)
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_scope_key" {
+		t.Fatalf("expected invalid_scope_key, got %v", err)
+	}
+}
+
+func TestReviewImportRowFixNormalizesAndValidatesSex(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	input := ReviewImportRowInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-review-unit-0001",
+		TraceID:        testTrace,
+		ImportRunID:    "30000000-0000-4000-8000-000000000001",
+		ImportRowID:    "70000000-0000-4000-8000-000000000001",
+		RawBody:        []byte(`{"action":"fix","sex":" Female ","reason":"synthetic review reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`),
+	}
+	if _, err := svc.ReviewImportRow(context.Background(), input); err != nil {
+		t.Fatalf("ReviewImportRow fix: %v", err)
+	}
+	if repo.lastReviewImportRowCmd.FixSex == nil || *repo.lastReviewImportRowCmd.FixSex != "female" {
+		t.Fatalf("sex was not normalized before repo command: %#v", repo.lastReviewImportRowCmd.FixSex)
+	}
+
+	input.IdempotencyKey = "idem-review-unit-0002"
+	input.RawBody = []byte(`{"action":"fix","sex":"doe","reason":"synthetic review reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`)
+	_, err := svc.ReviewImportRow(context.Background(), input)
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_sex" {
+		t.Fatalf("expected invalid_sex, got %v", err)
+	}
+}
+
 func TestRetireGoatIdentifierValidationAndCommand(t *testing.T) {
 	identifierID := "30000000-0000-4000-8000-000000000001"
 	repo := &fakeRepo{
@@ -635,6 +680,7 @@ type fakeRepo struct {
 	lastRetireIdentifierCmd ports.RetireGoatIdentifierCommand
 	lastResolveConflictCmd  ports.ResolveConflictCommand
 	lastRejectCandidateCmd  ports.RejectCandidateCommand
+	lastReviewImportRowCmd  ports.ReviewImportRowCommand
 	bulkErr                 error
 	lastBulkCmd             ports.BulkResolveConflictsCommand
 }
@@ -903,6 +949,7 @@ func (f *fakeRepo) ApproveCandidate(_ context.Context, cmd ports.ApproveCandidat
 }
 
 func (f *fakeRepo) ReviewImportRow(_ context.Context, cmd ports.ReviewImportRowCommand) (*ports.ReviewImportRowResult, error) {
+	f.lastReviewImportRowCmd = cmd
 	return &ports.ReviewImportRowResult{Row: domain.ImportRunRow{ImportRowID: cmd.ImportRowID, RowState: cmd.Action, RowVersion: cmd.RowVersion + 1}}, nil
 }
 

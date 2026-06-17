@@ -15,5 +15,4 @@ DATABASE_URL=<Cloud SQL goatos-prod, live data>
 GOATOS_OBS_SINK=gcm
 ```
 
-`GOATOS_AUTH_MODE=bearer` (HS256) is rejected as a production posture and logs a
-loud warning.
+`GOATOS_AUTH_MODE=bearer` (HS256) is rejected as a production posture.

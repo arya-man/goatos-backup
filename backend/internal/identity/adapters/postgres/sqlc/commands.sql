@@ -868,7 +868,7 @@ SELECT
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,
@@ -902,7 +902,7 @@ RETURNING
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,
@@ -917,7 +917,7 @@ UPDATE legacy_import_rows
 SET
   normalized_payload = normalized_payload
     || CASE WHEN sqlc.narg('sex')::text IS NOT NULL
-            THEN jsonb_build_object('gender', sqlc.narg('sex')::text) ELSE '{}'::jsonb END
+            THEN jsonb_build_object('sex', sqlc.narg('sex')::text) ELSE '{}'::jsonb END
     || CASE WHEN sqlc.narg('breed')::text IS NOT NULL
             THEN jsonb_build_object('breed', sqlc.narg('breed')::text) ELSE '{}'::jsonb END,
   row_version = row_version + 1
@@ -937,7 +937,7 @@ RETURNING
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,
@@ -952,6 +952,7 @@ UPDATE legacy_import_rows
 SET
   processing_state = 'pending',
   error_reason = NULL,
+  normalized_payload = normalized_payload - 'processing_reasons',
   row_version = row_version + 1
 WHERE tenant_id = @tenant_id
   AND import_run_id = @import_run_id
@@ -970,7 +971,7 @@ RETURNING
   COALESCE(normalized_payload->>'rfid', '')::text AS rfid,
   COALESCE(normalized_payload->>'normalized_old_tag', '')::text AS old_tag,
   COALESCE(normalized_payload->>'breed', '')::text AS breed,
-  COALESCE(normalized_payload->>'gender', '')::text AS gender,
+  COALESCE(normalized_payload->>'sex', normalized_payload->>'gender', '')::text AS gender,
   COALESCE(normalized_payload->>'farm', '')::text AS farm,
   COALESCE(normalized_payload->>'shed', '')::text AS shed,
   COALESCE(normalized_payload->>'partition', '')::text AS partition,

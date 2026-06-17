@@ -428,6 +428,30 @@ func (r *Repository) approveAttachIdentifier(ctx context.Context, cmd ports.Appr
 
 	now := time.Now().UTC()
 
+	reviewCandidate, err := qtx.GetCandidateForReview(ctx, identitydb.GetCandidateForReviewParams{
+		TenantID:    tenantUUID,
+		CandidateID: candidateUUID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if reviewCandidate.RowVersion != int32(cmd.RowVersion) || (reviewCandidate.State != "proposed" && reviewCandidate.State != "needs_review") {
+		return nil, ports.ErrWriteConflict
+	}
+	candidateGoatSet := map[string]struct{}{}
+	if id := strings.TrimSpace(reviewCandidate.ProposedGoatID); id != "" {
+		candidateGoatSet[id] = struct{}{}
+	}
+	if id := strings.TrimSpace(reviewCandidate.CandidateGoatID); id != "" {
+		candidateGoatSet[id] = struct{}{}
+	}
+	if _, ok := candidateGoatSet[strings.TrimSpace(cmd.GoatID)]; !ok {
+		return nil, ports.ErrWriteConflict
+	}
+
 	// Resolve the identifier to attach. Either the reviewer supplies an explicit
 	// identifier_action (type/value/scope) or we deterministically extract it from
 	// the candidate's linked legacy row. Extraction only supports RFID (global
@@ -480,6 +504,9 @@ func (r *Repository) approveAttachIdentifier(ctx context.Context, cmd ports.Appr
 	// Non-global identifier types (old_tag, etc.) must carry an explicit scope_key.
 	if identifierType == "rfid" && scopeKey == "" {
 		scopeKey = "global"
+	}
+	if identifierType != "rfid" && scopeKey == "" {
+		return nil, ports.ErrWriteConflict
 	}
 	normalizedValue := identifierValue
 	if identifierType == "rfid" {
