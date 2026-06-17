@@ -83,6 +83,49 @@ Use the Docker storage runbook before large tests:
 docs/runbooks/local-docker-storage.md
 ```
 
+## Frozen Legacy Replay Gate
+
+Use this before mutating `goatos-dev` whenever the question is "will the import
+recipe port the full legacy herd deterministically?" It starts a new throwaway
+Docker Postgres database, applies migrations, verifies the frozen input
+checksums, runs the complete replay recipe, rebuilds counters, and fails unless
+the final frozen oracle matches the known legacy snapshot:
+
+```bash
+make replay-frozen
+```
+
+The replay uses:
+
+```text
+/Users/ravi/mesha/source-material/goatos-dev-data-fill-20260617/
+```
+
+It does not use the normal local DB and does not touch Google Cloud. By default
+the container is deleted when the run exits. To inspect a failed replay DB:
+
+```bash
+GOATOS_REPLAY_KEEP_DB=1 make replay-frozen
+```
+
+Current frozen oracle:
+
+```text
+total goats = 2668
+alive       = 2088
+sold        = 544
+dead        = 36
+inactive    = 0
+
+identity clean        = 2465
+identity needs_review = 203
+open conflicts        = 232
+```
+
+The gate also asserts the sentinel old-tag backfill outcomes that previously
+drifted from legacy: old tags `952` and `998` must be `alive`, and old tag
+`SA2328307` must be `dead`.
+
 ## Legacy XLSX Parser Harness
 
 This section is retained only for parser regression or a temporary BQ-derived
