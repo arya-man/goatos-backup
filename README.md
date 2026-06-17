@@ -182,6 +182,12 @@ Completed so far:
   volume cleanup tooling.
 - Contract validation and migration validation.
 - Docker-backed backend tests for core invariants.
+- Dev Google Cloud bring-up through P7-preapply: context gates are verified,
+  required `goatos-dev` APIs are enabled, a dev-only budget alert exists, the
+  Terraform state bucket is bootstrapped, and the Layer 1 foundation Terraform
+  plan is ready for explicit approval. No app resources have been applied yet:
+  no Cloud SQL instance, Artifact Registry repo, Pub/Sub resources, secrets,
+  Cloud Run services/jobs, images, migrations, or legacy imports are live.
 
 In short:
 
@@ -212,6 +218,10 @@ Still pending before Phase 1 is production-launch-ready:
   management.
 - Real production event publishing (Pub/Sub egress) and the outbox publisher
   worker deploy.
+- Applying the approved `goatos-dev` Layer 1 foundation Terraform plan, then
+  pushing images, populating secrets out-of-band, deploying Cloud Run
+  services/jobs, running migrations, and importing real legacy data under
+  explicit approval gates.
 - Deployment/provisioning of shared/staging/prod under `vgoats.com`.
 
 Intentionally blocked / deferred (not unfinished Phase 1 code):

@@ -30,3 +30,8 @@ Rules:
   the app bearer token in `Authorization`; do not make the backend IAM-private
   until a separate service-to-service auth design exists. Do not copy this
   public-invoker posture to `goatos-stg` or `goatos-prod`.
+- `goatos-dev` uses Google Identity Platform / Firebase Auth as the JWKS IdP.
+  Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting.
+- Before paid dev infra apply, verify the goatos-dev-only budget on billing
+  account `01FEDE-96BCB3-76D992` and keep Terraform free of secret versions,
+  database users/passwords, API keys, bearer tokens, or Firebase config values.

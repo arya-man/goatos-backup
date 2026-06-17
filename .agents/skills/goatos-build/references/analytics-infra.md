@@ -14,6 +14,10 @@ Rules:
 
 - Postgres is operational truth for Goat OS apps and dashboards.
 - Outbox -> Pub/Sub is the streaming backbone.
+- Dev Layer 1 plans Pub/Sub with asia-south1 message storage, an outbox topic,
+  an analytics subscription, a DLQ topic, and Pub/Sub service-agent IAM for DLQ
+  publish/subscribe correctness. Do not deploy consumers or scheduler jobs in
+  the foundation layer.
 - BigQuery is warehouse/history/training-set layer.
 - Tinybird is hot telemetry/live API layer.
 - dbt transforms only.

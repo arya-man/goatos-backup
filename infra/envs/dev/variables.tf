@@ -57,3 +57,47 @@ variable "state_bucket_name" {
     error_message = "state_bucket_name must match the P4 bootstrap bucket."
   }
 }
+
+variable "artifact_repository_id" {
+  description = "Artifact Registry Docker repository for Goat OS dev images."
+  type        = string
+  default     = "goatos"
+
+  validation {
+    condition     = var.artifact_repository_id == "goatos"
+    error_message = "The dev Artifact Registry repository id must remain goatos."
+  }
+}
+
+variable "cloud_sql_instance_name" {
+  description = "goatos-dev Cloud SQL Postgres instance name."
+  type        = string
+  default     = "goatos-dev-core-db"
+
+  validation {
+    condition     = var.cloud_sql_instance_name == "goatos-dev-core-db"
+    error_message = "The dev Cloud SQL instance name must remain goatos-dev-core-db."
+  }
+}
+
+variable "cloud_sql_database_name" {
+  description = "Initial Goat OS application database shell name."
+  type        = string
+  default     = "goatos"
+
+  validation {
+    condition     = var.cloud_sql_database_name == "goatos"
+    error_message = "The initial dev database shell must be named goatos."
+  }
+}
+
+variable "cloud_sql_tier" {
+  description = "Smallest reasonable dev Cloud SQL tier to plan before paid apply."
+  type        = string
+  default     = "db-f1-micro"
+
+  validation {
+    condition     = contains(["db-f1-micro", "db-g1-small"], var.cloud_sql_tier)
+    error_message = "Use a small shared-core dev tier: db-f1-micro or db-g1-small."
+  }
+}

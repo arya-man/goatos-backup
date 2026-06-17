@@ -8,12 +8,15 @@ dev specifics:
 
 ```text
 GOATOS_ENV=dev
-GOATOS_AUTH_MODE=jwks            # real IdP for realistic debugging
+GOATOS_AUTH_MODE=jwks            # Google Identity Platform / Firebase Auth
 GOATOS_AUTH_AUDIENCE=goatos-api-dev
 GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>
 DATABASE_URL=<Cloud SQL socket /cloudsql/goatos-dev:asia-south1:<instance>>
 GOATOS_OBS_SINK=gcm
 ```
+
+`goatos-dev` uses Google Identity Platform / Firebase Auth for auth only. Do not
+use Firebase Hosting or Firebase App Hosting.
 
 Migration jobs and guarded dev DB-writing helpers also set
 `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true`; do not put that opt-in on unrelated

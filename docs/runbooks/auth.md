@@ -38,3 +38,16 @@ GOATOS_AUTH_ALLOWED_ALGS=RS256,ES256
 
 Authorization still comes from active `user_scope_grants` rows in Goat OS; token
 claims authenticate the subject but do not grant product roles by themselves.
+
+## goatos-dev IdP
+
+`goatos-dev` uses Google Identity Platform / Firebase Auth as the real IdP for
+JWKS verification. Firebase is auth only for Goat OS dev bring-up: do not use
+Firebase Hosting or Firebase App Hosting, and do not introduce an external OIDC
+provider or static dev JWKS.
+
+Secret Manager containers may hold the eventual issuer, audience, JWKS URL,
+Firebase web config, and admin-web app bearer values, but secret values are
+populated out-of-band in a later approved phase. Do not put token values,
+Firebase config payloads, API keys, JWKS material, or app bearer tokens in
+Terraform variables, plan files, state, or repo docs.

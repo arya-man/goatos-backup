@@ -27,6 +27,8 @@ coverage/
 .terraform/
 *.tfstate
 *.tfstate.*
+tfplan
+*.tfplan
 
 # logs / local
 firebase-debug.log

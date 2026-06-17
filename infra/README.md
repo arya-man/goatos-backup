@@ -29,8 +29,9 @@ infra/
 Created (see google-cloud-environments.md): org folder goat-os, projects
 goatos-dev/stg/prod, billing linked.
 
-Committed here: per-env backend config templates, the deployment procedure, and
-P4 goatos-dev Terraform remote-state backend wiring.
+Committed here: per-env backend config templates, the deployment procedure,
+P4 goatos-dev Terraform remote-state backend wiring, and the P7-preapply dev
+Layer 1 foundation plan.
 
 P4 completed for goatos-dev only:
 - Terraform state bucket `gs://goatos-dev-tf-state` was bootstrapped
@@ -39,11 +40,24 @@ P4 completed for goatos-dev only:
   enforced, object versioning enabled, no retention lock.
 - Dev Terraform backend path: `gs://goatos-dev-tf-state/terraform/dev`.
 
+P5/P6 completed for goatos-dev only:
+- Required dev APIs are enabled.
+- Dev-only budget `Goat OS dev monthly budget` is scoped to
+  `projects/634659905829`, amount INR 4,750 monthly, with 50/80/100 percent
+  current-spend alerts.
+
+P7-preapply completed for goatos-dev only:
+- Terraform validates and plans Layer 1 foundation resources: Artifact Registry,
+  stopped small Cloud SQL Postgres shell, Secret Manager containers only,
+  Pub/Sub outbox/DLQ wiring, runtime service accounts, and pre-Cloud-Run IAM.
+- No terraform apply has been run for these resources.
+
 Still blocked on later explicit operator approval in the verified vgoats.com
 context:
-- Terraform module + env composition authoring for app resources and
-  terraform plan/apply beyond backend init.
-- Cloud SQL / GCS / Pub/Sub / Secret Manager / IAM / Artifact Registry provisioning.
+- Terraform apply for Layer 1 foundation resources.
+- Layer 2 app deploy resources: Cloud Run services/jobs, Scheduler jobs, LB/DNS,
+  Secret Manager secret versions, Cloud SQL users/passwords, image pushes,
+  migrations, and legacy imports.
 - Production IdP/JWKS endpoint + signing-key/secret provisioning.
 - Pub/Sub outbox publisher + worker deploy wiring.
 ```
