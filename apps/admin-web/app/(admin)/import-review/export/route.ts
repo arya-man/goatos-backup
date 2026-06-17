@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { TENANT_CONTEXT_HEADER } from "@goatos/api-client";
 import { getServerConfig, type ApiUiError } from "@/lib/api/server";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
     return textError(400, "Missing import_run_id.");
   }
 
-  const config = await getServerConfig();
+  const config = await getServerConfig(true);
   if (!config.ok) {
     return apiError(config.error);
   }
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
     cache: "no-store",
     headers: {
       Authorization: `Bearer ${config.data.bearerToken}`,
+      [TENANT_CONTEXT_HEADER]: config.data.tenantId,
     },
   });
 

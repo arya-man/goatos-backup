@@ -28,6 +28,8 @@ export type GoatOSClientOptions = {
   defaultHeaders?: HeadersInit;
 };
 
+export const TENANT_CONTEXT_HEADER = "X-GoatOS-Tenant-ID";
+
 export class GoatOSApiError extends Error {
   readonly status: number;
   readonly body: unknown;
@@ -62,7 +64,7 @@ export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSC
         headers.set(key, value);
       }
       if (options.tenantId) {
-        headers.set("X-GoatOS-Tenant-ID", options.tenantId);
+        headers.set(TENANT_CONTEXT_HEADER, options.tenantId);
       }
       if (options.bearerToken) {
         headers.set("Authorization", `Bearer ${options.bearerToken}`);

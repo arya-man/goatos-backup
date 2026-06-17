@@ -27,9 +27,10 @@ Rules:
   token minting, grant seed, and admin-web generated-client smoke.
 - For the `goatos-dev` Cloud Run bring-up, backend invocation is public at the
   Cloud Run layer and auth is enforced by Goat OS JWKS/RBAC. Admin-web SSR uses
-  the app bearer token in `Authorization`; do not make the backend IAM-private
-  until a separate service-to-service auth design exists. Do not copy this
-  public-invoker posture to `goatos-stg` or `goatos-prod`.
+  the Firebase ID-token cookie bridge to forward the signed-in user's
+  `Authorization: Bearer <id_token>` plus `X-GoatOS-Tenant-ID`; do not make the
+  backend IAM-private until a separate service-to-service auth design exists.
+  Do not copy this public-invoker posture to `goatos-stg` or `goatos-prod`.
 - `goatos-dev` uses Google Identity Platform / Firebase Auth as the JWKS IdP.
   Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting.
 - Before paid dev infra apply, verify the goatos-dev-only budget on billing
