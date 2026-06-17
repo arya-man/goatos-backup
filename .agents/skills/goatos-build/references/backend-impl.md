@@ -166,6 +166,12 @@ Rules:
 - Role and permissions must come from the active `user_scope_grants` row for
   the token `sub`; token role claims are not authority. Bearer-mode write actor
   attribution must use token `sub`, not `X-GoatOS-Actor-ID`.
+- Auth session auditing is grant-independent but token-verified. Admin-web calls
+  backend `POST /auth/session-events` when creating, refreshing, or deleting
+  the Firebase ID-token cookie. That route verifies the bearer token, uses the
+  same stable external-subject mapping as normal auth, falls back to
+  `X-GoatOS-Tenant-ID` for Firebase tenant context, and writes `audit_log`
+  actions without persisting raw Firebase/Google tokens.
 - Multiple active tenant grants are unioned for authorization. If any active
   matching tenant grant role confers the required permission, the request is
   authorized; product-admin-only routes require an active `admin` or

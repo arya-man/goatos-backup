@@ -38,6 +38,8 @@ type Claims struct {
 	TenantID        string
 	Issuer          string
 	Audience        string
+	Email           string
+	EmailVerified   *bool
 	Expires         time.Time
 	NotBefore       time.Time
 }
@@ -153,12 +155,14 @@ func (v *HS256Verifier) Verify(token string) (Claims, error) {
 }
 
 type rawClaims struct {
-	Subject   string          `json:"sub"`
-	TenantID  string          `json:"tenant_id"`
-	Issuer    string          `json:"iss"`
-	Audience  json.RawMessage `json:"aud"`
-	Expires   json.RawMessage `json:"exp"`
-	NotBefore json.RawMessage `json:"nbf"`
+	Subject       string          `json:"sub"`
+	TenantID      string          `json:"tenant_id"`
+	Issuer        string          `json:"iss"`
+	Audience      json.RawMessage `json:"aud"`
+	Expires       json.RawMessage `json:"exp"`
+	NotBefore     json.RawMessage `json:"nbf"`
+	Email         string          `json:"email"`
+	EmailVerified *bool           `json:"email_verified"`
 }
 
 func (c rawClaims) validate(issuer, audience string, now time.Time, maxTTL time.Duration) (Claims, error) {
@@ -230,6 +234,8 @@ func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxT
 		TenantID:        tenantID,
 		Issuer:          c.Issuer,
 		Audience:        aud,
+		Email:           strings.TrimSpace(c.Email),
+		EmailVerified:   c.EmailVerified,
 		Expires:         exp,
 		NotBefore:       nbf,
 	}, nil

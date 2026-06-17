@@ -17,12 +17,15 @@ import (
 const (
 	headerRequestID = "X-Request-ID"
 	headerTrace     = "traceparent"
+	// TenantContextHeader carries request tenant context for tokens whose
+	// verified claims do not include a Goat OS tenant.
+	TenantContextHeader = "X-GoatOS-Tenant-ID"
 	// X-GoatOS-Tenant-ID carries request tenant context. Bearer auth prefers a
 	// verified token tenant claim, but falls back to this header for external
 	// IdPs such as Firebase whose ID tokens do not carry Goat OS tenant claims.
 	// X-GoatOS-Actor-ID is a local-development placeholder; bearer auth always
 	// overwrites actor context from the verified token subject.
-	headerTenantID = "X-GoatOS-Tenant-ID"
+	headerTenantID = TenantContextHeader
 	headerActorID  = "X-GoatOS-Actor-ID"
 )
 

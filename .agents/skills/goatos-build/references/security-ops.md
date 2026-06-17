@@ -33,6 +33,12 @@ Rules:
   Do not copy this public-invoker posture to `goatos-stg` or `goatos-prod`.
 - `goatos-dev` uses Google Identity Platform / Firebase Auth as the JWKS IdP.
   Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting.
+- Admin-web session POST/DELETE records durable auth audit events through the
+  backend `/auth/session-events` route. The backend verifies the Firebase/JWKS
+  bearer token, maps the external UID to the stable internal actor UUID, and
+  writes `audit_log` actions such as `auth.sign_in`,
+  `auth.session_refresh`, `auth.sign_out`, and verified-token
+  `auth.failed_sign_in` without storing raw Firebase or Google tokens.
 - Before paid dev infra apply, verify the goatos-dev-only budget on billing
   account `01FEDE-96BCB3-76D992` and keep Terraform free of secret versions,
   database users/passwords, API keys, bearer tokens, or Firebase config values.

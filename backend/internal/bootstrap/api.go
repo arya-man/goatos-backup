@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
+	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	reportinghttp "github.com/vgoats/goatos/backend/internal/reporting/adapters/http"
@@ -102,32 +103,38 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	legacySyncService := legacysyncapp.NewService(legacySyncRepo, cfg.Auth.Environment)
 	legacySyncHandler := legacysynchttp.NewHandler(legacySyncService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
+	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
+	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log)
 	authz, err := buildAuthMiddleware(cfg.Auth, verifier, grantSource, log)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	protectedMux := http.NewServeMux()
+	protectedMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+	protectedMux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+	protectedMux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := identityRepo.Ping(r.Context()); err != nil {
 			http.Error(w, "postgres not ready", http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	identityhttp.Register(mux, identityHandler)
-	reportinghttp.Register(mux, reportingHandler)
-	legacysynchttp.Register(mux, legacySyncHandler)
+	identityhttp.Register(protectedMux, identityHandler)
+	reportinghttp.Register(protectedMux, reportingHandler)
+	legacysynchttp.Register(protectedMux, legacySyncHandler)
+
+	mux := http.NewServeMux()
+	authaudit.Register(mux, authAuditHandler)
+	mux.Handle("/", authz.Wrap(protectedMux))
 
 	// PanicRecovery is outermost so it catches panics in auth and RequestContext.
-	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(authz.Wrap(mux)))
+	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(mux))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,

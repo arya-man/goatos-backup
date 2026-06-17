@@ -10,6 +10,7 @@ servers:
 security:
   - bearerAuth: []
 tags:
+  - name: Auth Sessions
   - name: Import Runs
   - name: Identity Conflicts
   - name: Identity Candidates
@@ -17,6 +18,50 @@ tags:
   - name: Correction Requests
   - name: Legacy Sync
 paths:
+  /auth/session-events:
+    post:
+      tags:
+        - Auth Sessions
+      operationId: recordAuthSessionEvent
+      summary: Record a token-verified admin auth session event.
+      description: >-
+        Grant-independent auth audit route used by admin-web when creating,
+        refreshing, or deleting the Firebase ID-token cookie. The backend
+        verifies the bearer token, maps external IdP subjects to the stable
+        internal actor UUID, falls back to X-GoatOS-Tenant-ID for Firebase
+        tenant context, and writes audit_log without storing raw tokens.
+      parameters:
+        - name: X-GoatOS-Tenant-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Required when the verified bearer token has no Goat OS tenant claim.
+        - name: X-Mesha-Session-User-Agent
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+          description: Original browser user-agent forwarded by admin-web for audit metadata.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthSessionEventRequest"
+      responses:
+        "204":
+          description: Auth session event recorded.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /admin/import-runs:
     get:
       tags:
@@ -877,7 +922,38 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    ServerError:
+      description: Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServiceUnavailable:
+      description: Required service or runtime configuration is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    AuthSessionEventType:
+      type: string
+      enum:
+        - auth.sign_in
+        - auth.session_refresh
+        - auth.sign_out
+    AuthSessionEventRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - event_type
+        - source
+      properties:
+        event_type:
+          $ref: "#/components/schemas/AuthSessionEventType"
+        source:
+          type: string
+          minLength: 1
+          maxLength: 64
     ErrorEnvelope:
       type: object
       additionalProperties: false

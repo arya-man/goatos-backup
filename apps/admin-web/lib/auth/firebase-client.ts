@@ -18,6 +18,8 @@ export type FirebaseClientRuntimeConfig = {
   googleClientId?: string;
 };
 
+export type FirebaseSessionEventType = "auth.sign_in" | "auth.session_refresh";
+
 let authPromise: Promise<Auth> | null = null;
 let configPromise: Promise<FirebaseClientRuntimeConfig> | null = null;
 
@@ -43,7 +45,7 @@ export async function signInWithGoogleIdToken(googleIdToken: string): Promise<Us
   const auth = await getFirebaseAuth();
   const credential = GoogleAuthProvider.credential(googleIdToken);
   const result = await signInWithCredential(auth, credential);
-  await syncFirebaseSession(result.user, true);
+  await syncFirebaseSession(result.user, true, "auth.sign_in");
   return result.user;
 }
 
@@ -53,7 +55,11 @@ export async function clearFirebaseSession(): Promise<void> {
   await signOut(auth);
 }
 
-export async function syncFirebaseSession(user: User | null, forceRefresh = false): Promise<boolean> {
+export async function syncFirebaseSession(
+  user: User | null,
+  forceRefresh = false,
+  eventType: FirebaseSessionEventType = "auth.session_refresh",
+): Promise<boolean> {
   if (!user) {
     await fetch(SESSION_ROUTE, { method: "DELETE", cache: "no-store" });
     return false;
@@ -63,7 +69,7 @@ export async function syncFirebaseSession(user: User | null, forceRefresh = fals
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
+    body: JSON.stringify({ idToken, eventType }),
   });
   if (!response.ok) {
     throw new Error("The admin session could not be refreshed.");

@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/auth/session-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a token-verified admin auth session event.
+         * @description Grant-independent auth audit route used by admin-web when creating, refreshing, or deleting the Firebase ID-token cookie. The backend verifies the bearer token, maps external IdP subjects to the stable internal actor UUID, falls back to X-GoatOS-Tenant-ID for Firebase tenant context, and writes audit_log without storing raw tokens.
+         */
+        post: operations["recordAuthSessionEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/import-runs": {
         parameters: {
             query?: never;
@@ -445,6 +465,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        AuthSessionEventType: "auth.sign_in" | "auth.session_refresh" | "auth.sign_out";
+        AuthSessionEventRequest: {
+            event_type: components["schemas"]["AuthSessionEventType"];
+            source: string;
+        };
         ErrorEnvelope: {
             code: string;
             message: string;
@@ -1168,6 +1194,24 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Internal server error. */
+        ServerError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Required service or runtime configuration is unavailable. */
+        ServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
     };
     parameters: {
         ImportRunId: string;
@@ -1188,6 +1232,37 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    recordAuthSessionEvent: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when the verified bearer token has no Goat OS tenant claim. */
+                "X-GoatOS-Tenant-ID"?: string;
+                /** @description Original browser user-agent forwarded by admin-web for audit metadata. */
+                "X-Mesha-Session-User-Agent"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthSessionEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Auth session event recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["ServerError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     listImportRuns: {
         parameters: {
             query: {
