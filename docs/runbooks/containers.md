@@ -54,6 +54,10 @@ DATABASE_URL host is exactly goatos-dev:asia-south1:<instance>
   or /cloudsql/goatos-dev:asia-south1:<instance>
 ```
 
+When P9 wires the Cloud Run migration job, all three guard envs above must be
+present on the job spec along with the exact socket-form `DATABASE_URL`;
+otherwise the image should self-reject before opening a database connection.
+
 The migration image records applied files in `goatos_schema_migrations`. For a
 fresh `goatos-dev` Cloud SQL database, the migration image is the sole schema
 applier. Do not run a separate goose/psql/local validator applier against that
@@ -70,7 +74,8 @@ token in the standard `Authorization` header. The backend Cloud Run service must
 therefore be publicly invokable at the Cloud Run layer and enforce auth at the
 Goat OS app layer with JWKS/RBAC. Do not make the backend service IAM-private
 until a separate service-to-service auth design exists that does not replace or
-collide with the app bearer token.
+collide with the app bearer token. This dev posture must not be copied to
+`goatos-stg` or `goatos-prod`.
 
 ## Dev Defaults
 

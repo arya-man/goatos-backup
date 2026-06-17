@@ -53,6 +53,11 @@ separate Cloud Run IAM identity token. Making the backend service IAM-private
 before adding a separate service-to-service auth design will fail as a Cloud Run
 403 before the request reaches Goat OS app auth.
 
+This is a dev-only bring-up shortcut. Do not copy the public-invoker Cloud Run
+posture to `goatos-stg` or `goatos-prod`; those environments are blocked until a
+service-to-service/IAM or IAP design exists that preserves Goat OS app auth
+rather than replacing the app bearer token.
+
 ## Required backend config per environment
 
 The API binary (`backend/cmd/api`) is configured entirely through env vars. A
@@ -98,7 +103,12 @@ GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
    `docs/runbooks/containers.md`; it is the sole shared-DB applier and records
    applied files in `goatos_schema_migrations`. Do not mix it with a separate
    goose/psql/local validator applier on the same Cloud SQL database. Migrations
-   must run to completion before the new image serves traffic.
+   must run to completion before the new image serves traffic. The `goatos-dev`
+   migration job must set `GOATOS_ENV=dev`,
+   `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true`,
+   `GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>`, and
+   a socket-form `DATABASE_URL` whose host is exactly
+   `/cloudsql/goatos-dev:asia-south1:<instance>`.
 3. **Seed the admin grant (first deploy only).** Production authorization comes
    from active `user_scope_grants` rows for the IdP `sub`, not from token claims.
    Insert the initial `ceo_internal`/`admin` tenant-scope grant for the seeded

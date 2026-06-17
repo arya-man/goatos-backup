@@ -28,4 +28,5 @@ Rules:
 - For the `goatos-dev` Cloud Run bring-up, backend invocation is public at the
   Cloud Run layer and auth is enforced by Goat OS JWKS/RBAC. Admin-web SSR uses
   the app bearer token in `Authorization`; do not make the backend IAM-private
-  until a separate service-to-service auth design exists.
+  until a separate service-to-service auth design exists. Do not copy this
+  public-invoker posture to `goatos-stg` or `goatos-prod`.
