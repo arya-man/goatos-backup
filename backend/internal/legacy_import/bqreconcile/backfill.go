@@ -578,27 +578,27 @@ type existingBackfillGoat struct {
 	Lifecycle string
 }
 
-func desiredBackfillLifecycleByKey(candidates []Candidate) map[string]string {
+func desiredBackfillRowsByKey(candidates []Candidate) map[string]BackfillPlanRow {
 	rows := planBackfill(candidates, map[string]struct{}{})
-	desired := map[string]string{}
+	desired := map[string]BackfillPlanRow{}
 	for _, row := range rows {
 		if row.Action != "create" || row.Lifecycle == "" {
 			continue
 		}
-		desired[row.ScopeKey+"|"+row.NormalizedValue] = row.Lifecycle
+		desired[row.ScopeKey+"|"+row.NormalizedValue] = row
 	}
 	return desired
 }
 
 func applyExpectedLifecycleUpdateDelta(next *CountSnapshot, candidates []Candidate, existing map[string]existingBackfillGoat) int {
 	planned := 0
-	for key, lifecycle := range desiredBackfillLifecycleByKey(candidates) {
+	for key, row := range desiredBackfillRowsByKey(candidates) {
 		current, ok := existing[key]
-		if !ok || current.Lifecycle == lifecycle {
+		if !ok || current.Lifecycle == row.Lifecycle {
 			continue
 		}
 		decrementLifecycle(next, current.Lifecycle)
-		incrementLifecycle(next, lifecycle)
+		incrementLifecycle(next, row.Lifecycle)
 		planned++
 	}
 	return planned
@@ -655,7 +655,7 @@ func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Option
 	}
 	rows := planBackfill(candidates, existing)
 	attachLocations(rows, parks, sheds)
-	updates, err := updateExistingBackfillLifecycles(ctx, tx, opts.TenantID, candidates)
+	updates, err := updateExistingBackfillLifecycles(ctx, tx, opts.TenantID, opts.TraceID, candidates)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -842,6 +842,62 @@ INSERT INTO audit_log (
 	return err
 }
 
+func insertBackfillLifecycleRepairAudit(ctx context.Context, tx pgx.Tx, tenantID, traceID string, repair existingBackfillLifecycleRepair) error {
+	before := map[string]any{
+		"goat_id":          repair.GoatID,
+		"display_id":       repair.DisplayID,
+		"old_tag":          repair.Row.OldTag,
+		"normalized_value": repair.Row.NormalizedValue,
+		"scope_key":        repair.Row.ScopeKey,
+		"lifecycle_status": repair.BeforeLifecycle,
+		"row_version":      repair.BeforeRowVersion,
+	}
+	after := map[string]any{
+		"goat_id":          repair.GoatID,
+		"display_id":       repair.DisplayID,
+		"old_tag":          repair.Row.OldTag,
+		"normalized_value": repair.Row.NormalizedValue,
+		"scope_key":        repair.Row.ScopeKey,
+		"lifecycle_status": repair.AfterLifecycle,
+		"row_version":      repair.AfterRowVersion,
+	}
+	metadata := map[string]any{
+		"source_system":    backfillSourceSystem,
+		"source_context":   backfillSourceContext,
+		"candidate_source": repair.Row.Source,
+		"candidate_status": repair.Row.CandidateStatus,
+		"candidate_row":    repair.Row.RowNumber,
+		"command":          "bq-reconcile --backfill-candidates-csv",
+		"repair_reason":    "latest_location_lifecycle_evidence",
+	}
+	beforeJSON, _ := json.Marshal(before)
+	afterJSON, _ := json.Marshal(after)
+	metadataJSON, _ := json.Marshal(metadata)
+	_, err := tx.Exec(ctx, `
+INSERT INTO audit_log (
+  tenant_id,
+  actor_type,
+  action,
+  resource_type,
+  resource_id,
+  before_state,
+  after_state,
+  metadata,
+  trace_id
+) VALUES (
+  $1::uuid,
+  'system',
+  'goat.old_tag_backfill_lifecycle_repaired',
+  'goat',
+  $2::uuid,
+  $3::jsonb,
+  $4::jsonb,
+  $5::jsonb,
+  $6
+)`, tenantID, repair.GoatID, beforeJSON, afterJSON, metadataJSON, traceID)
+	return err
+}
+
 func resolveMeshaPartyID(ctx context.Context, q queryer) (string, error) {
 	rows, err := q.Query(ctx, `
 SELECT p.party_id::text
@@ -939,31 +995,91 @@ WHERE i.tenant_id = $1::uuid
 	return existing, nil
 }
 
-func updateExistingBackfillLifecycles(ctx context.Context, tx pgx.Tx, tenantID string, candidates []Candidate) (int, error) {
+type existingBackfillLifecycleRepair struct {
+	Row              BackfillPlanRow
+	GoatID           string
+	DisplayID        string
+	BeforeLifecycle  string
+	AfterLifecycle   string
+	BeforeRowVersion int
+	AfterRowVersion  int
+}
+
+func updateExistingBackfillLifecycles(ctx context.Context, tx pgx.Tx, tenantID, traceID string, candidates []Candidate) (int, error) {
 	applied := 0
-	for key, lifecycle := range desiredBackfillLifecycleByKey(candidates) {
+	for key, row := range desiredBackfillRowsByKey(candidates) {
 		scope, normalized, ok := strings.Cut(key, "|")
-		if !ok || scope == "" || normalized == "" || lifecycle == "" {
+		if !ok || scope == "" || normalized == "" || row.Lifecycle == "" {
 			continue
 		}
-		tag, err := tx.Exec(ctx, `
-UPDATE goats g
-SET lifecycle_status = $4,
-    updated_at = now()
-FROM goat_identifiers i
-WHERE i.tenant_id = $1::uuid
-  AND i.goat_id = g.goat_id
-  AND i.identifier_type = 'old_tag'
-  AND i.status = 'active'
-  AND i.source_system = $5
-  AND i.scope_key = $2
-  AND i.normalized_value = $3
-  AND g.merged_into_goat_id IS NULL
-  AND g.lifecycle_status <> $4`, tenantID, scope, normalized, lifecycle, backfillSourceSystem)
+		rows, err := tx.Query(ctx, `
+WITH target AS (
+  SELECT
+    g.goat_id,
+    g.display_id,
+    g.lifecycle_status AS before_lifecycle,
+    g.row_version AS before_row_version
+  FROM goats g
+  JOIN goat_identifiers i
+    ON i.tenant_id = g.tenant_id
+   AND i.goat_id = g.goat_id
+  WHERE i.tenant_id = $1::uuid
+    AND i.identifier_type = 'old_tag'
+    AND i.status = 'active'
+    AND i.source_system = $5
+    AND i.scope_key = $2
+    AND i.normalized_value = $3
+    AND g.merged_into_goat_id IS NULL
+    AND g.lifecycle_status <> $4
+  FOR UPDATE OF g
+), updated AS (
+  UPDATE goats g
+  SET lifecycle_status = $4,
+      row_version = g.row_version + 1,
+      updated_at = now()
+  FROM target t
+  WHERE g.tenant_id = $1::uuid
+    AND g.goat_id = t.goat_id
+  RETURNING
+    g.goat_id::text,
+    g.display_id,
+    t.before_lifecycle,
+    g.lifecycle_status,
+    t.before_row_version,
+    g.row_version
+)
+SELECT goat_id, display_id, before_lifecycle, lifecycle_status, before_row_version, row_version
+FROM updated`, tenantID, scope, normalized, row.Lifecycle, backfillSourceSystem)
 		if err != nil {
 			return 0, fmt.Errorf("update existing backfill lifecycle %s: %w", key, err)
 		}
-		applied += int(tag.RowsAffected())
+		repairs := []existingBackfillLifecycleRepair{}
+		for rows.Next() {
+			repair := existingBackfillLifecycleRepair{Row: row}
+			if err := rows.Scan(
+				&repair.GoatID,
+				&repair.DisplayID,
+				&repair.BeforeLifecycle,
+				&repair.AfterLifecycle,
+				&repair.BeforeRowVersion,
+				&repair.AfterRowVersion,
+			); err != nil {
+				rows.Close()
+				return 0, fmt.Errorf("scan existing backfill lifecycle repair %s: %w", key, err)
+			}
+			repairs = append(repairs, repair)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("read existing backfill lifecycle repairs %s: %w", key, err)
+		}
+		rows.Close()
+		for _, repair := range repairs {
+			if err := insertBackfillLifecycleRepairAudit(ctx, tx, tenantID, traceID, repair); err != nil {
+				return 0, fmt.Errorf("audit existing backfill lifecycle repair %s: %w", key, err)
+			}
+		}
+		applied += len(repairs)
 	}
 	return applied, nil
 }

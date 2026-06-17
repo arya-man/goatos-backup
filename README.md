@@ -130,17 +130,23 @@ Completed so far:
   pre-vetted safe old-tag candidate CSV (one unique farm/old-tag/scope row each),
   creates old-tag-only passports (`identity_state='clean'`, Mesha custodian, no
   RFID), maps status to a supported lifecycle (`active->alive`, `sold->sold`,
-  `inactive->inactive`), sets breed/sex/park/shed only from deterministic
-  candidate fields, writes `goat.old_tag_backfill_created` audit rows, never
-  updates existing goats, and is idempotent on replay (the partial-unique active
-  old_tag index is the backstop). Rows whose farm has no active park location
-  fail closed (`unknown_park`) rather than creating a location-less passport. It
-  is dry-run by default; `--execute` is gated to a local/dev local database
-  (same guard as `rebuild-identity-counters`) because it bypasses the
-  `goat_identity_events` stream — so event-driven counter freshness/analytics
-  egress can't see these goats. Run the full `rebuild-identity-counters` (not the
-  incremental updater) afterward; promotion beyond local/dev needs a
-  production-safe capture + counter-sync path first.
+  `dead->dead`, `inactive->inactive`), and should be paired with
+  `--locations-json <latest-location-export>` so stale `Inactive` candidates
+  from `census_plus_bq_unique_farm` can be corrected from later Shifting/Death
+  evidence without resurrecting Sold goats. It sets breed/sex/park/shed only
+  from deterministic candidate/latest-location fields, writes
+  `goat.old_tag_backfill_created` audit rows for created goats, and can repair
+  the lifecycle of already-created `legacy_bigquery` old-tag backfill goats with
+  a row-version bump plus `goat.old_tag_backfill_lifecycle_repaired` audit row.
+  It is idempotent on replay (the partial-unique active old_tag index is the
+  backstop). Rows whose farm has no active park location fail closed
+  (`unknown_park`) rather than creating a location-less passport. It is dry-run
+  by default; `--execute` is gated to a local/dev local database (same guard as
+  `rebuild-identity-counters`) because it bypasses the `goat_identity_events`
+  stream — so event-driven counter freshness/analytics egress can't see these
+  goats. Run the full `rebuild-identity-counters` (not the incremental updater)
+  afterward; promotion beyond local/dev needs a production-safe capture +
+  counter-sync path first.
   BQ dashboard shed
   taxonomy is now seeded under the existing CBE/CPT park locations so matched
   goats can carry specific shed current locations without breaking old-tag
@@ -150,8 +156,8 @@ Completed so far:
   the RFID import plus 1449 created by the deterministic safe old-tag backfill)
   and 4 import-review rows from the RFID import run. A BQ reconciliation pass and
   the old-tag backfill both run through `backend/cmd/bq-reconcile`. The current
-  local DB has `tenant_lifecycle` counters `alive=2086`, `sold=544`, `dead=35`,
-  and `inactive=3`; BQ
+  local DB has `tenant_lifecycle` counters `alive=2088`, `sold=544`, `dead=36`,
+  and `inactive=0`; BQ
   lifecycle is reduced conservatively per identifier. Shifting or Abortion
   evidence without terminal Sale/Death is proof-of-life, Death is sticky, Sale
   is reversed only by a later Purchase, and later non-purchase activity such as

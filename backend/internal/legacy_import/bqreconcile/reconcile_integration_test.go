@@ -70,6 +70,69 @@ WHERE tenant_id = $1::uuid
 	}
 }
 
+func TestUpdateExistingBackfillLifecyclesBumpsRowVersionAndAudits(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	ctx := context.Background()
+	pool := startBQReconcileTestDB(t, ctx)
+	defer pool.Close()
+
+	goatID := "00000000-0000-4000-8000-00000000b101"
+	traceID := "test-old-tag-backfill-lifecycle-repair"
+	seedExistingBackfillGoat(t, pool, goatID, "G-009952", "952", "park:CPT", "inactive")
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := updateExistingBackfillLifecycles(ctx, tx, bqReconcileTestTenantID, traceID, []Candidate{
+		{
+			RowNumber: 2,
+			Source:    "census_plus_bq_unique_farm",
+			Farm:      "CPT",
+			ScopeKey:  "park:CPT",
+			OldTag:    "952",
+			Breed:     "Beetal",
+			Gender:    "Male",
+			Status:    "Active",
+		},
+	})
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if updated != 1 {
+		t.Fatalf("updated=%d want 1", updated)
+	}
+	if got := queryScalarString(t, pool, "SELECT lifecycle_status FROM goats WHERE goat_id = $1", goatID); got != "alive" {
+		t.Fatalf("goat lifecycle=%q want alive", got)
+	}
+	if got := queryScalarString(t, pool, "SELECT row_version::text FROM goats WHERE goat_id = $1", goatID); got != "2" {
+		t.Fatalf("goat row_version=%q want 2", got)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)::int
+FROM audit_log
+WHERE tenant_id = $1::uuid
+  AND action = 'goat.old_tag_backfill_lifecycle_repaired'
+  AND resource_type = 'goat'
+  AND resource_id = $2::uuid
+  AND before_state->>'lifecycle_status' = 'inactive'
+  AND after_state->>'lifecycle_status' = 'alive'
+  AND before_state->>'row_version' = '1'
+  AND after_state->>'row_version' = '2'
+  AND metadata->>'candidate_source' = 'census_plus_bq_unique_farm'
+  AND metadata->>'candidate_row' = '2'
+  AND trace_id = $3`, bqReconcileTestTenantID, goatID, traceID); got != 1 {
+		t.Fatalf("repair audit rows=%d want 1", got)
+	}
+}
+
 func seedStaleLifecycleConflict(t *testing.T, pool *pgxpool.Pool, goatID, conflictID string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `
@@ -126,6 +189,74 @@ INSERT INTO identity_conflict_goats (
   $1::uuid,
   'affected'
 )`, goatID, bqReconcileTestTenantID, conflictID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedExistingBackfillGoat(t *testing.T, pool *pgxpool.Pool, goatID, displayID, oldTag, scopeKey, lifecycle string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goats (
+  goat_id,
+  tenant_id,
+  display_id,
+  species,
+  breed,
+  sex,
+  lifecycle_status,
+  identity_state,
+  custodian_party_id
+) VALUES (
+  $1::uuid,
+  $2::uuid,
+  $3,
+  'goat',
+  'Beetal',
+  'male',
+  $4,
+  'clean',
+  $5::uuid
+)`, goatID, bqReconcileTestTenantID, displayID, lifecycle, bqReconcileTestCustodianID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goat_identifiers (
+  tenant_id,
+  goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  is_primary_for_goat,
+  status,
+  valid_from,
+  source_system,
+  source_record_id,
+  normalizer_version,
+  confidence
+) VALUES (
+  $1::uuid,
+  $2::uuid,
+  'old_tag',
+  $3,
+  $3,
+  $4,
+  true,
+  'active',
+  now(),
+  $5,
+  $6,
+  $7,
+  0.7
+)`,
+		bqReconcileTestTenantID,
+		goatID,
+		oldTag,
+		scopeKey,
+		backfillSourceSystem,
+		backfillSourceContext+":"+scopeKey+":"+oldTag,
+		backfillNormalizerVersion,
+	); err != nil {
 		t.Fatal(err)
 	}
 }

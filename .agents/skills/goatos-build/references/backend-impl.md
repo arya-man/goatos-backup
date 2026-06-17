@@ -425,14 +425,19 @@ Rules:
   reads a pre-vetted safe old-tag candidate CSV (one row per unique
   farm/old-tag/scope), creates old-tag-only passports
   (`identity_state='clean'`, Mesha custodian, no RFID) under the shared
-  `bq-reconcile` advisory lock, maps status->lifecycle against supported
-  `status_definitions` (`active->alive`, `sold->sold`, `inactive->inactive`),
-  sets breed/sex/park/shed only from deterministic candidate fields, and writes
-  `goat.old_tag_backfill_created` audit rows. It is idempotent: the active
-  old_tag identity set is reloaded inside the write transaction, and the
-  partial-unique `(identifier_type, normalized_value, scope_key) WHERE
-  status='active'` index is the backstop, so replay creates zero goats. It never
-  updates existing goats and skips (and exports) ambiguous, duplicate,
+  `bq-reconcile` advisory lock, maps status->lifecycle against supported labels
+  (`active->alive`, `sold->sold`, `dead->dead`, `inactive->inactive`), and
+  should be paired with `--locations-json <latest-location-export>` so stale
+  `Inactive` rows from `census_plus_bq_unique_farm` can be corrected from later
+  Shifting/Death evidence without resurrecting Sold goats. It sets
+  breed/sex/park/shed only from deterministic candidate/latest-location fields,
+  writes `goat.old_tag_backfill_created` audit rows for created goats, and can
+  repair the lifecycle of already-created `legacy_bigquery` old-tag backfill
+  goats with a row-version bump plus `goat.old_tag_backfill_lifecycle_repaired`
+  audit row. It is idempotent: the active old_tag identity set is reloaded
+  inside the write transaction, and the partial-unique `(identifier_type,
+  normalized_value, scope_key) WHERE status='active'` index is the backstop, so
+  replay creates zero goats. It skips (and exports) ambiguous, duplicate,
   already-present, scope-mismatched, unsupported-status, or `unknown_park`/
   `unknown_shed_parent` rows (a farm with no active park location fails closed
   rather than creating a location-less passport).
