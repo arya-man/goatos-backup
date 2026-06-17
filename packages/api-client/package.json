@@ -7,7 +7,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./constants": "./src/constants.js"
+    "./constants": {
+      "types": "./src/constants.d.ts",
+      "default": "./src/constants.js"
+    }
   },
   "scripts": {
     "generate": "openapi-typescript ../../contracts/openapi/app-api.yaml -o src/generated/app-api.ts && openapi-typescript ../../contracts/openapi/admin-api.yaml -o src/generated/admin-api.ts && openapi-typescript ../../contracts/openapi/analytics-api.yaml -o src/generated/analytics-api.ts",
