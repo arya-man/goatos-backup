@@ -177,7 +177,10 @@ ID-token cookies; backend JWKS verification remains the trust boundary.
 1. **Build + publish images.** Build the three image families in
    `docs/runbooks/containers.md`: backend multi-binary, migration job, and
    admin-web dashboard. Tag by git SHA, push to the project's asia-south1
-   Artifact Registry, and record the SHA — it is the rollback handle.
+   Artifact Registry, and record the SHA — it is the rollback handle. For
+   admin-web fixes intended to be visible on the raw dev Cloud Run URL, follow
+   the admin-web dev deploy checklist in `docs/runbooks/containers.md`; a Git
+   push alone does not update Google dev.
 2. **Apply migrations.** Migrations live in `backend/migrations/postgres/`
    (`000001`..`000022`, forward-only, never edit an applied migration).
    `make validate-migrations` validates the goose-style SQL locally. For a fresh

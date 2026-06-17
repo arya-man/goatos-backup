@@ -16,6 +16,11 @@ Do:
 - Move data access behind generated analytics/app clients.
 - Gate pages by server-side auth/RBAC.
 - Treat frontend visual QA as a release gate, not a courtesy check.
+- If the user is checking the Google dev URL, a Git push is not enough. Do not
+  say the live dev UI is fixed until `goatos-admin-web-dev` has been rebuilt,
+  pushed as a `linux/amd64` image, deployed to Cloud Run, and verified by
+  reading the live service revision/image. Follow `docs/runbooks/containers.md`
+  "Admin-web dev deploy checklist".
 - After any frontend code change, run the relevant lint/typecheck/build plus
   the live visual smoke when local backend/admin-web can be started:
 
@@ -54,5 +59,8 @@ Do not:
 - Do not add direct BigQuery/Sheets/GCS/DB access as the final data path.
 - Do not expose unauthenticated real goat data.
 - Do not treat this copy as proof that live dashboards have changed.
+- Do not confuse `git mesha-push main` with a Google dev deploy. Pushed code is
+  only in Git; the raw Cloud Run URL still serves the previous image until the
+  admin-web image is rebuilt and the service is redeployed.
 - Do not use a `missing_config`, token error, blank page, or console-only check
   as visual QA evidence.

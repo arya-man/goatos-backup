@@ -78,6 +78,75 @@ backend service IAM-private until a separate service-to-service auth design
 exists that does not replace or collide with the user's app bearer token. This
 dev posture must not be copied to `goatos-stg` or `goatos-prod`.
 
+## Admin-web dev deploy checklist
+
+Git push is not a Google dev deploy. When a UI fix is meant to be visible at the
+raw `goatos-admin-web-dev` Cloud Run URL, do all of these steps before telling
+the operator the live dev UI is fixed.
+
+Before any mutation, verify the normal Goat OS cloud/repo gate:
+
+```bash
+gcloud config list
+gcloud auth list --filter=status:ACTIVE
+gcloud organizations list
+gcloud resource-manager folders describe 188649904255
+gcloud projects get-ancestors goatos-dev
+git remote -v
+git status --short --branch
+git config --get-regexp '^alias\.mesha-push$|^mesha-push\.'
+```
+
+Abort if the active account is not `ravi@mesha.sg`, the org is not
+`vgoats.com`, the folder is not `goat-os / folders/188649904255`, the project is
+not `goatos-dev`, or the repo is not `vgoats/goatos`.
+
+Build and push the admin-web image for Cloud Run as `linux/amd64`. On Apple
+Silicon, do not use a plain `docker build` image for Cloud Run; it can produce an
+ARM image that deploys badly or is rejected.
+
+```bash
+SHA="$(git rev-parse --short=12 HEAD)"
+IMAGE="asia-south1-docker.pkg.dev/goatos-dev/goatos/admin-web:${SHA}"
+
+docker buildx build \
+  --platform linux/amd64 \
+  -f apps/admin-web/Dockerfile \
+  -t "${IMAGE}" \
+  --push \
+  .
+```
+
+Deploy only the existing dev admin-web service to that image:
+
+```bash
+gcloud run deploy goatos-admin-web-dev \
+  --image="${IMAGE}" \
+  --region=asia-south1 \
+  --project=goatos-dev \
+  --quiet
+```
+
+If `gcloud run` crashes because the local Cloud SDK is using an unsupported
+Python, set `CLOUDSDK_PYTHON` to a Python 3.10+ interpreter and rerun the same
+command. Do not change project/account context to work around a local CLI issue.
+
+Verify the live service before reporting success:
+
+```bash
+gcloud run services describe goatos-admin-web-dev \
+  --project=goatos-dev \
+  --region=asia-south1 \
+  --format='value(status.latestReadyRevisionName,spec.template.spec.containers[0].image,status.url)'
+
+curl -I --max-time 15 \
+  https://goatos-admin-web-dev-farig3r27a-el.a.run.app/dashboard/login
+```
+
+The image in the `services describe` output must match the current `IMAGE`, and
+traffic must be on the new ready revision. If the operator is looking at the raw
+Cloud Run URL, tell them to hard reload only after this verification passes.
+
 ## Dev Defaults
 
 Cloud Run services should set `PORT=8080`. Backend services and jobs that need
