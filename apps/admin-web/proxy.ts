@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DASHBOARD_BASE_PATH, FIREBASE_ID_TOKEN_COOKIE, INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 
-const publicDashboardPrefixes = ["/api/auth", "/_next", "/favicon.ico", "/login"];
+const publicDashboardPrefixes = ["/api/auth", "/_next", "/apple-icon.png", "/favicon.ico", "/icon.png", "/login"];
 
 export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
