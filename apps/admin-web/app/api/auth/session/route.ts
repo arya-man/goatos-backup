@@ -28,8 +28,9 @@ export async function POST(request: NextRequest) {
 
   const audit = await recordBackendAuthEvent(request, idToken, eventType);
   const existingSessionCookie = request.cookies.get(FIREBASE_ID_TOKEN_COOKIE)?.value.trim() || "";
+  const existingSessionUsable = maxAgeForFirebaseIdToken(existingSessionCookie) !== null;
   const allowUnauditedRefresh =
-    !audit.ok && allowUnauditedSessionRefresh(eventType, audit.status, isLikelyJwt(existingSessionCookie));
+    !audit.ok && allowUnauditedSessionRefresh(eventType, audit.status, existingSessionUsable);
   if (!audit.ok && !allowUnauditedRefresh) {
     return NextResponse.json({ error: audit.error }, { status: audit.status });
   }
