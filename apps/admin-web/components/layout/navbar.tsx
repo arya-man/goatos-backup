@@ -18,6 +18,7 @@ function formatSegment(segment: string): string {
     "data-quality": "Data Quality",
     "import-review": "Import Review",
     "legacy-sync": "Legacy Sync",
+    "sop-playground": "SOP Builder",
   };
   if (upperCaseWords[decoded.toLowerCase()]) return upperCaseWords[decoded.toLowerCase()];
   return decoded
