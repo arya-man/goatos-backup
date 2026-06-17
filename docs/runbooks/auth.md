@@ -46,6 +46,11 @@ JWKS verification. Firebase is auth only for Goat OS dev bring-up: do not use
 Firebase Hosting or Firebase App Hosting, and do not introduce an external OIDC
 provider or static dev JWKS.
 
+Admin-web login uses the Firebase Auth Google provider popup flow with a
+redirect fallback, `prompt=select_account`, and the `mesha.sg` hosted-domain
+hint. The Cloud Run admin-web domains must remain in Firebase Auth authorized
+domains so the hosted auth handler can return to the app.
+
 Secret Manager containers may hold the eventual issuer, audience, JWKS URL,
 Firebase web config, and admin-web app bearer values, but secret values are
 populated out-of-band in a later approved phase. Do not put token values,

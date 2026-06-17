@@ -117,17 +117,18 @@ migrations, or legacy imports.
 
 For the `goatos-dev` bring-up, deploy the backend Cloud Run service as publicly
 invokable at the Cloud Run layer and enforce authentication/authorization inside
-Goat OS with `GOATOS_AUTH_MODE=jwks` and DB-backed RBAC grants. Admin-web
-server-side calls use `GOATOS_BEARER_TOKEN` as the Goat OS app bearer token in
-the standard `Authorization` header; admin-web does not currently mint a
-separate Cloud Run IAM identity token. Making the backend service IAM-private
-before adding a separate service-to-service auth design will fail as a Cloud Run
-403 before the request reaches Goat OS app auth.
+Goat OS with `GOATOS_AUTH_MODE=jwks` and DB-backed RBAC grants. Live admin-web
+uses Firebase Auth client persistence plus an HTTP-only Firebase ID-token cookie
+so server-side calls can forward the signed-in user's
+`Authorization: Bearer <id_token>` to the backend. Admin-web does not currently
+mint a separate Cloud Run IAM identity token. Making the backend service
+IAM-private before adding a separate service-to-service auth design will fail as
+a Cloud Run 403 before the request reaches Goat OS app auth.
 
 This is a dev-only bring-up shortcut. Do not copy the public-invoker Cloud Run
 posture to `goatos-stg` or `goatos-prod`; those environments are blocked until a
 service-to-service/IAM or IAP design exists that preserves Goat OS app auth
-rather than replacing the app bearer token.
+rather than replacing the user's app bearer token.
 
 ## Required backend config per environment
 

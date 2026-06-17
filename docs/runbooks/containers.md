@@ -69,13 +69,13 @@ dashboard surface. The app is compiled with `basePath: /dashboard`; no
 `assetPrefix` is set because the service will sit behind the same HTTPS load
 balancer path.
 
-For the dev deploy, admin-web server-side API calls send the Goat OS app bearer
-token in the standard `Authorization` header. The backend Cloud Run service must
-therefore be publicly invokable at the Cloud Run layer and enforce auth at the
-Goat OS app layer with JWKS/RBAC. Do not make the backend service IAM-private
-until a separate service-to-service auth design exists that does not replace or
-collide with the app bearer token. This dev posture must not be copied to
-`goatos-stg` or `goatos-prod`.
+For the dev deploy, admin-web server-side API calls forward the signed-in
+Firebase user's ID token in the standard `Authorization` header. The backend
+Cloud Run service must therefore be publicly invokable at the Cloud Run layer
+and enforce auth at the Goat OS app layer with JWKS/RBAC. Do not make the
+backend service IAM-private until a separate service-to-service auth design
+exists that does not replace or collide with the user's app bearer token. This
+dev posture must not be copied to `goatos-stg` or `goatos-prod`.
 
 ## Dev Defaults
 

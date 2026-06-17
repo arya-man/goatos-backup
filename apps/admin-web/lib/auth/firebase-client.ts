@@ -6,7 +6,8 @@ import {
   browserLocalPersistence,
   getAuth,
   setPersistence,
-  signInWithCredential,
+  signInWithPopup,
+  signInWithRedirect,
   signOut,
   type Auth,
   type User,
@@ -15,7 +16,6 @@ import { FIREBASE_CONFIG_ROUTE, SESSION_ROUTE } from "@/lib/auth/session-cookie"
 
 export type FirebaseClientRuntimeConfig = {
   config: FirebaseOptions;
-  googleClientId?: string;
 };
 
 let authPromise: Promise<Auth> | null = null;
@@ -39,12 +39,19 @@ export async function getFirebaseClientRuntimeConfig(): Promise<FirebaseClientRu
   return loadFirebaseConfig();
 }
 
-export async function signInWithGoogleIdToken(googleIdToken: string): Promise<User> {
+export async function startGoogleSignIn(): Promise<User | void> {
   const auth = await getFirebaseAuth();
-  const credential = GoogleAuthProvider.credential(googleIdToken);
-  const result = await signInWithCredential(auth, credential);
-  await syncFirebaseSession(result.user, true);
-  return result.user;
+  const provider = googleProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    return result.user;
+  } catch (error) {
+    if (isPopupBlocked(error)) {
+      await signInWithRedirect(auth, googleProvider());
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function clearFirebaseSession(): Promise<void> {
@@ -85,4 +92,20 @@ async function loadFirebaseConfig(): Promise<FirebaseClientRuntimeConfig> {
     });
   }
   return configPromise;
+}
+
+function googleProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account", hd: "mesha.sg" });
+  return provider;
+}
+
+function isPopupBlocked(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      ((error as { code?: string }).code === "auth/popup-blocked" ||
+        (error as { code?: string }).code === "auth/operation-not-supported-in-this-environment"),
+  );
 }
