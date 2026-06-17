@@ -79,7 +79,7 @@ api_ready() {
 }
 
 web_ready() {
-  curl -fsS "http://$host:$web_port/login" >/dev/null 2>&1
+  curl -fsS "http://$host:$web_port/dashboard/login" >/dev/null 2>&1
 }
 
 kill_pid() {
@@ -145,7 +145,7 @@ wait_for_web() {
     sleep 1
   done
   tail -n 120 "$web_log" >&2 || true
-  log "Timed out waiting for Mesha admin-web at http://$host:$web_port/login."
+  log "Timed out waiting for Mesha admin-web at http://$host:$web_port/dashboard/login."
   return 1
 }
 
@@ -187,12 +187,12 @@ start_web() {
   fi
 
   if port_busy "$host" "$web_port"; then
-    log "Port $web_port is in use but http://$host:$web_port/login is not healthy."
+    log "Port $web_port is in use but http://$host:$web_port/dashboard/login is not healthy."
     lsof -nP "-iTCP:$web_port" -sTCP:LISTEN >>"$supervisor_log" 2>&1 || true
     return 1
   fi
 
-  log "Starting Mesha admin-web at http://$host:$web_port."
+  log "Starting Mesha admin-web at http://$host:$web_port/dashboard."
   npm --prefix "$repo_root/apps/admin-web" run dev:local >>"$web_log" 2>&1 &
   web_pid="$!"
   wait_for_web
@@ -202,7 +202,7 @@ monitor_stack() {
   local api_failures=0
   local web_failures=0
 
-  log "Local stack ready: API $api_base_url, admin-web http://$host:$web_port."
+  log "Local stack ready: API $api_base_url, admin-web http://$host:$web_port/dashboard."
   while [ "$stop_requested" = "0" ]; do
     if [ -n "$api_pid" ] && ! kill -0 "$api_pid" >/dev/null 2>&1; then
       log "Goat OS API process exited; restarting stack."

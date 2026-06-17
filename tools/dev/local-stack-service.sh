@@ -16,7 +16,7 @@ Usage: $0 install|start|stop|restart|status|logs|uninstall
 
 Manages the local Goat OS API/admin-web service on:
   API:       http://127.0.0.1:8080
-  admin-web: http://127.0.0.1:3300
+  admin-web: http://127.0.0.1:3300/dashboard
 EOF
 }
 
@@ -85,7 +85,7 @@ status() {
   echo
   echo "Health:"
   curl -fsS http://127.0.0.1:8080/readyz >/dev/null 2>&1 && echo "api: ready" || echo "api: not ready"
-  curl -fsS http://127.0.0.1:3300/login >/dev/null 2>&1 && echo "admin-web: ready" || echo "admin-web: not ready"
+  curl -fsS http://127.0.0.1:3300/dashboard/login >/dev/null 2>&1 && echo "admin-web: ready" || echo "admin-web: not ready"
 }
 
 logs() {
