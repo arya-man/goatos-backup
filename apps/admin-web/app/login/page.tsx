@@ -16,6 +16,10 @@ export default async function LoginPage() {
   const showLocalDashboardShortcut = localDashboardCheck?.ok === true;
   const showLocalAuthRepair =
     shouldCheckLocalDashboard && localDashboardCheck !== null && localDashboardCheck.ok === false;
+  const showGoogleLogin = !shouldCheckLocalDashboard;
+  const loginInstruction = showGoogleLogin
+    ? "Use your Mesha Workspace account to continue."
+    : "Use the local dashboard shortcut on this machine.";
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#0b0e13] text-[#f8fafc]">
@@ -65,10 +69,10 @@ export default async function LoginPage() {
               </div>
               <h2 className="mt-2 text-3xl font-black text-white">Sign in</h2>
               <p className="mt-3 text-sm leading-6 text-[#aab7c4]">
-                Use your Mesha Workspace account to continue.
+                {loginInstruction}
               </p>
 
-              <GoogleLogin />
+              {showGoogleLogin ? <GoogleLogin /> : null}
 
               {showLocalDashboardShortcut ? (
                 <Link
