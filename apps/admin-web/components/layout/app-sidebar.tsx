@@ -46,9 +46,6 @@ const commandItems: NavItem[] = [
   { icon: DatabaseZap, label: "Import Review", href: "/import-review" },
   { icon: RefreshCw, label: "Legacy Sync", href: "/legacy-sync" },
   { icon: FileSearch, label: "Data Quality", href: "/data-quality" },
-  ...(process.env.NEXT_PUBLIC_ENABLE_SOP_PLAYGROUND === "true"
-    ? [{ icon: ClipboardList, label: "SOP Builder", href: "/sop-playground" }]
-    : []),
 ];
 
 const legacyItems: NavItem[] = [
