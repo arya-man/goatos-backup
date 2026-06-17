@@ -1,4 +1,4 @@
-import { TENANT_CONTEXT_HEADER } from "@goatos/api-client/constants";
+import { AUTH_SESSION_USER_AGENT_HEADER, TENANT_CONTEXT_HEADER } from "@goatos/api-client/constants";
 import { type NextRequest, NextResponse } from "next/server";
 import {
   DASHBOARD_BASE_PATH,
@@ -28,11 +28,11 @@ export async function POST(request: NextRequest) {
   }
 
   const audit = await recordBackendAuthEvent(request, idToken, eventType);
-  if (!audit.ok) {
+  if (!audit.ok && !allowUnauditedSessionRefresh(eventType, audit.status)) {
     return NextResponse.json({ error: audit.error }, { status: audit.status });
   }
 
-  const response = NextResponse.json({ ok: true, maxAge });
+  const response = NextResponse.json({ ok: true, maxAge, audit_recorded: audit.ok });
   response.cookies.set({
     name: FIREBASE_ID_TOKEN_COOKIE,
     value: idToken,
@@ -69,6 +69,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function allowUnauditedSessionRefresh(eventType: AuthSessionEventType, auditStatus: number): boolean {
+  return eventType === "auth.session_refresh" && auditStatus >= 500;
+}
+
 async function recordBackendAuthEvent(
   request: NextRequest,
   idToken: string,
@@ -89,7 +93,7 @@ async function recordBackendAuthEvent(
         "Authorization": `Bearer ${idToken}`,
         "Content-Type": "application/json",
         [TENANT_CONTEXT_HEADER]: tenantId,
-        "X-Mesha-Session-User-Agent": request.headers.get("user-agent") ?? "",
+        [AUTH_SESSION_USER_AGENT_HEADER]: request.headers.get("user-agent") ?? "",
       },
       body: JSON.stringify({ event_type: eventType, source: "admin-web" }),
     });

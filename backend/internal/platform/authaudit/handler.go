@@ -12,6 +12,7 @@ import (
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 
 	resourceTypeAuthSession = "auth_session"
 	actorTypeUser           = "user"
+	headerSessionUserAgent  = "X-GoatOS-Session-User-Agent"
 )
 
 type TokenVerifier interface {
@@ -82,8 +84,9 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID, tenantSource := tenantFromClaimsOrHeader(claims, r)
-	if !isUUIDString(tenantID) {
-		_ = h.record(r, Event{
+	if !uuidutil.IsUUIDString(tenantID) {
+		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
+		if err := h.record(r, Event{
 			TenantID:     "",
 			ActorID:      claims.Subject,
 			ActorType:    actorTypeUser,
@@ -92,11 +95,20 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 			Metadata: metadataForClaims(claims, map[string]any{
 				"reason":              "missing_tenant_context",
 				"source":              cleanMetadataString(body.Source, 64),
-				"requested_tenant_id": strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader)),
+				"requested_tenant_id": requestedTenantID,
 				"token_tenant_source": tenantSource,
 			}),
 			TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
-		})
+		}); err != nil {
+			h.log.WarnContext(r.Context(), "auth_failed_sign_in_audit_write_failed",
+				slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+				slog.String("trace_id", traceID(r)),
+				slog.String("actor_id", claims.Subject),
+				slog.String("requested_tenant_id", cleanMetadataString(requestedTenantID, 64)),
+				slog.String("token_tenant_source", tenantSource),
+				slog.String("error", err.Error()),
+			)
+		}
 		writeError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
 		return
 	}
@@ -112,7 +124,7 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 		Metadata: metadataForClaims(claims, map[string]any{
 			"source":              cleanMetadataString(body.Source, 64),
 			"token_tenant_source": tenantSource,
-			"user_agent":          cleanMetadataString(r.Header.Get("X-Mesha-Session-User-Agent"), 512),
+			"user_agent":          cleanMetadataString(r.Header.Get(headerSessionUserAgent), 512),
 		}),
 		TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
 	}
@@ -196,30 +208,17 @@ func bearerToken(value string) (string, bool) {
 
 func cleanMetadataString(value string, maxLen int) string {
 	value = strings.TrimSpace(value)
-	if maxLen > 0 && len(value) > maxLen {
-		return value[:maxLen]
+	if maxLen <= 0 {
+		return value
+	}
+	count := 0
+	for i := range value {
+		if count == maxLen {
+			return value[:i]
+		}
+		count++
 	}
 	return value
-}
-
-func isUUIDString(value string) bool {
-	value = strings.TrimSpace(value)
-	if len(value) != 36 {
-		return false
-	}
-	for i, r := range value {
-		switch i {
-		case 8, 13, 18, 23:
-			if r != '-' {
-				return false
-			}
-		default:
-			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 type errorEnvelope struct {

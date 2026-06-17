@@ -5,9 +5,9 @@ export type { paths as AppApiPaths, components as AppApiComponents } from "./gen
 import type { paths as AdminApiPaths } from "./generated/admin-api";
 import type { paths as AnalyticsApiPaths } from "./generated/analytics-api";
 import type { paths as AppApiPaths } from "./generated/app-api";
-import { TENANT_CONTEXT_HEADER } from "./constants.js";
+import { AUTH_SESSION_USER_AGENT_HEADER, TENANT_CONTEXT_HEADER } from "./constants.js";
 
-export { TENANT_CONTEXT_HEADER } from "./constants.js";
+export { AUTH_SESSION_USER_AGENT_HEADER, TENANT_CONTEXT_HEADER } from "./constants.js";
 
 export type ApiFamily = "app" | "admin" | "analytics";
 

@@ -38,7 +38,7 @@ paths:
             type: string
             format: uuid
           description: Required when the verified bearer token has no Goat OS tenant claim.
-        - name: X-Mesha-Session-User-Agent
+        - name: X-GoatOS-Session-User-Agent
           in: header
           required: false
           schema:

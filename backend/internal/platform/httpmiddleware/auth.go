@@ -10,6 +10,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
 const (
@@ -118,7 +119,7 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		if tenantID == "" {
 			tenantID = strings.TrimSpace(TenantIDFromContext(r.Context()))
 		}
-		if !isUUIDString(tenantID) {
+		if !uuidutil.IsUUIDString(tenantID) {
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
 			return r.Context(), "", "", false
 		}
@@ -137,26 +138,6 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		writeAuthError(w, r, http.StatusUnauthorized, "invalid_auth_mode", "auth mode is invalid")
 		return r.Context(), "", "", false
 	}
-}
-
-func isUUIDString(value string) bool {
-	value = strings.TrimSpace(value)
-	if len(value) != 36 {
-		return false
-	}
-	for i, r := range value {
-		switch i {
-		case 8, 13, 18, 23:
-			if r != '-' {
-				return false
-			}
-		default:
-			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 func bearerToken(value string) (string, bool) {

@@ -34,7 +34,7 @@ func TestHandlerRecordsSignInWithoutGrantLookup(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.sign_in","source":"admin-web"}`))
 	req.Header.Set("Authorization", "Bearer verified-firebase-token")
 	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
-	req.Header.Set("X-Mesha-Session-User-Agent", "Chrome")
+	req.Header.Set(headerSessionUserAgent, "Chrome")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -54,6 +54,9 @@ func TestHandlerRecordsSignInWithoutGrantLookup(t *testing.T) {
 	}
 	if got, ok := event.Metadata["email_verified"].(bool); !ok || !got {
 		t.Fatalf("email_verified metadata=%#v", event.Metadata["email_verified"])
+	}
+	if event.Metadata["user_agent"] != "Chrome" {
+		t.Fatalf("user_agent metadata=%#v", event.Metadata["user_agent"])
 	}
 }
 
@@ -145,6 +148,12 @@ func TestHandlerReturnsWriteFailure(t *testing.T) {
 	}
 	if body.Code != "auth_audit_write_failed" {
 		t.Fatalf("code=%s", body.Code)
+	}
+}
+
+func TestCleanMetadataStringTruncatesRunes(t *testing.T) {
+	if got := cleanMetadataString("  \U0001F410goat  ", 2); got != "\U0001F410g" {
+		t.Fatalf("cleanMetadataString=%q", got)
 	}
 }
 

@@ -1239,7 +1239,7 @@ export interface operations {
                 /** @description Required when the verified bearer token has no Goat OS tenant claim. */
                 "X-GoatOS-Tenant-ID"?: string;
                 /** @description Original browser user-agent forwarded by admin-web for audit metadata. */
-                "X-Mesha-Session-User-Agent"?: string;
+                "X-GoatOS-Session-User-Agent"?: string;
             };
             path?: never;
             cookie?: never;
