@@ -33,6 +33,11 @@ Do:
   margins, padding, card geometry, chart sizing, graph labels, icons, empty
   space, overflow, clipping, desktop/narrow responsive states, and whether any
   error/config page is being mistaken for a real UI proof.
+- Keep peer dashboard panels visually even by default. Two cards that represent
+  equal-priority queues, summaries, or status panels must use equal grid columns
+  and aligned card edges/heights at desktop breakpoints. Do not use arbitrary
+  weighted fractions such as `1.05fr/0.95fr` for peer cards unless the layout is
+  intentionally master/detail and the screenshot review calls that out.
 - `npm run smoke:visual:live` includes layout geometry checks, serious/critical
   axe checks, screenshot capture, token-leak checks, and optional visual
   baseline diffing. Build/typecheck passing is not enough for frontend work.

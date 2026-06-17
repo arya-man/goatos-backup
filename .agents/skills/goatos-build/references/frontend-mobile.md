@@ -112,3 +112,7 @@ Rules:
   and optional baseline diffs through `smoke:visual:update-baseline` /
   `smoke:visual:baseline`. Do not treat typecheck/build, a console-only check,
   or a `missing_config` screenshot as UI proof.
+- Peer dashboard panels must align. Equal-priority cards such as queue/status
+  pairs use equal desktop grid columns and visually matched edges/heights by
+  default. Weighted fractions are reserved for deliberate master/detail layouts,
+  and the visual QA note must explain why asymmetry is intentional.
