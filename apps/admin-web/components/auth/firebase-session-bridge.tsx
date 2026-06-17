@@ -16,11 +16,13 @@ export function FirebaseSessionBridge() {
       .then((auth) => {
         if (!mounted) return;
         unsubscribe = onIdTokenChanged(auth, (user) => {
+          if (!user) return;
           void syncFirebaseSession(user).catch(() => {
             // Navigation will recover through /dashboard/login if the cookie goes stale.
           });
         });
         interval = setInterval(() => {
+          if (!auth.currentUser) return;
           void syncFirebaseSession(auth.currentUser, true).catch(() => {
             // A later SSR request will redirect to login if refresh cannot recover.
           });

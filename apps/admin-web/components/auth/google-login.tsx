@@ -141,6 +141,7 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
   const statusText =
     status === "redirecting" ? "Opening dashboard" : status === "signing_in" ? "Signing in" : "Loading Google";
   const showBusyStatus = status === "signing_in" || status === "redirecting";
+  const showLoadingControl = !googleButtonReady || showBusyStatus;
 
   return (
     <div className="mt-8">
@@ -151,10 +152,10 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
           className={[
             "flex h-12 w-full max-w-[340px] items-center justify-center transition-opacity duration-150",
             googleButtonReady ? "opacity-100" : "opacity-0",
-            status === "signing_in" || status === "redirecting" ? "pointer-events-none opacity-60" : "",
+            showBusyStatus ? "pointer-events-none opacity-0" : "",
           ].join(" ")}
         />
-        {!googleButtonReady ? (
+        {showLoadingControl ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="flex h-11 w-full max-w-[340px] items-center justify-center gap-3 rounded border border-[#3a4352] bg-[#141a23] px-4 text-sm font-bold text-[#8b95a5]">
               <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
@@ -164,12 +165,6 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
         ) : null}
       </div>
       <div className="mt-3 min-h-7">
-        {showBusyStatus && googleButtonReady ? (
-          <div className="flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8b95a5]">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            {statusText}
-          </div>
-        ) : null}
         {message ? (
           <p className="rounded-lg border border-[#7f1d1d] bg-[#1d1214] px-3 py-2 text-sm leading-6 text-[#fecaca]">
             {message}
