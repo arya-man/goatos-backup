@@ -6,9 +6,10 @@ import {
   isLikelyJwt,
   maxAgeForFirebaseIdToken,
 } from "@/lib/auth/session-cookie";
-import { allowUnauditedSessionRefresh, type AuthSessionEventType } from "@/lib/auth/session-audit-policy";
 
 export const dynamic = "force-dynamic";
+
+type AuthSessionEventType = "auth.sign_in" | "auth.session_refresh" | "auth.sign_out";
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -27,18 +28,8 @@ export async function POST(request: NextRequest) {
   }
 
   const audit = await recordBackendAuthEvent(request, idToken, eventType);
-  const existingSessionCookie = request.cookies.get(FIREBASE_ID_TOKEN_COOKIE)?.value.trim() || "";
-  const existingSessionUsable = maxAgeForFirebaseIdToken(existingSessionCookie) !== null;
-  const allowUnauditedRefresh =
-    !audit.ok && allowUnauditedSessionRefresh(eventType, audit.status, existingSessionUsable);
-  if (!audit.ok && !allowUnauditedRefresh) {
+  if (!audit.ok) {
     return NextResponse.json({ error: audit.error }, { status: audit.status });
-  }
-  if (allowUnauditedRefresh) {
-    console.warn("auth_session_refresh_audit_unavailable", {
-      audit_error: audit.error,
-      audit_status: audit.status,
-    });
   }
 
   const response = NextResponse.json({ ok: true, maxAge, audit_recorded: audit.ok });

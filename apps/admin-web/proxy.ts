@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { DASHBOARD_BASE_PATH, FIREBASE_ID_TOKEN_COOKIE, INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import {
+  DASHBOARD_BASE_PATH,
+  FIREBASE_ID_TOKEN_COOKIE,
+  INTERNAL_LOGIN_PATH,
+  maxAgeForFirebaseIdToken,
+} from "@/lib/auth/session-cookie";
 
 const publicDashboardPrefixes = ["/api/auth", "/_next", "/apple-icon.png", "/favicon.ico", "/icon.png", "/login"];
 
@@ -11,7 +16,8 @@ export function proxy(request: NextRequest) {
   if (publicDashboardPrefixes.some((prefix) => dashboardPath === prefix || dashboardPath.startsWith(`${prefix}/`))) {
     return NextResponse.next();
   }
-  if (request.cookies.has(FIREBASE_ID_TOKEN_COOKIE) || hasLocalBearerFallback()) {
+  const sessionCookie = request.cookies.get(FIREBASE_ID_TOKEN_COOKIE)?.value.trim() || "";
+  if (maxAgeForFirebaseIdToken(sessionCookie) !== null || hasLocalBearerFallback()) {
     return NextResponse.next();
   }
   const loginUrl = request.nextUrl.clone();

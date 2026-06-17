@@ -12,7 +12,6 @@
     "smoke:visual:live": "node scripts/smoke-visual-live.mjs",
     "smoke:visual:baseline": "node scripts/smoke-visual-live.mjs --baseline-dir .codex-goatos-render/admin-web-baselines --require-baseline",
     "smoke:visual:update-baseline": "node scripts/smoke-visual-live.mjs --baseline-dir .codex-goatos-render/admin-web-baselines --update-baseline",
-    "check:auth-session-policy": "node --experimental-strip-types scripts/check-session-audit-policy.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
