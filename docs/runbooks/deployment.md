@@ -76,10 +76,10 @@ GOATOS_OBS_SINK=gcm                    # stdout_json | otlp | gcm
 
 ## Release steps
 
-1. **Build + publish image.** Build `backend/cmd/api` (and the worker entrypoints
-   `outbox-relay`, `rebuild-identity-counters`, `update-identity-counters`) into
-   a container, tag by git SHA, push to the project's Artifact Registry. Record
-   the SHA — it is the rollback handle.
+1. **Build + publish images.** Build the three image families in
+   `docs/runbooks/containers.md`: backend multi-binary, migration job, and
+   admin-web dashboard. Tag by git SHA, push to the project's asia-south1
+   Artifact Registry, and record the SHA — it is the rollback handle.
 2. **Apply migrations.** Migrations live in `backend/migrations/postgres/`
    (`000001`..`000022`, forward-only, never edit an applied migration). Apply
    them against the target Cloud SQL database with the same runner CI uses

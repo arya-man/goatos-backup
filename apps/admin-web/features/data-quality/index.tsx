@@ -21,6 +21,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { DialogModal } from "@/components/dialog-modal";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { formatLabel } from "@/lib/display-utils";
+import { formAction } from "@/lib/routes";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   adminListCorrectionRequests,
@@ -130,7 +131,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
         defaultMatchOpen={candidates.ok && candidates.data.items.length > 0}
         conflicts={
         <Panel title="Identity Conflicts" description="Legacy-versus-passport disagreements grouped for audited review decisions.">
-          <form className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" action="/data-quality">
+          <form className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" action={formAction("/data-quality")}>
             <Select name="state" label="State" defaultValue={state ?? ""} options={conflictStates} />
             <Select name="conflict_type" label="Type" defaultValue={conflictType ?? ""} options={conflictTypes} />
             <ReviewGroupSelect defaultValue={reviewGroup ?? ""} />
@@ -286,7 +287,7 @@ export async function DataQualityPage({ searchParams }: { searchParams: RouteSea
               <button className="h-10 rounded-md bg-[#14f1d9] px-3 text-sm font-semibold text-[#081015]">Create correction request</button>
             </div>
           </form>
-          <form className="mb-4 grid gap-3 sm:grid-cols-3" action="/data-quality">
+          <form className="mb-4 grid gap-3 sm:grid-cols-3" action={formAction("/data-quality")}>
             <Select name="correction_state" label="State" defaultValue={correctionState ?? ""} options={correctionStates} />
             <RowsPerPageSelect name="correction_limit" defaultValue={String(correctionLimit)} />
             <div className="flex items-end">

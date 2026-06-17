@@ -4,6 +4,7 @@ Intended IaC + environment layout for the three Goat OS Google Cloud projects.
 Provisioning runs under the Mesha/VGoats org only — see
 `../docs/runbooks/google-cloud-environments.md` and
 `../docs/runbooks/deployment.md`.
+Container image build/run notes live in `../docs/runbooks/containers.md`.
 
 ## Layout
 

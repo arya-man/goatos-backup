@@ -6,6 +6,7 @@ import { ActionNotice, EmptyPanel, ErrorPanel, FormField, FormTextArea, Mono, Ne
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { dateTime, dash, shortId } from "@/lib/format";
 import { formatLabel } from "@/lib/display-utils";
+import { formAction } from "@/lib/routes";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, getImportRun, listImportRunRows, listImportRuns, type ImportRowState, type ImportRunRowsResponse } from "@/lib/api/server";
 import { reviewImportRowAction } from "./actions";
@@ -53,7 +54,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
                 {runs.data.items.map((run, index) => (
                   <a
                     key={run.import_run_id}
-                    href={`/import-review?import_run_id=${encodeURIComponent(run.import_run_id)}`}
+                    href={formAction(`/import-review?import_run_id=${encodeURIComponent(run.import_run_id)}`)}
                     className="block rounded-md border border-[#334155] bg-[#10141b] p-4 transition hover:border-[#14f1d9] hover:bg-[#151b22]"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -86,7 +87,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
           </Panel>
 
           <Panel title="Open by run id" description="Use this only when you need a specific older run that is not in the recent list.">
-            <form className="grid gap-3 md:grid-cols-[1fr_auto]" action="/import-review">
+            <form className="grid gap-3 md:grid-cols-[1fr_auto]" action={formAction("/import-review")}>
               <label>
                 <span className="text-xs uppercase text-[#93a4b8]">import run id</span>
                 <input
@@ -191,7 +192,7 @@ export async function ImportReviewPage({ searchParams }: { searchParams: RouteSe
             title="Review rows"
             description={rowsDescription(processingState, reasonCode)}
           >
-            <form className="mb-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action="/import-review">
+            <form className="mb-4 grid gap-3 md:grid-cols-[1.2fr_1fr_0.6fr_auto]" action={formAction("/import-review")}>
               <input type="hidden" name="import_run_id" value={importRunId} />
               <Select name="processing_state" label="State" defaultValue={processingState ?? ""} options={rowStates} />
               <Select name="reason_code" label="Reason" defaultValue={reasonCode ?? ""} options={reasonOptions} />
@@ -494,7 +495,7 @@ function Cell({ label, value }: { label: string; value: React.ReactNode }) {
 function DownloadLink({ href, label }: { href: string; label: string }) {
   return (
     <a
-      href={href}
+      href={formAction(href)}
       download
       className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#334155] px-3 text-sm font-semibold text-[#f8fafc] hover:bg-[#22262E]"
     >

@@ -16,6 +16,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { DialogModal } from "@/components/dialog-modal";
 import { formatLabel } from "@/lib/display-utils";
 import { dateTime, dash, shortId } from "@/lib/format";
+import { formAction } from "@/lib/routes";
 import { boundedInt, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import {
   firstAuthRequiredError,
@@ -128,7 +129,7 @@ export async function LegacySyncPage({ searchParams }: { searchParams: RouteSear
           title="Recent Runs"
           description="Progress and final status survive refresh because run state is stored in the backend."
           action={
-            <form action="/legacy-sync" className="w-40">
+            <form action={formAction("/legacy-sync")} className="w-40">
               <RowsPerPageSelect defaultValue={String(limit)} options={[10, 20, 50]} />
             </form>
           }

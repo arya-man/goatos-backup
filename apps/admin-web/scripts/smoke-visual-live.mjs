@@ -7,6 +7,7 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 const appBaseUrl = "http://127.0.0.1:3300";
+const appBasePath = "/dashboard";
 const requiredEnv = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID", "GOATOS_IMPORT_RUN_ID"];
 const missing = requiredEnv.filter((key) => !process.env[key]);
 const args = parseArgs(process.argv.slice(2));
@@ -60,7 +61,7 @@ try {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     const page = await context.newPage();
     for (const route of routes) {
-      const url = `${appBaseUrl}${route.path}`;
+      const url = `${appBaseUrl}${appPath(route.path)}`;
       await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
       const html = await page.content();
       assertHealthyHTML(route.name, html, bearerToken);
@@ -86,7 +87,7 @@ writeFileSync(
       app_base_url: appBaseUrl,
       goat_id: goatId,
       import_run_id: importRunId,
-      routes: routes.map((route) => route.path),
+      routes: routes.map((route) => appPath(route.path)),
       baseline_dir: baselineDir ? relativeToRepo(baselineDir) : null,
       baseline_compared: baselineCompared,
       baseline_updated: baselineUpdated,
@@ -99,7 +100,7 @@ writeFileSync(
 
 console.log(`screenshots_dir=${relativeToRepo(screenshotDir)}`);
 console.log(`goat_id=${goatId}`);
-console.log(`routes_captured=${routes.map((route) => route.path).join(",")}`);
+console.log(`routes_captured=${routes.map((route) => appPath(route.path)).join(",")}`);
 if (baselineDir) {
   console.log(`baseline_dir=${relativeToRepo(baselineDir)}`);
   console.log(`baseline_compared=${baselineCompared}`);
@@ -111,7 +112,7 @@ async function waitForApp(url) {
   let lastError;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url, { cache: "no-store" });
+      const response = await fetch(`${url}${appBasePath}`, { cache: "no-store" });
       if (response.ok) return;
       lastError = new Error(`status ${response.status}`);
     } catch (error) {
@@ -120,6 +121,11 @@ async function waitForApp(url) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`admin-web did not respond at ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+function appPath(path) {
+  if (path === "/") return appBasePath;
+  return `${appBasePath}${path}`;
 }
 
 async function fetchFirstGoatID(baseUrl, token) {

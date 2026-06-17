@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { EmptyPanel, ErrorPanel, Mono, NextPageLink, PageHeader, Panel, RowsPerPageSelect } from "@/components/admin-primitives";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { dash, shortId } from "@/lib/format";
+import { formAction } from "@/lib/routes";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { firstAuthRequiredError, searchGoats, type IdentifierType } from "@/lib/api/server";
 
@@ -53,7 +54,7 @@ export async function HerdSearchPage({ searchParams }: { searchParams: RouteSear
         description="Search goat passports by display ID, RFID, old tag, goat ID, breed, sex, lifecycle status, and location scope."
       />
       <Panel title="Filters" description="Searches stay bounded for fast review.">
-        <form className="grid gap-3 md:grid-cols-4 xl:grid-cols-8" action="/herd">
+        <form className="grid gap-3 md:grid-cols-4 xl:grid-cols-8" action={formAction("/herd")}>
           <Field name="q" label="Display / tag / RFID" defaultValue={one(searchParams, "q")} placeholder="G-000001, RFID, old tag" wide />
           <Field name="goat_id" label="Goat ID" defaultValue={one(searchParams, "goat_id")} placeholder="UUID" />
           <Select name="identifier_type" label="Identifier" defaultValue={identifierType ?? ""} options={identifierTypes} />
