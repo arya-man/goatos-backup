@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import AxeBuilder from "@axe-core/playwright";
+import { TENANT_CONTEXT_HEADER } from "@goatos/api-client/constants";
 import { chromium } from "@playwright/test";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
@@ -11,7 +12,6 @@ const appBasePath = "/dashboard";
 const requiredEnv = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID", "GOATOS_IMPORT_RUN_ID"];
 const missing = requiredEnv.filter((key) => !process.env[key]);
 const args = parseArgs(process.argv.slice(2));
-const tenantContextHeader = "X-GoatOS-Tenant-ID";
 
 if (missing.length > 0) {
   console.error(`Missing required live-smoke env: ${missing.join(", ")}`);
@@ -132,7 +132,7 @@ function appPath(path) {
 
 async function fetchFirstGoatID(baseUrl, token, tenant) {
   const response = await fetch(`${baseUrl}/goats/search?limit=1`, {
-    headers: { Authorization: `Bearer ${token}`, [tenantContextHeader]: tenant },
+    headers: { Authorization: `Bearer ${token}`, [TENANT_CONTEXT_HEADER]: tenant },
     cache: "no-store",
   });
   if (!response.ok) {

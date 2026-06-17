@@ -5,6 +5,9 @@ export type { paths as AppApiPaths, components as AppApiComponents } from "./gen
 import type { paths as AdminApiPaths } from "./generated/admin-api";
 import type { paths as AnalyticsApiPaths } from "./generated/analytics-api";
 import type { paths as AppApiPaths } from "./generated/app-api";
+import { TENANT_CONTEXT_HEADER } from "./constants.js";
+
+export { TENANT_CONTEXT_HEADER } from "./constants.js";
 
 export type ApiFamily = "app" | "admin" | "analytics";
 
@@ -27,8 +30,6 @@ export type GoatOSClientOptions = {
   fetchImpl?: typeof fetch;
   defaultHeaders?: HeadersInit;
 };
-
-export const TENANT_CONTEXT_HEADER = "X-GoatOS-Tenant-ID";
 
 export class GoatOSApiError extends Error {
   readonly status: number;
