@@ -17,9 +17,11 @@ import (
 const (
 	headerRequestID = "X-Request-ID"
 	headerTrace     = "traceparent"
-	// X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are local-development
-	// placeholders. The API bootstrap defaults to bearer auth, which overwrites
-	// both values from a verified token before handlers run.
+	// X-GoatOS-Tenant-ID carries request tenant context. Bearer auth prefers a
+	// verified token tenant claim, but falls back to this header for external
+	// IdPs such as Firebase whose ID tokens do not carry Goat OS tenant claims.
+	// X-GoatOS-Actor-ID is a local-development placeholder; bearer auth always
+	// overwrites actor context from the verified token subject.
 	headerTenantID = "X-GoatOS-Tenant-ID"
 	headerActorID  = "X-GoatOS-Actor-ID"
 )

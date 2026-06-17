@@ -11,6 +11,7 @@ const appBasePath = "/dashboard";
 const requiredEnv = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID", "GOATOS_IMPORT_RUN_ID"];
 const missing = requiredEnv.filter((key) => !process.env[key]);
 const args = parseArgs(process.argv.slice(2));
+const tenantContextHeader = "X-GoatOS-Tenant-ID";
 
 if (missing.length > 0) {
   console.error(`Missing required live-smoke env: ${missing.join(", ")}`);
@@ -19,6 +20,7 @@ if (missing.length > 0) {
 
 const apiBaseUrl = trimTrailingSlash(process.env.GOATOS_API_BASE_URL);
 const bearerToken = process.env.GOATOS_BEARER_TOKEN;
+const tenantId = process.env.GOATOS_TENANT_ID;
 const importRunId = process.env.GOATOS_IMPORT_RUN_ID;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const baselineDir = normalizeRepoPath(args.baselineDir ?? process.env.GOATOS_VISUAL_BASELINE_DIR);
@@ -36,7 +38,7 @@ let baselineCompared = 0;
 let baselineUpdated = 0;
 
 await waitForApp(appBaseUrl);
-const goatId = await fetchFirstGoatID(apiBaseUrl, bearerToken);
+const goatId = await fetchFirstGoatID(apiBaseUrl, bearerToken, tenantId);
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
@@ -128,9 +130,9 @@ function appPath(path) {
   return `${appBasePath}${path}`;
 }
 
-async function fetchFirstGoatID(baseUrl, token) {
+async function fetchFirstGoatID(baseUrl, token, tenant) {
   const response = await fetch(`${baseUrl}/goats/search?limit=1`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, [tenantContextHeader]: tenant },
     cache: "no-store",
   });
   if (!response.ok) {

@@ -97,9 +97,12 @@ Rules:
   must be tenant/run scoped, index-backed, chunked or paginated, bounded in
   memory/goroutines, idempotent for retries, and covered by plan validation when
   the query can touch import, goat, event, counter, or outbox rows at scale.
-- API bootstrap defaults to bearer auth. `X-GoatOS-Tenant-ID` and
-  `X-GoatOS-Actor-ID` are local/dev placeholders only and are overwritten by
-  bearer auth before handlers run.
+- API bootstrap defaults to bearer auth. Bearer auth prefers a verified token
+  tenant claim, but for external IdPs such as Firebase whose ID tokens do not
+  carry Goat OS tenant claims, it falls back to `X-GoatOS-Tenant-ID` and then
+  authorizes only through active `user_scope_grants` for that token subject and
+  tenant. `X-GoatOS-Actor-ID` remains local/dev-only; bearer auth overwrites
+  actor context from the verified token subject.
 - Phase 1 RBAC is the internal goat-ops realm only. The DB-enforced role set is
   `admin`, `verifier`, `park_head`, `operator`, and `ceo_internal`. Investor,
   buyer, donor, partner, franchise, lending, procurement, health, workforce, and

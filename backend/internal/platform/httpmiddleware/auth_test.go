@@ -86,6 +86,35 @@ func TestBearerAuthUsesHeaderTenantWhenTokenHasNoTenantClaim(t *testing.T) {
 	}
 }
 
+func TestBearerAuthDeniesHeaderTenantWithoutMatchingGrant(t *testing.T) {
+	externalSubject := "firebase-uid-abc123"
+	actorID := platformauth.StableSubjectID(authTestIssuer, externalSubject)
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer},
+		staticVerifier{claims: platformauth.Claims{Subject: actorID, ExternalSubject: externalSubject, Issuer: authTestIssuer, Audience: authTestAudience}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{actorID + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("handler should not run without a grant for the requested tenant")
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", authSpoofTenant)
+	req.Header.Set("X-GoatOS-Actor-ID", authTestUser)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertAuthErrorCode(t, rec, "permission_denied")
+}
+
 func TestBearerAuthRequiresTenantContextWhenTokenHasNoTenantClaim(t *testing.T) {
 	mw, err := NewAuthMiddleware(
 		AuthConfig{Mode: AuthModeBearer},
