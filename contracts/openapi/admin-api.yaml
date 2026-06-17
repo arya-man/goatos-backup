@@ -58,6 +58,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/ServerError"
         "503":
@@ -900,6 +904,12 @@ components:
             $ref: "#/components/schemas/ErrorEnvelope"
     Forbidden:
       description: Permission denied.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    TooManyRequests:
+      description: Request rate limit exceeded.
       content:
         application/json:
           schema:

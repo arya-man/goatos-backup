@@ -58,6 +58,21 @@ external IdP subjects, not Goat OS UUIDs; the backend maps a non-UUID token
 subject to a stable internal actor UUID before checking `user_scope_grants`.
 Admin-web forwards `X-GoatOS-Tenant-ID` from `GOATOS_TENANT_ID`; roles still
 come only from active DB grant rows for that internal actor UUID and tenant.
+The admin-web route proxy checks only that the session cookie is present,
+well-formed, and not expired before rendering protected dashboard routes. It
+does not verify the cookie signature; the backend verifies the Firebase ID
+token with JWKS on `/auth/session-events` and every data API request.
+
+For shared or cloud dev environments, pin the session-audit tenant and keep the
+route rate-limited:
+
+```text
+GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=<tenant uuid>[,<tenant uuid>...]
+GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE=120  # default; set 0 only for controlled local smoke
+```
+
+If `GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS` is set, `/auth/session-events`
+rejects verified tokens whose resolved tenant context is outside that list.
 
 Secret Manager containers may hold the eventual issuer, audience, JWKS URL,
 Firebase web config, and admin-web app bearer values, but secret values are

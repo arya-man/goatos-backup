@@ -1167,6 +1167,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Request rate limit exceeded. */
+        TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description Resource is missing or outside the caller's visibility scope. */
         NotFoundOrNotAllowed: {
             headers: {
@@ -1259,6 +1268,8 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["ServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };

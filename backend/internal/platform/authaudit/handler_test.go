@@ -91,6 +91,67 @@ func TestHandlerRecordsFailedSignInWhenVerifiedTokenHasNoTenantContext(t *testin
 	}
 }
 
+func TestHandlerRejectsTenantOutsideConfiguredAllowlist(t *testing.T) {
+	const otherTenantID = "00000000-0000-4000-8000-000000000002"
+	recorder := &captureRecorder{}
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:         testActorID,
+		ExternalSubject: "firebase-uid-1",
+		Issuer:          "https://securetoken.google.com/goatos-dev",
+		Audience:        "goatos-dev",
+		Expires:         time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithAllowedTenantIDs([]string{otherTenantID})))
+	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.sign_in","source":"admin-web"}`))
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertErrorTraceID(t, rec)
+	if len(recorder.events) != 1 {
+		t.Fatalf("events=%d want 1", len(recorder.events))
+	}
+	event := recorder.events[0]
+	if event.Action != ActionFailedSignIn || event.TenantID != "" || event.ActorID != testActorID {
+		t.Fatalf("event=%#v", event)
+	}
+	if event.Metadata["reason"] != "tenant_not_allowed" || event.Metadata["resolved_tenant_id"] != testTenantID {
+		t.Fatalf("metadata=%#v", event.Metadata)
+	}
+}
+
+func TestHandlerRateLimitsVerifiedSessionEvents(t *testing.T) {
+	recorder := &captureRecorder{}
+	limiter := NewRateLimiter(1, time.Minute, 16)
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:  testActorID,
+		Issuer:   "https://securetoken.google.com/goatos-dev",
+		Audience: "goatos-dev",
+		Expires:  time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithRateLimiter(limiter)))
+
+	for i, wantStatus := range []int{http.StatusNoContent, http.StatusTooManyRequests} {
+		req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.session_refresh","source":"admin-web"}`))
+		req.Header.Set("Authorization", "Bearer verified-firebase-token")
+		req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+		req.RemoteAddr = "203.0.113.7:12345"
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != wantStatus {
+			t.Fatalf("request %d status=%d body=%s want %d", i+1, rec.Code, rec.Body.String(), wantStatus)
+		}
+	}
+	if len(recorder.events) != 1 {
+		t.Fatalf("events=%d want 1", len(recorder.events))
+	}
+}
+
 func TestHandlerRejectsMissingBearerWithoutAudit(t *testing.T) {
 	recorder := &captureRecorder{}
 	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{Subject: testActorID}}, recorder, nil))

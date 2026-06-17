@@ -153,6 +153,8 @@ GOATOS_AUTH_CLOCK_SKEW=60s            # optional
 GOATOS_AUTH_ALLOWED_ALGS=RS256,ES256  # optional
 GOATOS_AUTH_JWKS_CACHE_TTL=10m        # optional
 GOATOS_AUTH_MAX_TOKEN_TTL=24h         # optional ceiling
+GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=<tenant uuid>[,<tenant uuid>...]
+GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE=120  # default; 0 disables for controlled local smoke
 
 # Environment + observability
 GOATOS_ENV=stg|prod                    # NOT local/dev/test for shared envs
@@ -167,6 +169,8 @@ Firebase is auth only; do not use Firebase Hosting or Firebase App Hosting. For
 dev Firebase tokens, set issuer `https://securetoken.google.com/goatos-dev`,
 audience `goatos-dev`, and JWKS URL
 `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`.
+The admin-web proxy only redirects missing, malformed, or expired Firebase
+ID-token cookies; backend JWKS verification remains the trust boundary.
 
 ## Release steps
 

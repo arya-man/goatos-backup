@@ -119,3 +119,74 @@ func TestAuthMaxTokenTTLFromEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthAuditOptionsFromConfig(t *testing.T) {
+	options, err := buildAuthAuditOptions(AuthConfig{
+		AuthSessionAllowedTenantIDs:   []string{"00000000-0000-4000-8000-000000000001"},
+		AuthSessionRateLimitPerMinute: 60,
+	})
+	if err != nil {
+		t.Fatalf("valid auth audit options rejected: %v", err)
+	}
+	if len(options) != 2 {
+		t.Fatalf("options=%d want 2", len(options))
+	}
+
+	options, err = buildAuthAuditOptions(AuthConfig{AuthSessionRateLimitPerMinute: 0})
+	if err != nil {
+		t.Fatalf("disabled rate limit rejected: %v", err)
+	}
+	if len(options) != 1 {
+		t.Fatalf("options=%d want allowlist option only", len(options))
+	}
+
+	if _, err := buildAuthAuditOptions(AuthConfig{AuthSessionRateLimitInvalidValue: true}); err == nil {
+		t.Fatal("invalid rate limit accepted")
+	}
+	if _, err := buildAuthAuditOptions(AuthConfig{AuthSessionRateLimitPerMinute: -1}); err == nil {
+		t.Fatal("negative rate limit accepted")
+	}
+	if _, err := buildAuthAuditOptions(AuthConfig{AuthSessionAllowedTenantIDs: []string{"not-a-uuid"}}); err == nil {
+		t.Fatal("invalid auth session tenant allowlist accepted")
+	}
+}
+
+func TestAuthSessionRateLimitFromEnv(t *testing.T) {
+	t.Setenv("GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE", "")
+	if got := authSessionRateLimitFromEnv(); got != defaultAuthSessionRateLimitPerMinute {
+		t.Fatalf("default rate limit=%d", got)
+	}
+	t.Setenv("GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE", "0")
+	if got := authSessionRateLimitFromEnv(); got != 0 {
+		t.Fatalf("disabled rate limit=%d", got)
+	}
+	t.Setenv("GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE", "15")
+	if got := authSessionRateLimitFromEnv(); got != 15 {
+		t.Fatalf("configured rate limit=%d", got)
+	}
+	for _, value := range []string{"-1", "abc"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE", value)
+			if got := authSessionRateLimitFromEnv(); got >= 0 {
+				t.Fatalf("invalid rate limit parsed as %d", got)
+			}
+			if !authSessionRateLimitInvalidFromEnv() {
+				t.Fatal("invalid rate limit not flagged")
+			}
+		})
+	}
+}
+
+func TestAuthStringListFromEnv(t *testing.T) {
+	t.Setenv("GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS", " a, ,b , c ")
+	got := authStringListFromEnv("GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS")
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("list=%v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("list=%v want %v", got, want)
+		}
+	}
+}

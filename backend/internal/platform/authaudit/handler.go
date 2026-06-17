@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 
@@ -35,16 +36,48 @@ type Recorder interface {
 }
 
 type Handler struct {
-	verifier TokenVerifier
-	recorder Recorder
-	log      *slog.Logger
+	verifier         TokenVerifier
+	recorder         Recorder
+	log              *slog.Logger
+	allowedTenantIDs map[string]struct{}
+	rateLimiter      *RateLimiter
 }
 
-func NewHandler(verifier TokenVerifier, recorder Recorder, log *slog.Logger) *Handler {
+type Option func(*Handler)
+
+func WithAllowedTenantIDs(tenantIDs []string) Option {
+	return func(h *Handler) {
+		allowed := make(map[string]struct{}, len(tenantIDs))
+		for _, tenantID := range tenantIDs {
+			tenantID = strings.ToLower(strings.TrimSpace(tenantID))
+			if tenantID == "" {
+				continue
+			}
+			allowed[tenantID] = struct{}{}
+		}
+		if len(allowed) > 0 {
+			h.allowedTenantIDs = allowed
+		}
+	}
+}
+
+func WithRateLimiter(limiter *RateLimiter) Option {
+	return func(h *Handler) {
+		h.rateLimiter = limiter
+	}
+}
+
+func NewHandler(verifier TokenVerifier, recorder Recorder, log *slog.Logger, opts ...Option) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{verifier: verifier, recorder: recorder, log: log}
+	h := &Handler{verifier: verifier, recorder: recorder, log: log}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(h)
+		}
+	}
+	return h
 }
 
 func Register(mux *http.ServeMux, h *Handler) {
@@ -86,6 +119,10 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 	tenantID, tenantSource := tenantFromClaimsOrHeader(claims, r)
 	if !uuidutil.IsUUIDString(tenantID) {
 		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
+		if !h.allowRateLimited(r, claims, "missing_tenant_context") {
+			writeError(w, r, http.StatusTooManyRequests, "auth_session_rate_limited", "too many auth session events")
+			return
+		}
 		if err := h.record(r, Event{
 			TenantID:     "",
 			ActorID:      claims.Subject,
@@ -110,6 +147,44 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 		writeError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
+		return
+	}
+	if !h.tenantAllowed(tenantID) {
+		if !h.allowRateLimited(r, claims, tenantID) {
+			writeError(w, r, http.StatusTooManyRequests, "auth_session_rate_limited", "too many auth session events")
+			return
+		}
+		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
+		if err := h.record(r, Event{
+			TenantID:     "",
+			ActorID:      claims.Subject,
+			ActorType:    actorTypeUser,
+			Action:       ActionFailedSignIn,
+			ResourceType: resourceTypeAuthSession,
+			Metadata: metadataForClaims(claims, map[string]any{
+				"reason":              "tenant_not_allowed",
+				"source":              cleanMetadataString(body.Source, 64),
+				"requested_tenant_id": requestedTenantID,
+				"resolved_tenant_id":  tenantID,
+				"token_tenant_source": tenantSource,
+			}),
+			TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
+		}); err != nil {
+			h.log.WarnContext(r.Context(), "auth_failed_sign_in_audit_write_failed",
+				slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+				slog.String("trace_id", traceID(r)),
+				slog.String("actor_id", claims.Subject),
+				slog.String("requested_tenant_id", cleanMetadataString(requestedTenantID, 64)),
+				slog.String("resolved_tenant_id", tenantID),
+				slog.String("token_tenant_source", tenantSource),
+				slog.String("error", err.Error()),
+			)
+		}
+		writeError(w, r, http.StatusForbidden, "tenant_not_allowed", "tenant context is not allowed for auth session audit")
+		return
+	}
+	if !h.allowRateLimited(r, claims, tenantID) {
+		writeError(w, r, http.StatusTooManyRequests, "auth_session_rate_limited", "too many auth session events")
 		return
 	}
 
@@ -146,6 +221,26 @@ func (h *Handler) record(r *http.Request, event Event) error {
 		return errors.New("auth audit recorder is nil")
 	}
 	return h.recorder.Record(r.Context(), event)
+}
+
+func (h *Handler) tenantAllowed(tenantID string) bool {
+	if len(h.allowedTenantIDs) == 0 {
+		return true
+	}
+	_, ok := h.allowedTenantIDs[strings.ToLower(strings.TrimSpace(tenantID))]
+	return ok
+}
+
+func (h *Handler) allowRateLimited(r *http.Request, claims platformauth.Claims, tenantID string) bool {
+	if h.rateLimiter == nil {
+		return true
+	}
+	keyParts := []string{
+		strings.TrimSpace(claims.Subject),
+		strings.TrimSpace(tenantID),
+		clientIP(r),
+	}
+	return h.rateLimiter.Allow(strings.Join(keyParts, "|"))
 }
 
 func normalizeAction(value string) (string, bool) {
@@ -204,6 +299,20 @@ func bearerToken(value string) (string, bool) {
 	}
 	token := strings.TrimSpace(strings.TrimPrefix(value, prefix))
 	return token, token != ""
+}
+
+func clientIP(r *http.Request) string {
+	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
+		if first, _, ok := strings.Cut(forwardedFor, ","); ok {
+			return strings.TrimSpace(first)
+		}
+		return forwardedFor
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
 }
 
 func cleanMetadataString(value string, maxLen int) string {

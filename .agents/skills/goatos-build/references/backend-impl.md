@@ -171,7 +171,9 @@ Rules:
   the Firebase ID-token cookie. That route verifies the bearer token, uses the
   same stable external-subject mapping as normal auth, falls back to
   `X-GoatOS-Tenant-ID` for Firebase tenant context, and writes `audit_log`
-  actions without persisting raw Firebase/Google tokens.
+  actions without persisting raw Firebase/Google tokens. The admin-web proxy is
+  only a missing/malformed/expired cookie pre-check; backend JWKS verification
+  is the trust boundary.
 - Multiple active tenant grants are unioned for authorization. If any active
   matching tenant grant role confers the required permission, the request is
   authorized; product-admin-only routes require an active `admin` or

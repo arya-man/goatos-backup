@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	reportinghttp "github.com/vgoats/goatos/backend/internal/reporting/adapters/http"
 	reportingpg "github.com/vgoats/goatos/backend/internal/reporting/adapters/postgres"
 	reportingapp "github.com/vgoats/goatos/backend/internal/reporting/app"
@@ -37,14 +39,19 @@ type Config struct {
 // GOATOS_AUTH_ISSUER, GOATOS_AUTH_AUDIENCE, and GOATOS_AUTH_JWKS_URL.
 const AuthModeJWKS = "jwks"
 
+const defaultAuthSessionRateLimitPerMinute = 120
+
 type AuthConfig struct {
-	Mode              string
-	Issuer            string
-	Audience          string
-	HS256Secret       string
-	MaxTokenTTL       time.Duration
-	DevHeadersAllowed bool
-	Environment       string
+	Mode                             string
+	Issuer                           string
+	Audience                         string
+	HS256Secret                      string
+	MaxTokenTTL                      time.Duration
+	DevHeadersAllowed                bool
+	Environment                      string
+	AuthSessionAllowedTenantIDs      []string
+	AuthSessionRateLimitPerMinute    int
+	AuthSessionRateLimitInvalidValue bool
 	// JWKS mode fields.
 	JWKSUrl      string
 	ClockSkew    time.Duration
@@ -66,13 +73,16 @@ func ConfigFromEnv() Config {
 		HTTPAddr: addr,
 		Postgres: platformpg.ConfigFromEnv(),
 		Auth: AuthConfig{
-			Mode:              os.Getenv("GOATOS_AUTH_MODE"),
-			Issuer:            os.Getenv("GOATOS_AUTH_ISSUER"),
-			Audience:          os.Getenv("GOATOS_AUTH_AUDIENCE"),
-			HS256Secret:       os.Getenv("GOATOS_AUTH_HS256_SECRET"),
-			MaxTokenTTL:       authMaxTokenTTLFromEnv(),
-			DevHeadersAllowed: strings.EqualFold(os.Getenv("GOATOS_DEV_HEADERS_ALLOW"), "true"),
-			Environment:       os.Getenv("GOATOS_ENV"),
+			Mode:                             os.Getenv("GOATOS_AUTH_MODE"),
+			Issuer:                           os.Getenv("GOATOS_AUTH_ISSUER"),
+			Audience:                         os.Getenv("GOATOS_AUTH_AUDIENCE"),
+			HS256Secret:                      os.Getenv("GOATOS_AUTH_HS256_SECRET"),
+			MaxTokenTTL:                      authMaxTokenTTLFromEnv(),
+			DevHeadersAllowed:                strings.EqualFold(os.Getenv("GOATOS_DEV_HEADERS_ALLOW"), "true"),
+			Environment:                      os.Getenv("GOATOS_ENV"),
+			AuthSessionAllowedTenantIDs:      authStringListFromEnv("GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS"),
+			AuthSessionRateLimitPerMinute:    authSessionRateLimitFromEnv(),
+			AuthSessionRateLimitInvalidValue: authSessionRateLimitInvalidFromEnv(),
 			// JWKS mode env vars.
 			JWKSUrl:      os.Getenv("GOATOS_AUTH_JWKS_URL"),
 			ClockSkew:    authDurationFromEnv("GOATOS_AUTH_CLOCK_SKEW"),
@@ -84,6 +94,10 @@ func ConfigFromEnv() Config {
 
 func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	verifier, err := buildAuthVerifier(cfg.Auth, log)
+	if err != nil {
+		return nil, err
+	}
+	authAuditOptions, err := buildAuthAuditOptions(cfg.Auth)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +118,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	legacySyncHandler := legacysynchttp.NewHandler(legacySyncService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
-	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log)
+	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log, authAuditOptions...)
 	authz, err := buildAuthMiddleware(cfg.Auth, verifier, grantSource, log)
 	if err != nil {
 		pool.Close()
@@ -208,6 +222,28 @@ func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, 
 	}, verifier, grants, log)
 }
 
+func buildAuthAuditOptions(cfg AuthConfig) ([]authaudit.Option, error) {
+	if cfg.AuthSessionRateLimitInvalidValue || cfg.AuthSessionRateLimitPerMinute < 0 {
+		return nil, fmt.Errorf("%w: GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE must be a non-negative integer", httpmiddleware.ErrInvalidAuthConfig)
+	}
+	for _, tenantID := range cfg.AuthSessionAllowedTenantIDs {
+		if !uuidutil.IsUUIDString(tenantID) {
+			return nil, fmt.Errorf("%w: GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS must contain only UUIDs", httpmiddleware.ErrInvalidAuthConfig)
+		}
+	}
+	options := []authaudit.Option{
+		authaudit.WithAllowedTenantIDs(cfg.AuthSessionAllowedTenantIDs),
+	}
+	if cfg.AuthSessionRateLimitPerMinute > 0 {
+		options = append(options, authaudit.WithRateLimiter(authaudit.NewRateLimiter(
+			cfg.AuthSessionRateLimitPerMinute,
+			time.Minute,
+			4096,
+		)))
+	}
+	return options, nil
+}
+
 func authMaxTokenTTLFromEnv() time.Duration {
 	raw := strings.TrimSpace(os.Getenv("GOATOS_AUTH_MAX_TOKEN_TTL"))
 	if raw == "" {
@@ -221,6 +257,38 @@ func authMaxTokenTTLFromEnv() time.Duration {
 		return -1
 	}
 	return ttl
+}
+
+func authStringListFromEnv(envKey string) []string {
+	raw := strings.TrimSpace(os.Getenv(envKey))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
+}
+
+func authSessionRateLimitFromEnv() int {
+	raw := strings.TrimSpace(os.Getenv("GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE"))
+	if raw == "" {
+		return defaultAuthSessionRateLimitPerMinute
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return -1
+	}
+	return value
+}
+
+func authSessionRateLimitInvalidFromEnv() bool {
+	return authSessionRateLimitFromEnv() < 0
 }
 
 // authDurationFromEnv parses a time.Duration from the named environment

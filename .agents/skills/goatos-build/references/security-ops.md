@@ -39,6 +39,12 @@ Rules:
   writes `audit_log` actions such as `auth.sign_in`,
   `auth.session_refresh`, `auth.sign_out`, and verified-token
   `auth.failed_sign_in` without storing raw Firebase or Google tokens.
+  The admin-web proxy only pre-filters missing, malformed, or expired
+  Firebase ID-token cookies; it does not verify signatures. Backend JWKS
+  verification remains the trust boundary for auth audit and data routes.
+  Pin shared environments with `GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS` and
+  keep `GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE` enabled unless a controlled
+  local smoke explicitly disables it with `0`.
 - Before paid dev infra apply, verify the goatos-dev-only budget on billing
   account `01FEDE-96BCB3-76D992` and keep Terraform free of secret versions,
   database users/passwords, API keys, bearer tokens, or Firebase config values.
