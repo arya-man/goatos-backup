@@ -233,7 +233,6 @@ func TestJWKSVerifierAcceptsExternalIDPSubjectWithoutTenantClaim(t *testing.T) {
 		"aud": testAudience,
 		"sub": externalSubject,
 		"exp": now.Add(time.Hour).Unix(),
-		"nbf": now.Add(-time.Minute).Unix(),
 	})
 	claims, err := v.Verify(token)
 	if err != nil {

@@ -162,13 +162,13 @@ type rawClaims struct {
 }
 
 func (c rawClaims) validate(issuer, audience string, now time.Time, maxTTL time.Duration) (Claims, error) {
-	return c.validateWithSkew(issuer, audience, now, maxTTL, 0, true, false)
+	return c.validateWithSkew(issuer, audience, now, maxTTL, 0, true, true, false)
 }
 
 // validateWithSkew validates the raw claims applying an optional clockSkew
 // tolerance to exp and nbf. Both HS256Verifier and JWKSVerifier call this so
 // the validation rules cannot diverge.
-func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxTTL, clockSkew time.Duration, requireTenantID, mapExternalSubject bool) (Claims, error) {
+func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxTTL, clockSkew time.Duration, requireNotBefore, requireTenantID, mapExternalSubject bool) (Claims, error) {
 	subject := strings.TrimSpace(c.Subject)
 	tenantID := strings.TrimSpace(c.TenantID)
 	if subject == "" {
@@ -208,14 +208,21 @@ func (c rawClaims) validateWithSkew(issuer, audience string, now time.Time, maxT
 	if maxTTL > 0 && exp.After(now.Add(maxTTL)) {
 		return Claims{}, ErrInvalidToken
 	}
-	nbfUnix, err := parseNumericDate(c.NotBefore)
-	if err != nil {
-		return Claims{}, ErrInvalidToken
-	}
-	nbf := time.Unix(nbfUnix, 0).UTC()
-	// nbf must not be in the future, allowing for clockSkew tolerance.
-	if now.Add(clockSkew).Before(nbf) {
-		return Claims{}, ErrInvalidToken
+	var nbf time.Time
+	if len(c.NotBefore) == 0 {
+		if requireNotBefore {
+			return Claims{}, ErrInvalidToken
+		}
+	} else {
+		nbfUnix, err := parseNumericDate(c.NotBefore)
+		if err != nil {
+			return Claims{}, ErrInvalidToken
+		}
+		nbf = time.Unix(nbfUnix, 0).UTC()
+		// nbf must not be in the future, allowing for clockSkew tolerance.
+		if now.Add(clockSkew).Before(nbf) {
+			return Claims{}, ErrInvalidToken
+		}
 	}
 	return Claims{
 		Subject:         actorID,

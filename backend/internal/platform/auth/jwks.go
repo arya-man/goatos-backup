@@ -196,7 +196,7 @@ func (v *JWKSVerifier) Verify(token string) (Claims, error) {
 	if err := decodeSegment(parts[1], &payload, false); err != nil {
 		return Claims{}, ErrInvalidToken
 	}
-	claims, err := payload.validateWithSkew(v.issuer, v.audience, v.now(), v.maxTTL, v.clockSkew, false, true)
+	claims, err := payload.validateWithSkew(v.issuer, v.audience, v.now(), v.maxTTL, v.clockSkew, false, false, true)
 	if err != nil {
 		return Claims{}, err
 	}

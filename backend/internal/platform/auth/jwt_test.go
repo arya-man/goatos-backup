@@ -68,6 +68,7 @@ func TestHS256VerifierRejectsInvalidTokens(t *testing.T) {
 		{name: "expired", header: map[string]any{"alg": "HS256"}, payload: withClaim(validPayload, "exp", now.Add(-time.Second).Unix()), secret: testSecret},
 		{name: "exp beyond max ttl", header: map[string]any{"alg": "HS256"}, payload: withClaim(validPayload, "exp", now.Add(25*time.Hour).Unix()), secret: testSecret},
 		{name: "future nbf", header: map[string]any{"alg": "HS256"}, payload: withClaim(validPayload, "nbf", now.Add(time.Hour).Unix()), secret: testSecret},
+		{name: "missing nbf", header: map[string]any{"alg": "HS256"}, payload: withoutClaim(validPayload, "nbf"), secret: testSecret},
 		{name: "missing sub", header: map[string]any{"alg": "HS256"}, payload: withoutClaim(validPayload, "sub"), secret: testSecret},
 		{name: "missing tenant", header: map[string]any{"alg": "HS256"}, payload: withoutClaim(validPayload, "tenant_id"), secret: testSecret},
 	}

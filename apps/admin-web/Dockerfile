@@ -32,6 +32,8 @@ COPY --from=build /repo/apps/admin-web/.next/static ./.next/static
 COPY --from=build /repo/apps/admin-web/.next/static ./apps/admin-web/.next/static
 COPY --from=build /repo/apps/admin-web/public ./public
 COPY --from=build /repo/apps/admin-web/public ./apps/admin-web/public
+RUN mkdir -p /app/.next/cache /app/apps/admin-web/.next/cache && \
+    chown -R nextjs:nextjs /app/.next /app/apps/admin-web/.next
 
 USER nextjs
 EXPOSE 8080
