@@ -633,11 +633,13 @@ final_dead="$(jq -r '.dead' "$final_counts")"
 final_inactive="$(jq -r '.inactive' "$final_counts")"
 
 oracle_compare_json="$report_root/oracle-compare/summary.json"
+oracle_compare_status="skipped"
 mkdir -p "$(dirname "$oracle_compare_json")"
 printf 'null\n' >"$oracle_compare_json"
 if [[ -n "${GOATOS_REPLAY_ORACLE_CONTAINER:-goatos-local-current-persist}" ]] && \
    docker ps --format '{{.Names}}' | grep -Fxq "${GOATOS_REPLAY_ORACLE_CONTAINER:-goatos-local-current-persist}"; then
   oracle_container="${GOATOS_REPLAY_ORACLE_CONTAINER:-goatos-local-current-persist}"
+  oracle_compare_status="checked"
   log "Comparing live replay against local oracle container $oracle_container"
   oracle_dir="$report_root/oracle-compare"
   mkdir -p "$oracle_dir"
@@ -661,6 +663,7 @@ jq -n \
   --argjson final_sold "$final_sold" \
   --argjson final_dead "$final_dead" \
   --argjson final_inactive "$final_inactive" \
+  --arg oracle_compare_status "$oracle_compare_status" \
   --slurpfile generator "$summary_json" \
   --slurpfile pre_counts "$pre_backfill_counts" \
   --slurpfile final_counts "$final_counts" \
@@ -678,14 +681,39 @@ jq -n \
     generator: $generator[0],
     pre_backfill_counts: $pre_counts[0],
     final_counts: $final_counts[0],
+    oracle_compare_status: $oracle_compare_status,
     oracle_compare: ($oracle_compare[0] // null),
-    parity: ($final_alive == $legacy_active)
+    active_count_parity: ($final_alive == $legacy_active),
+    goat_level_parity: (
+      $oracle_compare_status != "checked" or (
+        (($oracle_compare[0] // {}) | .missing_in_replay // 0) == 0 and
+        (($oracle_compare[0] // {}) | .extra_in_replay // 0) == 0 and
+        (($oracle_compare[0] // {}) | .changed_common_keys // 0) == 0
+      )
+    ),
+    parity: (
+      ($final_alive == $legacy_active) and (
+        $oracle_compare_status != "checked" or (
+          (($oracle_compare[0] // {}) | .missing_in_replay // 0) == 0 and
+          (($oracle_compare[0] // {}) | .extra_in_replay // 0) == 0 and
+          (($oracle_compare[0] // {}) | .changed_common_keys // 0) == 0
+        )
+      )
+    )
   }' >"$report_root/live-replay-summary.json"
 
 cat "$report_root/live-replay-summary.json"
 
 if [[ "$final_alive" != "$legacy_active" ]]; then
   fail "live replay active goats $final_alive does not match legacy dashboard $legacy_active for $legacy_date"
+fi
+if [[ "$oracle_compare_status" == "checked" ]]; then
+  missing="$(jq -r '.missing_in_replay' "$oracle_compare_json")"
+  extra="$(jq -r '.extra_in_replay' "$oracle_compare_json")"
+  changed="$(jq -r '.changed_common_keys' "$oracle_compare_json")"
+  if [[ "$missing" != "0" || "$extra" != "0" || "$changed" != "0" ]]; then
+    fail "live replay goat-level parity failed against $oracle_container: missing=$missing extra=$extra changed=$changed"
+  fi
 fi
 
 log "Live replay passed"
