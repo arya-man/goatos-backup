@@ -122,7 +122,7 @@ extra passports that the legacy dashboard does not count.
 
 ### What The Live Replay Gate Proves
 
-`make replay-live` has two independent gates:
+`make replay-live` has three independent gates:
 
 1. Active-count parity: the throwaway replay DB must match the live legacy
    dashboard active-goat count for the latest reported legacy date.
@@ -130,6 +130,11 @@ extra passports that the legacy dashboard does not count.
    `goatos-local-current-persist` is running, the throwaway replay DB is compared
    against that oracle and must have zero missing goats, zero extra goats, and
    zero changed matched goats.
+3. Same-live idempotency: after the full replay succeeds, the harness reruns the
+   same live RFID/BQ/old-tag sync recipe against the already-loaded replay DB.
+   That rerun must stage zero new RFID rows, plan/apply zero BQ patches,
+   regenerate zero old-tag candidates, create/repair zero goats, keep counts
+   unchanged, and keep goat-level oracle parity clean.
 
 The second gate is deliberate. A replay can produce the same active count while
 still containing the wrong goats or wrong lifecycle facts. The oracle comparison
@@ -167,15 +172,17 @@ The replay summary includes both booleans:
 {
   "active_count_parity": true,
   "goat_level_parity": true,
+  "same_live_idempotency_parity": true,
   "parity": true
 }
 ```
 
-`parity` is true only when the active count matches and, if the oracle check ran,
-the goat-level comparison is also clean. This was tightened after the first live
-replay work: the script used to fail only on the active count, which allowed
-goat-level drift such as missing, extra, or changed goats to be reported but not
-block the run. Current behavior fails closed on any goat-level drift.
+`parity` is true only when the active count matches, the same-live rerun is
+idempotent, and, if the oracle check ran, the goat-level comparison is also
+clean. This was tightened after the first live replay work: the script used to
+fail only on the active count, which allowed goat-level drift such as missing,
+extra, or changed goats to be reported but not block the run. Current behavior
+fails closed on goat-level drift or replay rerun drift.
 
 Do not reload `goatos-dev` from legacy inputs unless this live replay gate
 passes first.

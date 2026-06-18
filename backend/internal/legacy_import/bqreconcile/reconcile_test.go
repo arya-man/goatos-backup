@@ -111,6 +111,39 @@ func TestPlanMatchesRFIDAndScopedOldTag(t *testing.T) {
 	}
 }
 
+func TestPlanDoesNotMatchSyntheticBackfillOldTagIdentifier(t *testing.T) {
+	events := []Event{{
+		GoatID: "765",
+		Farm:   "CPT",
+		Event:  "Sale",
+		Date:   "2026-06-01",
+		Gender: "Female",
+		Breed:  "Sojat",
+	}}
+	goats := []LocalGoat{{
+		GoatID:          "00000000-0000-4000-8000-000000000101",
+		Breed:           "Beetal",
+		Sex:             "male",
+		LifecycleStatus: "alive",
+		IdentityState:   "clean",
+		Identifiers: []LocalIdentifier{{
+			IdentifierType:  "old_tag",
+			NormalizedValue: "765",
+			ScopeKey:        "park:CPT",
+			SourceSystem:    backfillSourceSystem,
+			SourceRecordID:  backfillSourceContext + ":park:CPT:765",
+		}},
+	}}
+
+	summary, patches := Plan(events, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+	if summary.MatchedGoats != 0 || summary.PatchesPlanned != 0 || len(patches) != 0 {
+		t.Fatalf("summary=%#v patches=%#v want synthetic backfill old-tag ignored by BQ reconcile", summary, patches)
+	}
+	if summary.SkippedBQEvents != 1 || summary.UnmatchedLocalGoats != 1 {
+		t.Fatalf("summary=%#v want skipped BQ event and unmatched local goat", summary)
+	}
+}
+
 func TestPlanUsesSeparateLatestLocationExport(t *testing.T) {
 	events := []Event{{GoatID: "123456789012345", Farm: "CBE", Event: "Shifting", Date: "2026-06-01"}}
 	locationEvents := []Event{{GoatID: "123456789012345", Farm: "CBE", Event: "Shifting", Date: "2026-06-08", CurrentShed: "gandhi 2"}}

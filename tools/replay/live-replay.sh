@@ -62,6 +62,14 @@ assert_eq() {
   echo "ok $label=$got"
 }
 
+assert_json_zero() {
+  local label="$1"
+  local file="$2"
+  local expr="$3"
+
+  assert_eq "$label" "$(json_number "$file" "$expr")" "0"
+}
+
 json_number() {
   local file="$1"
   local expr="$2"
@@ -222,7 +230,13 @@ COPY (
     'dead', count(*) FILTER (WHERE identity_state <> 'merged' AND lifecycle_status = 'dead'),
     'inactive', count(*) FILTER (WHERE identity_state <> 'merged' AND lifecycle_status = 'inactive'),
     'clean', count(*) FILTER (WHERE identity_state = 'clean'),
-    'needs_review', count(*) FILTER (WHERE identity_state = 'needs_review')
+    'needs_review', count(*) FILTER (WHERE identity_state = 'needs_review'),
+    'open_conflicts', (
+      SELECT count(*)
+      FROM identity_conflicts c
+      WHERE c.tenant_id = '$tenant_id'
+        AND c.state = 'open'
+    )
   )
   FROM goats
   WHERE tenant_id = '$tenant_id'
@@ -461,6 +475,10 @@ python3 "$repo_root/tools/replay/filter-rfid-workbook.py" \
 
 log "Exporting live legacy dashboard count"
 legacy_count_json="$input_dir/legacy_dashboard_count.live.json"
+legacy_date_predicate="SAFE_CAST(date AS DATE) < CURRENT_DATE('Asia/Kolkata')"
+if [[ -n "${GOATOS_LEGACY_DASHBOARD_DATE:-}" ]]; then
+  legacy_date_predicate="SAFE_CAST(date AS DATE) = DATE '${GOATOS_LEGACY_DASHBOARD_DATE}'"
+fi
 bq_query "$legacy_count_json" "json" "
 SELECT
   CAST(date AS STRING) AS date,
@@ -470,6 +488,7 @@ SELECT
   procurement_summary_count
 FROM \`$legacy_bq_project.farm.daily_summary_dev\`
 WHERE farm_total_count IS NOT NULL
+  AND $legacy_date_predicate
 ORDER BY date DESC
 LIMIT 1
 "
@@ -654,6 +673,169 @@ else
   echo "oracle_compare=skipped (set GOATOS_REPLAY_ORACLE_CONTAINER or run goatos-local-current-persist)"
 fi
 
+log "Checking same-live replay idempotency on the loaded replay DB"
+idempotency_root="$report_root/idempotency-rerun-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$idempotency_root"
+
+idempotency_before_counts="$idempotency_root/before-counts.json"
+write_db_counts_json "$idempotency_before_counts"
+
+idempotency_rfid_import_out="$idempotency_root/rfid-import.txt"
+run_backend_text "$idempotency_rfid_import_out" go run ./cmd/rfid-import \
+  --input "$rfid_import_xlsx" \
+  --sheet Combined \
+  --tenant-id "$tenant_id" \
+  --source-name "Live replay RFID source"
+idempotency_import_run_id="$(kv_value "$idempotency_rfid_import_out" "import_run_id")"
+[[ -n "$idempotency_import_run_id" ]] || fail "idempotency rfid-import did not print import_run_id"
+assert_eq "idempotency_rfid_inserted" "$(kv_value "$idempotency_rfid_import_out" "inserted")" "0"
+
+idempotency_rfid_apply_normal_out="$idempotency_root/rfid-apply-normal.txt"
+run_backend_text "$idempotency_rfid_apply_normal_out" go run ./cmd/rfid-apply \
+  --tenant-id "$tenant_id" \
+  --import-run-id "$idempotency_import_run_id" \
+  --actor-id "$actor_id"
+assert_eq "idempotency_rfid_normal_applied" "$(kv_value "$idempotency_rfid_apply_normal_out" "applied")" "0"
+
+idempotency_bq_execute_json="$idempotency_root/bq-rerun-execute.json"
+run_backend_json "$idempotency_bq_execute_json" go run ./cmd/bq-reconcile \
+  --tenant-id "$tenant_id" \
+  --import-run-id "$idempotency_import_run_id" \
+  --events-json "$bq_events" \
+  --locations-json "$bq_locations" \
+  --report-dir "$idempotency_root/bq-rerun-execute-reports" \
+  --execute \
+  --timeout 20m \
+  --trace-id "live-replay-bq-idempotency-$timestamp"
+assert_json_zero "idempotency_bq_execute_patches_planned" "$idempotency_bq_execute_json" ".patches_planned"
+assert_json_zero "idempotency_bq_execute_patches_applied" "$idempotency_bq_execute_json" ".patches_applied"
+
+idempotency_rfid_apply_blank_out="$idempotency_root/rfid-apply-blank-suffix.txt"
+run_backend_text "$idempotency_rfid_apply_blank_out" go run ./cmd/rfid-apply \
+  --tenant-id "$tenant_id" \
+  --import-run-id "$idempotency_import_run_id" \
+  --actor-id "$actor_id" \
+  --allow-rfid-only-blank-suffix
+assert_eq "idempotency_rfid_blank_applied" "$(kv_value "$idempotency_rfid_apply_blank_out" "applied")" "0"
+
+idempotency_bq_dry_json="$idempotency_root/bq-rerun-dry.json"
+run_backend_json "$idempotency_bq_dry_json" go run ./cmd/bq-reconcile \
+  --tenant-id "$tenant_id" \
+  --import-run-id "$idempotency_import_run_id" \
+  --events-json "$bq_events" \
+  --locations-json "$bq_locations" \
+  --report-dir "$idempotency_root/bq-rerun-dry-reports" \
+  --timeout 20m \
+  --trace-id "live-replay-bq-idempotency-dry-$timestamp"
+assert_json_zero "idempotency_bq_dry_patches_planned" "$idempotency_bq_dry_json" ".patches_planned"
+
+idempotency_existing_identifiers_csv="$idempotency_root/existing-identifiers-rerun.csv"
+export_existing_identifiers "$idempotency_existing_identifiers_csv"
+idempotency_old_tag_csv="$idempotency_root/safe-old-tag-passport-backfill-candidates.rerun.csv"
+idempotency_skipped_csv="$idempotency_root/safe-old-tag-passport-backfill-skipped.rerun.csv"
+idempotency_generator_summary="$idempotency_root/live-generator-summary.rerun.json"
+idempotency_locations_json="$idempotency_root/bq_latest_goat_locations.rerun.json"
+python3 "$repo_root/tools/replay/generate-live-replay-inputs.py" \
+  --current-identities-csv "$bq_current_identities" \
+  --census-csv "$census_csv" \
+  --goats-db-events-csv "$goats_db_db_csv" \
+  --existing-identifiers-csv "$idempotency_existing_identifiers_csv" \
+  --locations-json-out "$idempotency_locations_json" \
+  --candidates-csv-out "$idempotency_old_tag_csv" \
+  --skipped-csv-out "$idempotency_skipped_csv" \
+  --summary-json-out "$idempotency_generator_summary" | tee "$idempotency_root/live-generator-summary.rerun.pretty.json"
+
+idempotency_candidate_rows="$(($(wc -l <"$idempotency_old_tag_csv" | tr -d '[:space:]') - 1))"
+assert_eq "idempotency_old_tag_candidate_rows" "$idempotency_candidate_rows" "0"
+
+idempotency_old_tag_json="$idempotency_root/old-tag-backfill-rerun.json"
+run_backend_json "$idempotency_old_tag_json" go run ./cmd/bq-reconcile \
+  --tenant-id "$tenant_id" \
+  --backfill-candidates-csv "$idempotency_old_tag_csv" \
+  --locations-json "$idempotency_locations_json" \
+  --report-dir "$idempotency_root/old-tag-backfill-rerun-reports" \
+  --execute \
+  --timeout 20m \
+  --trace-id "live-replay-old-tag-backfill-idempotency-$timestamp"
+assert_json_zero "idempotency_old_tag_candidates_read" "$idempotency_old_tag_json" ".candidates_read"
+assert_json_zero "idempotency_old_tag_planned_creates" "$idempotency_old_tag_json" ".planned_creates"
+assert_json_zero "idempotency_old_tag_applied_creates" "$idempotency_old_tag_json" ".applied_creates"
+assert_json_zero "idempotency_old_tag_planned_lifecycle_repairs" "$idempotency_old_tag_json" ".planned_existing_lifecycle_updates"
+assert_json_zero "idempotency_old_tag_applied_lifecycle_repairs" "$idempotency_old_tag_json" ".applied_existing_lifecycle_updates"
+
+idempotency_counter_out="$idempotency_root/rebuild-identity-counters-rerun.txt"
+run_backend_text "$idempotency_counter_out" go run ./cmd/rebuild-identity-counters \
+  --tenant-id "$tenant_id" \
+  --source-import-run-id "$idempotency_import_run_id"
+
+idempotency_after_counts="$idempotency_root/after-counts.json"
+write_db_counts_json "$idempotency_after_counts"
+if ! diff -u <(jq -S . "$idempotency_before_counts") <(jq -S . "$idempotency_after_counts") >"$idempotency_root/counts.diff"; then
+  fail "same-live replay rerun changed DB counts; see $idempotency_root/counts.diff"
+fi
+
+idempotency_oracle_compare_json="$idempotency_root/oracle-compare/summary.json"
+mkdir -p "$(dirname "$idempotency_oracle_compare_json")"
+printf 'null\n' >"$idempotency_oracle_compare_json"
+idempotency_oracle_compare_status="skipped"
+if [[ "$oracle_compare_status" == "checked" ]]; then
+  idempotency_oracle_compare_status="checked"
+  export_identity_snapshot_from_container "$oracle_container" "$idempotency_root/oracle-compare/oracle.tsv"
+  export_identity_snapshot_from_container "$container_name" "$idempotency_root/oracle-compare/replay.tsv"
+  python3 "$repo_root/tools/replay/compare-replay-to-oracle.py" \
+    --oracle-tsv "$idempotency_root/oracle-compare/oracle.tsv" \
+    --replay-tsv "$idempotency_root/oracle-compare/replay.tsv" \
+    --out-dir "$idempotency_root/oracle-compare" \
+    --summary-json "$idempotency_oracle_compare_json" | tee "$idempotency_root/oracle-compare/summary.pretty.json"
+  idempotency_missing="$(jq -r '.missing_in_replay' "$idempotency_oracle_compare_json")"
+  idempotency_extra="$(jq -r '.extra_in_replay' "$idempotency_oracle_compare_json")"
+  idempotency_changed="$(jq -r '.changed_common_keys' "$idempotency_oracle_compare_json")"
+  if [[ "$idempotency_missing" != "0" || "$idempotency_extra" != "0" || "$idempotency_changed" != "0" ]]; then
+    fail "same-live replay rerun goat-level parity failed: missing=$idempotency_missing extra=$idempotency_extra changed=$idempotency_changed"
+  fi
+fi
+
+idempotency_summary_json="$report_root/idempotency-summary.json"
+jq -n \
+  --arg rerun_root "$idempotency_root" \
+  --arg import_run_id "$idempotency_import_run_id" \
+  --arg oracle_compare_status "$idempotency_oracle_compare_status" \
+  --slurpfile before "$idempotency_before_counts" \
+  --slurpfile after "$idempotency_after_counts" \
+  --slurpfile bq_execute "$idempotency_bq_execute_json" \
+  --slurpfile bq_dry "$idempotency_bq_dry_json" \
+  --slurpfile old_tag_backfill "$idempotency_old_tag_json" \
+  --slurpfile oracle_compare "$idempotency_oracle_compare_json" \
+  '{
+    rerun_root: $rerun_root,
+    import_run_id: $import_run_id,
+    before_counts: $before[0],
+    after_counts: $after[0],
+    bq_execute: $bq_execute[0],
+    bq_dry: $bq_dry[0],
+    old_tag_backfill: $old_tag_backfill[0],
+    oracle_compare_status: $oracle_compare_status,
+    oracle_compare: ($oracle_compare[0] // null),
+    idempotent: (
+      ($before[0] == $after[0]) and
+      ($bq_execute[0].patches_planned == 0) and
+      ($bq_execute[0].patches_applied == 0) and
+      ($bq_dry[0].patches_planned == 0) and
+      ($old_tag_backfill[0].planned_creates == 0) and
+      ($old_tag_backfill[0].applied_creates == 0) and
+      ($old_tag_backfill[0].planned_existing_lifecycle_updates == 0) and
+      ($old_tag_backfill[0].applied_existing_lifecycle_updates == 0) and
+      (
+        $oracle_compare_status != "checked" or (
+          (($oracle_compare[0] // {}) | .missing_in_replay // 0) == 0 and
+          (($oracle_compare[0] // {}) | .extra_in_replay // 0) == 0 and
+          (($oracle_compare[0] // {}) | .changed_common_keys // 0) == 0
+        )
+      )
+    )
+  }' >"$idempotency_summary_json"
+cat "$idempotency_summary_json"
+
 jq -n \
   --arg report_root "$report_root" \
   --arg legacy_date "$legacy_date" \
@@ -668,6 +850,7 @@ jq -n \
   --slurpfile pre_counts "$pre_backfill_counts" \
   --slurpfile final_counts "$final_counts" \
   --slurpfile oracle_compare "$oracle_compare_json" \
+  --slurpfile idempotency "$idempotency_summary_json" \
   '{
     report_root: $report_root,
     legacy_dashboard: {date: $legacy_date, active: $legacy_active},
@@ -683,6 +866,7 @@ jq -n \
     final_counts: $final_counts[0],
     oracle_compare_status: $oracle_compare_status,
     oracle_compare: ($oracle_compare[0] // null),
+    same_live_idempotency: $idempotency[0],
     active_count_parity: ($final_alive == $legacy_active),
     goat_level_parity: (
       $oracle_compare_status != "checked" or (
@@ -691,8 +875,10 @@ jq -n \
         (($oracle_compare[0] // {}) | .changed_common_keys // 0) == 0
       )
     ),
+    same_live_idempotency_parity: ($idempotency[0].idempotent == true),
     parity: (
-      ($final_alive == $legacy_active) and (
+      ($final_alive == $legacy_active) and
+      ($idempotency[0].idempotent == true) and (
         $oracle_compare_status != "checked" or (
           (($oracle_compare[0] // {}) | .missing_in_replay // 0) == 0 and
           (($oracle_compare[0] // {}) | .extra_in_replay // 0) == 0 and
@@ -714,6 +900,9 @@ if [[ "$oracle_compare_status" == "checked" ]]; then
   if [[ "$missing" != "0" || "$extra" != "0" || "$changed" != "0" ]]; then
     fail "live replay goat-level parity failed against $oracle_container: missing=$missing extra=$extra changed=$changed"
   fi
+fi
+if [[ "$(jq -r '.idempotent' "$idempotency_summary_json")" != "true" ]]; then
+  fail "same-live replay idempotency failed"
 fi
 
 log "Live replay passed"

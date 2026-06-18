@@ -71,6 +71,8 @@ type LocalIdentifier struct {
 	IdentifierType  string
 	NormalizedValue string
 	ScopeKey        string
+	SourceSystem    string
+	SourceRecordID  string
 }
 
 type LocationLookup struct {
@@ -1280,6 +1282,9 @@ func localIdentifierKey(identifier LocalIdentifier) string {
 	case "rfid":
 		return "rfid:global:" + value
 	case "old_tag":
+		if isSafeOldTagBackfillIdentifier(identifier) {
+			return ""
+		}
 		scope := strings.ToLower(strings.TrimSpace(identifier.ScopeKey))
 		if scope == "" {
 			return ""
@@ -1288,6 +1293,11 @@ func localIdentifierKey(identifier LocalIdentifier) string {
 	default:
 		return ""
 	}
+}
+
+func isSafeOldTagBackfillIdentifier(identifier LocalIdentifier) bool {
+	return strings.EqualFold(strings.TrimSpace(identifier.SourceSystem), backfillSourceSystem) &&
+		strings.HasPrefix(strings.TrimSpace(identifier.SourceRecordID), backfillSourceContext+":")
 }
 
 func bqEventKey(event Event) string {
@@ -1499,7 +1509,9 @@ SELECT
   ), '') AS open_bq_attribute_identifier_value,
   gi.identifier_type,
   gi.normalized_value,
-  gi.scope_key
+  gi.scope_key,
+  COALESCE(gi.source_system, '')::text,
+  COALESCE(gi.source_record_id, '')::text
 FROM goats g
 JOIN goat_identifiers gi
   ON gi.tenant_id = g.tenant_id
@@ -1519,9 +1531,9 @@ ORDER BY g.goat_id::text, gi.identifier_type, gi.normalized_value`, tenantID)
 	for rows.Next() {
 		var goatID, breed, breedID, sex, lifecycle, identity, current, farm, park, shed string
 		var lifecycleConflictType, lifecycleConflictValue, attributeConflictType, attributeConflictValue string
-		var idType, value, scope string
+		var idType, value, scope, sourceSystem, sourceRecordID string
 		var hasLifecycleConflict, hasAttributeConflict bool
-		if err := rows.Scan(&goatID, &breed, &breedID, &sex, &lifecycle, &identity, &current, &farm, &park, &shed, &hasLifecycleConflict, &lifecycleConflictType, &lifecycleConflictValue, &hasAttributeConflict, &attributeConflictType, &attributeConflictValue, &idType, &value, &scope); err != nil {
+		if err := rows.Scan(&goatID, &breed, &breedID, &sex, &lifecycle, &identity, &current, &farm, &park, &shed, &hasLifecycleConflict, &lifecycleConflictType, &lifecycleConflictValue, &hasAttributeConflict, &attributeConflictType, &attributeConflictValue, &idType, &value, &scope, &sourceSystem, &sourceRecordID); err != nil {
 			return nil, fmt.Errorf("scan local goat identifier: %w", err)
 		}
 		goat := byID[goatID]
@@ -1551,6 +1563,8 @@ ORDER BY g.goat_id::text, gi.identifier_type, gi.normalized_value`, tenantID)
 			IdentifierType:  idType,
 			NormalizedValue: value,
 			ScopeKey:        scope,
+			SourceSystem:    sourceSystem,
+			SourceRecordID:  sourceRecordID,
 		})
 	}
 	if err := rows.Err(); err != nil {

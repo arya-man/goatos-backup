@@ -133,6 +133,39 @@ WHERE tenant_id = $1::uuid
 	}
 }
 
+func TestLoadLocalGoatsExcludesSyntheticBackfillOldTagsFromBQReconcile(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	ctx := context.Background()
+	pool := startBQReconcileTestDB(t, ctx)
+	defer pool.Close()
+
+	goatID := "00000000-0000-4000-8000-00000000b102"
+	seedExistingBackfillGoat(t, pool, goatID, "G-009765", "765", "park:CPT", "alive")
+
+	goats, err := loadLocalGoats(ctx, pool, bqReconcileTestTenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, patches := Plan([]Event{{
+		GoatID: "765",
+		Farm:   "CPT",
+		Event:  "Sale",
+		Date:   "2026-06-01",
+		Gender: "Female",
+		Breed:  "Sojat",
+	}}, goats, LocationLookup{ShedsByAlias: map[string]LocationTarget{}, ParksByCode: map[string]string{}})
+
+	if summary.MatchedGoats != 0 || summary.PatchesPlanned != 0 || len(patches) != 0 {
+		t.Fatalf("summary=%#v patches=%#v want loaded synthetic backfill old-tag ignored by BQ reconcile", summary, patches)
+	}
+	if got := queryScalarString(t, pool, "SELECT identity_state FROM goats WHERE goat_id = $1", goatID); got != "clean" {
+		t.Fatalf("goat identity_state=%q want clean", got)
+	}
+}
+
 func seedStaleLifecycleConflict(t *testing.T, pool *pgxpool.Pool, goatID, conflictID string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `
