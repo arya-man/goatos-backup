@@ -6,7 +6,7 @@ import {
   browserLocalPersistence,
   getAuth,
   setPersistence,
-  signInWithCredential,
+  signInWithPopup,
   signOut,
   type Auth,
   type User,
@@ -15,7 +15,6 @@ import { FIREBASE_CONFIG_ROUTE, SESSION_ROUTE } from "@/lib/auth/session-cookie"
 
 export type FirebaseClientRuntimeConfig = {
   config: FirebaseOptions;
-  googleClientId?: string;
 };
 
 export type FirebaseSessionEventType = "auth.sign_in" | "auth.session_refresh";
@@ -41,10 +40,17 @@ export async function getFirebaseClientRuntimeConfig(): Promise<FirebaseClientRu
   return loadFirebaseConfig();
 }
 
-export async function signInWithGoogleIdToken(googleIdToken: string): Promise<User> {
+export async function signInWithGoogleAccountChooser(): Promise<User> {
   const auth = await getFirebaseAuth();
-  const credential = GoogleAuthProvider.credential(googleIdToken);
-  const result = await signInWithCredential(auth, credential);
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({
+    hd: "mesha.sg",
+    prompt: "select_account",
+  });
+  provider.addScope("email");
+  provider.addScope("profile");
+
+  const result = await signInWithPopup(auth, provider);
   await syncFirebaseSession(result.user, true, "auth.sign_in");
   return result.user;
 }

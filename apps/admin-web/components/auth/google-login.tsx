@@ -1,169 +1,67 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState, type KeyboardEvent } from "react";
 import { Loader2 } from "lucide-react";
-import {
-  getFirebaseClientRuntimeConfig,
-  signInWithGoogleIdToken,
-} from "@/lib/auth/firebase-client";
+import { signInWithGoogleAccountChooser } from "@/lib/auth/firebase-client";
 import { DASHBOARD_BASE_PATH } from "@/lib/auth/session-cookie";
-
-type GoogleCredentialResponse = {
-  credential?: string;
-};
-
-type GoogleIdentityServices = {
-  accounts?: {
-    id?: {
-      disableAutoSelect?: () => void;
-      initialize: (options: {
-        auto_select?: boolean;
-        button_auto_select?: boolean;
-        callback: (response: GoogleCredentialResponse) => void;
-        client_id: string;
-        hd?: string;
-        itp_support?: boolean;
-        use_fedcm_for_button?: boolean;
-      }) => void;
-      renderButton: (
-        parent: HTMLElement,
-        options: {
-          shape?: "rectangular";
-          size?: "large";
-          text?: "continue_with";
-          theme?: "outline";
-          type?: "standard";
-          width?: number;
-        },
-      ) => void;
-    };
-  };
-};
-
-declare global {
-  interface Window {
-    google?: GoogleIdentityServices;
-  }
-}
-
-let googleIdentityScriptPromise: Promise<void> | null = null;
 
 export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: string }) {
   const [status, setStatus] = useState<"ready" | "signing_in" | "redirecting" | "error">("ready");
   const [message, setMessage] = useState<string | null>(null);
-  const [googleButtonReady, setGoogleButtonReady] = useState(false);
-  const googleButtonRef = useRef<HTMLDivElement | null>(null);
-  const redirectStartedRef = useRef(false);
 
   const navigateToNext = useCallback(() => {
     setStatus("redirecting");
     window.location.replace(safeNextPath(nextPath));
   }, [nextPath]);
 
-  const reserveRedirect = useCallback((nextStatus: "signing_in" | "redirecting") => {
-    if (redirectStartedRef.current) return false;
-    redirectStartedRef.current = true;
-    setStatus(nextStatus);
-    return true;
-  }, []);
+  const handleSignIn = useCallback(() => {
+    if (status !== "ready" && status !== "error") return;
+    setStatus("signing_in");
+    setMessage(null);
 
-  const resetAfterFailure = useCallback((error: unknown, fallback: string) => {
-    redirectStartedRef.current = false;
-    setStatus("ready");
-    setMessage(error instanceof Error ? error.message : fallback);
-  }, []);
-
-  useEffect(() => {
-    if (status !== "ready" || !googleButtonRef.current) return;
-    let cancelled = false;
-    googleButtonRef.current.replaceChildren();
-    setGoogleButtonReady(false);
-
-    void getFirebaseClientRuntimeConfig()
-      .then(async ({ googleClientId }) => {
-        if (cancelled || !googleButtonRef.current) return;
-        if (!googleClientId) {
-          throw new Error("Google sign-in client is not configured for this admin deployment.");
-        }
-        await loadGoogleIdentityScript();
-        const google = window.google?.accounts?.id;
-        if (!google) {
-          throw new Error("Google sign-in could not load.");
-        }
-        google.disableAutoSelect?.();
-        google.initialize({
-          client_id: googleClientId,
-          hd: "mesha.sg",
-          auto_select: false,
-          button_auto_select: false,
-          itp_support: true,
-          use_fedcm_for_button: false,
-          callback: (response) => {
-            if (!response.credential) {
-              setStatus("ready");
-              setMessage("Google sign-in did not return a credential.");
-              return;
-            }
-            if (!reserveRedirect("signing_in")) return;
-            setMessage(null);
-            void signInWithGoogleIdToken(response.credential)
-              .then(() => {
-                navigateToNext();
-              })
-              .catch((error) => {
-                resetAfterFailure(error, "Google sign-in failed.");
-              });
-          },
-        });
-        const buttonWidth = Math.max(220, Math.min(340, Math.floor(googleButtonRef.current.getBoundingClientRect().width)));
-        google.renderButton(googleButtonRef.current, {
-          type: "standard",
-          theme: "outline",
-          size: "large",
-          text: "continue_with",
-          shape: "rectangular",
-          width: buttonWidth,
-        });
-        setGoogleButtonReady(true);
+    void signInWithGoogleAccountChooser()
+      .then(() => {
+        navigateToNext();
       })
-      .catch((error) => {
-        if (cancelled) return;
-        setGoogleButtonReady(false);
-        setStatus("error");
-        setMessage(error instanceof Error ? error.message : "Google sign-in is not configured.");
+      .catch((error: unknown) => {
+        setStatus("ready");
+        setMessage(messageForGoogleSignInError(error));
       });
+  }, [navigateToNext, status]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [navigateToNext, reserveRedirect, resetAfterFailure, status]);
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      handleSignIn();
+    },
+    [handleSignIn],
+  );
 
-  const statusText =
-    status === "redirecting" ? "Opening dashboard" : status === "signing_in" ? "Signing in" : "Loading Google";
-  const showBusyStatus = status === "signing_in" || status === "redirecting";
-  const showLoadingControl = !googleButtonReady || showBusyStatus;
+  const isBusy = status === "signing_in" || status === "redirecting";
+  const statusText = status === "redirecting" ? "Opening dashboard" : "Signing in";
 
   return (
     <div className="mt-8">
-      <div className="relative flex h-12 w-full items-center justify-center">
-        <div
-          ref={googleButtonRef}
-          aria-hidden={status === "signing_in" || status === "redirecting" ? "true" : undefined}
-          className={[
-            "flex h-12 w-full max-w-[340px] items-center justify-center transition-opacity duration-150",
-            googleButtonReady ? "opacity-100" : "opacity-0",
-            showBusyStatus ? "pointer-events-none opacity-0" : "",
-          ].join(" ")}
-        />
-        {showLoadingControl ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex h-11 w-full max-w-[340px] items-center justify-center gap-3 rounded border border-[#3a4352] bg-[#141a23] px-4 text-sm font-bold text-[#8b95a5]">
-              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-              {statusText}
-            </div>
-          </div>
-        ) : null}
-      </div>
+      <button
+        type="button"
+        onClick={handleSignIn}
+        onKeyDown={handleKeyDown}
+        disabled={isBusy}
+        className="relative flex h-12 w-full max-w-[340px] items-center justify-center rounded border border-[#dadce0] bg-white px-4 text-[14px] font-semibold text-[#3c4043] shadow-sm transition hover:bg-[#f8fafd] focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:ring-offset-2 focus:ring-offset-[#171c26] disabled:cursor-wait disabled:bg-[#f1f3f4] disabled:text-[#5f6368]"
+      >
+        <span className="absolute left-4 flex h-5 w-5 items-center justify-center" aria-hidden="true">
+          <GoogleGMark />
+        </span>
+        {isBusy ? (
+          <span className="inline-flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            {statusText}
+          </span>
+        ) : (
+          "Continue with Google"
+        )}
+      </button>
       <div className="mt-3 min-h-7">
         {message ? (
           <p className="rounded-lg border border-[#7f1d1d] bg-[#1d1214] px-3 py-2 text-sm leading-6 text-[#fecaca]">
@@ -175,40 +73,51 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
   );
 }
 
-function loadGoogleIdentityScript(): Promise<void> {
-  if (window.google?.accounts?.id) return Promise.resolve();
-  if (googleIdentityScriptPromise) return googleIdentityScriptPromise;
-
-  googleIdentityScriptPromise = new Promise((resolve, reject) => {
-    const done = () => {
-      window.clearTimeout(timeout);
-      if (window.google?.accounts?.id) {
-        resolve();
-      } else {
-        reject(new Error("Google sign-in could not load."));
-      }
-    };
-    const timeout = window.setTimeout(done, 10000);
-    const script =
-      document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]') ??
-      document.createElement("script");
-    script.addEventListener("load", done, { once: true });
-    script.addEventListener(
-      "error",
-      () => {
-        window.clearTimeout(timeout);
-        reject(new Error("Google sign-in could not load."));
-      },
-      { once: true },
-    );
-    if (!script.parentNode) {
-      script.src = "https://accounts.google.com/gsi/client";
-      script.async = true;
-      script.defer = true;
-      document.head.append(script);
+function messageForGoogleSignInError(error: unknown): string {
+  if (isFirebaseAuthError(error)) {
+    if (error.code === "auth/popup-closed-by-user" || error.code === "auth/cancelled-popup-request") {
+      return "Google sign-in was cancelled.";
     }
-  });
-  return googleIdentityScriptPromise;
+    if (error.code === "auth/popup-blocked") {
+      return "Chrome blocked the Google sign-in popup. Allow popups for this dashboard and try again.";
+    }
+    if (error.code === "auth/unauthorized-domain") {
+      return "This dashboard host is not authorized for Firebase sign-in.";
+    }
+  }
+  return error instanceof Error ? error.message : "Google sign-in failed.";
+}
+
+function isFirebaseAuthError(error: unknown): error is { code: string } {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof (error as { code?: unknown }).code === "string",
+  );
+}
+
+function GoogleGMark() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18" className="h-5 w-5">
+      <path
+        fill="#4285F4"
+        d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"
+      />
+      <path
+        fill="#34A853"
+        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.72H.94v2.33A9 9 0 0 0 9 18Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M3.96 10.7A5.41 5.41 0 0 1 3.68 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.34 2.82.94 4.03l3.02-2.33Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M9 3.58c1.32 0 2.5.45 3.44 1.34l2.58-2.58A8.65 8.65 0 0 0 9 0 9 9 0 0 0 .94 4.97L3.96 7.3C4.67 5.16 6.66 3.58 9 3.58Z"
+      />
+    </svg>
+  );
 }
 
 function safeNextPath(value: string): string {

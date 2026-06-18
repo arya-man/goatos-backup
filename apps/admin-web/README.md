@@ -223,6 +223,20 @@ export GOATOS_LOCAL_ROLE=verifier
 make dev-local
 ```
 
+## Cloud Dev Google Sign-In
+
+`goatos-dev` uses Firebase Auth as the browser IdP. The login control must use
+Firebase `signInWithPopup` plus Google provider parameters
+`prompt=select_account` and `hd=mesha.sg`; this keeps shared Chrome profiles
+from silently choosing a personal Google account. Do not switch the internal
+dashboard back to Google Identity Services One Tap or the rendered GIS button
+without proving account-picker behavior on `https://dev.dashboard.mesha.sg`.
+
+For custom dashboard hosts, keep the host in Firebase/Auth Platform authorized
+domains. If a direct Google browser OAuth/GIS path is reintroduced, the same
+host origin must also be added to the Google OAuth web client's authorized
+JavaScript origins.
+
 For manual local auth debugging, use matching values for the API and token
 minting:
 

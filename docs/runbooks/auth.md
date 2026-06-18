@@ -46,11 +46,18 @@ JWKS verification. Firebase is auth only for Goat OS dev bring-up: do not use
 Firebase Hosting or Firebase App Hosting, and do not introduce an external OIDC
 provider or static dev JWKS.
 
-Admin-web login uses Google Identity Services directly to receive a Google ID
-token, then signs into Firebase Auth with that credential. The direct Google
-client is initialized with account auto-select disabled and the `mesha.sg`
-hosted-domain hint. The Cloud Run admin-web origins must remain registered on
-the Google OAuth web client.
+Admin-web login uses the Firebase Web SDK `signInWithPopup` path with
+`GoogleAuthProvider`. The provider must set `prompt=select_account` and
+`hd=mesha.sg` so shared browsers show the Google account chooser instead of
+silently reusing a personal default account. Do not reintroduce the Google
+Identity Services rendered button or One Tap path for this internal dashboard;
+those flows are easy to misconfigure for custom domains and can auto-select the
+wrong browser account.
+
+Custom admin-web hosts must be registered in Firebase/Auth Platform authorized
+domains. If any direct Google Identity Services or browser OAuth flow is used
+again, the same host origin must also be registered on the Google OAuth web
+client as an authorized JavaScript origin.
 
 Firebase ID tokens use issuer `https://securetoken.google.com/goatos-dev`,
 audience `goatos-dev`, and Google's SecureToken JWKS endpoint. Firebase UIDs are
