@@ -14,6 +14,10 @@ Canonical docs:
 - `docs/features/locations/TRD.md`
 - `docs/features/operator-management/PRD.md`
 - `docs/features/operator-management/TRD.md`
+- `docs/features/operator-management/AGENT-TASK-ADMIN.md`
+- `docs/features/operator-management/AGENT-TASK-ANDROID.md`
+- `docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md`
+- `docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md`
 
 Rules:
 

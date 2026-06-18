@@ -9,8 +9,13 @@ Canonical docs:
 - `docs/phases/phase-02-sop-task-engine/PRD.md`
 - `docs/phases/phase-02-sop-task-engine/TRD.md`
 - `docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md`
+- `docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md`
+- `docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md`
+- `docs/phases/phase-02-sop-task-engine/AGENT-TASK-SOP-BUILDER.md`
 - `docs/features/operator-management/PRD.md`
 - `docs/features/operator-management/TRD.md`
+- `docs/features/operator-management/AGENT-TASK-ADMIN.md`
+- `docs/features/operator-management/AGENT-TASK-ANDROID.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/execution/next-contracts.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`

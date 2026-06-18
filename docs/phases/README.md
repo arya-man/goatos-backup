@@ -75,4 +75,7 @@ phase-02-sop-task-engine/
   PRD.md
   TRD.md
   SOP-CLOSEOUT.md
+  PARALLEL-AGENT-RUNBOOK.md
+  INTEGRATION-CHECKLIST.md
+  AGENT-TASK-SOP-BUILDER.md
 ```

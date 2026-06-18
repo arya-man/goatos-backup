@@ -21,6 +21,8 @@ Current feature docs:
 - `docs/features/mortality/AGENT-TASK.md`
 - `docs/features/mortality/PRD.md`
 - `docs/features/mortality/TRD.md`
+- `docs/features/operator-management/AGENT-TASK-ADMIN.md`
+- `docs/features/operator-management/AGENT-TASK-ANDROID.md`
 - `docs/features/operator-management/PRD.md`
 - `docs/features/operator-management/TRD.md`
 
@@ -41,6 +43,10 @@ legacy submitter mapping needed before Android SOPs replace Slack execution.
 The counter-family agent runbook and task files are execution guides for running
 Locations, Counts, and Mortality in parallel. They do not replace the PRD/TRD
 contracts.
+
+The Phase 2 Operator/SOP runbook and task files are execution guides for running
+Operator Management admin/backend, Operator Android, and SOP Builder/Task Engine
+in parallel. They do not replace the PRD/TRD contracts.
 
 Rules:
 
