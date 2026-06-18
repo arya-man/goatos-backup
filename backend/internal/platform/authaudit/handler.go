@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -44,6 +45,7 @@ type Handler struct {
 	allowedEmails    authallow.EmailSet
 	emailConfigErr   error
 	rateLimiter      *RateLimiter
+	grantClaimer     permissions.PendingEmailGrantClaimer
 }
 
 type Option func(*Handler)
@@ -78,6 +80,12 @@ func WithAllowedEmails(emails []string) Option {
 func WithRateLimiter(limiter *RateLimiter) Option {
 	return func(h *Handler) {
 		h.rateLimiter = limiter
+	}
+}
+
+func WithPendingEmailGrantClaimer(claimer permissions.PendingEmailGrantClaimer) Option {
+	return func(h *Handler) {
+		h.grantClaimer = claimer
 	}
 }
 
@@ -241,6 +249,20 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	grantClaim, err := h.claimPendingEmailGrant(r, action, claims, tenantID, body.Source)
+	if err != nil {
+		h.log.ErrorContext(r.Context(), "auth_pending_email_grant_failed",
+			slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+			slog.String("trace_id", traceID(r)),
+			slog.String("actor_id", claims.Subject),
+			slog.String("email", authallow.NormalizeEmail(claims.Email)),
+			slog.String("tenant_id", tenantID),
+			slog.String("error", err.Error()),
+		)
+		writeError(w, r, http.StatusInternalServerError, "auth_pending_email_grant_failed", "pending email grant could not be claimed")
+		return
+	}
+
 	event := Event{
 		TenantID:     tenantID,
 		ActorID:      claims.Subject,
@@ -253,6 +275,7 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 			"source":              cleanMetadataString(body.Source, 64),
 			"token_tenant_source": tenantSource,
 			"user_agent":          cleanMetadataString(r.Header.Get(headerSessionUserAgent), 512),
+			"pending_email_grant": grantClaimMetadata(grantClaim),
 		}),
 		TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
 	}
@@ -267,6 +290,35 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) claimPendingEmailGrant(r *http.Request, action string, claims platformauth.Claims, tenantID, source string) (permissions.PendingEmailGrantResult, error) {
+	if h.grantClaimer == nil || action != ActionSignIn {
+		return permissions.PendingEmailGrantResult{}, nil
+	}
+	if claims.EmailVerified == nil || !*claims.EmailVerified || strings.TrimSpace(claims.Email) == "" {
+		return permissions.PendingEmailGrantResult{}, nil
+	}
+	return h.grantClaimer.ClaimPendingEmailGrant(r.Context(), permissions.PendingEmailGrantClaim{
+		TenantID:        tenantID,
+		UserID:          claims.Subject,
+		Email:           claims.Email,
+		ExternalSubject: claims.ExternalSubject,
+		Issuer:          claims.Issuer,
+		Source:          cleanMetadataString(source, 64),
+		TraceID:         httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+}
+
+func grantClaimMetadata(result permissions.PendingEmailGrantResult) any {
+	if !result.Matched {
+		return nil
+	}
+	return map[string]any{
+		"pending_grant_ids": result.PendingGrantIDs,
+		"inserted_grants":   result.InsertedGrants,
+		"existing_grants":   result.ExistingGrants,
+	}
 }
 
 func (h *Handler) record(r *http.Request, event Event) error {

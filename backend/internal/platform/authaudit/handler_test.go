@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
@@ -84,6 +85,108 @@ func TestHandlerAllowsOnlyConfiguredVerifiedEmails(t *testing.T) {
 	}
 	if len(recorder.events) != 1 || recorder.events[0].Action != ActionSignIn {
 		t.Fatalf("events=%#v", recorder.events)
+	}
+}
+
+func TestHandlerClaimsPendingEmailGrantOnVerifiedSignIn(t *testing.T) {
+	emailVerified := true
+	recorder := &captureRecorder{}
+	claimer := &captureGrantClaimer{result: permissions.PendingEmailGrantResult{
+		Matched:         true,
+		PendingGrantIDs: []string{"20000000-0000-4000-8000-000000000001"},
+		InsertedGrants: []permissions.ClaimedEmailGrant{{
+			PendingGrantID: "20000000-0000-4000-8000-000000000001",
+			GrantID:        "30000000-0000-4000-8000-000000000001",
+			Role:           permissions.RoleCEOInternal,
+			ScopeType:      "tenant",
+			ScopeID:        testTenantID,
+		}},
+	}}
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:         testActorID,
+		ExternalSubject: "firebase-uid-1",
+		Issuer:          "https://securetoken.google.com/goatos-dev",
+		Audience:        "goatos-dev",
+		Email:           "RAVI@MESHA.SG",
+		EmailVerified:   &emailVerified,
+		Expires:         time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithAllowedEmails([]string{"ravi@mesha.sg"}), WithPendingEmailGrantClaimer(claimer)))
+	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.sign_in","source":"admin-web"}`))
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(claimer.claims) != 1 {
+		t.Fatalf("claims=%#v", claimer.claims)
+	}
+	claim := claimer.claims[0]
+	if claim.TenantID != testTenantID || claim.UserID != testActorID || claim.Email != "RAVI@MESHA.SG" || claim.ExternalSubject != "firebase-uid-1" {
+		t.Fatalf("claim=%#v", claim)
+	}
+	if len(recorder.events) != 1 {
+		t.Fatalf("events=%d want 1", len(recorder.events))
+	}
+	if recorder.events[0].Metadata["pending_email_grant"] == nil {
+		t.Fatalf("missing pending_email_grant metadata: %#v", recorder.events[0].Metadata)
+	}
+}
+
+func TestHandlerDoesNotClaimPendingEmailGrantOnRefresh(t *testing.T) {
+	emailVerified := true
+	recorder := &captureRecorder{}
+	claimer := &captureGrantClaimer{}
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:       testActorID,
+		Issuer:        "https://securetoken.google.com/goatos-dev",
+		Audience:      "goatos-dev",
+		Email:         "ravi@mesha.sg",
+		EmailVerified: &emailVerified,
+		Expires:       time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithAllowedEmails([]string{"ravi@mesha.sg"}), WithPendingEmailGrantClaimer(claimer)))
+	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.session_refresh","source":"admin-web"}`))
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(claimer.claims) != 0 {
+		t.Fatalf("refresh claimed pending email grant: %#v", claimer.claims)
+	}
+}
+
+func TestHandlerFailsClosedWhenPendingEmailGrantClaimFails(t *testing.T) {
+	emailVerified := true
+	recorder := &captureRecorder{}
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:       testActorID,
+		Issuer:        "https://securetoken.google.com/goatos-dev",
+		Audience:      "goatos-dev",
+		Email:         "ravi@mesha.sg",
+		EmailVerified: &emailVerified,
+		Expires:       time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithAllowedEmails([]string{"ravi@mesha.sg"}), WithPendingEmailGrantClaimer(failingGrantClaimer{})))
+	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.sign_in","source":"admin-web"}`))
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "auth_pending_email_grant_failed")
+	if len(recorder.events) != 0 {
+		t.Fatalf("session event recorded despite claim failure: %#v", recorder.events)
 	}
 }
 
@@ -361,4 +464,20 @@ type failingRecorder struct{}
 
 func (failingRecorder) Record(context.Context, Event) error {
 	return errors.New("forced audit failure")
+}
+
+type captureGrantClaimer struct {
+	claims []permissions.PendingEmailGrantClaim
+	result permissions.PendingEmailGrantResult
+}
+
+func (c *captureGrantClaimer) ClaimPendingEmailGrant(_ context.Context, claim permissions.PendingEmailGrantClaim) (permissions.PendingEmailGrantResult, error) {
+	c.claims = append(c.claims, claim)
+	return c.result, nil
+}
+
+type failingGrantClaimer struct{}
+
+func (failingGrantClaimer) ClaimPendingEmailGrant(context.Context, permissions.PendingEmailGrantClaim) (permissions.PendingEmailGrantResult, error) {
+	return permissions.PendingEmailGrantResult{}, errors.New("forced pending grant failure")
 }

@@ -263,13 +263,15 @@ canonical redirect is a user-friendly fallback, not the primary exposure model.
    `GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>`, and
    a socket-form `DATABASE_URL` whose host is exactly
    `/cloudsql/goatos-dev:asia-south1:<instance>`.
-3. **Seed the admin grant (first deploy only).** Production authorization comes
-   from active `user_scope_grants` rows, not from token claims. For Firebase
-   dev login, map the non-UUID Firebase UID to the backend's stable internal
-   actor UUID, then insert the initial `ceo_internal`/`admin` tenant-scope grant
-   for that actor and tenant through a reviewed migration or an explicit,
-   audited grant script — `seed-dev-grant` is not a staging/production bootstrap
-   path and will refuse those targets.
+3. **Seed approved admin emails (first deploy / access changes).** Production
+   authorization comes from active `user_scope_grants` rows, not from token
+   claims. Shared Firebase/JWKS environments should pre-seed
+   `auth_pending_email_grants` for approved verified emails and roles. On first
+   verified `auth.sign_in`, the backend converts the matching email policy into
+   the real tenant-scope `user_scope_grants` row and records
+   `auth.pending_email_grant_claimed` in `audit_log`. This avoids fake Firebase
+   UIDs and avoids manual waiting after first sign-in. `seed-dev-grant` remains
+   a local/dev direct-UID helper only.
 4. **Deploy.** Roll the new image. Keep the previous revision available for
    rollback.
 5. **Smoke.** See "Smoke checks" — must pass before announcing the release.

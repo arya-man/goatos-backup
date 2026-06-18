@@ -27,6 +27,7 @@ const (
 	futureUser           = "90000000-0000-4000-8000-000000000005"
 	unionUser            = "90000000-0000-4000-8000-000000000006"
 	parkScopeUser        = "90000000-0000-4000-8000-000000000007"
+	emailGrantUser       = "90000000-0000-4000-8000-000000000008"
 	cbeLocation          = "00000000-0000-4000-8000-000000003001"
 )
 
@@ -87,6 +88,69 @@ VALUES
 	}
 	if len(roles) != 2 || !permissions.RolesAuthorize(roles, []string{permissions.GoatReviewIdentity}, false) {
 		t.Fatalf("operator+verifier union did not authorize verifier-only permission: %#v", roles)
+	}
+
+	psql(t, container, `
+INSERT INTO auth_pending_email_grants (tenant_id, email, normalized_email, role, scope_type, scope_id, status, valid_from, source)
+VALUES ('`+meshaTenant+`', 'Ravi@Mesha.SG', 'ravi@mesha.sg', 'ceo_internal', 'tenant', '`+meshaTenant+`', 'active', now() - interval '1 minute', 'test');
+`)
+	claimer := NewPendingEmailGrantClaimer(pool, 5*time.Second)
+	result, err := claimer.ClaimPendingEmailGrant(ctx, permissions.PendingEmailGrantClaim{
+		TenantID:        meshaTenant,
+		UserID:          emailGrantUser,
+		Email:           "RAVI@MESHA.SG",
+		ExternalSubject: "firebase-uid-ravi",
+		Issuer:          "https://securetoken.google.com/goatos-dev",
+		Source:          "admin-web",
+		TraceID:         "trace-test",
+	})
+	if err != nil {
+		t.Fatalf("ClaimPendingEmailGrant: %v", err)
+	}
+	if !result.Matched || len(result.InsertedGrants) != 1 || result.InsertedGrants[0].Role != permissions.RoleCEOInternal {
+		t.Fatalf("claim result=%#v", result)
+	}
+	roles, err = source.ActiveTenantRoles(ctx, emailGrantUser, meshaTenant)
+	if err != nil {
+		t.Fatalf("ActiveTenantRoles(emailGrantUser): %v", err)
+	}
+	if len(roles) != 1 || roles[0] != permissions.RoleCEOInternal {
+		t.Fatalf("email grant roles=%#v", roles)
+	}
+	result, err = claimer.ClaimPendingEmailGrant(ctx, permissions.PendingEmailGrantClaim{
+		TenantID:        meshaTenant,
+		UserID:          emailGrantUser,
+		Email:           "ravi@mesha.sg",
+		ExternalSubject: "firebase-uid-ravi",
+		Issuer:          "https://securetoken.google.com/goatos-dev",
+		Source:          "admin-web",
+		TraceID:         "trace-test",
+	})
+	if err != nil {
+		t.Fatalf("idempotent ClaimPendingEmailGrant: %v", err)
+	}
+	if len(result.InsertedGrants) != 0 || len(result.ExistingGrants) != 1 {
+		t.Fatalf("idempotent claim result=%#v", result)
+	}
+	var grantCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM user_scope_grants
+WHERE tenant_id = $1 AND user_id = $2 AND role = 'ceo_internal' AND status = 'active'`, meshaTenant, emailGrantUser).Scan(&grantCount); err != nil {
+		t.Fatalf("count email grant rows: %v", err)
+	}
+	if grantCount != 1 {
+		t.Fatalf("grantCount=%d want 1", grantCount)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM audit_log
+WHERE tenant_id = $1 AND actor_id = $2 AND action = 'auth.pending_email_grant_claimed'`, meshaTenant, emailGrantUser).Scan(&auditCount); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("auditCount=%d want 1", auditCount)
 	}
 }
 

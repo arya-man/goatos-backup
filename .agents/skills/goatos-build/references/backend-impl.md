@@ -175,7 +175,11 @@ Rules:
   `X-GoatOS-Tenant-ID` for Firebase tenant context, and writes `audit_log`
   actions without persisting raw Firebase/Google tokens. The route applies the
   same verified-email allowlist as normal bearer auth so disallowed accounts do
-  not get an admin-web session cookie. The admin-web proxy is only a
+  not get an admin-web session cookie. On verified `auth.sign_in`, a matching
+  active `auth_pending_email_grants` row is converted idempotently into the real
+  tenant-scope `user_scope_grants` row and audited with
+  `auth.pending_email_grant_claimed`; do not fake Firebase UIDs or wait for a
+  manual UID lookup for pre-approved emails. The admin-web proxy is only a
   missing/malformed/expired cookie pre-check; backend JWKS verification is the
   trust boundary.
 - Multiple active tenant grants are unioned for authorization. If any active

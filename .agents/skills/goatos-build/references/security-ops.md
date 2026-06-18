@@ -48,7 +48,10 @@ Rules:
 - Shared dashboard environments can narrow Firebase/Google sign-in with
   `GOATOS_AUTH_ALLOWED_EMAILS`. Treat Google provider `hd` values as picker
   hints only; the backend verified-email allowlist plus DB grants are the real
-  access-control boundary.
+  access-control boundary. Pre-approved first-time users belong in
+  `auth_pending_email_grants`; verified `auth.sign_in` claims the real
+  `user_scope_grants` row automatically and records
+  `auth.pending_email_grant_claimed`. Do not grant synthetic Firebase UIDs.
 - Once a custom dashboard host is live, set
   `GOATOS_CANONICAL_DASHBOARD_HOST` on admin-web and disable the Cloud Run
   default URL where supported so raw `*.run.app` hosts do not become parallel

@@ -24,6 +24,7 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 /app/bin/rfid-apply
 /app/bin/bq-reconcile
 /app/bin/seed-dev-grant
+/app/bin/seed-dev-email-grants
 /app/bin/mint-dev-token
 ```
 

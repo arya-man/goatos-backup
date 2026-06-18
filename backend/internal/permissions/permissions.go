@@ -44,6 +44,35 @@ type GrantSource interface {
 	ActiveTenantRoles(ctx context.Context, userID, tenantID string) ([]string, error)
 }
 
+type PendingEmailGrantClaim struct {
+	TenantID        string
+	UserID          string
+	Email           string
+	ExternalSubject string
+	Issuer          string
+	Source          string
+	TraceID         string
+}
+
+type PendingEmailGrantResult struct {
+	Matched         bool
+	InsertedGrants  []ClaimedEmailGrant
+	ExistingGrants  []ClaimedEmailGrant
+	PendingGrantIDs []string
+}
+
+type ClaimedEmailGrant struct {
+	PendingGrantID string `json:"pending_grant_id"`
+	GrantID        string `json:"grant_id"`
+	Role           string `json:"role"`
+	ScopeType      string `json:"scope_type"`
+	ScopeID        string `json:"scope_id"`
+}
+
+type PendingEmailGrantClaimer interface {
+	ClaimPendingEmailGrant(ctx context.Context, claim PendingEmailGrantClaim) (PendingEmailGrantResult, error)
+}
+
 func RoleHasPermission(role, permission string) bool {
 	perms, ok := rolePermissions[role]
 	if !ok {

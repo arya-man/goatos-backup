@@ -22,7 +22,18 @@ GOATOS_CANONICAL_DASHBOARD_HOST=dev.dashboard.mesha.sg   # admin-web
 `goatos-dev` uses Google Identity Platform / Firebase Auth for auth only. Do not
 use Firebase Hosting or Firebase App Hosting. `GOATOS_AUTH_ALLOWED_EMAILS`
 narrows the Firebase/Google sign-in surface to approved admin emails; matching
-DB grants are still required before dashboard APIs authorize.
+DB grants are still required before dashboard APIs authorize. Pre-approved dev
+dashboard admins are stored in `auth_pending_email_grants`; first verified
+sign-in claims the real `user_scope_grants` row automatically.
+
+Current dev dashboard admin email policy:
+
+```text
+abhishek@mesha.sg
+aryaman@mesha.sg
+manju@mesha.sg
+ravi@mesha.sg
+```
 
 Admin-web sets `GOATOS_CANONICAL_DASHBOARD_HOST=dev.dashboard.mesha.sg` so raw
 Cloud Run dashboard URLs redirect to the custom host before login. The shared

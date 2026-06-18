@@ -51,16 +51,21 @@ Current access-control layers:
    token; Goat OS never stores raw Google or Firebase tokens in the database.
 2. `GOATOS_AUTH_ALLOWED_EMAILS` is the deploy-time email allowlist. It blocks
    unapproved verified emails before a session cookie is created.
-3. `user_scope_grants` is the database authorization table. Approved users still
-   need an active grant for the tenant before protected dashboard APIs allow
-   data access.
-4. `audit_log` records sign-in, refresh, sign-out, and failed sign-in events
+3. `auth_pending_email_grants` is the approved-email grant policy table. On a
+   verified `auth.sign_in`, the backend converts a matching email policy into a
+   real active `user_scope_grants` row for the Firebase/JWKS subject. Raw
+   tokens are never stored.
+4. `user_scope_grants` is the database authorization table that protected APIs
+   actually check.
+5. `audit_log` records sign-in, refresh, sign-out, failed sign-in, and
+   `auth.pending_email_grant_claimed` events
    with metadata such as verified email and Firebase UID; raw tokens are never
    written.
 
-The dev allowlist is intentionally environment-managed until the product has a
-real admin user-management screen. Do not treat Google Workspace membership or
-the Google provider `hd` hint as sufficient access control.
+The dev allowlist and pending email grants are intentionally operator-managed
+until the product has a real admin user-management screen. Do not treat Google
+Workspace membership or the Google provider `hd` hint as sufficient access
+control.
 
 ## goatos-dev IdP
 
@@ -92,6 +97,10 @@ external IdP subjects, not Goat OS UUIDs; the backend maps a non-UUID token
 subject to a stable internal actor UUID before checking `user_scope_grants`.
 Admin-web forwards `X-GoatOS-Tenant-ID` from `GOATOS_TENANT_ID`; roles still
 come only from active DB grant rows for that internal actor UUID and tenant.
+If a verified sign-in email has an active row in `auth_pending_email_grants`,
+the backend creates the matching active tenant-scope `user_scope_grants` row
+before the session cookie is accepted, so pre-approved first-time users do not
+need a separate manual Firebase UID lookup.
 The admin-web route proxy checks only that the session cookie is present,
 well-formed, and not expired before rendering protected dashboard routes. It
 does not verify the cookie signature; the backend verifies the Firebase ID

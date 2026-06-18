@@ -121,6 +121,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	legacySyncHandler := legacysynchttp.NewHandler(legacySyncService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
+	authAuditOptions = append(authAuditOptions, authaudit.WithPendingEmailGrantClaimer(
+		permissionspg.NewPendingEmailGrantClaimer(pool, cfg.Postgres.QueryTimeout),
+	))
 	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log, authAuditOptions...)
 	authz, err := buildAuthMiddleware(cfg.Auth, verifier, grantSource, log)
 	if err != nil {

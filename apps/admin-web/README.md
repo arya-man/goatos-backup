@@ -283,6 +283,25 @@ It refuses production/staging-looking targets and non-local database hosts,
 including Cloud SQL-style Unix socket paths. It is not a migration and does not
 silently create admin grants.
 
+For shared Firebase/JWKS dev sign-in, do not wait for a manual Firebase UID
+lookup when the email is already approved. Seed pending email grants instead:
+
+```bash
+cd /Users/ravi/mesha/goatos/backend
+go run ./cmd/seed-dev-email-grants \
+  -tenant-id 00000000-0000-4000-8000-000000000001 \
+  -role ceo_internal \
+  -email abhishek@mesha.sg \
+  -email aryaman@mesha.sg \
+  -email manju@mesha.sg \
+  -email ravi@mesha.sg
+```
+
+On first verified Google/Firebase sign-in, the backend turns the matching
+`auth_pending_email_grants` row into the real `user_scope_grants` row and writes
+`auth.pending_email_grant_claimed` to `audit_log`. Raw Google/Firebase tokens
+are never stored.
+
 When admin-web calls the backend, the bearer token stays server-side. Client
 components receive rendered data; they do not call the backend with raw bearer
 credentials.
