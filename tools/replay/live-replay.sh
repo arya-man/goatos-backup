@@ -11,10 +11,6 @@ report_root="$repo_root/.codex-goatos-render/replay-live/$timestamp"
 input_dir="$report_root/inputs"
 generated_dir="$report_root/generated"
 
-fallback_rfid="$repo_root/../source-material/goatos-live-snapshot-20260617T210319Z/rfid/RFID source of truth.live-browser.xlsx"
-downloaded_rfid="/Users/ravi/Downloads/RFID source of truth (1).xlsx"
-baseline_rfid_csv="${GOATOS_BASELINE_RFID_CSV:-$repo_root/.codex-goatos-render/drive-sheet-inventory-20260615T174444Z/RFID_source_of_truth__Combined.csv}"
-trust_baseline_rfid="${GOATOS_REPLAY_TRUST_BASELINE_RFID:-1}"
 rfid_sheet_id="${GOATOS_LIVE_RFID_SHEET_ID:-1FulMrlb8_AGwL5nFwoORACnbDstSFMg-GCPaKIZnnF8}"
 census_sheet_id="${GOATOS_LIVE_CENSUS_SHEET_ID:-1tye3uknlVMoPIiYk2pdkwy9PLQwo5m8wdFIsc7yI5Ho}"
 goats_db_sheet_id="${GOATOS_LIVE_GOATS_DB_SHEET_ID:-1R648AutCSXS247DZb7dc07dDgyue6_R4mZDd93oW3M8}"
@@ -311,20 +307,13 @@ echo "active_gcloud_account=$active_account"
 echo "legacy_bq_project=$legacy_bq_project"
 echo "legacy_bq_location=$legacy_bq_location"
 
-log "Copying live RFID workbook"
+log "Exporting live RFID workbook from Google Drive"
 rfid_xlsx="$input_dir/RFID-source-of-truth.live.xlsx"
+rfid_metadata="$input_dir/RFID-source-of-truth.live.metadata.json"
 drive_token=""
-if [[ -n "${GOATOS_LIVE_RFID_XLSX:-}" ]]; then
-  assert_file "$GOATOS_LIVE_RFID_XLSX"
-  cp "$GOATOS_LIVE_RFID_XLSX" "$rfid_xlsx"
-  echo "rfid_source=$GOATOS_LIVE_RFID_XLSX"
-else
-  log "Exporting live RFID workbook from Google Drive"
-  rfid_metadata="$input_dir/RFID-source-of-truth.live.metadata.json"
-  drive_token="$(gcloud auth print-access-token)"
-  export_drive_sheet_xlsx "$rfid_sheet_id" "rfid" "$rfid_xlsx" "$rfid_metadata" "$drive_token"
-  echo "rfid_source=drive:$rfid_sheet_id"
-fi
+drive_token="$(gcloud auth print-access-token)"
+export_drive_sheet_xlsx "$rfid_sheet_id" "rfid" "$rfid_xlsx" "$rfid_metadata" "$drive_token"
+echo "rfid_source=drive:$rfid_sheet_id"
 rfid_size="$(wc -c <"$rfid_xlsx" | tr -d '[:space:]')"
 rfid_sha="$(shasum -a 256 "$rfid_xlsx" | awk '{print $1}')"
 echo "rfid_size=$rfid_size"
@@ -457,28 +446,18 @@ diagnostic_args=(
   --diagnostics-csv-out "$rfid_diagnostics_csv"
   --summary-json-out "$rfid_diagnostics_json"
 )
-if [[ -f "$baseline_rfid_csv" ]]; then
-  diagnostic_args+=(--baseline-rfid-csv "$baseline_rfid_csv")
-fi
 python3 "$repo_root/tools/replay/diagnose-live-replay-sources.py" "${diagnostic_args[@]}" | tee "$report_root/live-rfid-source-diagnostics.pretty.json"
 
-rfid_import_xlsx="$rfid_xlsx"
-if [[ "$trust_baseline_rfid" == "1" ]]; then
-  [[ -f "$baseline_rfid_csv" ]] || fail "GOATOS_REPLAY_TRUST_BASELINE_RFID=1 requires baseline CSV: $baseline_rfid_csv"
-  log "Filtering live RFID workbook to trusted seed rows; live deltas are reported, not auto-created"
-  rfid_import_xlsx="$generated_dir/RFID-source-of-truth.live.seed.xlsx"
-  rfid_delta_csv="$generated_dir/RFID-source-of-truth.live.excluded-delta-review.csv"
-  rfid_filter_summary="$generated_dir/rfid-seed-filter-summary.json"
-  python3 "$repo_root/tools/replay/filter-rfid-workbook.py" \
-    --input-xlsx "$rfid_xlsx" \
-    --sheet Combined \
-    --baseline-csv "$baseline_rfid_csv" \
-    --output-xlsx "$rfid_import_xlsx" \
-    --excluded-csv "$rfid_delta_csv" \
-    --summary-json "$rfid_filter_summary" | tee "$report_root/rfid-seed-filter-summary.pretty.json"
-else
-  echo "rfid_seed_filter=disabled"
-fi
+log "Filtering live RFID workbook to canonical farm blocks; reopened append blocks are review-only"
+rfid_import_xlsx="$generated_dir/RFID-source-of-truth.live.seed.xlsx"
+rfid_delta_csv="$generated_dir/RFID-source-of-truth.live.excluded-reopened-farm-review.csv"
+rfid_filter_summary="$generated_dir/rfid-seed-filter-summary.json"
+python3 "$repo_root/tools/replay/filter-rfid-workbook.py" \
+  --input-xlsx "$rfid_xlsx" \
+  --sheet Combined \
+  --output-xlsx "$rfid_import_xlsx" \
+  --excluded-csv "$rfid_delta_csv" \
+  --summary-json "$rfid_filter_summary" | tee "$report_root/rfid-seed-filter-summary.pretty.json"
 
 log "Exporting live legacy dashboard count"
 legacy_count_json="$input_dir/legacy_dashboard_count.live.json"

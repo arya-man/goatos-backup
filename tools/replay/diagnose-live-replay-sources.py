@@ -85,24 +85,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--rfid-xlsx", required=True, type=Path)
     parser.add_argument("--rfid-sheet", default="Combined")
-    parser.add_argument("--baseline-rfid-csv", type=Path)
     parser.add_argument("--bq-current-csv", required=True, type=Path)
     parser.add_argument("--goats-db-db-csv", required=True, type=Path)
     parser.add_argument("--diagnostics-csv-out", required=True, type=Path)
     parser.add_argument("--summary-json-out", required=True, type=Path)
     args = parser.parse_args()
 
-    baseline_rfids: set[str] = set()
-    if args.baseline_rfid_csv and args.baseline_rfid_csv.exists():
-        for row in read_csv(args.baseline_rfid_csv):
-            rfid = canonical_identifier(row.get("RFID"))
-            if rfid:
-                baseline_rfids.add(rfid)
-
     by_old, by_farm_old = build_source_indexes(args.bq_current_csv, args.goats_db_db_csv)
     rows = []
     counts: Counter[str] = Counter()
-    delta_counts: Counter[str] = Counter()
 
     for row in read_rfid_xlsx(args.rfid_xlsx, args.rfid_sheet):
         rfid = canonical_identifier(row.get("RFID"))
@@ -125,16 +116,10 @@ def main() -> int:
         if rfid_as_goat_sources:
             classification += "+rfid_appears_as_bq_or_goats_db_goat_id"
 
-        delta_state = "not_compared"
-        if baseline_rfids:
-            delta_state = "existing_in_baseline" if rfid in baseline_rfids else "new_since_baseline"
-
         counts[classification] += 1
-        delta_counts[f"{delta_state}|{classification}"] += 1
         rows.append(
             {
                 "row_number": row["_row_number"],
-                "delta_state": delta_state,
                 "classification": classification,
                 "farm": row.get("Farm", ""),
                 "old_id": row.get("Old ID", ""),
@@ -156,7 +141,6 @@ def main() -> int:
     args.diagnostics_csv_out.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "row_number",
-        "delta_state",
         "classification",
         "farm",
         "old_id",
@@ -180,9 +164,7 @@ def main() -> int:
 
     summary = {
         "rfid_rows": len(rows),
-        "baseline_rfid_rows": len(baseline_rfids),
         "by_classification": dict(sorted(counts.items())),
-        "by_delta_and_classification": dict(sorted(delta_counts.items())),
     }
     args.summary_json_out.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))

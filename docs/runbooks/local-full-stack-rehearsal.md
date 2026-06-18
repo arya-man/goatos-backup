@@ -83,48 +83,45 @@ Use the Docker storage runbook before large tests:
 docs/runbooks/local-docker-storage.md
 ```
 
-## Frozen Legacy Replay Gate
+## Live Legacy Replay Gate
 
 Use this before mutating `goatos-dev` whenever the question is "will the import
 recipe port the full legacy herd deterministically?" It starts a new throwaway
-Docker Postgres database, applies migrations, verifies the frozen input
-checksums, runs the complete replay recipe, rebuilds counters, and fails unless
-the final frozen oracle matches the known legacy snapshot:
+Docker Postgres database, exports the current live upstream sources through
+Google APIs, applies migrations, runs the complete replay recipe, rebuilds
+counters, and fails unless the final active-goat count matches the live legacy
+dashboard count for the latest available date:
 
 ```bash
-make replay-frozen
+make replay-live
 ```
 
-The replay uses:
+The replay reads live upstreams only:
 
 ```text
-/Users/ravi/mesha/source-material/goatos-dev-data-fill-20260617/
+RFID source of truth Sheet ID: 1FulMrlb8_AGwL5nFwoORACnbDstSFMg-GCPaKIZnnF8
+Census DB Sheet ID:          1tye3uknlVMoPIiYk2pdkwy9PLQwo5m8wdFIsc7yI5Ho
+Goats DB Sheet ID:           1R648AutCSXS247DZb7dc07dDgyue6_R4mZDd93oW3M8
+BigQuery project/location:   goatos-sheets / US
 ```
 
-It does not use the normal local DB and does not touch Google Cloud. By default
-the container is deleted when the run exits. To inspect a failed replay DB:
+The replay writes timestamped exports and reports under ignored
+`.codex-goatos-render/replay-live/` for audit, but those files are outputs, not
+inputs. It does not use the normal local DB and does not mutate Google Cloud. By
+default the container is deleted when the run exits. To inspect a failed replay
+DB:
 
 ```bash
-GOATOS_REPLAY_KEEP_DB=1 make replay-frozen
+GOATOS_REPLAY_KEEP_DB=1 make replay-live
 ```
 
-Current frozen oracle:
+The RFID workbook is live-exported from Drive. Because that sheet is
+append-edited by operators, the replay imports the canonical farm blocks and
+exports reopened append-block rows to a review CSV instead of silently creating
+extra passports that the legacy dashboard does not count.
 
-```text
-total goats = 2668
-alive       = 2088
-sold        = 544
-dead        = 36
-inactive    = 0
-
-identity clean        = 2465
-identity needs_review = 203
-open conflicts        = 232
-```
-
-The gate also asserts the sentinel old-tag backfill outcomes that previously
-drifted from legacy: old tags `952` and `998` must be `alive`, and old tag
-`SA2328307` must be `dead`.
+Do not reload `goatos-dev` from legacy inputs unless this live replay gate
+passes first.
 
 ## Legacy XLSX Parser Harness
 
@@ -303,7 +300,7 @@ export DATABASE_URL=<local Docker Postgres URL>
   --tenant-id <tenant_uuid> \
   --import-run-id <import_run_id> \
   --events-json <ignored-bq-event-export.json> \
-  --locations-json <ignored-bq-latest-location-export.json>)
+  --locations-json <ignored-current-location-export.json>)
 ```
 
 Apply only after the dry-run matches the expected correction shape:
@@ -313,7 +310,7 @@ Apply only after the dry-run matches the expected correction shape:
   --tenant-id <tenant_uuid> \
   --import-run-id <import_run_id> \
   --events-json <ignored-bq-event-export.json> \
-  --locations-json <ignored-bq-latest-location-export.json> \
+  --locations-json <ignored-current-location-export.json> \
   --execute)
 ```
 
