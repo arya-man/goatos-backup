@@ -7,11 +7,16 @@ Canonical docs:
 
 - `context/analytics/final-analytics-infra.md`
 - `docs/decisions/high-scale-dashboard-projections.md`
+- `docs/features/counter-family/AGENT-RUNBOOK.md`
+- `docs/features/counter-family/INTEGRATION-CHECKLIST.md`
 - `docs/features/cutover-contract.md`
+- `docs/features/counts/AGENT-TASK.md`
 - `docs/features/counts/PRD.md`
 - `docs/features/counts/TRD.md`
+- `docs/features/locations/AGENT-TASK.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
+- `docs/features/mortality/AGENT-TASK.md`
 - `docs/features/mortality/PRD.md`
 - `docs/features/mortality/TRD.md`
 - `context/source-findings/customer-promise-safety-findings.md`

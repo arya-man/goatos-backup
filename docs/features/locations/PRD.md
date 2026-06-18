@@ -163,6 +163,31 @@ Do not add first-class `location_type` values for `holding`, `quarantine`, or
 compatibility plan. This keeps v1 compatible with the current Phase 1 schema
 while still making those operational states queryable and auditable.
 
+## Required Scope Manifest
+
+Production completion requires all Locations scope below. None of these may
+remain pending, hidden, or migration-only:
+
+- Admin-web Locations tab with table/tree/detail, parent/breadcrumb, alias,
+  capacity, usage, and review flows.
+- Tenant-scoped backend CRUD, list/search/detail, alias, capacity, usage, review,
+  retire/inactivate, and safe hard-delete APIs with generated clients.
+- Supported `location_type` values: farm, park, shed, pen, cohort, unknown.
+- Operational attributes/classes for holding, quarantine, and ICU without adding
+  incompatible first-class location types.
+- Alias source contexts for Counts, Mortality, BQ dashboard shed labels, old-tag
+  legacy codes, and required migration labels.
+- Seeded CBE/CPT/HF scope anchor and seeded alias protections.
+- Usage checks across goats, location history, projections, aliases, SOP
+  submissions, imports, child locations, and RBAC grants.
+- Projection invalidation/rebuild hooks for Counts/Infra and alias resolution for
+  Mortality and other legacy-label dashboards.
+
+Supporting scope includes future Feed, Vaccination, and other dashboard aliases
+that are cataloged for compatibility but not yet part of an active feature
+slice. Supporting aliases may be reviewed later, but they do not replace the
+required Counts/Mortality/Infra label-resolution scope above.
+
 ## Legacy Evidence
 
 Legacy dashboards use location-like labels across several sources:
@@ -181,6 +206,12 @@ Legacy dashboards use location-like labels across several sources:
 These are discovery inputs and parity oracles. They are not final canonical
 truth. Unknown source labels should create review work, not duplicate active
 locations.
+
+Required live-source access for legacy label/capacity evidence is owned by the
+data/source owner and the feature implementer together. If a required BQ/Sheets
+or Drive-backed source remains blocked, Locations cannot be production-complete
+unless product explicitly removes the affected label/capacity scope from this
+PRD/TRD.
 
 For Phase 1 parity, legacy `farm` labels such as `CBE` and `CPT` resolve to the
 existing seeded park-scope rows, not to new `location_type = farm` records. Those

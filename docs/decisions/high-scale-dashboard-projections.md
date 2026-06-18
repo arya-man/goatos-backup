@@ -381,4 +381,14 @@ Before building a large dashboard feature, confirm:
   production-complete if the proof still depends on request-time full-herd scans
   or unbounded aggregations.
 
+Credible simulation means more than a small dev-data smoke test. Use one of:
+
+- a local/staging synthetic fixture at the relevant table scale, such as
+  one-million goat/current-fact rows or equivalent projection rows
+- an `EXPLAIN`/`EXPLAIN ANALYZE` plan fixture showing tenant/date/section scoped
+  index access with bounded row estimates, plus chunked worker access for large
+  rebuilds
+- both, when the query touches goat/event/import/source tables or writes
+  projection rows at high volume
+
 If these are missing, stop and write the design before coding.

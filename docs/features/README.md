@@ -9,11 +9,16 @@ model, API contract, parity plan, and rollout gates before code starts.
 
 Current feature docs:
 
+- `docs/features/counter-family/AGENT-RUNBOOK.md`
+- `docs/features/counter-family/INTEGRATION-CHECKLIST.md`
 - `docs/features/cutover-contract.md`
+- `docs/features/counts/AGENT-TASK.md`
 - `docs/features/counts/PRD.md`
 - `docs/features/counts/TRD.md`
+- `docs/features/locations/AGENT-TASK.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
+- `docs/features/mortality/AGENT-TASK.md`
 - `docs/features/mortality/PRD.md`
 - `docs/features/mortality/TRD.md`
 
@@ -25,6 +30,10 @@ canonical projections.
 The shared cutover contract owns the transition rule for any feature that is
 temporarily fed by BigQuery/Sheets but will later be fed by Android/backend
 canonical writes.
+
+The counter-family agent runbook and task files are execution guides for running
+Locations, Counts, and Mortality in parallel. They do not replace the PRD/TRD
+contracts.
 
 Rules:
 

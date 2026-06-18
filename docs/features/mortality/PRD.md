@@ -162,6 +162,32 @@ APIs. Internal/dev builds may expose pending sections while source coverage is
 being proven, but pending, migration-only, or intentionally dropped required
 sections block production completion.
 
+## Required Scope Manifest
+
+Production completion requires all legacy-visible Mortality scope below. None of
+these may remain pending, hidden, migration-only, or intentionally dropped:
+
+- Tabs: Overall, This Month, Month-wise.
+- Summary pills: Total Deaths, Kid Deaths, Adult Deaths, Total Mortality Rate,
+  Kid Mortality Rate, Adult Mortality Rate.
+- Section tabs: Breed-wise, Farm-wise, Load-wise, By Delivery, Trends.
+- Supporting trend/analysis sections from the legacy screen: Gender-wise,
+  Status-wise, Housing/shed-wise.
+- Breed-wise sub-tabs: By Breed and Within Breed.
+- Formula Register rows for every required summary/chart section, including
+  numerator, denominator, window, source oracle, and exact/reconciled parity
+  expectation.
+- Freshness/source/review surfaces: source unavailable, stale, rebuilding,
+  never-synced, conflict count, unresolved event review, location alias review,
+  and denominator availability.
+- Event-source coverage, logical-event dedup, denominator provenance, and rate
+  mixed-composition gates required by the TRD.
+
+Supporting/future scope includes governed Cube metrics, warehouse egress, and
+canonical Android Death SOP write ownership after cutover. Those paths must stay
+compatible with this PRD/TRD, but they do not replace or reduce the required
+legacy-visible Mortality dashboard scope above.
+
 ## Source Of Truth And Storage Decision
 
 Mortality v1 uses these data stores:

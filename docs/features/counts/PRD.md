@@ -134,6 +134,28 @@ Current Goat OS identity-count charts, such as location mapped and gender, may
 remain as supporting panels only if they do not replace required legacy parity
 sections.
 
+## Required Scope Manifest
+
+Production completion requires all legacy Counts tabs and sections below. None
+of these may remain pending, hidden, or migration-only:
+
+- Tabs: Overall, Core Farms, CBE, CPT, Holdings.
+- KPI cards: Total Active Goats, Farm Value, Total Weight, Average Weight per
+  Goat, Breeds Tracked.
+- Charts/sections: Count by Status, Count by Breed, Status by Breed, Count by
+  Farm, Count Distribution by Farm, Count by Age, Adults by Gender, Kids by
+  Gender, K0 to K3 Kids by Gender, Fattening by Gender, Fattening Kids Male -
+  Breedwise for Core Farms, Fattening Kids Female - Breedwise for Core Farms.
+- Filters and tab behavior: legacy-equivalent semantics for Overall/Core Farms,
+  CBE, CPT, and Holdings.
+- Freshness/source/review surfaces: source unavailable, stale, rebuilding,
+  never-synced, conflict count, and `summary_source_date` visibility.
+
+Supporting scope is allowed only when it does not replace required legacy
+parity. Current Goat OS identity-count panels such as location mapped and gender
+can remain supporting panels, but they do not satisfy the required legacy Counts
+sections above and do not block completion if intentionally omitted.
+
 ## Location Management Dependency
 
 Counts and Locations should be built together. Counts must consume the shared
@@ -184,8 +206,13 @@ required capacity sources before real sync. Feed and Vaccination evidence should
 be cataloged for Locations compatibility, but unavailable Feed/Vaccination
 sources must not block Counts parity unless their feature slice explicitly
 depends on them. If a required source is blocked or unavailable, record source
-unavailable and keep the affected sections stale or pending. Do not write fake
-zeros.
+unavailable and keep the affected sections stale or pending in internal/dev
+review only. Do not write fake zeros.
+
+Required live-source access is owned by the data/source owner and the feature
+implementer together. If a required BQ/Sheets/Drive source remains blocked,
+Counts cannot be production-complete unless product explicitly removes the
+affected section from required scope in this PRD/TRD.
 
 ## Metric Semantics
 

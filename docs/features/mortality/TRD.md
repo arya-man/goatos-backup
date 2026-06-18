@@ -155,6 +155,11 @@ Before running a real sync, probe every required source. If a source is blocked
 by Drive/BQ permissions or is missing, record `source_unavailable` and do not
 write fake zero projections.
 
+Required live-source access is owned by the data/source owner and the feature
+implementer together. If a required BQ/Sheets/Drive source remains blocked,
+Mortality cannot be production-complete unless product explicitly removes the
+affected section from required scope in the PRD/TRD.
+
 ## Formula Register
 
 Before coding a chart or summary pill, add an explicit formula row here. The
