@@ -61,9 +61,9 @@ Dev custom dashboard URL is live:
 - Google Cloud global HTTPS LB resources were created imperatively in
   `goatos-dev`; see `envs/dev/README.md`.
 - Firebase/Auth Platform authorized domains include `dev.dashboard.mesha.sg`.
-- The Google OAuth web client must also allow JavaScript origin
-  `https://dev.dashboard.mesha.sg` before Google sign-in works on the custom
-  host.
+- The Google OAuth web client allows JavaScript origin
+  `https://dev.dashboard.mesha.sg`, and Google Auth Platform Branding app name
+  is `Mesha`.
 
 Still blocked on later explicit operator approval in the verified vgoats.com
 context:

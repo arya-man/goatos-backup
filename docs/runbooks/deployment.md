@@ -171,13 +171,17 @@ Firebase/Auth Platform authorized domains:
 
 Google OAuth web client authorized JavaScript origins:
 - https://dev.dashboard.mesha.sg
+
+Google Auth Platform Branding:
+- App name: Mesha
 ```
 
 The Firebase authorized domain was updated through the Identity Toolkit API.
-The OAuth web client still needs the JavaScript origin above added in Google
-Auth Platform while signed in as a project-authorized Mesha/VGoats account.
-Without that origin, Google sign-in from the custom host can fail with
-`origin_mismatch` even though DNS, TLS, and the dashboard page load work.
+The OAuth web client JavaScript origin and Branding app name were updated in
+Google Auth Platform while signed in as a project-authorized Mesha/VGoats
+account. If a future custom host is added, update both auth allowlists; missing
+JavaScript origins cause `origin_mismatch` even when DNS, TLS, and the
+dashboard page load work.
 
 ## Required backend config per environment
 

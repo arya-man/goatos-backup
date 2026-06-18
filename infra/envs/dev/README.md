@@ -342,24 +342,25 @@ curl -I http://dev.dashboard.mesha.sg/dashboard/login
 # Location: https://dev.dashboard.mesha.sg:443/dashboard/login
 ```
 
-Remaining SSO console step:
+SSO console state:
 
 ```text
 OAuth web client:
 634659905829-mf5fkfdl92akln15asorvkcduem5bpk3.apps.googleusercontent.com
 
-Required authorized JavaScript origin:
+Authorized JavaScript origin:
 https://dev.dashboard.mesha.sg
+
+Google Auth Platform Branding app name:
+Mesha
 ```
 
 The Firebase authorized domain is not enough by itself. Google sign-in can still
-fail with `origin_mismatch` on the custom host until the OAuth client has this
-JavaScript origin. The current Chrome session opened Google Cloud Console under
-the personal Gmail account, which lacked `clientauthconfig.clients.*`
-permissions, and switching to `ravi@mesha.sg` required an interactive password
-challenge. Complete this console step while signed into Google Cloud as
-`ravi@mesha.sg`; do not use personal Gmail project access or grant broad IAM
-just to work around the browser account.
+fail with `origin_mismatch` on a custom host until the OAuth client has that
+host's JavaScript origin. Make future auth-branding or custom-host changes while
+signed into Google Cloud as a project-authorized Mesha/VGoats account; do not
+use personal Gmail project access or grant broad IAM just to work around the
+browser account.
 
 Planned hostname split:
 
