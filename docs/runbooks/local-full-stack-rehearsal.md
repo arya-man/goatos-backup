@@ -120,6 +120,63 @@ append-edited by operators, the replay imports the canonical farm blocks and
 exports reopened append-block rows to a review CSV instead of silently creating
 extra passports that the legacy dashboard does not count.
 
+### What The Live Replay Gate Proves
+
+`make replay-live` has two independent gates:
+
+1. Active-count parity: the throwaway replay DB must match the live legacy
+   dashboard active-goat count for the latest reported legacy date.
+2. Goat-level parity: when the local oracle container
+   `goatos-local-current-persist` is running, the throwaway replay DB is compared
+   against that oracle and must have zero missing goats, zero extra goats, and
+   zero changed matched goats.
+
+The second gate is deliberate. A replay can produce the same active count while
+still containing the wrong goats or wrong lifecycle facts. The oracle comparison
+exports both databases to normalized TSV snapshots and matches goats by active
+RFID and scoped old-tag identity tokens. For matched goats, the comparator checks
+these fields:
+
+```text
+lifecycle_status
+park
+breed
+sex
+age_band
+identity_state
+```
+
+The generated report is written to:
+
+```text
+.codex-goatos-render/replay-live/<timestamp>/oracle-compare/
+```
+
+with:
+
+```text
+missing_in_replay.csv
+extra_in_replay.csv
+changed_common_keys.csv
+summary.json
+```
+
+The replay summary includes both booleans:
+
+```json
+{
+  "active_count_parity": true,
+  "goat_level_parity": true,
+  "parity": true
+}
+```
+
+`parity` is true only when the active count matches and, if the oracle check ran,
+the goat-level comparison is also clean. This was tightened after the first live
+replay work: the script used to fail only on the active count, which allowed
+goat-level drift such as missing, extra, or changed goats to be reported but not
+block the run. Current behavior fails closed on any goat-level drift.
+
 Do not reload `goatos-dev` from legacy inputs unless this live replay gate
 passes first.
 
