@@ -10,6 +10,8 @@ Canonical docs:
 - `docs/phases/phase-01-goat-passport/BUILD-STATUS.md`
 - `docs/phases/phase-01-goat-passport/PRD.md`
 - `docs/phases/phase-01-goat-passport/TRD.md`
+- `docs/features/locations/PRD.md`
+- `docs/features/locations/TRD.md`
 
 Current backend shape:
 

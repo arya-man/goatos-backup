@@ -7,6 +7,10 @@ Canonical docs:
 
 - `context/analytics/final-analytics-infra.md`
 - `docs/decisions/high-scale-dashboard-projections.md`
+- `docs/features/counts/PRD.md`
+- `docs/features/counts/TRD.md`
+- `docs/features/locations/PRD.md`
+- `docs/features/locations/TRD.md`
 - `docs/features/mortality/PRD.md`
 - `docs/features/mortality/TRD.md`
 - `context/source-findings/customer-promise-safety-findings.md`

@@ -9,8 +9,17 @@ model, API contract, parity plan, and rollout gates before code starts.
 
 Current feature docs:
 
+- `docs/features/counts/PRD.md`
+- `docs/features/counts/TRD.md`
+- `docs/features/locations/PRD.md`
+- `docs/features/locations/TRD.md`
 - `docs/features/mortality/PRD.md`
 - `docs/features/mortality/TRD.md`
+
+Counts and Locations are separate feature specs but one delivery slice:
+Locations owns canonical location tree, aliases, capacity, usage checks, and
+review queues; Counts consumes those records for legacy parity and future
+canonical projections.
 
 Rules:
 

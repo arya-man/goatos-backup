@@ -8,6 +8,10 @@ Canonical docs:
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
 - `context/execution/two-dev-build-plan.md`
+- `docs/features/counts/PRD.md`
+- `docs/features/counts/TRD.md`
+- `docs/features/locations/PRD.md`
+- `docs/features/locations/TRD.md`
 
 Rules:
 
