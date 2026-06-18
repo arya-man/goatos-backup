@@ -1904,9 +1904,11 @@ API bootstrap defaults to bearer auth when GOATOS_AUTH_MODE is empty
 signed bearer token proves user identity
 Goat OS DB grant for token sub proves tenant membership and role authority
 role and permissions come from user_scope_grants, never from token role claims
-tenant_id from the token is the request tenant
-X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are local/dev scaffolds only and are
-ignored/overwritten in bearer mode
+tenant_id from a verified token claim is the preferred request tenant
+X-GoatOS-Tenant-ID is the live tenant-context fallback for external IdPs such
+as Firebase whose ID tokens do not carry Goat OS tenant claims
+X-GoatOS-Actor-ID remains local/dev scaffolding only and is overwritten from
+the verified token subject in bearer/JWKS mode
 ```
 
 Analytics tenant handling:
@@ -1946,8 +1948,10 @@ lifetimes, key rotation, refresh-token policy, and revocation/session handling.
 The dev-header escape hatch is unsafe and must be hard to enable accidentally.
 It requires `GOATOS_AUTH_MODE=dev_headers` plus `GOATOS_DEV_HEADERS_ALLOW=true`,
 emits a loud startup warning, and is allowed only when `GOATOS_ENV` is exactly
-`local`, `dev`, or `test`. Normal bearer mode ignores/overwrites
-`X-GoatOS-Tenant-ID` and `X-GoatOS-Actor-ID`.
+`local`, `dev`, or `test`. Normal bearer/JWKS mode still verifies the token:
+actor context is always overwritten from the verified token subject, while
+tenant context prefers a verified token tenant claim and otherwise falls back to
+`X-GoatOS-Tenant-ID` for external IdPs such as Firebase.
 
 Local bootstrap helpers:
 

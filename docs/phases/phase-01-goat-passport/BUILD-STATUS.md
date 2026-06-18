@@ -851,9 +851,15 @@ Legacy RFID parser canonical apply:
 ## Auth And RBAC Scope
 
 ```text
-X-GoatOS-Tenant-ID and X-GoatOS-Actor-ID are no longer production API
-authority. Bearer mode derives tenant and actor from the signed token and
-overwrites these headers before handlers run.
+X-GoatOS-Actor-ID is no longer production API authority. Bearer/JWKS mode
+always derives actor context from the verified token subject and overwrites that
+header before handlers run.
+
+X-GoatOS-Tenant-ID is not actor authority, but it is a live tenant-context
+fallback for external IdPs such as Firebase whose verified ID tokens do not
+carry Goat OS tenant claims. Bearer/JWKS mode prefers a verified token tenant
+claim when present, otherwise falls back to this tenant header and then gates
+authorization through active DB grants.
 
 The headers remain only for explicit local dev_headers mode and direct handler
 unit tests below the auth middleware.
