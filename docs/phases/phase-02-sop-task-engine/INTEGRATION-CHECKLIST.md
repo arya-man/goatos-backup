@@ -36,6 +36,8 @@ Builder/Task Engine agents finish local work and before any dev deploy.
     `/app/devices*`.
   - SOP/task owns `/admin/sops*`, `/admin/tasks*`, `/app/tasks*`,
     `/app/sop-versions*`.
+- Shared `admin-api.yaml` and `app-api.yaml` edits were merged serially before
+  generated clients were regenerated.
 - SOP JSON Schemas exist and are contract-checked:
   - `sop-form-version.schema.json`
   - `sop-submission.schema.json`
@@ -91,6 +93,8 @@ Builder/Task Engine agents finish local work and before any dev deploy.
   deferral note tied to PRD acceptance.
 - Shared route shell contains final route labels and links once, added by the
   coordinator.
+- If counter-family work is also in flight, shared shell/nav/smoke edits are
+  serialized across both programs.
 - Desktop and narrow screenshots are reviewed for changed admin-web routes.
 - No visible `Goat OS`/`VGoat` token leaks in rendered admin-web UI.
 

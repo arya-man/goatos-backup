@@ -63,6 +63,11 @@ for Phase 2 unless the coordinator updates all task docs before fan-out.
 | SOP Builder/Task Engine | `000060`-`000069` | `contracts/openapi/admin-api.yaml` paths under `/admin/sops*`, `/admin/tasks*`; `contracts/openapi/app-api.yaml` paths under `/app/tasks*`, `/app/sop-versions*`; SOP JSON Schemas | `apps/admin-web/features/sops/**`, `apps/admin-web/features/tasks/**` |
 | Operator Android | none unless explicitly approved | consumes generated app API client; propose contract gaps to coordinator instead of editing OpenAPI by default | `apps/operator-mobile/**`, mobile packages/adapters assigned in task doc |
 
+OpenAPI ownership is by path prefix, but `admin-api.yaml` and `app-api.yaml`
+are shared physical files. Merge contract edits serially in the final
+integration order, then regenerate `packages/api-client` once after both
+backend contract tracks land.
+
 Coordinator owns shared route-shell files unless explicitly delegated:
 
 ```text
@@ -72,6 +77,11 @@ apps/admin-web/lib/routes.ts
 apps/admin-web/scripts/smoke-visual-live.mjs
 packages/api-client generated outputs after contract merge
 ```
+
+If counter-family work is running at the same time, route-shell edits are shared
+with that program's Locations/coordinator integration. Serialize shell/nav/smoke
+edits across both programs; Phase 2 feature agents should hand off route
+metadata instead of editing those files directly.
 
 If an agent exhausts its migration range, it must stop and ask for a new
 reserved range. Do not take another agent's range.
