@@ -100,9 +100,23 @@ async function recordBackendAuthEvent(
   if (response.ok) {
     return { ok: true };
   }
+  const backendError = await backendErrorCode(response);
   return {
     ok: false,
     status: response.status >= 400 && response.status < 500 ? response.status : 502,
-    error: "auth_audit_failed",
+    error: backendError ?? "auth_audit_failed",
   };
+}
+
+async function backendErrorCode(response: Response): Promise<string | null> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return null;
+  }
+  if (!isRecord(payload) || typeof payload.code !== "string") {
+    return null;
+  }
+  return payload.code;
 }

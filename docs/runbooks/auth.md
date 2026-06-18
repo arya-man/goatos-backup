@@ -34,10 +34,16 @@ GOATOS_AUTH_ISSUER=<idp issuer URL>
 GOATOS_AUTH_AUDIENCE=<goat-os api audience>
 GOATOS_AUTH_JWKS_URL=<idp JWKS endpoint>
 GOATOS_AUTH_ALLOWED_ALGS=RS256,ES256
+GOATOS_AUTH_ALLOWED_EMAILS=<approved admin email>[,<approved admin email>...]
 ```
 
 Authorization still comes from active `user_scope_grants` rows in Goat OS; token
 claims authenticate the subject but do not grant product roles by themselves.
+When `GOATOS_AUTH_ALLOWED_EMAILS` is set, the backend rejects verified
+Firebase/JWKS tokens unless the token email is verified and present in that
+email allowlist. This blocks session-cookie creation through
+`/auth/session-events` and blocks every protected API request before RBAC grant
+lookup.
 
 ## goatos-dev IdP
 
@@ -69,6 +75,9 @@ The admin-web route proxy checks only that the session cookie is present,
 well-formed, and not expired before rendering protected dashboard routes. It
 does not verify the cookie signature; the backend verifies the Firebase ID
 token with JWKS on `/auth/session-events` and every data API request.
+The Google provider's `hd=mesha.sg` value is only an account-picker hint. It is
+not the access-control boundary; the backend email allowlist plus DB grants are
+the boundary.
 
 For shared or cloud dev environments, pin the session-audit tenant and keep the
 route rate-limited:

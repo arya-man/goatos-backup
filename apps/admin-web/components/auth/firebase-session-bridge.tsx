@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { onIdTokenChanged } from "firebase/auth";
-import { getFirebaseAuth, syncFirebaseSession } from "@/lib/auth/firebase-client";
+import { clearFirebaseSession, getFirebaseAuth, isFirebaseSessionError, syncFirebaseSession } from "@/lib/auth/firebase-client";
 
 const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
 
@@ -17,13 +17,19 @@ export function FirebaseSessionBridge() {
         if (!mounted) return;
         unsubscribe = onIdTokenChanged(auth, (user) => {
           if (!user) return;
-          void syncFirebaseSession(user).catch(() => {
+          void syncFirebaseSession(user).catch((error: unknown) => {
+            if (isFirebaseSessionError(error, "email_not_allowed")) {
+              void clearFirebaseSession().catch(() => undefined);
+            }
             // Navigation will recover through /dashboard/login if the cookie goes stale.
           });
         });
         interval = setInterval(() => {
           if (!auth.currentUser) return;
-          void syncFirebaseSession(auth.currentUser, true).catch(() => {
+          void syncFirebaseSession(auth.currentUser, true).catch((error: unknown) => {
+            if (isFirebaseSessionError(error, "email_not_allowed")) {
+              void clearFirebaseSession().catch(() => undefined);
+            }
             // A later SSR request will redirect to login if refresh cannot recover.
           });
         }, REFRESH_INTERVAL_MS);

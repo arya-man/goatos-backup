@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
+	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
@@ -30,13 +32,15 @@ type AuthConfig struct {
 	Mode              string
 	DevHeadersAllowed bool
 	Environment       string
+	AllowedEmails     []string
 }
 
 type AuthMiddleware struct {
-	mode     string
-	verifier TokenVerifier
-	grants   permissions.GrantSource
-	log      *slog.Logger
+	mode          string
+	verifier      TokenVerifier
+	grants        permissions.GrantSource
+	log           *slog.Logger
+	allowedEmails authallow.EmailSet
 }
 
 func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*AuthMiddleware, error) {
@@ -49,6 +53,10 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 	}
 	if grants == nil {
 		return nil, ErrInvalidAuthConfig
+	}
+	allowedEmails, err := authallow.NewEmailSet(cfg.AllowedEmails)
+	if err != nil {
+		return nil, fmt.Errorf("%w: GOATOS_AUTH_ALLOWED_EMAILS must contain valid email addresses", ErrInvalidAuthConfig)
 	}
 	switch mode {
 	case AuthModeBearer:
@@ -63,7 +71,7 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 	default:
 		return nil, ErrInvalidAuthConfig
 	}
-	return &AuthMiddleware{mode: mode, verifier: verifier, grants: grants, log: log}, nil
+	return &AuthMiddleware{mode: mode, verifier: verifier, grants: grants, log: log, allowedEmails: allowedEmails}, nil
 }
 
 func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
@@ -113,6 +121,10 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		claims, err := a.verifier.Verify(token)
 		if err != nil {
 			writeAuthError(w, r, http.StatusUnauthorized, "invalid_bearer_token", "bearer token is invalid")
+			return r.Context(), "", "", false
+		}
+		if !a.allowedEmails.Allows(claims.Email, claims.EmailVerified) {
+			writeAuthError(w, r, http.StatusForbidden, "email_not_allowed", "this Google account is not allowed for Mesha Admin")
 			return r.Context(), "", "", false
 		}
 		tenantID := claims.TenantID

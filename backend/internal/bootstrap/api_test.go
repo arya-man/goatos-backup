@@ -124,20 +124,21 @@ func TestAuthAuditOptionsFromConfig(t *testing.T) {
 	options, err := buildAuthAuditOptions(AuthConfig{
 		AuthSessionAllowedTenantIDs:   []string{"00000000-0000-4000-8000-000000000001"},
 		AuthSessionRateLimitPerMinute: 60,
+		AllowedEmails:                 []string{"ravi@mesha.sg"},
 	})
 	if err != nil {
 		t.Fatalf("valid auth audit options rejected: %v", err)
 	}
-	if len(options) != 2 {
-		t.Fatalf("options=%d want 2", len(options))
+	if len(options) != 3 {
+		t.Fatalf("options=%d want 3", len(options))
 	}
 
 	options, err = buildAuthAuditOptions(AuthConfig{AuthSessionRateLimitPerMinute: 0})
 	if err != nil {
 		t.Fatalf("disabled rate limit rejected: %v", err)
 	}
-	if len(options) != 1 {
-		t.Fatalf("options=%d want allowlist option only", len(options))
+	if len(options) != 2 {
+		t.Fatalf("options=%d want tenant/email allowlist options only", len(options))
 	}
 
 	if _, err := buildAuthAuditOptions(AuthConfig{AuthSessionRateLimitInvalidValue: true}); err == nil {
@@ -148,6 +149,9 @@ func TestAuthAuditOptionsFromConfig(t *testing.T) {
 	}
 	if _, err := buildAuthAuditOptions(AuthConfig{AuthSessionAllowedTenantIDs: []string{"not-a-uuid"}}); err == nil {
 		t.Fatal("invalid auth session tenant allowlist accepted")
+	}
+	if _, err := buildAuthAuditOptions(AuthConfig{AllowedEmails: []string{"not-an-email"}}); err == nil {
+		t.Fatal("invalid auth email allowlist accepted")
 	}
 }
 
@@ -187,6 +191,20 @@ func TestAuthStringListFromEnv(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("list=%v want %v", got, want)
+		}
+	}
+}
+
+func TestConfigFromEnvParsesAuthAllowedEmails(t *testing.T) {
+	t.Setenv("GOATOS_AUTH_ALLOWED_EMAILS", " ravi@mesha.sg, abhishek@mesha.sg ,, manju@mesha.sg ")
+	cfg := ConfigFromEnv()
+	want := []string{"ravi@mesha.sg", "abhishek@mesha.sg", "manju@mesha.sg"}
+	if len(cfg.Auth.AllowedEmails) != len(want) {
+		t.Fatalf("emails=%v want %v", cfg.Auth.AllowedEmails, want)
+	}
+	for i := range want {
+		if cfg.Auth.AllowedEmails[i] != want[i] {
+			t.Fatalf("emails=%v want %v", cfg.Auth.AllowedEmails, want)
 		}
 	}
 }

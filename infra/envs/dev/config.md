@@ -12,13 +12,16 @@ GOATOS_AUTH_MODE=jwks            # Google Identity Platform / Firebase Auth
 GOATOS_AUTH_ISSUER=https://securetoken.google.com/goatos-dev
 GOATOS_AUTH_AUDIENCE=goatos-dev
 GOATOS_AUTH_JWKS_URL=https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com
+GOATOS_AUTH_ALLOWED_EMAILS=<approved Mesha Admin emails>
 GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>
 DATABASE_URL=<Cloud SQL socket /cloudsql/goatos-dev:asia-south1:<instance>>
 GOATOS_OBS_SINK=gcm
 ```
 
 `goatos-dev` uses Google Identity Platform / Firebase Auth for auth only. Do not
-use Firebase Hosting or Firebase App Hosting.
+use Firebase Hosting or Firebase App Hosting. `GOATOS_AUTH_ALLOWED_EMAILS`
+narrows the Firebase/Google sign-in surface to approved admin emails; matching
+DB grants are still required before dashboard APIs authorize.
 
 Migration jobs and guarded dev DB-writing helpers also set
 `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true`; do not put that opt-in on unrelated

@@ -102,7 +102,9 @@ Rules:
   carry Goat OS tenant claims, it falls back to `X-GoatOS-Tenant-ID` and then
   authorizes only through active `user_scope_grants` for that token subject and
   tenant. `X-GoatOS-Actor-ID` remains local/dev-only; bearer auth overwrites
-  actor context from the verified token subject.
+  actor context from the verified token subject. If
+  `GOATOS_AUTH_ALLOWED_EMAILS` is configured, the token must also carry a
+  verified email present in that allowlist before tenant/RBAC checks proceed.
 - Phase 1 RBAC is the internal goat-ops realm only. The DB-enforced role set is
   `admin`, `verifier`, `park_head`, `operator`, and `ceo_internal`. Investor,
   buyer, donor, partner, franchise, lending, procurement, health, workforce, and
@@ -171,9 +173,11 @@ Rules:
   the Firebase ID-token cookie. That route verifies the bearer token, uses the
   same stable external-subject mapping as normal auth, falls back to
   `X-GoatOS-Tenant-ID` for Firebase tenant context, and writes `audit_log`
-  actions without persisting raw Firebase/Google tokens. The admin-web proxy is
-  only a missing/malformed/expired cookie pre-check; backend JWKS verification
-  is the trust boundary.
+  actions without persisting raw Firebase/Google tokens. The route applies the
+  same verified-email allowlist as normal bearer auth so disallowed accounts do
+  not get an admin-web session cookie. The admin-web proxy is only a
+  missing/malformed/expired cookie pre-check; backend JWKS verification is the
+  trust boundary.
 - Multiple active tenant grants are unioned for authorization. If any active
   matching tenant grant role confers the required permission, the request is
   authorized; product-admin-only routes require an active `admin` or

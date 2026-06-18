@@ -19,6 +19,16 @@ export type FirebaseClientRuntimeConfig = {
 
 export type FirebaseSessionEventType = "auth.sign_in" | "auth.session_refresh";
 
+export class FirebaseSessionError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "FirebaseSessionError";
+  }
+}
+
 let authPromise: Promise<Auth> | null = null;
 let configPromise: Promise<FirebaseClientRuntimeConfig> | null = null;
 
@@ -51,7 +61,12 @@ export async function signInWithGoogleAccountChooser(): Promise<User> {
   provider.addScope("profile");
 
   const result = await signInWithPopup(auth, provider);
-  await syncFirebaseSession(result.user, true, "auth.sign_in");
+  try {
+    await syncFirebaseSession(result.user, true, "auth.sign_in");
+  } catch (error) {
+    await signOut(auth).catch(() => undefined);
+    throw error;
+  }
   return result.user;
 }
 
@@ -78,9 +93,17 @@ export async function syncFirebaseSession(
     body: JSON.stringify({ idToken, eventType }),
   });
   if (!response.ok) {
-    throw new Error("The admin session could not be refreshed.");
+    const code = await sessionRouteErrorCode(response);
+    throw new FirebaseSessionError(messageForSessionRouteError(code), code);
   }
   return true;
+}
+
+export function isFirebaseSessionError(error: unknown, code?: string): error is FirebaseSessionError {
+  return (
+    error instanceof FirebaseSessionError &&
+    (code === undefined || error.code === code)
+  );
 }
 
 async function loadFirebaseConfig(): Promise<FirebaseClientRuntimeConfig> {
@@ -97,4 +120,36 @@ async function loadFirebaseConfig(): Promise<FirebaseClientRuntimeConfig> {
     });
   }
   return configPromise;
+}
+
+async function sessionRouteErrorCode(response: Response): Promise<string> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return "admin_session_failed";
+  }
+  if (isRecord(payload) && typeof payload.error === "string" && payload.error.trim() !== "") {
+    return payload.error.trim();
+  }
+  return "admin_session_failed";
+}
+
+function messageForSessionRouteError(code: string): string {
+  switch (code) {
+    case "email_not_allowed":
+      return "This Google account is not allowed for Mesha Admin.";
+    case "tenant_not_allowed":
+    case "tenant_config_missing":
+      return "Mesha Admin sign-in is misconfigured for this environment.";
+    case "invalid_bearer_token":
+    case "invalid_or_expired_id_token":
+      return "Google sign-in did not return a valid Mesha session. Try again.";
+    default:
+      return "The admin session could not be refreshed.";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
+	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -49,6 +50,7 @@ type AuthConfig struct {
 	MaxTokenTTL                      time.Duration
 	DevHeadersAllowed                bool
 	Environment                      string
+	AllowedEmails                    []string
 	AuthSessionAllowedTenantIDs      []string
 	AuthSessionRateLimitPerMinute    int
 	AuthSessionRateLimitInvalidValue bool
@@ -80,6 +82,7 @@ func ConfigFromEnv() Config {
 			MaxTokenTTL:                      authMaxTokenTTLFromEnv(),
 			DevHeadersAllowed:                strings.EqualFold(os.Getenv("GOATOS_DEV_HEADERS_ALLOW"), "true"),
 			Environment:                      os.Getenv("GOATOS_ENV"),
+			AllowedEmails:                    authStringListFromEnv("GOATOS_AUTH_ALLOWED_EMAILS"),
 			AuthSessionAllowedTenantIDs:      authStringListFromEnv("GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS"),
 			AuthSessionRateLimitPerMinute:    authSessionRateLimitFromEnv(),
 			AuthSessionRateLimitInvalidValue: authSessionRateLimitInvalidFromEnv(),
@@ -219,6 +222,7 @@ func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, 
 		Mode:              mode,
 		DevHeadersAllowed: cfg.DevHeadersAllowed,
 		Environment:       cfg.Environment,
+		AllowedEmails:     cfg.AllowedEmails,
 	}, verifier, grants, log)
 }
 
@@ -231,8 +235,12 @@ func buildAuthAuditOptions(cfg AuthConfig) ([]authaudit.Option, error) {
 			return nil, fmt.Errorf("%w: GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS must contain only UUIDs", httpmiddleware.ErrInvalidAuthConfig)
 		}
 	}
+	if _, err := authallow.NewEmailSet(cfg.AllowedEmails); err != nil {
+		return nil, fmt.Errorf("%w: GOATOS_AUTH_ALLOWED_EMAILS must contain only valid email addresses", httpmiddleware.ErrInvalidAuthConfig)
+	}
 	options := []authaudit.Option{
 		authaudit.WithAllowedTenantIDs(cfg.AuthSessionAllowedTenantIDs),
+		authaudit.WithAllowedEmails(cfg.AllowedEmails),
 	}
 	if cfg.AuthSessionRateLimitPerMinute > 0 {
 		options = append(options, authaudit.WithRateLimiter(authaudit.NewRateLimiter(

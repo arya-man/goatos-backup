@@ -206,6 +206,7 @@ GOATOS_AUTH_CLOCK_SKEW=60s            # optional
 GOATOS_AUTH_ALLOWED_ALGS=RS256,ES256  # optional
 GOATOS_AUTH_JWKS_CACHE_TTL=10m        # optional
 GOATOS_AUTH_MAX_TOKEN_TTL=24h         # optional ceiling
+GOATOS_AUTH_ALLOWED_EMAILS=<approved admin email>[,<approved admin email>...]
 GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=<tenant uuid>[,<tenant uuid>...]
 GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE=120  # default; 0 disables for controlled local smoke
 
@@ -224,6 +225,10 @@ audience `goatos-dev`, and JWKS URL
 `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`.
 The admin-web proxy only redirects missing, malformed, or expired Firebase
 ID-token cookies; backend JWKS verification remains the trust boundary.
+`GOATOS_AUTH_ALLOWED_EMAILS` is the environment-level dashboard email allowlist:
+when configured, sign-in/session audit and protected API requests reject tokens
+whose verified email is not present in the list. Google Workspace `hd` hints are
+not sufficient access control by themselves.
 
 ## Release steps
 

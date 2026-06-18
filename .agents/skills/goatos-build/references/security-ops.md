@@ -45,6 +45,10 @@ Rules:
   Pin shared environments with `GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS` and
   keep `GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE` enabled unless a controlled
   local smoke explicitly disables it with `0`.
+- Shared dashboard environments can narrow Firebase/Google sign-in with
+  `GOATOS_AUTH_ALLOWED_EMAILS`. Treat Google provider `hd` values as picker
+  hints only; the backend verified-email allowlist plus DB grants are the real
+  access-control boundary.
 - Before paid dev infra apply, verify the goatos-dev-only budget on billing
   account `01FEDE-96BCB3-76D992` and keep Terraform free of secret versions,
   database users/passwords, API keys, bearer tokens, or Firebase config values.

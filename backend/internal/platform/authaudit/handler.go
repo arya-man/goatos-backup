@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
+	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -40,6 +41,8 @@ type Handler struct {
 	recorder         Recorder
 	log              *slog.Logger
 	allowedTenantIDs map[string]struct{}
+	allowedEmails    authallow.EmailSet
+	emailConfigErr   error
 	rateLimiter      *RateLimiter
 }
 
@@ -58,6 +61,17 @@ func WithAllowedTenantIDs(tenantIDs []string) Option {
 		if len(allowed) > 0 {
 			h.allowedTenantIDs = allowed
 		}
+	}
+}
+
+func WithAllowedEmails(emails []string) Option {
+	return func(h *Handler) {
+		allowed, err := authallow.NewEmailSet(emails)
+		if err != nil {
+			h.emailConfigErr = err
+			return
+		}
+		h.allowedEmails = allowed
 	}
 }
 
@@ -89,6 +103,10 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusServiceUnavailable, "auth_audit_unconfigured", "auth audit is not configured")
 		return
 	}
+	if h.emailConfigErr != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "auth_email_allowlist_invalid", "auth email allowlist is invalid")
+		return
+	}
 
 	var body struct {
 		EventType string `json:"event_type"`
@@ -117,6 +135,41 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID, tenantSource := tenantFromClaimsOrHeader(claims, r)
+	if !h.allowedEmails.Allows(claims.Email, claims.EmailVerified) {
+		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
+		if !h.allowRateLimited(r, claims, "email_not_allowed|"+tenantID) {
+			writeError(w, r, http.StatusTooManyRequests, "auth_session_rate_limited", "too many auth session events")
+			return
+		}
+		if err := h.record(r, Event{
+			TenantID:     "",
+			ActorID:      claims.Subject,
+			ActorType:    actorTypeUser,
+			Action:       ActionFailedSignIn,
+			ResourceType: resourceTypeAuthSession,
+			Metadata: metadataForClaims(claims, map[string]any{
+				"reason":              "email_not_allowed",
+				"source":              cleanMetadataString(body.Source, 64),
+				"requested_tenant_id": requestedTenantID,
+				"resolved_tenant_id":  tenantID,
+				"token_tenant_source": tenantSource,
+			}),
+			TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
+		}); err != nil {
+			h.log.WarnContext(r.Context(), "auth_failed_sign_in_audit_write_failed",
+				slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+				slog.String("trace_id", traceID(r)),
+				slog.String("actor_id", claims.Subject),
+				slog.String("email", authallow.NormalizeEmail(claims.Email)),
+				slog.String("requested_tenant_id", cleanMetadataString(requestedTenantID, 64)),
+				slog.String("resolved_tenant_id", tenantID),
+				slog.String("token_tenant_source", tenantSource),
+				slog.String("error", err.Error()),
+			)
+		}
+		writeError(w, r, http.StatusForbidden, "email_not_allowed", "this Google account is not allowed for Mesha Admin")
+		return
+	}
 	if !uuidutil.IsUUIDString(tenantID) {
 		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
 		if !h.allowRateLimited(r, claims, "missing_tenant_context") {

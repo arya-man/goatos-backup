@@ -115,6 +115,110 @@ func TestBearerAuthDeniesHeaderTenantWithoutMatchingGrant(t *testing.T) {
 	assertAuthErrorCode(t, rec, "permission_denied")
 }
 
+func TestBearerAuthAllowsOnlyConfiguredVerifiedEmails(t *testing.T) {
+	verified := true
+	externalSubject := "firebase-uid-ravi"
+	actorID := platformauth.StableSubjectID(authTestIssuer, externalSubject)
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer, AllowedEmails: []string{"ravi@mesha.sg", "abhishek@mesha.sg"}},
+		staticVerifier{claims: platformauth.Claims{
+			Subject:         actorID,
+			ExternalSubject: externalSubject,
+			Issuer:          authTestIssuer,
+			Audience:        authTestAudience,
+			Email:           "Ravi@Mesha.SG",
+			EmailVerified:   &verified,
+		}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{actorID + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", authTestTenant)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBearerAuthRejectsEmailOutsideAllowlist(t *testing.T) {
+	verified := true
+	externalSubject := "firebase-uid-hr"
+	actorID := platformauth.StableSubjectID(authTestIssuer, externalSubject)
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer, AllowedEmails: []string{"ravi@mesha.sg", "abhishek@mesha.sg"}},
+		staticVerifier{claims: platformauth.Claims{
+			Subject:         actorID,
+			ExternalSubject: externalSubject,
+			Issuer:          authTestIssuer,
+			Audience:        authTestAudience,
+			Email:           "hr@mesha.sg",
+			EmailVerified:   &verified,
+		}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{actorID + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("handler should not run for an unlisted email")
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", authTestTenant)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertAuthErrorCode(t, rec, "email_not_allowed")
+}
+
+func TestBearerAuthRejectsUnverifiedEmailWhenAllowlistIsConfigured(t *testing.T) {
+	unverified := false
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer, AllowedEmails: []string{"ravi@mesha.sg"}},
+		staticVerifier{claims: platformauth.Claims{
+			Subject:       authTestUser,
+			Issuer:        authTestIssuer,
+			Audience:      authTestAudience,
+			Email:         "ravi@mesha.sg",
+			EmailVerified: &unverified,
+		}},
+		grantAdapter{fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleOperator}}}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("handler should not run for an unverified email")
+	})))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set("X-GoatOS-Tenant-ID", authTestTenant)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertAuthErrorCode(t, rec, "email_not_allowed")
+}
+
 func TestBearerAuthRequiresTenantContextWhenTokenHasNoTenantClaim(t *testing.T) {
 	mw, err := NewAuthMiddleware(
 		AuthConfig{Mode: AuthModeBearer},

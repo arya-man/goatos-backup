@@ -60,6 +60,96 @@ func TestHandlerRecordsSignInWithoutGrantLookup(t *testing.T) {
 	}
 }
 
+func TestHandlerAllowsOnlyConfiguredVerifiedEmails(t *testing.T) {
+	emailVerified := true
+	recorder := &captureRecorder{}
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:         testActorID,
+		ExternalSubject: "firebase-uid-1",
+		Issuer:          "https://securetoken.google.com/goatos-dev",
+		Audience:        "goatos-dev",
+		Email:           "RAVI@MESHA.SG",
+		EmailVerified:   &emailVerified,
+		Expires:         time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithAllowedEmails([]string{"ravi@mesha.sg"})))
+	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.sign_in","source":"admin-web"}`))
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(recorder.events) != 1 || recorder.events[0].Action != ActionSignIn {
+		t.Fatalf("events=%#v", recorder.events)
+	}
+}
+
+func TestHandlerRejectsEmailOutsideAllowlistBeforeSessionIsRecorded(t *testing.T) {
+	emailVerified := true
+	recorder := &captureRecorder{}
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:         testActorID,
+		ExternalSubject: "firebase-uid-hr",
+		Issuer:          "https://securetoken.google.com/goatos-dev",
+		Audience:        "goatos-dev",
+		Email:           "hr@mesha.sg",
+		EmailVerified:   &emailVerified,
+		Expires:         time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithAllowedEmails([]string{"ravi@mesha.sg"})))
+	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.sign_in","source":"admin-web"}`))
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "email_not_allowed")
+	assertErrorTraceID(t, rec)
+	if len(recorder.events) != 1 {
+		t.Fatalf("events=%d want 1", len(recorder.events))
+	}
+	event := recorder.events[0]
+	if event.Action != ActionFailedSignIn || event.TenantID != "" || event.ActorID != testActorID {
+		t.Fatalf("event=%#v", event)
+	}
+	if event.Metadata["reason"] != "email_not_allowed" || event.Metadata["email"] != "hr@mesha.sg" {
+		t.Fatalf("metadata=%#v", event.Metadata)
+	}
+}
+
+func TestHandlerRejectsUnverifiedEmailWhenAllowlistIsConfigured(t *testing.T) {
+	emailVerified := false
+	recorder := &captureRecorder{}
+	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
+		Subject:       testActorID,
+		Issuer:        "https://securetoken.google.com/goatos-dev",
+		Audience:      "goatos-dev",
+		Email:         "ravi@mesha.sg",
+		EmailVerified: &emailVerified,
+		Expires:       time.Unix(1_800_000_000, 0).UTC(),
+	}}, recorder, nil, WithAllowedEmails([]string{"ravi@mesha.sg"})))
+	req := httptest.NewRequest(http.MethodPost, "/auth/session-events", strings.NewReader(`{"event_type":"auth.sign_in","source":"admin-web"}`))
+	req.Header.Set("Authorization", "Bearer verified-firebase-token")
+	req.Header.Set(httpmiddleware.TenantContextHeader, testTenantID)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "email_not_allowed")
+	if len(recorder.events) != 1 || recorder.events[0].Action != ActionFailedSignIn {
+		t.Fatalf("events=%#v", recorder.events)
+	}
+}
+
 func TestHandlerRecordsFailedSignInWhenVerifiedTokenHasNoTenantContext(t *testing.T) {
 	recorder := &captureRecorder{}
 	handler := RequestWrapped(NewHandler(staticVerifier{claims: platformauth.Claims{
@@ -232,6 +322,17 @@ func assertErrorTraceID(t *testing.T, rec *httptest.ResponseRecorder) {
 	}
 	if body.TraceID == "" || body.TraceID == "missing-trace" {
 		t.Fatalf("trace_id=%q body=%s", body.TraceID, rec.Body.String())
+	}
+}
+
+func assertErrorCode(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	var body errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if body.Code != want {
+		t.Fatalf("code=%s want %s body=%s", body.Code, want, rec.Body.String())
 	}
 }
 
