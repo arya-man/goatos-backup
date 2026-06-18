@@ -130,6 +130,55 @@ posture to `goatos-stg` or `goatos-prod`; those environments are blocked until a
 service-to-service/IAM or IAP design exists that preserves Goat OS app auth
 rather than replacing the user's app bearer token.
 
+## Dashboard hostnames and DNS
+
+Planned public dashboard hostnames:
+
+```text
+dev.dashboard.mesha.sg -> goatos-dev
+stg.dashboard.mesha.sg -> goatos-stg
+dashboard.mesha.sg     -> goatos-prod
+```
+
+Current live dev hostname:
+
+```text
+URL:         https://dev.dashboard.mesha.sg/dashboard
+Project:     goatos-dev
+Cloudflare:  mesha.sg zone
+DNS record:  A dev.dashboard -> 8.232.140.161, DNS-only
+LB IP name:  goatos-nonprod-dashboard-ip
+LB IP:       8.232.140.161
+Certificate: goatos-nonprod-dashboard-cert, ACTIVE for dev.dashboard.mesha.sg
+Backend:     goatos-admin-web-dev through serverless NEG goatos-admin-web-dev-neg
+```
+
+Dev and staging may share the non-prod IP because they are low-traffic internal
+environments, but do not point `stg.dashboard.mesha.sg` at the non-prod IP until
+there is a stg Cloud Run service, certificate SAN, and URL-map route. Production
+must use a separate prod IP/LB and must not reuse the dev/stg non-prod IP.
+
+Cloudflare records for Google-managed certificates should start as DNS-only
+while Google provisions or renews the certificate. Do not orange-cloud/proxy the
+record unless that behavior has been explicitly tested with the selected Google
+certificate and OAuth setup.
+
+Custom-host auth has two independent allowlists:
+
+```text
+Firebase/Auth Platform authorized domains:
+- dev.dashboard.mesha.sg
+
+Google OAuth web client authorized JavaScript origins:
+- https://dev.dashboard.mesha.sg
+```
+
+The Firebase authorized domain was updated through the Identity Toolkit API.
+The OAuth web client still needs the JavaScript origin above added in Google
+Auth Platform while signed in as a project-authorized Mesha/VGoats account.
+Without that origin, Google sign-in from the custom host can fail with
+`origin_mismatch` even though DNS, TLS, and the dashboard page load work.
+
 ## Required backend config per environment
 
 The API binary (`backend/cmd/api`) is configured entirely through env vars. A

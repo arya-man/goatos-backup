@@ -55,12 +55,23 @@ P8 raw-URL dev dashboard bring-up switches dev Cloud SQL to
 `activation_policy = "ALWAYS"` so migrations and serving can use the instance.
 This is a running-cost posture while the raw dev dashboard is live.
 
+Dev custom dashboard URL is live:
+- `https://dev.dashboard.mesha.sg/dashboard`
+- Cloudflare DNS: `A dev.dashboard -> 8.232.140.161`, DNS-only.
+- Google Cloud global HTTPS LB resources were created imperatively in
+  `goatos-dev`; see `envs/dev/README.md`.
+- Firebase/Auth Platform authorized domains include `dev.dashboard.mesha.sg`.
+- The Google OAuth web client must also allow JavaScript origin
+  `https://dev.dashboard.mesha.sg` before Google sign-in works on the custom
+  host.
+
 Still blocked on later explicit operator approval in the verified vgoats.com
 context:
 - Terraform apply for Layer 1 foundation resources.
-- Layer 2 app deploy resources: Cloud Run services/jobs, Scheduler jobs, LB/DNS,
-  Secret Manager secret versions, Cloud SQL users/passwords, image pushes,
-  migrations, and legacy imports.
+- Remaining Layer 2 app resources beyond the already-live dev admin-web/LB/DNS
+  path: Cloud Run services/jobs, Scheduler jobs, stg/prod LB/DNS, Secret
+  Manager secret versions, Cloud SQL users/passwords, image pushes, migrations,
+  and legacy imports.
 - Production IdP/JWKS endpoint + signing-key/secret provisioning.
 - Pub/Sub outbox publisher + worker deploy wiring.
 ```

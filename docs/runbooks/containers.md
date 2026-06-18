@@ -147,6 +147,17 @@ The image in the `services describe` output must match the current `IMAGE`, and
 traffic must be on the new ready revision. If the operator is looking at the raw
 Cloud Run URL, tell them to hard reload only after this verification passes.
 
+If the dev custom hostname is in use, also verify it after the raw Cloud Run
+smoke:
+
+```bash
+curl -I --max-time 15 https://dev.dashboard.mesha.sg/dashboard/login
+```
+
+This custom-host smoke only proves DNS/TLS/LB/page load. Google sign-in also
+requires the OAuth web client's authorized JavaScript origins to include
+`https://dev.dashboard.mesha.sg`.
+
 ## Dev Defaults
 
 Cloud Run services should set `PORT=8080`. Backend services and jobs that need
