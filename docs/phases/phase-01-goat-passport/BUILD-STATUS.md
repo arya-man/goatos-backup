@@ -235,12 +235,11 @@ cleanup.
 Legacy Sync now has a backend-owned Phase 1 control-plane API and admin-web
 surface for source freshness, dry-run requests, run progress, and Source &
 Correction Log visibility. Execute and nightly modes are explicit blocked v1
-runs until the backend executor is configured. The production-safe executor plan
-is Cloud Scheduler -> Cloud Run Job or protected backend admin endpoint ->
-`bq-reconcile`/import apply -> Goat OS Postgres -> projection refresh ->
-freshness status; the initial cadence is configurable per source, with 15-minute
-polling acceptable for dev/staging and for prod only where upstream freshness and
-BigQuery cost budgets allow. The v1 seeds only the confirmed Phase 1
+runs until the backend executor is configured. The next production-safe executor
+must start as a manual, RBAC-protected backend command trigger or Cloud Run Job
+that performs `bq-reconcile`/import apply -> Goat OS Postgres -> projection
+refresh -> freshness status. Do not schedule periodic BQ/Sheets polling until
+old-snapshot-to-live replay proves goat-level parity and idempotency. The v1 seeds only the confirmed Phase 1
 critical sources, treats unknown sources as visible unregistered/noncritical
 items that are never silently green, honors per-source 60m and 12h thresholds,
 and blocks mutation until the production-safe executor and live scheduled-query
@@ -605,8 +604,10 @@ RFID/BQ source-of-truth staging and reconciliation:
   Current-data flow is BQ -> backend sync/reconciliation job -> Goat OS
   Postgres -> backend APIs -> admin dashboard. Dashboards must not read BQ
   directly. The future "Sync with BQ" UI control should trigger the same
-  backend job used by scheduled syncs, not a browser-side BQ query, and must be
-  RBAC-protected, audited, idempotent, bounded, and freshness-visible.
+  backend job, not a browser-side BQ query, and must be RBAC-protected, audited,
+  idempotent, bounded, and freshness-visible. Periodic polling stays disabled
+  until the replay harness proves old loaded state converges to current live
+  BQ/Sheets with zero goat-level drift.
   BQ table names, column names, and export quirks are temporary bridge details
   and must stay inside backend adapter/config code. Admin-web and mobile screens
   should use Goat OS product terms only so the BQ bridge can be removed when

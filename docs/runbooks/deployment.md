@@ -334,9 +334,11 @@ The following require cloud access in the verified `vgoats.com` context and are
 - Provisioning Cloud SQL, GCS, Pub/Sub topics, Secret Manager secrets, service
   accounts, and Artifact Registry per project.
 - Standing up a production IdP/JWKS endpoint and loading signing keys/secrets.
-- Wiring Cloud Scheduler / Cloud Run Job for the production-safe legacy sync
-  executor. Initial cadence should be configurable per source; start with
-  15-minute polling only where upstream freshness and BigQuery cost budgets allow.
+- Wiring the production-safe legacy sync executor as a manual RBAC-protected
+  command first. Do not create Cloud Scheduler polling for BQ/Sheets until the
+  replay harness proves old loaded state converges to current live BQ/Sheets
+  with zero goat-level drift and idempotent reruns. Any future scheduler must
+  call the same audited backend job rather than reading legacy sources directly.
 - Wiring the Pub/Sub outbox publisher + worker deploy (see event egress
   follow-up in BUILD-STATUS).
 - Running the migration apply, image deploy, and smoke against real projects.

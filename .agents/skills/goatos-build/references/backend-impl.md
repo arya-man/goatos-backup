@@ -390,8 +390,10 @@ Rules:
   sync/reconciliation job -> Goat OS Postgres -> backend APIs -> dashboard.
   Dashboards and browser/Next frontend code must never read BQ directly. A
   manual "Sync with BQ" UI control, when added, must trigger the same backend
-  sync job used by scheduled local/dev/stg/prod syncs, with RBAC, audit,
-  idempotency, bounded batches, and freshness/status reporting.
+  sync job, with RBAC, audit, idempotency, bounded batches, and freshness/status
+  reporting. Periodic scheduled BQ/Sheets polling is not approved until the
+  replay harness proves old-snapshot-to-live convergence with zero goat-level
+  drift and safe idempotent reruns.
   `backend/internal/legacy_sync` is the committed v1 runtime surface for source
   registry, per-source freshness, run steps, source/correction logs, and admin
   API status. It does not let admin-web query legacy tools directly. Execute
