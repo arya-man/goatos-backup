@@ -31,6 +31,38 @@ Media:
 
 Generic form products can be studied as UI references, but they are not the logic engine, runtime, or source of truth.
 
+## Program Goal
+
+The final SOP intake path is:
+
+```text
+Android operator runner
+  -> Goat OS app API
+  -> backend validation, idempotency, proof, audit
+  -> module-owned canonical command/event
+  -> Postgres projections
+  -> operational product dashboards and notifications
+```
+
+Governed/leadership analytics KPIs and AI read the Cube metric layer, not raw
+Postgres. Operational product dashboards read Postgres projections only when the
+KPI is dual-served and covered by the parity gate in
+`docs/decisions/high-scale-dashboard-projections.md`, per
+`context/analytics/final-analytics-infra.md`.
+
+Legacy Slack/App Script/Sheets/BigQuery can be temporary migration inputs and
+parity oracles, but they are not the final operating path. Counts, Locations,
+Mortality, and later dashboards may remove BQ/Sheets only when their feature
+coverage registry, cross-source dedup, and shadow parity gates are complete for
+the relevant section/grain.
+
+The first Shifting SOP proves the reusable loop. Full SOP closure requires
+migrating the Slack/App Script operating families onto the same builder, Android
+runner, backend validator, proof/rework model, and module-owned domain commands.
+Phase 2 platform acceptance, legacy SOP execution retirement, and dashboard
+BQ/Sheets source retirement are separate gates and must not be reported as one
+cutover switch.
+
 ## Why Own The Builder
 
 The builder must understand Goat OS semantics directly:
@@ -193,6 +225,32 @@ Slack forms:
   legacy input during cutover only.
   Android/app-api owns operational submission.
 ```
+
+## Closure Inventory
+
+Known SOP families that need first-class migration planning:
+
+```text
+shifting / movement
+count verification
+weight capture
+status / stage transition
+death report
+birth / abortion
+health diagnosis and follow-up
+not eating
+vaccination
+feed report
+video / proof verification
+procurement / arrival
+sale / exit / inactive
+```
+
+Use `docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md` as the live Phase 2
+cross-check for what is already captured and what remains missing before legacy
+SOP execution and BQ/Sheets dashboard intake can be retired. The closeout file
+does not mean Phase 2 implements every SOP family; it prevents Shifting from
+being mistaken for full SOP replacement.
 
 ## Legacy Slack Form Inputs To Preserve
 

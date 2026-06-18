@@ -19,6 +19,33 @@ Domain modules apply canonical truth.
 For Shifting, the task/submission engine collects and validates the form, then a
 movement/location application service applies per-goat location changes.
 
+Project-level final path:
+
+```text
+Android SOP submission
+  -> app API
+  -> backend validation/idempotency/proof/audit
+  -> module-owned canonical command/event
+  -> Postgres source/fact/projection tables
+  -> operational product dashboards/notifications
+```
+
+Governed/leadership analytics KPIs and AI read the Cube metric layer, not raw
+Postgres; operational product dashboards read Postgres projections only when the
+KPI is dual-served and covered by the parity gate in
+`docs/decisions/high-scale-dashboard-projections.md`
+(`context/analytics/final-analytics-infra.md`).
+
+Legacy BigQuery, Sheets, Slack, App Script, and Drive-backed evidence remain
+temporary migration inputs. They may be read only by backend-owned sync or
+bridge adapters. The final runtime must not depend on frontend/mobile access to
+legacy tools, and BQ/Sheets removal is gated per feature grain by the shared
+cutover contract and `SOP-CLOSEOUT.md`.
+
+Track the gates separately in implementation evidence: Shifting platform
+acceptance, legacy SOP execution retirement, and dashboard BQ/Sheets retirement.
+No deployment note or closeout artifact should collapse these into one switch.
+
 ## Modules Touched
 
 Backend modular monolith modules:
@@ -323,6 +350,54 @@ server-authoritative rules
 
 The client may help the operator avoid mistakes, but the backend owns the final
 decision.
+
+## Parallel Workstreams
+
+Admin builder and Android runner must be implemented against the same contracts,
+not as separate products.
+
+Backend/admin-web track:
+
+```text
+DSL JSON Schema
+draft SOP create/edit APIs
+workflow node/edge/proof policy validation
+option source validation
+preview dry-run endpoint
+publish/retire lifecycle
+admin task/proof/rework queues
+OpenAPI + generated TypeScript client
+```
+
+Android track:
+
+```text
+operator task list
+pinned SOP version download
+offline option-source cache
+native DSL renderer/evaluator
+draft persistence
+media upload intent integration
+idempotent sync queue
+per-goat partial result/retry
+rework and correction states
+```
+
+Shared contract artifacts:
+
+```text
+contracts/jsonschema/sop-form-version.schema.json
+contracts/jsonschema/sop-submission.schema.json
+contracts/jsonschema/sop-preview-dry-run.schema.json
+contracts/jsonschema/sop-proof-policy.schema.json
+contracts/openapi/admin-api.yaml
+contracts/openapi/app-api.yaml
+packages/api-client
+```
+
+If Android needs a client-safe evaluator package, add it as a shared package with
+deterministic rule semantics and backend parity tests. Do not duplicate rule
+behavior independently inside admin-web and operator-mobile.
 
 ## Jira-Style Builder UX Technical Shape
 
@@ -636,6 +711,34 @@ Phase 2 may use a local/dev adapter first, but production storage remains behind
 a media/storage port. The app must not write directly to GCS/Firebase without a
 backend-issued upload intent.
 
+Video uploads must be designed for field conditions:
+
+```text
+large videos do not pass through the app API process body
+backend issues scoped upload intent
+client uploads to storage adapter target
+client completes media record with hash/size/duration/captured_at/device info
+backend validates completion before proof can be accepted
+failed/expired uploads are retryable and visible in sync state
+media processing and AI pre-checks run async through jobs/outbox/DLQ
+raw media retention and derived thumbnail/transcode retention are policy fields
+```
+
+Every proof record must preserve:
+
+```text
+original proof
+rectified proof when rework happens
+verifier decision and verifier proof when configured
+proof subject and scope: goat, batch, shed, medicine, feed, load, or other
+operator/device/timestamp/location metadata where available
+audit trail for acceptance, rejection, rework, void, reversal, and correction
+```
+
+Media scale checks are required before production: upload intent rate, object
+size limits, retry behavior, storage lifecycle policy, DLQ/error monitoring, and
+bounded proof-review queries.
+
 ## Events And Outbox
 
 Minimum event types:
@@ -774,6 +877,41 @@ Phase 2 migration steps:
 No inbound Slack bridge may bypass Goat OS auth, validation, idempotency, audit,
 or RBAC.
 
+## Dashboard Cutover Dependencies
+
+Counts, Locations, and Mortality cannot drop BQ/Sheets merely because the SOP
+builder exists. They can drop legacy sources only where canonical SOP/domain
+coverage is complete, deduped, and parity-checked.
+
+A tenant-wide or feature-wide `canonical_only` flag is not enough. Promotion
+must be recorded at the section/grain that the serving API and dashboard use.
+
+Technical dependencies by feature:
+
+| Feature | Required SOP/domain inputs |
+| --- | --- |
+| Locations | location CRUD/alias/capacity APIs, Shifting movement events, Android option-source cache through Locations APIs, source-label review for SOP-submitted labels. |
+| Counts | count verification SOP, Shifting/location events, lifecycle events, status/stage transition events, weight or valuation facts, sale/inactive events, and projection invalidation from accepted submissions. |
+| Mortality | Death SOP to `mortality_events`, proof/correction/void model, post-mortem evidence policy, abortion/birth/litter ownership, denominator projection versioning, and source-independent event keys. |
+
+Each promoted dashboard grain must write coverage registry state with:
+
+```text
+feature/module
+section/metric
+grain key
+source mode being promoted
+canonical source/version
+legacy source/version
+shadow parity artifact path
+approving actor or job
+rollback/expiry policy
+```
+
+Cross-source dedup tests are mandatory for overlap windows, especially for
+death events and count verification facts where legacy and Android may describe
+the same real-world event.
+
 ## Testing
 
 Backend:
@@ -850,3 +988,10 @@ Operator mobile validation commands must be added when the app package lands.
   pending authorization task immediately.
 - Exact operator mobile package path and generated app-api client integration
   once the mobile app lands in this repo.
+- Whether Count Verification, Weight Capture, Death Report, or Vaccination is
+  the first post-Shifting SOP needed for dashboard cutover pressure.
+- Which module owns status/stage transition events equivalent to legacy
+  `shed_tag` semantics.
+- Which module owns birth/abortion/litter denominator facts before Mortality
+  rates can become canonical.
+- Exact post-mortem checklist fields and media requirements for Death SOP.

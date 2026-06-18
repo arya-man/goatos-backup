@@ -28,6 +28,50 @@ abortion, feed, proof verification, procurement, and farmer/crop workflows
 currently scattered across Slack, Sheets, App Script, Val.town, and operator
 memory.
 
+## Project-Level End State
+
+The full SOP replacement program has one final operating path:
+
+```text
+Admin SOP Builder
+  -> published SOP version
+  -> Android operator runner
+  -> Goat OS app API
+  -> backend validation, idempotency, proof, audit
+  -> module-owned canonical command/event
+  -> Postgres projections
+  -> operational product dashboards and notifications
+```
+
+Governed/leadership analytics KPIs and AI read the Cube metric layer, not raw
+Postgres. Operational product dashboards read Postgres projections only when the
+KPI is dual-served and covered by the parity gate in
+`docs/decisions/high-scale-dashboard-projections.md`, per
+`context/analytics/final-analytics-infra.md`.
+
+During migration, legacy BigQuery, Sheets, Slack, App Script, and Drive-backed
+evidence may feed backend-owned sync/reconciliation jobs. They are temporary
+inputs and parity oracles. The final product must rely on backend DB facts
+created by Android SOP submissions and backend domain commands, not on a
+runtime BigQuery/Sheets sync loop.
+
+The practical business goal is:
+
+```text
+Whatever operators currently do through Slack SOPs, they should be able to do
+through Goat OS Android tasks once the relevant SOP family is migrated.
+```
+
+Phase 2 proves this with Shifting and the reusable platform. Full retirement of
+BQ/Sheets is gated by the cross-feature coverage checks in
+`SOP-CLOSEOUT.md`, `docs/features/counts/`, `docs/features/locations/`, and
+`docs/features/mortality/`.
+
+Treat these as separate gates: Phase 2 platform acceptance, full legacy SOP
+execution retirement, and per-section dashboard BQ/Sheets retirement. Passing
+the Shifting platform gate must not be described as full SOP closeout or
+canonical-only dashboard readiness.
+
 ## Layman Explanation
 
 Today, many SOPs live as Slack messages, Slack modals, Apps Script code, Sheets,
@@ -254,6 +298,17 @@ flowchart TD
   I -->|No| L["Return Safe Field Errors"]
 ```
 
+Local visualization source reviewed:
+
+```text
+/Users/ravi/mesha/source-material/sop-playground-local/playground.html
+```
+
+Do not commit the raw playground HTML as product truth. The useful product
+intent is a catalog-driven SOP builder with custom draft creation, field
+palette, field editor, rule builder, workflow pattern/canvas, Android preview,
+scenario simulator, proof state, validate, and publish.
+
 ## Builder Capabilities
 
 Phase 2 builder must support enough capability to migrate real Slack SOPs:
@@ -280,6 +335,56 @@ Phase 2 builder must support enough capability to migrate real Slack SOPs:
   submit or before final approval
 - rework/correction path: verifier can reject proof or ask operator to fix
 - offline-safe submission: Android can draft/retry, backend remains authority
+
+## Builder And Android Parallel Delivery
+
+Admin builder and Android runner must be built in parallel against the same SOP
+contract. The builder cannot invent behavior that the runner/backend cannot
+execute, and the runner cannot hardcode behavior that the builder cannot
+preview and validate.
+
+Parallel tracks:
+
+```text
+Track A: backend + admin builder
+  DSL schema
+  draft/version APIs
+  rule validation and dry-run
+  workflow/proof policy configuration
+  publish/retire lifecycle
+  admin preview and task/proof review
+
+Track B: Android operator execution
+  assigned task list
+  pinned SOP version download
+  native form runner
+  offline option cache
+  draft and sync queue
+  proof capture/upload intent
+  idempotent submit and rework states
+```
+
+Both tracks meet at the backend API. The backend remains authority for
+permissions, pinned version validation, live goat/location state, proof policy,
+idempotency, audit, and domain-event creation.
+
+## SOP Closure Cross-Check
+
+The already-written Counts, Locations, and Mortality PRD/TRDs show what is still
+missing before SOP replacement can close the legacy loop.
+
+| Area | Already covered | Missing before close |
+| --- | --- | --- |
+| Locations | Canonical location tree, aliases, capacity, review, usage checks, projection invalidation. | Android option sources/offline caches must use Locations APIs; Shifting must write canonical movement/current-location events; SOP-submitted location labels must enter alias/review flow. |
+| Counts | Projection contract, blend mode, coverage registry, dashboard parity, current active goats, farm/shed/status/breed/age/gender sections. | Count verification SOP, Shifting/location events, lifecycle changes, status/stage transitions, weight capture or policy, valuation facts, sale/inactive events, and canonical shadow parity per section. |
+| Mortality | Event-based dashboard semantics, required `mortality_events`, Death SOP cutover model, proof/correction/idempotency. | Death SOP, post-mortem checklist, abortion/birth/litter event ownership, denominator projections, event-source coverage gate, death dedup keys, and canonical-vs-legacy shadow parity. |
+| SOP platform | Shifting walking skeleton, DSL/rules/proof/task state requirements. | Complete DSL schema/evaluator, builder APIs/UI, Android app/client/offline queue, media upload intents, workflow state machine, source inventory, reusable template seeds, and domain commands. |
+
+The detailed closeout checklist lives in:
+
+```text
+docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md
+```
 
 ## Why This Phase Exists
 
@@ -417,6 +522,9 @@ CEO/internal admin
 - Prove it with Shifting as the first end-to-end SOP.
 - Preserve current Shifting behavior from Slack/App Script while removing Slack
   and Sheets as canonical truth.
+- Establish the Android/backend submission path that later lets Counts,
+  Locations, Mortality, and other dashboards stop depending on BQ/Sheets sync
+  after coverage and shadow-parity gates pass.
 - Support conditional fields, required rules, repeat-for-each-goat, proof
   requirements, approval gates, and server-side validation from day one.
 - Make Android the operator execution surface.
@@ -686,8 +794,12 @@ Phase 2 is accepted when:
 7. Slack is notification or migration input only.
 8. The same DSL/runtime shape can support vaccination and health SOPs without
    rewriting the engine.
-9. Desktop admin screens and Android operator flow are visually verified.
-10. Docs and agent references describe what was actually built.
+9. `SOP-CLOSEOUT.md` has been reviewed against Counts, Locations, and
+   Mortality dependencies, and the remaining non-Phase-2 SOP families plus
+   dashboard source-retirement gates are explicitly classified instead of being
+   assumed complete.
+10. Desktop admin screens and Android operator flow are visually verified.
+11. Docs and agent references describe what was actually built.
 
 ## Open Product Decisions
 
@@ -703,3 +815,5 @@ These need business confirmation before or during implementation:
   health problem, booked for sale, missing RFID?
 - Are routine and growth shifts allowed without supervisor approval?
 - What Slack notifications should remain after Goat OS becomes source of truth?
+- Which SOP families must be promoted immediately after Shifting so Counts and
+  Mortality can stop using BQ/Sheets for their first production sections?

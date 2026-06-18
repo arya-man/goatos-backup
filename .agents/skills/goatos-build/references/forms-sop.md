@@ -8,6 +8,7 @@ Canonical docs:
 - `context/forms/final-forms-sop-engine.md`
 - `docs/phases/phase-02-sop-task-engine/PRD.md`
 - `docs/phases/phase-02-sop-task-engine/TRD.md`
+- `docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/execution/next-contracts.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
@@ -35,3 +36,14 @@ Rules:
   SOP/task engine. Vaccination, health, feed, death, birth/abortion,
   procurement, and other Slack-derived workflows must migrate onto the same DSL
   and runtime rather than creating one-off forms.
+- The project-level target is Android SOP runner -> Goat OS app API -> backend
+  validation/idempotency/proof/audit -> module-owned canonical event -> Postgres
+  projections. BQ/Sheets are removable only per feature/grain after coverage,
+  cross-source dedup, and shadow parity gates pass.
+- Keep three gates separate: Phase 2 Shifting platform acceptance, legacy SOP
+  execution retirement, and dashboard BQ/Sheets retirement. Do not let a
+  Shifting demo or Android path imply full SOP closeout.
+- Before calling SOP replacement closed, cross-check Counts, Locations, and
+  Mortality dependencies in `SOP-CLOSEOUT.md`; especially count verification,
+  weight, status/stage, death, birth/abortion, sale/exit, and proof/video flows
+  that are not all covered by the Shifting walking skeleton.

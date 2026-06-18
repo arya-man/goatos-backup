@@ -74,4 +74,5 @@ phase-01-goat-passport/
 phase-02-sop-task-engine/
   PRD.md
   TRD.md
+  SOP-CLOSEOUT.md
 ```
