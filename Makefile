@@ -1,3 +1,5 @@
+SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
+
 .PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall
 
 guardrails:
@@ -16,8 +18,8 @@ api-client-check: api-client-generate
 
 sqlc-generate:
 	bash tools/sqlc/dump-schema.sh
-	bash tools/sqlc/check-version.sh
-	cd backend && sqlc generate -f sqlc.yaml
+	SQLC="$(SQLC)" bash tools/sqlc/check-version.sh
+	cd backend && "$(SQLC)" generate -f sqlc.yaml
 
 sqlc-check: sqlc-generate
 	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc backend/internal/legacy_import/adapters/postgres/sqlc backend/internal/reporting/adapters/postgres/sqlc
