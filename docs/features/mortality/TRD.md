@@ -5,7 +5,8 @@ Status: draft for implementation review.
 ## Technical Summary
 
 Mortality is a high-scale dashboard feature. It must follow
-`docs/decisions/high-scale-dashboard-projections.md`.
+`docs/decisions/high-scale-dashboard-projections.md` and the shared
+legacy-to-canonical cutover rules in `docs/features/cutover-contract.md`.
 
 Runtime reads are served from Postgres projection tables. Sync/rebuild jobs may
 read canonical facts, source rows, and temporary staging tables. Request
@@ -17,12 +18,18 @@ Goat OS SOP/form adapters must normalize into `mortality_events`; projection
 logic must read canonical events plus approved denominator projections, not
 legacy source row shapes directly.
 
+All legacy farm, shed, housing, and status-location labels must resolve through
+the Locations alias service. Mortality must not maintain a private location
+mapping table.
+
 ## System Diagram
 
 ```mermaid
 flowchart LR
   BQ["Legacy BigQuery\n(read-only upstream)"]
   Sheets["Legacy Sheets/Drive\n(read-only upstream)"]
+  Android["Android Death SOP\nfuture canonical upstream"]
+  AppAPI["Goat OS write API\nvalidation + idempotency"]
   Sync["Goat OS mortality sync job\nmanual, RBAC, audited"]
   SourceRows["Postgres mortality_source_rows\nraw source evidence + hashes"]
   Facts["Postgres mortality_events\ncanonical event facts"]
@@ -36,6 +43,8 @@ flowchart LR
 
   BQ --> Sync
   Sheets --> Sync
+  Android --> AppAPI
+  AppAPI --> Facts
   Sync --> SourceRows
   Sync --> Facts
   Sync --> Review
@@ -94,6 +103,8 @@ Known source names from the legacy mortality dashboard area include:
 - `mortality_total_dev`
 - `mortality_overall_breedwise_dev`
 - `mortality_this_month_dev`
+- `mortality_this_month_farmwise_dev`
+- `monthly_mortality_rate`
 - `overall_farmwise_mortality_dev`
 - `load_Wise_pct_data`
 - `deaths_monthly_trend_v`
@@ -110,6 +121,11 @@ Known source names from the legacy mortality dashboard area include:
 - `breedwise_load_pct`
 - `birth_analysis_view` or `mother_kid_facts` where legacy formulas use them
 
+These `_dev` names are legacy oracle candidates, not a guarantee that the dev
+view is the live source of product truth forever. Implementation must confirm
+the currently served legacy route/source before pinning a formula; if a
+production replacement exists, update this list and the formula register.
+
 Source classification must be pinned before implementation. Do not convert every
 source row into a mortality event.
 
@@ -117,11 +133,22 @@ source row into a mortality event.
 | --- | --- | --- |
 | Event-creating sources | `deaths_fact_dev`; abortion fact source once pinned | May create or update `mortality_events` |
 | Denominator/reference sources | `load_wise_procurement_with_status`; identity/count projections; source tables used only to derive populations | May update source rows and denominator/projection inputs, never create death events |
-| Legacy rollup/parity sources | `mortality_total_dev`; `mortality_overall_breedwise_dev`; `mortality_this_month_dev`; `overall_farmwise_mortality_dev`; `load_Wise_pct_data`; `mortality_genderwise`; `mortality_trend_dev`; `deaths_monthly_trend_v`; `mother_litter_size_dev_breedwise`; `mother_litter_size_dev_overall`; `mortality_by_litter_size_overall_dev`; `last_month_mother_mortality_breed_dev`; `last_month_mother_mortality_litter_dev`; `last_month_mortality_by_litter_size_view`; `breedwise_load_pct` | Parity oracle, formula pinning, or projection validation only; never create events |
+| Legacy rollup/parity sources | `mortality_total_dev`; `mortality_overall_breedwise_dev`; `mortality_this_month_dev`; `mortality_this_month_farmwise_dev`; `monthly_mortality_rate`; `overall_farmwise_mortality_dev`; `load_Wise_pct_data`; `mortality_genderwise`; `mortality_trend_dev`; `deaths_monthly_trend_v`; `mother_litter_size_dev_breedwise`; `mother_litter_size_dev_overall`; `mortality_by_litter_size_overall_dev`; `last_month_mother_mortality_breed_dev`; `last_month_mother_mortality_litter_dev`; `last_month_mortality_by_litter_size_view`; `breedwise_load_pct` | Parity oracle, formula pinning, or projection validation only; never create events |
 
 One real death must create at most one `mortality_events` row. Rollup tables can
 validate or explain that event, but must not generate additional events for the
 same real-world death.
+
+Event-source coverage gate:
+
+- Rollups such as `mortality_total_dev`, `monthly_mortality_rate`, and
+  `mortality_this_month_farmwise_dev` may validate shipped numbers, but they
+  cannot be the source that creates `mortality_events`.
+- Before a section is marked complete, event-creating sources must reproduce
+  every shipped total at that section's grain, or the section must ship as
+  pending/migration-only.
+- A parity artifact must show which event source covers each legacy rollup
+  total and which rollup totals remain uncovered.
 
 Before running a real sync, probe every required source. If a source is blocked
 by Drive/BQ permissions or is missing, record `source_unavailable` and do not
@@ -196,6 +223,75 @@ mortality freshness = min(mortality event/source freshness,
 The API response must expose unavailable/stale denominator sources in the same
 freshness envelope as Mortality source availability.
 
+Rate rollout depends on those denominator projections being implemented and
+fresh at a pinned watermark. If identity/count denominator projections are not
+ready, affected rates must be pending or source-unavailable rather than
+computed from ad hoc Mortality queries.
+
+## Location Alias Resolution
+
+Mortality must resolve every legacy farm, shed, housing, and status-location
+label through the Locations alias resolver using a mortality-specific source
+context such as `legacy_bq_mortality`.
+
+Projection rows may cache resolved canonical location IDs and display labels,
+but the canonical mapping remains owned by Locations. Unresolved labels create
+Location review items or Mortality review items linked to the unresolved alias;
+they do not create one-off private mappings inside Mortality.
+
+Phase 1 must preserve the legacy `farm=CBE/CPT` semantics: those labels resolve
+to seeded park-scope rows, not duplicate canonical `location_type='farm'` rows.
+
+## Android Death SOP Cutover
+
+The future canonical write path is:
+
+```text
+Android Death SOP -> Goat OS API -> backend validation/idempotency
+  -> mortality_events + proof/audit/outbox -> projection rebuild
+```
+
+The adapter must follow the form-engine proof and correction model for Death
+reports, including idempotent app submission, void/reversal behavior, and proof
+policy. Slack or sheet automation may be bridged temporarily, but it must submit
+through the same backend APIs or a backend-owned adapter.
+
+Android and legacy sources must share source-independent logical event keys so
+the same real-world death is not counted twice when both sources are live.
+Canonical Android events win for a grain only after the cutover contract marks
+coverage complete; until then legacy can fill uncovered grains.
+
+## Blend Mode And Coverage State
+
+Mortality must support mixed-source operation during cutover:
+
+```text
+canonical events win when canonical coverage is complete for the grain
+legacy fills gaps while canonical coverage is incomplete
+same logical death/abortion event must not be served twice
+conflicting overlap opens review
+```
+
+The minimum coverage grain is tenant + period window + section + metric +
+resolved dimension key. If the grain depends on denominator data, the coverage
+state must also include the denominator source/version. A tenant-wide
+legacy/canonical flag is not enough because Death SOP submissions, historical
+BQ deaths, load denominators, litter denominators, and location aliases can
+cut over at different times.
+
+Projection rows and projection state must expose `source_composition` so the UI
+and parity artifacts can distinguish `legacy_only`, `canonical_only`, and
+`blended` sections.
+
+## Adjacent Ownership
+
+Load labels and procurement-load identifiers belong to the procurement/load
+owner once that module exists. Delivery, litter, abortion, and birth-derived
+denominators belong to the birth/kidding or forms owner once that module exists.
+Until those modules are implemented, Mortality may consume pinned legacy
+denominator/reference sources but must document the owner-to-be and avoid
+creating permanent private master data.
+
 ## Proposed Postgres Ownership
 
 Module ownership:
@@ -253,6 +349,7 @@ Required columns:
 
 - tenant_id
 - mortality_event_id
+- logical_event_key
 - event_type: death, abortion
 - event_date
 - goat_id nullable
@@ -261,6 +358,10 @@ Required columns:
 - age_class: kid, adult, unknown
 - breed_key, breed_label
 - farm_key, farm_label
+- canonical_farm_location_id nullable
+- canonical_park_location_id nullable
+- canonical_shed_location_id nullable
+- canonical_housing_location_id nullable
 - load_key, load_label
 - delivery_key, delivery_label
 - sex nullable
@@ -277,9 +378,10 @@ Indexes:
 - tenant_id, goat_id, event_date
 - tenant_id, review_status
 - unique tenant_id, idempotency_key
+- unique tenant_id, logical_event_key when active
 - source row uniqueness
 
-Idempotency key:
+Source idempotency key:
 
 ```text
 source_system + source_table + source_row_key + event_type
@@ -297,6 +399,13 @@ Do not collapse two distinct unmatched deaths into one event merely because both
 lack a goat_id. Do not create a second event on re-sync for the same source
 death row.
 
+`idempotency_key` prevents repeated imports from the same source from creating
+duplicates. `logical_event_key` prevents cross-source duplicates during cutover,
+for example when a legacy BQ row and an Android Death SOP submission describe
+the same real-world death. If a logical key conflict has meaningful dimension or
+proof differences, keep one active event according to the cutover contract and
+open review for the disagreement.
+
 ### mortality_projection_rows
 
 Serves dashboard charts and summary pills.
@@ -304,10 +413,10 @@ Serves dashboard charts and summary pills.
 Required shared contract:
 
 - tenant_id
-- period: overall, this_month, month_wise
+- period: overall, this-month, month-wise
 - period_start nullable
 - period_end nullable
-- section: summary, breed, farm, load, delivery, trend
+- section: summary, breed, farm, load, delivery, trends
 - grain: total, breed, farm, load, delivery, month, age_class, sex, status,
   housing
 - dimension_key
@@ -321,6 +430,7 @@ Required shared contract:
 - projection_version
 - sync_run_id
 - source_hash
+- source_composition: legacy_only, canonical_only, blended
 - created_at / updated_at
 
 Indexes:
@@ -342,7 +452,10 @@ Required fields:
 - last_success_at
 - source_watermark
 - projection_version
-- freshness_status
+- freshness_status: green, yellow, red, unknown
+- serving_state: never_synced, fresh, stale, rebuilding, failed,
+  source_unavailable
+- source_composition: legacy_only, canonical_only, blended
 - row_count
 - conflict_count
 - unavailable_sources
@@ -362,12 +475,16 @@ Flow:
 4. Load source rows into staging.
 5. Compute row hashes and validate required columns.
 6. Upsert `mortality_source_rows` idempotently.
-7. Convert event-creating source rows into `mortality_events`.
-8. Link events to Goat OS identity where deterministic.
-9. Open or reuse review items for unresolved/ambiguous events.
-10. Rebuild affected projection rows.
-11. Update projection state and freshness envelope.
-12. Write audit/outbox entries.
+7. Resolve legacy location labels through Locations aliases.
+8. Convert event-creating source rows into `mortality_events`.
+9. Compute source idempotency keys and source-independent logical event keys.
+10. Deduplicate across legacy and canonical sources using the cutover contract.
+11. Link events to Goat OS identity where deterministic.
+12. Open or reuse review items for unresolved/ambiguous events.
+13. Verify event-source coverage for every shipped rollup grain.
+14. Rebuild affected projection rows with source composition.
+15. Update projection state and freshness envelope.
+16. Write audit/outbox entries.
 
 The command must dry-run by default if exposed as a CLI. Any mutation path must
 require an explicit execute flag or API action.
@@ -397,7 +514,7 @@ inside request handlers.
 Initial API:
 
 ```text
-GET /v1/mortality/dashboard?period=overall|this_month|month_wise
+GET /analytics/mortality/dashboard?period=overall|this-month|month-wise
 ```
 
 This endpoint returns a composed dashboard payload with `summary` and named
@@ -405,7 +522,7 @@ This endpoint returns a composed dashboard payload with `summary` and named
 endpoints must still include `period`, `section`, and `grain` filters matching
 the projection table contract.
 
-For `period=month_wise`, the default response window is the latest 24 complete
+For `period=month-wise`, the default response window is the latest 24 complete
 month buckets plus the current month when present. Wider windows require an
 explicit `from_month` / `to_month` request and must still cap each section with
 bounded projection reads.
@@ -416,13 +533,15 @@ Response shape:
 {
   "freshness": {
     "as_of": "2026-06-18T00:00:00Z",
-    "freshness_status": "fresh",
+    "freshness_status": "green",
+    "serving_state": "fresh",
     "stale": false,
     "rebuild_required": false,
     "source_watermark": "2026-06-18",
     "unavailable_sources": [],
     "conflict_count": 0,
-    "projection_version": 1
+    "projection_version": 1,
+    "source_composition": "legacy_only"
   },
   "summary": [],
   "sections": {
@@ -440,32 +559,30 @@ Response shape:
 
 Do not expose BigQuery table names to the frontend.
 
-Freshness status enum:
+Shared freshness envelope:
 
 ```text
-never_synced
-fresh
-stale
-rebuilding
-failed
-source_unavailable
+freshness_status = green | yellow | red | unknown
+serving_state = never_synced | fresh | stale | rebuilding | failed | source_unavailable
+source_composition = legacy_only | canonical_only | blended
 ```
 
-`conflict_count` is separate from `freshness_status`. A fresh projection can
-still have open conflicts if the feature intentionally preserves unresolved
-events in totals while surfacing review work.
+`conflict_count` is separate from `freshness_status` and `serving_state`. A
+fresh projection can still have open conflicts if the feature intentionally
+preserves unresolved events in totals while surfacing review work.
 
 Absent projection rows must not be treated as zero. The read path must join or
 load projection state first:
 
-- no successful projection for bucket -> `never_synced` or `source_unavailable`
+- no successful projection for bucket -> `serving_state` is `never_synced` or
+  `source_unavailable`
 - successful projection with value 0 -> real zero
 
 Potential admin API:
 
 ```text
-POST /v1/mortality/sync-runs
-GET /v1/mortality/sync-runs/{run_id}
+POST /admin/mortality/sync-runs
+GET /admin/mortality/sync-runs/{run_id}
 ```
 
 These endpoints require admin/sync permissions and must be audited.
@@ -482,8 +599,11 @@ Required permissions, final naming subject to RBAC package review:
 
 Initial role mapping:
 
-- `ceo_internal`: read
+- `ceo_internal`: read, review
+- `park_head`: read
+- `verifier`: read, review
 - `admin`: read, sync, review
+- `operator`: no dashboard read unless explicitly granted later
 
 Do not authorize by email inside request handlers. SSO email allowlists may
 control who can create a session, but backend authorization must use DB grants.
@@ -520,12 +640,14 @@ Required artifact:
 
 ```text
 .codex-goatos-render/mortality-parity/<timestamp>/comparison-notes.md
+.codex-goatos-render/mortality-parity/<timestamp>/canonical-shadow-comparison.md
 ```
 
 The artifact must include value-by-value rows:
 
 ```text
 section | metric | dimension | legacy_value | goatos_value | diff | status | reason
+grain | logical_event_key | legacy_sources | canonical_sources | decision | status | reason
 ```
 
 If the legacy dashboard API cannot be reached, extract the legacy SQL/formulas
@@ -538,6 +660,7 @@ Allowed status values:
 match
 explained_delta
 unexplained_delta
+pending_source_coverage
 ```
 
 Known-correct differences must be recorded as `explained_delta`, for example a
@@ -547,6 +670,11 @@ completion.
 
 Once Cube owns `mortality_rate`, add projection-vs-Cube parity on a fixed
 snapshot before calling the metric governed.
+
+The canonical shadow artifact is required before removing any BQ/Sheets source
+from a grain. It must show that canonical Android/backend events and denominator
+projections either match the legacy oracle or have explained deltas, and that
+cross-source dedup prevents duplicated deaths during blended operation.
 
 ## Performance Requirements
 
@@ -602,10 +730,16 @@ Backend:
 - source probe and unavailable-source handling
 - idempotent source row upsert
 - idempotent death-event creation on repeated sync
+- source-independent logical event key prevents legacy + Android double count
 - event creation from source row
+- event-source coverage gate blocks complete sections when only rollup oracle is
+  available
+- Locations alias resolution for farm, shed, housing, and status-location
+  labels using `legacy_bq_mortality`
 - unresolved event creates/reuses review item
-- projection rebuild for summary, breed, farm, load, delivery, trend
+- projection rebuild for summary, breed, farm, load, delivery, trends
 - API freshness envelope
+- shared `freshness_status`, `serving_state`, and `source_composition` fields
 - absent projection row does not render as zero
 - denominator projection unavailable marks Mortality stale/unavailable
 - RBAC allow/deny
@@ -620,7 +754,9 @@ Frontend:
 Replay/parity:
 
 - numeric legacy-vs-GoatOS comparison artifact
+- canonical-vs-legacy shadow comparison artifact
 - same-source rerun idempotent
+- cross-source rerun deduplicates the same logical death
 - changed-source replay does not silently keep stale facts
 
 ## Rollout Gates
@@ -629,14 +765,23 @@ Replay/parity:
 2. Legacy formulas and source list pinned, including kid/adult cutoff,
    denominator source for every rate, and source classification as
    event-creating, denominator/reference, or rollup/parity-only.
-3. Required BQ/Sheets/Drive source access probed and classified.
-4. Migrations and API contracts added.
-5. Backend sync/rebuild/API tests green.
-6. Frontend visual and responsive checks green.
-7. Numeric parity artifact reviewed.
-8. Screenshots compared legacy vs Goat OS.
-9. Deploy code only.
-10. Run manual sync only after source credentials and replay gates are green.
+3. Event-source coverage proves all shipped rollup totals can be reproduced from
+   event-creating sources, or affected sections are pending/migration-only.
+4. Required BQ/Sheets/Drive source access probed and classified.
+5. Locations aliases resolve all legacy Mortality farm/shed/housing/status
+   labels needed by shipped sections.
+6. Identity/count denominator projection source is pinned for every shipped
+   mortality rate.
+7. Migrations and API contracts added with `/analytics` read routes,
+   `/admin` sync routes, and the shared freshness envelope.
+8. Backend sync/rebuild/API tests green.
+9. Frontend visual and responsive checks green.
+10. Numeric parity artifact reviewed.
+11. Canonical-vs-legacy shadow parity and cross-source dedup tests reviewed
+    before any BQ/Sheets source is removed from a grain.
+12. Screenshots compared legacy vs Goat OS.
+13. Deploy code only.
+14. Run manual sync only after source credentials and replay gates are green.
 
 If any required Drive-backed source remains blocked, the affected section must
 ship as honest-pending or source-unavailable, not as zero.
@@ -651,3 +796,7 @@ goat-level drift.
   first with honest pending states for the rest.
 - Whether Mortality review items reuse an existing Import Review surface or need
   a Mortality-specific review queue.
+- Which module owns load master data during the temporary legacy period and
+  after Android cutover.
+- Which module owns delivery, litter, abortion, and birth event facts before
+  the birth/kidding/forms modules are fully implemented.

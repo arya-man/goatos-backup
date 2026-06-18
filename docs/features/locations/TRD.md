@@ -18,6 +18,9 @@ legacy BQ/Sheets labels -> location aliases/review -> canonical locations
 The frontend must call Goat OS APIs. It must not edit BQ/Sheets or local static
 maps.
 
+Location label cutover and blend behavior follows
+`docs/features/cutover-contract.md`.
+
 ## Existing Foundation
 
 Current Phase 1 schema already includes:
@@ -35,6 +38,11 @@ operational attributes on a physical location. Adding those as first-class
 
 Migration `000017_phase_1_bq_dashboard_shed_locations.sql` seeds legacy BQ shed
 labels under CBE/CPT. This is useful evidence, but it is not a CRUD surface.
+
+The seeded CBE, CPT, and HF rows from Phase 1 are protected scope anchors. CBE
+and CPT are `park` rows because old-tag identity scope already depends on those
+IDs. Legacy dashboard `farm` labels for CBE/CPT resolve to those park rows in
+Phase 1; they must not create duplicate `location_type = farm` rows for parity.
 
 ## Module Ownership
 
@@ -263,6 +271,9 @@ Update location:
 - validate parent change and type compatibility
 - prevent cycles
 - prevent cross-tenant parent
+- block type/code/parent changes for seeded CBE/CPT/HF scope anchors unless an
+  explicit migration plan updates old-tag scope, aliases, projections, and
+  downstream references
 - mark dependent Counts/Infra projections stale when parent/type/name/code
   affects dashboard dimensions
 - audit and emit event
@@ -285,6 +296,9 @@ Alias write:
 - require row version for update
 - one active alias/source context maps to one canonical location
 - conflicting alias attempts create review item
+- protect seeded `legacy_location_code` and `legacy_bq_dashboard_shed` aliases
+  from remap/retire/delete unless an approved migration plan rewrites dependent
+  old-tag scope, BQ reconciliation, and projection parity fixtures
 - alias changes mark affected source/projections stale
 
 Capacity write:
@@ -368,7 +382,7 @@ endpoints.
 
 ## Legacy Sync And Review
 
-During Counts/Infra sync:
+During Counts/Infra/Mortality sync:
 
 1. Read legacy farm/shed/housing labels.
 2. Normalize label text.
@@ -378,12 +392,19 @@ During Counts/Infra sync:
    `location_review_items`.
 6. Do not auto-create active canonical locations unless a supervised import
    mode explicitly allows staging locations.
-7. Counts projection rows should carry canonical location IDs when resolved and
+7. Projection input rows should carry canonical location IDs when resolved and
    source labels when unresolved.
 
 Legacy capacity source rows from `counting_shed_capacity_status_dev` and
 `shed_capacity_count_dev` can create staging/evidence capacity records. Manual
 review or an approved import policy promotes them to active effective capacity.
+
+All legacy-label dashboards use this same path. Mortality farm, housing, shed,
+and status-location labels must resolve through `location_aliases` with
+`legacy_bq_mortality` or another explicit source context. Feed, Vaccination,
+Infra, and future dashboards must do the same. Feature modules may cache resolved
+location IDs in projection rows, but they must not maintain private canonical
+location maps.
 
 ## Projection Invalidation
 
@@ -475,12 +496,14 @@ and sync run id when applicable. Never log credentials or tokens.
 Backend:
 
 - create/update/list/detail location
+- seeded CBE/CPT/HF scope anchor edit guards
 - parent cycle prevention
 - cross-tenant parent rejection
 - duplicate code rejection
 - hard-delete blocked when referenced
 - retire behavior with usage summary
 - alias create/update/conflict
+- seeded `legacy_location_code` and `legacy_bq_dashboard_shed` alias protection
 - location review item uniqueness/status transitions
 - capacity effective-date overlap rejection
 - usage endpoint with goats/history/alias/child/RBAC/projection fixtures
@@ -501,6 +524,7 @@ Frontend:
 Integration:
 
 - Counts sync resolves legacy shed labels through aliases
+- Mortality sync resolves legacy farm/shed/housing labels through aliases
 - unknown legacy shed label opens review item
 - capacity change affects Infra/Counts projection freshness
 
@@ -511,10 +535,12 @@ Integration:
 3. Migrations for needed type/status/capacity/metadata support added.
 4. Backend CRUD/alias/capacity/usage tests green.
 5. Counts sync uses aliases for location resolution.
-6. Locations tab visual QA green.
-7. Counts parity artifact confirms no location-label drift.
-8. Manual legacy source sync approved for dev.
-9. Scheduled sync remains off until unknown-label review and replay drift are
+6. Mortality sync uses aliases for farm/shed/housing resolution before
+   mortality dashboards ship from Postgres projections.
+7. Locations tab visual QA green.
+8. Counts parity artifact confirms no location-label drift.
+9. Manual legacy source sync approved for dev.
+10. Scheduled sync remains off until unknown-label review and replay drift are
    stable.
 
 ## Open Questions

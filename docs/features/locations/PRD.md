@@ -27,6 +27,7 @@ is its own feature because other modules depend on it.
 ## References
 
 - `docs/decisions/high-scale-dashboard-projections.md`
+- `docs/features/cutover-contract.md`
 - `docs/features/counts/PRD.md`
 - `docs/features/counts/TRD.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
@@ -181,6 +182,12 @@ These are discovery inputs and parity oracles. They are not final canonical
 truth. Unknown source labels should create review work, not duplicate active
 locations.
 
+For Phase 1 parity, legacy `farm` labels such as `CBE` and `CPT` resolve to the
+existing seeded park-scope rows, not to new `location_type = farm` records. Those
+rows also define old-tag scope, so they must not be edited as ordinary
+dashboard labels. `HF` / `Holding Farm` remains a reviewed holding/source
+context until a product-owned location policy replaces it.
+
 ## Source Of Truth
 
 Locations v1 uses:
@@ -204,6 +211,8 @@ Create review items when:
 - a requested parent change would move active goats unexpectedly
 - a retirement request has active goats, active child locations, RBAC grants, or
   open SOP dependencies
+- a requested change touches seeded CBE/CPT/HF scope rows or seeded BQ dashboard
+  shed aliases without an approved migration plan
 
 Humans resolve labels and policies. Projection jobs then rebuild Counts/Infra.
 
@@ -242,6 +251,10 @@ Locations is complete only when:
 - Usage checks cover goats, location history, projections, aliases, SOP
   submissions, imports, child locations, and RBAC grants as applicable.
 - Counts sync resolves farm/shed labels through aliases.
+- Mortality and other legacy-label dashboards resolve farm/shed/housing labels
+  through aliases instead of private maps.
+- Seeded CBE/CPT/HF scope rows and seeded BQ shed aliases are protected from
+  accidental edit, retire, merge, or remap.
 - Counts/Infra projections are marked stale or rebuilt after relevant location
   changes.
 - Hot reads are indexed and paginated for one-million-goat scale.

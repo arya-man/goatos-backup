@@ -7,6 +7,7 @@ Canonical docs:
 
 - `context/analytics/final-analytics-infra.md`
 - `docs/decisions/high-scale-dashboard-projections.md`
+- `docs/features/cutover-contract.md`
 - `docs/features/counts/PRD.md`
 - `docs/features/counts/TRD.md`
 - `docs/features/locations/PRD.md`

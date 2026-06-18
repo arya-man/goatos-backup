@@ -35,6 +35,7 @@ events, death events, or animal-level history.
 ## References
 
 - `docs/decisions/high-scale-dashboard-projections.md`
+- `docs/features/cutover-contract.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `docs/features/locations/PRD.md`
@@ -268,6 +269,24 @@ The Counts projection logic must not care whether a snapshot came from legacy BQ
 or Goat OS canonical writes. Source adapters can change; the API and frontend
 contract should remain stable.
 
+During cutover, Counts must follow `docs/features/cutover-contract.md` rather
+than switching the whole tenant at once. Canonical facts win for a
+date/location/metric grain only after that grain has complete canonical coverage;
+legacy rows fill gaps until then. If both sources describe the same shed/day or
+metric bucket, the serving projection must dedupe by logical count fact and
+either prefer canonical evidence or open a reconciliation gap.
+
+Canonical daily snapshots must be explicitly materialized from continuous Goat
+OS events before BQ/Sheets are removed. The default cutover candidate is:
+
+```text
+snapshot_date D = latest accepted canonical state per goat/fact at the approved
+Asia/Kolkata cutoff for date D
+```
+
+If product chooses a different cutoff or age/status policy, update the formula
+register and parity artifacts before cutover.
+
 ## Freshness And Availability
 
 Every Counts API response must expose the standard dashboard freshness envelope
@@ -298,6 +317,7 @@ Counts can produce review items or reconciliation gaps when:
 
 - legacy aggregate count differs from canonical Goat OS count for the same date
   and dimension
+- legacy and canonical facts overlap for the same logical count fact but disagree
 - required source columns are missing
 - source row hashes changed unexpectedly
 - BQ/Sheets source returns duplicate keys
@@ -345,6 +365,8 @@ Counts is complete only when all of these are true:
 - Locations feature is present or being built in the same slice, and Counts
   source labels resolve through canonical locations and aliases.
 - Numeric parity artifact compares legacy vs Goat OS value by value.
+- Canonical-vs-legacy shadow parity artifact proves Android/backend facts rebuild
+  the same values for any section where BQ/Sheets will be removed.
 - Screenshot parity artifact compares legacy vs Goat OS desktop and narrow
   views.
 - Any unmatched metric is marked pending or explained, not silently hidden.
@@ -352,5 +374,5 @@ Counts is complete only when all of these are true:
 - Sync/rebuild jobs are idempotent and retry-safe.
 - One-million-goat scale checks are documented with query plans or load tests
   for hot reads and rebuild paths.
-- BigQuery/Sheets can be removed later by replacing source adapters, not by
-  rewriting the frontend.
+- BigQuery/Sheets can be removed later section by section by passing the shared
+  cutover contract, not by rewriting the frontend.

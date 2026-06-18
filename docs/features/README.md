@@ -9,6 +9,7 @@ model, API contract, parity plan, and rollout gates before code starts.
 
 Current feature docs:
 
+- `docs/features/cutover-contract.md`
 - `docs/features/counts/PRD.md`
 - `docs/features/counts/TRD.md`
 - `docs/features/locations/PRD.md`
@@ -21,6 +22,10 @@ Locations owns canonical location tree, aliases, capacity, usage checks, and
 review queues; Counts consumes those records for legacy parity and future
 canonical projections.
 
+The shared cutover contract owns the transition rule for any feature that is
+temporarily fed by BigQuery/Sheets but will later be fed by Android/backend
+canonical writes.
+
 Rules:
 
 - Do not use these docs to bypass the phase roadmap.
@@ -29,3 +34,5 @@ Rules:
 - Any dashboard/report feature that slices by month, date, breed, farm, load,
   category, status, gender, source, or similar dimensions must follow
   `docs/decisions/high-scale-dashboard-projections.md`.
+- Any feature using BQ/Sheets as a temporary upstream before Android/backend
+  canonical writes must follow `docs/features/cutover-contract.md`.

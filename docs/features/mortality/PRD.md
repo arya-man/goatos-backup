@@ -28,7 +28,11 @@ admin-web -> BigQuery / Sheets / Drive / raw database
 ## References
 
 - `docs/decisions/high-scale-dashboard-projections.md`
+- `docs/features/cutover-contract.md`
+- `docs/features/locations/PRD.md`
+- `docs/features/locations/TRD.md`
 - `context/analytics/final-analytics-infra.md`
+- `context/forms/final-forms-sop-engine.md`
 - Legacy UI reference:
   `https://dashboard--goatos-sheets.us-central1.hosted.app/mortality`
 - Legacy code reference, read-only:
@@ -168,6 +172,7 @@ Mortality v1 uses these data stores:
 | Runtime app truth | Postgres | canonical Goat OS facts, source rows, review state, projections, freshness |
 | Dashboard serving | Postgres projection tables | chart-ready rows read by Goat OS APIs |
 | Temporary upstream | BigQuery and Sheets/Drive from legacy | read-only migration inputs until Goat OS SOP/mobile owns writes |
+| Future upstream | Android Death SOP through Goat OS APIs | canonical write path after cutover; replaces Slack/BQ/Sheets as product input |
 | Governed analytics | Cube, later | official semantic metric layer for leadership/AI/Metabase, with parity gate |
 | Warehouse/history | BigQuery, later downstream | analytics history after Goat OS emits events/outbox |
 | Cache/job aid | Redis, optional | short-lived API cache, job progress, locks, or rate limiting only |
@@ -182,10 +187,39 @@ Mortality v1 does not need:
 
 If Mortality later needs high-volume live telemetry, that must be a separate ADR.
 
+## Android Death SOP Cutover
+
+Mortality must follow the shared cutover contract in
+`docs/features/cutover-contract.md`.
+
+During Phase 1, legacy BigQuery and Sheets can fill missing dashboard grains.
+When Android Death SOP submissions become available through Goat OS APIs,
+canonical death facts win for a grain only after coverage is complete for that
+grain. Legacy remains a gap filler for uncovered historical ranges until the
+shadow parity gate proves it can be removed.
+
+The Android cutover path is:
+
+```text
+Android Death SOP -> Goat OS API -> backend validation/idempotency
+  -> mortality_events + proof/audit/outbox -> projections
+```
+
+The Death SOP implementation must carry the form-engine proof, correction,
+void/reversal, and idempotent-submission model. Slack or sheet automation may be
+bridged temporarily, but it must not become a second product write path around
+the backend.
+
 ## Source Freshness And Availability
 
 Every Mortality API response must expose freshness using the standard dashboard
 envelope from `docs/decisions/high-scale-dashboard-projections.md`.
+
+`freshness_status` is the shared traffic-light value:
+`green`, `yellow`, `red`, or `unknown`. Operational states such as
+`never_synced`, `fresh`, `stale`, `rebuilding`, `failed`, and
+`source_unavailable` belong in `serving_state`, not in a second
+`freshness_status` enum.
 
 The UI must distinguish:
 
@@ -213,6 +247,8 @@ Examples:
 - source gives conflicting breed/farm/load for the same event key
 - denominator source is missing or ambiguous
 - source row changed after a prior reviewed decision
+- legacy and Android/canonical sources overlap for the same real-world death but
+  disagree on dimensions, proof, or status
 
 The review model applies to source facts and linkages. It does not mean humans
 edit aggregate chart totals directly. Aggregates are rebuilt from canonical
@@ -242,6 +278,11 @@ The implementation may map these to existing roles such as `ceo_internal` and
 `admin`, but the API contract must not rely on email alone after session
 creation. Email allowlists can gate SSO entry; DB grants remain authorization.
 
+Dashboard read access must stay aligned with the other Goat OS analytics
+features unless product explicitly narrows it. Counts and Mortality should not
+silently drift into different read audiences for the same leadership dashboard
+surface.
+
 ## Acceptance Criteria
 
 Mortality is complete only when all of these are true:
@@ -254,6 +295,15 @@ Mortality is complete only when all of these are true:
   metric.
 - Mortality events are stored as required canonical facts before projections are
   built.
+- Every farm, shed, housing, and status-location label is resolved through the
+  Locations alias resolver, including legacy mortality aliases.
+- Event-source coverage proves canonical events can reproduce every shipped
+  legacy mortality total, or the affected section is marked pending/migration
+  only.
+- Rate denominators come from pinned identity/count projections or explicitly
+  pinned legacy denominator sources, not from ad hoc request-time scans.
+- Canonical-vs-legacy shadow parity passes for the same grain before any
+  BQ/Sheets source is removed from that grain.
 - Numeric parity artifact is written value-by-value.
 - Numeric parity labels each delta as match, explained, or unexplained.
 - Screenshot comparison artifact shows legacy vs Goat OS for the full page.

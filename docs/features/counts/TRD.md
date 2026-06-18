@@ -5,7 +5,8 @@ Status: draft for implementation review.
 ## Technical Summary
 
 Counts is a high-scale dashboard feature. It must follow
-`docs/decisions/high-scale-dashboard-projections.md`.
+`docs/decisions/high-scale-dashboard-projections.md` and the migration cutover
+rules in `docs/features/cutover-contract.md`.
 
 The frontend reads Goat OS APIs. The APIs read bounded Postgres projection rows.
 Sync/rebuild workers may read legacy BQ/Sheets during migration and canonical
@@ -298,6 +299,7 @@ Required columns:
 - `weight_kg` nullable
 - `value_inr` nullable
 - `source_row_id`
+- `logical_fact_key`
 - `projection_input_hash`
 - `sync_run_id`
 - `created_at`
@@ -321,6 +323,11 @@ Indexes:
 This table is not goat identity truth. It is a normalized dashboard input. After
 Android/backend cutover, it is rebuilt from canonical Goat OS facts instead of
 legacy BQ rows.
+
+`logical_fact_key` is source-independent. It identifies the business bucket being
+served, not the upstream row. During blend mode, it prevents an Android
+count-verification fact and a legacy BQ aggregate for the same
+tenant/snapshot/location/metric bucket from both being counted.
 
 ### counts_projection_rows
 
@@ -349,6 +356,7 @@ Required columns:
 - `projection_version`
 - `sync_run_id`
 - `source_hash`
+- `source_composition`: `legacy_only`, `canonical_only`, `blended`
 - `created_at`
 - `updated_at`
 
@@ -382,6 +390,7 @@ Required fields:
 - `row_count`
 - `conflict_count`
 - `unavailable_sources` jsonb
+- `source_composition`: `legacy_only`, `canonical_only`, `blended`
 - `rebuild_required`
 - `last_error`
 - `updated_at`
@@ -404,6 +413,28 @@ Mapping when Counts reuses shared legacy-sync rows:
 `conflict_count > 0` is an overlay state called "conflicts open"; it is not a
 freshness or serving-state enum value.
 
+## Blend Mode And Snapshot Semantics
+
+Counts must support mixed-source operation during cutover:
+
+```text
+canonical wins when canonical coverage is complete for the grain
+legacy fills gaps while canonical coverage is incomplete
+same logical count fact must not be served twice
+conflicting overlap opens reconciliation review
+```
+
+The minimum blend grain is tenant + snapshot date + view + section + resolved
+location or metric family. A coarser tenant-wide flag is not enough because
+Android count verification, shifting, weighing, valuation, birth, death, and sale
+coverage can land on different schedules.
+
+Canonical `snapshot_date` values are materialized from continuous Goat OS facts.
+Before removing BQ/Sheets, implementation must pin the cutoff policy. The
+default candidate is the latest accepted canonical state at the approved
+Asia/Kolkata cutoff for date D. The formula register and parity artifact must
+record the chosen cutoff and any section-specific exceptions.
+
 ## Canonical Cutover Dependencies
 
 To remove BQ/Sheets permanently, Counts needs canonical source coverage for:
@@ -420,6 +451,10 @@ To remove BQ/Sheets permanently, Counts needs canonical source coverage for:
 - births, deaths, sales, and inactive lifecycle changes from owning modules
 - shifting/location events
 - Android count verification SOP submissions
+
+Source coverage must be recorded per section/grain, not only per tenant. A
+section can become `canonical_only` only after its source coverage, cross-source
+dedup tests, and shadow parity pass.
 
 If weight and value are not ready when Counts UI parity ships, the legacy
 weight/value KPI rows can remain a clearly marked migration source. They must
@@ -442,14 +477,16 @@ Flow:
 7. Upsert `counts_source_rows` idempotently.
 8. Resolve farm/shed/housing labels through `location_aliases`.
 9. Create review items for unknown or conflicting location aliases.
-10. Normalize source rows into `counts_current_snapshot_rows`.
-11. Build projection rows for all views and sections.
-12. Compare projection totals against source summaries.
-13. Record conflicts/reconciliation gaps.
-14. Publish projection version atomically.
-15. Update `counts_projection_state` with shared freshness plus Counts
+10. Generate source-independent `logical_fact_key` values.
+11. Normalize source rows into `counts_current_snapshot_rows`.
+12. Apply blend-mode precedence and cross-source dedup.
+13. Build projection rows for all views and sections.
+14. Compare projection totals against source summaries.
+15. Record conflicts/reconciliation gaps.
+16. Publish projection version atomically.
+17. Update `counts_projection_state` with shared freshness plus Counts
     `serving_state`.
-16. Write audit/outbox rows.
+18. Write audit/outbox rows.
 
 Temporary tables are allowed inside the sync transaction or sync run. They are
 not dashboard-serving truth. Use temp tables for BQ bulk load and validation;
@@ -524,6 +561,7 @@ Response shape:
     "rebuild_required": false,
     "source_watermark": "2026-06-18",
     "unavailable_sources": [],
+    "source_composition": "legacy_only",
     "conflict_count": 0,
     "projection_version": 1
   },
@@ -653,6 +691,21 @@ https://dashboard--goatos-sheets.us-central1.hosted.app/api/counts/core-farm-gen
 If the legacy API is unavailable, run the pinned formulas against the same BQ
 snapshot through the backend adapter and record the source snapshot used.
 
+Before BQ/Sheets removal, add a shadow parity artifact for canonical facts:
+
+```text
+.codex-goatos-render/counts-parity/<timestamp>/canonical-shadow-comparison.md
+```
+
+Rows:
+
+```text
+view | section | metric | dimension | legacy_value | canonical_value | diff | status | reason
+```
+
+The same status values apply. Any `unexplained_delta` blocks removal of the
+legacy source for that section.
+
 ## Performance Requirements
 
 Hot API reads:
@@ -710,6 +763,8 @@ Backend:
 - unknown or conflicting location labels create review items
 - source probe success and unavailable-source behavior
 - deterministic source row key generation
+- source-independent logical fact key generation
+- cross-source dedup between legacy aggregates and canonical count facts
 - idempotent source row upsert on repeated sync
 - changed payload hash supersedes prior source row
 - normalized snapshot generation for the four Counts metric sources
@@ -722,6 +777,7 @@ Backend:
 - projection publish is atomic
 - stale source keeps prior projection marked stale
 - shared freshness mapping to `green`, `yellow`, `red`, and `unknown`
+- source composition values for legacy-only, canonical-only, and blended serving
 - RBAC allow/deny
 - hot read query-plan validation
 
@@ -740,6 +796,7 @@ Replay/parity:
 - changed-source replay produces a new projection version
 - numeric legacy-vs-GoatOS comparison artifact
 - screenshot comparison artifact
+- canonical shadow parity artifact for BQ/Sheets removal
 
 ## Rollout Gates
 
@@ -757,8 +814,8 @@ Replay/parity:
 11. Manual sync approved for dev.
 12. Scheduled sync remains off until replay drift and source freshness behavior
     are stable.
-13. BQ/Sheets removal plan confirmed by proving the canonical Android/backend
-    source adapter can rebuild the same projection contract.
+13. BQ/Sheets removal plan confirmed by canonical shadow parity, cross-source
+    dedup tests, and source-composition states for each section being removed.
 
 ## Open Questions
 

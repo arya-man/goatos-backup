@@ -100,6 +100,8 @@ section before implementation. That design must include:
 - dimensions and allowed filters
 - numerator/denominator definitions for rates
 - freshness and source availability behavior
+- legacy-to-canonical cutover, blend-mode, and cross-source dedup behavior when
+  BQ/Sheets are temporary upstreams
 - projection table shape
 - rebuild strategy
 - idempotency keys and content hashes
@@ -201,6 +203,8 @@ Projection state should track:
 - source watermark
 - projection version
 - freshness status
+- serving state
+- source composition during cutover, when applicable
 - row count
 - conflict count
 - unavailable sources
@@ -211,12 +215,20 @@ Dashboard API responses must expose projection freshness through the standard
 response envelope, not as a one-off field per endpoint. The envelope must carry:
 
 - as_of or last_success_at
-- freshness_status
+- freshness_status: `green`, `yellow`, `red`, or `unknown`
+- serving_state: `never_synced`, `fresh`, `stale`, `rebuilding`, `failed`, or
+  `source_unavailable`
 - stale/rebuild_required
 - source_watermark when known
 - unavailable_sources
 - conflict_count
 - projection_version
+
+`freshness_status` is the shared traffic-light state and must stay compatible
+with existing legacy-sync constraints. User-facing states such as `rebuilding`,
+`failed`, or `source_unavailable` belong in `serving_state`, not in
+`freshness_status`. During migration, APIs may also expose
+`source_composition = legacy_only | canonical_only | blended`.
 
 ### Staging And Temp Tables
 
@@ -293,6 +305,12 @@ debug tools, and migration validation, not inside dashboard request handlers.
 During migration, BQ/Sheets can feed Goat OS Postgres through backend sync jobs.
 The frontend still reads Goat OS APIs only.
 
+When both legacy and canonical sources can describe the same dashboard fact,
+features must follow `docs/features/cutover-contract.md`. That contract owns the
+shared rules for blend mode, canonical-vs-legacy precedence, cross-source dedup,
+shadow parity, universal Locations alias resolution, and BQ/Sheets removal
+gates.
+
 Legacy dashboard formulas must be pinned before porting a screen:
 
 - metric definitions
@@ -351,6 +369,8 @@ Before building a large dashboard feature, confirm:
 - Rebuild is idempotent and retry-safe.
 - Review/conflict handling is defined.
 - Legacy visual and numeric parity gates are defined where applicable.
+- Cutover/blend-mode and cross-source dedup gates are defined where BQ/Sheets
+  are temporary upstreams.
 - Query-plan validation is added for hot paths that can touch large tables.
 
 If these are missing, stop and write the design before coding.
