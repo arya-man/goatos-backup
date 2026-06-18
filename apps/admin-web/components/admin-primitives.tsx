@@ -81,6 +81,23 @@ export function ErrorPanel({ error }: { error: ApiUiError }) {
     );
   }
 
+  if (error.kind === "permission_denied" || error.status === 403) {
+    return (
+      <div className="rounded-md border border-[#7f1d1d] bg-[#1d1214] p-4 text-sm">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#f87171]" aria-hidden="true" />
+          <div>
+            <div className="font-semibold text-[#fecaca]">Access not granted</div>
+            <p className="mt-1 text-[#f3b7b7]">
+              You are signed in, but this Google account does not have an active Mesha Admin grant for this dashboard.
+            </p>
+            {error.traceId ? <p className="mt-2 font-mono text-xs text-[#fca5a5]">trace {error.traceId}</p> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-md border border-[#7f1d1d] bg-[#1d1214] p-4 text-sm">
       <div className="flex items-start gap-3">

@@ -45,6 +45,23 @@ email allowlist. This blocks session-cookie creation through
 `/auth/session-events` and blocks every protected API request before RBAC grant
 lookup.
 
+Current access-control layers:
+
+1. Firebase/Auth Platform verifies the Google identity and returns a Firebase ID
+   token; Goat OS never stores raw Google or Firebase tokens in the database.
+2. `GOATOS_AUTH_ALLOWED_EMAILS` is the deploy-time email allowlist. It blocks
+   unapproved verified emails before a session cookie is created.
+3. `user_scope_grants` is the database authorization table. Approved users still
+   need an active grant for the tenant before protected dashboard APIs allow
+   data access.
+4. `audit_log` records sign-in, refresh, sign-out, and failed sign-in events
+   with metadata such as verified email and Firebase UID; raw tokens are never
+   written.
+
+The dev allowlist is intentionally environment-managed until the product has a
+real admin user-management screen. Do not treat Google Workspace membership or
+the Google provider `hd` hint as sufficient access control.
+
 ## goatos-dev IdP
 
 `goatos-dev` uses Google Identity Platform / Firebase Auth as the real IdP for
@@ -52,7 +69,7 @@ JWKS verification. Firebase is auth only for Goat OS dev bring-up: do not use
 Firebase Hosting or Firebase App Hosting, and do not introduce an external OIDC
 provider or static dev JWKS.
 
-Admin-web login uses the Firebase Web SDK `signInWithPopup` path with
+Admin-web login uses the Firebase Web SDK redirect path with
 `GoogleAuthProvider`. The provider must set `prompt=select_account` and
 `hd=mesha.sg` so shared browsers show the Google account chooser instead of
 silently reusing a personal default account. Do not reintroduce the Google
@@ -64,6 +81,9 @@ Custom admin-web hosts must be registered in Firebase/Auth Platform authorized
 domains. If any direct Google Identity Services or browser OAuth flow is used
 again, the same host origin must also be registered on the Google OAuth web
 client as an authorized JavaScript origin.
+Set `GOATOS_CANONICAL_DASHBOARD_HOST` on admin-web once a custom host is live so
+raw Cloud Run dashboard URLs redirect to the registered OAuth host instead of
+creating a second sign-in origin.
 
 Firebase ID tokens use issuer `https://securetoken.google.com/goatos-dev`,
 audience `goatos-dev`, and Google's SecureToken JWKS endpoint. Firebase UIDs are

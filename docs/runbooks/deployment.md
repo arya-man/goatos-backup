@@ -230,6 +230,17 @@ when configured, sign-in/session audit and protected API requests reject tokens
 whose verified email is not present in the list. Google Workspace `hd` hints are
 not sufficient access control by themselves.
 
+Admin-web supports canonical-host redirects:
+
+```text
+GOATOS_CANONICAL_DASHBOARD_HOST=dev.dashboard.mesha.sg
+```
+
+When set, requests for raw Cloud Run `*.run.app` dashboard hosts redirect to the
+canonical dashboard hostname before auth. Keep the Cloud Run default URL disabled
+for shared environments once the load balancer hostname is healthy; the
+canonical redirect is a user-friendly fallback, not the primary exposure model.
+
 ## Release steps
 
 1. **Build + publish images.** Build the three image families in

@@ -16,12 +16,18 @@ GOATOS_AUTH_ALLOWED_EMAILS=<approved Mesha Admin emails>
 GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance>
 DATABASE_URL=<Cloud SQL socket /cloudsql/goatos-dev:asia-south1:<instance>>
 GOATOS_OBS_SINK=gcm
+GOATOS_CANONICAL_DASHBOARD_HOST=dev.dashboard.mesha.sg   # admin-web
 ```
 
 `goatos-dev` uses Google Identity Platform / Firebase Auth for auth only. Do not
 use Firebase Hosting or Firebase App Hosting. `GOATOS_AUTH_ALLOWED_EMAILS`
 narrows the Firebase/Google sign-in surface to approved admin emails; matching
 DB grants are still required before dashboard APIs authorize.
+
+Admin-web sets `GOATOS_CANONICAL_DASHBOARD_HOST=dev.dashboard.mesha.sg` so raw
+Cloud Run dashboard URLs redirect to the custom host before login. The shared
+dev Cloud Run default URL should also stay disabled once the load balancer
+hostname is healthy.
 
 Migration jobs and guarded dev DB-writing helpers also set
 `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true`; do not put that opt-in on unrelated

@@ -1,33 +1,59 @@
 "use client";
 
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Loader2 } from "lucide-react";
-import { signInWithGoogleAccountChooser } from "@/lib/auth/firebase-client";
+import {
+  completeGoogleRedirectSignIn,
+  startGoogleRedirectSignIn,
+} from "@/lib/auth/firebase-client";
 import { DASHBOARD_BASE_PATH } from "@/lib/auth/session-cookie";
 
 export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: string }) {
-  const [status, setStatus] = useState<"ready" | "signing_in" | "redirecting" | "error">("ready");
+  const [status, setStatus] = useState<"ready" | "checking" | "signing_in" | "redirecting">("checking");
   const [message, setMessage] = useState<string | null>(null);
+  const checkedRedirect = useRef(false);
 
   const navigateToNext = useCallback(() => {
     setStatus("redirecting");
     window.location.replace(safeNextPath(nextPath));
   }, [nextPath]);
 
+  useEffect(() => {
+    if (checkedRedirect.current) return;
+    checkedRedirect.current = true;
+
+    let mounted = true;
+    void completeGoogleRedirectSignIn()
+      .then((user) => {
+        if (!mounted) return;
+        if (user) {
+          navigateToNext();
+          return;
+        }
+        setStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (!mounted) return;
+        setStatus("ready");
+        setMessage(messageForGoogleSignInError(error));
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [navigateToNext]);
+
   const handleSignIn = useCallback(() => {
-    if (status !== "ready" && status !== "error") return;
+    if (status !== "ready") return;
     setStatus("signing_in");
     setMessage(null);
 
-    void signInWithGoogleAccountChooser()
-      .then(() => {
-        navigateToNext();
-      })
+    void startGoogleRedirectSignIn()
       .catch((error: unknown) => {
         setStatus("ready");
         setMessage(messageForGoogleSignInError(error));
       });
-  }, [navigateToNext, status]);
+  }, [status]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -38,8 +64,9 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
     [handleSignIn],
   );
 
-  const isBusy = status === "signing_in" || status === "redirecting";
-  const statusText = status === "redirecting" ? "Opening dashboard" : "Signing in";
+  const isBusy = status !== "ready";
+  const statusText =
+    status === "checking" ? "Checking session" : status === "redirecting" ? "Opening dashboard" : "Signing in";
 
   return (
     <div className="mt-8">
@@ -53,19 +80,17 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
         <span className="absolute left-4 flex h-5 w-5 items-center justify-center" aria-hidden="true">
           <GoogleGMark />
         </span>
-        {isBusy ? (
-          <span className="inline-flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            {statusText}
-          </span>
-        ) : (
-          "Continue with Google"
-        )}
+        Continue with Google
       </button>
       <div className="mt-3 min-h-7">
         {message ? (
           <p className="rounded-lg border border-[#7f1d1d] bg-[#1d1214] px-3 py-2 text-sm leading-6 text-[#fecaca]">
             {message}
+          </p>
+        ) : isBusy ? (
+          <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-[#8899AA]">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            {statusText}
           </p>
         ) : null}
       </div>
@@ -75,11 +100,18 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
 
 function messageForGoogleSignInError(error: unknown): string {
   if (isFirebaseAuthError(error)) {
-    if (error.code === "auth/popup-closed-by-user" || error.code === "auth/cancelled-popup-request") {
+    if (
+      error.code === "auth/redirect-cancelled-by-user" ||
+      error.code === "auth/popup-closed-by-user" ||
+      error.code === "auth/cancelled-popup-request"
+    ) {
       return "Google sign-in was cancelled.";
     }
+    if (error.code === "auth/redirect-operation-pending") {
+      return "Google sign-in is already open. Complete it in the Google window, or reload and try again.";
+    }
     if (error.code === "auth/popup-blocked") {
-      return "Chrome blocked the Google sign-in popup. Allow popups for this dashboard and try again.";
+      return "Chrome blocked Google sign-in. Reload and try again.";
     }
     if (error.code === "auth/unauthorized-domain") {
       return "This dashboard host is not authorized for Firebase sign-in.";

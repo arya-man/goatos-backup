@@ -226,7 +226,7 @@ make dev-local
 ## Cloud Dev Google Sign-In
 
 `goatos-dev` uses Firebase Auth as the browser IdP. The login control must use
-Firebase `signInWithPopup` plus Google provider parameters
+Firebase redirect sign-in plus Google provider parameters
 `prompt=select_account` and `hd=mesha.sg`; this keeps shared Chrome profiles
 from silently choosing a personal Google account. Do not switch the internal
 dashboard back to Google Identity Services One Tap or the rendered GIS button

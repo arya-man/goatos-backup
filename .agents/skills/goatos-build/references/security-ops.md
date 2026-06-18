@@ -49,6 +49,10 @@ Rules:
   `GOATOS_AUTH_ALLOWED_EMAILS`. Treat Google provider `hd` values as picker
   hints only; the backend verified-email allowlist plus DB grants are the real
   access-control boundary.
+- Once a custom dashboard host is live, set
+  `GOATOS_CANONICAL_DASHBOARD_HOST` on admin-web and disable the Cloud Run
+  default URL where supported so raw `*.run.app` hosts do not become parallel
+  SSO surfaces.
 - Before paid dev infra apply, verify the goatos-dev-only budget on billing
   account `01FEDE-96BCB3-76D992` and keep Terraform free of secret versions,
   database users/passwords, API keys, bearer tokens, or Firebase config values.
