@@ -289,6 +289,18 @@ A token with wrong issuer/audience/alg -> 401
 GET /analytics/identity/counts -> 200 with freshness fields, no rebuild_required after a clean rebuild
 ```
 
+For admin-web dashboard smoke, use the canonical dashboard host and the
+committed auth routes:
+
+```text
+GET https://dev.dashboard.mesha.sg/dashboard/login -> 200
+GET https://dev.dashboard.mesha.sg/dashboard/api/auth/firebase-config -> 200
+```
+
+Do not use `/dashboard/api/config/firebase`; that route does not exist. Raw
+Cloud Run `*.run.app` dashboard hosts are not the app source of truth after
+canonical-host redirect/custom-domain setup.
+
 `GET /healthz` remains a local/container liveness route, but raw Cloud Run/GFE
 can reserve or intercept that exact path before it reaches the container. Use
 `/livez` for public Cloud Run smoke checks.
