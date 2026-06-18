@@ -102,9 +102,10 @@ Rules:
   carry Goat OS tenant claims, it falls back to `X-GoatOS-Tenant-ID` and then
   authorizes only through active `user_scope_grants` for that token subject and
   tenant. `X-GoatOS-Actor-ID` remains local/dev-only; bearer auth overwrites
-  actor context from the verified token subject. If
-  `GOATOS_AUTH_ALLOWED_EMAILS` is configured, the token must also carry a
-  verified email present in that allowlist before tenant/RBAC checks proceed.
+  actor context from the verified token subject. `GOATOS_AUTH_ALLOWED_EMAILS`
+  is required in JWKS mode; the API fails closed at startup if it is empty.
+  When an allowlist is configured, the token must also carry a verified email
+  present in that allowlist before tenant/RBAC checks proceed.
 - Phase 1 RBAC is the internal goat-ops realm only. The DB-enforced role set is
   `admin`, `verifier`, `park_head`, `operator`, and `ceo_internal`. Investor,
   buyer, donor, partner, franchise, lending, procurement, health, workforce, and

@@ -215,6 +215,9 @@ func buildAuthMiddleware(cfg AuthConfig, verifier httpmiddleware.TokenVerifier, 
 	if mode == "" {
 		mode = httpmiddleware.AuthModeBearer
 	}
+	if err := validateAuthEmailAllowlist(cfg); err != nil {
+		return nil, err
+	}
 	// jwks is a verifier-selection concern; the middleware treats it the same
 	// as bearer (token presented in Authorization: Bearer header, verified via
 	// the injected TokenVerifier).
@@ -238,8 +241,8 @@ func buildAuthAuditOptions(cfg AuthConfig) ([]authaudit.Option, error) {
 			return nil, fmt.Errorf("%w: GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS must contain only UUIDs", httpmiddleware.ErrInvalidAuthConfig)
 		}
 	}
-	if _, err := authallow.NewEmailSet(cfg.AllowedEmails); err != nil {
-		return nil, fmt.Errorf("%w: GOATOS_AUTH_ALLOWED_EMAILS must contain only valid email addresses", httpmiddleware.ErrInvalidAuthConfig)
+	if err := validateAuthEmailAllowlist(cfg); err != nil {
+		return nil, err
 	}
 	options := []authaudit.Option{
 		authaudit.WithAllowedTenantIDs(cfg.AuthSessionAllowedTenantIDs),
@@ -253,6 +256,21 @@ func buildAuthAuditOptions(cfg AuthConfig) ([]authaudit.Option, error) {
 		)))
 	}
 	return options, nil
+}
+
+func validateAuthEmailAllowlist(cfg AuthConfig) error {
+	set, err := authallow.NewEmailSet(cfg.AllowedEmails)
+	if err != nil {
+		return fmt.Errorf("%w: GOATOS_AUTH_ALLOWED_EMAILS must contain only valid email addresses", httpmiddleware.ErrInvalidAuthConfig)
+	}
+	if authEmailAllowlistRequired(cfg) && len(set) == 0 {
+		return fmt.Errorf("%w: GOATOS_AUTH_ALLOWED_EMAILS is required when GOATOS_AUTH_MODE=jwks", httpmiddleware.ErrInvalidAuthConfig)
+	}
+	return nil
+}
+
+func authEmailAllowlistRequired(cfg AuthConfig) bool {
+	return strings.EqualFold(strings.TrimSpace(cfg.Mode), AuthModeJWKS)
 }
 
 func authMaxTokenTTLFromEnv() time.Duration {

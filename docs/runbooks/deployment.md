@@ -226,9 +226,10 @@ audience `goatos-dev`, and JWKS URL
 The admin-web proxy only redirects missing, malformed, or expired Firebase
 ID-token cookies; backend JWKS verification remains the trust boundary.
 `GOATOS_AUTH_ALLOWED_EMAILS` is the environment-level dashboard email allowlist:
-when configured, sign-in/session audit and protected API requests reject tokens
-whose verified email is not present in the list. Google Workspace `hd` hints are
-not sufficient access control by themselves.
+it is required in JWKS mode, and the API fails closed at startup if it is empty.
+Sign-in/session audit and protected API requests reject tokens whose verified
+email is not present in the list. Google Workspace `hd` hints are not sufficient
+access control by themselves.
 
 Admin-web supports canonical-host redirects:
 

@@ -45,10 +45,11 @@ Rules:
   Pin shared environments with `GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS` and
   keep `GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE` enabled unless a controlled
   local smoke explicitly disables it with `0`.
-- Shared dashboard environments can narrow Firebase/Google sign-in with
-  `GOATOS_AUTH_ALLOWED_EMAILS`. Treat Google provider `hd` values as picker
-  hints only; the backend verified-email allowlist plus DB grants are the real
-  access-control boundary. Pre-approved first-time users belong in
+- Shared dashboard JWKS environments must set non-empty
+  `GOATOS_AUTH_ALLOWED_EMAILS`; the API fails closed at startup if it is empty.
+  Treat Google provider `hd` values as picker hints only; the backend
+  verified-email allowlist plus DB grants are the real access-control boundary.
+  Pre-approved first-time users belong in
   `auth_pending_email_grants`; verified `auth.sign_in` claims the real
   `user_scope_grants` row automatically and records
   `auth.pending_email_grant_claimed`. Do not grant synthetic Firebase UIDs.

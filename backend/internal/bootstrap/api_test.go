@@ -155,6 +155,26 @@ func TestAuthAuditOptionsFromConfig(t *testing.T) {
 	}
 }
 
+func TestJWKSRequiresNonEmptyAuthAllowedEmails(t *testing.T) {
+	if _, err := buildAuthAuditOptions(AuthConfig{
+		Mode: AuthModeJWKS,
+	}); err == nil {
+		t.Fatal("jwks accepted empty auth email allowlist")
+	}
+	if _, err := buildAuthAuditOptions(AuthConfig{
+		Mode:          AuthModeJWKS,
+		AllowedEmails: []string{"ravi@mesha.sg"},
+	}); err != nil {
+		t.Fatalf("jwks rejected configured auth email allowlist: %v", err)
+	}
+	if _, err := buildAuthAuditOptions(AuthConfig{
+		Mode:          httpmiddleware.AuthModeBearer,
+		AllowedEmails: nil,
+	}); err != nil {
+		t.Fatalf("local bearer without auth email allowlist should remain allowed: %v", err)
+	}
+}
+
 func TestAuthSessionRateLimitFromEnv(t *testing.T) {
 	t.Setenv("GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE", "")
 	if got := authSessionRateLimitFromEnv(); got != defaultAuthSessionRateLimitPerMinute {
