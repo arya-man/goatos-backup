@@ -1,6 +1,6 @@
 # Container Images
 
-Status: P3 containerization prerequisite.
+Status: active container build and dev deploy runbook.
 
 Build from the repository root so Docker can see both app code and shared
 packages:
