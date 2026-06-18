@@ -77,6 +77,15 @@ Existing modules remain owners of their own concerns:
 - `backend/internal/media` owns upload intents and proof metadata.
 - `backend/internal/locations` owns location tree and aliases.
 
+Naming convention:
+
+- Product, API, and permission surfaces use `operator` because managers and app
+  users understand `/admin/operators` and `operators.*`.
+- Backend ownership and persistence use the `workforce` module and
+  `workforce_*` table names because the same module owns operators, park heads,
+  verifiers, rosters, capabilities, devices, absences, and backfill.
+- `operator` is a workforce role/surface, not a separate backend module.
+
 ## System Diagram
 
 ```mermaid
@@ -85,7 +94,7 @@ flowchart LR
   Auth["platform auth"]
   Perms["permissions / user_scope_grants"]
   Workforce["workforce/operator profile"]
-  Devices["operator devices"]
+  Devices["workforce member devices"]
   Cap["capabilities + roster"]
   Bootstrap["app bootstrap API"]
   Tasks["task API"]
@@ -141,6 +150,11 @@ Constraints/indexes:
 
 `display_name` is operational workforce data in production, but committed
 fixtures must not contain real names.
+
+`primary_role_hint` is non-authoritative review/display metadata only. It may
+include values such as `supervisor` or `other`, but permissions must come only
+from `user_scope_grants` and route-to-permission checks; never map
+`primary_role_hint` directly to RBAC.
 
 ### workforce_external_identities
 
@@ -283,7 +297,7 @@ Required columns:
 Absence must create reassignment/backfill records; it must not overwrite the
 original task owner.
 
-### operator_devices
+### workforce_member_devices
 
 Registered Android device metadata.
 
@@ -315,7 +329,7 @@ Indexes:
 - tenant + app install id
 - tenant + last seen
 
-### operator_app_sessions
+### workforce_member_app_sessions
 
 Optional audit/session table for Android bootstrap and support diagnostics.
 

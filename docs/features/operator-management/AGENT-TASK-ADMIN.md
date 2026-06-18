@@ -135,8 +135,8 @@ Implement or scaffold with tests:
 - `workforce_member_capabilities`
 - `workforce_roster_assignments`
 - `workforce_absences`
-- `operator_devices`
-- `operator_app_sessions` if needed for bootstrap audit/support
+- `workforce_member_devices`
+- `workforce_member_app_sessions` if needed for bootstrap audit/support
 - active profile check
 - active grant check through existing permissions module
 - capability check
