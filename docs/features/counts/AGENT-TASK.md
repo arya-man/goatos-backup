@@ -34,6 +34,22 @@ Own Counts only:
 Do not create private location maps. Use Locations aliases. Do not implement
 Mortality rates or events.
 
+## Shared Resource Ownership
+
+- Use only migration numbers `000030`-`000039`.
+- Own `contracts/openapi/analytics-api.yaml` paths under `/analytics/counts*`
+  and operation `getCountsDashboardSnapshot`.
+- Add `contracts/openapi/admin-api.yaml` paths under `/admin/counts*` only if
+  Counts needs backend-owned sync, rebuild, or review commands.
+- Create Counts page/component files inside the Counts route/module area.
+- Do not edit shared admin-web shell files directly:
+  `apps/admin-web/components/layout/app-sidebar.tsx`,
+  `apps/admin-web/components/layout/navbar.tsx`,
+  `apps/admin-web/lib/routes.ts`, or
+  `apps/admin-web/scripts/smoke-visual-live.mjs`. Provide route label, href,
+  icon, and smoke-test path notes to the Locations/coordinator integration
+  change.
+
 ## Required Live Sources
 
 Probe live sources read-only:

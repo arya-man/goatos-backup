@@ -38,6 +38,22 @@ Own Mortality only:
 Do not create private location maps. Use Locations aliases. Do not recompute
 Counts/identity denominators inside Mortality request handlers.
 
+## Shared Resource Ownership
+
+- Use only migration numbers `000040`-`000049`.
+- Own `contracts/openapi/analytics-api.yaml` paths under
+  `/analytics/mortality*`.
+- Own `contracts/openapi/admin-api.yaml` paths under `/admin/mortality*` for
+  sync, review, event-resolution, and rebuild commands.
+- Create Mortality page/component files inside the Mortality route/module area.
+- Do not edit shared admin-web shell files directly:
+  `apps/admin-web/components/layout/app-sidebar.tsx`,
+  `apps/admin-web/components/layout/navbar.tsx`,
+  `apps/admin-web/lib/routes.ts`, or
+  `apps/admin-web/scripts/smoke-visual-live.mjs`. Provide route label, href,
+  icon, and smoke-test path notes to the Locations/coordinator integration
+  change.
+
 ## Required Live Sources
 
 Probe live sources read-only according to the Mortality TRD source list,
@@ -49,12 +65,30 @@ including:
 - `mortality_this_month_farmwise_dev`
 - `monthly_mortality_rate`
 - `overall_farmwise_mortality_dev`
+- `load_Wise_pct_data`
+- `deaths_monthly_trend_v`
+- `mortality_genderwise`
+- `mortality_trend_dev`
 - `deaths_fact_dev`
-- source tables/views used by load, delivery/litter, trend, gender, status, and
-  housing sections once formula rows are pinned
+- `mother_litter_size_dev_breedwise`
+- `mother_litter_size_dev_overall`
+- `mortality_by_litter_size_overall_dev`
+- `last_month_mother_mortality_breed_dev`
+- `last_month_mother_mortality_litter_dev`
+- `last_month_mortality_by_litter_size_view`
+- `load_wise_procurement_with_status`
+- `breedwise_load_pct`
+- `birth_analysis_view` or `mother_kid_facts` when legacy delivery/litter
+  formulas use them
 
 Confirm whether `_dev` views are the currently served legacy oracle or whether a
 production replacement exists.
+
+Do not defer discovery for required Load-wise, By Delivery, Trends,
+Gender-wise, Status-wise, or Housing/shed-wise sections. If a source for a
+required section is blocked or the formula cannot be pinned, record
+`source_unavailable` or `pending_source_coverage`; that section blocks
+production completion until resolved or explicitly removed from required scope.
 
 ## Required Local Proof
 

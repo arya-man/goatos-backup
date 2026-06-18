@@ -5,6 +5,16 @@ Status: coordinator checklist for Locations, Counts, and Mortality integration.
 Run this after the feature agents finish local implementation and before any
 dev deploy.
 
+## Coordinator Preflight
+
+- Confirm target repo, branch, and dirty files before agent fan-out.
+- Confirm the current highest committed migration number and write down the
+  reserved non-overlapping migration ranges.
+- Confirm read-only BQ/Sheets/Drive credentials work for all required sources.
+- Confirm which required sources are Drive-backed or blocked before fan-out.
+- Confirm discovery targets belong to approved Goat OS legacy/migration sources,
+  not Heva/Slice projects, organizations, service accounts, or browser sessions.
+
 ## Repo And Scope
 
 - Confirm the target repo is `https://github.com/vgoats/goatos.git`.
@@ -26,6 +36,18 @@ because Mortality depends on denominator projections.
 ## Shared Contracts
 
 - OpenAPI contracts compile and generated clients are updated.
+- Migration files stay inside the reserved feature ranges:
+  Locations `000024`-`000029`, Counts `000030`-`000039`, Mortality
+  `000040`-`000049`.
+- There are no duplicate migration prefixes and no feature uses another
+  feature's reserved range.
+- OpenAPI path ownership is respected: Locations `/admin/locations*`, Counts
+  `/analytics/counts*` and optional `/admin/counts*`, Mortality
+  `/analytics/mortality*` and `/admin/mortality*`.
+- Shared admin-web route-shell files are edited only by the Locations/coordinator
+  integration change: `components/layout/app-sidebar.tsx`,
+  `components/layout/navbar.tsx`, `lib/routes.ts`, and
+  `scripts/smoke-visual-live.mjs`.
 - Migrations apply cleanly to a fresh local Postgres database.
 - Migration ordering does not create circular feature dependencies.
 - Permission namespaces follow `analytics.<feature>.*` for dashboards and

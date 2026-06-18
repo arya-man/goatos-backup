@@ -23,6 +23,23 @@ parity artifacts, browser QA evidence, and EXPLAIN/query-plan proof before
 asking for integration.
 ```
 
+## Coordinator Step 0: Preflight
+
+Before launching parallel agents, the coordinator must verify and record:
+
+- target repo, branch, and worktree state
+- current highest committed migration number
+- reserved migration ranges from the shared-resource partition below
+- read-only BigQuery/Sheets/Drive credentials and source access for every
+  required source named by the task docs
+- which required sources are Drive-backed or blocked before fan-out
+- legacy project/dataset/sheet targets and quota expectations for discovery
+
+Org-boundary rules still apply during discovery. Legacy `goatos-sheets` or
+dashboard sources may be read only as approved migration inputs. Do not use or
+change Heva/Slice projects, organizations, service accounts, or browser
+sessions for Goat OS work.
+
 ## Agent Split
 
 Run these agents in parallel:
@@ -44,6 +61,25 @@ Counts can build while Locations is in progress, but its final parity depends on
 Locations aliases. Mortality can build its event spine while Counts is in
 progress, but final rate completion depends on identity/count denominator
 projections.
+
+## Shared-Resource Partition
+
+Do not let agents race on shared files. These reservations are part of the task
+contract for the first counter-family parallel run. The current committed
+migration max is `000023`; if another migration lands before launch, the
+coordinator must assign new non-overlapping ranges and update this section
+before fan-out.
+
+| Feature agent | Migration range | OpenAPI ownership | Admin-web route-shell ownership |
+| --- | --- | --- | --- |
+| Locations | `000024`-`000029` | `contracts/openapi/admin-api.yaml` paths under `/admin/locations*`; location alias/review/capacity operations | Owns shared shell registration for counter-family routes: `apps/admin-web/components/layout/app-sidebar.tsx`, `apps/admin-web/components/layout/navbar.tsx`, `apps/admin-web/lib/routes.ts`, and `apps/admin-web/scripts/smoke-visual-live.mjs` |
+| Counts | `000030`-`000039` | `contracts/openapi/analytics-api.yaml` paths under `/analytics/counts*` and operation `getCountsDashboardSnapshot`; `contracts/openapi/admin-api.yaml` paths under `/admin/counts*` only for sync/rebuild/review commands | May create Counts route/page/component files. Do not edit shared shell/nav/smoke files directly; give route metadata to the Locations/coordinator integration change. |
+| Mortality | `000040`-`000049` | `contracts/openapi/analytics-api.yaml` paths under `/analytics/mortality*`; `contracts/openapi/admin-api.yaml` paths under `/admin/mortality*` for sync/review/event-resolution commands | May create Mortality route/page/component files. Do not edit shared shell/nav/smoke files directly; give route metadata to the Locations/coordinator integration change. |
+
+If an agent exhausts its migration range, stop and ask the coordinator for the
+next reserved block. Do not take another feature's range or renumber another
+agent's committed migrations. Foreign keys, generated query-plan fixtures, and
+plan validation artifacts must reference final migration numbers only.
 
 ## Shared Rules
 
@@ -154,7 +190,9 @@ the feature PRD/TRD.
 
 The coordinator owns:
 
-- resolving shared migration/OpenAPI conflicts
+- running the step-0 access and shared-resource preflight before fan-out
+- enforcing reserved migration ranges and OpenAPI path prefixes
+- applying or approving shared admin-web shell/nav/smoke route registration
 - ensuring merge order: Locations, then Counts, then Mortality
 - checking all agents used live source discovery
 - checking local DB proof exists before dev deploy

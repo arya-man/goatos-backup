@@ -32,6 +32,20 @@ Own Locations only:
 Do not implement Counts or Mortality projection logic except the minimal shared
 interfaces needed for location invalidation and alias resolution.
 
+## Shared Resource Ownership
+
+- Use only migration numbers `000024`-`000029`.
+- Own `contracts/openapi/admin-api.yaml` paths under `/admin/locations*`,
+  including location aliases, capacity, usage checks, and review operations.
+- Own shared admin-web route-shell registration for the counter-family slice:
+  `apps/admin-web/components/layout/app-sidebar.tsx`,
+  `apps/admin-web/components/layout/navbar.tsx`,
+  `apps/admin-web/lib/routes.ts`, and
+  `apps/admin-web/scripts/smoke-visual-live.mjs`.
+- Add or update only route-shell entries needed to expose Locations and to land
+  pre-agreed Counts/Mortality route placeholders or route metadata. Counts and
+  Mortality agents should not edit those shared shell files directly.
+
 ## Required Local Proof
 
 - Apply migrations to local Postgres.
