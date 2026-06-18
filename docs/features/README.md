@@ -21,6 +21,8 @@ Current feature docs:
 - `docs/features/mortality/AGENT-TASK.md`
 - `docs/features/mortality/PRD.md`
 - `docs/features/mortality/TRD.md`
+- `docs/features/operator-management/PRD.md`
+- `docs/features/operator-management/TRD.md`
 
 Counts and Locations are separate feature specs but one delivery slice:
 Locations owns canonical location tree, aliases, capacity, usage checks, and
@@ -30,6 +32,11 @@ canonical projections.
 The shared cutover contract owns the transition rule for any feature that is
 temporarily fed by BigQuery/Sheets but will later be fed by Android/backend
 canonical writes.
+
+Operator Management is the cross-phase workforce/auth foundation for Android
+SOP execution. It is not payroll HRMS and not legacy parity; it owns the active
+operator roster, app bootstrap, scope/capability/device gates, and sanitized
+legacy submitter mapping needed before Android SOPs replace Slack execution.
 
 The counter-family agent runbook and task files are execution guides for running
 Locations, Counts, and Mortality in parallel. They do not replace the PRD/TRD

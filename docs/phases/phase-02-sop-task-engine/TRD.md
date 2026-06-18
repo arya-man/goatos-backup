@@ -46,6 +46,13 @@ Track the gates separately in implementation evidence: Shifting platform
 acceptance, legacy SOP execution retirement, and dashboard BQ/Sheets retirement.
 No deployment note or closeout artifact should collapse these into one switch.
 
+Android SOP execution depends on Operator Management v1:
+`docs/features/operator-management/PRD.md` and
+`docs/features/operator-management/TRD.md`. Phase 2 should consume active
+operator profile, role/scope grant, capability, device/session, app bootstrap,
+and source-submitter mapping contracts instead of inventing task-local user
+logic.
+
 ## Modules Touched
 
 Backend modular monolith modules:
@@ -59,6 +66,7 @@ backend/internal/media           # proof metadata and upload intent integration
 backend/internal/notifications   # Slack/FCM/WhatsApp outbound ports/adapters
 backend/internal/identity        # goat lookup/identity-state read ports only
 backend/internal/locations       # location reference read ports only
+backend/internal/workforce       # operator profile, roster, capability, devices
 backend/internal/permissions     # RBAC route/action permissions
 backend/internal/outbox          # event publishing foundation
 backend/internal/platform        # auth, db, observability, bootstrap wiring
@@ -75,11 +83,11 @@ packages/api-client              # generated OpenAPI clients
 Contracts:
 
 ```text
-contracts/openapi/admin-api.yaml
-contracts/openapi/app-api.yaml
-contracts/jsonschema/sop-form-version.schema.json
-contracts/jsonschema/sop-submission.schema.json
-contracts/jsonschema/domain-event-envelope.schema.json
+contracts/openapi/admin-api.yaml                       # exists; extend
+contracts/openapi/app-api.yaml                         # exists; extend
+contracts/jsonschema/sop-form-version.schema.json      # to create
+contracts/jsonschema/sop-submission.schema.json        # to create
+contracts/jsonschema/domain-event-envelope.schema.json  # exists
 ```
 
 ## Phase Architecture Invariants
@@ -372,6 +380,8 @@ OpenAPI + generated TypeScript client
 Android track:
 
 ```text
+verified login and app bootstrap manifest
+active operator profile, role/scope grant, capability, and device checks
 operator task list
 pinned SOP version download
 offline option-source cache
@@ -386,13 +396,13 @@ rework and correction states
 Shared contract artifacts:
 
 ```text
-contracts/jsonschema/sop-form-version.schema.json
-contracts/jsonschema/sop-submission.schema.json
-contracts/jsonschema/sop-preview-dry-run.schema.json
-contracts/jsonschema/sop-proof-policy.schema.json
-contracts/openapi/admin-api.yaml
-contracts/openapi/app-api.yaml
-packages/api-client
+contracts/jsonschema/sop-form-version.schema.json      # to create
+contracts/jsonschema/sop-submission.schema.json        # to create
+contracts/jsonschema/sop-preview-dry-run.schema.json   # to create
+contracts/jsonschema/sop-proof-policy.schema.json      # to create
+contracts/openapi/admin-api.yaml                       # exists; extend
+contracts/openapi/app-api.yaml                         # exists; extend
+packages/api-client                                    # exists; regenerate
 ```
 
 If Android needs a client-safe evaluator package, add it as a shared package with
@@ -670,11 +680,20 @@ Route registry must fail closed for new protected routes. Tests must cover
 admin, ceo_internal, park/supervisor, operator, and verifier paths where those
 roles exist in Phase 2.
 
+Operator identity, source-submitter mapping, capabilities, device state, and app
+bootstrap are owned by Operator Management. SOP/task routes consume those
+contracts and must still re-check `task.execute`, `task.verify`, movement
+permissions, live task state, active profile, active grants, and compatible app
+and SOP version at submit time.
+
 ## Offline And Mobile Sync
 
 Android runner requirements:
 
 ```text
+login through platform auth and fetch app bootstrap
+block task execution when operator profile, grant, capability, device, or app
+  version is inactive/incompatible
 download assigned tasks and pinned SOP versions
 download option source cache scoped to operator/park/shed
 save local draft
@@ -857,6 +876,7 @@ Operator Android:
 
 ```text
 uses generated app-api client
+uses app bootstrap manifest for visible navigation and executable SOP versions
 offline cache for tasks/SOP versions/options
 native camera/media upload flow behind backend upload intents
 no canonical data in Zustand/MMKV beyond local cache/draft/sync queue
@@ -867,12 +887,16 @@ no canonical data in Zustand/MMKV beyond local cache/draft/sync queue
 Phase 2 migration steps:
 
 1. Extract Shifting SOP fields/rules from `shifting_death_automation.js`.
-2. Seed Shifting SOP v1 in Goat OS.
-3. Run Goat OS Shifting in shadow mode against legacy Slack/Sheets for selected
+2. Extract legacy submitter/assignee evidence into sanitized Operator
+   Management source candidates.
+3. Activate a scoped operator cohort with explicit grants, capabilities, and
+   device/session state.
+4. Seed Shifting SOP v1 in Goat OS.
+5. Run Goat OS Shifting in shadow mode against legacy Slack/Sheets for selected
    parks if needed.
-4. Route Slack notifications from Goat OS outbox.
-5. Disable direct Slack/App Script writes after cutover.
-6. Keep legacy scripts frozen for audit until migration is accepted.
+6. Route Slack notifications from Goat OS outbox.
+7. Disable direct Slack/App Script writes after cutover.
+8. Keep legacy scripts frozen for audit until migration is accepted.
 
 No inbound Slack bridge may bypass Goat OS auth, validation, idempotency, audit,
 or RBAC.
@@ -988,6 +1012,10 @@ Operator mobile validation commands must be added when the app package lands.
   pending authorization task immediately.
 - Exact operator mobile package path and generated app-api client integration
   once the mobile app lands in this repo.
+- Exact first operator login adapter: verified email, phone OTP, managed device,
+  or staged combination.
+- Whether device registration needs cryptographic device keys in Phase 2 or can
+  start with app-install metadata plus server-side revocation.
 - Whether Count Verification, Weight Capture, Death Report, or Vaccination is
   the first post-Shifting SOP needed for dashboard cutover pressure.
 - Which module owns status/stage transition events equivalent to legacy

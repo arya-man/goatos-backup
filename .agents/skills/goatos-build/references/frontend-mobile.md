@@ -12,6 +12,8 @@ Canonical docs:
 - `docs/features/counts/TRD.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
+- `docs/features/operator-management/PRD.md`
+- `docs/features/operator-management/TRD.md`
 
 Rules:
 
@@ -20,6 +22,9 @@ Rules:
 - Keep useful UI/components, replace data path with Goat OS APIs/analytics APIs in the goatos copies.
 - Current live dashboard URLs keep running until the new Goat OS dashboards validate against them.
 - Operators use Android task/form app, not BI dashboards.
+- Android operator app visibility comes from Operator Management app bootstrap:
+  active profile, role/scope grants, capabilities, device/session state,
+  compatible app version, and allowed task/SOP manifests.
 - App code depends on generated clients and adapters, not direct vendor SDK calls.
 - Legacy BigQuery is a temporary bridge, not a frontend dependency. Admin-web
   and mobile screens must not contain BQ table names, column names, or export

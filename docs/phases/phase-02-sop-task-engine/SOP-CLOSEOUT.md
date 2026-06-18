@@ -82,16 +82,11 @@ Repo-owned source summaries already cover:
 - Procurement / arrival implications
 - Cross-cutting video/proof verification behavior
 
-Local visualization source reviewed:
-
-```text
-/Users/ravi/mesha/source-material/sop-playground-local/playground.html
-```
-
-Do not commit the raw playground HTML as product truth. The useful sanitized
-intent is: catalog-driven SOP selection, custom SOP draft creation, field
-palette, field editor, rule builder, workflow pattern/canvas, Android preview,
-scenario simulator, proof state, validate, and publish.
+Local source-material SOP visualization was reviewed, but the raw playground
+HTML is not committed as product truth. The useful sanitized intent is:
+catalog-driven SOP selection, custom SOP draft creation, field palette, field
+editor, rule builder, workflow pattern/canvas, Android preview, scenario
+simulator, proof state, validate, and publish.
 
 ## Review Counterpoints
 
@@ -102,6 +97,9 @@ Keep these constraints visible during implementation and closeout:
 - Android is canonical intake only for SOP families whose app package, generated
   client, offline queue, media upload, backend validation, and module command
   path are implemented and accepted.
+- Android SOP intake also requires Operator Management: active operator profile,
+  verified login, role/scope grant, capability, device/session state, app
+  bootstrap, and dynamic task/SOP visibility gates.
 - Generic form submissions are never canonical by themselves; the owning domain
   module must apply the accepted command/event.
 - BQ/Sheets removal is per feature section/grain. A tenant-wide
@@ -119,6 +117,7 @@ Keep these constraints visible during implementation and closeout:
 | Counts | Projection contract, blend mode, coverage registry, dashboard parity, current active goats, farm/shed/status/breed/age/gender sections. | Daily count verification SOP, Shifting/location events, lifecycle changes, status/stage transitions, weight capture or weight policy, valuation facts, sale/inactive events, and per-section shadow parity from canonical facts. |
 | Mortality | Event-based mortality semantics, `mortality_events`, Death SOP cutover model, proof/correction/idempotency, formulas pending. | Death SOP implementation, post-mortem checklist policy, abortion/birth/litter event ownership, denominator projections, event-source coverage gate, source-independent death keys, and canonical-vs-legacy shadow parity. |
 | SOP/task engine | Shifting walking skeleton, DSL rules, proof policy, task states, Android runner shape, backend revalidation. | Complete form DSL/schema/evaluator, admin builder APIs/UI, Android app package/client/offline queue, media upload intents, workflow state machine, source inventory, reusable template seeds, and domain commands for each canonical effect. |
+| Operator Management | Phase 1 auth/RBAC grants and final architecture workforce rules exist. | Active roster, legacy submitter mapping, capabilities, scopes, shifts/absence/backfill, devices, app bootstrap manifest, dynamic Android feature visibility, and source-candidate review. |
 | Analytics/cutover | Shared cutover contract with source composition and coverage registry. | Per-SOP coverage rows, shadow parity artifact generation, cross-source dedup tests, and projection invalidation hooks from accepted SOP submissions. |
 
 ## SOP Families Needed For Full Closure
@@ -155,6 +154,9 @@ To close the reusable SOP platform:
   workflow pattern/canvas, Android preview, validation errors, publish/retire.
 - Android app package path, generated app-api client, task list, runner,
   offline cache, draft storage, sync queue, and per-goat retry.
+- Operator Management v1: active operator profile, login, role/scope grants,
+  capabilities, source-submitter mapping, device registration/revocation, app
+  bootstrap manifest, and Android feature/SOP compatibility gates.
 - Media upload intent flow for photo, video, generic attachments, original
   proof, rectified proof, verifier proof, hash, metadata, retention, and DLQ.
 - Task state machine with assignment, approval, verification, rework, missed,
@@ -194,13 +196,15 @@ Shifting:
    Goat OS admin web.
 2. Android can execute assigned Shifting tasks online/offline with proof upload
    and idempotent retry.
-3. Backend revalidates every submission against pinned SOP version, RBAC, live
+3. Android bootstrap is gated by active Operator Management profile, grant,
+   capability, device/session, compatible app version, and pinned SOP version.
+4. Backend revalidates every submission against pinned SOP version, RBAC, live
    goat/location state, proof policy, idempotency, and domain gates.
-4. Accepted Shifting submissions write module-owned canonical movement/location
+5. Accepted Shifting submissions write module-owned canonical movement/location
    events, not generic form-table mutations.
-5. Proof, verification, rejection, rework, void/reversal, audit, and outbox are
+6. Proof, verification, rejection, rework, void/reversal, audit, and outbox are
    implemented as shared platform behavior for the walking skeleton.
-6. `SOP-CLOSEOUT.md` classifies the non-Phase-2 SOP families and cutover gates
+7. `SOP-CLOSEOUT.md` classifies the non-Phase-2 SOP families and cutover gates
    so Phase 2 acceptance cannot be mistaken for full legacy retirement.
 
 Legacy SOP execution can be called closed only when:

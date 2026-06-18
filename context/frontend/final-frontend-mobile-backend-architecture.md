@@ -111,6 +111,13 @@ Replace:
 - Client-authoritative permission checks.
 - Timed SOP config as the canonical form engine.
 
+Operator Management owns the production Android bootstrap contract: active
+operator profile, role/scope grants, capabilities, device/session state,
+compatible app version, visible navigation, pinned SOP versions, and scoped
+option caches. The native app can execute many SOP permutations through the DSL,
+but it must render only supported native field/proof components and let the
+backend block incompatible versions.
+
 ### Public Website
 
 The website is out of scope for Goat OS core execution. It was inspected only because it exists in the workspace and the public URL helped explain the business context:

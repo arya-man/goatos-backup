@@ -9,6 +9,8 @@ Canonical docs:
 - `docs/phases/phase-02-sop-task-engine/PRD.md`
 - `docs/phases/phase-02-sop-task-engine/TRD.md`
 - `docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md`
+- `docs/features/operator-management/PRD.md`
+- `docs/features/operator-management/TRD.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/execution/next-contracts.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
@@ -43,6 +45,9 @@ Rules:
 - Keep three gates separate: Phase 2 Shifting platform acceptance, legacy SOP
   execution retirement, and dashboard BQ/Sheets retirement. Do not let a
   Shifting demo or Android path imply full SOP closeout.
+- Android SOP execution depends on Operator Management for active profile,
+  verified login, scope grants, capabilities, device/session state, app
+  bootstrap, and dynamic task/SOP visibility.
 - Before calling SOP replacement closed, cross-check Counts, Locations, and
   Mortality dependencies in `SOP-CLOSEOUT.md`; especially count verification,
   weight, status/stage, death, birth/abortion, sale/exit, and proof/video flows

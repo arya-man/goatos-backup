@@ -72,6 +72,12 @@ execution retirement, and per-section dashboard BQ/Sheets retirement. Passing
 the Shifting platform gate must not be described as full SOP closeout or
 canonical-only dashboard readiness.
 
+Android SOP execution also depends on the Operator Management feature:
+`docs/features/operator-management/PRD.md` and
+`docs/features/operator-management/TRD.md`. Phase 2 needs only the minimum v1
+slice: active operator profile, verified login, role/scope grant, capability,
+device/session state, app bootstrap manifest, and dynamic task/SOP delivery.
+
 ## Layman Explanation
 
 Today, many SOPs live as Slack messages, Slack modals, Apps Script code, Sheets,
@@ -298,16 +304,11 @@ flowchart TD
   I -->|No| L["Return Safe Field Errors"]
 ```
 
-Local visualization source reviewed:
-
-```text
-/Users/ravi/mesha/source-material/sop-playground-local/playground.html
-```
-
-Do not commit the raw playground HTML as product truth. The useful product
-intent is a catalog-driven SOP builder with custom draft creation, field
-palette, field editor, rule builder, workflow pattern/canvas, Android preview,
-scenario simulator, proof state, validate, and publish.
+Local source-material SOP visualization was reviewed, but the raw playground
+HTML is not committed as product truth. The useful product intent is a
+catalog-driven SOP builder with custom draft creation, field palette, field
+editor, rule builder, workflow pattern/canvas, Android preview, scenario
+simulator, proof state, validate, and publish.
 
 ## Builder Capabilities
 
@@ -355,6 +356,7 @@ Track A: backend + admin builder
   admin preview and task/proof review
 
 Track B: Android operator execution
+  verified login and app bootstrap
   assigned task list
   pinned SOP version download
   native form runner
@@ -379,6 +381,7 @@ missing before SOP replacement can close the legacy loop.
 | Counts | Projection contract, blend mode, coverage registry, dashboard parity, current active goats, farm/shed/status/breed/age/gender sections. | Count verification SOP, Shifting/location events, lifecycle changes, status/stage transitions, weight capture or policy, valuation facts, sale/inactive events, and canonical shadow parity per section. |
 | Mortality | Event-based dashboard semantics, required `mortality_events`, Death SOP cutover model, proof/correction/idempotency. | Death SOP, post-mortem checklist, abortion/birth/litter event ownership, denominator projections, event-source coverage gate, death dedup keys, and canonical-vs-legacy shadow parity. |
 | SOP platform | Shifting walking skeleton, DSL/rules/proof/task state requirements. | Complete DSL schema/evaluator, builder APIs/UI, Android app/client/offline queue, media upload intents, workflow state machine, source inventory, reusable template seeds, and domain commands. |
+| Operator Management | Phase 1 has auth/RBAC grants and architecture has workforce rules. | Active operator roster, source submitter mapping, capabilities, scopes, shifts/absence, devices, app bootstrap manifest, and Android feature/task visibility gates. |
 
 The detailed closeout checklist lives in:
 
@@ -528,6 +531,8 @@ CEO/internal admin
 - Support conditional fields, required rules, repeat-for-each-goat, proof
   requirements, approval gates, and server-side validation from day one.
 - Make Android the operator execution surface.
+- Use Operator Management v1 for login, app bootstrap, role/scope/capability
+  gates, source-submitter review, device/session state, and task visibility.
 - Make admin web the SOP configuration and review surface.
 - Keep backend domain modules, not form definitions, responsible for canonical
   goat truth.
@@ -784,22 +789,25 @@ Phase 2 is accepted when:
 1. Admin can publish a Shifting SOP version from Goat OS admin web.
 2. Operator Android can execute the published Shifting SOP for one goat and for
    a batch of goats.
-3. Backend revalidates every submission against the pinned SOP version, live goat
+3. Operator Android bootstrap proves active operator profile, active role/scope
+   grant, capability, compatible app/SOP version, and active device/session
+   state before Shifting tasks are returned.
+4. Backend revalidates every submission against the pinned SOP version, live goat
    identity, location state, permissions, idempotency, and proof policy.
-4. Approved Shifting submission creates canonical movement/location history and
+5. Approved Shifting submission creates canonical movement/location history and
    updates current location projections without direct frontend DB/vendor reads.
-5. Audit, proof metadata, domain event, and outbox records are written in the
+6. Audit, proof metadata, domain event, and outbox records are written in the
    same reliable command path.
-6. Ambiguous or blocked shifts become review/rework tasks, not silent writes.
-7. Slack is notification or migration input only.
-8. The same DSL/runtime shape can support vaccination and health SOPs without
+7. Ambiguous or blocked shifts become review/rework tasks, not silent writes.
+8. Slack is notification or migration input only.
+9. The same DSL/runtime shape can support vaccination and health SOPs without
    rewriting the engine.
-9. `SOP-CLOSEOUT.md` has been reviewed against Counts, Locations, and
+10. `SOP-CLOSEOUT.md` has been reviewed against Counts, Locations, and
    Mortality dependencies, and the remaining non-Phase-2 SOP families plus
    dashboard source-retirement gates are explicitly classified instead of being
    assumed complete.
-10. Desktop admin screens and Android operator flow are visually verified.
-11. Docs and agent references describe what was actually built.
+11. Desktop admin screens and Android operator flow are visually verified.
+12. Docs and agent references describe what was actually built.
 
 ## Open Product Decisions
 
@@ -817,3 +825,7 @@ These need business confirmation before or during implementation:
 - What Slack notifications should remain after Goat OS becomes source of truth?
 - Which SOP families must be promoted immediately after Shifting so Counts and
   Mortality can stop using BQ/Sheets for their first production sections?
+- Which legacy Slack submitter/assignee sources are trusted enough to seed
+  operator candidates, and who approves unresolved mappings?
+- Should the first Android operator login use verified email, phone OTP, managed
+  device, or a staged combination?

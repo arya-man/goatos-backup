@@ -8,10 +8,15 @@ Canonical docs:
 - `context/execution/env-load-test-and-doc-hygiene.md`
 - `context/architecture/final-architecture.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
+- `docs/features/operator-management/PRD.md`
+- `docs/features/operator-management/TRD.md`
 
 Rules:
 
 - Gate dashboards with auth/RBAC.
+- Gate Android operator execution with Operator Management active profile,
+  database grants, capabilities, device/session state, and app bootstrap; token
+  claims or Slack membership are not permission authority.
 - Rotate leaked Slack/Redis tokens before removing code references.
 - Store secrets in Secret Manager or env-specific secret stores, never source.
 - Enforce prod read-only for agents through IAM, not markdown promises.

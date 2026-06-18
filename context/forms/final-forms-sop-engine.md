@@ -63,6 +63,14 @@ Phase 2 platform acceptance, legacy SOP execution retirement, and dashboard
 BQ/Sheets source retirement are separate gates and must not be reported as one
 cutover switch.
 
+Android SOP execution depends on Operator Management:
+`docs/features/operator-management/PRD.md` and
+`docs/features/operator-management/TRD.md`. The native app receives dynamic SOP
+forms through pinned DSL versions and backend app bootstrap, but it only renders
+native-supported field types, rule operators, workflow states, option sources,
+and proof actions. Backend bootstrap must hide or block incompatible SOP
+versions instead of requiring an APK update for every form permutation.
+
 ## Why Own The Builder
 
 The builder must understand Goat OS semantics directly:
@@ -244,6 +252,7 @@ feed report
 video / proof verification
 procurement / arrival
 sale / exit / inactive
+operator management / app bootstrap
 ```
 
 Use `docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md` as the live Phase 2
