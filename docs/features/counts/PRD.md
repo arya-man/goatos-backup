@@ -43,11 +43,11 @@ events, death events, or animal-level history.
 - Legacy UI reference:
   `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`
 - Legacy route reference, read-only:
-  `/Users/ravi/mesha/dashboard/app/(dashboard)/counts/_components/counts-dashboard.tsx`
+  `<mesha-workspace>/dashboard/app/(dashboard)/counts/_components/counts-dashboard.tsx`
 - Legacy API/query reference, read-only:
-  `/Users/ravi/mesha/dashboard/app/api/counts/`
+  `<mesha-workspace>/dashboard/app/api/counts/`
 - Current Goat OS Counts route:
-  `/Users/ravi/mesha/goatos/apps/admin-web/features/identity-counts/index.tsx`
+  `apps/admin-web/features/identity-counts/index.tsx`
 - Current Goat OS identity count API contract:
   `contracts/openapi/analytics-api.yaml`
 

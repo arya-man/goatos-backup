@@ -16,10 +16,11 @@ docs/features/counter-family/AGENT-RUNBOOK.md,
 docs/features/counter-family/INTEGRATION-CHECKLIST.md,
 and your assigned docs/features/<feature>/AGENT-TASK.md.
 
-Implement only your assigned feature. Use live BigQuery/Sheets read-only
-discovery, then local Postgres first. Do not use stale local source dumps.
-Do not deploy to dev. Produce parity artifacts, browser QA evidence, and
-EXPLAIN/query-plan proof before asking for integration.
+Implement only your assigned feature. Use live BigQuery/Sheets/Drive read-only
+discovery, then prove the feature against local Postgres. Do not use stale local
+source dumps. Do not deploy to dev. Produce source discovery, local DB proof,
+parity artifacts, browser QA evidence, and EXPLAIN/query-plan proof before
+asking for integration.
 ```
 
 ## Agent Split
@@ -133,7 +134,7 @@ npm --prefix apps/admin-web run smoke:visual:live
 
 ## Required Artifacts
 
-Each feature should produce:
+Each feature must produce the relevant artifacts below before integration:
 
 - source discovery notes
 - local sync/rebuild notes
@@ -144,7 +145,10 @@ Each feature should produce:
 - known deltas with `match`, `explained_delta`, `unexplained_delta`, or
   `pending_source` status as defined in the feature TRD
 
-Any `unexplained_delta` blocks completion.
+Any `unexplained_delta` blocks completion. Any `pending_source`,
+`pending_source_coverage`, or `source_unavailable` status blocks production
+completion for required scope unless product explicitly removes that scope from
+the feature PRD/TRD.
 
 ## Coordinator Responsibilities
 

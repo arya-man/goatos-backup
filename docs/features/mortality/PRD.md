@@ -36,9 +36,9 @@ admin-web -> BigQuery / Sheets / Drive / raw database
 - Legacy UI reference:
   `https://dashboard--goatos-sheets.us-central1.hosted.app/mortality`
 - Legacy code reference, read-only:
-  `/Users/ravi/mesha/dashboard/app/(dashboard)/mortality/page.tsx`
+  `<mesha-workspace>/dashboard/app/(dashboard)/mortality/page.tsx`
 - Legacy API/query reference, read-only:
-  `/Users/ravi/mesha/dashboard/app/api/mortality/`
+  `<mesha-workspace>/dashboard/app/api/mortality/`
 
 ## Product Goals
 

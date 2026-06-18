@@ -36,11 +36,11 @@ is its own feature because other modules depend on it.
 - Existing legacy BQ shed seed:
   `backend/migrations/postgres/000017_phase_1_bq_dashboard_shed_locations.sql`
 - Legacy Infra code, read-only:
-  `/Users/ravi/mesha/dashboard/app/(dashboard)/infra/`
+  `<mesha-workspace>/dashboard/app/(dashboard)/infra/`
 - Legacy Infra APIs, read-only:
-  `/Users/ravi/mesha/dashboard/app/api/infra/`
+  `<mesha-workspace>/dashboard/app/api/infra/`
 - Legacy Counts APIs, read-only:
-  `/Users/ravi/mesha/dashboard/app/api/counts/`
+  `<mesha-workspace>/dashboard/app/api/counts/`
 
 ## Product Goals
 
