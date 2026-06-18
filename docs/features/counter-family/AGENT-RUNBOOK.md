@@ -7,21 +7,24 @@ The PRD/TRD files remain the product and technical contract; this file is the
 operating checklist that tells agents how to execute without stepping on each
 other.
 
-## Simple Agent Prompt
+## Tiny Launch Prompt
+
+Use this prompt for every counter-family agent. Change only `ASSIGNMENT`.
 
 ```text
-Read AGENTS.md, SKILLS.md, context/README.md,
-.agents/skills/goatos-build/SKILL.md,
-docs/features/counter-family/AGENT-RUNBOOK.md,
-docs/features/counter-family/INTEGRATION-CHECKLIST.md,
-and your assigned docs/features/<feature>/AGENT-TASK.md.
+Repo: /Users/ravi/mesha/goatos
+ASSIGNMENT: coordinator | locations | counts | mortality
 
-Implement only your assigned feature. Use live BigQuery/Sheets/Drive read-only
-discovery, then prove the feature against local Postgres. Do not use stale local
-source dumps. Do not deploy to dev. Produce source discovery, local DB proof,
-parity artifacts, browser QA evidence, and EXPLAIN/query-plan proof before
-asking for integration.
+Read docs/features/counter-family/AGENT-RUNBOOK.md and follow the docs it
+routes you to. Do only this assignment. Do not deploy. Leave artifacts and a
+handoff exactly as required by the runbook/task docs.
 ```
+
+Do not paste feature scope, migration ranges, source lists, OpenAPI ownership,
+route-shell ownership, parity requirements, or done criteria into the launch
+prompt. Those details live in this runbook, the integration checklist, and the
+feature `AGENT-TASK.md` files. If an agent needs more detail, it must read the
+referenced docs before acting.
 
 ## Coordinator Step 0: Preflight
 
