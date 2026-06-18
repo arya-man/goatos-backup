@@ -70,6 +70,11 @@ dashboard surface. The app is served from the root of the dashboard host; no
 `assetPrefix` is set because the service sits behind the same HTTPS load
 balancer host.
 
+If the admin-web root path or any future Next `basePath` changes, update and
+grep beyond the app directory. Local service health checks in `tools/dev`, smoke
+scripts, auth/proxy cookie paths, deploy URLs, and runbooks must move together
+so a cloud fix does not strand local development.
+
 For the dev deploy, admin-web server-side API calls forward the signed-in
 Firebase user's ID token in the standard `Authorization` header and the
 configured tenant in `X-GoatOS-Tenant-ID`. The backend Cloud Run service must

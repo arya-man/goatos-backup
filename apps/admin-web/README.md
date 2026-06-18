@@ -66,6 +66,16 @@ shows `401 invalid_bearer_token`; it replaces stale shell tokens automatically.
 
 Open `http://127.0.0.1:3300/`.
 
+Route/basePath changes must be checked repo-wide, not only inside
+`apps/admin-web`. If the app root, login path, or any future `basePath` changes,
+grep and update local service health checks, smoke scripts, deploy/runbook URLs,
+proxy/auth cookie paths, and docs in the same change. At minimum:
+
+```bash
+rg "basePath|DASHBOARD_BASE_PATH|adminBasePath|LOGIN_PATH|COOKIE_PATH|web_ready|appBasePath|3300/" \
+  apps/admin-web tools/dev docs/runbooks infra
+```
+
 For a durable local dashboard on this Mac, install the user LaunchAgent once:
 
 ```bash
