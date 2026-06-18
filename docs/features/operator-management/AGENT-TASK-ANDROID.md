@@ -2,26 +2,12 @@
 
 Status: implementation task guide.
 
-## Small Prompt
+## Launch Route
 
-```text
-Read AGENTS.md, SKILLS.md, context/README.md,
-.agents/skills/goatos-build/SKILL.md,
-docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md,
-docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md,
-docs/features/operator-management/PRD.md,
-docs/features/operator-management/TRD.md,
-docs/phases/phase-02-sop-task-engine/PRD.md,
-docs/phases/phase-02-sop-task-engine/TRD.md,
-and docs/features/operator-management/AGENT-TASK-ANDROID.md.
-
-Implement only operator-mobile Android bootstrap/task/SOP runner scope. Do not
-edit backend migrations, OpenAPI, admin-web, or SOP Builder internals unless the
-coordinator explicitly asks. Use mocks where backend contracts are not landed.
-Do not commit, push, create a PR, deploy, or change cloud/GitHub config unless
-the coordinator explicitly asks in this thread. Leave changed files, validation,
-screenshots or emulator notes, and blockers in your final handoff.
-```
+Use the single launch prompt in
+`docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md` with
+`ASSIGNMENT: operator-android`. This file is the track contract for scope,
+ownership, validation, and handoff.
 
 ## Scope
 

@@ -2,25 +2,12 @@
 
 Status: implementation task guide.
 
-## Small Prompt
+## Launch Route
 
-```text
-Read AGENTS.md, SKILLS.md, context/README.md,
-.agents/skills/goatos-build/SKILL.md,
-docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md,
-docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md,
-docs/phases/phase-02-sop-task-engine/PRD.md,
-docs/phases/phase-02-sop-task-engine/TRD.md,
-docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md,
-docs/phases/phase-02-sop-task-engine/AGENT-TASK-SOP-BUILDER.md,
-and docs/features/operator-management/PRD.md for the bootstrap dependency.
-
-Implement only SOP/task backend contracts and admin-web SOP Builder scope. Do
-not edit Operator Management internals or operator-mobile. Do not commit, push,
-create a PR, deploy, or change cloud/GitHub config unless the coordinator
-explicitly asks in this thread. Leave changed files, validation, route metadata,
-and blockers in your final handoff.
-```
+Use the single launch prompt in
+`docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md` with
+`ASSIGNMENT: sop-builder`. This file is the track contract for scope,
+ownership, validation, and handoff.
 
 ## Scope
 
@@ -211,6 +198,25 @@ inside SOP/task modules.
 - visual QA for SOP Builder and task/rework screens if UI lands
 - query-plan proof for task queue, assigned tasks, submission history, and
   proof/rework queues
+
+## Validation Commands
+
+Run the narrowest relevant set and record any skipped command with the reason:
+
+```text
+make validate-migrations
+make api-client-generate
+make api-client-check
+cd backend && go test ./internal/sop/... ./internal/tasks/... ./internal/submissions/... ./internal/movement/... ./internal/permissions ./internal/bootstrap
+npm --prefix apps/admin-web run typecheck
+npm --prefix apps/admin-web run lint
+npm --prefix apps/admin-web run build
+npm --prefix apps/admin-web run smoke:visual:live
+make validate-sqlc-plans
+```
+
+Run `make validate-sqlc-plans` when this track adds or changes hot SQL reads or
+query-plan fixtures.
 
 ## Route Metadata For Coordinator
 

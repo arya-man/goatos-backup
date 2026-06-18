@@ -2,23 +2,12 @@
 
 Status: implementation task guide.
 
-## Small Prompt
+## Launch Route
 
-```text
-Read AGENTS.md, SKILLS.md, context/README.md,
-.agents/skills/goatos-build/SKILL.md,
-docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md,
-docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md,
-docs/features/operator-management/PRD.md,
-docs/features/operator-management/TRD.md,
-and docs/features/operator-management/AGENT-TASK-ADMIN.md.
-
-Implement only Operator Management backend/admin-web scope. Do not edit SOP
-builder, operator-mobile, or shared route shell files unless this task doc says
-so. Do not commit, push, create a PR, deploy, or change cloud/GitHub config
-unless the coordinator explicitly asks in this thread. Leave changed files,
-validation, artifacts, and blockers in your final handoff.
-```
+Use the single launch prompt in
+`docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md` with
+`ASSIGNMENT: operator-admin`. This file is the track contract for scope,
+ownership, validation, and handoff.
 
 ## Scope
 
@@ -199,6 +188,25 @@ or private rows.
 - visual QA for `/operators` desktop and narrow view if UI lands
 - query-plan proof for operator list, source-candidate review, bootstrap, and
   device heartbeat
+
+## Validation Commands
+
+Run the narrowest relevant set and record any skipped command with the reason:
+
+```text
+make validate-migrations
+make api-client-generate
+make api-client-check
+cd backend && go test ./internal/workforce/... ./internal/permissions ./internal/bootstrap
+npm --prefix apps/admin-web run typecheck
+npm --prefix apps/admin-web run lint
+npm --prefix apps/admin-web run build
+npm --prefix apps/admin-web run smoke:visual:live
+make validate-sqlc-plans
+```
+
+Run `make validate-sqlc-plans` when this track adds or changes hot SQL reads or
+query-plan fixtures.
 
 ## Done Criteria
 
