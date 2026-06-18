@@ -109,6 +109,15 @@ Runs on:
 ubuntu-latest
 ```
 
+GitHub JavaScript actions are kept on Node 24-capable majors to avoid Node 20
+runner deprecation warnings:
+
+```text
+actions/checkout@v7
+actions/setup-go@v6
+actions/setup-node@v6
+```
+
 ### Step 1: Checkout
 
 GitHub downloads the repository into the temporary runner.
