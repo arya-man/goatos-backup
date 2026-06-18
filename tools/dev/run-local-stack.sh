@@ -114,6 +114,6 @@ else
   wait_for_api
 fi
 
-echo "Starting Mesha admin-web at http://127.0.0.1:3300/dashboard"
+echo "Starting Mesha admin-web at http://127.0.0.1:3300/"
 echo "API log: $api_log"
 npm --prefix "$repo_root/apps/admin-web" run dev:local
