@@ -21,7 +21,7 @@ export function FirebaseSessionBridge() {
             if (isFirebaseSessionError(error, "email_not_allowed")) {
               void clearFirebaseSession().catch(() => undefined);
             }
-            // Navigation will recover through /dashboard/login if the cookie goes stale.
+            // Navigation will recover through /login if the cookie goes stale.
           });
         });
         interval = setInterval(() => {

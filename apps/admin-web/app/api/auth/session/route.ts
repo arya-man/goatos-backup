@@ -1,7 +1,7 @@
 import { AUTH_SESSION_USER_AGENT_HEADER, TENANT_CONTEXT_HEADER } from "@goatos/api-client/constants";
 import { type NextRequest, NextResponse } from "next/server";
 import {
-  DASHBOARD_BASE_PATH,
+  COOKIE_PATH,
   FIREBASE_ID_TOKEN_COOKIE,
   isLikelyJwt,
   maxAgeForFirebaseIdToken,
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: DASHBOARD_BASE_PATH,
+    path: COOKIE_PATH,
     maxAge,
   });
   return response;
@@ -55,7 +55,7 @@ export async function DELETE(request: NextRequest) {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: DASHBOARD_BASE_PATH,
+    path: COOKIE_PATH,
     maxAge: 0,
   });
   return response;

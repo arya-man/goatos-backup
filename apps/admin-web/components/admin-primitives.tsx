@@ -2,6 +2,7 @@ import { AlertCircle, Loader2, LogIn } from "lucide-react";
 import { CursorPagination } from "@/components/cursor-pagination";
 import { formatLabel } from "@/lib/display-utils";
 import type { ApiUiError } from "@/lib/api/server";
+import { LOGIN_PATH } from "@/lib/auth/session-cookie";
 
 export function PageHeader({
   eyebrow,
@@ -133,7 +134,7 @@ export function AuthRequiredPanel({ error }: { error?: ApiUiError }) {
           <div className="font-semibold text-white">Session status</div>
           <p className="mt-2 text-[#93a4b8]">Use the login page to refresh your Google sign-in session.</p>
           <a
-            href="/dashboard/login"
+            href={LOGIN_PATH}
             className="mt-3 inline-flex h-10 items-center justify-center rounded-lg border border-[#14f1d9]/40 px-3 text-sm font-bold text-[#14f1d9] hover:border-[#14f1d9]"
           >
             Open login

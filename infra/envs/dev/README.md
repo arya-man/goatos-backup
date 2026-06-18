@@ -183,7 +183,7 @@ This is intentionally documented here because the P7 Terraform composition still
 does not own Layer 2 load-balancer or DNS resources.
 
 ```text
-Public URL:       https://dev.dashboard.mesha.sg/dashboard
+Public URL:       https://dev.dashboard.mesha.sg/
 Project:          goatos-dev / 634659905829
 Region:           asia-south1 for the serverless NEG and Cloud Run backend
 Global IP:        8.232.140.161
@@ -334,12 +334,12 @@ CLOUDSDK_PYTHON=/opt/homebrew/bin/python3 \
 # managed.status = ACTIVE
 # managed.domainStatus.dev.dashboard.mesha.sg = ACTIVE
 
-curl -I https://dev.dashboard.mesha.sg/dashboard/login
+curl -I https://dev.dashboard.mesha.sg/login
 # HTTP/2 200
 
-curl -I http://dev.dashboard.mesha.sg/dashboard/login
+curl -I http://dev.dashboard.mesha.sg/login
 # HTTP/1.1 301 Moved Permanently
-# Location: https://dev.dashboard.mesha.sg:443/dashboard/login
+# Location: https://dev.dashboard.mesha.sg:443/login
 ```
 
 SSO console state:

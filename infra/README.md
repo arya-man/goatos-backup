@@ -56,7 +56,7 @@ P8 raw-URL dev dashboard bring-up switches dev Cloud SQL to
 This is a running-cost posture while the raw dev dashboard is live.
 
 Dev custom dashboard URL is live:
-- `https://dev.dashboard.mesha.sg/dashboard`
+- `https://dev.dashboard.mesha.sg/`
 - Cloudflare DNS: `A dev.dashboard -> 8.232.140.161`, DNS-only.
 - Google Cloud global HTTPS LB resources were created imperatively in
   `goatos-dev`; see `envs/dev/README.md`.

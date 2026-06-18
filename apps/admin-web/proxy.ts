@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
-  DASHBOARD_BASE_PATH,
   FIREBASE_ID_TOKEN_COOKIE,
-  INTERNAL_LOGIN_PATH,
+  LOGIN_PATH,
   maxAgeForFirebaseIdToken,
 } from "@/lib/auth/session-cookie";
 
@@ -15,10 +14,7 @@ export function proxy(request: NextRequest) {
   }
 
   const pathname = request.nextUrl.pathname;
-  const dashboardPath = pathname.startsWith(DASHBOARD_BASE_PATH)
-    ? pathname.slice(DASHBOARD_BASE_PATH.length) || "/"
-    : pathname;
-  if (publicDashboardPrefixes.some((prefix) => dashboardPath === prefix || dashboardPath.startsWith(`${prefix}/`))) {
+  if (publicDashboardPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
     return NextResponse.next();
   }
   const sessionCookie = request.cookies.get(FIREBASE_ID_TOKEN_COOKIE)?.value.trim() || "";
@@ -26,7 +22,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
   const loginUrl = request.nextUrl.clone();
-  loginUrl.pathname = INTERNAL_LOGIN_PATH;
+  loginUrl.pathname = LOGIN_PATH;
   loginUrl.search = "";
   return NextResponse.redirect(loginUrl);
 }

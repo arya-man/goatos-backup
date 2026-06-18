@@ -1,8 +1,9 @@
-export const DASHBOARD_BASE_PATH = "/dashboard";
+export const DASHBOARD_BASE_PATH = "";
 export const INTERNAL_LOGIN_PATH = "/login";
 export const LOGIN_PATH = `${DASHBOARD_BASE_PATH}${INTERNAL_LOGIN_PATH}`;
 export const SESSION_ROUTE = `${DASHBOARD_BASE_PATH}/api/auth/session`;
 export const FIREBASE_CONFIG_ROUTE = `${DASHBOARD_BASE_PATH}/api/auth/firebase-config`;
+export const COOKIE_PATH = "/";
 export const FIREBASE_ID_TOKEN_COOKIE = "goatos_firebase_id_token";
 export const FIREBASE_ID_TOKEN_MAX_AGE_SECONDS = 60 * 60;
 

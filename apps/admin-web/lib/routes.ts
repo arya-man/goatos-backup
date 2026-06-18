@@ -1,11 +1,5 @@
-export const adminBasePath = "/dashboard";
+export const adminBasePath = "";
 
 export function formAction(path: string): string {
-  if (!path.startsWith("/") || path.startsWith(adminBasePath)) {
-    return path;
-  }
-  if (path === "/") {
-    return adminBasePath;
-  }
-  return `${adminBasePath}${path}`;
+  return path;
 }

@@ -7,7 +7,8 @@ import {
   getFirebaseClientRuntimeConfig,
   signInWithGoogleIdToken,
 } from "@/lib/auth/firebase-client";
-import { DASHBOARD_BASE_PATH } from "@/lib/auth/session-cookie";
+
+const DEFAULT_NEXT_PATH = "/";
 
 type GoogleCredentialResponse = {
   credential?: string;
@@ -47,7 +48,7 @@ declare global {
   }
 }
 
-export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: string }) {
+export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: string }) {
   const [status, setStatus] = useState<"loading" | "ready" | "signing_in" | "redirecting" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [scriptReady, setScriptReady] = useState(false);
@@ -203,9 +204,30 @@ function isFirebaseAuthError(error: unknown): error is { code: string } {
   );
 }
 
-function safeNextPath(value: string): string {
-  if (!value.startsWith(DASHBOARD_BASE_PATH) || value.startsWith(`${DASHBOARD_BASE_PATH}//`)) {
-    return DASHBOARD_BASE_PATH;
+export function safeNextPath(value: string): string {
+  const candidate = value.trim();
+  if (!candidate) {
+    return DEFAULT_NEXT_PATH;
   }
-  return value;
+
+  let decodedCandidate = candidate;
+  try {
+    decodedCandidate = decodeURI(candidate);
+  } catch {
+    decodedCandidate = candidate;
+  }
+
+  if (!candidate.startsWith("/") || candidate.startsWith("//") || decodedCandidate.includes("\\")) {
+    return DEFAULT_NEXT_PATH;
+  }
+
+  try {
+    const parsed = new URL(candidate, "https://dev.dashboard.mesha.sg");
+    if (parsed.origin !== "https://dev.dashboard.mesha.sg") {
+      return DEFAULT_NEXT_PATH;
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return DEFAULT_NEXT_PATH;
+  }
 }

@@ -8,7 +8,6 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 const appBaseUrl = "http://127.0.0.1:3300";
-const appBasePath = "/dashboard";
 const requiredEnv = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID", "GOATOS_IMPORT_RUN_ID"];
 const missing = requiredEnv.filter((key) => !process.env[key]);
 const args = parseArgs(process.argv.slice(2));
@@ -114,7 +113,7 @@ async function waitForApp(url) {
   let lastError;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${url}${appBasePath}`, { cache: "no-store" });
+      const response = await fetch(`${url}/`, { cache: "no-store" });
       if (response.ok) return;
       lastError = new Error(`status ${response.status}`);
     } catch (error) {
@@ -126,8 +125,7 @@ async function waitForApp(url) {
 }
 
 function appPath(path) {
-  if (path === "/") return appBasePath;
-  return `${appBasePath}${path}`;
+  return path;
 }
 
 async function fetchFirstGoatID(baseUrl, token, tenant) {

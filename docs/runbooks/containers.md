@@ -66,9 +66,9 @@ same database; those validators remain local proof that the goose-style source
 SQL still applies cleanly.
 
 `apps/admin-web/Dockerfile` builds the Next standalone production server for the
-dashboard surface. The app is compiled with `basePath: /dashboard`; no
-`assetPrefix` is set because the service will sit behind the same HTTPS load
-balancer path.
+dashboard surface. The app is served from the root of the dashboard host; no
+`assetPrefix` is set because the service sits behind the same HTTPS load
+balancer host.
 
 For the dev deploy, admin-web server-side API calls forward the signed-in
 Firebase user's ID token in the standard `Authorization` header and the
@@ -141,7 +141,7 @@ gcloud run services describe goatos-admin-web-dev \
   --format='value(status.latestReadyRevisionName,spec.template.spec.containers[0].image,status.url)'
 
 curl -I --max-time 15 \
-  https://goatos-admin-web-dev-farig3r27a-el.a.run.app/dashboard/login
+  https://goatos-admin-web-dev-farig3r27a-el.a.run.app/login
 ```
 
 The image in the `services describe` output must match the current `IMAGE`, and
@@ -152,7 +152,7 @@ If the dev custom hostname is in use, also verify it after the raw Cloud Run
 smoke:
 
 ```bash
-curl -I --max-time 15 https://dev.dashboard.mesha.sg/dashboard/login
+curl -I --max-time 15 https://dev.dashboard.mesha.sg/login
 ```
 
 This custom-host smoke only proves DNS/TLS/LB/page load. Google sign-in also

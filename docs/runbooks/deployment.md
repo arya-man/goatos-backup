@@ -143,7 +143,7 @@ dashboard.mesha.sg     -> goatos-prod
 Current live dev hostname:
 
 ```text
-URL:         https://dev.dashboard.mesha.sg/dashboard
+URL:         https://dev.dashboard.mesha.sg/
 Project:     goatos-dev
 Cloudflare:  mesha.sg zone
 DNS record:  A dev.dashboard -> 8.232.140.161, DNS-only
@@ -293,11 +293,11 @@ For admin-web dashboard smoke, use the canonical dashboard host and the
 committed auth routes:
 
 ```text
-GET https://dev.dashboard.mesha.sg/dashboard/login -> 200
-GET https://dev.dashboard.mesha.sg/dashboard/api/auth/firebase-config -> 200
+GET https://dev.dashboard.mesha.sg/login -> 200
+GET https://dev.dashboard.mesha.sg/api/auth/firebase-config -> 200
 ```
 
-Do not use `/dashboard/api/config/firebase`; that route does not exist. Raw
+Do not use `/api/config/firebase`; that route does not exist. Raw
 Cloud Run `*.run.app` dashboard hosts are not the app source of truth after
 canonical-host redirect/custom-domain setup.
 

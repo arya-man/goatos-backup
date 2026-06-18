@@ -64,7 +64,7 @@ seeds the local `ceo_internal` tenant grant idempotently, mints a fresh bearer
 token, and starts admin-web on `127.0.0.1:3300`. Use this path when the browser
 shows `401 invalid_bearer_token`; it replaces stale shell tokens automatically.
 
-Open `http://127.0.0.1:3300/dashboard`.
+Open `http://127.0.0.1:3300/`.
 
 For a durable local dashboard on this Mac, install the user LaunchAgent once:
 

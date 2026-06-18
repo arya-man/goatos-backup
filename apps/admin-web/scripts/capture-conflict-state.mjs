@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 
 const appBaseUrl = "http://127.0.0.1:3300";
-const appBasePath = "/dashboard";
 const conflictId = process.argv[2];
 if (!conflictId) {
   console.error("usage: node capture-conflict-state.mjs <conflict_id>");
@@ -30,7 +29,7 @@ try {
   ]) {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     const page = await context.newPage();
-    const url = `${appBaseUrl}${appBasePath}/data-quality?conflict_id=${encodeURIComponent(conflictId)}`;
+    const url = `${appBaseUrl}/data-quality?conflict_id=${encodeURIComponent(conflictId)}`;
     await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
     const html = await page.content();
     for (const marker of forbidden) {

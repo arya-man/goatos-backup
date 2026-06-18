@@ -111,7 +111,7 @@ async function prepareLocalEnvironment() {
   };
 
   await validateBackendAuth(envWithToken);
-  console.log(`Local admin token refreshed. Open http://${host}:${port}/dashboard`);
+  console.log(`Local admin token refreshed. Open http://${host}:${port}/`);
   return envWithToken;
 }
 
