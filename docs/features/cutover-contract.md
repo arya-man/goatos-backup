@@ -81,6 +81,48 @@ source_composition = legacy_only | canonical_only | blended
 `source_composition` is explanatory state, not authorization and not metric
 truth.
 
+## Coverage Registry
+
+`coverage complete` is an explicit, audited state, not a value inferred only from
+canonical row counts.
+
+Each cutover feature must persist coverage state at the feature's minimum safe
+grain before projection logic can prefer canonical facts over legacy facts. The
+coverage state may live in a shared table or feature-owned table, but it must
+record at least:
+
+- tenant_id
+- feature/module
+- section and metric or source context
+- grain key and covered date/window
+- source mode being promoted
+- coverage status: proposed, shadow_passed, complete, blocked
+- canonical source/version and legacy source/version compared
+- shadow parity artifact path
+- approving actor or automated migration job id
+- approved_at, audit id, and rollback/expire policy
+
+Shadow parity with no unexplained deltas is required before a required grain can
+move to `complete`. A worker may propose coverage from source metadata, but it
+must not flip production coverage solely because canonical counts happen to equal
+or exceed legacy counts.
+
+## Composite Metrics
+
+Rates and ratios are composite metrics. Their numerator and denominator must
+carry their own source composition and source version.
+
+For production completion, a required composite metric must either:
+
+- use numerator and denominator inputs from the same completed source mode for
+  that grain, or
+- have an explicitly reviewed `explained_delta`/exception that records why the
+  mixed composition is valid for that metric.
+
+If the numerator is `canonical_only` while the denominator is still
+`legacy_only`, or vice versa, the metric must surface as `blended` or pending in
+internal/dev review. It must not masquerade as a fresh canonical rate.
+
 ## Cross-Source Dedup
 
 Source-row idempotency prevents duplicate processing of the same source row. It
@@ -95,10 +137,19 @@ Examples:
   tenant + snapshot date + resolved location + metric family + status/stage +
   breed/sex/age bucket where applicable.
 - Mortality death fact:
-  tenant + event type + event date + goat identity when resolved, or stable
-  source goat identifier + farm/load/breed context when unresolved.
+  tenant + event type + event date + goat identity when resolved; or tenant +
+  event type + event date + stable source goat identifier when no Goat OS
+  identity is resolved.
 - Location alias fact:
   tenant + source context + normalized source label.
+
+Unresolved mortality events with no Goat OS identity and no stable source goat
+identifier are not safe for hard unique dedup by bucket alone. Use a
+`dedup_candidate_key` for review plus a source/run ordinal or source row
+disambiguator so two real deaths on the same date/farm/load/breed are not
+collapsed into one event. Cross-source dedup for those rows requires review or a
+later stable identifier; source-row idempotency still prevents the same source
+row from importing twice.
 
 If a canonical fact lands for a logical fact key that was previously represented
 by legacy source rows, projection logic must either:
@@ -181,7 +232,7 @@ offline validation is only operator UX.
 
 BQ/Sheets can be removed for a feature section only when:
 
-- the feature has canonical source coverage for the section's metric grain
+- the coverage registry is `complete` for the section's metric grain
 - cross-source dedup has tests for the overlap case
 - shadow parity has no unexplained deltas
 - freshness/source-composition states render honestly

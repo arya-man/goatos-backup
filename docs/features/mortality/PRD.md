@@ -294,6 +294,8 @@ Mortality is complete only when all of these are true:
   metric.
 - Mortality events are stored as required canonical facts before projections are
   built.
+- Source-independent event dedup prevents legacy + Android double counts without
+  collapsing distinct unresolved same-bucket deaths.
 - Every farm, shed, housing, and status-location label is resolved through the
   Locations alias resolver, including legacy mortality aliases.
 - Event-source coverage proves canonical events can reproduce every required
@@ -302,6 +304,8 @@ Mortality is complete only when all of these are true:
   dropped for production completion.
 - Rate denominators come from pinned identity/count projections or explicitly
   pinned legacy denominator sources, not from ad hoc request-time scans.
+- Rate numerators and denominators expose source composition/version and have no
+  unreviewed mixed-source composition for production completion.
 - Canonical-vs-legacy shadow parity passes for the same grain before any
   BQ/Sheets source is removed from that grain.
 - Numeric parity artifact is written value-by-value.

@@ -187,6 +187,8 @@ fields:
 - metric key
 - numerator when relevant
 - denominator when relevant
+- numerator source composition and version when relevant
+- denominator source composition and version when relevant
 - metric value
 - unit
 - sort order
@@ -195,7 +197,9 @@ fields:
 - source/evidence hash
 - created_at / updated_at
 
-Rates must store numerator and denominator, not only the final percentage.
+Rates must store numerator and denominator, not only the final percentage. During
+legacy-to-canonical cutover, rates must also store the source composition/version
+of each side so mixed-source rates cannot appear as fresh canonical metrics.
 
 Projection state should track:
 
@@ -308,8 +312,8 @@ The frontend still reads Goat OS APIs only.
 When both legacy and canonical sources can describe the same dashboard fact,
 features must follow `docs/features/cutover-contract.md`. That contract owns the
 shared rules for blend mode, canonical-vs-legacy precedence, cross-source dedup,
-shadow parity, universal Locations alias resolution, and BQ/Sheets removal
-gates.
+audited coverage completion, composite-metric source compatibility, shadow
+parity, universal Locations alias resolution, and BQ/Sheets removal gates.
 
 Legacy dashboard formulas must be pinned before porting a screen:
 

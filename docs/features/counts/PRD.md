@@ -367,6 +367,8 @@ Counts is complete only when all of these are true:
 - Numeric parity artifact compares legacy vs Goat OS value by value.
 - Canonical-vs-legacy shadow parity artifact proves Android/backend facts rebuild
   the same values for any section where BQ/Sheets will be removed.
+- Audited coverage state exists for any section/grain promoted to canonical-only
+  serving.
 - Screenshot parity artifact compares legacy vs Goat OS desktop and narrow
   views.
 - No required legacy Counts metric or section remains unmatched, pending, or

@@ -214,6 +214,11 @@ Create review items when:
 - a requested change touches seeded CBE/CPT/HF scope rows or seeded BQ dashboard
   shed aliases without an approved migration plan
 
+An approved migration plan is a required artifact for seeded CBE/CPT/HF or
+seeded-alias changes. It must name affected IDs/aliases, old-tag scope impact,
+dashboard projection impact, parity fixtures, rollback path, approving actor,
+and audit/run id.
+
 Humans resolve labels and policies. Projection jobs then rebuild Counts/Infra.
 
 ## RBAC

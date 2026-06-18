@@ -456,6 +456,12 @@ Source coverage must be recorded per section/grain, not only per tenant. A
 section can become `canonical_only` only after its source coverage, cross-source
 dedup tests, and shadow parity pass.
 
+Coverage state must use the shared/feature coverage registry from
+`docs/features/cutover-contract.md`. Counts sync may propose coverage per
+snapshot/view/section/location or metric family, but promotion to
+`canonical_only` requires audited `complete` coverage with the compared legacy
+and canonical source versions and the shadow parity artifact path.
+
 If weight and value are not ready when Counts UI parity ships, the legacy
 weight/value KPI rows can remain a clearly marked migration source. They must
 not be presented as final canonical valuation.
@@ -707,6 +713,14 @@ view | section | metric | dimension | legacy_value | canonical_value | diff | st
 The same status values apply. Any `unexplained_delta` blocks removal of the
 legacy source for that section.
 
+For summary KPIs backed by `daily_summary_dev`, the shadow overlap window must
+honor the legacy yesterday-in-IST behavior. Either pin the comparison date to
+the legacy `summary_source_date` (`D = yesterday` in Asia/Kolkata) or record the
+summary-date quirk as a standing `explained_delta` for historical-date
+comparisons. Do not let every non-yesterday historical comparison fail because
+the legacy source intentionally ignores the selected date for those summary
+rows.
+
 ## Performance Requirements
 
 Hot API reads:
@@ -766,12 +780,16 @@ Backend:
 - deterministic source row key generation
 - source-independent logical fact key generation
 - cross-source dedup between legacy aggregates and canonical count facts
+- coverage registry blocks canonical promotion until shadow parity and audit
+  metadata are present
 - idempotent source row upsert on repeated sync
 - changed payload hash supersedes prior source row
 - normalized snapshot generation for the four Counts metric sources
 - capacity source probe and handoff to Locations capacity/review handling
 - formula tests for each metric in the formula register
 - legacy summary-date behavior and `summary_source_date` exposure
+- canonical shadow parity honors `daily_summary_dev` yesterday-IST summary-date
+  behavior
 - farm tab filter tests
 - projection rebuild for all sections
 - absent projection row returns never-synced/source-unavailable, not zero
@@ -798,6 +816,7 @@ Replay/parity:
 - numeric legacy-vs-GoatOS comparison artifact
 - screenshot comparison artifact
 - canonical shadow parity artifact for BQ/Sheets removal
+- coverage registry artifact/audit for each section moved to canonical-only
 
 ## Rollout Gates
 
@@ -817,8 +836,9 @@ Replay/parity:
 12. Manual sync approved for dev.
 13. Scheduled sync remains off until replay drift and source freshness behavior
     are stable.
-14. BQ/Sheets removal plan confirmed by canonical shadow parity, cross-source
-    dedup tests, and source-composition states for each section being removed.
+14. BQ/Sheets removal plan confirmed by coverage registry `complete` state,
+    canonical shadow parity, cross-source dedup tests, and source-composition
+    states for each section being removed.
 
 ## Open Questions
 

@@ -301,6 +301,15 @@ Alias write:
   old-tag scope, BQ reconciliation, and projection parity fixtures
 - alias changes mark affected source/projections stale
 
+Approved migration plan:
+
+Seeded CBE/CPT/HF scope anchors and seeded legacy aliases may be changed only
+with a committed or attached migration-plan artifact. The plan must name the
+affected location IDs and aliases, old-tag scope impact, BQ reconciliation
+impact, dependent Counts/Mortality/Infra projection grains, parity fixtures,
+rollback path, approving actor, and audit/run id. The plan is required even in
+dev because these anchors define legacy dashboard and identity-scope semantics.
+
 Capacity write:
 
 - require non-overlapping effective window

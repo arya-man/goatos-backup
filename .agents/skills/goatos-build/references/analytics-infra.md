@@ -80,3 +80,9 @@ Rules:
 - Any dashboard/report that slices large data by month, date, breed, farm,
   shed, load, category, status, gender, operator, source, or similar dimensions
   must follow `docs/decisions/high-scale-dashboard-projections.md`.
+- BQ/Sheets-to-canonical cutover requires an audited per-grain coverage registry
+  and shadow parity before a grain becomes canonical. Do not infer production
+  coverage solely from canonical row counts.
+- Rates and ratios must preserve numerator and denominator provenance. Mixed
+  canonical/legacy source composition is `blended` or an explained exception,
+  not a fresh canonical metric.

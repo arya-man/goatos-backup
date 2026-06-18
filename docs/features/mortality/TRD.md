@@ -224,6 +224,21 @@ mortality freshness = min(mortality event/source freshness,
 The API response must expose unavailable/stale denominator sources in the same
 freshness envelope as Mortality source availability.
 
+Mortality rates must also compare numerator and denominator source composition.
+For a production-complete rate, the death numerator and population denominator
+must come from the same completed source mode for that grain, or the rate must
+carry an explicitly reviewed `explained_delta`/exception. A canonical-only death
+numerator divided by a legacy-only Counts/identity denominator is `blended` at
+best; it must not be presented as a fresh canonical rate.
+
+Projection rows for rate metrics must retain denominator provenance:
+
+- denominator projection source module
+- denominator projection version/watermark
+- numerator source composition
+- denominator source composition
+- reviewed mixed-composition exception id, when applicable
+
 Rate rollout depends on those denominator projections being implemented and
 fresh at a pinned watermark. If identity/count denominator projections are not
 ready, affected rates may appear only in internal/dev as pending or
@@ -258,8 +273,9 @@ reports, including idempotent app submission, void/reversal behavior, and proof
 policy. Slack or sheet automation may be bridged temporarily, but it must submit
 through the same backend APIs or a backend-owned adapter.
 
-Android and legacy sources must share source-independent logical event keys so
-the same real-world death is not counted twice when both sources are live.
+Android and legacy sources must share source-independent logical event keys when
+identity or a stable source goat identifier makes the match safe. Candidate-only
+unresolved rows use review keys and disambiguators instead of hard uniqueness.
 Canonical Android events win for a grain only after the cutover contract marks
 coverage complete; until then legacy can fill uncovered grains.
 
@@ -280,6 +296,12 @@ state must also include the denominator source/version. A tenant-wide
 legacy/canonical flag is not enough because Death SOP submissions, historical
 BQ deaths, load denominators, litter denominators, and location aliases can
 cut over at different times.
+
+Coverage state must be persisted in the shared/feature coverage registry defined
+by `docs/features/cutover-contract.md`. A mortality sync or migration tool may
+propose coverage, but production coverage can move to `complete` only after
+shadow parity has no unexplained deltas and the approving actor/job, source
+versions, artifact path, and rollback/expiry policy are audited.
 
 Projection rows and projection state must expose `source_composition` so the UI
 and parity artifacts can distinguish `legacy_only`, `canonical_only`, and
@@ -351,7 +373,12 @@ Required columns:
 
 - tenant_id
 - mortality_event_id
-- logical_event_key
+- logical_event_key nullable when no resolved goat_id or stable source goat
+  identifier exists
+- dedup_candidate_key nullable
+- unresolved_event_ordinal nullable
+- dedup_confidence: resolved_identity, stable_source_identifier,
+  candidate_review
 - event_type: death, abortion
 - event_date
 - goat_id nullable
@@ -380,7 +407,10 @@ Indexes:
 - tenant_id, goat_id, event_date
 - tenant_id, review_status
 - unique tenant_id, idempotency_key
-- unique tenant_id, logical_event_key when active
+- unique tenant_id, logical_event_key when active, `logical_event_key` is not
+  null, and `dedup_confidence` is `resolved_identity` or
+  `stable_source_identifier`
+- tenant_id, dedup_candidate_key for unresolved candidate review
 - source row uniqueness
 
 Source idempotency key:
@@ -408,6 +438,13 @@ the same real-world death. If a logical key conflict has meaningful dimension or
 proof differences, keep one active event according to the cutover contract and
 open review for the disagreement.
 
+Do not build `logical_event_key` from only event date plus farm/load/breed bucket
+when goat identity and a stable source goat identifier are both missing. Those
+rows use `dedup_candidate_key` plus an `unresolved_event_ordinal` or source-row
+disambiguator so two real same-bucket deaths can coexist. Cross-source matches
+for candidate-only rows require human review or later stable identity evidence;
+the unique logical-event index must not collapse them automatically.
+
 ### mortality_projection_rows
 
 Serves dashboard charts and summary pills.
@@ -426,6 +463,12 @@ Required shared contract:
 - metric_key
 - numerator nullable
 - denominator nullable
+- denominator_source_module nullable
+- denominator_projection_version nullable
+- denominator_source_watermark nullable
+- numerator_source_composition nullable
+- denominator_source_composition nullable
+- mixed_composition_exception_id nullable
 - value numeric
 - unit: count, percent, ratio
 - sort_order
@@ -649,7 +692,8 @@ The artifact must include value-by-value rows:
 
 ```text
 section | metric | dimension | legacy_value | goatos_value | diff | status | reason
-grain | logical_event_key | legacy_sources | canonical_sources | decision | status | reason
+grain | logical_event_key | dedup_candidate_key | legacy_sources | canonical_sources | decision | status | reason
+rate_grain | numerator_source_composition | denominator_source_composition | denominator_version | status | reason
 ```
 
 If the legacy dashboard API cannot be reached, extract the legacy SQL/formulas
@@ -734,9 +778,13 @@ Backend:
 - idempotent source row upsert
 - idempotent death-event creation on repeated sync
 - source-independent logical event key prevents legacy + Android double count
+- unresolved candidate-only deaths with the same date/farm/load/breed do not
+  collapse into one event when no goat_id or stable source identifier exists
 - event creation from source row
 - event-source coverage gate blocks complete sections when only rollup oracle is
   available
+- coverage registry blocks canonical promotion until shadow parity and audit
+  metadata are present
 - Locations alias resolution for farm, shed, housing, and status-location
   labels using `legacy_bq_mortality`
 - unresolved event creates/reuses review item
@@ -745,6 +793,8 @@ Backend:
 - shared `freshness_status`, `serving_state`, and `source_composition` fields
 - absent projection row does not render as zero
 - denominator projection unavailable marks Mortality stale/unavailable
+- mixed numerator/denominator source composition marks rate as blended or
+  explained exception, not fresh canonical
 - RBAC allow/deny
 
 Frontend:
@@ -760,6 +810,7 @@ Replay/parity:
 - canonical-vs-legacy shadow comparison artifact
 - same-source rerun idempotent
 - cross-source rerun deduplicates the same logical death
+- candidate-only unresolved same-bucket deaths remain distinct in replay
 - changed-source replay does not silently keep stale facts
 
 ## Rollout Gates
@@ -775,18 +826,20 @@ Replay/parity:
    labels needed by shipped sections.
 6. Identity/count denominator projection source is pinned for every shipped
    mortality rate.
-7. Migrations and API contracts added with `/analytics` read routes,
+7. Rate rows expose numerator and denominator source composition/version, and no
+   required rate has an unreviewed mixed-source composition.
+8. Migrations and API contracts added with `/analytics` read routes,
    `/admin` sync routes, and the shared freshness envelope.
-8. Backend sync/rebuild/API tests green.
-9. Frontend visual and responsive checks green.
-10. Numeric parity artifact reviewed.
-11. No required Mortality section remains pending, migration-only, or
+9. Backend sync/rebuild/API tests green.
+10. Frontend visual and responsive checks green.
+11. Numeric parity artifact reviewed.
+12. No required Mortality section remains pending, migration-only, or
     source-unavailable for production completion.
-12. Canonical-vs-legacy shadow parity and cross-source dedup tests reviewed
+13. Canonical-vs-legacy shadow parity and cross-source dedup tests reviewed
     before any BQ/Sheets source is removed from a grain.
-13. Screenshots compared legacy vs Goat OS.
-14. Deploy code only.
-15. Run manual sync only after source credentials and replay gates are green.
+14. Screenshots compared legacy vs Goat OS.
+15. Deploy code only.
+16. Run manual sync only after source credentials and replay gates are green.
 
 If any required Drive-backed source remains blocked, the affected section must
 remain internal/dev pending or source-unavailable, not zero. It blocks

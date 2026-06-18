@@ -40,3 +40,7 @@ Rules:
   implemented, reconciled, tested, and scalable. Pending, migration-only, or
   source-unavailable required sections may exist in internal/dev review, but
   they block production completion.
+- Permission namespaces follow product ownership: dashboard/report permissions
+  use `analytics.<feature>.*`, while master-data modules such as Locations use
+  module namespaces such as `locations.*`. New features should state their
+  namespace explicitly instead of guessing from nearby specs.
