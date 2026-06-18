@@ -186,6 +186,60 @@ WHERE tenant_id = $1
 			t.Fatalf("changed row did not create second hash version, distinct hashes=%d", got)
 		}
 	})
+
+	t.Run("stale duplicate old-tag review requeues when current source is clean", func(t *testing.T) {
+		dir := t.TempDir()
+		oldSnapshot := filepath.Join(dir, "stale_duplicate_old.xlsx")
+		writeSyntheticWorkbook(t, oldSnapshot, [][]string{
+			{"Farm", "Old ID", "Old ID Suffix", "RFID", "Age", "Gender", "Breed", "Tag", "Shed", "Partition"},
+			{"CPT", "878", "BLR", "9900000000000000000000009500001", "Adult", "Female", "Boer", "", "Castro 2", ""},
+			{"CPT", "878", "BLR", "9900000000000000000000009500002", "Adult", "Female", "Boer", "", "Castro 2", ""},
+		})
+		oldRun, err := importer.ImportRFIDWorkbook(ctx, legacy_import.ImportCommand{
+			InputPath:     oldSnapshot,
+			TenantID:      meshaTenant,
+			BatchSize:     2,
+			SourceName:    "Synthetic stale duplicate old snapshot",
+			PolicyVersion: legacy_import.DefaultPolicyVersion,
+		})
+		if err != nil {
+			t.Fatalf("old duplicate import: %v", err)
+		}
+		if oldRun.RowsInserted != 2 {
+			t.Fatalf("old duplicate rows inserted=%d, want 2", oldRun.RowsInserted)
+		}
+		assertRowState(t, pool, oldRun.ImportRunID, 2, legacy_import.StateNeedsReview, "duplicate_old_tag_same_scope")
+		assertRowState(t, pool, oldRun.ImportRunID, 3, legacy_import.StateNeedsReview, "duplicate_old_tag_same_scope")
+
+		current := filepath.Join(dir, "stale_duplicate_current.xlsx")
+		writeSyntheticWorkbook(t, current, [][]string{
+			{"Farm", "Old ID", "Old ID Suffix", "RFID", "Age", "Gender", "Breed", "Tag", "Shed", "Partition"},
+			{"CPT", "878", "BLR", "9900000000000000000000009500001", "Adult", "Female", "Boer", "", "Castro 2", ""},
+			{"CPT", "876", "BLR", "9900000000000000000000009500002", "Adult", "Female", "Boer", "", "Castro 2", ""},
+		})
+		currentRun, err := importer.ImportRFIDWorkbook(ctx, legacy_import.ImportCommand{
+			InputPath:     current,
+			TenantID:      meshaTenant,
+			BatchSize:     2,
+			SourceName:    "Synthetic stale duplicate current source",
+			PolicyVersion: legacy_import.DefaultPolicyVersion,
+		})
+		if err != nil {
+			t.Fatalf("current import: %v", err)
+		}
+		assertRowState(t, pool, currentRun.ImportRunID, 2, legacy_import.StatePending, "")
+		assertRowState(t, pool, currentRun.ImportRunID, 3, legacy_import.StatePending, "")
+		assertStateCount(t, pool, currentRun.ImportRunID, legacy_import.StatePending, 2)
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM legacy_import_rows
+WHERE tenant_id = $1
+  AND import_run_id = $2
+  AND normalized_payload->>'normalized_old_tag' = '878'
+  AND normalized_payload @> '{"processing_reasons":["duplicate_old_tag_same_scope"]}'::jsonb`, meshaTenant, currentRun.ImportRunID); got != 0 {
+			t.Fatalf("current run retained stale duplicate review rows=%d, want 0", got)
+		}
+	})
 }
 
 func startLegacyImportDB(t *testing.T, ctx context.Context) *pgxpool.Pool {

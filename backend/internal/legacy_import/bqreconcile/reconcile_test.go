@@ -170,6 +170,39 @@ func TestPlanUsesSeparateLatestLocationExport(t *testing.T) {
 	}
 }
 
+func TestPlanWithExplicitLocationsClearsStaleLocationWithoutEvidence(t *testing.T) {
+	events := []Event{{GoatID: "123456789012345", Farm: "CBE", Event: "Shifting", Date: "2026-06-01"}}
+	locationEvents := []Event{{GoatID: "999", Farm: "CBE", Event: "Shifting", Date: "2026-06-08", CurrentShed: "gandhi 2"}}
+	goats := []LocalGoat{{
+		GoatID:            "00000000-0000-4000-8000-000000000101",
+		LifecycleStatus:   "alive",
+		IdentityState:     "clean",
+		CurrentLocationID: "00000000-0000-4000-8000-000000000201",
+		ParkID:            "00000000-0000-4000-8000-000000000301",
+		ShedID:            "00000000-0000-4000-8000-000000000201",
+		Identifiers: []LocalIdentifier{
+			{IdentifierType: "rfid", NormalizedValue: "123456789012345", ScopeKey: "global:rfid"},
+		},
+	}}
+	locations := LocationLookup{
+		ShedsByAlias: map[string]LocationTarget{
+			"CBE:GANDHI 2": {LocationID: "00000000-0000-4000-8000-000000000202", ParentLocationID: "00000000-0000-4000-8000-000000000302"},
+		},
+		ParksByCode: map[string]string{"CBE": "00000000-0000-4000-8000-000000000302"},
+	}
+
+	summary, patches := PlanWithLocations(events, locationEvents, goats, locations)
+	if summary.NoLocationEvidence != 1 {
+		t.Fatalf("no location evidence=%d want 1", summary.NoLocationEvidence)
+	}
+	if len(patches) != 1 {
+		t.Fatalf("patches=%d want 1", len(patches))
+	}
+	if patches[0].AfterCurrent != "" || patches[0].AfterPark != "" || patches[0].AfterShed != "" {
+		t.Fatalf("location after=(current:%q park:%q shed:%q) want cleared", patches[0].AfterCurrent, patches[0].AfterPark, patches[0].AfterShed)
+	}
+}
+
 func TestPlanUsesLatestLifecycleEventPerIdentifier(t *testing.T) {
 	tests := []struct {
 		name             string

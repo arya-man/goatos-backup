@@ -191,6 +191,77 @@ WHERE tenant_id = $1::uuid
 	}
 }
 
+func TestMergeObsoleteRFIDBackfillGoatsMergesIntoActiveRFIDPassport(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	ctx := context.Background()
+	pool := startBQReconcileTestDB(t, ctx)
+	defer pool.Close()
+
+	backfillGoatID := "00000000-0000-4000-8000-00000000b104"
+	rfidGoatID := "00000000-0000-4000-8000-00000000b105"
+	rfidValue := "901007000503974"
+	traceID := "test-obsolete-rfid-backfill-merge"
+	seedExistingBackfillGoat(t, pool, backfillGoatID, "G-009974", rfidValue, "park:CBE", "sold")
+	seedRFIDGoat(t, pool, rfidGoatID, "G-000117", rfidValue, "sold")
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeObsoleteRFIDBackfillGoats(ctx, tx, bqReconcileTestTenantID, traceID)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if merged != 1 {
+		t.Fatalf("merged=%d want 1", merged)
+	}
+	if got := queryScalarString(t, pool, "SELECT identity_state FROM goats WHERE goat_id = $1", backfillGoatID); got != "merged" {
+		t.Fatalf("backfill goat identity_state=%q want merged", got)
+	}
+	if got := queryScalarString(t, pool, "SELECT merged_into_goat_id::text FROM goats WHERE goat_id = $1", backfillGoatID); got != rfidGoatID {
+		t.Fatalf("backfill goat merged_into=%q want %s", got, rfidGoatID)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)::int
+FROM goat_identifiers
+WHERE tenant_id = $1::uuid
+  AND identifier_type = 'old_tag'
+  AND normalized_value = $2
+  AND scope_key = 'park:CBE'
+  AND status = 'active'`, bqReconcileTestTenantID, rfidValue); got != 0 {
+		t.Fatalf("active bogus old_tag rows=%d want 0", got)
+	}
+	if got := queryScalarString(t, pool, `
+SELECT goat_id::text
+FROM goat_identifiers
+WHERE tenant_id = $1::uuid
+  AND identifier_type = 'old_tag'
+  AND normalized_value = $2
+  AND scope_key = 'park:CBE'
+  AND status = 'retired'`, bqReconcileTestTenantID, rfidValue); got != backfillGoatID {
+		t.Fatalf("retired old_tag goat_id=%q want %s", got, backfillGoatID)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)::int
+FROM audit_log
+WHERE tenant_id = $1::uuid
+  AND action = 'goat.old_tag_backfill_merged_into_rfid'
+  AND resource_type = 'goat'
+  AND resource_id = $2::uuid
+  AND metadata->>'survivor_goat_id' = $3
+  AND metadata->>'normalized_value' = $4
+  AND trace_id = $5`, bqReconcileTestTenantID, backfillGoatID, rfidGoatID, rfidValue, traceID); got != 1 {
+		t.Fatalf("merge audit rows=%d want 1", got)
+	}
+}
+
 func TestLoadLocalGoatsExcludesSyntheticBackfillOldTagsFromBQReconcile(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
@@ -347,6 +418,70 @@ INSERT INTO goat_identifiers (
 		backfillSourceSystem,
 		backfillSourceContext+":"+scopeKey+":"+oldTag,
 		backfillNormalizerVersion,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedRFIDGoat(t *testing.T, pool *pgxpool.Pool, goatID, displayID, rfid, lifecycle string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goats (
+  goat_id,
+  tenant_id,
+  display_id,
+  species,
+  breed,
+  sex,
+  lifecycle_status,
+  identity_state,
+  custodian_party_id
+) VALUES (
+  $1::uuid,
+  $2::uuid,
+  $3,
+  'goat',
+  'Malai',
+  'male',
+  $4,
+  'clean',
+  $5::uuid
+)`, goatID, bqReconcileTestTenantID, displayID, lifecycle, bqReconcileTestCustodianID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goat_identifiers (
+  tenant_id,
+  goat_id,
+  identifier_type,
+  identifier_value,
+  normalized_value,
+  scope_key,
+  is_primary_for_goat,
+  status,
+  valid_from,
+  source_system,
+  source_record_id,
+  normalizer_version,
+  confidence
+) VALUES (
+  $1::uuid,
+  $2::uuid,
+  'rfid',
+  $3,
+  $3,
+  'global',
+  true,
+  'active',
+  now(),
+  'legacy_rfid_db',
+  'test-rfid:' || $3,
+  'identifier_normalizer_v1',
+  1.0
+)`,
+		bqReconcileTestTenantID,
+		goatID,
+		rfid,
 	); err != nil {
 		t.Fatal(err)
 	}

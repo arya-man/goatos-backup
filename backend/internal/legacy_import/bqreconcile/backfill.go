@@ -696,6 +696,9 @@ func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Option
 	if err != nil {
 		return 0, 0, nil, err
 	}
+	if _, err := mergeObsoleteRFIDBackfillGoats(ctx, tx, opts.TenantID, opts.TraceID); err != nil {
+		return 0, 0, nil, err
+	}
 
 	applied := 0
 	for i := range rows {
@@ -721,6 +724,165 @@ func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Option
 		return 0, 0, nil, fmt.Errorf("commit backfill: %w", err)
 	}
 	return applied, updates, rows, nil
+}
+
+type obsoleteRFIDBackfillMerge struct {
+	BackfillGoatID    string
+	BackfillDisplayID string
+	SurvivorGoatID    string
+	SurvivorDisplayID string
+	IdentifierID      string
+	NormalizedValue   string
+	ScopeKey          string
+	BeforeRowVersion  int
+	AfterRowVersion   int
+}
+
+func mergeObsoleteRFIDBackfillGoats(ctx context.Context, tx pgx.Tx, tenantID, traceID string) (int, error) {
+	rows, err := tx.Query(ctx, `
+SELECT
+  bg.goat_id::text AS backfill_goat_id,
+  bg.display_id AS backfill_display_id,
+  rg.goat_id::text AS survivor_goat_id,
+  rg.display_id AS survivor_display_id,
+  bi.identifier_id::text,
+  bi.normalized_value,
+  bi.scope_key,
+  bg.row_version AS before_row_version
+FROM goat_identifiers bi
+JOIN goats bg
+  ON bg.tenant_id = bi.tenant_id
+ AND bg.goat_id = bi.goat_id
+JOIN goat_identifiers ri
+  ON ri.tenant_id = bi.tenant_id
+ AND ri.identifier_type = 'rfid'
+ AND ri.status = 'active'
+ AND ri.normalized_value = bi.normalized_value
+JOIN goats rg
+  ON rg.tenant_id = ri.tenant_id
+ AND rg.goat_id = ri.goat_id
+WHERE bi.tenant_id = $1::uuid
+  AND bi.identifier_type = 'old_tag'
+  AND bi.status = 'active'
+  AND bi.source_system = $2
+  AND bi.source_record_id LIKE $3
+  AND bi.normalized_value ~ '^[0-9]{12,}$'
+  AND bg.identity_state <> 'merged'
+  AND rg.identity_state <> 'merged'
+  AND bg.goat_id <> rg.goat_id
+ORDER BY bi.normalized_value, bg.display_id
+FOR UPDATE OF bg, bi`, tenantID, backfillSourceSystem, backfillSourceContext+":%")
+	if err != nil {
+		return 0, fmt.Errorf("merge obsolete RFID-like backfill goats: %w", err)
+	}
+	defer rows.Close()
+
+	merges := []obsoleteRFIDBackfillMerge{}
+	for rows.Next() {
+		var merge obsoleteRFIDBackfillMerge
+		if err := rows.Scan(
+			&merge.BackfillGoatID,
+			&merge.BackfillDisplayID,
+			&merge.SurvivorGoatID,
+			&merge.SurvivorDisplayID,
+			&merge.IdentifierID,
+			&merge.NormalizedValue,
+			&merge.ScopeKey,
+			&merge.BeforeRowVersion,
+		); err != nil {
+			return 0, fmt.Errorf("scan obsolete RFID-like backfill merge: %w", err)
+		}
+		merges = append(merges, merge)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("read obsolete RFID-like backfill merges: %w", err)
+	}
+	for i := range merges {
+		merge := &merges[i]
+		if _, err := tx.Exec(ctx, `
+UPDATE goat_identifiers
+SET status = 'retired',
+    valid_to = now(),
+    is_primary_for_goat = false,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND identifier_id = $2::uuid`, tenantID, merge.IdentifierID); err != nil {
+			return 0, fmt.Errorf("retire obsolete RFID-like backfill identifier %s: %w", merge.IdentifierID, err)
+		}
+		if err := tx.QueryRow(ctx, `
+UPDATE goats
+SET identity_state = 'merged',
+    merged_into_goat_id = $3::uuid,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND goat_id = $2::uuid
+RETURNING row_version`, tenantID, merge.BackfillGoatID, merge.SurvivorGoatID).Scan(&merge.AfterRowVersion); err != nil {
+			return 0, fmt.Errorf("merge obsolete RFID-like backfill goat %s: %w", merge.BackfillGoatID, err)
+		}
+		if err := insertObsoleteRFIDBackfillMergeAudit(ctx, tx, tenantID, traceID, *merge); err != nil {
+			return 0, err
+		}
+	}
+	return len(merges), nil
+}
+
+func insertObsoleteRFIDBackfillMergeAudit(ctx context.Context, tx pgx.Tx, tenantID, traceID string, merge obsoleteRFIDBackfillMerge) error {
+	before := map[string]any{
+		"goat_id":          merge.BackfillGoatID,
+		"display_id":       merge.BackfillDisplayID,
+		"identity_state":   "clean",
+		"normalized_value": merge.NormalizedValue,
+		"scope_key":        merge.ScopeKey,
+		"row_version":      merge.BeforeRowVersion,
+	}
+	after := map[string]any{
+		"goat_id":             merge.BackfillGoatID,
+		"display_id":          merge.BackfillDisplayID,
+		"identity_state":      "merged",
+		"merged_into_goat_id": merge.SurvivorGoatID,
+		"row_version":         merge.AfterRowVersion,
+	}
+	metadata := map[string]any{
+		"source_system":       backfillSourceSystem,
+		"source_context":      backfillSourceContext,
+		"command":             "bq-reconcile --backfill-candidates-csv",
+		"merge_reason":        "rfid_like_backfill_superseded_by_active_rfid",
+		"survivor_goat_id":    merge.SurvivorGoatID,
+		"survivor_display_id": merge.SurvivorDisplayID,
+		"identifier_id":       merge.IdentifierID,
+		"normalized_value":    merge.NormalizedValue,
+		"scope_key":           merge.ScopeKey,
+	}
+	beforeJSON, _ := json.Marshal(before)
+	afterJSON, _ := json.Marshal(after)
+	metadataJSON, _ := json.Marshal(metadata)
+	_, err := tx.Exec(ctx, `
+INSERT INTO audit_log (
+  tenant_id,
+  actor_type,
+  action,
+  resource_type,
+  resource_id,
+  before_state,
+  after_state,
+  metadata,
+  trace_id
+) VALUES (
+  $1::uuid,
+  'system',
+  'goat.old_tag_backfill_merged_into_rfid',
+  'goat',
+  $2::uuid,
+  $3::jsonb,
+  $4::jsonb,
+  $5::jsonb,
+  $6
+)`, tenantID, merge.BackfillGoatID, beforeJSON, afterJSON, metadataJSON, traceID)
+	if err != nil {
+		return fmt.Errorf("audit obsolete RFID-like backfill merge %s: %w", merge.BackfillGoatID, err)
+	}
+	return nil
 }
 
 func insertBackfillGoat(ctx context.Context, tx pgx.Tx, tenantID, custodianPartyID string, row BackfillPlanRow) (string, string, error) {

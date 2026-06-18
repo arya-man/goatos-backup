@@ -240,6 +240,13 @@ func (r *Repository) insertRowBatch(ctx context.Context, rows []legacy_import.St
 		}
 		_, err = qtx.InsertLegacyImportRow(ctx, params)
 		if errors.Is(err, pgx.ErrNoRows) {
+			requeued, requeueErr := r.requeueStaleDuplicateReviewRow(ctx, tx, row, params)
+			if requeueErr != nil {
+				return inserted, requeueErr
+			}
+			if requeued {
+				inserted++
+			}
 			continue
 		}
 		if err != nil {
@@ -252,6 +259,61 @@ func (r *Repository) insertRowBatch(ctx context.Context, rows []legacy_import.St
 	}
 	committed = true
 	return inserted, nil
+}
+
+func (r *Repository) requeueStaleDuplicateReviewRow(ctx context.Context, tx pgx.Tx, row legacy_import.StagedRow, params importdb.InsertLegacyImportRowParams) (bool, error) {
+	if row.ProcessingState != legacy_import.StatePending || row.ErrorReason != nil || normalizedPayloadHasReasons(row.NormalizedPayload) {
+		return false, nil
+	}
+	var legacyRowID string
+	err := tx.QueryRow(ctx, `
+UPDATE legacy_import_rows
+SET
+  import_run_id = $1,
+  source_record_id = $2,
+  row_number = $3,
+  raw_payload = $4,
+  normalized_payload = $5,
+  processing_state = 'pending',
+  error_reason = NULL,
+  matched_goat_id = NULL
+WHERE tenant_id = $6
+  AND source_system = $7
+  AND source_dataset = $8
+  AND source_row_key = $9
+  AND source_row_version_hash = $10
+  AND processing_state = 'needs_review'
+  AND matched_goat_id IS NULL
+  AND error_reason IS NULL
+  AND normalized_payload @> '{"processing_reasons":["duplicate_old_tag_same_scope"]}'::jsonb
+  AND jsonb_array_length(normalized_payload->'processing_reasons') = 1
+RETURNING legacy_row_id::text`,
+		params.ImportRunID,
+		params.SourceRecordID,
+		params.RowNumber,
+		params.RawPayload,
+		params.NormalizedPayload,
+		params.TenantID,
+		params.SourceSystem,
+		params.SourceDataset,
+		params.SourceRowKey,
+		params.SourceRowVersionHash,
+	).Scan(&legacyRowID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("requeue stale duplicate review row: %w", err)
+	}
+	return true, nil
+}
+
+func normalizedPayloadHasReasons(payload []byte) bool {
+	var normalized map[string]any
+	if err := json.Unmarshal(payload, &normalized); err != nil {
+		return true
+	}
+	return len(stringSlice(normalized["processing_reasons"])) > 0
 }
 
 func insertRowParams(row legacy_import.StagedRow) (importdb.InsertLegacyImportRowParams, error) {

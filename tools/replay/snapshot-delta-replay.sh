@@ -180,7 +180,7 @@ FROM goats g
 LEFT JOIN locations p
   ON p.location_id = g.park_id
 WHERE g.tenant_id = '$tenant_id'
-  AND g.identity_state <> 'merged'
+  AND g.identity_state NOT IN ('merged', 'inactive')
 ORDER BY rfid, old_tag, g.display_id;
 " >"$out"
 }
@@ -211,6 +211,7 @@ apply_snapshot() {
   local candidates_csv="$5"
   local out_dir="$6"
   local backfill_locations_json="${7-$locations_json}"
+  local skip_backfill="${8:-0}"
 
   mkdir -p "$out_dir"
   assert_file "$rfid_xlsx"
@@ -282,6 +283,12 @@ apply_snapshot() {
     --trace-id "snapshot-delta-$label-bq-final-dry-$timestamp"
   assert_eq "$label.bq_final_patches_planned" "$(json_number "$out_dir/bq-final-dry-run.json" ".patches_planned")" "0"
 
+  if [[ "$skip_backfill" == "1" ]]; then
+    log "[$label] Skipping old-tag passport backfill"
+    write_db_counts_json "$out_dir/counts.json"
+    return
+  fi
+
   log "[$label] Applying old-tag passport backfill"
   local backfill_args=(
     go run ./cmd/bq-reconcile
@@ -305,6 +312,218 @@ apply_snapshot() {
   write_db_counts_json "$out_dir/counts.json"
 }
 
+generate_live_replay_inputs() {
+  local existing_identifiers="$1"
+  local locations_out="$2"
+  local candidates_out="$3"
+  local skipped_out="$4"
+  local summary_out="$5"
+  local pretty_out="$6"
+
+  python3 "$repo_root/tools/replay/generate-live-replay-inputs.py" \
+    --current-identities-csv "$live_current_identities" \
+    --census-csv "$live_census" \
+    --goats-db-events-csv "$live_goats_db" \
+    --existing-identifiers-csv "$existing_identifiers" \
+    --locations-json-out "$locations_out" \
+    --candidates-csv-out "$candidates_out" \
+    --skipped-csv-out "$skipped_out" \
+    --summary-json-out "$summary_out" | tee "$pretty_out"
+}
+
+apply_old_tag_backfill() {
+  local label="$1"
+  local candidates_csv="$2"
+  local locations_json="$3"
+  local import_run_id="$4"
+  local out_dir="$5"
+
+  log "[$label] Applying old-tag passport backfill"
+  run_backend_json "$out_dir/old-tag-backfill.json" go run ./cmd/bq-reconcile \
+    --tenant-id "$tenant_id" \
+    --backfill-candidates-csv "$candidates_csv" \
+    --locations-json "$locations_json" \
+    --report-dir "$out_dir/old-tag-backfill-reports" \
+    --execute \
+    --timeout 20m \
+    --trace-id "snapshot-delta-$label-old-tag-backfill-$timestamp"
+
+  log "[$label] Rebuilding counters"
+  run_backend_text "$out_dir/rebuild-identity-counters.txt" go run ./cmd/rebuild-identity-counters \
+    --tenant-id "$tenant_id" \
+    --source-import-run-id "$import_run_id"
+
+  write_db_counts_json "$out_dir/counts.json"
+}
+
+retire_missing_rfid_only_goats() {
+  local rfid_xlsx="$1"
+  local out_dir="$2"
+  local sql_file="$out_dir/retire-missing-rfid-only-goats.sql"
+  local out_file="$out_dir/retire-missing-rfid-only-goats.txt"
+
+  log "[live-delta] Retiring RFID-only blank-suffix goats absent from live RFID seed"
+  python3 - "$rfid_xlsx" >"$sql_file" <<'PY'
+import re
+import sys
+from openpyxl import load_workbook
+
+non_alnum = re.compile(r"[^A-Z0-9]+")
+
+def canonical_identifier(raw):
+    value = str(raw or "").strip().replace(",", "").replace(" ", "")
+    if not value or value.lower() == "none":
+        return ""
+    if "e" in value.lower():
+        try:
+            value = str(int(float(value)))
+        except ValueError:
+            pass
+    elif "." in value:
+        left, _, right = value.partition(".")
+        if right.strip("0") == "":
+            value = left
+    return non_alnum.sub("", value.upper())
+
+workbook = load_workbook(sys.argv[1], read_only=True, data_only=True)
+ws = workbook["Combined"]
+rows = ws.iter_rows(values_only=True)
+header = [str(cell or "").strip().lower() for cell in next(rows)]
+rfid_idx = header.index("rfid")
+rfids = sorted({
+    canonical_identifier(row[rfid_idx] if rfid_idx < len(row) else "")
+    for row in rows
+})
+rfids = [rfid for rfid in rfids if rfid]
+print("CREATE TEMP TABLE live_rfid_seed (rfid text PRIMARY KEY);")
+if rfids:
+    values = ",\n".join(f"('{rfid}')" for rfid in rfids)
+    print("INSERT INTO live_rfid_seed (rfid) VALUES")
+    print(values + ";")
+PY
+  cat >>"$sql_file" <<SQL
+WITH candidates AS (
+  SELECT
+    g.goat_id,
+    g.display_id,
+    g.lifecycle_status AS before_lifecycle,
+    g.identity_state AS before_identity,
+    g.row_version AS before_row_version,
+    ri.identifier_id,
+    ri.normalized_value AS rfid,
+    lir.legacy_row_id,
+    lir.source_row_key
+  FROM goat_identifiers ri
+  JOIN goats g
+    ON g.tenant_id = ri.tenant_id
+   AND g.goat_id = ri.goat_id
+  JOIN legacy_import_rows lir
+    ON lir.tenant_id = g.tenant_id
+   AND lir.matched_goat_id = g.goat_id
+   AND lir.processing_state = 'created_goat'
+   AND lir.normalized_payload @> '{"processing_reasons":["blank_old_tag_suffix"]}'::jsonb
+   AND COALESCE(NULLIF(lir.normalized_payload->>'normalized_old_tag', ''), 'NONE') = 'NONE'
+   AND lir.normalized_payload->>'rfid' = ri.normalized_value
+  LEFT JOIN goat_identifiers oi
+    ON oi.tenant_id = g.tenant_id
+   AND oi.goat_id = g.goat_id
+   AND oi.identifier_type = 'old_tag'
+   AND oi.status = 'active'
+  LEFT JOIN live_rfid_seed live
+    ON live.rfid = ri.normalized_value
+  WHERE g.tenant_id = '$tenant_id'::uuid
+    AND ri.identifier_type = 'rfid'
+    AND ri.status = 'active'
+    AND g.identity_state = 'clean'
+    AND g.lifecycle_status = 'alive'
+    AND g.current_location_id IS NULL
+    AND g.park_id IS NULL
+    AND g.shed_id IS NULL
+    AND oi.identifier_id IS NULL
+    AND live.rfid IS NULL
+  ORDER BY ri.normalized_value, g.display_id
+  FOR UPDATE OF g, ri
+), retired_identifiers AS (
+  UPDATE goat_identifiers gi
+  SET status = 'retired',
+      valid_to = now(),
+      is_primary_for_goat = false,
+      updated_at = now()
+  FROM candidates c
+  WHERE gi.tenant_id = '$tenant_id'::uuid
+    AND gi.identifier_id = c.identifier_id
+  RETURNING gi.identifier_id
+), retired_goats AS (
+  UPDATE goats g
+  SET lifecycle_status = 'inactive',
+      identity_state = 'inactive',
+      row_version = g.row_version + 1,
+      updated_at = now()
+  FROM candidates c
+  WHERE g.tenant_id = '$tenant_id'::uuid
+    AND g.goat_id = c.goat_id
+  RETURNING
+    c.goat_id,
+    c.display_id,
+    c.rfid,
+    c.legacy_row_id,
+    c.source_row_key,
+    c.before_lifecycle,
+    c.before_identity,
+    c.before_row_version,
+    g.row_version AS after_row_version
+), audit AS (
+  INSERT INTO audit_log (
+    tenant_id,
+    actor_type,
+    action,
+    resource_type,
+    resource_id,
+    before_state,
+    after_state,
+    metadata,
+    trace_id
+  )
+  SELECT
+    '$tenant_id'::uuid,
+    'system',
+    'goat.rfid_only_import_retired',
+    'goat',
+    goat_id,
+    jsonb_build_object(
+      'goat_id', goat_id,
+      'display_id', display_id,
+      'rfid', rfid,
+      'lifecycle_status', before_lifecycle,
+      'identity_state', before_identity,
+      'row_version', before_row_version
+    ),
+    jsonb_build_object(
+      'goat_id', goat_id,
+      'display_id', display_id,
+      'rfid', rfid,
+      'lifecycle_status', 'inactive',
+      'identity_state', 'inactive',
+      'row_version', after_row_version
+    ),
+    jsonb_build_object(
+      'source_system', 'legacy_rfid_db',
+      'source_context', 'rfid_only_blank_suffix_import',
+      'retire_reason', 'rfid_only_blank_suffix_absent_from_live_seed',
+      'legacy_row_id', legacy_row_id,
+      'source_row_key', source_row_key,
+      'rfid', rfid
+    ),
+    'snapshot-delta-live-delta-rfid-only-retire-$timestamp'
+  FROM retired_goats
+  RETURNING resource_id
+)
+SELECT count(*)::int AS retired_rfid_only_goats
+FROM retired_goats;
+SQL
+  run_psql <"$sql_file" | tee "$out_file"
+}
+
 need_cmd bq
 need_cmd docker
 need_cmd go
@@ -325,6 +544,8 @@ if [[ -z "$live_root" ]]; then
   )"
 fi
 [[ -n "$live_root" && -d "$live_root" ]] || fail "missing GOATOS_DELTA_LIVE_ROOT and no replay-live directory found"
+old_root="$(cd "$old_root" && pwd)"
+live_root="$(cd "$live_root" && pwd)"
 
 old_rfid="$old_root/rfid/RFID source of truth.xlsx"
 old_events="$old_root/bq-latest/bq_events.json"
@@ -410,26 +631,44 @@ old_alive="$(jq -r '.alive' "$old_stage/counts.json")"
 echo "old_stage_counts=$(cat "$old_stage/counts.json")"
 assert_eq "old_stage_alive_vs_legacy_$old_legacy_date" "$old_alive" "$old_legacy_active"
 
-log "[live-delta] Generating candidates from current live source against old-loaded DB"
+log "[live-delta] Generating live locations for core RFID/BQ catch-up"
 live_delta="$report_root/live-delta-stage"
 mkdir -p "$live_delta"
-live_existing_identifiers="$live_delta/existing-identifiers-before-live-delta.csv"
+live_existing_identifiers_before_core="$live_delta/existing-identifiers-before-live-core.csv"
+live_locations_pre_core="$live_delta/bq_latest_goat_locations.live-delta.pre-core.json"
+live_candidates_pre_core="$live_delta/safe-old-tag-passport-backfill-candidates.pre-core.discarded.csv"
+live_skipped_pre_core="$live_delta/safe-old-tag-passport-backfill-skipped.pre-core.csv"
+live_generator_summary_pre_core="$live_delta/live-generator-summary.pre-core.json"
+export_existing_identifiers "$live_existing_identifiers_before_core"
+generate_live_replay_inputs \
+  "$live_existing_identifiers_before_core" \
+  "$live_locations_pre_core" \
+  "$live_candidates_pre_core" \
+  "$live_skipped_pre_core" \
+  "$live_generator_summary_pre_core" \
+  "$live_delta/live-generator-summary.pre-core.pretty.json"
+
+live_core="$live_delta/core"
+apply_snapshot "live-delta-core" "$live_rfid" "$live_events" "$live_locations_pre_core" "$live_candidates_pre_core" "$live_core" "$live_locations_pre_core" "1"
+retire_missing_rfid_only_goats "$live_rfid" "$live_delta"
+
+log "[live-delta] Regenerating old-tag candidates after live RFID/BQ core catch-up"
+live_existing_identifiers="$live_delta/existing-identifiers-after-live-core.csv"
 live_locations="$live_delta/bq_latest_goat_locations.live-delta.json"
 live_candidates="$live_delta/safe-old-tag-passport-backfill-candidates.live-delta.csv"
 live_skipped="$live_delta/safe-old-tag-passport-backfill-skipped.live-delta.csv"
 live_generator_summary="$live_delta/live-generator-summary.live-delta.json"
 export_existing_identifiers "$live_existing_identifiers"
-python3 "$repo_root/tools/replay/generate-live-replay-inputs.py" \
-  --current-identities-csv "$live_current_identities" \
-  --census-csv "$live_census" \
-  --goats-db-events-csv "$live_goats_db" \
-  --existing-identifiers-csv "$live_existing_identifiers" \
-  --locations-json-out "$live_locations" \
-  --candidates-csv-out "$live_candidates" \
-  --skipped-csv-out "$live_skipped" \
-  --summary-json-out "$live_generator_summary" | tee "$live_delta/live-generator-summary.live-delta.pretty.json"
+generate_live_replay_inputs \
+  "$live_existing_identifiers" \
+  "$live_locations" \
+  "$live_candidates" \
+  "$live_skipped" \
+  "$live_generator_summary" \
+  "$live_delta/live-generator-summary.live-delta.pretty.json"
 
-apply_snapshot "live-delta" "$live_rfid" "$live_events" "$live_locations" "$live_candidates" "$live_delta"
+live_delta_import_run_id="$(cat "$live_core/import-run-id.txt")"
+apply_old_tag_backfill "live-delta" "$live_candidates" "$live_locations" "$live_delta_import_run_id" "$live_delta"
 live_alive="$(jq -r '.alive' "$live_delta/counts.json")"
 echo "live_delta_counts=$(cat "$live_delta/counts.json")"
 assert_eq "live_delta_alive_vs_legacy_$live_legacy_date" "$live_alive" "$live_legacy_active"

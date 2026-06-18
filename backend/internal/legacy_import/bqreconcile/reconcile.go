@@ -438,8 +438,9 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 			applyLifecycleEvent(&ev.oldTag, event)
 		}
 	}
+	explicitLocationSource := len(locationEvents) > 0
 	locationSource := locationEvents
-	if len(locationSource) == 0 {
+	if !explicitLocationSource {
 		locationSource = events
 	}
 	for _, event := range locationSource {
@@ -527,9 +528,21 @@ func PlanWithLocations(events []Event, locationEvents []Event, goats []LocalGoat
 				nextFarm = ""
 			} else {
 				summary.NoLocationEvidence++
+				if explicitLocationSource {
+					nextCurrent = ""
+					nextFarm = ""
+					nextPark = ""
+					nextShed = ""
+				}
 			}
 		} else {
 			summary.NoLocationEvidence++
+			if explicitLocationSource {
+				nextCurrent = ""
+				nextFarm = ""
+				nextPark = ""
+				nextShed = ""
+			}
 		}
 		if nextLifecycle == "" {
 			nextLifecycle = goat.LifecycleStatus
