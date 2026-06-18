@@ -69,18 +69,19 @@ JWKS verification. Firebase is auth only for Goat OS dev bring-up: do not use
 Firebase Hosting or Firebase App Hosting, and do not introduce an external OIDC
 provider or static dev JWKS.
 
-Admin-web login uses the Firebase Web SDK redirect path with
-`GoogleAuthProvider`. The provider must set `prompt=select_account` and
-`hd=mesha.sg` so shared browsers show the Google account chooser instead of
-silently reusing a personal default account. Do not reintroduce the Google
-Identity Services rendered button or One Tap path for this internal dashboard;
-those flows are easy to misconfigure for custom domains and can auto-select the
-wrong browser account.
+Admin-web login uses Google Identity Services for the browser account chooser,
+then exchanges the returned Google ID token with Firebase Auth using
+`signInWithCredential`. Do not use Firebase `signInWithPopup` or
+`signInWithRedirect` for this dashboard: both send the browser through
+`goatos-dev.firebaseapp.com/__/auth/handler`, which has timed out in live dev
+testing. Keep `auto_select=false` and `hd=mesha.sg`; do not enable One Tap for
+this internal dashboard without proving account-picker behavior on
+`https://dev.dashboard.mesha.sg`.
 
 Custom admin-web hosts must be registered in Firebase/Auth Platform authorized
-domains. If any direct Google Identity Services or browser OAuth flow is used
-again, the same host origin must also be registered on the Google OAuth web
-client as an authorized JavaScript origin.
+domains. The same host origin must also be registered on the Google OAuth web
+client as an authorized JavaScript origin because Google Identity Services runs
+in the browser.
 Set `GOATOS_CANONICAL_DASHBOARD_HOST` on admin-web once a custom host is live so
 raw Cloud Run dashboard URLs redirect to the registered OAuth host instead of
 creating a second sign-in origin.

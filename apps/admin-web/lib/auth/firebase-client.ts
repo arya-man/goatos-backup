@@ -5,9 +5,8 @@ import {
   GoogleAuthProvider,
   browserLocalPersistence,
   getAuth,
-  getRedirectResult,
   setPersistence,
-  signInWithRedirect,
+  signInWithCredential,
   signOut,
   type Auth,
   type User,
@@ -16,6 +15,7 @@ import { FIREBASE_CONFIG_ROUTE, SESSION_ROUTE } from "@/lib/auth/session-cookie"
 
 export type FirebaseClientRuntimeConfig = {
   config: FirebaseOptions;
+  googleClientId: string;
 };
 
 export type FirebaseSessionEventType = "auth.sign_in" | "auth.session_refresh";
@@ -51,17 +51,10 @@ export async function getFirebaseClientRuntimeConfig(): Promise<FirebaseClientRu
   return loadFirebaseConfig();
 }
 
-export async function startGoogleRedirectSignIn(): Promise<void> {
+export async function signInWithGoogleIdToken(googleIdToken: string): Promise<User> {
   const auth = await getFirebaseAuth();
-  await signInWithRedirect(auth, googleProvider());
-}
-
-export async function completeGoogleRedirectSignIn(): Promise<User | null> {
-  const auth = await getFirebaseAuth();
-  const result = await getRedirectResult(auth);
-  if (!result?.user) {
-    return null;
-  }
+  const credential = GoogleAuthProvider.credential(googleIdToken);
+  const result = await signInWithCredential(auth, credential);
   try {
     await syncFirebaseSession(result.user, true, "auth.sign_in");
   } catch (error) {
@@ -69,17 +62,6 @@ export async function completeGoogleRedirectSignIn(): Promise<User | null> {
     throw error;
   }
   return result.user;
-}
-
-function googleProvider(): GoogleAuthProvider {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({
-    hd: "mesha.sg",
-    prompt: "select_account",
-  });
-  provider.addScope("email");
-  provider.addScope("profile");
-  return provider;
 }
 
 export async function clearFirebaseSession(): Promise<void> {
@@ -127,6 +109,9 @@ async function loadFirebaseConfig(): Promise<FirebaseClientRuntimeConfig> {
       const payload = (await response.json()) as FirebaseClientRuntimeConfig;
       if (!payload.config?.apiKey || !payload.config.authDomain || !payload.config.projectId || !payload.config.appId) {
         throw new Error("Firebase sign-in config is incomplete.");
+      }
+      if (!payload.googleClientId) {
+        throw new Error("Google sign-in client ID is not configured for this admin deployment.");
       }
       return payload;
     });

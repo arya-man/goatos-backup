@@ -78,7 +78,7 @@ export function AppSidebar() {
     >
       <div className={`flex items-center ${expanded ? "mb-6 justify-between" : "mb-3 justify-center"}`}>
         <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2" onClick={() => setMobileOpen(false)}>
-          <Image src={logoImg} alt="Mesha" width={36} height={36} className="rounded-full" priority />
+          <Image src={logoImg} alt="Mesha" width={36} height={36} className="rounded-full" priority unoptimized />
           {expanded ? (
             <span className="truncate text-sm font-bold text-[#14F1D9]">Mesha</span>
           ) : null}

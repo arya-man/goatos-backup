@@ -28,7 +28,7 @@ export default async function LoginPage() {
           <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(#14f1d9_1px,transparent_1px),linear-gradient(90deg,#14f1d9_1px,transparent_1px)] [background-size:42px_42px]" />
           <div className="relative">
             <div className="flex items-center gap-3">
-              <Image src={logoImg} alt="Mesha" width={52} height={52} className="rounded-full" priority />
+              <Image src={logoImg} alt="Mesha" width={52} height={52} className="rounded-full" priority unoptimized />
               <div>
                 <div className="text-lg font-bold text-[#14f1d9]">Mesha</div>
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8899aa]">Admin</div>
@@ -56,7 +56,7 @@ export default async function LoginPage() {
         <section className="flex min-h-screen items-center justify-center px-5 py-8 sm:px-8">
           <div className="w-full max-w-[420px]">
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <Image src={logoImg} alt="Mesha" width={48} height={48} className="rounded-full" priority />
+              <Image src={logoImg} alt="Mesha" width={48} height={48} className="rounded-full" priority unoptimized />
               <div>
                 <div className="text-lg font-bold text-[#14f1d9]">Mesha</div>
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8899aa]">Admin</div>

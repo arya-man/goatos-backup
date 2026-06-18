@@ -1,87 +1,168 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import Script from "next/script";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
-  completeGoogleRedirectSignIn,
-  startGoogleRedirectSignIn,
+  getFirebaseClientRuntimeConfig,
+  signInWithGoogleIdToken,
 } from "@/lib/auth/firebase-client";
 import { DASHBOARD_BASE_PATH } from "@/lib/auth/session-cookie";
 
+type GoogleCredentialResponse = {
+  credential?: string;
+  select_by?: string;
+};
+
+type GoogleAccountsID = {
+  initialize(options: {
+    client_id: string;
+    callback: (response: GoogleCredentialResponse) => void;
+    auto_select?: boolean;
+    cancel_on_tap_outside?: boolean;
+    hd?: string;
+    context?: "signin" | "signup" | "use";
+  }): void;
+  renderButton(
+    parent: HTMLElement,
+    options: {
+      type?: "standard" | "icon";
+      theme?: "outline" | "filled_blue" | "filled_black";
+      size?: "large" | "medium" | "small";
+      text?: "signin_with" | "signup_with" | "continue_with" | "signin";
+      shape?: "rectangular" | "pill" | "circle" | "square";
+      logo_alignment?: "left" | "center";
+      width?: number;
+    },
+  ): void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: GoogleAccountsID;
+      };
+    };
+  }
+}
+
 export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: string }) {
-  const [status, setStatus] = useState<"ready" | "checking" | "signing_in" | "redirecting">("checking");
+  const [status, setStatus] = useState<"loading" | "ready" | "signing_in" | "redirecting" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
-  const checkedRedirect = useRef(false);
+  const [scriptReady, setScriptReady] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const buttonContainerRef = useRef<HTMLDivElement | null>(null);
+  const renderedButton = useRef(false);
+  const mounted = useRef(false);
 
   const navigateToNext = useCallback(() => {
     setStatus("redirecting");
     window.location.replace(safeNextPath(nextPath));
   }, [nextPath]);
 
-  useEffect(() => {
-    if (checkedRedirect.current) return;
-    checkedRedirect.current = true;
-
-    let mounted = true;
-    void completeGoogleRedirectSignIn()
-      .then((user) => {
-        if (!mounted) return;
-        if (user) {
+  const handleCredential = useCallback(
+    (response: GoogleCredentialResponse) => {
+      const googleIdToken = response.credential?.trim();
+      if (!googleIdToken) {
+        setStatus("ready");
+        setMessage("Google sign-in did not return a valid credential. Try again.");
+        return;
+      }
+      setStatus("signing_in");
+      setMessage(null);
+      void signInWithGoogleIdToken(googleIdToken)
+        .then(() => {
+          if (!mounted.current) return;
           navigateToNext();
-          return;
-        }
-        setStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!mounted) return;
-        setStatus("ready");
-        setMessage(messageForGoogleSignInError(error));
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [navigateToNext]);
-
-  const handleSignIn = useCallback(() => {
-    if (status !== "ready") return;
-    setStatus("signing_in");
-    setMessage(null);
-
-    void startGoogleRedirectSignIn()
-      .catch((error: unknown) => {
-        setStatus("ready");
-        setMessage(messageForGoogleSignInError(error));
-      });
-  }, [status]);
-
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      handleSignIn();
+        })
+        .catch((error: unknown) => {
+          if (!mounted.current) return;
+          setStatus("ready");
+          setMessage(messageForGoogleSignInError(error));
+        });
     },
-    [handleSignIn],
+    [navigateToNext],
   );
 
-  const isBusy = status !== "ready";
+  useEffect(() => {
+    mounted.current = true;
+    void getFirebaseClientRuntimeConfig()
+      .then((runtime) => {
+        if (!mounted.current) return;
+        setGoogleClientId(runtime.googleClientId);
+      })
+      .catch((error: unknown) => {
+        if (!mounted.current) return;
+        setStatus("error");
+        setMessage(error instanceof Error ? error.message : "Google sign-in is not configured.");
+      });
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!scriptReady || !googleClientId || !buttonContainerRef.current || renderedButton.current) {
+      return;
+    }
+    const googleID = window.google?.accounts?.id;
+    if (!googleID) {
+      window.setTimeout(() => {
+        setStatus("error");
+        setMessage("Google sign-in could not load in this browser.");
+      }, 0);
+      return;
+    }
+
+    renderedButton.current = true;
+    googleID.initialize({
+      client_id: googleClientId,
+      callback: handleCredential,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      hd: "mesha.sg",
+      context: "signin",
+    });
+    googleID.renderButton(buttonContainerRef.current, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "continue_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+      width: 340,
+    });
+    window.setTimeout(() => setStatus("ready"), 0);
+  }, [googleClientId, handleCredential, scriptReady]);
+
+  const isBusy = status === "loading" || status === "signing_in" || status === "redirecting";
   const statusText =
-    status === "checking" ? "Checking session" : status === "redirecting" ? "Opening dashboard" : "Signing in";
+    status === "loading" ? "Loading Google sign-in" : status === "redirecting" ? "Opening dashboard" : "Signing in";
 
   return (
     <div className="mt-8">
-      <button
-        type="button"
-        onClick={handleSignIn}
-        onKeyDown={handleKeyDown}
-        disabled={isBusy}
-        className="relative flex h-12 w-full max-w-[340px] items-center justify-center rounded border border-[#dadce0] bg-white px-4 text-[14px] font-semibold text-[#3c4043] shadow-sm transition hover:bg-[#f8fafd] focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:ring-offset-2 focus:ring-offset-[#171c26] disabled:cursor-wait disabled:bg-[#f1f3f4] disabled:text-[#5f6368]"
-      >
-        <span className="absolute left-4 flex h-5 w-5 items-center justify-center" aria-hidden="true">
-          <GoogleGMark />
-        </span>
-        Continue with Google
-      </button>
+      <Script
+        src="https://accounts.google.com/gsi/client"
+        strategy="afterInteractive"
+        onLoad={() => setScriptReady(true)}
+        onError={() => {
+          setStatus("error");
+          setMessage("Google sign-in script failed to load. Check the network and reload.");
+        }}
+      />
+      <div className="min-h-11 w-full max-w-[340px]">
+        <div ref={buttonContainerRef} aria-hidden={status !== "ready"} />
+        {status === "loading" || status === "error" ? (
+          <button
+            type="button"
+            disabled
+            className="flex h-11 w-full items-center justify-center rounded border border-[#dadce0] bg-[#f1f3f4] px-4 text-[14px] font-semibold text-[#5f6368]"
+          >
+            Continue with Google
+          </button>
+        ) : null}
+      </div>
       <div className="mt-3 min-h-7">
         {message ? (
           <p className="rounded-lg border border-[#7f1d1d] bg-[#1d1214] px-3 py-2 text-sm leading-6 text-[#fecaca]">
@@ -100,21 +181,14 @@ export function GoogleLogin({ nextPath = DASHBOARD_BASE_PATH }: { nextPath?: str
 
 function messageForGoogleSignInError(error: unknown): string {
   if (isFirebaseAuthError(error)) {
-    if (
-      error.code === "auth/redirect-cancelled-by-user" ||
-      error.code === "auth/popup-closed-by-user" ||
-      error.code === "auth/cancelled-popup-request"
-    ) {
+    if (error.code === "auth/popup-closed-by-user" || error.code === "auth/cancelled-popup-request") {
       return "Google sign-in was cancelled.";
     }
-    if (error.code === "auth/redirect-operation-pending") {
-      return "Google sign-in is already open. Complete it in the Google window, or reload and try again.";
-    }
-    if (error.code === "auth/popup-blocked") {
-      return "Chrome blocked Google sign-in. Reload and try again.";
-    }
     if (error.code === "auth/unauthorized-domain") {
-      return "This dashboard host is not authorized for Firebase sign-in.";
+      return "This dashboard host is not authorized for Google sign-in.";
+    }
+    if (error.code === "auth/invalid-credential" || error.code === "auth/account-exists-with-different-credential") {
+      return "Google sign-in did not return a valid Mesha session. Try again.";
     }
   }
   return error instanceof Error ? error.message : "Google sign-in failed.";
@@ -126,29 +200,6 @@ function isFirebaseAuthError(error: unknown): error is { code: string } {
       typeof error === "object" &&
       "code" in error &&
       typeof (error as { code?: unknown }).code === "string",
-  );
-}
-
-function GoogleGMark() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 18 18" className="h-5 w-5">
-      <path
-        fill="#4285F4"
-        d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"
-      />
-      <path
-        fill="#34A853"
-        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.72H.94v2.33A9 9 0 0 0 9 18Z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M3.96 10.7A5.41 5.41 0 0 1 3.68 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.34 2.82.94 4.03l3.02-2.33Z"
-      />
-      <path
-        fill="#EA4335"
-        d="M9 3.58c1.32 0 2.5.45 3.44 1.34l2.58-2.58A8.65 8.65 0 0 0 9 0 9 9 0 0 0 .94 4.97L3.96 7.3C4.67 5.16 6.66 3.58 9 3.58Z"
-      />
-    </svg>
   );
 }
 
