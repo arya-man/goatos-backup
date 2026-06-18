@@ -675,7 +675,8 @@ pending_source
 ```
 
 Any `unexplained_delta` blocks completion. Any `pending_source` must render as
-pending/source-unavailable in the UI, not as zero.
+pending/source-unavailable in internal/dev UI, not as zero, and blocks
+production completion for required Counts sections.
 
 The parity runner should compare against the legacy API when reachable:
 
@@ -811,10 +812,12 @@ Replay/parity:
 8. Frontend route renders all required legacy sections and links Locations.
 9. Numeric parity artifact reviewed.
 10. Screenshot parity artifact reviewed.
-11. Manual sync approved for dev.
-12. Scheduled sync remains off until replay drift and source freshness behavior
+11. No required Counts section or metric remains pending for production
+    completion.
+12. Manual sync approved for dev.
+13. Scheduled sync remains off until replay drift and source freshness behavior
     are stable.
-13. BQ/Sheets removal plan confirmed by canonical shadow parity, cross-source
+14. BQ/Sheets removal plan confirmed by canonical shadow parity, cross-source
     dedup tests, and source-composition states for each section being removed.
 
 ## Open Questions

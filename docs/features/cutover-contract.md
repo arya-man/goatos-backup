@@ -140,8 +140,9 @@ pending_source
 ```
 
 Any `unexplained_delta` blocks BQ/Sheets removal for that section. A
-`pending_source` may ship only as honest pending/source-unavailable UI, never as
-zero.
+`pending_source` may appear in internal/dev review UI only as honest
+pending/source-unavailable state, never as zero. It blocks production completion
+for any required section.
 
 ## Locations Alias Rule
 
@@ -188,4 +189,6 @@ BQ/Sheets can be removed for a feature section only when:
 - frontend and mobile code read Goat OS APIs only
 
 If one section is ready and another is not, remove BQ/Sheets only for the ready
-section and keep the not-ready section marked legacy-backed or pending.
+section and keep the not-ready section legacy-backed in development until its
+coverage gates pass. A required not-ready section blocks production completion
+for the feature.

@@ -369,7 +369,9 @@ Counts is complete only when all of these are true:
   the same values for any section where BQ/Sheets will be removed.
 - Screenshot parity artifact compares legacy vs Goat OS desktop and narrow
   views.
-- Any unmatched metric is marked pending or explained, not silently hidden.
+- No required legacy Counts metric or section remains unmatched, pending, or
+  hidden for production completion. Internal/dev builds may mark pending source
+  work honestly, but pending work blocks completion.
 - Hot dashboard reads use bounded projection queries.
 - Sync/rebuild jobs are idempotent and retry-safe.
 - One-million-goat scale checks are documented with query plans or load tests

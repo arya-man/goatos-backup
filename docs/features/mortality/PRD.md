@@ -156,12 +156,11 @@ The target UI is the legacy Mortality screen:
   - By Breed
   - Within Breed
 
-The first implementation may phase charts only if it is honest:
-
-- complete sections must have numeric parity and visual comparison
-- incomplete sections must remain visibly pending
-- intentionally dropped legacy sections must be named with the reason
-- no half-rendered chart should be described as complete
+Production completion means the full legacy-visible Mortality scope above is
+implemented, numerically reconciled, visually compared, and served from Goat OS
+APIs. Internal/dev builds may expose pending sections while source coverage is
+being proven, but pending, migration-only, or intentionally dropped required
+sections block production completion.
 
 ## Source Of Truth And Storage Decision
 
@@ -291,15 +290,16 @@ Mortality is complete only when all of these are true:
 - The implemented data path is backend-owned and Postgres-served.
 - No admin-web code reads BigQuery, Sheets, Drive, or raw DB directly.
 - Legacy formulas and denominators are pinned from legacy code or legacy SQL.
-- The Mortality Formula Register exists and covers every shipped chart/summary
+- The Mortality Formula Register exists and covers every required chart/summary
   metric.
 - Mortality events are stored as required canonical facts before projections are
   built.
 - Every farm, shed, housing, and status-location label is resolved through the
   Locations alias resolver, including legacy mortality aliases.
-- Event-source coverage proves canonical events can reproduce every shipped
-  legacy mortality total, or the affected section is marked pending/migration
-  only.
+- Event-source coverage proves canonical events can reproduce every required
+  legacy mortality total.
+- No required Mortality section remains pending, migration-only, or intentionally
+  dropped for production completion.
 - Rate denominators come from pinned identity/count projections or explicitly
   pinned legacy denominator sources, not from ad hoc request-time scans.
 - Canonical-vs-legacy shadow parity passes for the same grain before any

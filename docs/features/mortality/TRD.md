@@ -145,8 +145,9 @@ Event-source coverage gate:
   `mortality_this_month_farmwise_dev` may validate shipped numbers, but they
   cannot be the source that creates `mortality_events`.
 - Before a section is marked complete, event-creating sources must reproduce
-  every shipped total at that section's grain, or the section must ship as
-  pending/migration-only.
+  every required total at that section's grain. If source coverage is not proven,
+  the section may appear only in internal/dev as pending or migration-only, and
+  it blocks production completion.
 - A parity artifact must show which event source covers each legacy rollup
   total and which rollup totals remain uncovered.
 
@@ -225,8 +226,9 @@ freshness envelope as Mortality source availability.
 
 Rate rollout depends on those denominator projections being implemented and
 fresh at a pinned watermark. If identity/count denominator projections are not
-ready, affected rates must be pending or source-unavailable rather than
-computed from ad hoc Mortality queries.
+ready, affected rates may appear only in internal/dev as pending or
+source-unavailable and block production completion; they must not be computed
+from ad hoc Mortality queries.
 
 ## Location Alias Resolution
 
@@ -666,7 +668,8 @@ pending_source_coverage
 Known-correct differences must be recorded as `explained_delta`, for example a
 Goat OS event total preserving an unmatched historical death that legacy dropped
 because identity linkage was unresolved. Any `unexplained_delta` blocks feature
-completion.
+completion. Any `pending_source_coverage` blocks production completion for a
+required Mortality section.
 
 Once Cube owns `mortality_rate`, add projection-vs-Cube parity on a fixed
 snapshot before calling the metric governed.
@@ -765,8 +768,8 @@ Replay/parity:
 2. Legacy formulas and source list pinned, including kid/adult cutoff,
    denominator source for every rate, and source classification as
    event-creating, denominator/reference, or rollup/parity-only.
-3. Event-source coverage proves all shipped rollup totals can be reproduced from
-   event-creating sources, or affected sections are pending/migration-only.
+3. Event-source coverage proves all required rollup totals can be reproduced
+   from event-creating sources.
 4. Required BQ/Sheets/Drive source access probed and classified.
 5. Locations aliases resolve all legacy Mortality farm/shed/housing/status
    labels needed by shipped sections.
@@ -777,14 +780,18 @@ Replay/parity:
 8. Backend sync/rebuild/API tests green.
 9. Frontend visual and responsive checks green.
 10. Numeric parity artifact reviewed.
-11. Canonical-vs-legacy shadow parity and cross-source dedup tests reviewed
+11. No required Mortality section remains pending, migration-only, or
+    source-unavailable for production completion.
+12. Canonical-vs-legacy shadow parity and cross-source dedup tests reviewed
     before any BQ/Sheets source is removed from a grain.
-12. Screenshots compared legacy vs Goat OS.
-13. Deploy code only.
-14. Run manual sync only after source credentials and replay gates are green.
+13. Screenshots compared legacy vs Goat OS.
+14. Deploy code only.
+15. Run manual sync only after source credentials and replay gates are green.
 
 If any required Drive-backed source remains blocked, the affected section must
-ship as honest-pending or source-unavailable, not as zero.
+remain internal/dev pending or source-unavailable, not zero. It blocks
+production completion until resolved or explicitly removed from required scope by
+product decision.
 
 Scheduled sync remains off until dirty old-snapshot-to-live replay reaches zero
 goat-level drift.
@@ -792,8 +799,8 @@ goat-level drift.
 ## Open Questions
 
 - Which legacy tables are Drive-backed and require special export credentials.
-- Whether v1 ships all legacy charts at once or phases summary plus breed/farm
-  first with honest pending states for the rest.
+- Which internal implementation order gets to full required legacy scope fastest;
+  production completion still requires all required Mortality sections.
 - Whether Mortality review items reuse an existing Import Review surface or need
   a Mortality-specific review queue.
 - Which module owns load master data during the temporary legacy period and

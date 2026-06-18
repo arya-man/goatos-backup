@@ -258,4 +258,6 @@ Locations is complete only when:
 - Counts/Infra projections are marked stale or rebuilt after relevant location
   changes.
 - Hot reads are indexed and paginated for one-million-goat scale.
+- No required Locations CRUD, alias, capacity, usage, review, or seeded-scope
+  protection behavior remains pending for production completion.
 - Numeric and visual Counts parity can run using canonical location mappings.

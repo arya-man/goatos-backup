@@ -372,5 +372,9 @@ Before building a large dashboard feature, confirm:
 - Cutover/blend-mode and cross-source dedup gates are defined where BQ/Sheets
   are temporary upstreams.
 - Query-plan validation is added for hot paths that can touch large tables.
+- One-million-goat scale is proven or credibly simulated for hot reads and any
+  rebuild path that can touch goat/fact tables. A large dashboard is not
+  production-complete if the proof still depends on request-time full-herd scans
+  or unbounded aggregations.
 
 If these are missing, stop and write the design before coding.

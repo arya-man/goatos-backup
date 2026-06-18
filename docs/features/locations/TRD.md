@@ -539,8 +539,10 @@ Integration:
    mortality dashboards ship from Postgres projections.
 7. Locations tab visual QA green.
 8. Counts parity artifact confirms no location-label drift.
-9. Manual legacy source sync approved for dev.
-10. Scheduled sync remains off until unknown-label review and replay drift are
+9. No required Locations CRUD, alias, capacity, usage, review, or seeded-scope
+   protection behavior remains pending for production completion.
+10. Manual legacy source sync approved for dev.
+11. Scheduled sync remains off until unknown-label review and replay drift are
    stable.
 
 ## Open Questions

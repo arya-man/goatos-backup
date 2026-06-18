@@ -36,3 +36,7 @@ Rules:
   `docs/decisions/high-scale-dashboard-projections.md`.
 - Any feature using BQ/Sheets as a temporary upstream before Android/backend
   canonical writes must follow `docs/features/cutover-contract.md`.
+- Feature completion means the full required legacy-visible/product scope is
+  implemented, reconciled, tested, and scalable. Pending, migration-only, or
+  source-unavailable required sections may exist in internal/dev review, but
+  they block production completion.
