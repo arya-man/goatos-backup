@@ -125,6 +125,45 @@ func TestSourceKeyAndHashRecipes(t *testing.T) {
 	}
 }
 
+func TestSpreadsheetNumericIdentifierNormalization(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		raw       string
+		want      string
+		malformed bool
+	}{
+		{name: "plain digits", raw: "901007000504915", want: "901007000504915"},
+		{name: "decimal integer", raw: "901007000504915.0", want: "901007000504915"},
+		{name: "scientific integer", raw: "9.01007000504915E14", want: "901007000504915"},
+		{name: "lowercase scientific integer", raw: "9.01007000504915e14", want: "901007000504915"},
+		{name: "fractional scientific stays raw", raw: "9.010070005049155E14", want: "9.010070005049155E14"},
+		{name: "embedded space malformed", raw: "901007 000504915", want: "901007 000504915", malformed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, malformed := normalizeRFID(tc.raw)
+			if got != tc.want || malformed != tc.malformed {
+				t.Fatalf("normalizeRFID(%q)=(%q,%v), want (%q,%v)", tc.raw, got, malformed, tc.want, tc.malformed)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{raw: "1245.0", want: "1245"},
+		{raw: "1.245E3", want: "1245"},
+		{raw: "SA2328252", want: "SA2328252"},
+		{raw: "None", want: "NONE"},
+	} {
+		t.Run("old tag "+tc.raw, func(t *testing.T) {
+			if got := normalizeLegacyIdentifier(tc.raw); got != tc.want {
+				t.Fatalf("normalizeLegacyIdentifier(%q)=%q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
 func syntheticPolicy(t *testing.T) Policy {
 	t.Helper()
 	var sourceRecipe SourceKeyRecipe

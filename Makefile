@@ -1,4 +1,4 @@
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans replay-frozen docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans replay-frozen replay-live docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh
@@ -57,6 +57,9 @@ validate-sqlc-plans:
 
 replay-frozen:
 	bash tools/replay/frozen-replay.sh
+
+replay-live:
+	bash tools/replay/live-replay.sh
 
 docker-storage-report:
 	bash tools/dev/docker-storage-report.sh

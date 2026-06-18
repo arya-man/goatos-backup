@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -111,7 +112,7 @@ func MarkChangedRowsNeedsReview(rows []StagedRow, changed map[string]bool) []Sta
 func normalizeRow(policy Policy, row WorkbookRow) (normalizedDraft, error) {
 	raw := orderedRawPayload(row.Raw)
 	rfid, malformedRFID := normalizeRFID(row.Raw["RFID"])
-	oldTag := normalizeIdentifierText(row.Raw["Old ID"])
+	oldTag := normalizeLegacyIdentifier(row.Raw["Old ID"])
 	parkCode := normalizeParkCode(row.Raw["Old ID Suffix"])
 	gender := normalizeIdentifierText(row.Raw["Gender"])
 	sex, sexOK := sexFromGender(gender)
@@ -320,11 +321,74 @@ func normalizeRFID(raw string) (string, bool) {
 			return value, true
 		}
 	}
+	if normalized, ok := normalizeSpreadsheetNumber(value); ok {
+		value = normalized
+	}
 	return value, false
 }
 
 func normalizeIdentifierText(raw string) string {
 	return strings.ToUpper(strings.TrimSpace(raw))
+}
+
+func normalizeLegacyIdentifier(raw string) string {
+	value := normalizeIdentifierText(raw)
+	if normalized, ok := normalizeSpreadsheetNumber(value); ok {
+		return normalized
+	}
+	return value
+}
+
+var (
+	decimalIntegerPattern    = regexp.MustCompile(`^([0-9]+)\.0+$`)
+	scientificIntegerPattern = regexp.MustCompile(`^([0-9]+)(?:\.([0-9]+))?[Ee]([+-]?[0-9]+)$`)
+)
+
+func normalizeSpreadsheetNumber(value string) (string, bool) {
+	if match := decimalIntegerPattern.FindStringSubmatch(value); match != nil {
+		return match[1], true
+	}
+	match := scientificIntegerPattern.FindStringSubmatch(value)
+	if match == nil {
+		return "", false
+	}
+
+	intPart, fracPart, expText := match[1], match[2], match[3]
+	exp := 0
+	sign := 1
+	if strings.HasPrefix(expText, "+") {
+		expText = strings.TrimPrefix(expText, "+")
+	} else if strings.HasPrefix(expText, "-") {
+		sign = -1
+		expText = strings.TrimPrefix(expText, "-")
+	}
+	for _, r := range expText {
+		exp = exp*10 + int(r-'0')
+	}
+	exp *= sign
+
+	digits := intPart + fracPart
+	decimalPlaces := len(fracPart) - exp
+	if decimalPlaces <= 0 {
+		normalized := strings.TrimLeft(digits+strings.Repeat("0", -decimalPlaces), "0")
+		if normalized == "" {
+			normalized = "0"
+		}
+		return normalized, true
+	}
+	if decimalPlaces >= len(digits) {
+		return "", false
+	}
+	whole := digits[:len(digits)-decimalPlaces]
+	fractional := digits[len(digits)-decimalPlaces:]
+	if strings.Trim(fractional, "0") != "" {
+		return "", false
+	}
+	whole = strings.TrimLeft(whole, "0")
+	if whole == "" {
+		whole = "0"
+	}
+	return whole, true
 }
 
 func normalizeParkCode(raw string) string {
