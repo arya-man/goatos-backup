@@ -22,6 +22,9 @@ Goat OS product feature phases
 Detailed phase PRD/TRD docs
   docs/phases/
 
+Feature-level PRD/TRD docs
+  docs/features/
+
 Goat OS coverage checklist (frozen migration audit, not living architecture)
   context/product/goat-os-coverage-map.md
 
@@ -48,6 +51,9 @@ AI agent context and API protocol decisions
 
 Backend stack ADR
   docs/decisions/go-backend-stack.md
+
+High-scale dashboard projection architecture
+  docs/decisions/high-scale-dashboard-projections.md
 
 Goat OS agent skill bundle and reference map
   .agents/skills/goatos-build/SKILL.md

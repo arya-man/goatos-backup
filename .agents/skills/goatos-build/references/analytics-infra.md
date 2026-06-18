@@ -6,6 +6,9 @@ Tinybird, Cube, dbt, Metabase, GCP infra, or cost controls.
 Canonical docs:
 
 - `context/analytics/final-analytics-infra.md`
+- `docs/decisions/high-scale-dashboard-projections.md`
+- `docs/features/mortality/PRD.md`
+- `docs/features/mortality/TRD.md`
 - `context/source-findings/customer-promise-safety-findings.md`
 - `context/execution/env-load-test-and-doc-hygiene.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
@@ -69,3 +72,6 @@ Rules:
   replacement availability, and open-promise sweeper output.
 - Official KPIs still go through Cube; do not revive direct BigQuery queries in
   apps just because a legacy table name exists.
+- Any dashboard/report that slices large data by month, date, breed, farm,
+  shed, load, category, status, gender, operator, source, or similar dimensions
+  must follow `docs/decisions/high-scale-dashboard-projections.md`.

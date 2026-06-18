@@ -2,6 +2,10 @@ import { BigQuery } from "@google-cloud/bigquery";
 import * as fs from "fs";
 import * as path from "path";
 
+// LEGACY - DO NOT COPY INTO GOAT OS RUNTIME APPS.
+// This shadow app preserves the old dashboard BigQuery access pattern only for
+// migration comparison. Real admin/mobile apps must call Goat OS APIs backed by
+// Postgres projections instead of querying BigQuery or Drive-backed tables.
 const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "goatos-sheets";
 const DATASET = process.env.BIGQUERY_DATASET || "ceo_dashboard";
 

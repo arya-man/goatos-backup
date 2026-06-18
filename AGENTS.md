@@ -82,6 +82,10 @@ Do:
   path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
   chunked or paginated, bounded in memory/goroutines, idempotent for retries,
   and covered by query-plan validation when it touches large tables.
+- For dashboards or reports that slice data by month, date, breed, farm, shed,
+  load, category, status, gender, operator, source, or similar dimensions, use
+  the canonical rule in `docs/decisions/high-scale-dashboard-projections.md`
+  before coding.
 - Add observability for new APIs/workers: latency, errors, DB pressure, queue lag, DLQ, and media failures.
 - Goat identifiers (RFID, old tag, breed, farm, shed, partition) are operational
   livestock business data, NOT PII. Log them in diagnostics so a failure is

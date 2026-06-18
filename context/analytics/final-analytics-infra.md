@@ -66,7 +66,10 @@ Rules:
 
 ```text
 dashboards:
-  official KPIs query Cube.
+  official leadership/analytics KPI answers query Cube.
+  operational product dashboards may read Postgres projections only when the
+  KPI is declared dual-served and covered by the parity gate in
+  docs/decisions/high-scale-dashboard-projections.md.
 
 Metabase:
   official KPIs query Cube.
@@ -144,6 +147,14 @@ Data-model changes must update the matching analytics reference docs and evals.
 CI should eventually enforce that dbt/Cube changes touch the related analytics
 skill/reference files or explicitly justify why not.
 ```
+
+## High-Scale Dashboard Serving
+
+Dashboards that slice large data by month, date, breed, farm, shed, load,
+category, status, gender, operator, or source must follow
+`docs/decisions/high-scale-dashboard-projections.md`. That decision is the
+canonical source for projection serving, dual-served KPI gates, standard
+freshness envelopes, and legacy visual/numeric parity rules.
 
 Reference doc template for each analytics domain:
 
