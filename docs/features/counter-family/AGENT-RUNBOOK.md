@@ -162,6 +162,11 @@ For UI features, run local admin-web and verify:
 - screenshot comparison against the legacy dashboard when a legacy analogue
   exists
 
+Counts and Mortality agents may browse their route by direct URL, or use
+temporary uncommitted local shell/smoke entries for self-QA. They must not
+commit shared shell/nav/smoke edits; hand route metadata to the
+Locations/coordinator integration change.
+
 Use the repository's visual smoke command when the backend/admin-web can run:
 
 ```text
