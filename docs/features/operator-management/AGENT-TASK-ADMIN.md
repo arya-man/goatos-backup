@@ -15,8 +15,9 @@ and docs/features/operator-management/AGENT-TASK-ADMIN.md.
 
 Implement only Operator Management backend/admin-web scope. Do not edit SOP
 builder, operator-mobile, or shared route shell files unless this task doc says
-so. Leave changed files, validation, artifacts, and blockers in your final
-handoff.
+so. Do not commit, push, create a PR, deploy, or change cloud/GitHub config
+unless the coordinator explicitly asks in this thread. Leave changed files,
+validation, artifacts, and blockers in your final handoff.
 ```
 
 ## Scope
@@ -79,6 +80,9 @@ href: /operators
 icon: Users or UserCog
 smoke path: /operators
 ```
+
+If a shared shell or generated-client change is required, document the exact
+file and expected edit in the handoff for the coordinator.
 
 ## Migration Range
 

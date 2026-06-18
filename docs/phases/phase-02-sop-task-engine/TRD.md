@@ -87,6 +87,8 @@ contracts/openapi/admin-api.yaml                       # exists; extend
 contracts/openapi/app-api.yaml                         # exists; extend
 contracts/jsonschema/sop-form-version.schema.json      # to create
 contracts/jsonschema/sop-submission.schema.json        # to create
+contracts/jsonschema/sop-preview-dry-run.schema.json   # to create
+contracts/jsonschema/sop-proof-policy.schema.json      # to create
 contracts/jsonschema/domain-event-envelope.schema.json  # exists
 ```
 

@@ -22,6 +22,10 @@ contract checks, visual/mobile proof where applicable, and a concise handoff
 listing changed files and remaining blockers.
 ```
 
+These prompts are intentionally small. The full instructions live in the
+committed docs they point to, so agents should not need chat history or memory
+from the coordinator to understand scope, ownership, validation, or handoff.
+
 ## Agent Split
 
 Run these agents in parallel:
@@ -78,6 +82,11 @@ reserved range. Do not take another agent's range.
 - Stay in assigned ownership unless the task doc explicitly permits a shared
   file.
 - Do not revert changes made by another agent.
+- Do not commit, push, create a PR, deploy, change cloud config, or change
+  GitHub/IAM/billing from a feature-agent thread unless the coordinator
+  explicitly asks in that thread.
+- If a required change falls outside owned files, leave a precise integration
+  note for the coordinator instead of editing the shared file opportunistically.
 - Use generated clients and backend APIs; no frontend/mobile direct DB, BQ,
   Sheets, Firestore, or GCS writes.
 - Do not commit raw private rows, Slack exports, phone numbers, emails, media
@@ -128,22 +137,22 @@ Integration notes:
 - known blockers
 ```
 
-## Small Prompts
+## Copy-Paste Agent Prompts
 
 Operator Admin/Backend:
 
 ```text
-Read docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md and docs/features/operator-management/AGENT-TASK-ADMIN.md. Implement only Operator Management backend/admin-web scope. Do not edit SOP builder, operator-mobile, or shared route shell files unless the task doc allows it. Leave changed files, validation, and blockers in your final handoff.
+Read AGENTS.md, SKILLS.md, context/README.md, .agents/skills/goatos-build/SKILL.md, docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md, docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md, docs/features/operator-management/PRD.md, docs/features/operator-management/TRD.md, and docs/features/operator-management/AGENT-TASK-ADMIN.md. Implement only Operator Management backend/admin-web scope. Stay inside the owned files, migration range, and API ownership in the task doc. Do not edit SOP Builder, operator-mobile, shared route shell files, commit, push, create a PR, or deploy unless the coordinator explicitly asks. Final handoff: changed files, validation, artifacts, route metadata, migrations used, blockers.
 ```
 
 Operator Android:
 
 ```text
-Read docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md and docs/features/operator-management/AGENT-TASK-ANDROID.md. Implement only the operator-mobile Android bootstrap/task/SOP runner scope. Do not edit backend migrations or admin-web. Use mocks where backend contracts are not landed. Leave changed files, validation, screenshots or emulator notes, and blockers in your final handoff.
+Read AGENTS.md, SKILLS.md, context/README.md, .agents/skills/goatos-build/SKILL.md, docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md, docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md, docs/features/operator-management/PRD.md, docs/features/operator-management/TRD.md, docs/phases/phase-02-sop-task-engine/PRD.md, docs/phases/phase-02-sop-task-engine/TRD.md, and docs/features/operator-management/AGENT-TASK-ANDROID.md. Implement only operator-mobile Android bootstrap/task/SOP runner scope. Do not edit backend, migrations, OpenAPI, admin-web, SOP Builder internals, commit, push, create a PR, or deploy unless the coordinator explicitly asks. Use typed mocks where backend contracts are not landed. Final handoff: changed files, validation, screenshots or emulator notes, mocked API gaps, blockers.
 ```
 
 SOP Builder/Task Engine:
 
 ```text
-Read docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md and docs/phases/phase-02-sop-task-engine/AGENT-TASK-SOP-BUILDER.md. Implement only SOP/task backend contracts and admin-web SOP Builder scope. Do not edit Operator Management internals or operator-mobile. Leave changed files, validation, route metadata, and blockers in your final handoff.
+Read AGENTS.md, SKILLS.md, context/README.md, .agents/skills/goatos-build/SKILL.md, docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md, docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md, docs/phases/phase-02-sop-task-engine/PRD.md, docs/phases/phase-02-sop-task-engine/TRD.md, docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md, docs/phases/phase-02-sop-task-engine/AGENT-TASK-SOP-BUILDER.md, and docs/features/operator-management/PRD.md. Implement only SOP/task backend contracts and admin-web SOP Builder scope. Stay inside the owned files, migration range, and API ownership in the task doc. Do not edit Operator Management internals, operator-mobile, commit, push, create a PR, or deploy unless the coordinator explicitly asks. Final handoff: changed files, validation, artifacts, route metadata, migrations used, blockers.
 ```

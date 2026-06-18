@@ -16,8 +16,10 @@ docs/phases/phase-02-sop-task-engine/AGENT-TASK-SOP-BUILDER.md,
 and docs/features/operator-management/PRD.md for the bootstrap dependency.
 
 Implement only SOP/task backend contracts and admin-web SOP Builder scope. Do
-not edit Operator Management internals or operator-mobile. Leave changed files,
-validation, route metadata, and blockers in your final handoff.
+not edit Operator Management internals or operator-mobile. Do not commit, push,
+create a PR, deploy, or change cloud/GitHub config unless the coordinator
+explicitly asks in this thread. Leave changed files, validation, route metadata,
+and blockers in your final handoff.
 ```
 
 ## Scope
@@ -90,6 +92,10 @@ docs/features/operator-management/AGENT-TASK-ADMIN.md
 ```
 
 Do not edit `apps/operator-mobile/**`.
+
+If a shared shell, generated-client, or Operator Management contract change is
+required, document the exact file and expected edit in the handoff for the
+coordinator.
 
 ## Migration Range
 

@@ -18,8 +18,9 @@ and docs/features/operator-management/AGENT-TASK-ANDROID.md.
 Implement only operator-mobile Android bootstrap/task/SOP runner scope. Do not
 edit backend migrations, OpenAPI, admin-web, or SOP Builder internals unless the
 coordinator explicitly asks. Use mocks where backend contracts are not landed.
-Leave changed files, validation, screenshots or emulator notes, and blockers in
-your final handoff.
+Do not commit, push, create a PR, deploy, or change cloud/GitHub config unless
+the coordinator explicitly asks in this thread. Leave changed files, validation,
+screenshots or emulator notes, and blockers in your final handoff.
 ```
 
 ## Scope
@@ -75,6 +76,9 @@ packages/api-client
 Do not hand-edit generated client files unless the repo already expects that
 workflow. If contracts are missing, use typed mocks and record the exact API
 gap in the handoff.
+
+If a generated-client or shared package change is required after contracts land,
+document the exact command/file expectation for the coordinator.
 
 ## Do Not Edit
 
