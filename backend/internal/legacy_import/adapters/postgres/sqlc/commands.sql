@@ -265,6 +265,22 @@ SELECT EXISTS (
     AND status = 'active'
 )::bool;
 
+-- name: GetActiveRFIDGoatForApply :one
+SELECT
+  gi.goat_id::text AS goat_id,
+  g.display_id,
+  gi.identifier_id::text AS identifier_id
+FROM goat_identifiers gi
+JOIN goats g ON g.tenant_id = gi.tenant_id
+  AND g.goat_id = gi.goat_id
+WHERE gi.tenant_id = @tenant_id
+  AND gi.identifier_type = 'rfid'
+  AND gi.normalized_value = @normalized_value
+  AND gi.status = 'active'
+  AND g.identity_state <> 'merged'
+ORDER BY gi.valid_from DESC, gi.identifier_id
+LIMIT 1;
+
 -- name: ActiveScopedIdentifierExistsForApply :one
 SELECT EXISTS (
   SELECT 1
@@ -275,6 +291,25 @@ SELECT EXISTS (
     AND scope_key = @scope_key
     AND status = 'active'
 )::bool;
+
+-- name: GetSafeBackfillOldTagGoatForApply :one
+SELECT
+  gi.goat_id::text AS goat_id,
+  g.display_id,
+  gi.identifier_id::text AS identifier_id
+FROM goat_identifiers gi
+JOIN goats g ON g.tenant_id = gi.tenant_id
+  AND g.goat_id = gi.goat_id
+WHERE gi.tenant_id = @tenant_id
+  AND gi.identifier_type = 'old_tag'
+  AND gi.normalized_value = @normalized_value
+  AND gi.scope_key = @scope_key
+  AND gi.status = 'active'
+  AND gi.source_system = @source_system
+  AND gi.source_record_id LIKE @source_record_prefix
+  AND g.identity_state <> 'merged'
+ORDER BY gi.valid_from DESC, gi.identifier_id
+LIMIT 1;
 
 -- name: InsertImportIdentityDecision :one
 INSERT INTO identity_decisions (
@@ -296,6 +331,82 @@ INSERT INTO identity_decisions (
   @tenant_id,
   'create_goat',
   'imported_from_rfid_source',
+  'approved',
+  'import_policy',
+  sqlc.narg('decided_by')::uuid,
+  @policy_version,
+  sqlc.narg('reviewer_id')::uuid,
+  @evidence,
+  @created_at,
+  @created_at,
+  @created_at
+)
+RETURNING
+  decision_id::text AS decision_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  policy_version,
+  created_at;
+
+-- name: InsertImportAttachIdentifierDecision :one
+INSERT INTO identity_decisions (
+  decision_id,
+  tenant_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  decided_by_type,
+  decided_by,
+  policy_version,
+  reviewer_id,
+  evidence,
+  created_at,
+  approved_at,
+  decided_at
+) VALUES (
+  @decision_id,
+  @tenant_id,
+  'attach_identifier',
+  'rfid_attached_to_backfill_passport',
+  'approved',
+  'import_policy',
+  sqlc.narg('decided_by')::uuid,
+  @policy_version,
+  sqlc.narg('reviewer_id')::uuid,
+  @evidence,
+  @created_at,
+  @created_at,
+  @created_at
+)
+RETURNING
+  decision_id::text AS decision_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  policy_version,
+  created_at;
+
+-- name: InsertImportMergeDecision :one
+INSERT INTO identity_decisions (
+  decision_id,
+  tenant_id,
+  decision_type,
+  decision_result,
+  decision_state,
+  decided_by_type,
+  decided_by,
+  policy_version,
+  reviewer_id,
+  evidence,
+  created_at,
+  approved_at,
+  decided_at
+) VALUES (
+  @decision_id,
+  @tenant_id,
+  'merge_goats',
+  'safe_backfill_merged_into_rfid_passport',
   'approved',
   'import_policy',
   sqlc.narg('decided_by')::uuid,
@@ -351,6 +462,68 @@ INSERT INTO goats (
   sqlc.narg('created_by')::uuid
 )
 RETURNING goat_id::text AS goat_id, display_id, row_version, created_at;
+
+-- name: UpdateGoatFromRFIDApply :one
+UPDATE goats
+SET
+  breed = sqlc.narg('breed')::text,
+  breed_id = sqlc.narg('breed_id')::uuid,
+  sex = @sex,
+  age_band = sqlc.narg('age_band')::text,
+  lifecycle_status = @lifecycle_status,
+  reproductive_status = sqlc.narg('reproductive_status')::text,
+  growth_cohort_tag = sqlc.narg('growth_cohort_tag')::text,
+  management_stage = sqlc.narg('management_stage')::text,
+  health_status = sqlc.narg('health_status')::text,
+  custodian_party_id = @custodian_party_id,
+  updated_at = @updated_at,
+  row_version = row_version + 1
+WHERE tenant_id = @tenant_id
+  AND goat_id = @goat_id
+  AND identity_state <> 'merged'
+RETURNING goat_id::text AS goat_id, display_id, row_version, updated_at;
+
+-- name: TransferGoatIdentifierToGoatForApply :exec
+UPDATE goat_identifiers
+SET
+  goat_id = @target_goat_id,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND identifier_id = @identifier_id
+  AND goat_id = @source_goat_id
+  AND status = 'active';
+
+-- name: MarkGoatMergedForApply :exec
+UPDATE goats
+SET
+  identity_state = 'merged',
+  merged_into_goat_id = @survivor_goat_id,
+  row_version = row_version + 1,
+  updated_at = @updated_at
+WHERE tenant_id = @tenant_id
+  AND goat_id = @merged_goat_id
+  AND goat_id <> @survivor_goat_id
+  AND identity_state <> 'merged';
+
+-- name: InsertGoatMergeLinkForApply :one
+INSERT INTO goat_merge_links (
+  tenant_id,
+  survivor_goat_id,
+  merged_goat_id,
+  decision_id,
+  reason,
+  created_at,
+  created_by
+) VALUES (
+  @tenant_id,
+  @survivor_goat_id,
+  @merged_goat_id,
+  @decision_id,
+  @reason,
+  @created_at,
+  sqlc.narg('created_by')::uuid
+)
+RETURNING merge_link_id::text AS merge_link_id;
 
 -- name: InsertGoatIdentifierFromRFIDApply :one
 INSERT INTO goat_identifiers (
@@ -458,6 +631,70 @@ INSERT INTO goat_identity_events (
 )
 RETURNING identity_event_id::text AS event_id, recorded_at;
 
+-- name: InsertGoatIdentifierAddedEventFromRFIDApply :one
+INSERT INTO goat_identity_events (
+  identity_event_id,
+  tenant_id,
+  goat_id,
+  event_type,
+  event_version,
+  occurred_at,
+  recorded_at,
+  actor_id,
+  source_system,
+  source_record_id,
+  payload,
+  decision_id,
+  idempotency_key
+) VALUES (
+  @identity_event_id,
+  @tenant_id,
+  @goat_id,
+  'goat.identifier.added',
+  1,
+  @occurred_at,
+  @occurred_at,
+  sqlc.narg('actor_id')::uuid,
+  @source_system,
+  @source_record_id,
+  @payload,
+  @decision_id,
+  @idempotency_key
+)
+RETURNING identity_event_id::text AS event_id, recorded_at;
+
+-- name: InsertGoatMergedEventFromRFIDApply :one
+INSERT INTO goat_identity_events (
+  identity_event_id,
+  tenant_id,
+  goat_id,
+  event_type,
+  event_version,
+  occurred_at,
+  recorded_at,
+  actor_id,
+  source_system,
+  source_record_id,
+  payload,
+  decision_id,
+  idempotency_key
+) VALUES (
+  @identity_event_id,
+  @tenant_id,
+  @goat_id,
+  'goat.merged',
+  1,
+  @occurred_at,
+  @occurred_at,
+  sqlc.narg('actor_id')::uuid,
+  @source_system,
+  @source_record_id,
+  @payload,
+  @decision_id,
+  @idempotency_key
+)
+RETURNING identity_event_id::text AS event_id, recorded_at;
+
 -- name: InsertIdentityDecisionGoatForApply :exec
 INSERT INTO identity_decision_goats (
   decision_id,
@@ -469,6 +706,19 @@ INSERT INTO identity_decision_goats (
   @tenant_id,
   @goat_id,
   'affected'
+);
+
+-- name: InsertIdentityDecisionGoatWithRoleForApply :exec
+INSERT INTO identity_decision_goats (
+  decision_id,
+  tenant_id,
+  goat_id,
+  role
+) VALUES (
+  @decision_id,
+  @tenant_id,
+  @goat_id,
+  @role
 );
 
 -- name: InsertIdentityDecisionIdentifierForApply :exec
@@ -526,6 +776,56 @@ INSERT INTO audit_log (
   @trace_id
 );
 
+-- name: InsertAuditLogIdentifierAddedForApply :exec
+INSERT INTO audit_log (
+  tenant_id,
+  actor_id,
+  actor_type,
+  action,
+  resource_type,
+  resource_id,
+  decision_id,
+  after_state,
+  metadata,
+  trace_id
+) VALUES (
+  @tenant_id,
+  sqlc.narg('actor_id')::uuid,
+  'import_job',
+  'goat.identifier.added',
+  'goat',
+  @resource_id,
+  @decision_id,
+  @after_state,
+  @metadata,
+  @trace_id
+);
+
+-- name: InsertAuditLogGoatMergedForApply :exec
+INSERT INTO audit_log (
+  tenant_id,
+  actor_id,
+  actor_type,
+  action,
+  resource_type,
+  resource_id,
+  decision_id,
+  after_state,
+  metadata,
+  trace_id
+) VALUES (
+  @tenant_id,
+  sqlc.narg('actor_id')::uuid,
+  'import_job',
+  'goat.merged',
+  'goat',
+  @resource_id,
+  @decision_id,
+  @after_state,
+  @metadata,
+  @trace_id
+);
+
 -- name: InsertOutboxMessageForApply :exec
 INSERT INTO outbox_messages (
   tenant_id,
@@ -555,10 +855,77 @@ INSERT INTO outbox_messages (
   'pending'
 );
 
+-- name: InsertOutboxIdentifierAddedMessageForApply :exec
+INSERT INTO outbox_messages (
+  tenant_id,
+  event_id,
+  event_type,
+  schema_version,
+  aggregate_type,
+  aggregate_id,
+  topic,
+  payload,
+  headers,
+  idempotency_key,
+  trace_id,
+  status
+) VALUES (
+  @tenant_id,
+  @event_id,
+  'goat.identifier.added',
+  '1.0.0',
+  'goat',
+  @aggregate_id,
+  'identity.events',
+  @payload,
+  @headers,
+  @idempotency_key,
+  @trace_id,
+  'pending'
+);
+
+-- name: InsertOutboxGoatMergedMessageForApply :exec
+INSERT INTO outbox_messages (
+  tenant_id,
+  event_id,
+  event_type,
+  schema_version,
+  aggregate_type,
+  aggregate_id,
+  topic,
+  payload,
+  headers,
+  idempotency_key,
+  trace_id,
+  status
+) VALUES (
+  @tenant_id,
+  @event_id,
+  'goat.merged',
+  '1.0.0',
+  'goat',
+  @aggregate_id,
+  'identity.events',
+  @payload,
+  @headers,
+  @idempotency_key,
+  @trace_id,
+  'pending'
+);
+
 -- name: MarkLegacyImportRowCreatedGoat :exec
 UPDATE legacy_import_rows
 SET
   processing_state = 'created_goat',
+  matched_goat_id = @matched_goat_id,
+  error_reason = NULL
+WHERE tenant_id = @tenant_id
+  AND legacy_row_id = @legacy_row_id;
+
+-- name: MarkLegacyImportRowAutoLinked :exec
+UPDATE legacy_import_rows
+SET
+  processing_state = 'auto_linked',
   matched_goat_id = @matched_goat_id,
   error_reason = NULL
 WHERE tenant_id = @tenant_id
@@ -596,6 +963,24 @@ SET created_goat_count = (
   WHERE lirow.tenant_id = @tenant_id
     AND lirow.import_run_id = @import_run_id
     AND lirow.processing_state = 'created_goat'
+)
+WHERE lirun.tenant_id = @tenant_id
+  AND lirun.import_run_id = @import_run_id;
+
+-- name: IncrementLegacyImportRunUpdatedGoatCount :exec
+UPDATE legacy_import_runs
+SET updated_goat_count = updated_goat_count + 1
+WHERE tenant_id = @tenant_id
+  AND import_run_id = @import_run_id;
+
+-- name: RefreshLegacyImportRunUpdatedGoatCount :exec
+UPDATE legacy_import_runs lirun
+SET updated_goat_count = (
+  SELECT count(*)::int
+  FROM legacy_import_rows lirow
+  WHERE lirow.tenant_id = @tenant_id
+    AND lirow.import_run_id = @import_run_id
+    AND lirow.processing_state = 'auto_linked'
 )
 WHERE lirun.tenant_id = @tenant_id
   AND lirun.import_run_id = @import_run_id;

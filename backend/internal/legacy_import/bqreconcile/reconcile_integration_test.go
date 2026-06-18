@@ -87,7 +87,7 @@ func TestUpdateExistingBackfillLifecyclesBumpsRowVersionAndAudits(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := updateExistingBackfillLifecycles(ctx, tx, bqReconcileTestTenantID, traceID, []Candidate{
+	updated, err := updateExistingBackfillLifecycles(ctx, tx, bqReconcileTestTenantID, traceID, desiredBackfillRowsByKey([]Candidate{
 		{
 			RowNumber: 2,
 			Source:    "census_plus_bq_unique_farm",
@@ -98,7 +98,7 @@ func TestUpdateExistingBackfillLifecyclesBumpsRowVersionAndAudits(t *testing.T) 
 			Gender:    "Male",
 			Status:    "Active",
 		},
-	})
+	}))
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
@@ -128,6 +128,64 @@ WHERE tenant_id = $1::uuid
   AND after_state->>'row_version' = '2'
   AND metadata->>'candidate_source' = 'census_plus_bq_unique_farm'
   AND metadata->>'candidate_row' = '2'
+	AND trace_id = $3`, bqReconcileTestTenantID, goatID, traceID); got != 1 {
+		t.Fatalf("repair audit rows=%d want 1", got)
+	}
+}
+
+func TestUpdateExistingBackfillLifecyclesUsesLatestLocationEvidenceForNonCandidateRows(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	ctx := context.Background()
+	pool := startBQReconcileTestDB(t, ctx)
+	defer pool.Close()
+
+	goatID := "00000000-0000-4000-8000-00000000b103"
+	traceID := "test-old-tag-backfill-latest-location-repair"
+	seedExistingBackfillGoat(t, pool, goatID, "G-009891", "891", "park:CBE", "alive")
+
+	desired := latestLocationLifecycleRows([]Event{{
+		Farm:        "CBE",
+		GoatID:      "891",
+		Event:       "Death",
+		Date:        "2025-08-10",
+		CurrentShed: "Yashoda 1",
+	}})
+	if len(desired) != 1 {
+		t.Fatalf("desired latest-location lifecycle rows=%d want 1", len(desired))
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := updateExistingBackfillLifecycles(ctx, tx, bqReconcileTestTenantID, traceID, desired)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if updated != 1 {
+		t.Fatalf("updated=%d want 1", updated)
+	}
+	if got := queryScalarString(t, pool, "SELECT lifecycle_status FROM goats WHERE goat_id = $1", goatID); got != "dead" {
+		t.Fatalf("goat lifecycle=%q want dead", got)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)::int
+FROM audit_log
+WHERE tenant_id = $1::uuid
+  AND action = 'goat.old_tag_backfill_lifecycle_repaired'
+  AND resource_type = 'goat'
+  AND resource_id = $2::uuid
+  AND before_state->>'lifecycle_status' = 'alive'
+  AND after_state->>'lifecycle_status' = 'dead'
+  AND metadata->>'candidate_source' = 'bq_latest_locations'
+  AND metadata->>'repair_reason' = 'latest_location_lifecycle_evidence'
   AND trace_id = $3`, bqReconcileTestTenantID, goatID, traceID); got != 1 {
 		t.Fatalf("repair audit rows=%d want 1", got)
 	}

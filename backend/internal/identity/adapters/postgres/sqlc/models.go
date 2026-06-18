@@ -122,6 +122,28 @@ type AuditLogDefault struct {
 	RecordedAt   pgtype.Timestamptz
 }
 
+type AuthPendingEmailGrant struct {
+	PendingGrantID             pgtype.UUID
+	TenantID                   pgtype.UUID
+	Email                      string
+	NormalizedEmail            string
+	Role                       string
+	ScopeType                  string
+	ScopeID                    pgtype.UUID
+	Status                     string
+	ValidFrom                  pgtype.Timestamptz
+	ValidTo                    pgtype.Timestamptz
+	Source                     string
+	CreatedBy                  pgtype.UUID
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+	LastClaimedUserID          pgtype.UUID
+	LastClaimedExternalSubject pgtype.Text
+	LastClaimedAt              pgtype.Timestamptz
+	ClaimCount                 int64
+	Metadata                   []byte
+}
+
 type Breed struct {
 	BreedID       pgtype.UUID
 	Species       string

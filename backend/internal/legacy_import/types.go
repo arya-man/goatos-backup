@@ -11,6 +11,7 @@ const (
 	DefaultBatchSize     = 500
 
 	StatePending     = "pending"
+	StateAutoLinked  = "auto_linked"
 	StateNeedsReview = "needs_review"
 	StateError       = "error"
 	StateCreatedGoat = "created_goat"
@@ -83,6 +84,7 @@ type ApplyResult struct {
 	SkippedCount   int
 	ReviewReasons  map[string]int
 	CreatedGoatIDs []string
+	UpdatedGoatIDs []string
 }
 
 type SourceKeyRecipe struct {

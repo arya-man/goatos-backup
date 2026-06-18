@@ -123,11 +123,13 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 		return nil, err
 	}
 	latestOverrides := 0
+	var locationEvents []Event
 	if strings.TrimSpace(opts.LocationsPath) != "" {
-		locationEvents, err := ReadEventsFile(opts.LocationsPath)
+		events, err := ReadEventsFile(opts.LocationsPath)
 		if err != nil {
 			return nil, err
 		}
+		locationEvents = events
 		candidates, latestOverrides = applyLatestLocationLifecycleEvidence(candidates, locationEvents)
 	}
 
@@ -161,6 +163,12 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 	if err != nil {
 		return nil, err
 	}
+	lifecycleRepairRows := desiredBackfillRowsByKey(candidates)
+	for key, row := range latestLocationLifecycleRows(locationEvents) {
+		if _, ok := lifecycleRepairRows[key]; !ok {
+			lifecycleRepairRows[key] = row
+		}
+	}
 	parks, sheds, err := loadParkAndShedLookup(ctx, pool, opts.TenantID)
 	if err != nil {
 		return nil, err
@@ -175,7 +183,7 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 	summary.CurrentTotals = current
 	summarizePlan(summary, rows)
 	summary.ExpectedTotals = expectedTotals(current, rows)
-	summary.PlannedUpdates = applyExpectedLifecycleUpdateDelta(&summary.ExpectedTotals, candidates, existingBackfill)
+	summary.PlannedUpdates = applyExpectedLifecycleUpdateDelta(&summary.ExpectedTotals, lifecycleRepairRows, existingBackfill)
 
 	if !opts.Execute {
 		if err := writeReports(summary.ReportDir, rows); err != nil {
@@ -184,7 +192,7 @@ func RunCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options)
 		return summary, nil
 	}
 
-	applied, appliedUpdates, finalRows, err := applyCandidateBackfill(ctx, pool, opts, candidates, parks, sheds)
+	applied, appliedUpdates, finalRows, err := applyCandidateBackfill(ctx, pool, opts, candidates, lifecycleRepairRows, parks, sheds)
 	if err != nil {
 		return nil, err
 	}
@@ -295,28 +303,7 @@ type latestBackfillEvidence struct {
 }
 
 func applyLatestLocationLifecycleEvidence(candidates []Candidate, events []Event) ([]Candidate, int) {
-	latest := map[string]latestBackfillEvidence{}
-	for _, event := range events {
-		scope := derivedScopeKey(event.Farm)
-		normalized := CanonicalIdentifier(event.GoatID)
-		lifecycle, _ := lifecycleForEvent(event)
-		status := candidateStatusFromLifecycle(lifecycle)
-		if scope == "" || normalized == "" || status == "" {
-			continue
-		}
-		key := scope + "|" + normalized
-		next := latestBackfillEvidence{
-			Status: status,
-			Event:  strings.TrimSpace(event.Event),
-			Date:   strings.TrimSpace(event.Date),
-			Shed:   destinationShed(event),
-		}
-		current, ok := latest[key]
-		currentEvent := Event{Date: current.Date, Event: current.Event}
-		if !ok || eventDateAfter(Event{Date: next.Date, Event: next.Event}, &currentEvent) {
-			latest[key] = next
-		}
-	}
+	latest := latestBackfillEvidenceByKey(events)
 	if len(latest) == 0 {
 		return candidates, 0
 	}
@@ -348,6 +335,56 @@ func applyLatestLocationLifecycleEvidence(candidates []Candidate, events []Event
 		overrides++
 	}
 	return out, overrides
+}
+
+func latestBackfillEvidenceByKey(events []Event) map[string]latestBackfillEvidence {
+	latest := map[string]latestBackfillEvidence{}
+	for _, event := range events {
+		scope := derivedScopeKey(event.Farm)
+		normalized := CanonicalIdentifier(event.GoatID)
+		lifecycle, _ := lifecycleForEvent(event)
+		status := candidateStatusFromLifecycle(lifecycle)
+		if scope == "" || normalized == "" || status == "" {
+			continue
+		}
+		key := scope + "|" + normalized
+		next := latestBackfillEvidence{
+			Status: status,
+			Event:  strings.TrimSpace(event.Event),
+			Date:   strings.TrimSpace(event.Date),
+			Shed:   destinationShed(event),
+		}
+		current, ok := latest[key]
+		currentEvent := Event{Date: current.Date, Event: current.Event}
+		if !ok || eventDateAfter(Event{Date: next.Date, Event: next.Event}, &currentEvent) {
+			latest[key] = next
+		}
+	}
+	return latest
+}
+
+func latestLocationLifecycleRows(events []Event) map[string]BackfillPlanRow {
+	rows := map[string]BackfillPlanRow{}
+	for key, evidence := range latestBackfillEvidenceByKey(events) {
+		lifecycle, ok := lifecycleFromCandidateStatus(evidence.Status)
+		scope, normalized, split := strings.Cut(key, "|")
+		if !ok || !split || scope == "" || normalized == "" {
+			continue
+		}
+		farm := strings.TrimPrefix(scope, "park:")
+		rows[key] = BackfillPlanRow{
+			Source:          "bq_latest_locations",
+			Farm:            farm,
+			ScopeKey:        scope,
+			OldTag:          normalized,
+			NormalizedValue: normalized,
+			LastShed:        evidence.Shed,
+			CandidateStatus: evidence.Status,
+			Lifecycle:       lifecycle,
+			IdentityState:   "clean",
+		}
+	}
+	return rows
 }
 
 func candidateStatusFromLifecycle(lifecycle string) string {
@@ -590,9 +627,9 @@ func desiredBackfillRowsByKey(candidates []Candidate) map[string]BackfillPlanRow
 	return desired
 }
 
-func applyExpectedLifecycleUpdateDelta(next *CountSnapshot, candidates []Candidate, existing map[string]existingBackfillGoat) int {
+func applyExpectedLifecycleUpdateDelta(next *CountSnapshot, desired map[string]BackfillPlanRow, existing map[string]existingBackfillGoat) int {
 	planned := 0
-	for key, row := range desiredBackfillRowsByKey(candidates) {
+	for key, row := range desired {
 		current, ok := existing[key]
 		if !ok || current.Lifecycle == row.Lifecycle {
 			continue
@@ -633,7 +670,7 @@ func decrementLifecycle(snapshot *CountSnapshot, lifecycle string) {
 // applyCandidateBackfill performs the writes inside one transaction guarded by
 // the shared bq-reconcile advisory lock. It re-plans against fresh in-tx state
 // so replay is idempotent.
-func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options, candidates []Candidate, parks map[string]string, sheds map[string]LocationTarget) (int, int, []BackfillPlanRow, error) {
+func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Options, candidates []Candidate, lifecycleRepairRows map[string]BackfillPlanRow, parks map[string]string, sheds map[string]LocationTarget) (int, int, []BackfillPlanRow, error) {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("begin backfill transaction: %w", err)
@@ -655,7 +692,7 @@ func applyCandidateBackfill(ctx context.Context, pool *pgxpool.Pool, opts Option
 	}
 	rows := planBackfill(candidates, existing)
 	attachLocations(rows, parks, sheds)
-	updates, err := updateExistingBackfillLifecycles(ctx, tx, opts.TenantID, opts.TraceID, candidates)
+	updates, err := updateExistingBackfillLifecycles(ctx, tx, opts.TenantID, opts.TraceID, lifecycleRepairRows)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -1005,9 +1042,15 @@ type existingBackfillLifecycleRepair struct {
 	AfterRowVersion  int
 }
 
-func updateExistingBackfillLifecycles(ctx context.Context, tx pgx.Tx, tenantID, traceID string, candidates []Candidate) (int, error) {
+func updateExistingBackfillLifecycles(ctx context.Context, tx pgx.Tx, tenantID, traceID string, desired map[string]BackfillPlanRow) (int, error) {
 	applied := 0
-	for key, row := range desiredBackfillRowsByKey(candidates) {
+	keys := make([]string, 0, len(desired))
+	for key := range desired {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		row := desired[key]
 		scope, normalized, ok := strings.Cut(key, "|")
 		if !ok || scope == "" || normalized == "" || row.Lifecycle == "" {
 			continue

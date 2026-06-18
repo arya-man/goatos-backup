@@ -187,6 +187,98 @@ fails closed on goat-level drift or replay rerun drift.
 Do not reload `goatos-dev` from legacy inputs unless this live replay gate
 passes first.
 
+### Latest Verified Live Replay
+
+The latest checked live replay was run on 2026-06-18 from live upstream exports,
+not from committed frozen inputs:
+
+```text
+report root: .codex-goatos-render/replay-live/20260618T161652Z
+legacy dashboard date: 2026-06-17
+legacy active goats: 2088
+final replay: 2667 total / 2088 alive / 534 sold / 45 dead / 0 inactive
+goat-level oracle compare: 0 missing / 0 extra / 0 changed
+same-live rerun: idempotent, 0 candidates, 0 patches, 0 creates, 0 repairs
+```
+
+Live source facts recorded in that run:
+
+```text
+RFID live rows considered: 1301
+RFID canonical farm-block rows imported: 1223
+RFID reopened CBE append-block rows exported for review: 78
+old-tag candidates after RFID/BQ pass: 1444
+```
+
+The source exports and row-level reports live under ignored
+`.codex-goatos-render/` paths. They are evidence for that local run, not source
+files to commit or manually replay later.
+
+## Snapshot Delta Replay Gate
+
+Use this when the question is "can an already-loaded older snapshot catch up to
+current live sources without duplicate or stale goats?" It starts a fresh
+throwaway Postgres database, loads the pinned older local snapshot, verifies it
+against the older legacy dashboard count, then applies the current live
+RFID/BQ/old-tag recipe on top:
+
+```bash
+make replay-delta
+```
+
+Required/optional inputs:
+
+```text
+GOATOS_DELTA_OLD_ROOT: required older snapshot root
+older legacy date: 2026-06-15
+current live root: latest successful .codex-goatos-render/replay-live/<timestamp>
+```
+
+Run it with the explicit baseline under test:
+
+```bash
+GOATOS_DELTA_OLD_ROOT=<path> \
+GOATOS_DELTA_OLD_LEGACY_DATE=<yyyy-mm-dd> \
+GOATOS_DELTA_LIVE_ROOT=<path> \
+make replay-delta
+```
+
+The delta gate fails unless both checkpoints match their respective legacy
+active counts and, when `goatos-local-current-persist` is running, the final
+live-delta DB has zero goat-level drift against the local oracle. This is the
+closest local proof for a future manual sync button or scheduled executor:
+
+```text
+old snapshot -> current live BQ/Sheets -> same identities/lifecycles/counts
+```
+
+It is intentionally separate from `make replay-live`. A clean `make replay-live`
+proves fresh live porting and same-source rerun idempotency. A clean
+`make replay-delta` proves catch-up behavior from an older already-loaded
+state. Do not claim recurring delta sync is proven unless the delta gate also
+passes for the baseline being discussed.
+
+### Current Snapshot Delta Status
+
+The latest checked delta replay was run on 2026-06-18 using the older
+2026-06-15 local snapshot as the loaded baseline and the successful
+2026-06-18 live replay exports as the current upstream source:
+
+```text
+report root: .codex-goatos-render/replay-delta/20260618T161832Z
+older legacy date: 2026-06-15
+older legacy active goats: 2086
+older loaded snapshot: 2668 total / 2086 alive / 544 sold / 35 dead / 3 inactive
+after live catch-up: 2678 total / 2088 alive / 545 sold / 45 dead / 0 inactive
+goat-level oracle compare: 2 missing / 13 extra / 169 changed
+```
+
+This means the catch-up path reached the current legacy active count but did
+not preserve goat-level identity/lifecycle parity. Treat this as a red gate:
+do not enable the manual legacy sync button, scheduled sync, or a dirty
+environment catch-up run until `make replay-delta` is green for the baseline
+being used.
+
 ## Legacy XLSX Parser Harness
 
 This section is retained only for parser regression or a temporary BQ-derived

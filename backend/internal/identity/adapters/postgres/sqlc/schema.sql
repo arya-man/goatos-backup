@@ -433,6 +433,38 @@ CREATE TABLE public.audit_log_default (
 
 
 --
+-- Name: auth_pending_email_grants; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_pending_email_grants (
+    pending_grant_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    email text NOT NULL,
+    normalized_email text NOT NULL,
+    role text NOT NULL,
+    scope_type text DEFAULT 'tenant'::text NOT NULL,
+    scope_id uuid NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    valid_from timestamp with time zone DEFAULT now() NOT NULL,
+    valid_to timestamp with time zone,
+    source text DEFAULT 'manual'::text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_claimed_user_id uuid,
+    last_claimed_external_subject text,
+    last_claimed_at timestamp with time zone,
+    claim_count bigint DEFAULT 0 NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT auth_pending_email_grants_email_check CHECK (((normalized_email = lower(btrim(email))) AND (normalized_email <> ''::text) AND (normalized_email !~~ '%,%'::text) AND (normalized_email !~~ '% %'::text) AND (POSITION(('@'::text) IN (normalized_email)) > 1))),
+    CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
+    CONSTRAINT auth_pending_email_grants_scope_check CHECK (((scope_type = 'tenant'::text) AND (scope_id = tenant_id))),
+    CONSTRAINT auth_pending_email_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text]))),
+    CONSTRAINT auth_pending_email_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+);
+
+
+--
 -- Name: breed_aliases; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1822,6 +1854,14 @@ ALTER TABLE ONLY public.audit_log_default
 
 
 --
+-- Name: auth_pending_email_grants auth_pending_email_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_pending_email_grants
+    ADD CONSTRAINT auth_pending_email_grants_pkey PRIMARY KEY (pending_grant_id);
+
+
+--
 -- Name: breed_aliases breed_aliases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2505,6 +2545,20 @@ CREATE INDEX audit_log_default_resource_type_resource_id_created_at_idx ON publi
 --
 
 CREATE INDEX audit_log_default_tenant_id_action_recorded_at_idx ON public.audit_log_default USING btree (tenant_id, action, recorded_at DESC);
+
+
+--
+-- Name: auth_pending_email_grants_active_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX auth_pending_email_grants_active_unique_idx ON public.auth_pending_email_grants USING btree (tenant_id, normalized_email, role, scope_type, scope_id) WHERE ((status = 'active'::text) AND (valid_to IS NULL));
+
+
+--
+-- Name: auth_pending_email_grants_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auth_pending_email_grants_lookup_idx ON public.auth_pending_email_grants USING btree (normalized_email, tenant_id, status, valid_from, valid_to);
 
 
 --
@@ -3803,6 +3857,14 @@ ALTER TABLE public.audit_log
 
 ALTER TABLE public.audit_log
     ADD CONSTRAINT audit_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: auth_pending_email_grants auth_pending_email_grants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_pending_email_grants
+    ADD CONSTRAINT auth_pending_email_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

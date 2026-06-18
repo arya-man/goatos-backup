@@ -661,6 +661,194 @@ WHERE legacy_row_id = $1`, rowID).Scan(&sourceSystem, &sourceDataset, &sourceRow
 		}
 	})
 
+	t.Run("safe old-tag backfill goat receives later RFID row without split", func(t *testing.T) {
+		const oldTag = "BACKFILLAPPLY"
+		const scope = "park:CBE"
+		const rfid = "9900000000000000000000009270001"
+		existingGoatID := insertSafeBackfillOldTagOnlyGoat(t, pool, oldTag, scope, "sold")
+		beforeGoats := countRows(t, pool, `SELECT count(*) FROM goats`)
+		var beforeVersion int
+		if err := pool.QueryRow(ctx, `SELECT row_version FROM goats WHERE goat_id = $1`, existingGoatID).Scan(&beforeVersion); err != nil {
+			t.Fatal(err)
+		}
+		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
+			RowNumber: 2,
+			Raw:       rawRFIDRow(oldTag, "CBE", rfid, "Female", "Boer", ""),
+		}})
+
+		result, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:    meshaTenant,
+			ImportRunID: runID,
+			BatchSize:   1,
+			ActorID:     strPtr(applyActorID),
+		})
+		if err != nil {
+			t.Fatalf("safe backfill attach apply: %v", err)
+		}
+		if result.AppliedCount != 1 || result.ReviewCount != 0 || len(result.CreatedGoatIDs) != 0 || len(result.UpdatedGoatIDs) != 1 || result.UpdatedGoatIDs[0] != existingGoatID {
+			t.Fatalf("unexpected safe backfill attach result: %#v", result)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goats`); got != beforeGoats {
+			t.Fatalf("safe backfill attach split goats: before=%d after=%d", beforeGoats, got)
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StateAutoLinked, "")
+		if got := countRows(t, pool, `SELECT count(*) FROM legacy_import_rows WHERE legacy_row_id = $1 AND matched_goat_id = $2`, rowID, existingGoatID); got != 1 {
+			t.Fatalf("legacy row matched goat rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT created_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 0 {
+			t.Fatalf("created_goat_count=%d, want 0", got)
+		}
+		if got := countRows(t, pool, `SELECT updated_goat_count FROM legacy_import_runs WHERE import_run_id = $1`, runID); got != 1 {
+			t.Fatalf("updated_goat_count=%d, want 1", got)
+		}
+		var lifecycle string
+		var rowVersion int
+		if err := pool.QueryRow(ctx, `SELECT lifecycle_status, row_version FROM goats WHERE goat_id = $1`, existingGoatID).Scan(&lifecycle, &rowVersion); err != nil {
+			t.Fatal(err)
+		}
+		if lifecycle != "alive" || rowVersion != beforeVersion+1 {
+			t.Fatalf("goat update lifecycle=%s row_version=%d, want alive/%d", lifecycle, rowVersion, beforeVersion+1)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM goat_identifiers
+WHERE goat_id = $1
+  AND identifier_type = 'rfid'
+  AND normalized_value = $2
+  AND scope_key = 'global'
+  AND status = 'active'
+  AND is_primary_for_goat`, existingGoatID, rfid); got != 1 {
+			t.Fatalf("attached RFID rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM goat_identifiers
+WHERE goat_id = $1
+  AND identifier_type = 'old_tag'
+  AND normalized_value = $2
+  AND scope_key = $3
+  AND status = 'active'`, existingGoatID, oldTag, scope); got != 1 {
+			t.Fatalf("preserved backfill old tag rows=%d, want 1", got)
+		}
+		var decisionID string
+		if err := pool.QueryRow(ctx, `
+SELECT d.decision_id::text
+FROM identity_decisions d
+JOIN identity_decision_goats dg ON dg.tenant_id = d.tenant_id AND dg.decision_id = d.decision_id
+WHERE dg.goat_id = $1
+  AND d.decision_type = 'attach_identifier'
+  AND d.decision_result = 'rfid_attached_to_backfill_passport'`, existingGoatID).Scan(&decisionID); err != nil {
+			t.Fatal(err)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM identity_decision_identifiers WHERE decision_id = $1 AND action = 'attach'`, decisionID); got != 1 {
+			t.Fatalf("attach decision identifier rows=%d, want 1", got)
+		}
+		var eventID string
+		if err := pool.QueryRow(ctx, `
+SELECT identity_event_id::text
+FROM goat_identity_events
+WHERE goat_id = $1
+  AND decision_id = $2
+  AND event_type = 'goat.identifier.added'`, existingGoatID, decisionID).Scan(&eventID); err != nil {
+			t.Fatal(err)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM outbox_messages WHERE event_id = $1 AND event_type = 'goat.identifier.added'`, eventID); got != 1 {
+			t.Fatalf("identifier-added outbox rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE resource_id = $1 AND decision_id = $2 AND action = 'goat.identifier.added'`, existingGoatID, decisionID); got != 1 {
+			t.Fatalf("identifier-added audit rows=%d, want 1", got)
+		}
+	})
+
+	t.Run("safe old-tag backfill goat merges into existing RFID goat", func(t *testing.T) {
+		const oldTag = "BACKFILLMERGE"
+		const scope = "park:CBE"
+		const rfid = "9900000000000000000000009270002"
+		rfidGoatID := insertRFIDOnlyGoat(t, pool, rfid)
+		backfillGoatID := insertSafeBackfillOldTagOnlyGoat(t, pool, oldTag, scope, "sold")
+		beforeLiveGoats := countRows(t, pool, `SELECT count(*) FROM goats WHERE identity_state <> 'merged'`)
+		runID, rowID := stageSyntheticRun(t, ctx, repo, []stagedFixtureRow{{
+			RowNumber: 2,
+			Raw:       rawRFIDRow(oldTag, "CBE", rfid, "Female", "Boer", ""),
+		}})
+
+		result, err := applier.ApplyRFIDRows(ctx, legacy_import.ApplyCommand{
+			TenantID:    meshaTenant,
+			ImportRunID: runID,
+			BatchSize:   1,
+			ActorID:     strPtr(applyActorID),
+		})
+		if err != nil {
+			t.Fatalf("safe backfill merge apply: %v", err)
+		}
+		if result.AppliedCount != 1 || result.ReviewCount != 0 || len(result.CreatedGoatIDs) != 0 || len(result.UpdatedGoatIDs) != 1 || result.UpdatedGoatIDs[0] != rfidGoatID {
+			t.Fatalf("unexpected safe backfill merge result: %#v", result)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goats WHERE identity_state <> 'merged'`); got != beforeLiveGoats-1 {
+			t.Fatalf("live goat count after merge=%d, want %d", got, beforeLiveGoats-1)
+		}
+		assertRowState(t, pool, runID, 2, legacy_import.StateAutoLinked, "")
+		if got := countRows(t, pool, `SELECT count(*) FROM legacy_import_rows WHERE legacy_row_id = $1 AND matched_goat_id = $2`, rowID, rfidGoatID); got != 1 {
+			t.Fatalf("legacy row matched survivor rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM goats
+WHERE goat_id = $1
+  AND identity_state = 'merged'
+  AND merged_into_goat_id = $2`, backfillGoatID, rfidGoatID); got != 1 {
+			t.Fatalf("merged backfill goat rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM goat_identifiers
+WHERE goat_id = $1
+  AND identifier_type = 'old_tag'
+  AND normalized_value = $2
+  AND scope_key = $3
+  AND status = 'active'`, rfidGoatID, oldTag, scope); got != 1 {
+			t.Fatalf("transferred old tag rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*)
+FROM goat_identifiers
+WHERE goat_id = $1
+  AND identifier_type = 'old_tag'
+  AND normalized_value = $2
+  AND status = 'active'`, backfillGoatID, oldTag); got != 0 {
+			t.Fatalf("old tag left on merged goat rows=%d, want 0", got)
+		}
+		var decisionID string
+		if err := pool.QueryRow(ctx, `
+SELECT d.decision_id::text
+FROM identity_decisions d
+JOIN identity_decision_goats dg ON dg.tenant_id = d.tenant_id AND dg.decision_id = d.decision_id
+WHERE dg.goat_id = $1
+  AND dg.role = 'survivor'
+  AND d.decision_type = 'merge_goats'
+  AND d.decision_result = 'safe_backfill_merged_into_rfid_passport'`, rfidGoatID).Scan(&decisionID); err != nil {
+			t.Fatal(err)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM goat_merge_links WHERE decision_id = $1 AND survivor_goat_id = $2 AND merged_goat_id = $3`, decisionID, rfidGoatID, backfillGoatID); got != 1 {
+			t.Fatalf("merge link rows=%d, want 1", got)
+		}
+		var eventID string
+		if err := pool.QueryRow(ctx, `
+SELECT identity_event_id::text
+FROM goat_identity_events
+WHERE goat_id = $1
+  AND decision_id = $2
+  AND event_type = 'goat.merged'`, rfidGoatID, decisionID).Scan(&eventID); err != nil {
+			t.Fatal(err)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM outbox_messages WHERE event_id = $1 AND event_type = 'goat.merged'`, eventID); got != 1 {
+			t.Fatalf("goat-merged outbox rows=%d, want 1", got)
+		}
+		if got := countRows(t, pool, `SELECT count(*) FROM audit_log WHERE resource_id = $1 AND decision_id = $2 AND action = 'goat.merged'`, rfidGoatID, decisionID); got != 1 {
+			t.Fatalf("goat-merged audit rows=%d, want 1", got)
+		}
+	})
+
 	t.Run("unsafe rows route to review and old tag different scope still applies", func(t *testing.T) {
 		existingGoatID := insertApplyBaselineGoat(t, pool, "APPLYCONFLICT", "park:CBE", "9900000000000000000000009300000")
 		_ = existingGoatID
@@ -809,6 +997,52 @@ VALUES
   ($1, $2, 'rfid', $3, $3, 'global', true, 'active', now(), 'synthetic_apply', 'baseline-rfid', 'identifier_normalizer_v1'),
   ($1, $2, 'old_tag', $4, $4, $5, true, 'active', now(), 'synthetic_apply', 'baseline-old-tag', 'identifier_normalizer_v1')`,
 		meshaTenant, goatID, rfid, oldTag, oldTagScope); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goat_ownership (tenant_id, goat_id, owner_party_id, share_bps, valid_from, status)
+VALUES ($1, $2, $3, 10000, now(), 'active')`, meshaTenant, goatID, meshaPartyIDForApply); err != nil {
+		t.Fatal(err)
+	}
+	return goatID
+}
+
+func insertRFIDOnlyGoat(t *testing.T, pool *pgxpool.Pool, rfid string) string {
+	t.Helper()
+	var goatID string
+	if err := pool.QueryRow(context.Background(), `
+INSERT INTO goats (tenant_id, breed, breed_id, sex, lifecycle_status, identity_state, custodian_party_id)
+VALUES ($1, 'Boer', '00000000-0000-4000-8000-000000002005', 'female', 'alive', 'clean', $2)
+RETURNING goat_id::text`, meshaTenant, meshaPartyIDForApply).Scan(&goatID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version)
+VALUES ($1, $2, 'rfid', $3, $3, 'global', true, 'active', now(), 'synthetic_apply', 'baseline-rfid', 'identifier_normalizer_v1')`,
+		meshaTenant, goatID, rfid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goat_ownership (tenant_id, goat_id, owner_party_id, share_bps, valid_from, status)
+VALUES ($1, $2, $3, 10000, now(), 'active')`, meshaTenant, goatID, meshaPartyIDForApply); err != nil {
+		t.Fatal(err)
+	}
+	return goatID
+}
+
+func insertSafeBackfillOldTagOnlyGoat(t *testing.T, pool *pgxpool.Pool, oldTag, oldTagScope, lifecycle string) string {
+	t.Helper()
+	var goatID string
+	if err := pool.QueryRow(context.Background(), `
+INSERT INTO goats (tenant_id, breed, breed_id, sex, lifecycle_status, identity_state, custodian_party_id)
+VALUES ($1, 'Boer', '00000000-0000-4000-8000-000000002005', 'female', $2, 'clean', $3)
+RETURNING goat_id::text`, meshaTenant, lifecycle, meshaPartyIDForApply).Scan(&goatID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version)
+VALUES ($1, $2, 'old_tag', $3, $3, $4, true, 'active', now(), 'legacy_bigquery', $5, 'identifier_normalizer_v1')`,
+		meshaTenant, goatID, oldTag, oldTagScope, "safe_old_tag_passport_backfill:"+oldTagScope+":"+oldTag); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(context.Background(), `
