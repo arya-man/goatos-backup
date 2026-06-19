@@ -1032,7 +1032,10 @@ SELECT
   c.identifier_value,
   COALESCE(c.evidence->>'scope_key', 'unknown'),
   COALESCE((SELECT count(*)::int FROM identity_conflict_goats cg WHERE cg.tenant_id = c.tenant_id AND cg.conflict_id = c.conflict_id), cardinality(c.goat_ids), 0),
-  COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), cardinality(c.source_record_ids), 0),
+  GREATEST(
+    COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), 0),
+    COALESCE(cardinality(c.source_record_ids), 0)
+  ),
   c.state,
   c.row_version,
   c.created_at,

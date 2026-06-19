@@ -185,7 +185,7 @@ export async function OverviewPage() {
 
         <Panel title="Coming Modules" description="Visible modules stay disabled until live reads exist; no sample numbers are shown.">
           <div className="grid gap-2 sm:grid-cols-2">
-            {["Mortality", "Births", "Fattening", "Feed", "Sales", "MIS", "Infra", "Vaccination"].map((item) => (
+            {["Births", "Fattening", "Feed", "Sales", "MIS", "Infra", "Vaccination"].map((item) => (
               <div key={item} className="rounded-lg border border-dashed border-[#334155] bg-[#11151C] p-3 text-sm text-[#8899AA]">
                 <ClipboardList className="mb-2 h-4 w-4 text-[#566273]" aria-hidden="true" />
                 {item} · Coming soon

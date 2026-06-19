@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goatos.local/contracts/jsonschema/sop-form-version.schema.json",
+  "title": "Goat OS SOP Form Version",
+  "type": "object",
+  "required": ["schema_version", "sop_code", "title", "fields"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "goatos.sop-form.v1" },
+    "sop_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "repeat_for_each_goat": { "type": "boolean" },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/field" }
+    },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "workflow": { "$ref": "#/$defs/workflow" }
+  },
+  "$defs": {
+    "field": {
+      "type": "object",
+      "required": ["key", "label", "type"],
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "label": { "type": "string", "minLength": 1 },
+        "type": {
+          "enum": [
+            "text",
+            "number",
+            "date_time",
+            "select",
+            "multiselect",
+            "goat_lookup",
+            "rfid_scan",
+            "location_picker",
+            "photo_proof",
+            "video_proof"
+          ]
+        },
+        "required": { "type": "boolean" },
+        "repeat": { "type": "boolean" },
+        "option_source": { "type": "string" },
+        "proof_action": { "type": "string" },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "enum": ["visible_if", "required_if", "block_submission_if", "proof_required_if", "validation_rule"]
+        },
+        "field": { "type": "string" },
+        "message": { "type": "string" },
+        "when": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "field": { "type": "string" },
+            "operator": { "enum": ["equals", "not_equals", "empty", "not_empty", "in"] },
+            "value": {}
+          }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "additionalProperties": true,
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "label", "type"],
+            "additionalProperties": true,
+            "properties": {
+              "key": { "type": "string" },
+              "label": { "type": "string" },
+              "type": {
+                "enum": ["operator_execution", "proof_verification", "approval", "accepted", "rework", "rejected", "blocked"]
+              }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to"],
+            "additionalProperties": true,
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "condition": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

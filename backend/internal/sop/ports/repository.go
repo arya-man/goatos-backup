@@ -1,0 +1,105 @@
+package ports
+
+import (
+	"context"
+	"errors"
+
+	"github.com/vgoats/goatos/backend/internal/sop/domain"
+)
+
+var (
+	ErrNotFound            = errors.New("not found")
+	ErrConflict            = errors.New("write conflict")
+	ErrInvalidFilter       = errors.New("invalid filter")
+	ErrDenied              = errors.New("denied")
+	ErrIdempotencyConflict = errors.New("idempotency conflict")
+)
+
+type ListSOPsParams struct {
+	TenantID string
+	Status   string
+	Limit    int
+}
+
+type ListTasksParams struct {
+	TenantID   string
+	ActorID    string
+	State      string
+	AssignedTo string
+	ScopeType  string
+	ScopeID    string
+	Limit      int
+	AppView    bool
+}
+
+type CreateSOPCommand struct {
+	TenantID string
+	ActorID  string
+	Body     domain.CreateSOPRequest
+}
+
+type CreateVersionCommand struct {
+	TenantID string
+	ActorID  string
+	SOPID    string
+	Body     domain.CreateSOPVersionRequest
+	Report   domain.ValidationReport
+}
+
+type VersionCommand struct {
+	TenantID     string
+	ActorID      string
+	SOPID        string
+	SOPVersionID string
+	RowVersion   int
+}
+
+type CreateTaskCommand struct {
+	TenantID string
+	ActorID  string
+	Body     domain.CreateTaskRequest
+}
+
+type AssignTaskCommand struct {
+	TenantID string
+	ActorID  string
+	TaskID   string
+	Body     domain.AssignTaskRequest
+}
+
+type ReviewTaskCommand struct {
+	TenantID string
+	ActorID  string
+	TaskID   string
+	State    string
+	Body     domain.ReviewTaskRequest
+}
+
+type SubmitTaskCommand struct {
+	TenantID        string
+	ActorID         string
+	TaskID          string
+	Body            domain.SubmitTaskRequest
+	Report          domain.ValidationReport
+	ItemState       string
+	TaskState       string
+	MovementPayload map[string]any
+}
+
+type Repository interface {
+	ListSOPs(ctx context.Context, params ListSOPsParams) ([]domain.SOPDefinition, error)
+	CreateSOP(ctx context.Context, cmd CreateSOPCommand) (domain.SOPDefinition, error)
+	GetSOP(ctx context.Context, tenantID, sopID string) (domain.SOPDefinition, *domain.SOPVersion, error)
+	CreateVersion(ctx context.Context, cmd CreateVersionCommand) (domain.SOPVersion, error)
+	GetVersion(ctx context.Context, tenantID, sopID, versionID string) (domain.SOPVersion, error)
+	GetVersionByID(ctx context.Context, tenantID, versionID string) (domain.SOPVersion, error)
+	GetPublishedVersionByCode(ctx context.Context, tenantID, sopCode string) (domain.SOPVersion, error)
+	PublishVersion(ctx context.Context, cmd VersionCommand) (domain.SOPVersion, error)
+	RetireVersion(ctx context.Context, cmd VersionCommand) (domain.SOPVersion, error)
+	ListTasks(ctx context.Context, params ListTasksParams) ([]domain.TaskSummary, error)
+	CreateTask(ctx context.Context, cmd CreateTaskCommand) (domain.TaskSummary, error)
+	GetTask(ctx context.Context, tenantID, taskID string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error)
+	AssignTask(ctx context.Context, cmd AssignTaskCommand) (domain.TaskSummary, error)
+	ReviewTask(ctx context.Context, cmd ReviewTaskCommand) (domain.TaskSummary, error)
+	SubmitTask(ctx context.Context, cmd SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error)
+}

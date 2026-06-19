@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "ignoreDeprecations": "6.0",
+    "skipLibCheck": true,
+    "types": ["node"],
+    "typeRoots": ["../admin-web/node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "@goatos/api-client": ["../../packages/api-client/src/index.ts"],
+      "@goatos/forms-dsl": ["../../packages/forms-dsl/src/index.ts"],
+      "@goatos/mobile-forms-runner": ["../../packages/mobile-forms-runner/src/index.ts"],
+      "@goatos/media-client": ["../../packages/media-client/src/index.ts"],
+      "@goatos/device-client": ["../../packages/device-client/src/index.ts"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../packages/forms-dsl/src/**/*.ts",
+    "../../packages/mobile-forms-runner/src/**/*.ts",
+    "../../packages/media-client/src/**/*.ts",
+    "../../packages/device-client/src/**/*.ts"
+  ]
+}

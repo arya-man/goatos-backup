@@ -17,6 +17,12 @@ tags:
   - name: Admin Goats
   - name: Correction Requests
   - name: Legacy Sync
+  - name: Locations
+  - name: Counts Sync
+  - name: Mortality Sync
+  - name: Operator Management
+  - name: SOP Builder
+  - name: Tasks
 paths:
   /auth/session-events:
     post:
@@ -66,6 +72,1372 @@ paths:
           $ref: "#/components/responses/ServerError"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /admin/operators:
+    get:
+      tags:
+        - Operator Management
+      operationId: listOperators
+      summary: List tenant-scoped workforce operators.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 40
+        - name: role_hint
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 40
+        - name: location_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000000
+      responses:
+        "200":
+          description: Operator roster rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Operator Management
+      operationId: createOperator
+      summary: Create an operator profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOperatorRequest"
+      responses:
+        "200":
+          description: Created operator profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/operators/{operator_id}:
+    get:
+      tags:
+        - Operator Management
+      operationId: getOperator
+      summary: Get an operator profile.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      responses:
+        "200":
+          description: Operator profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+    patch:
+      tags:
+        - Operator Management
+      operationId: updateOperator
+      summary: Update an operator profile.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOperatorRequest"
+      responses:
+        "200":
+          description: Updated operator profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/operators/{operator_id}/activate:
+    post:
+      tags:
+        - Operator Management
+      operationId: activateOperator
+      summary: Activate an operator profile.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatusChangeRequest"
+      responses:
+        "200":
+          description: Activated operator profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/operators/{operator_id}/deactivate:
+    post:
+      tags:
+        - Operator Management
+      operationId: deactivateOperator
+      summary: Deactivate an operator profile.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatusChangeRequest"
+      responses:
+        "200":
+          description: Deactivated operator profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/operators/{operator_id}/grants:
+    get:
+      tags:
+        - Operator Management
+      operationId: listOperatorGrants
+      summary: List DB-authoritative grants for an operator.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      responses:
+        "200":
+          description: Operator grant rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantListResponse"
+    post:
+      tags:
+        - Operator Management
+      operationId: createOperatorGrant
+      summary: Create an active role/scope grant for an operator.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGrantRequest"
+      responses:
+        "200":
+          description: Current operator grants.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantListResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/operators/{operator_id}/capabilities:
+    post:
+      tags:
+        - Operator Management
+      operationId: assignOperatorCapability
+      summary: Assign an operator capability.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCapabilityRequest"
+      responses:
+        "200":
+          description: Capability assignment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilityResponse"
+  /admin/operators/{operator_id}/capabilities/{capability_id}:
+    delete:
+      tags:
+        - Operator Management
+      operationId: removeOperatorCapability
+      summary: Revoke an operator capability assignment.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+        - name: capability_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Capability assignment revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilityResponse"
+  /admin/operators/{operator_id}/devices:
+    get:
+      tags:
+        - Operator Management
+      operationId: listOperatorDevices
+      summary: List operator devices.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+      responses:
+        "200":
+          description: Operator devices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceListResponse"
+  /admin/operators/{operator_id}/devices/{device_id}/revoke:
+    post:
+      tags:
+        - Operator Management
+      operationId: revokeOperatorDevice
+      summary: Revoke an Android device.
+      parameters:
+        - $ref: "#/components/parameters/OperatorId"
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeDeviceRequest"
+      responses:
+        "200":
+          description: Revoked device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/operator-source-candidates:
+    get:
+      tags:
+        - Operator Management
+      operationId: listOperatorSourceCandidates
+      summary: List sanitized source-identity candidates.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 40
+        - name: source_system
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Sanitized source candidates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceCandidateListResponse"
+  /admin/operator-source-candidates/{candidate_id}/map:
+    post:
+      tags:
+        - Operator Management
+      operationId: mapOperatorSourceCandidate
+      summary: Map a sanitized source candidate to an operator profile.
+      parameters:
+        - $ref: "#/components/parameters/SourceCandidateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MapSourceCandidateRequest"
+      responses:
+        "200":
+          description: Mapped source candidate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceCandidateResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/operator-source-candidates/{candidate_id}/reject:
+    post:
+      tags:
+        - Operator Management
+      operationId: rejectOperatorSourceCandidate
+      summary: Reject a sanitized source candidate.
+      parameters:
+        - $ref: "#/components/parameters/SourceCandidateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectSourceCandidateRequest"
+      responses:
+        "200":
+          description: Rejected source candidate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceCandidateResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/sops:
+    get:
+      tags:
+        - SOP Builder
+      operationId: listSOPs
+      summary: List SOP definitions.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: SOP definitions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - SOP Builder
+      operationId: createSOP
+      summary: Create an SOP definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSOPRequest"
+      responses:
+        "200":
+          description: Created SOP definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/sops/{sop_id}:
+    get:
+      tags:
+        - SOP Builder
+      operationId: getSOP
+      summary: Get an SOP definition and latest version.
+      parameters:
+        - $ref: "#/components/parameters/SOPId"
+      responses:
+        "200":
+          description: SOP definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/sops/{sop_id}/versions:
+    post:
+      tags:
+        - SOP Builder
+      operationId: createSOPVersion
+      summary: Create a draft SOP version.
+      parameters:
+        - $ref: "#/components/parameters/SOPId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSOPVersionRequest"
+      responses:
+        "200":
+          description: Created SOP version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPVersionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/sops/{sop_id}/versions/{sop_version_id}:
+    get:
+      tags:
+        - SOP Builder
+      operationId: getSOPVersion
+      summary: Get a specific SOP version.
+      parameters:
+        - $ref: "#/components/parameters/SOPId"
+        - $ref: "#/components/parameters/SOPVersionId"
+      responses:
+        "200":
+          description: SOP version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPVersionResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/sops/{sop_id}/versions/{sop_version_id}/dry-run:
+    post:
+      tags:
+        - SOP Builder
+      operationId: dryRunSOPVersion
+      summary: Run server-side SOP preview validation.
+      parameters:
+        - $ref: "#/components/parameters/SOPId"
+        - $ref: "#/components/parameters/SOPVersionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DryRunRequest"
+      responses:
+        "200":
+          description: Dry-run result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DryRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /admin/sops/{sop_id}/versions/{sop_version_id}/publish:
+    post:
+      tags:
+        - SOP Builder
+      operationId: publishSOPVersion
+      summary: Publish an immutable SOP version.
+      parameters:
+        - $ref: "#/components/parameters/SOPId"
+        - $ref: "#/components/parameters/SOPVersionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RowVersionRequest"
+      responses:
+        "200":
+          description: Published SOP version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPVersionResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/sops/{sop_id}/versions/{sop_version_id}/retire:
+    post:
+      tags:
+        - SOP Builder
+      operationId: retireSOPVersion
+      summary: Retire an SOP version.
+      parameters:
+        - $ref: "#/components/parameters/SOPId"
+        - $ref: "#/components/parameters/SOPVersionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RowVersionRequest"
+      responses:
+        "200":
+          description: Retired SOP version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPVersionResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/tasks:
+    get:
+      tags:
+        - Tasks
+      operationId: listTasks
+      summary: List task and proof/rework queues.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: assigned_to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Task rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+    post:
+      tags:
+        - Tasks
+      operationId: createTask
+      summary: Create a task pinned to a published SOP version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "200":
+          description: Created task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/tasks/{task_id}:
+    get:
+      tags:
+        - Tasks
+      operationId: getTask
+      summary: Get task detail, pinned SOP version, and submission history.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/tasks/{task_id}/assign:
+    post:
+      tags:
+        - Tasks
+      operationId: assignTask
+      summary: Assign or reassign a task.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignTaskRequest"
+      responses:
+        "200":
+          description: Assigned task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/tasks/{task_id}/verify:
+    post:
+      tags:
+        - Tasks
+      operationId: verifyTask
+      summary: Verify proof and accept a task.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewTaskRequest"
+      responses:
+        "200":
+          description: Accepted task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/tasks/{task_id}/rework:
+    post:
+      tags:
+        - Tasks
+      operationId: reworkTask
+      summary: Request operator rework for a task.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewTaskRequest"
+      responses:
+        "200":
+          description: Rework requested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations:
+    get:
+      tags:
+        - Locations
+      operationId: listLocations
+      summary: List governed locations.
+      description: Returns canonical location master rows with operational flags and lightweight usage counts.
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: parent_location_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: alias
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Location master rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Locations
+      operationId: createLocation
+      summary: Create a governed location.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLocationRequest"
+      responses:
+        "200":
+          description: Location created or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations/{location_id}:
+    get:
+      tags:
+        - Locations
+      operationId: getLocation
+      summary: Get a governed location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+      responses:
+        "200":
+          description: Location detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+    patch:
+      tags:
+        - Locations
+      operationId: updateLocation
+      summary: Update a governed location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLocationRequest"
+      responses:
+        "200":
+          description: Location updated or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+    delete:
+      tags:
+        - Locations
+      operationId: deleteLocation
+      summary: Hard-delete an unreferenced staging or review location.
+      description: Active or referenced locations must be retired instead of physically deleted.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteLocationRequest"
+      responses:
+        "200":
+          description: Location hard-deleted or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationDeleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations/{location_id}/retire:
+    post:
+      tags:
+        - Locations
+      operationId: retireLocation
+      summary: Retire a location after blocking usage checks pass.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireLocationRequest"
+      responses:
+        "200":
+          description: Location retired or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations/{location_id}/children:
+    get:
+      tags:
+        - Locations
+      operationId: listLocationChildren
+      summary: List child locations.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Child location rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/locations/{location_id}/usage:
+    get:
+      tags:
+        - Locations
+      operationId: getLocationUsage
+      summary: Get blocking usage for a location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+      responses:
+        "200":
+          description: Location usage summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationUsageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/locations/{location_id}/aliases:
+    get:
+      tags:
+        - Locations
+      operationId: listLocationAliases
+      summary: List source aliases for a canonical location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Location aliases.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationAliasListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+    post:
+      tags:
+        - Locations
+      operationId: createLocationAlias
+      summary: Add a source alias for a canonical location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLocationAliasRequest"
+      responses:
+        "200":
+          description: Alias created or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationAliasResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations/{location_id}/aliases/{alias_id}:
+    patch:
+      tags:
+        - Locations
+      operationId: updateLocationAlias
+      summary: Update a source alias for a canonical location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/AliasId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLocationAliasRequest"
+      responses:
+        "200":
+          description: Alias updated or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationAliasResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+    delete:
+      tags:
+        - Locations
+      operationId: deleteLocationAlias
+      summary: Hard-delete a retired or review alias.
+      description: Active aliases must be retired before physical deletion.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/AliasId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteLocationAliasRequest"
+      responses:
+        "200":
+          description: Alias hard-deleted or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationDeleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations/{location_id}/aliases/{alias_id}/retire:
+    post:
+      tags:
+        - Locations
+      operationId: retireLocationAlias
+      summary: Retire a location alias.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/AliasId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireLocationAliasRequest"
+      responses:
+        "200":
+          description: Alias retired or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationAliasResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations/{location_id}/capacity:
+    get:
+      tags:
+        - Locations
+      operationId: listLocationCapacity
+      summary: List effective capacity records for a location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Location capacity records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationCapacityListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+    post:
+      tags:
+        - Locations
+      operationId: createLocationCapacity
+      summary: Add an effective capacity record for a location.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLocationCapacityRequest"
+      responses:
+        "200":
+          description: Capacity record created or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationCapacityResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/locations/{location_id}/capacity/{capacity_record_id}:
+    patch:
+      tags:
+        - Locations
+      operationId: updateLocationCapacity
+      summary: Update or close an effective capacity record.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/CapacityRecordId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLocationCapacityRequest"
+      responses:
+        "200":
+          description: Capacity record updated or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationCapacityResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+    delete:
+      tags:
+        - Locations
+      operationId: deleteLocationCapacity
+      summary: Hard-delete a capacity record.
+      parameters:
+        - $ref: "#/components/parameters/LocationId"
+        - $ref: "#/components/parameters/CapacityRecordId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteLocationCapacityRequest"
+      responses:
+        "200":
+          description: Capacity record hard-deleted or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationDeleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/location-review-items:
+    get:
+      tags:
+        - Locations
+      operationId: listLocationReviewItems
+      summary: List unresolved location governance review items.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+        - name: review_type
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Location review queue rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationReviewListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Locations
+      operationId: createLocationReviewItem
+      summary: Create a location governance review item.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLocationReviewItemRequest"
+      responses:
+        "200":
+          description: Review item created or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationReviewItemResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/location-review-items/{review_id}/resolve:
+    post:
+      tags:
+        - Locations
+      operationId: resolveLocationReviewItem
+      summary: Resolve or dismiss a location governance review item.
+      parameters:
+        - $ref: "#/components/parameters/ReviewId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveLocationReviewItemRequest"
+      responses:
+        "200":
+          description: Review item resolved or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationReviewItemResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/import-runs:
     get:
       tags:
@@ -649,6 +2021,116 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/counts/sync-runs:
+    post:
+      tags:
+        - Counts Sync
+      operationId: createCountsSyncRun
+      summary: Rebuild Counts projection rows from governed source rows.
+      description: >-
+        Executes the local Counts projection rebuild using tenant-scoped
+        counts_source_rows. Execute runs resolve source location labels through
+        Locations aliases and open/reuse review items for unknown labels. Dry
+        runs are read-only.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCountsSyncRunRequest"
+      responses:
+        "200":
+          description: Counts sync run result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountsSyncRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/counts/sync-runs/{sync_run_id}:
+    get:
+      tags:
+        - Counts Sync
+      operationId: getCountsSyncRun
+      summary: Get a Counts sync run result.
+      parameters:
+        - $ref: "#/components/parameters/SyncRunId"
+      responses:
+        "200":
+          description: Counts sync run result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountsSyncRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/mortality/sync-runs:
+    post:
+      tags:
+        - Mortality Sync
+      operationId: createMortalitySyncRun
+      summary: Rebuild Mortality events and projection rows from governed source rows.
+      description: >-
+        Executes the local Mortality replay using tenant-scoped
+        mortality_source_rows. Stable logical events are idempotent, candidate
+        review rows remain distinct, and source location labels resolve through
+        Locations aliases.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMortalitySyncRunRequest"
+      responses:
+        "200":
+          description: Mortality sync run result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MortalitySyncRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/mortality/sync-runs/{sync_run_id}:
+    get:
+      tags:
+        - Mortality Sync
+      operationId: getMortalitySyncRun
+      summary: Get a Mortality sync run result.
+      parameters:
+        - $ref: "#/components/parameters/SyncRunId"
+      responses:
+        "200":
+          description: Mortality sync run result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MortalitySyncRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
   /admin/legacy-sync/sources:
     get:
       tags:
@@ -844,6 +2326,69 @@ components:
       schema:
         type: string
         format: uuid
+    LocationId:
+      name: location_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    OperatorId:
+      name: operator_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SourceCandidateId:
+      name: candidate_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SOPId:
+      name: sop_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SOPVersionId:
+      name: sop_version_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AliasId:
+      name: alias_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CapacityRecordId:
+      name: capacity_record_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReviewId:
+      name: review_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     IdentifierId:
       name: identifier_id
       in: path
@@ -945,6 +2490,525 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    SOPDefinition:
+      type: object
+      additionalProperties: false
+      required:
+        - sop_id
+        - tenant_id
+        - code
+        - name
+        - description
+        - status
+        - version_count
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        sop_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [draft, active, retired]
+        active_sop_version_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        version_count:
+          type: integer
+          minimum: 0
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SOPVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - sop_version_id
+        - tenant_id
+        - sop_id
+        - sop_code
+        - version
+        - version_label
+        - status
+        - form_dsl
+        - proof_policy
+        - compatibility
+        - validation_report
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        sop_version_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        sop_id:
+          type: string
+          format: uuid
+        sop_code:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        version_label:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, retired]
+        form_dsl:
+          type: object
+          additionalProperties: true
+        proof_policy:
+          type: object
+          additionalProperties: true
+        compatibility:
+          type: object
+          additionalProperties: true
+        validation_report:
+          $ref: "#/components/schemas/ValidationReport"
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        retired_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ValidationIssue:
+      type: object
+      additionalProperties: false
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    ValidationReport:
+      type: object
+      additionalProperties: false
+      required: [valid, errors, warnings]
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+    SOPListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, trace_id]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SOPDefinition"
+        trace_id:
+          type: string
+    SOPResponse:
+      type: object
+      additionalProperties: false
+      required: [sop, trace_id]
+      properties:
+        sop:
+          $ref: "#/components/schemas/SOPDefinition"
+        latest_version:
+          oneOf:
+            - $ref: "#/components/schemas/SOPVersion"
+            - type: "null"
+        trace_id:
+          type: string
+    SOPVersionResponse:
+      type: object
+      additionalProperties: false
+      required: [version, trace_id]
+      properties:
+        version:
+          $ref: "#/components/schemas/SOPVersion"
+        trace_id:
+          type: string
+    CreateSOPRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+    CreateSOPVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [version_label, form_dsl, proof_policy]
+      properties:
+        version_label:
+          type: string
+        form_dsl:
+          type: object
+          additionalProperties: true
+        proof_policy:
+          type: object
+          additionalProperties: true
+        compatibility:
+          type: object
+          additionalProperties: true
+    RowVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [row_version]
+      properties:
+        row_version:
+          type: integer
+          minimum: 1
+    ProofReference:
+      type: object
+      additionalProperties: false
+      required: [proof_id, proof_type, subject_type, upload_state, metadata]
+      properties:
+        proof_id:
+          type: string
+        proof_type:
+          type: string
+          enum: [photo, video, attachment]
+        subject_type:
+          type: string
+          enum: [batch, goat, shed, task, other]
+        subject_id:
+          type:
+            - string
+            - "null"
+        upload_state:
+          type: string
+          enum: [pending, uploading, completed, failed]
+        metadata:
+          type: object
+          additionalProperties: true
+    DryRunRequest:
+      type: object
+      additionalProperties: false
+      required: [answers, proof_refs]
+      properties:
+        answers:
+          type: object
+          additionalProperties: true
+        proof_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProofReference"
+        context:
+          type: object
+          additionalProperties: true
+    FieldState:
+      type: object
+      additionalProperties: false
+      required: [key, visible, required, blocked]
+      properties:
+        key:
+          type: string
+        visible:
+          type: boolean
+        required:
+          type: boolean
+        blocked:
+          type: boolean
+        message:
+          type: string
+    DryRunResponse:
+      type: object
+      additionalProperties: false
+      required: [valid, errors, warnings, field_states, workflow_path, final_state, trace_id]
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+        field_states:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldState"
+        workflow_path:
+          type: array
+          items:
+            type: string
+        final_state:
+          type: string
+        trace_id:
+          type: string
+    TaskSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - task_id
+        - tenant_id
+        - sop_id
+        - sop_version_id
+        - sop_code
+        - task_type
+        - title
+        - description
+        - state
+        - scope_type
+        - scope_id
+        - priority
+        - context
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        sop_id:
+          type: string
+          format: uuid
+        sop_version_id:
+          type: string
+          format: uuid
+        sop_code:
+          type: string
+        task_type:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        state:
+          type: string
+          enum: [queued, assigned, in_progress, submitted, accepted, needs_review, rework_requested, rejected, canceled]
+        assigned_to:
+          type:
+            - string
+            - "null"
+          format: uuid
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+          format: uuid
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        context:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TaskListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, trace_id]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskSummary"
+        trace_id:
+          type: string
+    CreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [task_type, title, scope_type, scope_id]
+      properties:
+        sop_code:
+          type: string
+        sop_version_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        task_type:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        assigned_to:
+          type:
+            - string
+            - "null"
+          format: uuid
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+          format: uuid
+        priority:
+          type: string
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        context:
+          type: object
+          additionalProperties: true
+    AssignTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [assigned_to, reason, row_version]
+      properties:
+        assigned_to:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        row_version:
+          type: integer
+          minimum: 1
+    ReviewTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, row_version]
+      properties:
+        reason:
+          type: string
+        row_version:
+          type: integer
+          minimum: 1
+    SubmissionItem:
+      type: object
+      additionalProperties: false
+      required: [item_id, item_key, state, result]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        item_key:
+          type: string
+        state:
+          type: string
+          enum: [accepted, needs_review, rejected, skipped]
+        result:
+          type: object
+          additionalProperties: true
+    SubmissionSummary:
+      type: object
+      additionalProperties: false
+      required: [submission_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state, validation_report, items, submitted_at, row_version]
+      properties:
+        submission_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        sop_version_id:
+          type: string
+          format: uuid
+        submitted_by:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+        answers:
+          type: object
+          additionalProperties: true
+        proof_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProofReference"
+        state:
+          type: string
+          enum: [submitted, accepted, needs_review, rejected, voided]
+        validation_report:
+          $ref: "#/components/schemas/ValidationReport"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmissionItem"
+        submitted_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+    TaskResponse:
+      type: object
+      additionalProperties: false
+      required: [task, trace_id]
+      properties:
+        task:
+          $ref: "#/components/schemas/TaskSummary"
+        sop_version:
+          oneOf:
+            - $ref: "#/components/schemas/SOPVersion"
+            - type: "null"
+        submissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmissionSummary"
+        trace_id:
+          type: string
     AuthSessionEventType:
       type: string
       enum:
@@ -1030,6 +3094,201 @@ components:
             - string
             - "null"
           format: uuid
+    CounterFamilyFreshness:
+      type: object
+      additionalProperties: false
+      required:
+        - freshness_status
+        - serving_state
+        - stale
+        - rebuild_required
+        - unavailable_sources
+        - source_composition
+        - conflict_count
+        - projection_version
+      properties:
+        as_of:
+          type:
+            - string
+            - "null"
+          format: date-time
+        freshness_status:
+          type: string
+          enum:
+            - green
+            - yellow
+            - red
+            - unknown
+        serving_state:
+          type: string
+          enum:
+            - never_synced
+            - fresh
+            - stale
+            - rebuilding
+            - failed
+            - source_unavailable
+        stale:
+          type: boolean
+        rebuild_required:
+          type: boolean
+        source_watermark:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        unavailable_sources:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        source_composition:
+          type: string
+          enum:
+            - legacy_only
+            - canonical_only
+            - blended
+        conflict_count:
+          type: integer
+          minimum: 0
+        projection_version:
+          type: integer
+          minimum: 0
+    CreateCountsSyncRunRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        dry_run:
+          type: boolean
+          default: false
+        snapshot_date:
+          type:
+            - string
+            - "null"
+          description: Optional YYYY-MM-DD source watermark date filter. Omit for all current source rows.
+    CountsSyncRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - sync_run_id
+        - mode
+        - status
+        - source_rows_read
+        - projection_rows_written
+        - rows_skipped
+        - unresolved_location_labels
+        - freshness
+        - idempotency
+        - trace_id
+      properties:
+        sync_run_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+        mode:
+          type: string
+          enum:
+            - dry_run
+            - execute
+        status:
+          type: string
+          enum:
+            - running
+            - completed
+            - failed
+            - source_unavailable
+        snapshot_date:
+          type:
+            - string
+            - "null"
+          format: date
+        source_rows_read:
+          type: integer
+          minimum: 0
+        projection_rows_written:
+          type: integer
+          minimum: 0
+        rows_skipped:
+          type: integer
+          minimum: 0
+        unresolved_location_labels:
+          type: integer
+          minimum: 0
+        freshness:
+          $ref: "#/components/schemas/CounterFamilyFreshness"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreateMortalitySyncRunRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        dry_run:
+          type: boolean
+          default: false
+    MortalitySyncRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - sync_run_id
+        - mode
+        - status
+        - source_rows_read
+        - events_upserted
+        - projection_rows_written
+        - rows_skipped
+        - dedup_candidate_events
+        - unresolved_location_labels
+        - freshness
+        - idempotency
+        - trace_id
+      properties:
+        sync_run_id:
+          type: string
+          minLength: 1
+          maxLength: 80
+        mode:
+          type: string
+          enum:
+            - dry_run
+            - execute
+        status:
+          type: string
+          enum:
+            - running
+            - completed
+            - failed
+            - source_unavailable
+        source_rows_read:
+          type: integer
+          minimum: 0
+        events_upserted:
+          type: integer
+          minimum: 0
+        projection_rows_written:
+          type: integer
+          minimum: 0
+        rows_skipped:
+          type: integer
+          minimum: 0
+        dedup_candidate_events:
+          type: integer
+          minimum: 0
+        unresolved_location_labels:
+          type: integer
+          minimum: 0
+        freshness:
+          $ref: "#/components/schemas/CounterFamilyFreshness"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
     EvidenceRef:
       type: object
       additionalProperties: false
@@ -1065,6 +3324,516 @@ components:
             - string
             - "null"
           maxLength: 500
+    OperatorProfile:
+      type: object
+      additionalProperties: false
+      required:
+        - operator_id
+        - user_id
+        - display_code
+        - display_name
+        - status
+        - primary_role_hint
+        - primary_location_id
+        - primary_location
+        - grant_count
+        - capability_count
+        - active_device_count
+        - metadata
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        operator_id:
+          type: string
+          format: uuid
+        user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        display_code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        status:
+          type: string
+          enum: [candidate, active, inactive, suspended, left]
+        primary_role_hint:
+          type: string
+          enum: [operator, park_head, verifier, supervisor, admin, other]
+        primary_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        primary_location:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        grant_count:
+          type: integer
+          minimum: 0
+        capability_count:
+          type: integer
+          minimum: 0
+        active_device_count:
+          type: integer
+          minimum: 0
+        metadata:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OperatorListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, trace_id]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/OperatorProfile"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OperatorResponse:
+      type: object
+      additionalProperties: false
+      required: [operator, trace_id]
+      properties:
+        operator:
+          $ref: "#/components/schemas/OperatorProfile"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreateOperatorRequest:
+      type: object
+      additionalProperties: false
+      required: [display_code, display_name]
+      properties:
+        user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        display_code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        status:
+          type: string
+          enum: [candidate, active, inactive, suspended, left]
+          default: candidate
+        primary_role_hint:
+          type: string
+          enum: [operator, park_head, verifier, supervisor, admin, other]
+          default: operator
+        primary_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+    UpdateOperatorRequest:
+      type: object
+      additionalProperties: false
+      required: [row_version]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        primary_role_hint:
+          type: string
+          enum: [operator, park_head, verifier, supervisor, admin, other]
+        primary_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+    StatusChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [row_version]
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+        row_version:
+          type: integer
+          minimum: 1
+    GrantSummary:
+      type: object
+      additionalProperties: false
+      required: [grant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to, created_at, created_by]
+      properties:
+        grant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [admin, park_head, operator, verifier, ceo_internal]
+        scope_type:
+          type: string
+          enum: [tenant, custodian_party, farm, park, shed, cohort]
+        scope_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, inactive, revoked]
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+    GrantListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, trace_id]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrantSummary"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreateGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [role, scope_type, scope_id]
+      properties:
+        role:
+          type: string
+          enum: [admin, park_head, operator, verifier, ceo_internal]
+        scope_type:
+          type: string
+          enum: [tenant, custodian_party, farm, park, shed, cohort]
+        scope_id:
+          type: string
+          format: uuid
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+    CapabilityAssignment:
+      type: object
+      additionalProperties: false
+      required: [member_capability_id, capability_id, capability_code, description, scope_type, scope_id, status, valid_from, valid_to, created_at]
+      properties:
+        member_capability_id:
+          type: string
+          format: uuid
+        capability_id:
+          type: string
+          format: uuid
+        capability_code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 500
+        scope_type:
+          type: string
+          enum: [tenant, custodian_party, farm, park, shed, cohort]
+        scope_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, inactive, revoked]
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    CapabilityResponse:
+      type: object
+      additionalProperties: false
+      required: [capability, trace_id]
+      properties:
+        capability:
+          $ref: "#/components/schemas/CapabilityAssignment"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    CreateCapabilityRequest:
+      type: object
+      additionalProperties: false
+      required: [capability_code, scope_type, scope_id]
+      properties:
+        capability_code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        scope_type:
+          type: string
+          enum: [tenant, custodian_party, farm, park, shed, cohort]
+        scope_id:
+          type: string
+          format: uuid
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+    DeviceSummary:
+      type: object
+      additionalProperties: false
+      required: [device_id, operator_id, platform, app_install_id, device_public_key_hash, push_token_hash, app_version, os_version, status, last_seen_at, registered_at, revoked_at, metadata, row_version]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        operator_id:
+          type: string
+          format: uuid
+        platform:
+          type: string
+          const: android
+        app_install_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        device_public_key_hash:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        push_token_hash:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        app_version:
+          type: string
+          minLength: 1
+          maxLength: 80
+        os_version:
+          type: string
+          maxLength: 80
+        status:
+          type: string
+          enum: [active, revoked, lost, retired]
+        last_seen_at:
+          type: string
+          format: date-time
+        registered_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+    DeviceListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, trace_id]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceSummary"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    DeviceResponse:
+      type: object
+      additionalProperties: false
+      required: [device, trace_id]
+      properties:
+        device:
+          $ref: "#/components/schemas/DeviceSummary"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    RevokeDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [row_version]
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+        row_version:
+          type: integer
+          minimum: 1
+    SourceCandidate:
+      type: object
+      additionalProperties: false
+      required: [candidate_id, operator_id, source_system, source_flow, external_ref_type, external_ref_hash, status, confidence, first_seen_at, last_seen_at, observation_count, review_reason, observed_role_hint, observed_scope_hint, metadata, row_version]
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+        operator_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        source_system:
+          type: string
+          enum: [slack, app_script, sheet, bq, firebase, manual, other]
+        source_flow:
+          type: string
+          minLength: 1
+          maxLength: 120
+        external_ref_type:
+          type: string
+          enum: [slack_user_id, email, phone, staff_label, sheet_user, firebase_uid, other]
+        external_ref_hash:
+          type: string
+          minLength: 16
+          maxLength: 200
+        status:
+          type: string
+          enum: [candidate, mapped, rejected, conflict, retired]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        observation_count:
+          type: integer
+          minimum: 1
+        review_reason:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        observed_role_hint:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        observed_scope_hint:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        metadata:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+    SourceCandidateListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, trace_id]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/SourceCandidate"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    SourceCandidateResponse:
+      type: object
+      additionalProperties: false
+      required: [candidate, trace_id]
+      properties:
+        candidate:
+          $ref: "#/components/schemas/SourceCandidate"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    MapSourceCandidateRequest:
+      type: object
+      additionalProperties: false
+      required: [operator_id, row_version]
+      properties:
+        operator_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          maxLength: 500
+        row_version:
+          type: integer
+          minimum: 1
+    RejectSourceCandidateRequest:
+      type: object
+      additionalProperties: false
+      required: [row_version]
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+        row_version:
+          type: integer
+          minimum: 1
     LocationScope:
       type: object
       additionalProperties: false
@@ -3141,6 +5910,1006 @@ components:
       properties:
         run:
           $ref: "#/components/schemas/LegacySyncRun"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationOperationalAttributes:
+      type: object
+      additionalProperties: false
+      required:
+        - usable_for_counts
+        - usable_for_feed
+        - usable_for_vaccination
+        - usable_for_sop
+        - is_holding
+        - is_quarantine
+        - is_icu
+        - display_order
+        - notes
+      properties:
+        usable_for_counts:
+          type: boolean
+        usable_for_feed:
+          type: boolean
+        usable_for_vaccination:
+          type: boolean
+        usable_for_sop:
+          type: boolean
+        is_holding:
+          type: boolean
+        is_quarantine:
+          type: boolean
+        is_icu:
+          type: boolean
+        display_order:
+          type: integer
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+    CreateLocationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - location_type
+        - name
+      properties:
+        location_type:
+          type: string
+          enum:
+            - farm
+            - park
+            - shed
+            - cohort
+            - pen
+            - unknown
+        location_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        parent_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - staging
+            - review
+          default: active
+        country:
+          type: string
+          minLength: 1
+          maxLength: 80
+          default: IN
+        state_region:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        district:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        pincode:
+          type:
+            - string
+            - "null"
+          maxLength: 20
+        lat:
+          type:
+            - number
+            - "null"
+          minimum: -90
+          maximum: 90
+        lng:
+          type:
+            - number
+            - "null"
+          minimum: -180
+          maximum: 180
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 80
+          default: Asia/Kolkata
+        operational:
+          $ref: "#/components/schemas/LocationOperationalAttributes"
+    UpdateLocationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - row_version
+      properties:
+        location_type:
+          type: string
+          enum:
+            - farm
+            - park
+            - shed
+            - cohort
+            - pen
+            - unknown
+        location_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        parent_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        clear_parent:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - staging
+            - review
+        country:
+          type: string
+          minLength: 1
+          maxLength: 80
+        state_region:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        district:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        pincode:
+          type:
+            - string
+            - "null"
+          maxLength: 20
+        lat:
+          type:
+            - number
+            - "null"
+          minimum: -90
+          maximum: 90
+        lng:
+          type:
+            - number
+            - "null"
+          minimum: -180
+          maximum: 180
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 80
+        operational:
+          $ref: "#/components/schemas/LocationOperationalAttributes"
+        row_version:
+          type: integer
+          minimum: 1
+    RetireLocationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - row_version
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    DeleteLocationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - row_version
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    CreateLocationAliasRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - alias_code
+        - source_context
+      properties:
+        alias_code:
+          type: string
+          minLength: 1
+          maxLength: 200
+        source_context:
+          type: string
+          enum:
+            - legacy_location_code
+            - legacy_bq_dashboard_shed
+            - legacy_bq_counts
+            - legacy_bq_mortality
+            - counts_source
+            - mortality_source
+            - manual
+            - import
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+    UpdateLocationAliasRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - alias_code
+        - source_context
+        - row_version
+      properties:
+        alias_code:
+          type: string
+          minLength: 1
+          maxLength: 200
+        source_context:
+          type: string
+          enum:
+            - legacy_location_code
+            - legacy_bq_dashboard_shed
+            - legacy_bq_counts
+            - legacy_bq_mortality
+            - counts_source
+            - mortality_source
+            - manual
+            - import
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    RetireLocationAliasRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - row_version
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    DeleteLocationAliasRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - row_version
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    CreateLocationCapacityRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - capacity_kind
+        - capacity_value
+        - effective_from
+        - source
+      properties:
+        capacity_kind:
+          type: string
+          enum:
+            - goat_occupancy
+            - quarantine
+            - feed_trial
+            - other
+        capacity_value:
+          type: integer
+          minimum: 1
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type:
+            - string
+            - "null"
+          format: date
+        source:
+          type: string
+          enum:
+            - manual
+            - legacy_bq
+            - android_sop
+            - import
+        source_ref:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+    UpdateLocationCapacityRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - capacity_kind
+        - capacity_value
+        - effective_from
+        - source
+        - row_version
+      properties:
+        capacity_kind:
+          type: string
+          enum:
+            - goat_occupancy
+            - quarantine
+            - feed_trial
+            - other
+        capacity_value:
+          type: integer
+          minimum: 1
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type:
+            - string
+            - "null"
+          format: date
+        source:
+          type: string
+          enum:
+            - manual
+            - legacy_bq
+            - android_sop
+            - import
+        source_ref:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    DeleteLocationCapacityRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - row_version
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    CreateLocationReviewItemRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - review_type
+        - evidence_hash
+      properties:
+        review_type:
+          type: string
+          enum:
+            - unknown_alias
+            - alias_conflict
+            - parent_type_conflict
+            - capacity_conflict
+            - retire_blocked
+            - usage_conflict
+        source_context:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        source_label:
+          type:
+            - string
+            - "null"
+          maxLength: 300
+        normalized_source_label:
+          type:
+            - string
+            - "null"
+          maxLength: 300
+        canonical_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        candidate_location_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        evidence:
+          type: object
+          additionalProperties: true
+        evidence_hash:
+          type: string
+          minLength: 1
+          maxLength: 128
+    ResolveLocationReviewItemRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - resolution_notes
+        - row_version
+      properties:
+        status:
+          type: string
+          enum:
+            - resolved
+            - dismissed
+        canonical_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        resolution_notes:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+    LocationSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - location_type
+        - location_code
+        - name
+        - parent_location_id
+        - parent_name
+        - status
+        - country
+        - state_region
+        - district
+        - pincode
+        - lat
+        - lng
+        - timezone
+        - operational
+        - current_capacity
+        - alias_count
+        - child_count
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        location_type:
+          type: string
+          minLength: 1
+          maxLength: 80
+        location_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        parent_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        parent_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        country:
+          type: string
+          minLength: 1
+          maxLength: 80
+        state_region:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        district:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        pincode:
+          type:
+            - string
+            - "null"
+          maxLength: 20
+        lat:
+          type:
+            - number
+            - "null"
+        lng:
+          type:
+            - number
+            - "null"
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 80
+        operational:
+          $ref: "#/components/schemas/LocationOperationalAttributes"
+        current_capacity:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        alias_count:
+          type: integer
+          minimum: 0
+        child_count:
+          type: integer
+          minimum: 0
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LocationListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LocationSummary"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - location
+        - trace_id
+      properties:
+        location:
+          $ref: "#/components/schemas/LocationSummary"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationMutationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - location
+        - idempotency
+        - trace_id
+      properties:
+        location:
+          $ref: "#/components/schemas/LocationSummary"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationDeleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - resource_type
+        - resource_id
+        - location_id
+        - deleted
+        - idempotency
+        - trace_id
+      properties:
+        resource_type:
+          type: string
+          enum:
+            - location
+            - location_alias
+            - location_capacity_record
+        resource_id:
+          type: string
+          format: uuid
+        location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        deleted:
+          type: boolean
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationAlias:
+      type: object
+      additionalProperties: false
+      required:
+        - alias_id
+        - alias_code
+        - canonical_location_id
+        - source_context
+        - status
+        - notes
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        alias_id:
+          type: string
+          format: uuid
+        alias_code:
+          type: string
+          minLength: 1
+          maxLength: 200
+        canonical_location_id:
+          type: string
+          format: uuid
+        source_context:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LocationAliasListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LocationAlias"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationAliasResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - alias
+        - idempotency
+        - trace_id
+      properties:
+        alias:
+          $ref: "#/components/schemas/LocationAlias"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationCapacityRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - capacity_record_id
+        - location_id
+        - capacity_kind
+        - capacity_value
+        - effective_from
+        - effective_to
+        - source
+        - source_ref
+        - notes
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        capacity_record_id:
+          type: string
+          format: uuid
+        location_id:
+          type: string
+          format: uuid
+        capacity_kind:
+          type: string
+          minLength: 1
+          maxLength: 80
+        capacity_value:
+          type: integer
+          minimum: 0
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type:
+            - string
+            - "null"
+          format: date
+        source:
+          type: string
+          minLength: 1
+          maxLength: 120
+        source_ref:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LocationCapacityListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LocationCapacityRecord"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationCapacityResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - capacity
+        - idempotency
+        - trace_id
+      properties:
+        capacity:
+          $ref: "#/components/schemas/LocationCapacityRecord"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationReviewItem:
+      type: object
+      additionalProperties: false
+      required:
+        - review_id
+        - review_type
+        - status
+        - source_context
+        - source_label
+        - normalized_source_label
+        - canonical_location_id
+        - candidate_location_ids
+        - evidence_hash
+        - resolution_notes
+        - row_version
+        - created_at
+        - updated_at
+        - resolved_at
+      properties:
+        review_id:
+          type: string
+          format: uuid
+        review_type:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        source_context:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        source_label:
+          type:
+            - string
+            - "null"
+          maxLength: 300
+        normalized_source_label:
+          type:
+            - string
+            - "null"
+          maxLength: 300
+        canonical_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        candidate_location_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        evidence_hash:
+          type: string
+          minLength: 1
+          maxLength: 128
+        resolution_notes:
+          type:
+            - string
+            - "null"
+          maxLength: 2000
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LocationReviewListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LocationReviewItem"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationReviewItemResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - review_item
+        - idempotency
+        - trace_id
+      properties:
+        review_item:
+          $ref: "#/components/schemas/LocationReviewItem"
+        idempotency:
+          $ref: "#/components/schemas/IdempotencyMeta"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    LocationUsageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - goats_currently_assigned
+        - goat_location_history_rows
+        - child_locations
+        - active_aliases
+        - active_rbac_grants
+        - active_sop_dependencies
+        - import_or_source_rows
+        - dashboard_projection_rows
+        - has_blocking_usage
+        - trace_id
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        goats_currently_assigned:
+          type: integer
+          minimum: 0
+        goat_location_history_rows:
+          type: integer
+          minimum: 0
+        child_locations:
+          type: integer
+          minimum: 0
+        active_aliases:
+          type: integer
+          minimum: 0
+        active_rbac_grants:
+          type: integer
+          minimum: 0
+        active_sop_dependencies:
+          type: integer
+          minimum: 0
+        import_or_source_rows:
+          type: integer
+          minimum: 0
+        dashboard_projection_rows:
+          type: integer
+          minimum: 0
+        has_blocking_usage:
+          type: boolean
         trace_id:
           type: string
           minLength: 1

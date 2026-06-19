@@ -16,9 +16,15 @@ function formatSegment(segment: string): string {
     herd: "Herd Search",
     goats: "Goat Passport",
     counts: "Counts",
+    locations: "Locations",
+    operators: "Operators",
+    dashboard: "Dashboard",
+    mortality: "Mortality",
     "data-quality": "Data Quality",
     "import-review": "Import Review",
     "legacy-sync": "Legacy Sync",
+    sops: "SOP Builder",
+    tasks: "Tasks",
   };
   if (upperCaseWords[decoded.toLowerCase()]) return upperCaseWords[decoded.toLowerCase()];
   return decoded
@@ -31,6 +37,7 @@ function getBreadcrumb(pathname: string): string {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) return "CEO Dashboard";
   if (segments.length === 1 && segments[0] === "counts") return "Counts > Overall";
+  if (segments.length === 2 && segments[0] === "dashboard" && segments[1] === "mortality") return "Mortality Dashboard";
   const section = formatSegment(segments[0]);
   if (segments.length > 1) {
     const sub = formatSegment(segments[1]);

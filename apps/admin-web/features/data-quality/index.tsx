@@ -796,7 +796,6 @@ function GoatReviewCard({ item }: { item: ConflictDetailResponse["goats"][number
           </div>
         )}
       </div>
-      <div className="mt-3 text-xs text-[#93a4b8]">goat {goat.goat_id} · row v{item.row_version} · evidence {item.evidence_refs.length}</div>
     </div>
   );
 }

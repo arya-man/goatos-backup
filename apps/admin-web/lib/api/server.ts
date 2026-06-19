@@ -27,6 +27,14 @@ export type CreateCorrectionRequestBody = AppApiComponents["schemas"]["CreateCor
 
 export type CounterGrain = AnalyticsApiComponents["schemas"]["CounterGrain"];
 export type IdentityCountsResponse = AnalyticsApiComponents["schemas"]["IdentityCountsResponse"];
+export type CountsView = AnalyticsApiComponents["schemas"]["CountsView"];
+export type CountsDashboardResponse = AnalyticsApiComponents["schemas"]["CountsDashboardResponse"];
+export type MortalityPeriod = AnalyticsApiComponents["schemas"]["MortalityPeriod"];
+export type MortalityDashboardResponse = AnalyticsApiComponents["schemas"]["MortalityDashboardResponse"];
+export type CreateCountsSyncRunRequest = AdminApiComponents["schemas"]["CreateCountsSyncRunRequest"];
+export type CountsSyncRunResponse = AdminApiComponents["schemas"]["CountsSyncRunResponse"];
+export type CreateMortalitySyncRunRequest = AdminApiComponents["schemas"]["CreateMortalitySyncRunRequest"];
+export type MortalitySyncRunResponse = AdminApiComponents["schemas"]["MortalitySyncRunResponse"];
 
 export type ReviewSummaryResponse = AdminApiComponents["schemas"]["ReviewSummaryResponse"];
 export type ConflictListResponse = AdminApiComponents["schemas"]["ConflictListResponse"];
@@ -67,6 +75,52 @@ export type ImportRowState = AdminApiComponents["schemas"]["ImportRowState"];
 export type ReviewImportRowRequestBody = AdminApiComponents["schemas"]["ReviewImportRowRequest"];
 export type ReviewImportRowResponse = AdminApiComponents["schemas"]["ReviewImportRowResponse"];
 export type CorrectionRequestState = AdminApiComponents["schemas"]["CorrectionRequestState"];
+export type LocationListResponse = AdminApiComponents["schemas"]["LocationListResponse"];
+export type LocationResponse = AdminApiComponents["schemas"]["LocationResponse"];
+export type LocationMutationResponse = AdminApiComponents["schemas"]["LocationMutationResponse"];
+export type LocationDeleteResponse = AdminApiComponents["schemas"]["LocationDeleteResponse"];
+export type LocationAliasListResponse = AdminApiComponents["schemas"]["LocationAliasListResponse"];
+export type LocationAliasResponse = AdminApiComponents["schemas"]["LocationAliasResponse"];
+export type LocationCapacityListResponse = AdminApiComponents["schemas"]["LocationCapacityListResponse"];
+export type LocationCapacityResponse = AdminApiComponents["schemas"]["LocationCapacityResponse"];
+export type LocationReviewListResponse = AdminApiComponents["schemas"]["LocationReviewListResponse"];
+export type LocationReviewItemResponse = AdminApiComponents["schemas"]["LocationReviewItemResponse"];
+export type LocationUsageResponse = AdminApiComponents["schemas"]["LocationUsageResponse"];
+export type CreateLocationRequestBody = AdminApiComponents["schemas"]["CreateLocationRequest"];
+export type UpdateLocationRequestBody = AdminApiComponents["schemas"]["UpdateLocationRequest"];
+export type RetireLocationRequestBody = AdminApiComponents["schemas"]["RetireLocationRequest"];
+export type DeleteLocationRequestBody = AdminApiComponents["schemas"]["DeleteLocationRequest"];
+export type CreateLocationAliasRequestBody = AdminApiComponents["schemas"]["CreateLocationAliasRequest"];
+export type UpdateLocationAliasRequestBody = AdminApiComponents["schemas"]["UpdateLocationAliasRequest"];
+export type RetireLocationAliasRequestBody = AdminApiComponents["schemas"]["RetireLocationAliasRequest"];
+export type DeleteLocationAliasRequestBody = AdminApiComponents["schemas"]["DeleteLocationAliasRequest"];
+export type CreateLocationCapacityRequestBody = AdminApiComponents["schemas"]["CreateLocationCapacityRequest"];
+export type UpdateLocationCapacityRequestBody = AdminApiComponents["schemas"]["UpdateLocationCapacityRequest"];
+export type DeleteLocationCapacityRequestBody = AdminApiComponents["schemas"]["DeleteLocationCapacityRequest"];
+export type CreateLocationReviewItemRequestBody = AdminApiComponents["schemas"]["CreateLocationReviewItemRequest"];
+export type ResolveLocationReviewItemRequestBody = AdminApiComponents["schemas"]["ResolveLocationReviewItemRequest"];
+export type OperatorListResponse = AdminApiComponents["schemas"]["OperatorListResponse"];
+export type OperatorResponse = AdminApiComponents["schemas"]["OperatorResponse"];
+export type GrantListResponse = AdminApiComponents["schemas"]["GrantListResponse"];
+export type DeviceListResponse = AdminApiComponents["schemas"]["DeviceListResponse"];
+export type SourceCandidateListResponse = AdminApiComponents["schemas"]["SourceCandidateListResponse"];
+export type SourceCandidateResponse = AdminApiComponents["schemas"]["SourceCandidateResponse"];
+export type StatusChangeRequest = AdminApiComponents["schemas"]["StatusChangeRequest"];
+export type MapSourceCandidateRequest = AdminApiComponents["schemas"]["MapSourceCandidateRequest"];
+export type RejectSourceCandidateRequest = AdminApiComponents["schemas"]["RejectSourceCandidateRequest"];
+export type SOPListResponse = AdminApiComponents["schemas"]["SOPListResponse"];
+export type SOPResponse = AdminApiComponents["schemas"]["SOPResponse"];
+export type SOPVersionResponse = AdminApiComponents["schemas"]["SOPVersionResponse"];
+export type DryRunResponse = AdminApiComponents["schemas"]["DryRunResponse"];
+export type TaskListResponse = AdminApiComponents["schemas"]["TaskListResponse"];
+export type TaskResponse = AdminApiComponents["schemas"]["TaskResponse"];
+export type CreateSOPRequest = AdminApiComponents["schemas"]["CreateSOPRequest"];
+export type CreateSOPVersionRequest = AdminApiComponents["schemas"]["CreateSOPVersionRequest"];
+export type RowVersionRequest = AdminApiComponents["schemas"]["RowVersionRequest"];
+export type DryRunRequest = AdminApiComponents["schemas"]["DryRunRequest"];
+export type CreateTaskRequest = AdminApiComponents["schemas"]["CreateTaskRequest"];
+export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest"];
+export type ReviewTaskRequest = AdminApiComponents["schemas"]["ReviewTaskRequest"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -131,6 +185,58 @@ export type CountSearchParams = {
   sex?: string;
 };
 
+export type CountsDashboardParams = {
+  view?: CountsView;
+  snapshot_date?: string;
+};
+
+export type MortalityDashboardParams = {
+  period?: MortalityPeriod;
+};
+
+export type LocationSearchParams = {
+  limit?: number;
+  offset?: number;
+  type?: string;
+  status?: string;
+  parent_location_id?: string;
+  search?: string;
+  alias?: string;
+};
+
+export type LocationReviewSearchParams = {
+  limit?: number;
+  status?: string;
+  review_type?: string;
+};
+
+export type OperatorSearchParams = {
+  limit?: number;
+  status?: string;
+  role_hint?: string;
+  location_id?: string;
+  search?: string;
+};
+
+export type SourceCandidateSearchParams = {
+  limit?: number;
+  status?: string;
+  source_system?: string;
+};
+
+export type SOPSearchParams = {
+  limit?: number;
+  status?: string;
+};
+
+export type TaskSearchParams = {
+  limit?: number;
+  state?: string;
+  assigned_to?: string;
+  scope_type?: string;
+  scope_id?: string;
+};
+
 export type ConflictSearchParams = {
   limit: number;
   cursor?: string;
@@ -180,7 +286,7 @@ export async function getServerConfig(requireTenant = false): Promise<ApiResult<
     process.env.GOATOS_ENV === "local" && process.env.GOATOS_AUTH_MODE === "bearer"
       ? process.env.GOATOS_BEARER_TOKEN
       : undefined;
-  const bearerToken = firebaseIdToken ?? localBearerToken;
+  const bearerToken = localBearerToken ?? firebaseIdToken;
   const tenantId = process.env.GOATOS_TENANT_ID;
 
   if (!bearerToken) {
@@ -314,6 +420,675 @@ export async function getIdentityCounts(params: CountSearchParams): Promise<ApiR
     client.request<IdentityCountsResponse>("/analytics/identity/counts", {
       cache: "no-store",
       query: compactQuery({ ...params, tenant_id: config.data.tenantId }),
+    }),
+  );
+}
+
+export async function getCountsDashboard(params: CountsDashboardParams = {}): Promise<ApiResult<CountsDashboardResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAnalyticsApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CountsDashboardResponse>("/analytics/counts/dashboard", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getMortalityDashboard(params: MortalityDashboardParams = {}): Promise<ApiResult<MortalityDashboardResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAnalyticsApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MortalityDashboardResponse>("/analytics/mortality/dashboard", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function createCountsSyncRun(
+  body: CreateCountsSyncRunRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<CountsSyncRunResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CountsSyncRunResponse>("/admin/counts/sync-runs", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function getCountsSyncRun(syncRunId: string): Promise<ApiResult<CountsSyncRunResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/counts/sync-runs/${encodeURIComponent(syncRunId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<CountsSyncRunResponse>(path, { cache: "no-store" }));
+}
+
+export async function createMortalitySyncRun(
+  body: CreateMortalitySyncRunRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<MortalitySyncRunResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MortalitySyncRunResponse>("/admin/mortality/sync-runs", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function getMortalitySyncRun(syncRunId: string): Promise<ApiResult<MortalitySyncRunResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/mortality/sync-runs/${encodeURIComponent(syncRunId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<MortalitySyncRunResponse>(path, { cache: "no-store" }));
+}
+
+export async function listLocations(params: LocationSearchParams = {}): Promise<ApiResult<LocationListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LocationListResponse>("/admin/locations", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getLocation(locationId: string): Promise<ApiResult<LocationResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<LocationResponse>(path, { cache: "no-store" }));
+}
+
+export async function createLocation(
+  body: CreateLocationRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationMutationResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LocationMutationResponse>("/admin/locations", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function updateLocation(
+  locationId: string,
+  body: UpdateLocationRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationMutationResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationMutationResponse>(path, {
+      method: "PATCH",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function retireLocation(
+  locationId: string,
+  body: RetireLocationRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationMutationResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/retire` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationMutationResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function deleteLocation(
+  locationId: string,
+  body: DeleteLocationRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationDeleteResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationDeleteResponse>(path, {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function listLocationChildren(locationId: string, limit = 100): Promise<ApiResult<LocationListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/children` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationListResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({ limit }),
+    }),
+  );
+}
+
+export async function getLocationUsage(locationId: string): Promise<ApiResult<LocationUsageResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/usage` as keyof AdminApiPaths & string;
+  return request(() => client.request<LocationUsageResponse>(path, { cache: "no-store" }));
+}
+
+export async function listLocationAliases(locationId: string, limit = 100): Promise<ApiResult<LocationAliasListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/aliases` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationAliasListResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({ limit }),
+    }),
+  );
+}
+
+export async function createLocationAlias(
+  locationId: string,
+  body: CreateLocationAliasRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationAliasResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/aliases` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationAliasResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function updateLocationAlias(
+  locationId: string,
+  aliasId: string,
+  body: UpdateLocationAliasRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationAliasResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/aliases/${encodeURIComponent(aliasId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationAliasResponse>(path, {
+      method: "PATCH",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function retireLocationAlias(
+  locationId: string,
+  aliasId: string,
+  body: RetireLocationAliasRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationAliasResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/aliases/${encodeURIComponent(aliasId)}/retire` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationAliasResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function deleteLocationAlias(
+  locationId: string,
+  aliasId: string,
+  body: DeleteLocationAliasRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationDeleteResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/aliases/${encodeURIComponent(aliasId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationDeleteResponse>(path, {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function listLocationCapacity(locationId: string, limit = 100): Promise<ApiResult<LocationCapacityListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/capacity` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationCapacityListResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({ limit }),
+    }),
+  );
+}
+
+export async function createLocationCapacity(
+  locationId: string,
+  body: CreateLocationCapacityRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationCapacityResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/capacity` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationCapacityResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function updateLocationCapacity(
+  locationId: string,
+  capacityRecordId: string,
+  body: UpdateLocationCapacityRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationCapacityResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/capacity/${encodeURIComponent(capacityRecordId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationCapacityResponse>(path, {
+      method: "PATCH",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function deleteLocationCapacity(
+  locationId: string,
+  capacityRecordId: string,
+  body: DeleteLocationCapacityRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationDeleteResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/locations/${encodeURIComponent(locationId)}/capacity/${encodeURIComponent(capacityRecordId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationDeleteResponse>(path, {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function listLocationReviewItems(params: LocationReviewSearchParams = {}): Promise<ApiResult<LocationReviewListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LocationReviewListResponse>("/admin/location-review-items", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function createLocationReviewItem(
+  body: CreateLocationReviewItemRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationReviewItemResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LocationReviewItemResponse>("/admin/location-review-items", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function resolveLocationReviewItem(
+  reviewId: string,
+  body: ResolveLocationReviewItemRequestBody,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationReviewItemResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/location-review-items/${encodeURIComponent(reviewId)}/resolve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<LocationReviewItemResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function listOperators(params: OperatorSearchParams = {}): Promise<ApiResult<OperatorListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<OperatorListResponse>("/admin/operators", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getOperator(operatorId: string): Promise<ApiResult<OperatorResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operators/${encodeURIComponent(operatorId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<OperatorResponse>(path, { cache: "no-store" }));
+}
+
+export async function listOperatorGrants(operatorId: string): Promise<ApiResult<GrantListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operators/${encodeURIComponent(operatorId)}/grants` as keyof AdminApiPaths & string;
+  return request(() => client.request<GrantListResponse>(path, { cache: "no-store" }));
+}
+
+export async function listOperatorDevices(operatorId: string): Promise<ApiResult<DeviceListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operators/${encodeURIComponent(operatorId)}/devices` as keyof AdminApiPaths & string;
+  return request(() => client.request<DeviceListResponse>(path, { cache: "no-store" }));
+}
+
+export async function activateOperator(operatorId: string, body: StatusChangeRequest): Promise<ApiResult<OperatorResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operators/${encodeURIComponent(operatorId)}/activate` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<OperatorResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function deactivateOperator(operatorId: string, body: StatusChangeRequest): Promise<ApiResult<OperatorResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operators/${encodeURIComponent(operatorId)}/deactivate` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<OperatorResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function listOperatorSourceCandidates(params: SourceCandidateSearchParams = {}): Promise<ApiResult<SourceCandidateListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SourceCandidateListResponse>("/admin/operator-source-candidates", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function mapOperatorSourceCandidate(candidateId: string, body: MapSourceCandidateRequest): Promise<ApiResult<SourceCandidateResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operator-source-candidates/${encodeURIComponent(candidateId)}/map` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SourceCandidateResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function rejectOperatorSourceCandidate(candidateId: string, body: RejectSourceCandidateRequest): Promise<ApiResult<SourceCandidateResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/operator-source-candidates/${encodeURIComponent(candidateId)}/reject` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SourceCandidateResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function listSOPs(params: SOPSearchParams = {}): Promise<ApiResult<SOPListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SOPListResponse>("/admin/sops", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getSOP(sopId: string): Promise<ApiResult<SOPResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/sops/${encodeURIComponent(sopId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<SOPResponse>(path, { cache: "no-store" }));
+}
+
+export async function createSOP(body: CreateSOPRequest): Promise<ApiResult<SOPResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SOPResponse>("/admin/sops", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function createSOPVersion(sopId: string, body: CreateSOPVersionRequest): Promise<ApiResult<SOPVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/sops/${encodeURIComponent(sopId)}/versions` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SOPVersionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function dryRunSOPVersion(sopId: string, sopVersionId: string, body: DryRunRequest): Promise<ApiResult<DryRunResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/sops/${encodeURIComponent(sopId)}/versions/${encodeURIComponent(sopVersionId)}/dry-run` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<DryRunResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function publishSOPVersion(sopId: string, sopVersionId: string, body: RowVersionRequest): Promise<ApiResult<SOPVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/sops/${encodeURIComponent(sopId)}/versions/${encodeURIComponent(sopVersionId)}/publish` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SOPVersionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function retireSOPVersion(sopId: string, sopVersionId: string, body: RowVersionRequest): Promise<ApiResult<SOPVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/sops/${encodeURIComponent(sopId)}/versions/${encodeURIComponent(sopVersionId)}/retire` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SOPVersionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function listTasks(params: TaskSearchParams = {}): Promise<ApiResult<TaskListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<TaskListResponse>("/admin/tasks", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getTask(taskId: string): Promise<ApiResult<TaskResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<TaskResponse>(path, { cache: "no-store" }));
+}
+
+export async function createTask(body: CreateTaskRequest): Promise<ApiResult<TaskResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<TaskResponse>("/admin/tasks", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function assignTask(taskId: string, body: AssignTaskRequest): Promise<ApiResult<TaskResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}/assign` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<TaskResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function verifyTask(taskId: string, body: ReviewTaskRequest): Promise<ApiResult<TaskResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}/verify` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<TaskResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function reworkTask(taskId: string, body: ReviewTaskRequest): Promise<ApiResult<TaskResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}/rework` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<TaskResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
     }),
   );
 }

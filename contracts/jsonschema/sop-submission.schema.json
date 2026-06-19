@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goatos.local/contracts/jsonschema/sop-submission.schema.json",
+  "title": "Goat OS SOP Submission",
+  "type": "object",
+  "required": ["sop_version_id", "idempotency_key", "answers", "proof_refs"],
+  "additionalProperties": false,
+  "properties": {
+    "sop_version_id": { "type": "string", "format": "uuid" },
+    "idempotency_key": { "type": "string", "minLength": 8, "maxLength": 200 },
+    "answers": { "type": "object", "additionalProperties": true },
+    "proof_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/proof_ref" }
+    }
+  },
+  "$defs": {
+    "proof_ref": {
+      "type": "object",
+      "required": ["proof_id", "proof_type", "subject_type", "upload_state"],
+      "additionalProperties": true,
+      "properties": {
+        "proof_id": { "type": "string" },
+        "proof_type": { "enum": ["photo", "video", "attachment"] },
+        "subject_type": { "enum": ["batch", "goat", "shed", "task", "other"] },
+        "subject_id": { "type": ["string", "null"] },
+        "upload_state": { "enum": ["pending", "uploading", "completed", "failed"] },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    }
+  }
+}

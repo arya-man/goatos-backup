@@ -40,14 +40,14 @@ export function Panel({
 }) {
   return (
     <section className="min-w-0 rounded-xl border border-[#334155] bg-[#1A1D24]">
-      <div className="flex flex-col gap-2 border-b border-[#334155] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <div className="flex min-w-0 flex-col gap-2 border-b border-[#334155] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-sm font-bold text-white">{title}</h2>
-          {description ? <p className="mt-1 text-sm text-[#8899AA]">{description}</p> : null}
+          {description ? <p className="mt-1 break-words text-sm text-[#8899AA]">{description}</p> : null}
         </div>
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="min-w-0 p-4">{children}</div>
     </section>
   );
 }
@@ -181,12 +181,12 @@ export function RowsPerPageSelect({
   options?: number[];
 }) {
   return (
-    <label>
+    <label className="min-w-0">
       <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
       <select
         name={name}
         defaultValue={defaultValue}
-        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full min-w-0 rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -229,7 +229,7 @@ export function Mono({ children }: { children: React.ReactNode }) {
 
 export function ValueList({ values }: { values: Array<[string, React.ReactNode]> }) {
   return (
-    <dl className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-3">
+    <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 xl:grid-cols-3">
       {values.map(([label, value]) => (
         <div key={label} className="rounded-lg border border-[#334155] bg-[#11151C] p-3">
           <dt className="text-xs uppercase text-[#8899AA]">{label}</dt>
@@ -270,7 +270,7 @@ export function FormField({
         max={max}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full min-w-0 rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       />
     </label>
   );
@@ -292,13 +292,13 @@ export function FormSelect({
   emptyLabel?: string;
 }) {
   return (
-    <label>
+    <label className="min-w-0">
       <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
       <select
         name={name}
         defaultValue={defaultValue ?? ""}
         required={required}
-        className="mt-1 h-10 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 h-10 w-full min-w-0 rounded-md border border-[#334155] bg-[#0f1115] px-3 text-sm text-white outline-none focus:border-[#14f1d9]"
       >
         <option value="">{emptyLabel}</option>
         {options.map((option) => (
@@ -327,7 +327,7 @@ export function FormTextArea({
   rows?: number;
 }) {
   return (
-    <label>
+    <label className="min-w-0">
       <span className="text-xs uppercase text-[#93a4b8]">{label}</span>
       <textarea
         name={name}
@@ -335,7 +335,7 @@ export function FormTextArea({
         rows={rows}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="mt-1 w-full rounded-md border border-[#334155] bg-[#0f1115] px-3 py-2 text-sm text-white outline-none focus:border-[#14f1d9]"
+        className="mt-1 w-full min-w-0 rounded-md border border-[#334155] bg-[#0f1115] px-3 py-2 text-sm text-white outline-none focus:border-[#14f1d9]"
       />
     </label>
   );

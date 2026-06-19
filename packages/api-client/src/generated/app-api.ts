@@ -4,6 +4,142 @@
  */
 
 export interface paths {
+    "/app/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return the authenticated actor's operator profile and active grants. */
+        get: operations["appMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return the Android bootstrap manifest for the authenticated operator. */
+        get: operations["appBootstrap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/devices/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register or refresh an Android app install for the authenticated operator. */
+        post: operations["registerAppDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/devices/{device_id}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update Android device heartbeat and app version state. */
+        post: operations["heartbeatAppDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List assigned operator tasks. */
+        get: operations["listAppTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get task detail and pinned SOP version. */
+        get: operations["getAppTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/sop-versions/{sop_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a pinned SOP version. */
+        get: operations["getAppSOPVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/tasks/{task_id}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit an idempotent SOP task response. */
+        post: operations["submitAppTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/goats/search": {
         parameters: {
             query?: never;
@@ -94,6 +230,157 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ValidationIssue: {
+            field: string;
+            code: string;
+            message: string;
+        };
+        ValidationReport: {
+            valid: boolean;
+            errors: components["schemas"]["ValidationIssue"][];
+            warnings: components["schemas"]["ValidationIssue"][];
+        };
+        SOPVersion: {
+            /** Format: uuid */
+            sop_version_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            sop_id: string;
+            sop_code: string;
+            version: number;
+            version_label: string;
+            /** @enum {string} */
+            status: "draft" | "published" | "retired";
+            form_dsl: {
+                [key: string]: unknown;
+            };
+            proof_policy: {
+                [key: string]: unknown;
+            };
+            compatibility: {
+                [key: string]: unknown;
+            };
+            validation_report: components["schemas"]["ValidationReport"];
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            retired_at?: string | null;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        SOPVersionResponse: {
+            version: components["schemas"]["SOPVersion"];
+            trace_id: string;
+        };
+        TaskSummary: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            sop_id: string;
+            /** Format: uuid */
+            sop_version_id: string;
+            sop_code: string;
+            task_type: string;
+            title: string;
+            description: string;
+            /** @enum {string} */
+            state: "queued" | "assigned" | "in_progress" | "submitted" | "accepted" | "needs_review" | "rework_requested" | "rejected" | "canceled";
+            /** Format: uuid */
+            assigned_to?: string | null;
+            scope_type: string;
+            /** Format: uuid */
+            scope_id: string;
+            priority: string;
+            /** Format: date-time */
+            due_at?: string | null;
+            context: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TaskListResponse: {
+            items: components["schemas"]["TaskSummary"][];
+            trace_id: string;
+        };
+        ProofReference: {
+            proof_id: string;
+            /** @enum {string} */
+            proof_type: "photo" | "video" | "attachment";
+            /** @enum {string} */
+            subject_type: "batch" | "goat" | "shed" | "task" | "other";
+            subject_id?: string | null;
+            /** @enum {string} */
+            upload_state: "pending" | "uploading" | "completed" | "failed";
+            metadata: {
+                [key: string]: unknown;
+            };
+        };
+        SubmissionItem: {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            goat_id?: string | null;
+            item_key: string;
+            /** @enum {string} */
+            state: "accepted" | "needs_review" | "rejected" | "skipped";
+            result: {
+                [key: string]: unknown;
+            };
+        };
+        SubmissionSummary: {
+            /** Format: uuid */
+            submission_id: string;
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            sop_version_id: string;
+            /** Format: uuid */
+            submitted_by: string;
+            idempotency_key: string;
+            answers: {
+                [key: string]: unknown;
+            };
+            proof_refs: components["schemas"]["ProofReference"][];
+            /** @enum {string} */
+            state: "submitted" | "accepted" | "needs_review" | "rejected" | "voided";
+            validation_report: components["schemas"]["ValidationReport"];
+            items: components["schemas"]["SubmissionItem"][];
+            /** Format: date-time */
+            submitted_at: string;
+            /** Format: date-time */
+            accepted_at?: string | null;
+            row_version: number;
+        };
+        TaskResponse: {
+            task: components["schemas"]["TaskSummary"];
+            sop_version?: components["schemas"]["SOPVersion"] | null;
+            submissions?: components["schemas"]["SubmissionSummary"][];
+            trace_id: string;
+        };
+        SubmitTaskRequest: {
+            /** Format: uuid */
+            sop_version_id: string;
+            idempotency_key: string;
+            answers: {
+                [key: string]: unknown;
+            };
+            proof_refs: components["schemas"]["ProofReference"][];
+        };
+        SubmissionResponse: {
+            submission: components["schemas"]["SubmissionSummary"];
+            task: components["schemas"]["TaskSummary"];
+            trace_id: string;
+        };
         ErrorEnvelope: {
             code: string;
             message: string;
@@ -105,6 +392,193 @@ export interface components {
             field: string;
             code: string;
             message: string;
+        };
+        OperatorProfile: {
+            /** Format: uuid */
+            operator_id: string;
+            /** Format: uuid */
+            user_id: string | null;
+            display_code: string;
+            display_name: string;
+            /** @enum {string} */
+            status: "candidate" | "active" | "inactive" | "suspended" | "left";
+            /** @enum {string} */
+            primary_role_hint: "operator" | "park_head" | "verifier" | "supervisor" | "admin" | "other";
+            /** Format: uuid */
+            primary_location_id: string | null;
+            primary_location: string | null;
+            grant_count: number;
+            capability_count: number;
+            active_device_count: number;
+            metadata: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        GrantSummary: {
+            /** Format: uuid */
+            grant_id: string;
+            /** Format: uuid */
+            user_id: string;
+            /** @enum {string} */
+            role: "admin" | "park_head" | "operator" | "verifier" | "ceo_internal";
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            status: "active" | "inactive" | "revoked";
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_to: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by: string | null;
+        };
+        CapabilityAssignment: {
+            /** Format: uuid */
+            member_capability_id: string;
+            /** Format: uuid */
+            capability_id: string;
+            capability_code: string;
+            description: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            status: "active" | "inactive" | "revoked";
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_to: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        DeviceSummary: {
+            /** Format: uuid */
+            device_id: string;
+            /** Format: uuid */
+            operator_id: string;
+            /** @constant */
+            platform: "android";
+            app_install_id: string;
+            device_public_key_hash: string | null;
+            push_token_hash: string | null;
+            app_version: string;
+            os_version: string;
+            /** @enum {string} */
+            status: "active" | "revoked" | "lost" | "retired";
+            /** Format: date-time */
+            last_seen_at: string;
+            /** Format: date-time */
+            registered_at: string;
+            /** Format: date-time */
+            revoked_at: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+        };
+        AppMeResponse: {
+            /** Format: uuid */
+            actor_id: string;
+            operator_profile: components["schemas"]["OperatorProfile"] | null;
+            grants: components["schemas"]["GrantSummary"][];
+            trace_id: string;
+        };
+        RegisterDeviceRequest: {
+            app_install_id: string;
+            device_public_key_hash?: string | null;
+            push_token_hash?: string | null;
+            app_version: string;
+            os_version?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        HeartbeatDeviceRequest: {
+            app_version?: string;
+            os_version?: string;
+            push_token_hash?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        DeviceResponse: {
+            device: components["schemas"]["DeviceSummary"];
+            trace_id: string;
+        };
+        BootstrapResponse: {
+            actor: components["schemas"]["BootstrapActor"];
+            operator_profile: components["schemas"]["OperatorProfile"];
+            roles_and_scopes: components["schemas"]["GrantSummary"][];
+            capabilities: components["schemas"]["CapabilityAssignment"][];
+            device_state: components["schemas"]["BootstrapDeviceState"];
+            app_min_supported_version: string;
+            feature_flags: {
+                [key: string]: boolean;
+            };
+            visible_navigation: components["schemas"]["BootstrapNavigationItem"][];
+            task_queue_descriptors: components["schemas"]["BootstrapTaskQueue"][];
+            pinned_sop_versions: components["schemas"]["BootstrapSOPVersion"][];
+            supported_field_types: string[];
+            supported_rule_operators: string[];
+            supported_proof_actions: string[];
+            option_source_descriptors: components["schemas"]["BootstrapOptionSource"][];
+            sync_policy: components["schemas"]["BootstrapSyncPolicy"];
+            /** Format: date-time */
+            server_time: string;
+            trace_id: string;
+        };
+        BootstrapActor: {
+            /** Format: uuid */
+            actor_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+        };
+        BootstrapDeviceState: {
+            required: boolean;
+            device: components["schemas"]["DeviceSummary"] | null;
+            status: string;
+            reason: string | null;
+        };
+        BootstrapNavigationItem: {
+            key: string;
+            label: string;
+            href: string;
+        };
+        BootstrapTaskQueue: {
+            key: string;
+            label: string;
+            required_capabilities: string[];
+        };
+        BootstrapSOPVersion: {
+            sop_code: string;
+            /** Format: uuid */
+            sop_version_id: string | null;
+            status: string;
+            compatible: boolean;
+            reason: string | null;
+        };
+        BootstrapOptionSource: {
+            key: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
+            /** Format: uuid */
+            scope_id: string;
+            ttl_seconds: number;
+        };
+        BootstrapSyncPolicy: {
+            offline_draft_ttl_hours: number;
+            heartbeat_interval_seconds: number;
+            max_retry_backoff_seconds: number;
         };
         /** @enum {string} */
         IdentifierType: "old_tag" | "rfid" | "visual_tag" | "sheet_row_id" | "purchase_load_id" | "temp_field_id" | "external_system_id";
@@ -327,9 +801,21 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Optimistic concurrency, stale SOP version, or idempotency conflict. */
+        WriteConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
     };
     parameters: {
         GoatId: string;
+        DeviceId: string;
+        TaskId: string;
+        SOPVersionId: string;
         Limit: number;
         Cursor: string;
         IdempotencyKey: string;
@@ -340,6 +826,207 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    appMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Actor/operator context. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppMeResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    appBootstrap: {
+        parameters: {
+            query?: {
+                device_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bootstrap manifest. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BootstrapResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    registerAppDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered device. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    heartbeatAppDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Device heartbeat accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listAppTasks: {
+        parameters: {
+            query?: {
+                state?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assigned tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getAppTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    getAppSOPVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sop_version_id: components["parameters"]["SOPVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SOP version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPVersionResponse"];
+                };
+            };
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    submitAppTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Submission result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
     searchGoats: {
         parameters: {
             query: {

@@ -187,6 +187,19 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	if secondConflictPage[0].ConflictID == firstConflictPage[0].ConflictID {
 		t.Fatalf("conflict cursor duplicated first row: first=%s second=%s", firstConflictPage[0].ConflictID, secondConflictPage[0].ConflictID)
 	}
+	if secondConflictPage[0].ConflictID == "20000000-0000-4000-8000-000000000002" && secondConflictPage[0].SourceRecordCount != 1 {
+		t.Fatalf("fallback source_record_ids should count as source records, got %#v", secondConflictPage[0])
+	}
+	fallbackDetail, err := repo.GetConflict(ctx, meshaTenant, "20000000-0000-4000-8000-000000000002")
+	if err != nil {
+		t.Fatalf("GetConflict fallback source records: %v", err)
+	}
+	if fallbackDetail.Conflict.SourceRecordCount != 1 ||
+		len(fallbackDetail.SourceRecords) != 1 ||
+		fallbackDetail.SourceRecords[0].SourceSystem != "legacy_bigquery" ||
+		fallbackDetail.SourceRecords[0].SourceRecordID != "old_tag:park:cpt:1901" {
+		t.Fatalf("unexpected fallback source records: summary=%#v records=%#v", fallbackDetail.Conflict, fallbackDetail.SourceRecords)
+	}
 	if _, _, err := repo.ListConflicts(ctx, ports.ListConflictsParams{TenantID: meshaTenant, Limit: 10, Cursor: strPtr("not-a-valid-cursor")}); !errors.Is(err, ports.ErrInvalidCursor) {
 		t.Fatalf("invalid conflict cursor should return ErrInvalidCursor, got %v", err)
 	}
@@ -400,8 +413,8 @@ VALUES (
   'old_tag',
   '1901',
   ARRAY['10000000-0000-4000-8000-000000000002'::uuid],
-  ARRAY[]::text[],
-  '{"scope_key":"park:CPT"}'::jsonb
+  ARRAY['old_tag:park:cpt:1901'],
+  '{"scope_key":"park:CPT","source_system":"legacy_bigquery"}'::jsonb
 );
 
 UPDATE identity_conflicts

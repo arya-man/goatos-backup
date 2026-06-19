@@ -1,10 +1,10 @@
-export type { paths as AdminApiPaths, components as AdminApiComponents } from "./generated/admin-api";
-export type { paths as AnalyticsApiPaths, components as AnalyticsApiComponents } from "./generated/analytics-api";
-export type { paths as AppApiPaths, components as AppApiComponents } from "./generated/app-api";
+export type { paths as AdminApiPaths, components as AdminApiComponents } from "./generated/admin-api.js";
+export type { paths as AnalyticsApiPaths, components as AnalyticsApiComponents } from "./generated/analytics-api.js";
+export type { paths as AppApiPaths, components as AppApiComponents } from "./generated/app-api.js";
 
-import type { paths as AdminApiPaths } from "./generated/admin-api";
-import type { paths as AnalyticsApiPaths } from "./generated/analytics-api";
-import type { paths as AppApiPaths } from "./generated/app-api";
+import type { paths as AdminApiPaths } from "./generated/admin-api.js";
+import type { paths as AnalyticsApiPaths } from "./generated/analytics-api.js";
+import type { paths as AppApiPaths } from "./generated/app-api.js";
 import { AUTH_SESSION_USER_AGENT_HEADER, TENANT_CONTEXT_HEADER } from "./constants.js";
 
 export { AUTH_SESSION_USER_AGENT_HEADER, TENANT_CONTEXT_HEADER } from "./constants.js";
@@ -76,12 +76,13 @@ export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSC
         headers.set("Content-Type", headers.get("Content-Type") ?? "application/json");
         body = JSON.stringify(requestOptions.body);
       }
+      const { body: _body, query: _query, ...fetchOptions } = requestOptions;
+      const init: RequestInit = { ...fetchOptions, headers };
+      if (body !== undefined) {
+        init.body = body;
+      }
 
-      const response = await fetchImpl(url, {
-        ...requestOptions,
-        headers,
-        body,
-      });
+      const response = await fetchImpl(url, init);
 
       const responseBody = await parseResponse(response);
       if (!response.ok) {

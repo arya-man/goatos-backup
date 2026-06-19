@@ -108,7 +108,10 @@ SELECT
   c.identifier_value,
   COALESCE(c.evidence->>'scope_key', 'unknown')::text AS scope_key,
   COALESCE((SELECT count(*)::int FROM identity_conflict_goats cg WHERE cg.tenant_id = c.tenant_id AND cg.conflict_id = c.conflict_id), cardinality(c.goat_ids), 0)::int AS goat_count,
-  COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), cardinality(c.source_record_ids), 0)::int AS source_record_count,
+  GREATEST(
+    COALESCE((SELECT count(*)::int FROM identity_conflict_source_records sr WHERE sr.tenant_id = c.tenant_id AND sr.conflict_id = c.conflict_id), 0),
+    COALESCE(cardinality(c.source_record_ids), 0)
+  )::int AS source_record_count,
   c.state,
   c.row_version,
   c.created_at
@@ -122,10 +125,29 @@ WHERE tenant_id = @tenant_id AND conflict_id = @conflict_id
 ORDER BY created_at ASC;
 
 -- name: ListConflictSourceRecordsByID :many
+WITH explicit_records AS (
+  SELECT source_system, source_record_id, created_at
+  FROM identity_conflict_source_records
+  WHERE identity_conflict_source_records.tenant_id = @tenant_id
+    AND identity_conflict_source_records.conflict_id = @conflict_id
+),
+fallback_records AS (
+  SELECT
+    COALESCE(NULLIF(c.evidence->>'source_system', ''), 'legacy_bigquery')::text AS source_system,
+    source_record_id::text,
+    c.created_at
+  FROM identity_conflicts c
+  CROSS JOIN unnest(COALESCE(c.source_record_ids, ARRAY[]::text[])) AS source_record_id
+  WHERE c.tenant_id = @tenant_id
+    AND c.conflict_id = @conflict_id
+    AND NOT EXISTS (SELECT 1 FROM explicit_records)
+)
 SELECT source_system, source_record_id
-FROM identity_conflict_source_records
-WHERE tenant_id = @tenant_id AND conflict_id = @conflict_id
-ORDER BY created_at ASC;
+FROM explicit_records
+UNION ALL
+SELECT source_system, source_record_id
+FROM fallback_records
+ORDER BY source_record_id ASC;
 
 -- name: ListIdentityCandidates :many
 SELECT

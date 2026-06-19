@@ -9,34 +9,83 @@ const (
 	RoleOperator    = "operator"
 	RoleCEOInternal = "ceo_internal"
 
-	GoatRead              = "goat.read"
-	CorrectionCreate      = "correction.create"
-	GoatViewDirtyData     = "goat.view_dirty_data"
-	GoatReviewIdentity    = "goat.review_identity"
-	GoatWriteIdentity     = "goat.write_identity"
-	AnalyticsIdentityRead = "analytics.identity.read"
-	ImportRunManage       = "import.run.manage"
-	ImportRunView         = "import.run.view"
+	GoatRead                  = "goat.read"
+	CorrectionCreate          = "correction.create"
+	GoatViewDirtyData         = "goat.view_dirty_data"
+	GoatReviewIdentity        = "goat.review_identity"
+	GoatWriteIdentity         = "goat.write_identity"
+	AnalyticsIdentityRead     = "analytics.identity.read"
+	ImportRunManage           = "import.run.manage"
+	ImportRunView             = "import.run.view"
+	LocationsRead             = "locations.read"
+	LocationsWrite            = "locations.write"
+	LocationsReview           = "locations.review"
+	LocationsRetire           = "locations.retire"
+	AnalyticsCountsRead       = "analytics.counts.read"
+	AnalyticsCountsSync       = "analytics.counts.sync"
+	AnalyticsCountsReview     = "analytics.counts.review"
+	AnalyticsMortalityRead    = "analytics.mortality.read"
+	AnalyticsMortalitySync    = "analytics.mortality.sync"
+	AnalyticsMortalityReview  = "analytics.mortality.review"
+	OperatorsRead             = "operators.read"
+	OperatorsWrite            = "operators.write"
+	OperatorsActivate         = "operators.activate"
+	OperatorsDeactivate       = "operators.deactivate"
+	OperatorsMapLegacySource  = "operators.map_legacy_source"
+	OperatorsManageDevice     = "operators.manage_device"
+	OperatorsManageCapability = "operators.manage_capability"
+	OperatorsManageRoster     = "operators.manage_roster"
+	OperatorsViewAudit        = "operators.view_audit"
+	AppBootstrap              = "app.bootstrap"
+	SOPRead                   = "sop.read"
+	SOPWrite                  = "sop.write"
+	SOPPublish                = "sop.publish"
+	TaskRead                  = "task.read"
+	TaskAssign                = "task.assign"
+	TaskExecute               = "task.execute"
+	TaskVerify                = "task.verify"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
 	RoleAdmin: {
 		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
 		GoatWriteIdentity: {}, AnalyticsIdentityRead: {}, ImportRunManage: {}, ImportRunView: {},
+		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
+		AnalyticsCountsRead: {}, AnalyticsCountsSync: {}, AnalyticsCountsReview: {},
+		AnalyticsMortalityRead: {}, AnalyticsMortalitySync: {}, AnalyticsMortalityReview: {},
+		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
+		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
+		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
+		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
 		GoatWriteIdentity: {}, AnalyticsIdentityRead: {}, ImportRunView: {},
+		LocationsRead: {}, LocationsReview: {},
+		AnalyticsCountsRead: {}, AnalyticsCountsReview: {},
+		AnalyticsMortalityRead: {}, AnalyticsMortalityReview: {},
+		OperatorsRead: {},
+		TaskRead:      {}, TaskVerify: {},
 	},
 	RoleParkHead: {
 		GoatRead: {}, CorrectionCreate: {}, AnalyticsIdentityRead: {},
+		LocationsRead: {}, AnalyticsCountsRead: {}, AnalyticsMortalityRead: {},
+		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 	},
 	RoleOperator: {
-		GoatRead: {}, CorrectionCreate: {},
+		GoatRead: {}, CorrectionCreate: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
 		GoatWriteIdentity: {}, AnalyticsIdentityRead: {}, ImportRunManage: {}, ImportRunView: {},
+		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
+		AnalyticsCountsRead: {}, AnalyticsCountsSync: {}, AnalyticsCountsReview: {},
+		AnalyticsMortalityRead: {}, AnalyticsMortalitySync: {}, AnalyticsMortalityReview: {},
+		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
+		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
+		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
+		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 	},
 }
 

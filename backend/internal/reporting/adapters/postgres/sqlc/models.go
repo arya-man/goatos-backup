@@ -163,6 +163,129 @@ type BreedAlias struct {
 	CreatedAt       pgtype.Timestamptz
 }
 
+type CountsCurrentSnapshotRow struct {
+	CountsSnapshotRowID  pgtype.UUID
+	TenantID             pgtype.UUID
+	SnapshotDate         pgtype.Date
+	SourceMode           string
+	RowKind              string
+	TabScope             pgtype.Text
+	FarmKey              pgtype.Text
+	FarmLabel            pgtype.Text
+	FarmID               pgtype.UUID
+	ParkID               pgtype.UUID
+	ShedKey              pgtype.Text
+	ShedLabel            pgtype.Text
+	ShedID               pgtype.UUID
+	ResolvedLocationID   pgtype.UUID
+	ResolvedLocationType pgtype.Text
+	StatusKey            pgtype.Text
+	StatusLabel          pgtype.Text
+	BreedKey             pgtype.Text
+	BreedLabel           pgtype.Text
+	BreedID              pgtype.UUID
+	AgeClass             pgtype.Text
+	SourceAgeLabel       pgtype.Text
+	Sex                  pgtype.Text
+	MetricName           string
+	CountValue           pgtype.Int8
+	WeightKg             pgtype.Numeric
+	ValueInr             pgtype.Numeric
+	SourceRowID          pgtype.UUID
+	LogicalFactKey       string
+	ProjectionInputHash  string
+	SyncRunID            pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type CountsProjectionRow struct {
+	CountsProjectionRowID   pgtype.UUID
+	TenantID                pgtype.UUID
+	ViewID                  string
+	SnapshotDate            pgtype.Date
+	SummarySourceDate       pgtype.Date
+	Section                 string
+	Grain                   string
+	DimensionKey            string
+	DimensionLabel          string
+	SecondaryDimensionKey   pgtype.Text
+	SecondaryDimensionLabel pgtype.Text
+	MetricKey               string
+	CountValue              pgtype.Int8
+	NumericValue            pgtype.Numeric
+	Unit                    string
+	Denominator             pgtype.Numeric
+	SortOrder               int32
+	ProjectionVersion       int64
+	SyncRunID               pgtype.UUID
+	SourceHash              string
+	SourceComposition       string
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
+type CountsProjectionState struct {
+	CountsProjectionStateID pgtype.UUID
+	TenantID                pgtype.UUID
+	ViewID                  pgtype.Text
+	LastSuccessfulRunID     pgtype.UUID
+	LastSuccessAt           pgtype.Timestamptz
+	SnapshotDate            pgtype.Date
+	SummarySourceDate       pgtype.Date
+	SourceWatermark         pgtype.Text
+	ProjectionVersion       int64
+	FreshnessStatus         string
+	ServingState            string
+	RowCount                int32
+	ConflictCount           int32
+	UnavailableSources      []byte
+	SourceComposition       string
+	RebuildRequired         bool
+	LastError               pgtype.Text
+	UpdatedAt               pgtype.Timestamptz
+}
+
+type CountsSourceRow struct {
+	CountsSourceRowID   pgtype.UUID
+	TenantID            pgtype.UUID
+	SourceSystem        string
+	SourceID            string
+	SourceTable         string
+	SourceRowKey        string
+	SourceObservedAt    pgtype.Timestamptz
+	SourceWatermarkDate pgtype.Date
+	PayloadJson         []byte
+	PayloadHash         string
+	RowStatus           string
+	SyncRunID           pgtype.UUID
+	CreatedAt           pgtype.Timestamptz
+	SupersededAt        pgtype.Timestamptz
+}
+
+type FeatureCoverageRegistry struct {
+	CoverageID               pgtype.UUID
+	TenantID                 pgtype.UUID
+	FeatureModule            string
+	Section                  string
+	MetricKey                string
+	GrainKey                 string
+	CoveredWindow            string
+	SourceMode               string
+	CoverageStatus           string
+	CanonicalSourceVersion   pgtype.Text
+	LegacySourceVersion      pgtype.Text
+	ShadowParityArtifactPath pgtype.Text
+	ApprovingActor           pgtype.UUID
+	ApprovedAt               pgtype.Timestamptz
+	AuditID                  pgtype.UUID
+	RollbackPolicy           pgtype.Text
+	ExpiresAt                pgtype.Timestamptz
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+	RowVersion               int32
+}
+
 type Goat struct {
 	GoatID             pgtype.UUID
 	TenantID           pgtype.UUID
@@ -802,6 +925,12 @@ type Location struct {
 	Timezone         string
 	Status           string
 	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	RowVersion       int32
+	DisplayOrder     int32
+	OperationalNotes pgtype.Text
+	RetiredAt        pgtype.Timestamptz
+	RetiredBy        pgtype.UUID
 }
 
 type LocationAlias struct {
@@ -812,6 +941,207 @@ type LocationAlias struct {
 	SourceContext       string
 	Notes               pgtype.Text
 	CreatedAt           pgtype.Timestamptz
+	Status              string
+	UpdatedAt           pgtype.Timestamptz
+	RowVersion          int32
+	RetiredAt           pgtype.Timestamptz
+}
+
+type LocationCapacityRecord struct {
+	CapacityRecordID pgtype.UUID
+	TenantID         pgtype.UUID
+	LocationID       pgtype.UUID
+	CapacityKind     string
+	CapacityValue    int32
+	EffectiveFrom    pgtype.Date
+	EffectiveTo      pgtype.Date
+	Source           string
+	SourceRef        pgtype.Text
+	Notes            pgtype.Text
+	CreatedBy        pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	RowVersion       int32
+}
+
+type LocationOperationalAttribute struct {
+	TenantID             pgtype.UUID
+	LocationID           pgtype.UUID
+	UsableForCounts      bool
+	UsableForFeed        bool
+	UsableForVaccination bool
+	UsableForSop         bool
+	IsHolding            bool
+	IsQuarantine         bool
+	IsIcu                bool
+	DisplayOrder         int32
+	Notes                pgtype.Text
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type LocationProjectionInvalidation struct {
+	InvalidationID     pgtype.UUID
+	TenantID           pgtype.UUID
+	SourceModule       string
+	ProjectionModule   string
+	Reason             string
+	AffectedLocationID pgtype.UUID
+	SourceRef          pgtype.Text
+	Status             string
+	CreatedAt          pgtype.Timestamptz
+	AcknowledgedAt     pgtype.Timestamptz
+}
+
+type LocationReviewItem struct {
+	ReviewID              pgtype.UUID
+	TenantID              pgtype.UUID
+	ReviewType            string
+	Status                string
+	SourceContext         pgtype.Text
+	SourceLabel           pgtype.Text
+	NormalizedSourceLabel pgtype.Text
+	CanonicalLocationID   pgtype.UUID
+	CandidateLocationIds  []byte
+	EvidenceJson          []byte
+	EvidenceHash          string
+	SyncRunID             pgtype.UUID
+	CreatedBy             pgtype.UUID
+	ResolvedBy            pgtype.UUID
+	ResolutionNotes       pgtype.Text
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	ResolvedAt            pgtype.Timestamptz
+	RowVersion            int32
+}
+
+type MortalityEvent struct {
+	MortalityEventID           pgtype.UUID
+	TenantID                   pgtype.UUID
+	LogicalEventKey            pgtype.Text
+	DedupCandidateKey          pgtype.Text
+	UnresolvedEventOrdinal     pgtype.Int4
+	DedupConfidence            string
+	EventType                  string
+	EventDate                  pgtype.Date
+	GoatID                     pgtype.UUID
+	SourceGoatIdentifier       pgtype.Text
+	SourceIdentifierKind       pgtype.Text
+	AgeClass                   string
+	BreedKey                   pgtype.Text
+	BreedLabel                 pgtype.Text
+	FarmKey                    pgtype.Text
+	FarmLabel                  pgtype.Text
+	CanonicalFarmLocationID    pgtype.UUID
+	CanonicalParkLocationID    pgtype.UUID
+	CanonicalShedLocationID    pgtype.UUID
+	CanonicalHousingLocationID pgtype.UUID
+	LoadKey                    pgtype.Text
+	LoadLabel                  pgtype.Text
+	DeliveryKey                pgtype.Text
+	DeliveryLabel              pgtype.Text
+	Sex                        pgtype.Text
+	SourceRowID                pgtype.UUID
+	EventHash                  string
+	ReviewStatus               string
+	IdempotencyKey             string
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+}
+
+type MortalityProjectionRow struct {
+	MortalityProjectionRowID     pgtype.UUID
+	TenantID                     pgtype.UUID
+	Period                       string
+	PeriodStart                  pgtype.Date
+	PeriodEnd                    pgtype.Date
+	Section                      string
+	Grain                        string
+	DimensionKey                 string
+	DimensionLabel               string
+	MetricKey                    string
+	Numerator                    pgtype.Numeric
+	Denominator                  pgtype.Numeric
+	DenominatorSourceModule      pgtype.Text
+	DenominatorProjectionVersion pgtype.Int8
+	DenominatorSourceWatermark   pgtype.Text
+	NumeratorSourceComposition   pgtype.Text
+	DenominatorSourceComposition pgtype.Text
+	MixedCompositionExceptionID  pgtype.UUID
+	Value                        pgtype.Numeric
+	Unit                         string
+	SortOrder                    int32
+	ProjectionVersion            int64
+	SyncRunID                    pgtype.UUID
+	SourceHash                   string
+	SourceComposition            string
+	CreatedAt                    pgtype.Timestamptz
+	UpdatedAt                    pgtype.Timestamptz
+}
+
+type MortalityProjectionState struct {
+	MortalityProjectionStateID pgtype.UUID
+	TenantID                   pgtype.UUID
+	Period                     pgtype.Text
+	LastSuccessfulRunID        pgtype.UUID
+	LastSuccessAt              pgtype.Timestamptz
+	SourceWatermark            pgtype.Text
+	ProjectionVersion          int64
+	FreshnessStatus            string
+	ServingState               string
+	SourceComposition          string
+	RowCount                   int32
+	ConflictCount              int32
+	UnavailableSources         []byte
+	RebuildRequired            bool
+	LastError                  pgtype.Text
+	UpdatedAt                  pgtype.Timestamptz
+}
+
+type MortalityReviewItem struct {
+	ReviewID         pgtype.UUID
+	TenantID         pgtype.UUID
+	MortalityEventID pgtype.UUID
+	ReviewType       string
+	Status           string
+	SourceContext    pgtype.Text
+	SourceLabel      pgtype.Text
+	EvidenceJson     []byte
+	EvidenceHash     string
+	SyncRunID        pgtype.UUID
+	CreatedBy        pgtype.UUID
+	ResolvedBy       pgtype.UUID
+	ResolutionNotes  pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	ResolvedAt       pgtype.Timestamptz
+	RowVersion       int32
+}
+
+type MortalitySourceRow struct {
+	MortalitySourceRowID pgtype.UUID
+	TenantID             pgtype.UUID
+	SourceSystem         string
+	SourceTable          string
+	SourceRowKey         string
+	SourceObservedAt     pgtype.Timestamptz
+	SourceWatermark      pgtype.Text
+	PayloadJson          []byte
+	PayloadHash          string
+	RowStatus            string
+	SyncRunID            pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	SupersededAt         pgtype.Timestamptz
+}
+
+type MovementCommand struct {
+	CommandID    pgtype.UUID
+	TenantID     pgtype.UUID
+	TaskID       pgtype.UUID
+	SubmissionID pgtype.UUID
+	CommandType  string
+	State        string
+	Payload      []byte
+	CreatedAt    pgtype.Timestamptz
 }
 
 type Org struct {
@@ -854,6 +1184,90 @@ type Party struct {
 	UpdatedAt   pgtype.Timestamptz
 }
 
+type SopDefinition struct {
+	SopID       pgtype.UUID
+	TenantID    pgtype.UUID
+	Code        string
+	Name        string
+	Description string
+	Status      string
+	CreatedBy   pgtype.UUID
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	RowVersion  int32
+}
+
+type SopSubmission struct {
+	SubmissionID     pgtype.UUID
+	TenantID         pgtype.UUID
+	TaskID           pgtype.UUID
+	SopVersionID     pgtype.UUID
+	SubmittedBy      pgtype.UUID
+	IdempotencyKey   string
+	Answers          []byte
+	ProofRefs        []byte
+	State            string
+	ValidationReport []byte
+	SubmittedAt      pgtype.Timestamptz
+	AcceptedAt       pgtype.Timestamptz
+	RowVersion       int32
+}
+
+type SopSubmissionItem struct {
+	ItemID       pgtype.UUID
+	TenantID     pgtype.UUID
+	SubmissionID pgtype.UUID
+	TaskID       pgtype.UUID
+	GoatID       pgtype.UUID
+	ItemKey      string
+	State        string
+	Result       []byte
+	CreatedAt    pgtype.Timestamptz
+}
+
+type SopTask struct {
+	TaskID       pgtype.UUID
+	TenantID     pgtype.UUID
+	SopID        pgtype.UUID
+	SopVersionID pgtype.UUID
+	TaskType     string
+	Title        string
+	Description  string
+	State        string
+	AssignedTo   pgtype.UUID
+	ScopeType    string
+	ScopeID      pgtype.UUID
+	Priority     string
+	DueAt        pgtype.Timestamptz
+	Context      []byte
+	CreatedBy    pgtype.UUID
+	VerifiedBy   pgtype.UUID
+	VerifiedAt   pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	RowVersion   int32
+}
+
+type SopVersion struct {
+	SopVersionID     pgtype.UUID
+	TenantID         pgtype.UUID
+	SopID            pgtype.UUID
+	Version          int32
+	VersionLabel     string
+	Status           string
+	FormDsl          []byte
+	ProofPolicy      []byte
+	Compatibility    []byte
+	ValidationReport []byte
+	CreatedBy        pgtype.UUID
+	PublishedBy      pgtype.UUID
+	PublishedAt      pgtype.Timestamptz
+	RetiredAt        pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	RowVersion       int32
+}
+
 type StatusDefinition struct {
 	StatusCode           string
 	Axis                 string
@@ -888,4 +1302,140 @@ type UserScopeGrant struct {
 	ValidTo   pgtype.Timestamptz
 	CreatedBy pgtype.UUID
 	CreatedAt pgtype.Timestamptz
+}
+
+type WorkforceAbsence struct {
+	AbsenceID           pgtype.UUID
+	TenantID            pgtype.UUID
+	WorkforceMemberID   pgtype.UUID
+	ScopeType           string
+	ScopeID             pgtype.UUID
+	StartsAt            pgtype.Timestamptz
+	EndsAt              pgtype.Timestamptz
+	ReasonCode          string
+	Status              string
+	ReplacementMemberID pgtype.UUID
+	CreatedBy           pgtype.UUID
+	ApprovedBy          pgtype.UUID
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	RowVersion          int32
+}
+
+type WorkforceCapability struct {
+	CapabilityID   pgtype.UUID
+	TenantID       pgtype.UUID
+	CapabilityCode string
+	Description    string
+	Status         string
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type WorkforceExternalIdentity struct {
+	ExternalIdentityID   pgtype.UUID
+	TenantID             pgtype.UUID
+	WorkforceMemberID    pgtype.UUID
+	SourceSystem         string
+	SourceFlow           string
+	ExternalRefType      string
+	ExternalRefHash      string
+	EncryptedExternalRef []byte
+	Status               string
+	Confidence           pgtype.Numeric
+	FirstSeenAt          pgtype.Timestamptz
+	LastSeenAt           pgtype.Timestamptz
+	ObservationCount     int64
+	ReviewedBy           pgtype.UUID
+	ReviewedAt           pgtype.Timestamptz
+	ReviewReason         pgtype.Text
+	Metadata             []byte
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	RowVersion           int32
+}
+
+type WorkforceMember struct {
+	WorkforceMemberID pgtype.UUID
+	TenantID          pgtype.UUID
+	UserID            pgtype.UUID
+	DisplayCode       string
+	DisplayName       string
+	Status            string
+	PrimaryRoleHint   string
+	PrimaryLocationID pgtype.UUID
+	Metadata          []byte
+	CreatedBy         pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RowVersion        int32
+}
+
+type WorkforceMemberAppSession struct {
+	SessionID         pgtype.UUID
+	TenantID          pgtype.UUID
+	WorkforceMemberID pgtype.UUID
+	DeviceID          pgtype.UUID
+	AuthSubject       pgtype.UUID
+	StartedAt         pgtype.Timestamptz
+	LastSeenAt        pgtype.Timestamptz
+	EndedAt           pgtype.Timestamptz
+	Status            string
+	AppVersion        string
+	IpHash            pgtype.Text
+	Metadata          []byte
+}
+
+type WorkforceMemberCapability struct {
+	MemberCapabilityID pgtype.UUID
+	TenantID           pgtype.UUID
+	WorkforceMemberID  pgtype.UUID
+	CapabilityID       pgtype.UUID
+	ScopeType          string
+	ScopeID            pgtype.UUID
+	Status             string
+	ValidFrom          pgtype.Timestamptz
+	ValidTo            pgtype.Timestamptz
+	AssignedBy         pgtype.UUID
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type WorkforceMemberDevice struct {
+	DeviceID            pgtype.UUID
+	TenantID            pgtype.UUID
+	WorkforceMemberID   pgtype.UUID
+	Platform            string
+	AppInstallID        string
+	DevicePublicKeyHash pgtype.Text
+	PushTokenHash       pgtype.Text
+	AppVersion          string
+	OsVersion           string
+	Status              string
+	LastSeenAt          pgtype.Timestamptz
+	RegisteredBy        pgtype.UUID
+	RegisteredAt        pgtype.Timestamptz
+	RevokedBy           pgtype.UUID
+	RevokedAt           pgtype.Timestamptz
+	Metadata            []byte
+	RowVersion          int32
+}
+
+type WorkforceRosterAssignment struct {
+	RosterAssignmentID    pgtype.UUID
+	TenantID              pgtype.UUID
+	WorkforceMemberID     pgtype.UUID
+	TeamID                pgtype.UUID
+	ScopeType             string
+	ScopeID               pgtype.UUID
+	ShiftDate             pgtype.Date
+	ShiftStartAt          pgtype.Timestamptz
+	ShiftEndAt            pgtype.Timestamptz
+	TaskType              pgtype.Text
+	Status                string
+	EscalationOwnerUserID pgtype.UUID
+	CreatedBy             pgtype.UUID
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	RowVersion            int32
 }

@@ -101,6 +101,39 @@ $$;
 
 
 --
+-- Name: location_seeded_scope_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.location_seeded_scope_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  approved_plan text;
+BEGIN
+  approved_plan := current_setting('goatos.approved_location_migration_plan', true);
+  IF approved_plan IS NULL OR btrim(approved_plan) = '' THEN
+    IF TG_TABLE_NAME = 'locations' THEN
+      IF OLD.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+        AND OLD.location_id IN (
+          '00000000-0000-4000-8000-000000003001'::uuid,
+          '00000000-0000-4000-8000-000000003002'::uuid,
+          '00000000-0000-4000-8000-000000003003'::uuid
+        ) THEN
+        RAISE EXCEPTION 'seeded CBE/CPT/HF location scope requires approved migration plan';
+      END IF;
+    ELSIF TG_TABLE_NAME = 'location_aliases' THEN
+      IF OLD.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+        AND OLD.source_context IN ('legacy_location_code', 'legacy_bq_dashboard_shed') THEN
+        RAISE EXCEPTION 'seeded location alias scope requires approved migration plan';
+      END IF;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: next_goat_display_id(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -146,6 +179,33 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: reject_overlapping_location_capacity(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_overlapping_location_capacity() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM location_capacity_records existing
+    WHERE existing.tenant_id = NEW.tenant_id
+      AND existing.location_id = NEW.location_id
+      AND existing.capacity_kind = NEW.capacity_kind
+      AND existing.capacity_record_id <> COALESCE(NEW.capacity_record_id, '00000000-0000-0000-0000-000000000000'::uuid)
+      AND daterange(existing.effective_from, existing.effective_to, '[)') && daterange(NEW.effective_from, NEW.effective_to, '[)')
+  ) THEN
+    RAISE EXCEPTION 'overlapping capacity record for tenant %, location %, kind %', NEW.tenant_id, NEW.location_id, NEW.capacity_kind;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -491,6 +551,175 @@ CREATE TABLE public.breeds (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
+);
+
+
+--
+-- Name: counts_current_snapshot_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_current_snapshot_rows (
+    counts_snapshot_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    snapshot_date date NOT NULL,
+    source_mode text NOT NULL,
+    row_kind text NOT NULL,
+    tab_scope text,
+    farm_key text,
+    farm_label text,
+    farm_id uuid,
+    park_id uuid,
+    shed_key text,
+    shed_label text,
+    shed_id uuid,
+    resolved_location_id uuid,
+    resolved_location_type text,
+    status_key text,
+    status_label text,
+    breed_key text,
+    breed_label text,
+    breed_id uuid,
+    age_class text,
+    source_age_label text,
+    sex text,
+    metric_name text NOT NULL,
+    count_value bigint,
+    weight_kg numeric,
+    value_inr numeric,
+    source_row_id uuid,
+    logical_fact_key text NOT NULL,
+    projection_input_hash text NOT NULL,
+    sync_run_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT counts_snapshot_age_class_check CHECK (((age_class IS NULL) OR (age_class = ANY (ARRAY['adult'::text, 'kid'::text, 'unknown'::text])))),
+    CONSTRAINT counts_snapshot_nonnegative_count_check CHECK (((count_value IS NULL) OR (count_value >= 0))),
+    CONSTRAINT counts_snapshot_row_kind_check CHECK ((row_kind = ANY (ARRAY['detail_count'::text, 'summary_kpi'::text, 'age_gender_kpi'::text, 'core_gender_breed'::text]))),
+    CONSTRAINT counts_snapshot_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text])))),
+    CONSTRAINT counts_snapshot_source_mode_check CHECK ((source_mode = ANY (ARRAY['legacy_bq'::text, 'goatos_canonical'::text])))
+);
+
+
+--
+-- Name: counts_projection_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_projection_rows (
+    counts_projection_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    view_id text NOT NULL,
+    snapshot_date date NOT NULL,
+    summary_source_date date,
+    section text NOT NULL,
+    grain text NOT NULL,
+    dimension_key text NOT NULL,
+    dimension_label text NOT NULL,
+    secondary_dimension_key text,
+    secondary_dimension_label text,
+    metric_key text NOT NULL,
+    count_value bigint,
+    numeric_value numeric,
+    unit text NOT NULL,
+    denominator numeric,
+    sort_order integer DEFAULT 0 NOT NULL,
+    projection_version bigint NOT NULL,
+    sync_run_id uuid,
+    source_hash text NOT NULL,
+    source_composition text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT counts_projection_grain_check CHECK ((grain = ANY (ARRAY['metric'::text, 'status'::text, 'breed'::text, 'status_breed'::text, 'farm'::text, 'age_class'::text, 'sex'::text, 'breed_sex'::text]))),
+    CONSTRAINT counts_projection_nonnegative_count_check CHECK (((count_value IS NULL) OR (count_value >= 0))),
+    CONSTRAINT counts_projection_section_check CHECK ((section = ANY (ARRAY['summary'::text, 'status'::text, 'breed'::text, 'status_breed'::text, 'farm'::text, 'farm_distribution'::text, 'age'::text, 'adults_gender'::text, 'kids_gender'::text, 'kids_stage_gender'::text, 'fattening_gender'::text, 'core_farm_gender_breed'::text]))),
+    CONSTRAINT counts_projection_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
+    CONSTRAINT counts_projection_unit_check CHECK ((unit = ANY (ARRAY['count'::text, 'kg'::text, 'inr'::text, 'kg_per_goat'::text, 'percent'::text]))),
+    CONSTRAINT counts_projection_view_check CHECK ((view_id = ANY (ARRAY['overall'::text, 'core-farms'::text, 'cbe'::text, 'cpt'::text, 'holdings'::text])))
+);
+
+
+--
+-- Name: counts_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_projection_state (
+    counts_projection_state_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    view_id text,
+    last_successful_run_id uuid,
+    last_success_at timestamp with time zone,
+    snapshot_date date,
+    summary_source_date date,
+    source_watermark text,
+    projection_version bigint DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    row_count integer DEFAULT 0 NOT NULL,
+    conflict_count integer DEFAULT 0 NOT NULL,
+    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
+    source_composition text DEFAULT 'legacy_only'::text NOT NULL,
+    rebuild_required boolean DEFAULT false NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT counts_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT counts_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
+    CONSTRAINT counts_projection_state_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
+    CONSTRAINT counts_projection_state_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text)),
+    CONSTRAINT counts_projection_state_view_check CHECK (((view_id IS NULL) OR (view_id = ANY (ARRAY['overall'::text, 'core-farms'::text, 'cbe'::text, 'cpt'::text, 'holdings'::text]))))
+);
+
+
+--
+-- Name: counts_source_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_source_rows (
+    counts_source_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    source_system text NOT NULL,
+    source_id text NOT NULL,
+    source_table text NOT NULL,
+    source_row_key text NOT NULL,
+    source_observed_at timestamp with time zone,
+    source_watermark_date date,
+    payload_json jsonb NOT NULL,
+    payload_hash text NOT NULL,
+    row_status text DEFAULT 'current'::text NOT NULL,
+    sync_run_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    superseded_at timestamp with time zone,
+    CONSTRAINT counts_source_rows_payload_object_check CHECK ((jsonb_typeof(payload_json) = 'object'::text)),
+    CONSTRAINT counts_source_rows_status_check CHECK ((row_status = ANY (ARRAY['current'::text, 'superseded'::text, 'invalid'::text, 'ignored'::text])))
+);
+
+
+--
+-- Name: feature_coverage_registry; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feature_coverage_registry (
+    coverage_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    feature_module text NOT NULL,
+    section text NOT NULL,
+    metric_key text NOT NULL,
+    grain_key text NOT NULL,
+    covered_window text NOT NULL,
+    source_mode text NOT NULL,
+    coverage_status text NOT NULL,
+    canonical_source_version text,
+    legacy_source_version text,
+    shadow_parity_artifact_path text,
+    approving_actor uuid,
+    approved_at timestamp with time zone,
+    audit_id uuid,
+    rollback_policy text,
+    expires_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT feature_coverage_registry_module_check CHECK ((feature_module = ANY (ARRAY['counts'::text, 'mortality'::text, 'locations'::text]))),
+    CONSTRAINT feature_coverage_registry_source_mode_check CHECK ((source_mode = ANY (ARRAY['legacy_bq'::text, 'legacy_sheet'::text, 'goatos_canonical'::text, 'manual_review'::text]))),
+    CONSTRAINT feature_coverage_registry_status_check CHECK ((coverage_status = ANY (ARRAY['proposed'::text, 'shadow_passed'::text, 'complete'::text, 'blocked'::text])))
 );
 
 
@@ -1585,7 +1814,109 @@ CREATE TABLE public.location_aliases (
     canonical_location_id uuid NOT NULL,
     source_context text NOT NULL,
     notes text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    retired_at timestamp with time zone,
+    CONSTRAINT location_aliases_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text, 'review'::text])))
+);
+
+
+--
+-- Name: location_capacity_records; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.location_capacity_records (
+    capacity_record_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    capacity_kind text NOT NULL,
+    capacity_value integer NOT NULL,
+    effective_from date NOT NULL,
+    effective_to date,
+    source text NOT NULL,
+    source_ref text,
+    notes text,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT location_capacity_records_kind_check CHECK ((capacity_kind = ANY (ARRAY['goat_occupancy'::text, 'quarantine'::text, 'feed_trial'::text, 'other'::text]))),
+    CONSTRAINT location_capacity_records_positive_check CHECK ((capacity_value > 0)),
+    CONSTRAINT location_capacity_records_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'legacy_bq'::text, 'android_sop'::text, 'import'::text]))),
+    CONSTRAINT location_capacity_records_window_check CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
+);
+
+
+--
+-- Name: location_operational_attributes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.location_operational_attributes (
+    tenant_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    usable_for_counts boolean DEFAULT true NOT NULL,
+    usable_for_feed boolean DEFAULT true NOT NULL,
+    usable_for_vaccination boolean DEFAULT true NOT NULL,
+    usable_for_sop boolean DEFAULT true NOT NULL,
+    is_holding boolean DEFAULT false NOT NULL,
+    is_quarantine boolean DEFAULT false NOT NULL,
+    is_icu boolean DEFAULT false NOT NULL,
+    display_order integer DEFAULT 0 NOT NULL,
+    notes text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: location_projection_invalidations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.location_projection_invalidations (
+    invalidation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    source_module text NOT NULL,
+    projection_module text NOT NULL,
+    reason text NOT NULL,
+    affected_location_id uuid,
+    source_ref text,
+    status text DEFAULT 'pending'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    acknowledged_at timestamp with time zone,
+    CONSTRAINT location_projection_invalidations_projection_check CHECK ((projection_module = ANY (ARRAY['counts'::text, 'infra'::text, 'mortality'::text, 'feed'::text, 'vaccination'::text, 'other'::text]))),
+    CONSTRAINT location_projection_invalidations_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'acknowledged'::text, 'superseded'::text])))
+);
+
+
+--
+-- Name: location_review_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.location_review_items (
+    review_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    review_type text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    source_context text,
+    source_label text,
+    normalized_source_label text,
+    canonical_location_id uuid,
+    candidate_location_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
+    evidence_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    evidence_hash text NOT NULL,
+    sync_run_id uuid,
+    created_by uuid,
+    resolved_by uuid,
+    resolution_notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT location_review_items_candidate_array_check CHECK ((jsonb_typeof(candidate_location_ids) = 'array'::text)),
+    CONSTRAINT location_review_items_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
+    CONSTRAINT location_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
+    CONSTRAINT location_review_items_type_check CHECK ((review_type = ANY (ARRAY['unknown_alias'::text, 'alias_conflict'::text, 'parent_type_conflict'::text, 'capacity_conflict'::text, 'retire_blocked'::text, 'usage_conflict'::text])))
 );
 
 
@@ -1609,10 +1940,202 @@ CREATE TABLE public.locations (
     timezone text DEFAULT 'Asia/Kolkata'::text NOT NULL,
     status text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    display_order integer DEFAULT 0 NOT NULL,
+    operational_notes text,
+    retired_at timestamp with time zone,
+    retired_by uuid,
     CONSTRAINT locations_lat_check CHECK (((lat IS NULL) OR ((lat >= ('-90'::integer)::numeric) AND (lat <= (90)::numeric)))),
     CONSTRAINT locations_lng_check CHECK (((lng IS NULL) OR ((lng >= ('-180'::integer)::numeric) AND (lng <= (180)::numeric)))),
     CONSTRAINT locations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'staging'::text, 'review'::text]))),
     CONSTRAINT locations_type_check CHECK ((location_type = ANY (ARRAY['farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'pen'::text, 'unknown'::text])))
+);
+
+
+--
+-- Name: mortality_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mortality_events (
+    mortality_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    logical_event_key text,
+    dedup_candidate_key text,
+    unresolved_event_ordinal integer,
+    dedup_confidence text NOT NULL,
+    event_type text NOT NULL,
+    event_date date NOT NULL,
+    goat_id uuid,
+    source_goat_identifier text,
+    source_identifier_kind text,
+    age_class text DEFAULT 'unknown'::text NOT NULL,
+    breed_key text,
+    breed_label text,
+    farm_key text,
+    farm_label text,
+    canonical_farm_location_id uuid,
+    canonical_park_location_id uuid,
+    canonical_shed_location_id uuid,
+    canonical_housing_location_id uuid,
+    load_key text,
+    load_label text,
+    delivery_key text,
+    delivery_label text,
+    sex text,
+    source_row_id uuid,
+    event_hash text NOT NULL,
+    review_status text DEFAULT 'needs_review'::text NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mortality_events_age_class_check CHECK ((age_class = ANY (ARRAY['kid'::text, 'adult'::text, 'unknown'::text]))),
+    CONSTRAINT mortality_events_candidate_key_check CHECK (((logical_event_key IS NOT NULL) OR (dedup_candidate_key IS NOT NULL))),
+    CONSTRAINT mortality_events_dedup_confidence_check CHECK ((dedup_confidence = ANY (ARRAY['resolved_identity'::text, 'stable_source_identifier'::text, 'candidate_review'::text]))),
+    CONSTRAINT mortality_events_event_type_check CHECK ((event_type = ANY (ARRAY['death'::text, 'abortion'::text]))),
+    CONSTRAINT mortality_events_review_status_check CHECK ((review_status = ANY (ARRAY['accepted'::text, 'needs_review'::text, 'rejected'::text, 'superseded'::text]))),
+    CONSTRAINT mortality_events_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text]))))
+);
+
+
+--
+-- Name: mortality_projection_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mortality_projection_rows (
+    mortality_projection_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    period text NOT NULL,
+    period_start date,
+    period_end date,
+    section text NOT NULL,
+    grain text NOT NULL,
+    dimension_key text NOT NULL,
+    dimension_label text NOT NULL,
+    metric_key text NOT NULL,
+    numerator numeric,
+    denominator numeric,
+    denominator_source_module text,
+    denominator_projection_version bigint,
+    denominator_source_watermark text,
+    numerator_source_composition text,
+    denominator_source_composition text,
+    mixed_composition_exception_id uuid,
+    value numeric NOT NULL,
+    unit text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    projection_version bigint NOT NULL,
+    sync_run_id uuid,
+    source_hash text NOT NULL,
+    source_composition text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mortality_projection_denominator_composition_check CHECK (((denominator_source_composition IS NULL) OR (denominator_source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text])))),
+    CONSTRAINT mortality_projection_grain_check CHECK ((grain = ANY (ARRAY['total'::text, 'breed'::text, 'farm'::text, 'load'::text, 'delivery'::text, 'month'::text, 'age_class'::text, 'sex'::text, 'status'::text, 'housing'::text]))),
+    CONSTRAINT mortality_projection_numerator_composition_check CHECK (((numerator_source_composition IS NULL) OR (numerator_source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text])))),
+    CONSTRAINT mortality_projection_period_check CHECK ((period = ANY (ARRAY['overall'::text, 'this-month'::text, 'month-wise'::text]))),
+    CONSTRAINT mortality_projection_section_check CHECK ((section = ANY (ARRAY['summary'::text, 'breed'::text, 'farm'::text, 'load'::text, 'delivery'::text, 'trends'::text, 'gender'::text, 'status'::text, 'housing'::text]))),
+    CONSTRAINT mortality_projection_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
+    CONSTRAINT mortality_projection_unit_check CHECK ((unit = ANY (ARRAY['count'::text, 'percent'::text, 'ratio'::text])))
+);
+
+
+--
+-- Name: mortality_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mortality_projection_state (
+    mortality_projection_state_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    period text,
+    last_successful_run_id uuid,
+    last_success_at timestamp with time zone,
+    source_watermark text,
+    projection_version bigint DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    source_composition text DEFAULT 'legacy_only'::text NOT NULL,
+    row_count integer DEFAULT 0 NOT NULL,
+    conflict_count integer DEFAULT 0 NOT NULL,
+    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
+    rebuild_required boolean DEFAULT false NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT mortality_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT mortality_projection_state_period_check CHECK (((period IS NULL) OR (period = ANY (ARRAY['overall'::text, 'this-month'::text, 'month-wise'::text])))),
+    CONSTRAINT mortality_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
+    CONSTRAINT mortality_projection_state_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
+    CONSTRAINT mortality_projection_state_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text))
+);
+
+
+--
+-- Name: mortality_review_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mortality_review_items (
+    review_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    mortality_event_id uuid,
+    review_type text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    source_context text,
+    source_label text,
+    evidence_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    evidence_hash text NOT NULL,
+    sync_run_id uuid,
+    created_by uuid,
+    resolved_by uuid,
+    resolution_notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT mortality_review_items_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
+    CONSTRAINT mortality_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
+    CONSTRAINT mortality_review_items_type_check CHECK ((review_type = ANY (ARRAY['unresolved_identity'::text, 'dimension_conflict'::text, 'denominator_missing'::text, 'source_changed'::text, 'dedup_conflict'::text])))
+);
+
+
+--
+-- Name: mortality_source_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mortality_source_rows (
+    mortality_source_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    source_system text NOT NULL,
+    source_table text NOT NULL,
+    source_row_key text NOT NULL,
+    source_observed_at timestamp with time zone,
+    source_watermark text,
+    payload_json jsonb NOT NULL,
+    payload_hash text NOT NULL,
+    row_status text DEFAULT 'current'::text NOT NULL,
+    sync_run_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    superseded_at timestamp with time zone,
+    CONSTRAINT mortality_source_rows_payload_object_check CHECK ((jsonb_typeof(payload_json) = 'object'::text)),
+    CONSTRAINT mortality_source_rows_status_check CHECK ((row_status = ANY (ARRAY['current'::text, 'superseded'::text, 'invalid'::text, 'ignored'::text])))
+);
+
+
+--
+-- Name: movement_commands; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.movement_commands (
+    command_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    submission_id uuid NOT NULL,
+    command_type text NOT NULL,
+    state text DEFAULT 'accepted'::text NOT NULL,
+    payload jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT movement_commands_payload_object_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT movement_commands_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'accepted'::text, 'failed'::text]))),
+    CONSTRAINT movement_commands_type_check CHECK ((command_type = 'shifting.apply'::text))
 );
 
 
@@ -1678,6 +2201,140 @@ CREATE TABLE public.parties (
 
 
 --
+-- Name: sop_definitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_definitions (
+    sop_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    code text NOT NULL,
+    name text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT sop_definitions_code_check CHECK ((code ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'::text)),
+    CONSTRAINT sop_definitions_name_check CHECK ((btrim(name) <> ''::text)),
+    CONSTRAINT sop_definitions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT sop_definitions_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: sop_submission_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_submission_items (
+    item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    submission_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    goat_id uuid,
+    item_key text NOT NULL,
+    state text NOT NULL,
+    result jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_submission_items_key_check CHECK ((btrim(item_key) <> ''::text)),
+    CONSTRAINT sop_submission_items_result_object_check CHECK ((jsonb_typeof(result) = 'object'::text)),
+    CONSTRAINT sop_submission_items_state_check CHECK ((state = ANY (ARRAY['accepted'::text, 'needs_review'::text, 'rejected'::text, 'skipped'::text])))
+);
+
+
+--
+-- Name: sop_submissions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_submissions (
+    submission_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    sop_version_id uuid NOT NULL,
+    submitted_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    answers jsonb NOT NULL,
+    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    state text DEFAULT 'submitted'::text NOT NULL,
+    validation_report jsonb DEFAULT '{}'::jsonb NOT NULL,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL,
+    accepted_at timestamp with time zone,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT sop_submissions_answers_object_check CHECK ((jsonb_typeof(answers) = 'object'::text)),
+    CONSTRAINT sop_submissions_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_submissions_proof_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
+    CONSTRAINT sop_submissions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT sop_submissions_state_check CHECK ((state = ANY (ARRAY['submitted'::text, 'accepted'::text, 'needs_review'::text, 'rejected'::text, 'voided'::text])))
+);
+
+
+--
+-- Name: sop_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_tasks (
+    task_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    sop_id uuid NOT NULL,
+    sop_version_id uuid NOT NULL,
+    task_type text NOT NULL,
+    title text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    state text DEFAULT 'assigned'::text NOT NULL,
+    assigned_to uuid,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    due_at timestamp with time zone,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_by uuid,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT sop_tasks_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
+    CONSTRAINT sop_tasks_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text]))),
+    CONSTRAINT sop_tasks_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT sop_tasks_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT sop_tasks_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'assigned'::text, 'in_progress'::text, 'submitted'::text, 'accepted'::text, 'needs_review'::text, 'rework_requested'::text, 'rejected'::text, 'canceled'::text]))),
+    CONSTRAINT sop_tasks_task_type_check CHECK ((btrim(task_type) <> ''::text)),
+    CONSTRAINT sop_tasks_title_check CHECK ((btrim(title) <> ''::text))
+);
+
+
+--
+-- Name: sop_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_versions (
+    sop_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    sop_id uuid NOT NULL,
+    version integer NOT NULL,
+    version_label text NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    form_dsl jsonb NOT NULL,
+    proof_policy jsonb NOT NULL,
+    compatibility jsonb DEFAULT '{}'::jsonb NOT NULL,
+    validation_report jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_by uuid,
+    published_by uuid,
+    published_at timestamp with time zone,
+    retired_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT sop_versions_form_object_check CHECK ((jsonb_typeof(form_dsl) = 'object'::text)),
+    CONSTRAINT sop_versions_label_check CHECK ((btrim(version_label) <> ''::text)),
+    CONSTRAINT sop_versions_proof_object_check CHECK ((jsonb_typeof(proof_policy) = 'object'::text)),
+    CONSTRAINT sop_versions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT sop_versions_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'retired'::text]))),
+    CONSTRAINT sop_versions_version_check CHECK ((version > 0))
+);
+
+
+--
 -- Name: status_definitions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1732,6 +2389,214 @@ CREATE TABLE public.user_scope_grants (
     CONSTRAINT user_scope_grants_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
     CONSTRAINT user_scope_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
     CONSTRAINT user_scope_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+);
+
+
+--
+-- Name: workforce_absences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_absences (
+    absence_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    starts_at timestamp with time zone NOT NULL,
+    ends_at timestamp with time zone NOT NULL,
+    reason_code text NOT NULL,
+    status text DEFAULT 'reported'::text NOT NULL,
+    replacement_member_id uuid,
+    created_by uuid,
+    approved_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT workforce_absences_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_absences_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT workforce_absences_status_check CHECK ((status = ANY (ARRAY['reported'::text, 'approved'::text, 'rejected'::text, 'canceled'::text]))),
+    CONSTRAINT workforce_absences_window_check CHECK ((ends_at > starts_at))
+);
+
+
+--
+-- Name: workforce_capabilities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_capabilities (
+    capability_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    capability_code text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workforce_capabilities_code_check CHECK ((capability_code ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text)),
+    CONSTRAINT workforce_capabilities_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: workforce_external_identities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_external_identities (
+    external_identity_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid,
+    source_system text NOT NULL,
+    source_flow text NOT NULL,
+    external_ref_type text NOT NULL,
+    external_ref_hash text NOT NULL,
+    encrypted_external_ref bytea,
+    status text DEFAULT 'candidate'::text NOT NULL,
+    confidence numeric DEFAULT 0 NOT NULL,
+    first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    observation_count bigint DEFAULT 1 NOT NULL,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone,
+    review_reason text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT workforce_external_identities_confidence_check CHECK (((confidence >= (0)::numeric) AND (confidence <= (1)::numeric))),
+    CONSTRAINT workforce_external_identities_observation_check CHECK ((observation_count > 0)),
+    CONSTRAINT workforce_external_identities_ref_type_check CHECK ((external_ref_type = ANY (ARRAY['slack_user_id'::text, 'email'::text, 'phone'::text, 'staff_label'::text, 'sheet_user'::text, 'firebase_uid'::text, 'other'::text]))),
+    CONSTRAINT workforce_external_identities_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_external_identities_seen_window_check CHECK ((last_seen_at >= first_seen_at)),
+    CONSTRAINT workforce_external_identities_source_system_check CHECK ((source_system = ANY (ARRAY['slack'::text, 'app_script'::text, 'sheet'::text, 'bq'::text, 'firebase'::text, 'manual'::text, 'other'::text]))),
+    CONSTRAINT workforce_external_identities_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'mapped'::text, 'rejected'::text, 'conflict'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: workforce_member_app_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_member_app_sessions (
+    session_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    device_id uuid,
+    auth_subject uuid NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    ended_at timestamp with time zone,
+    status text DEFAULT 'active'::text NOT NULL,
+    app_version text DEFAULT ''::text NOT NULL,
+    ip_hash text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT workforce_member_app_sessions_seen_check CHECK ((last_seen_at >= started_at)),
+    CONSTRAINT workforce_member_app_sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'ended'::text, 'denied'::text])))
+);
+
+
+--
+-- Name: workforce_member_capabilities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_member_capabilities (
+    member_capability_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    capability_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    valid_from timestamp with time zone DEFAULT now() NOT NULL,
+    valid_to timestamp with time zone,
+    assigned_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workforce_member_capabilities_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT workforce_member_capabilities_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
+    CONSTRAINT workforce_member_capabilities_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+);
+
+
+--
+-- Name: workforce_member_devices; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_member_devices (
+    device_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    platform text DEFAULT 'android'::text NOT NULL,
+    app_install_id text NOT NULL,
+    device_public_key_hash text,
+    push_token_hash text,
+    app_version text NOT NULL,
+    os_version text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    registered_by uuid,
+    registered_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_by uuid,
+    revoked_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT workforce_member_devices_app_install_check CHECK ((btrim(app_install_id) <> ''::text)),
+    CONSTRAINT workforce_member_devices_app_version_check CHECK ((btrim(app_version) <> ''::text)),
+    CONSTRAINT workforce_member_devices_platform_check CHECK ((platform = 'android'::text)),
+    CONSTRAINT workforce_member_devices_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_member_devices_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'lost'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: workforce_members; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_members (
+    workforce_member_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    user_id uuid,
+    display_code text NOT NULL,
+    display_name text NOT NULL,
+    status text DEFAULT 'candidate'::text NOT NULL,
+    primary_role_hint text DEFAULT 'operator'::text NOT NULL,
+    primary_location_id uuid,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
+    CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
+    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
+    CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
+);
+
+
+--
+-- Name: workforce_roster_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.workforce_roster_assignments (
+    roster_assignment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    workforce_member_id uuid NOT NULL,
+    team_id uuid,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    shift_date date NOT NULL,
+    shift_start_at timestamp with time zone NOT NULL,
+    shift_end_at timestamp with time zone NOT NULL,
+    task_type text,
+    status text DEFAULT 'scheduled'::text NOT NULL,
+    escalation_owner_user_id uuid,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT workforce_roster_assignments_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT workforce_roster_assignments_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT workforce_roster_assignments_shift_window_check CHECK ((shift_end_at > shift_start_at)),
+    CONSTRAINT workforce_roster_assignments_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'active'::text, 'completed'::text, 'missed'::text, 'canceled'::text])))
 );
 
 
@@ -1891,6 +2756,46 @@ ALTER TABLE ONLY public.breeds
 
 ALTER TABLE ONLY public.breeds
     ADD CONSTRAINT breeds_unique_name UNIQUE (species, canonical_name);
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_pkey PRIMARY KEY (counts_snapshot_row_id);
+
+
+--
+-- Name: counts_projection_rows counts_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_projection_rows
+    ADD CONSTRAINT counts_projection_rows_pkey PRIMARY KEY (counts_projection_row_id);
+
+
+--
+-- Name: counts_projection_state counts_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_projection_state
+    ADD CONSTRAINT counts_projection_state_pkey PRIMARY KEY (counts_projection_state_id);
+
+
+--
+-- Name: counts_source_rows counts_source_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_source_rows
+    ADD CONSTRAINT counts_source_rows_pkey PRIMARY KEY (counts_source_row_id);
+
+
+--
+-- Name: feature_coverage_registry feature_coverage_registry_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feature_coverage_registry
+    ADD CONSTRAINT feature_coverage_registry_pkey PRIMARY KEY (coverage_id);
 
 
 --
@@ -2334,11 +3239,35 @@ ALTER TABLE ONLY public.location_aliases
 
 
 --
--- Name: location_aliases location_aliases_unique_alias; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: location_capacity_records location_capacity_records_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.location_aliases
-    ADD CONSTRAINT location_aliases_unique_alias UNIQUE (tenant_id, alias_code, source_context);
+ALTER TABLE ONLY public.location_capacity_records
+    ADD CONSTRAINT location_capacity_records_pkey PRIMARY KEY (capacity_record_id);
+
+
+--
+-- Name: location_operational_attributes location_operational_attributes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_operational_attributes
+    ADD CONSTRAINT location_operational_attributes_pkey PRIMARY KEY (location_id);
+
+
+--
+-- Name: location_projection_invalidations location_projection_invalidations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_projection_invalidations
+    ADD CONSTRAINT location_projection_invalidations_pkey PRIMARY KEY (invalidation_id);
+
+
+--
+-- Name: location_review_items location_review_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_review_items
+    ADD CONSTRAINT location_review_items_pkey PRIMARY KEY (review_id);
 
 
 --
@@ -2363,6 +3292,54 @@ ALTER TABLE ONLY public.locations
 
 ALTER TABLE ONLY public.locations
     ADD CONSTRAINT locations_unique_code UNIQUE (tenant_id, location_code);
+
+
+--
+-- Name: mortality_events mortality_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_pkey PRIMARY KEY (mortality_event_id);
+
+
+--
+-- Name: mortality_projection_rows mortality_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_projection_rows
+    ADD CONSTRAINT mortality_projection_rows_pkey PRIMARY KEY (mortality_projection_row_id);
+
+
+--
+-- Name: mortality_projection_state mortality_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_projection_state
+    ADD CONSTRAINT mortality_projection_state_pkey PRIMARY KEY (mortality_projection_state_id);
+
+
+--
+-- Name: mortality_review_items mortality_review_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_review_items
+    ADD CONSTRAINT mortality_review_items_pkey PRIMARY KEY (review_id);
+
+
+--
+-- Name: mortality_source_rows mortality_source_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_source_rows
+    ADD CONSTRAINT mortality_source_rows_pkey PRIMARY KEY (mortality_source_row_id);
+
+
+--
+-- Name: movement_commands movement_commands_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.movement_commands
+    ADD CONSTRAINT movement_commands_pkey PRIMARY KEY (command_id);
 
 
 --
@@ -2398,6 +3375,46 @@ ALTER TABLE ONLY public.parties
 
 
 --
+-- Name: sop_definitions sop_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_definitions
+    ADD CONSTRAINT sop_definitions_pkey PRIMARY KEY (sop_id);
+
+
+--
+-- Name: sop_submission_items sop_submission_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submission_items
+    ADD CONSTRAINT sop_submission_items_pkey PRIMARY KEY (item_id);
+
+
+--
+-- Name: sop_submissions sop_submissions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submissions
+    ADD CONSTRAINT sop_submissions_pkey PRIMARY KEY (submission_id);
+
+
+--
+-- Name: sop_tasks sop_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_tasks
+    ADD CONSTRAINT sop_tasks_pkey PRIMARY KEY (task_id);
+
+
+--
+-- Name: sop_versions sop_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_versions
+    ADD CONSTRAINT sop_versions_pkey PRIMARY KEY (sop_version_id);
+
+
+--
 -- Name: status_definitions status_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2419,6 +3436,70 @@ ALTER TABLE ONLY public.tenants
 
 ALTER TABLE ONLY public.user_scope_grants
     ADD CONSTRAINT user_scope_grants_pkey PRIMARY KEY (grant_id);
+
+
+--
+-- Name: workforce_absences workforce_absences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_absences
+    ADD CONSTRAINT workforce_absences_pkey PRIMARY KEY (absence_id);
+
+
+--
+-- Name: workforce_capabilities workforce_capabilities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_capabilities
+    ADD CONSTRAINT workforce_capabilities_pkey PRIMARY KEY (capability_id);
+
+
+--
+-- Name: workforce_external_identities workforce_external_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_external_identities
+    ADD CONSTRAINT workforce_external_identities_pkey PRIMARY KEY (external_identity_id);
+
+
+--
+-- Name: workforce_member_app_sessions workforce_member_app_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_app_sessions
+    ADD CONSTRAINT workforce_member_app_sessions_pkey PRIMARY KEY (session_id);
+
+
+--
+-- Name: workforce_member_capabilities workforce_member_capabilities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_capabilities
+    ADD CONSTRAINT workforce_member_capabilities_pkey PRIMARY KEY (member_capability_id);
+
+
+--
+-- Name: workforce_member_devices workforce_member_devices_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_devices
+    ADD CONSTRAINT workforce_member_devices_pkey PRIMARY KEY (device_id);
+
+
+--
+-- Name: workforce_members workforce_members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_members
+    ADD CONSTRAINT workforce_members_pkey PRIMARY KEY (workforce_member_id);
+
+
+--
+-- Name: workforce_roster_assignments workforce_roster_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_roster_assignments
+    ADD CONSTRAINT workforce_roster_assignments_pkey PRIMARY KEY (roster_assignment_id);
 
 
 --
@@ -2559,6 +3640,118 @@ CREATE UNIQUE INDEX auth_pending_email_grants_active_unique_idx ON public.auth_p
 --
 
 CREATE INDEX auth_pending_email_grants_lookup_idx ON public.auth_pending_email_grants USING btree (normalized_email, tenant_id, status, valid_from, valid_to);
+
+
+--
+-- Name: counts_projection_hot_read_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_projection_hot_read_idx ON public.counts_projection_rows USING btree (tenant_id, view_id, snapshot_date, section, sort_order, counts_projection_row_id);
+
+
+--
+-- Name: counts_projection_metric_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_projection_metric_idx ON public.counts_projection_rows USING btree (tenant_id, view_id, snapshot_date, metric_key);
+
+
+--
+-- Name: counts_projection_state_unique_view; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX counts_projection_state_unique_view ON public.counts_projection_state USING btree (tenant_id, COALESCE(view_id, '__all__'::text));
+
+
+--
+-- Name: counts_projection_state_updated_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_projection_state_updated_idx ON public.counts_projection_state USING btree (tenant_id, updated_at DESC);
+
+
+--
+-- Name: counts_projection_sync_run_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_projection_sync_run_idx ON public.counts_projection_rows USING btree (tenant_id, sync_run_id);
+
+
+--
+-- Name: counts_projection_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_projection_version_idx ON public.counts_projection_rows USING btree (tenant_id, projection_version);
+
+
+--
+-- Name: counts_snapshot_farm_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_snapshot_farm_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, farm_key);
+
+
+--
+-- Name: counts_snapshot_kind_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_snapshot_kind_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, row_kind, metric_name);
+
+
+--
+-- Name: counts_snapshot_location_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_snapshot_location_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, resolved_location_id);
+
+
+--
+-- Name: counts_snapshot_logical_fact_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX counts_snapshot_logical_fact_unique ON public.counts_current_snapshot_rows USING btree (tenant_id, snapshot_date, source_mode, logical_fact_key);
+
+
+--
+-- Name: counts_snapshot_sync_run_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_snapshot_sync_run_idx ON public.counts_current_snapshot_rows USING btree (tenant_id, sync_run_id);
+
+
+--
+-- Name: counts_source_rows_current_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX counts_source_rows_current_unique ON public.counts_source_rows USING btree (tenant_id, source_system, source_id, source_row_key) WHERE (row_status = 'current'::text);
+
+
+--
+-- Name: counts_source_rows_sync_run_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_source_rows_sync_run_idx ON public.counts_source_rows USING btree (tenant_id, sync_run_id);
+
+
+--
+-- Name: counts_source_rows_watermark_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_source_rows_watermark_idx ON public.counts_source_rows USING btree (tenant_id, source_id, source_watermark_date, counts_source_row_id);
+
+
+--
+-- Name: feature_coverage_registry_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feature_coverage_registry_status_idx ON public.feature_coverage_registry USING btree (tenant_id, feature_module, coverage_status, updated_at DESC);
+
+
+--
+-- Name: feature_coverage_registry_unique_grain; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feature_coverage_registry_unique_grain ON public.feature_coverage_registry USING btree (tenant_id, feature_module, section, metric_key, grain_key, covered_window, source_mode);
 
 
 --
@@ -3311,6 +4504,69 @@ CREATE INDEX legacy_sync_source_status_tenant_freshness_idx ON public.legacy_syn
 
 
 --
+-- Name: location_aliases_canonical_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_aliases_canonical_status_idx ON public.location_aliases USING btree (tenant_id, canonical_location_id, status, source_context);
+
+
+--
+-- Name: location_aliases_unique_active_alias; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX location_aliases_unique_active_alias ON public.location_aliases USING btree (tenant_id, source_context, lower(alias_code)) WHERE (status = 'active'::text);
+
+
+--
+-- Name: location_capacity_records_effective_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_capacity_records_effective_idx ON public.location_capacity_records USING btree (tenant_id, location_id, capacity_kind, effective_from DESC, effective_to);
+
+
+--
+-- Name: location_capacity_records_source_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_capacity_records_source_idx ON public.location_capacity_records USING btree (tenant_id, source, source_ref);
+
+
+--
+-- Name: location_operational_attributes_counts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_operational_attributes_counts_idx ON public.location_operational_attributes USING btree (tenant_id, usable_for_counts, is_holding, is_quarantine, is_icu);
+
+
+--
+-- Name: location_projection_invalidations_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_projection_invalidations_pending_idx ON public.location_projection_invalidations USING btree (tenant_id, projection_module, status, created_at DESC);
+
+
+--
+-- Name: location_review_items_label_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_review_items_label_idx ON public.location_review_items USING btree (tenant_id, source_context, normalized_source_label);
+
+
+--
+-- Name: location_review_items_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_review_items_queue_idx ON public.location_review_items USING btree (tenant_id, status, review_type, updated_at DESC, review_id DESC);
+
+
+--
+-- Name: location_review_items_unique_open_evidence; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX location_review_items_unique_open_evidence ON public.location_review_items USING btree (tenant_id, review_type, COALESCE(source_context, ''::text), COALESCE(normalized_source_label, ''::text), evidence_hash) WHERE (status = 'open'::text);
+
+
+--
 -- Name: locations_parent_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3318,10 +4574,157 @@ CREATE INDEX locations_parent_idx ON public.locations USING btree (parent_locati
 
 
 --
+-- Name: locations_tenant_lower_name_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX locations_tenant_lower_name_idx ON public.locations USING btree (tenant_id, lower(name), location_id);
+
+
+--
+-- Name: locations_tenant_parent_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX locations_tenant_parent_status_idx ON public.locations USING btree (tenant_id, parent_location_id, status, display_order, name, location_id);
+
+
+--
 -- Name: locations_tenant_type_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX locations_tenant_type_idx ON public.locations USING btree (tenant_id, location_type, status);
+
+
+--
+-- Name: mortality_events_candidate_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_events_candidate_idx ON public.mortality_events USING btree (tenant_id, dedup_candidate_key, event_date) WHERE (dedup_candidate_key IS NOT NULL);
+
+
+--
+-- Name: mortality_events_event_date_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_events_event_date_idx ON public.mortality_events USING btree (tenant_id, event_date, mortality_event_id);
+
+
+--
+-- Name: mortality_events_goat_date_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_events_goat_date_idx ON public.mortality_events USING btree (tenant_id, goat_id, event_date) WHERE (goat_id IS NOT NULL);
+
+
+--
+-- Name: mortality_events_idempotency_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX mortality_events_idempotency_unique ON public.mortality_events USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: mortality_events_logical_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX mortality_events_logical_unique ON public.mortality_events USING btree (tenant_id, logical_event_key) WHERE ((logical_event_key IS NOT NULL) AND (dedup_confidence = ANY (ARRAY['resolved_identity'::text, 'stable_source_identifier'::text])) AND (review_status = ANY (ARRAY['accepted'::text, 'needs_review'::text])));
+
+
+--
+-- Name: mortality_events_review_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_events_review_idx ON public.mortality_events USING btree (tenant_id, review_status, event_date DESC);
+
+
+--
+-- Name: mortality_events_type_date_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_events_type_date_idx ON public.mortality_events USING btree (tenant_id, event_type, event_date);
+
+
+--
+-- Name: mortality_projection_hot_read_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_projection_hot_read_idx ON public.mortality_projection_rows USING btree (tenant_id, period, section, grain, sort_order, mortality_projection_row_id);
+
+
+--
+-- Name: mortality_projection_metric_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_projection_metric_idx ON public.mortality_projection_rows USING btree (tenant_id, period, section, metric_key);
+
+
+--
+-- Name: mortality_projection_state_unique_period; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX mortality_projection_state_unique_period ON public.mortality_projection_state USING btree (tenant_id, COALESCE(period, '__all__'::text));
+
+
+--
+-- Name: mortality_projection_state_updated_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_projection_state_updated_idx ON public.mortality_projection_state USING btree (tenant_id, updated_at DESC);
+
+
+--
+-- Name: mortality_projection_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_projection_version_idx ON public.mortality_projection_rows USING btree (tenant_id, projection_version);
+
+
+--
+-- Name: mortality_review_items_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_review_items_queue_idx ON public.mortality_review_items USING btree (tenant_id, status, review_type, updated_at DESC);
+
+
+--
+-- Name: mortality_review_items_unique_open_evidence; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX mortality_review_items_unique_open_evidence ON public.mortality_review_items USING btree (tenant_id, review_type, evidence_hash) WHERE (status = 'open'::text);
+
+
+--
+-- Name: mortality_source_rows_current_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX mortality_source_rows_current_unique ON public.mortality_source_rows USING btree (tenant_id, source_system, source_table, source_row_key) WHERE (row_status = 'current'::text);
+
+
+--
+-- Name: mortality_source_rows_hash_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_source_rows_hash_idx ON public.mortality_source_rows USING btree (tenant_id, payload_hash);
+
+
+--
+-- Name: mortality_source_rows_observed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_source_rows_observed_idx ON public.mortality_source_rows USING btree (tenant_id, source_table, source_observed_at, mortality_source_row_id);
+
+
+--
+-- Name: movement_commands_submission_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX movement_commands_submission_unique_idx ON public.movement_commands USING btree (tenant_id, submission_id, command_type);
+
+
+--
+-- Name: movement_commands_task_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX movement_commands_task_idx ON public.movement_commands USING btree (tenant_id, task_id, created_at DESC);
 
 
 --
@@ -3346,6 +4749,104 @@ CREATE INDEX outbox_messages_status_next_attempt_idx ON public.outbox_messages U
 
 
 --
+-- Name: sop_definitions_tenant_code_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_definitions_tenant_code_unique_idx ON public.sop_definitions USING btree (tenant_id, code);
+
+
+--
+-- Name: sop_definitions_tenant_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_definitions_tenant_status_idx ON public.sop_definitions USING btree (tenant_id, status, updated_at DESC, sop_id DESC);
+
+
+--
+-- Name: sop_submission_items_goat_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_submission_items_goat_history_idx ON public.sop_submission_items USING btree (tenant_id, goat_id, created_at DESC) WHERE (goat_id IS NOT NULL);
+
+
+--
+-- Name: sop_submission_items_submission_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_submission_items_submission_idx ON public.sop_submission_items USING btree (tenant_id, submission_id, item_id);
+
+
+--
+-- Name: sop_submissions_review_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_submissions_review_idx ON public.sop_submissions USING btree (tenant_id, state, submitted_at DESC, submission_id DESC);
+
+
+--
+-- Name: sop_submissions_task_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_submissions_task_history_idx ON public.sop_submissions USING btree (tenant_id, task_id, submitted_at DESC);
+
+
+--
+-- Name: sop_submissions_tenant_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_submissions_tenant_idempotency_unique_idx ON public.sop_submissions USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: sop_tasks_assignee_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_tasks_assignee_queue_idx ON public.sop_tasks USING btree (tenant_id, assigned_to, state, due_at, task_id) WHERE (assigned_to IS NOT NULL);
+
+
+--
+-- Name: sop_tasks_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_tasks_queue_idx ON public.sop_tasks USING btree (tenant_id, state, due_at, task_id);
+
+
+--
+-- Name: sop_tasks_scope_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_tasks_scope_queue_idx ON public.sop_tasks USING btree (tenant_id, scope_type, scope_id, state, due_at, task_id);
+
+
+--
+-- Name: sop_tasks_sop_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_tasks_sop_version_idx ON public.sop_tasks USING btree (tenant_id, sop_version_id, state);
+
+
+--
+-- Name: sop_versions_one_published_per_sop_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_versions_one_published_per_sop_idx ON public.sop_versions USING btree (tenant_id, sop_id) WHERE (status = 'published'::text);
+
+
+--
+-- Name: sop_versions_tenant_sop_version_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_versions_tenant_sop_version_unique_idx ON public.sop_versions USING btree (tenant_id, sop_id, version);
+
+
+--
+-- Name: sop_versions_tenant_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_versions_tenant_status_idx ON public.sop_versions USING btree (tenant_id, status, updated_at DESC, sop_version_id DESC);
+
+
+--
 -- Name: status_definitions_axis_active_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3364,6 +4865,160 @@ CREATE INDEX user_scope_grants_scope_idx ON public.user_scope_grants USING btree
 --
 
 CREATE INDEX user_scope_grants_user_active_idx ON public.user_scope_grants USING btree (user_id, status, valid_from, valid_to);
+
+
+--
+-- Name: workforce_absences_member_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_absences_member_window_idx ON public.workforce_absences USING btree (tenant_id, workforce_member_id, status, starts_at, ends_at);
+
+
+--
+-- Name: workforce_absences_scope_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_absences_scope_window_idx ON public.workforce_absences USING btree (tenant_id, scope_type, scope_id, status, starts_at, ends_at);
+
+
+--
+-- Name: workforce_capabilities_code_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workforce_capabilities_code_unique_idx ON public.workforce_capabilities USING btree (tenant_id, capability_code);
+
+
+--
+-- Name: workforce_capabilities_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_capabilities_status_idx ON public.workforce_capabilities USING btree (tenant_id, status, capability_code);
+
+
+--
+-- Name: workforce_external_identities_member_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_external_identities_member_status_idx ON public.workforce_external_identities USING btree (tenant_id, workforce_member_id, status) WHERE (workforce_member_id IS NOT NULL);
+
+
+--
+-- Name: workforce_external_identities_ref_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workforce_external_identities_ref_unique_idx ON public.workforce_external_identities USING btree (tenant_id, source_system, external_ref_type, external_ref_hash);
+
+
+--
+-- Name: workforce_external_identities_status_seen_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_external_identities_status_seen_idx ON public.workforce_external_identities USING btree (tenant_id, status, last_seen_at DESC, external_identity_id DESC);
+
+
+--
+-- Name: workforce_member_app_sessions_device_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_member_app_sessions_device_idx ON public.workforce_member_app_sessions USING btree (tenant_id, device_id, last_seen_at DESC) WHERE (device_id IS NOT NULL);
+
+
+--
+-- Name: workforce_member_app_sessions_member_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_member_app_sessions_member_status_idx ON public.workforce_member_app_sessions USING btree (tenant_id, workforce_member_id, status, last_seen_at DESC);
+
+
+--
+-- Name: workforce_member_capabilities_active_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workforce_member_capabilities_active_unique_idx ON public.workforce_member_capabilities USING btree (tenant_id, workforce_member_id, capability_id, scope_type, scope_id) WHERE ((status = 'active'::text) AND (valid_to IS NULL));
+
+
+--
+-- Name: workforce_member_capabilities_member_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_member_capabilities_member_active_idx ON public.workforce_member_capabilities USING btree (tenant_id, workforce_member_id, status, valid_from, valid_to);
+
+
+--
+-- Name: workforce_member_capabilities_scope_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_member_capabilities_scope_active_idx ON public.workforce_member_capabilities USING btree (tenant_id, capability_id, scope_type, scope_id, status, valid_from, valid_to);
+
+
+--
+-- Name: workforce_member_devices_install_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workforce_member_devices_install_unique_idx ON public.workforce_member_devices USING btree (tenant_id, app_install_id);
+
+
+--
+-- Name: workforce_member_devices_last_seen_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_member_devices_last_seen_idx ON public.workforce_member_devices USING btree (tenant_id, last_seen_at DESC);
+
+
+--
+-- Name: workforce_member_devices_member_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_member_devices_member_status_idx ON public.workforce_member_devices USING btree (tenant_id, workforce_member_id, status);
+
+
+--
+-- Name: workforce_members_active_user_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workforce_members_active_user_unique_idx ON public.workforce_members USING btree (tenant_id, user_id) WHERE ((user_id IS NOT NULL) AND (status = 'active'::text));
+
+
+--
+-- Name: workforce_members_code_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX workforce_members_code_unique_idx ON public.workforce_members USING btree (tenant_id, display_code);
+
+
+--
+-- Name: workforce_members_location_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_members_location_status_idx ON public.workforce_members USING btree (tenant_id, primary_location_id, status, updated_at DESC) WHERE (primary_location_id IS NOT NULL);
+
+
+--
+-- Name: workforce_members_status_updated_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_members_status_updated_idx ON public.workforce_members USING btree (tenant_id, status, updated_at DESC, workforce_member_id DESC);
+
+
+--
+-- Name: workforce_members_user_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_members_user_idx ON public.workforce_members USING btree (tenant_id, user_id) WHERE (user_id IS NOT NULL);
+
+
+--
+-- Name: workforce_roster_assignments_member_date_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_roster_assignments_member_date_idx ON public.workforce_roster_assignments USING btree (tenant_id, workforce_member_id, shift_date, status);
+
+
+--
+-- Name: workforce_roster_assignments_scope_date_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workforce_roster_assignments_scope_date_idx ON public.workforce_roster_assignments USING btree (tenant_id, shift_date, scope_type, scope_id, status);
 
 
 --
@@ -3822,6 +5477,41 @@ CREATE TRIGGER identity_correction_requests_block_merged_goat_child_write_trg BE
 
 
 --
+-- Name: location_aliases location_aliases_seeded_scope_guard_delete_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER location_aliases_seeded_scope_guard_delete_trg BEFORE DELETE ON public.location_aliases FOR EACH ROW EXECUTE FUNCTION public.location_seeded_scope_guard();
+
+
+--
+-- Name: location_aliases location_aliases_seeded_scope_guard_update_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER location_aliases_seeded_scope_guard_update_trg BEFORE UPDATE OF alias_code, canonical_location_id, source_context, status, retired_at ON public.location_aliases FOR EACH ROW EXECUTE FUNCTION public.location_seeded_scope_guard();
+
+
+--
+-- Name: location_capacity_records location_capacity_records_no_overlap_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER location_capacity_records_no_overlap_trg BEFORE INSERT OR UPDATE OF tenant_id, location_id, capacity_kind, effective_from, effective_to ON public.location_capacity_records FOR EACH ROW EXECUTE FUNCTION public.reject_overlapping_location_capacity();
+
+
+--
+-- Name: locations locations_seeded_scope_guard_delete_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER locations_seeded_scope_guard_delete_trg BEFORE DELETE ON public.locations FOR EACH ROW EXECUTE FUNCTION public.location_seeded_scope_guard();
+
+
+--
+-- Name: locations locations_seeded_scope_guard_update_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER locations_seeded_scope_guard_update_trg BEFORE UPDATE OF location_type, location_code, name, parent_location_id, status, retired_at, retired_by ON public.locations FOR EACH ROW EXECUTE FUNCTION public.location_seeded_scope_guard();
+
+
+--
 -- Name: outbox_messages outbox_messages_validate_event_tenant_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3873,6 +5563,126 @@ ALTER TABLE ONLY public.auth_pending_email_grants
 
 ALTER TABLE ONLY public.breed_aliases
     ADD CONSTRAINT breed_aliases_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_farm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_farm_id_fkey FOREIGN KEY (farm_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_resolved_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_resolved_location_id_fkey FOREIGN KEY (resolved_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_source_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_source_row_id_fkey FOREIGN KEY (source_row_id) REFERENCES public.counts_source_rows(counts_source_row_id) ON DELETE SET NULL;
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: counts_current_snapshot_rows counts_current_snapshot_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_current_snapshot_rows
+    ADD CONSTRAINT counts_current_snapshot_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: counts_projection_rows counts_projection_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_projection_rows
+    ADD CONSTRAINT counts_projection_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: counts_projection_rows counts_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_projection_rows
+    ADD CONSTRAINT counts_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: counts_projection_state counts_projection_state_last_successful_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_projection_state
+    ADD CONSTRAINT counts_projection_state_last_successful_run_id_fkey FOREIGN KEY (last_successful_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: counts_projection_state counts_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_projection_state
+    ADD CONSTRAINT counts_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: counts_source_rows counts_source_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_source_rows
+    ADD CONSTRAINT counts_source_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: counts_source_rows counts_source_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_source_rows
+    ADD CONSTRAINT counts_source_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feature_coverage_registry feature_coverage_registry_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feature_coverage_registry
+    ADD CONSTRAINT feature_coverage_registry_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -5012,6 +6822,94 @@ ALTER TABLE ONLY public.location_aliases
 
 
 --
+-- Name: location_capacity_records location_capacity_records_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_capacity_records
+    ADD CONSTRAINT location_capacity_records_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: location_capacity_records location_capacity_records_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_capacity_records
+    ADD CONSTRAINT location_capacity_records_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: location_capacity_records location_capacity_records_tenant_location_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_capacity_records
+    ADD CONSTRAINT location_capacity_records_tenant_location_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: location_operational_attributes location_operational_attributes_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_operational_attributes
+    ADD CONSTRAINT location_operational_attributes_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(location_id) ON DELETE CASCADE;
+
+
+--
+-- Name: location_operational_attributes location_operational_attributes_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_operational_attributes
+    ADD CONSTRAINT location_operational_attributes_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: location_operational_attributes location_operational_attributes_tenant_location_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_operational_attributes
+    ADD CONSTRAINT location_operational_attributes_tenant_location_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: location_projection_invalidations location_projection_invalidations_affected_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_projection_invalidations
+    ADD CONSTRAINT location_projection_invalidations_affected_location_id_fkey FOREIGN KEY (affected_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: location_projection_invalidations location_projection_invalidations_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_projection_invalidations
+    ADD CONSTRAINT location_projection_invalidations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: location_review_items location_review_items_canonical_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_review_items
+    ADD CONSTRAINT location_review_items_canonical_location_id_fkey FOREIGN KEY (canonical_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: location_review_items location_review_items_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_review_items
+    ADD CONSTRAINT location_review_items_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: location_review_items location_review_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.location_review_items
+    ADD CONSTRAINT location_review_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: locations locations_parent_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5036,6 +6934,158 @@ ALTER TABLE ONLY public.locations
 
 
 --
+-- Name: mortality_events mortality_events_canonical_farm_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_canonical_farm_location_id_fkey FOREIGN KEY (canonical_farm_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: mortality_events mortality_events_canonical_housing_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_canonical_housing_location_id_fkey FOREIGN KEY (canonical_housing_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: mortality_events mortality_events_canonical_park_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_canonical_park_location_id_fkey FOREIGN KEY (canonical_park_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: mortality_events mortality_events_canonical_shed_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_canonical_shed_location_id_fkey FOREIGN KEY (canonical_shed_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: mortality_events mortality_events_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: mortality_events mortality_events_source_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_source_row_id_fkey FOREIGN KEY (source_row_id) REFERENCES public.mortality_source_rows(mortality_source_row_id) ON DELETE SET NULL;
+
+
+--
+-- Name: mortality_events mortality_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_events
+    ADD CONSTRAINT mortality_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: mortality_projection_rows mortality_projection_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_projection_rows
+    ADD CONSTRAINT mortality_projection_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: mortality_projection_rows mortality_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_projection_rows
+    ADD CONSTRAINT mortality_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: mortality_projection_state mortality_projection_state_last_successful_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_projection_state
+    ADD CONSTRAINT mortality_projection_state_last_successful_run_id_fkey FOREIGN KEY (last_successful_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: mortality_projection_state mortality_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_projection_state
+    ADD CONSTRAINT mortality_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: mortality_review_items mortality_review_items_mortality_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_review_items
+    ADD CONSTRAINT mortality_review_items_mortality_event_id_fkey FOREIGN KEY (mortality_event_id) REFERENCES public.mortality_events(mortality_event_id) ON DELETE SET NULL;
+
+
+--
+-- Name: mortality_review_items mortality_review_items_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_review_items
+    ADD CONSTRAINT mortality_review_items_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: mortality_review_items mortality_review_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_review_items
+    ADD CONSTRAINT mortality_review_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: mortality_source_rows mortality_source_rows_sync_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_source_rows
+    ADD CONSTRAINT mortality_source_rows_sync_run_id_fkey FOREIGN KEY (sync_run_id) REFERENCES public.legacy_sync_runs(sync_run_id) ON DELETE SET NULL;
+
+
+--
+-- Name: mortality_source_rows mortality_source_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_source_rows
+    ADD CONSTRAINT mortality_source_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: movement_commands movement_commands_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.movement_commands
+    ADD CONSTRAINT movement_commands_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.sop_submissions(submission_id);
+
+
+--
+-- Name: movement_commands movement_commands_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.movement_commands
+    ADD CONSTRAINT movement_commands_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: movement_commands movement_commands_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.movement_commands
+    ADD CONSTRAINT movement_commands_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: orgs orgs_party_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5052,11 +7102,259 @@ ALTER TABLE ONLY public.outbox_messages
 
 
 --
+-- Name: sop_definitions sop_definitions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_definitions
+    ADD CONSTRAINT sop_definitions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_submission_items sop_submission_items_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submission_items
+    ADD CONSTRAINT sop_submission_items_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: sop_submission_items sop_submission_items_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submission_items
+    ADD CONSTRAINT sop_submission_items_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.sop_submissions(submission_id);
+
+
+--
+-- Name: sop_submission_items sop_submission_items_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submission_items
+    ADD CONSTRAINT sop_submission_items_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_submission_items sop_submission_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submission_items
+    ADD CONSTRAINT sop_submission_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_submissions sop_submissions_sop_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submissions
+    ADD CONSTRAINT sop_submissions_sop_version_id_fkey FOREIGN KEY (sop_version_id) REFERENCES public.sop_versions(sop_version_id);
+
+
+--
+-- Name: sop_submissions sop_submissions_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submissions
+    ADD CONSTRAINT sop_submissions_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_submissions sop_submissions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submissions
+    ADD CONSTRAINT sop_submissions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_tasks sop_tasks_sop_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_tasks
+    ADD CONSTRAINT sop_tasks_sop_id_fkey FOREIGN KEY (sop_id) REFERENCES public.sop_definitions(sop_id);
+
+
+--
+-- Name: sop_tasks sop_tasks_sop_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_tasks
+    ADD CONSTRAINT sop_tasks_sop_version_id_fkey FOREIGN KEY (sop_version_id) REFERENCES public.sop_versions(sop_version_id);
+
+
+--
+-- Name: sop_tasks sop_tasks_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_tasks
+    ADD CONSTRAINT sop_tasks_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_versions sop_versions_sop_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_versions
+    ADD CONSTRAINT sop_versions_sop_id_fkey FOREIGN KEY (sop_id) REFERENCES public.sop_definitions(sop_id);
+
+
+--
+-- Name: sop_versions sop_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_versions
+    ADD CONSTRAINT sop_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: user_scope_grants user_scope_grants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.user_scope_grants
     ADD CONSTRAINT user_scope_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_absences workforce_absences_replacement_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_absences
+    ADD CONSTRAINT workforce_absences_replacement_member_id_fkey FOREIGN KEY (replacement_member_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: workforce_absences workforce_absences_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_absences
+    ADD CONSTRAINT workforce_absences_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_absences workforce_absences_workforce_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_absences
+    ADD CONSTRAINT workforce_absences_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: workforce_capabilities workforce_capabilities_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_capabilities
+    ADD CONSTRAINT workforce_capabilities_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_external_identities workforce_external_identities_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_external_identities
+    ADD CONSTRAINT workforce_external_identities_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_external_identities workforce_external_identities_workforce_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_external_identities
+    ADD CONSTRAINT workforce_external_identities_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: workforce_member_app_sessions workforce_member_app_sessions_device_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_app_sessions
+    ADD CONSTRAINT workforce_member_app_sessions_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.workforce_member_devices(device_id);
+
+
+--
+-- Name: workforce_member_app_sessions workforce_member_app_sessions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_app_sessions
+    ADD CONSTRAINT workforce_member_app_sessions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_member_app_sessions workforce_member_app_sessions_workforce_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_app_sessions
+    ADD CONSTRAINT workforce_member_app_sessions_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: workforce_member_capabilities workforce_member_capabilities_capability_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_capabilities
+    ADD CONSTRAINT workforce_member_capabilities_capability_id_fkey FOREIGN KEY (capability_id) REFERENCES public.workforce_capabilities(capability_id);
+
+
+--
+-- Name: workforce_member_capabilities workforce_member_capabilities_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_capabilities
+    ADD CONSTRAINT workforce_member_capabilities_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_member_capabilities workforce_member_capabilities_workforce_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_capabilities
+    ADD CONSTRAINT workforce_member_capabilities_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: workforce_member_devices workforce_member_devices_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_devices
+    ADD CONSTRAINT workforce_member_devices_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_member_devices workforce_member_devices_workforce_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_member_devices
+    ADD CONSTRAINT workforce_member_devices_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: workforce_members workforce_members_primary_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_members
+    ADD CONSTRAINT workforce_members_primary_location_id_fkey FOREIGN KEY (primary_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: workforce_members workforce_members_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_members
+    ADD CONSTRAINT workforce_members_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_roster_assignments workforce_roster_assignments_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_roster_assignments
+    ADD CONSTRAINT workforce_roster_assignments_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: workforce_roster_assignments workforce_roster_assignments_workforce_member_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.workforce_roster_assignments
+    ADD CONSTRAINT workforce_roster_assignments_workforce_member_id_fkey FOREIGN KEY (workforce_member_id) REFERENCES public.workforce_members(workforce_member_id);
 
 
 --

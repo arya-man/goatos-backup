@@ -21,6 +21,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/counts/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the legacy Counts dashboard from governed projection rows.
+         * @description Returns projection-backed sections for the old Counts module. Responses include source composition and freshness so the admin UI can distinguish live, stale, never-synced, and unavailable source states without reading raw source tables.
+         */
+        get: operations["getCountsDashboardSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/mortality/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the legacy Mortality dashboard from governed projection rows.
+         * @description Returns projection-backed mortality sections with numerator and denominator provenance. Responses must not mix canonical and legacy composition silently.
+         */
+        get: operations["getMortalityDashboardSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -97,6 +137,86 @@ export interface components {
             freshness: components["schemas"]["Freshness"];
             trace_id: string;
         };
+        /**
+         * @default overall
+         * @enum {string}
+         */
+        CountsView: "overall" | "core-farms" | "cbe" | "cpt" | "holdings";
+        /**
+         * @default overall
+         * @enum {string}
+         */
+        MortalityPeriod: "overall" | "this-month" | "month-wise";
+        DashboardFreshness: {
+            /** Format: date-time */
+            as_of: string | null;
+            freshness_status: string;
+            serving_state: string;
+            stale: boolean;
+            rebuild_required: boolean;
+            /** Format: date-time */
+            source_watermark: string | null;
+            unavailable_sources: string[];
+            source_composition: string;
+            conflict_count: number;
+            projection_version: number;
+        };
+        CountsProjectionRow: {
+            section: string;
+            grain: string;
+            dimension_key: string;
+            dimension_label: string;
+            secondary_dimension_key: string | null;
+            secondary_dimension_label: string | null;
+            metric_key: string;
+            count_value: number | null;
+            numeric_value: number | null;
+            unit: string;
+            denominator: number | null;
+            source_composition: string;
+        };
+        CountsDashboardResponse: {
+            view: components["schemas"]["CountsView"];
+            /** Format: date */
+            snapshot_date: string | null;
+            /** Format: date */
+            summary_source_date: string | null;
+            freshness: components["schemas"]["DashboardFreshness"];
+            summary: components["schemas"]["CountsProjectionRow"][];
+            sections: {
+                [key: string]: components["schemas"]["CountsProjectionRow"][];
+            };
+            trace_id: string;
+        };
+        MortalityProjectionRow: {
+            section: string;
+            grain: string;
+            dimension_key: string;
+            dimension_label: string;
+            metric_key: string;
+            numerator: number | null;
+            denominator: number | null;
+            denominator_source_module: string | null;
+            denominator_projection_version: number | null;
+            /** Format: date-time */
+            denominator_source_watermark: string | null;
+            numerator_source_composition: string | null;
+            denominator_source_composition: string | null;
+            /** Format: uuid */
+            mixed_composition_exception_id: string | null;
+            value: number;
+            unit: string;
+            source_composition: string;
+        };
+        MortalityDashboardResponse: {
+            period: components["schemas"]["MortalityPeriod"];
+            freshness: components["schemas"]["DashboardFreshness"];
+            summary: components["schemas"]["MortalityProjectionRow"][];
+            sections: {
+                [key: string]: components["schemas"]["MortalityProjectionRow"][];
+            };
+            trace_id: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -170,6 +290,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IdentityCountsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getCountsDashboardSnapshot: {
+        parameters: {
+            query?: {
+                view?: components["schemas"]["CountsView"];
+                snapshot_date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Counts dashboard snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsDashboardResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getMortalityDashboardSnapshot: {
+        parameters: {
+            query?: {
+                period?: components["schemas"]["MortalityPeriod"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mortality dashboard snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MortalityDashboardResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

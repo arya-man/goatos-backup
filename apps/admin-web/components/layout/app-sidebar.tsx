@@ -15,6 +15,8 @@ import {
   FileSearch,
   HeartPulse,
   LayoutDashboard,
+  ListChecks,
+  MapPinned,
   Milk,
   PanelLeft,
   PanelLeftClose,
@@ -42,6 +44,10 @@ type NavItem = {
 const commandItems: NavItem[] = [
   { icon: LayoutDashboard, label: "CEO Dashboard", href: "/" },
   { icon: BarChart3, label: "Counts", href: "/counts" },
+  { icon: MapPinned, label: "Locations", href: "/locations" },
+  { icon: Users, label: "Operators", href: "/operators" },
+  { icon: ClipboardList, label: "SOP Builder", href: "/sops" },
+  { icon: ListChecks, label: "Tasks", href: "/tasks" },
   { icon: Search, label: "Herd Search", href: "/herd" },
   { icon: DatabaseZap, label: "Import Review", href: "/import-review" },
   { icon: RefreshCw, label: "Legacy Sync", href: "/legacy-sync" },
@@ -49,7 +55,7 @@ const commandItems: NavItem[] = [
 ];
 
 const legacyItems: NavItem[] = [
-  { icon: HeartPulse, label: "Mortality", status: "disabled" },
+  { icon: HeartPulse, label: "Mortality", href: "/dashboard/mortality" },
   { icon: Baby, label: "Births", status: "disabled" },
   { icon: TrendingUp, label: "Fattening", status: "disabled" },
   { icon: Wheat, label: "Feed", status: "disabled" },

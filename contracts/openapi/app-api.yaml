@@ -13,7 +13,191 @@ tags:
   - name: Goats
   - name: Identifiers
   - name: Correction Requests
+  - name: Operator App Bootstrap
+  - name: Operator Tasks
 paths:
+  /app/me:
+    get:
+      tags:
+        - Operator App Bootstrap
+      operationId: appMe
+      summary: Return the authenticated actor's operator profile and active grants.
+      responses:
+        "200":
+          description: Actor/operator context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /app/bootstrap:
+    get:
+      tags:
+        - Operator App Bootstrap
+      operationId: appBootstrap
+      summary: Return the Android bootstrap manifest for the authenticated operator.
+      parameters:
+        - name: device_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Bootstrap manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BootstrapResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /app/devices/register:
+    post:
+      tags:
+        - Operator App Bootstrap
+      operationId: registerAppDevice
+      summary: Register or refresh an Android app install for the authenticated operator.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDeviceRequest"
+      responses:
+        "200":
+          description: Registered device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /app/devices/{device_id}/heartbeat:
+    post:
+      tags:
+        - Operator App Bootstrap
+      operationId: heartbeatAppDevice
+      summary: Update Android device heartbeat and app version state.
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatDeviceRequest"
+      responses:
+        "200":
+          description: Device heartbeat accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /app/tasks:
+    get:
+      tags:
+        - Operator Tasks
+      operationId: listAppTasks
+      summary: List assigned operator tasks.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Assigned tasks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /app/tasks/{task_id}:
+    get:
+      tags:
+        - Operator Tasks
+      operationId: getAppTask
+      summary: Get task detail and pinned SOP version.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /app/sop-versions/{sop_version_id}:
+    get:
+      tags:
+        - Operator Tasks
+      operationId: getAppSOPVersion
+      summary: Download a pinned SOP version.
+      parameters:
+        - $ref: "#/components/parameters/SOPVersionId"
+      responses:
+        "200":
+          description: SOP version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SOPVersionResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /app/tasks/{task_id}/submissions:
+    post:
+      tags:
+        - Operator Tasks
+      operationId: submitAppTask
+      summary: Submit an idempotent SOP task response.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitTaskRequest"
+      responses:
+        "200":
+          description: Submission result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /goats/search:
     get:
       tags:
@@ -259,6 +443,27 @@ components:
       schema:
         type: string
         format: uuid
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SOPVersionId:
+      name: sop_version_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     Limit:
       name: limit
       in: query
@@ -308,7 +513,337 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    WriteConflict:
+      description: Optimistic concurrency, stale SOP version, or idempotency conflict.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    ValidationIssue:
+      type: object
+      additionalProperties: false
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    ValidationReport:
+      type: object
+      additionalProperties: false
+      required: [valid, errors, warnings]
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+    SOPVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - sop_version_id
+        - tenant_id
+        - sop_id
+        - sop_code
+        - version
+        - version_label
+        - status
+        - form_dsl
+        - proof_policy
+        - compatibility
+        - validation_report
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        sop_version_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        sop_id:
+          type: string
+          format: uuid
+        sop_code:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        version_label:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, retired]
+        form_dsl:
+          type: object
+          additionalProperties: true
+        proof_policy:
+          type: object
+          additionalProperties: true
+        compatibility:
+          type: object
+          additionalProperties: true
+        validation_report:
+          $ref: "#/components/schemas/ValidationReport"
+        published_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        retired_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SOPVersionResponse:
+      type: object
+      additionalProperties: false
+      required: [version, trace_id]
+      properties:
+        version:
+          $ref: "#/components/schemas/SOPVersion"
+        trace_id:
+          type: string
+    TaskSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - task_id
+        - tenant_id
+        - sop_id
+        - sop_version_id
+        - sop_code
+        - task_type
+        - title
+        - description
+        - state
+        - scope_type
+        - scope_id
+        - priority
+        - context
+        - row_version
+        - created_at
+        - updated_at
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        sop_id:
+          type: string
+          format: uuid
+        sop_version_id:
+          type: string
+          format: uuid
+        sop_code:
+          type: string
+        task_type:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        state:
+          type: string
+          enum: [queued, assigned, in_progress, submitted, accepted, needs_review, rework_requested, rejected, canceled]
+        assigned_to:
+          type:
+            - string
+            - "null"
+          format: uuid
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+          format: uuid
+        priority:
+          type: string
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        context:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TaskListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, trace_id]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskSummary"
+        trace_id:
+          type: string
+    ProofReference:
+      type: object
+      additionalProperties: false
+      required: [proof_id, proof_type, subject_type, upload_state, metadata]
+      properties:
+        proof_id:
+          type: string
+        proof_type:
+          type: string
+          enum: [photo, video, attachment]
+        subject_type:
+          type: string
+          enum: [batch, goat, shed, task, other]
+        subject_id:
+          type:
+            - string
+            - "null"
+        upload_state:
+          type: string
+          enum: [pending, uploading, completed, failed]
+        metadata:
+          type: object
+          additionalProperties: true
+    SubmissionItem:
+      type: object
+      additionalProperties: false
+      required: [item_id, item_key, state, result]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        item_key:
+          type: string
+        state:
+          type: string
+          enum: [accepted, needs_review, rejected, skipped]
+        result:
+          type: object
+          additionalProperties: true
+    SubmissionSummary:
+      type: object
+      additionalProperties: false
+      required: [submission_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state, validation_report, items, submitted_at, row_version]
+      properties:
+        submission_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        sop_version_id:
+          type: string
+          format: uuid
+        submitted_by:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+        answers:
+          type: object
+          additionalProperties: true
+        proof_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProofReference"
+        state:
+          type: string
+          enum: [submitted, accepted, needs_review, rejected, voided]
+        validation_report:
+          $ref: "#/components/schemas/ValidationReport"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmissionItem"
+        submitted_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+    TaskResponse:
+      type: object
+      additionalProperties: false
+      required: [task, trace_id]
+      properties:
+        task:
+          $ref: "#/components/schemas/TaskSummary"
+        sop_version:
+          oneOf:
+            - $ref: "#/components/schemas/SOPVersion"
+            - type: "null"
+        submissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmissionSummary"
+        trace_id:
+          type: string
+    SubmitTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [sop_version_id, idempotency_key, answers, proof_refs]
+      properties:
+        sop_version_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 200
+        answers:
+          type: object
+          additionalProperties: true
+        proof_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProofReference"
+    SubmissionResponse:
+      type: object
+      additionalProperties: false
+      required: [submission, task, trace_id]
+      properties:
+        submission:
+          $ref: "#/components/schemas/SubmissionSummary"
+        task:
+          $ref: "#/components/schemas/TaskSummary"
+        trace_id:
+          type: string
     ErrorEnvelope:
       type: object
       additionalProperties: false
@@ -357,6 +892,462 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+    OperatorProfile:
+      type: object
+      additionalProperties: false
+      required: [operator_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id, primary_location, grant_count, capability_count, active_device_count, metadata, row_version, created_at, updated_at]
+      properties:
+        operator_id:
+          type: string
+          format: uuid
+        user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        display_code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        status:
+          type: string
+          enum: [candidate, active, inactive, suspended, left]
+        primary_role_hint:
+          type: string
+          enum: [operator, park_head, verifier, supervisor, admin, other]
+        primary_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        primary_location:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        grant_count:
+          type: integer
+          minimum: 0
+        capability_count:
+          type: integer
+          minimum: 0
+        active_device_count:
+          type: integer
+          minimum: 0
+        metadata:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GrantSummary:
+      type: object
+      additionalProperties: false
+      required: [grant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to, created_at, created_by]
+      properties:
+        grant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [admin, park_head, operator, verifier, ceo_internal]
+        scope_type:
+          type: string
+          enum: [tenant, custodian_party, farm, park, shed, cohort]
+        scope_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, inactive, revoked]
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+    CapabilityAssignment:
+      type: object
+      additionalProperties: false
+      required: [member_capability_id, capability_id, capability_code, description, scope_type, scope_id, status, valid_from, valid_to, created_at]
+      properties:
+        member_capability_id:
+          type: string
+          format: uuid
+        capability_id:
+          type: string
+          format: uuid
+        capability_code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 500
+        scope_type:
+          type: string
+          enum: [tenant, custodian_party, farm, park, shed, cohort]
+        scope_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, inactive, revoked]
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    DeviceSummary:
+      type: object
+      additionalProperties: false
+      required: [device_id, operator_id, platform, app_install_id, device_public_key_hash, push_token_hash, app_version, os_version, status, last_seen_at, registered_at, revoked_at, metadata, row_version]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        operator_id:
+          type: string
+          format: uuid
+        platform:
+          type: string
+          const: android
+        app_install_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        device_public_key_hash:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        push_token_hash:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        app_version:
+          type: string
+          minLength: 1
+          maxLength: 80
+        os_version:
+          type: string
+          maxLength: 80
+        status:
+          type: string
+          enum: [active, revoked, lost, retired]
+        last_seen_at:
+          type: string
+          format: date-time
+        registered_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        row_version:
+          type: integer
+          minimum: 1
+    AppMeResponse:
+      type: object
+      additionalProperties: false
+      required: [actor_id, operator_profile, grants, trace_id]
+      properties:
+        actor_id:
+          type: string
+          format: uuid
+        operator_profile:
+          oneOf:
+            - $ref: "#/components/schemas/OperatorProfile"
+            - type: "null"
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrantSummary"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    RegisterDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [app_install_id, app_version]
+      properties:
+        app_install_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        device_public_key_hash:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        push_token_hash:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        app_version:
+          type: string
+          minLength: 1
+          maxLength: 80
+        os_version:
+          type: string
+          maxLength: 80
+        metadata:
+          type: object
+          additionalProperties: true
+    HeartbeatDeviceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        app_version:
+          type: string
+          maxLength: 80
+        os_version:
+          type: string
+          maxLength: 80
+        push_token_hash:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+        metadata:
+          type: object
+          additionalProperties: true
+    DeviceResponse:
+      type: object
+      additionalProperties: false
+      required: [device, trace_id]
+      properties:
+        device:
+          $ref: "#/components/schemas/DeviceSummary"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    BootstrapResponse:
+      type: object
+      additionalProperties: false
+      required: [actor, operator_profile, roles_and_scopes, capabilities, device_state, app_min_supported_version, feature_flags, visible_navigation, task_queue_descriptors, pinned_sop_versions, supported_field_types, supported_rule_operators, supported_proof_actions, option_source_descriptors, sync_policy, server_time, trace_id]
+      properties:
+        actor:
+          $ref: "#/components/schemas/BootstrapActor"
+        operator_profile:
+          $ref: "#/components/schemas/OperatorProfile"
+        roles_and_scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrantSummary"
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapabilityAssignment"
+        device_state:
+          $ref: "#/components/schemas/BootstrapDeviceState"
+        app_min_supported_version:
+          type: string
+          minLength: 1
+          maxLength: 80
+        feature_flags:
+          type: object
+          additionalProperties:
+            type: boolean
+        visible_navigation:
+          type: array
+          items:
+            $ref: "#/components/schemas/BootstrapNavigationItem"
+        task_queue_descriptors:
+          type: array
+          items:
+            $ref: "#/components/schemas/BootstrapTaskQueue"
+        pinned_sop_versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BootstrapSOPVersion"
+        supported_field_types:
+          type: array
+          items:
+            type: string
+        supported_rule_operators:
+          type: array
+          items:
+            type: string
+        supported_proof_actions:
+          type: array
+          items:
+            type: string
+        option_source_descriptors:
+          type: array
+          items:
+            $ref: "#/components/schemas/BootstrapOptionSource"
+        sync_policy:
+          $ref: "#/components/schemas/BootstrapSyncPolicy"
+        server_time:
+          type: string
+          format: date-time
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    BootstrapActor:
+      type: object
+      additionalProperties: false
+      required: [actor_id, tenant_id]
+      properties:
+        actor_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+    BootstrapDeviceState:
+      type: object
+      additionalProperties: false
+      required: [required, device, status, reason]
+      properties:
+        required:
+          type: boolean
+        device:
+          oneOf:
+            - $ref: "#/components/schemas/DeviceSummary"
+            - type: "null"
+        status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        reason:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+    BootstrapNavigationItem:
+      type: object
+      additionalProperties: false
+      required: [key, label, href]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 80
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        href:
+          type: string
+          minLength: 1
+          maxLength: 120
+    BootstrapTaskQueue:
+      type: object
+      additionalProperties: false
+      required: [key, label, required_capabilities]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 80
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+        required_capabilities:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+    BootstrapSOPVersion:
+      type: object
+      additionalProperties: false
+      required: [sop_code, sop_version_id, status, compatible, reason]
+      properties:
+        sop_code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        sop_version_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        status:
+          type: string
+          minLength: 1
+          maxLength: 80
+        compatible:
+          type: boolean
+        reason:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+    BootstrapOptionSource:
+      type: object
+      additionalProperties: false
+      required: [key, scope_type, scope_id, ttl_seconds]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 120
+        scope_type:
+          type: string
+          enum: [tenant, custodian_party, farm, park, shed, cohort]
+        scope_id:
+          type: string
+          format: uuid
+        ttl_seconds:
+          type: integer
+          minimum: 1
+    BootstrapSyncPolicy:
+      type: object
+      additionalProperties: false
+      required: [offline_draft_ttl_hours, heartbeat_interval_seconds, max_retry_backoff_seconds]
+      properties:
+        offline_draft_ttl_hours:
+          type: integer
+          minimum: 1
+        heartbeat_interval_seconds:
+          type: integer
+          minimum: 1
+        max_retry_backoff_seconds:
+          type: integer
+          minimum: 1
     IdentifierType:
       type: string
       enum:

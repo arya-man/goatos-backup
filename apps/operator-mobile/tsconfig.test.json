@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "../..",
+    "outDir": ".test-build"
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../packages/forms-dsl/src/**/*.ts",
+    "../../packages/mobile-forms-runner/src/**/*.ts",
+    "../../packages/media-client/src/**/*.ts",
+    "../../packages/device-client/src/**/*.ts"
+  ]
+}

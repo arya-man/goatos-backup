@@ -24,6 +24,640 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/operators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List tenant-scoped workforce operators. */
+        get: operations["listOperators"];
+        put?: never;
+        /** Create an operator profile. */
+        post: operations["createOperator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an operator profile. */
+        get: operations["getOperator"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update an operator profile. */
+        patch: operations["updateOperator"];
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate an operator profile. */
+        post: operations["activateOperator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate an operator profile. */
+        post: operations["deactivateOperator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List DB-authoritative grants for an operator. */
+        get: operations["listOperatorGrants"];
+        put?: never;
+        /** Create an active role/scope grant for an operator. */
+        post: operations["createOperatorGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assign an operator capability. */
+        post: operations["assignOperatorCapability"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}/capabilities/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an operator capability assignment. */
+        delete: operations["removeOperatorCapability"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List operator devices. */
+        get: operations["listOperatorDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operators/{operator_id}/devices/{device_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke an Android device. */
+        post: operations["revokeOperatorDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operator-source-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List sanitized source-identity candidates. */
+        get: operations["listOperatorSourceCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operator-source-candidates/{candidate_id}/map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Map a sanitized source candidate to an operator profile. */
+        post: operations["mapOperatorSourceCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/operator-source-candidates/{candidate_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a sanitized source candidate. */
+        post: operations["rejectOperatorSourceCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sops": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List SOP definitions. */
+        get: operations["listSOPs"];
+        put?: never;
+        /** Create an SOP definition. */
+        post: operations["createSOP"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sops/{sop_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an SOP definition and latest version. */
+        get: operations["getSOP"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sops/{sop_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a draft SOP version. */
+        post: operations["createSOPVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sops/{sop_id}/versions/{sop_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a specific SOP version. */
+        get: operations["getSOPVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sops/{sop_id}/versions/{sop_version_id}/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run server-side SOP preview validation. */
+        post: operations["dryRunSOPVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sops/{sop_id}/versions/{sop_version_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish an immutable SOP version. */
+        post: operations["publishSOPVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sops/{sop_id}/versions/{sop_version_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire an SOP version. */
+        post: operations["retireSOPVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List task and proof/rework queues. */
+        get: operations["listTasks"];
+        put?: never;
+        /** Create a task pinned to a published SOP version. */
+        post: operations["createTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get task detail, pinned SOP version, and submission history. */
+        get: operations["getTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tasks/{task_id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assign or reassign a task. */
+        post: operations["assignTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tasks/{task_id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify proof and accept a task. */
+        post: operations["verifyTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tasks/{task_id}/rework": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request operator rework for a task. */
+        post: operations["reworkTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List governed locations.
+         * @description Returns canonical location master rows with operational flags and lightweight usage counts.
+         */
+        get: operations["listLocations"];
+        put?: never;
+        /** Create a governed location. */
+        post: operations["createLocation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations/{location_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a governed location. */
+        get: operations["getLocation"];
+        put?: never;
+        post?: never;
+        /**
+         * Hard-delete an unreferenced staging or review location.
+         * @description Active or referenced locations must be retired instead of physically deleted.
+         */
+        delete: operations["deleteLocation"];
+        options?: never;
+        head?: never;
+        /** Update a governed location. */
+        patch: operations["updateLocation"];
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire a location after blocking usage checks pass. */
+        post: operations["retireLocation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List child locations. */
+        get: operations["listLocationChildren"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get blocking usage for a location. */
+        get: operations["getLocationUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/aliases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List source aliases for a canonical location. */
+        get: operations["listLocationAliases"];
+        put?: never;
+        /** Add a source alias for a canonical location. */
+        post: operations["createLocationAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/aliases/{alias_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Hard-delete a retired or review alias.
+         * @description Active aliases must be retired before physical deletion.
+         */
+        delete: operations["deleteLocationAlias"];
+        options?: never;
+        head?: never;
+        /** Update a source alias for a canonical location. */
+        patch: operations["updateLocationAlias"];
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/aliases/{alias_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire a location alias. */
+        post: operations["retireLocationAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List effective capacity records for a location. */
+        get: operations["listLocationCapacity"];
+        put?: never;
+        /** Add an effective capacity record for a location. */
+        post: operations["createLocationCapacity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/locations/{location_id}/capacity/{capacity_record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Hard-delete a capacity record. */
+        delete: operations["deleteLocationCapacity"];
+        options?: never;
+        head?: never;
+        /** Update or close an effective capacity record. */
+        patch: operations["updateLocationCapacity"];
+        trace?: never;
+    };
+    "/admin/location-review-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List unresolved location governance review items. */
+        get: operations["listLocationReviewItems"];
+        put?: never;
+        /** Create a location governance review item. */
+        post: operations["createLocationReviewItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/location-review-items/{review_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve or dismiss a location governance review item. */
+        post: operations["resolveLocationReviewItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/import-runs": {
         parameters: {
             query?: never;
@@ -363,6 +997,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/counts/sync-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebuild Counts projection rows from governed source rows.
+         * @description Executes the local Counts projection rebuild using tenant-scoped counts_source_rows. Execute runs resolve source location labels through Locations aliases and open/reuse review items for unknown labels. Dry runs are read-only.
+         */
+        post: operations["createCountsSyncRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/counts/sync-runs/{sync_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a Counts sync run result. */
+        get: operations["getCountsSyncRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/mortality/sync-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebuild Mortality events and projection rows from governed source rows.
+         * @description Executes the local Mortality replay using tenant-scoped mortality_source_rows. Stable logical events are idempotent, candidate review rows remain distinct, and source location labels resolve through Locations aliases.
+         */
+        post: operations["createMortalitySyncRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/mortality/sync-runs/{sync_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a Mortality sync run result. */
+        get: operations["getMortalitySyncRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/legacy-sync/sources": {
         parameters: {
             query?: never;
@@ -465,6 +1173,246 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        SOPDefinition: {
+            /** Format: uuid */
+            sop_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            code: string;
+            name: string;
+            description: string;
+            /** @enum {string} */
+            status: "draft" | "active" | "retired";
+            /** Format: uuid */
+            active_sop_version_id?: string | null;
+            version_count: number;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        SOPVersion: {
+            /** Format: uuid */
+            sop_version_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            sop_id: string;
+            sop_code: string;
+            version: number;
+            version_label: string;
+            /** @enum {string} */
+            status: "draft" | "published" | "retired";
+            form_dsl: {
+                [key: string]: unknown;
+            };
+            proof_policy: {
+                [key: string]: unknown;
+            };
+            compatibility: {
+                [key: string]: unknown;
+            };
+            validation_report: components["schemas"]["ValidationReport"];
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            retired_at?: string | null;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ValidationIssue: {
+            field: string;
+            code: string;
+            message: string;
+        };
+        ValidationReport: {
+            valid: boolean;
+            errors: components["schemas"]["ValidationIssue"][];
+            warnings: components["schemas"]["ValidationIssue"][];
+        };
+        SOPListResponse: {
+            items: components["schemas"]["SOPDefinition"][];
+            trace_id: string;
+        };
+        SOPResponse: {
+            sop: components["schemas"]["SOPDefinition"];
+            latest_version?: components["schemas"]["SOPVersion"] | null;
+            trace_id: string;
+        };
+        SOPVersionResponse: {
+            version: components["schemas"]["SOPVersion"];
+            trace_id: string;
+        };
+        CreateSOPRequest: {
+            code: string;
+            name: string;
+            description?: string;
+        };
+        CreateSOPVersionRequest: {
+            version_label: string;
+            form_dsl: {
+                [key: string]: unknown;
+            };
+            proof_policy: {
+                [key: string]: unknown;
+            };
+            compatibility?: {
+                [key: string]: unknown;
+            };
+        };
+        RowVersionRequest: {
+            row_version: number;
+        };
+        ProofReference: {
+            proof_id: string;
+            /** @enum {string} */
+            proof_type: "photo" | "video" | "attachment";
+            /** @enum {string} */
+            subject_type: "batch" | "goat" | "shed" | "task" | "other";
+            subject_id?: string | null;
+            /** @enum {string} */
+            upload_state: "pending" | "uploading" | "completed" | "failed";
+            metadata: {
+                [key: string]: unknown;
+            };
+        };
+        DryRunRequest: {
+            answers: {
+                [key: string]: unknown;
+            };
+            proof_refs: components["schemas"]["ProofReference"][];
+            context?: {
+                [key: string]: unknown;
+            };
+        };
+        FieldState: {
+            key: string;
+            visible: boolean;
+            required: boolean;
+            blocked: boolean;
+            message?: string;
+        };
+        DryRunResponse: {
+            valid: boolean;
+            errors: components["schemas"]["ValidationIssue"][];
+            warnings: components["schemas"]["ValidationIssue"][];
+            field_states: components["schemas"]["FieldState"][];
+            workflow_path: string[];
+            final_state: string;
+            trace_id: string;
+        };
+        TaskSummary: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            sop_id: string;
+            /** Format: uuid */
+            sop_version_id: string;
+            sop_code: string;
+            task_type: string;
+            title: string;
+            description: string;
+            /** @enum {string} */
+            state: "queued" | "assigned" | "in_progress" | "submitted" | "accepted" | "needs_review" | "rework_requested" | "rejected" | "canceled";
+            /** Format: uuid */
+            assigned_to?: string | null;
+            scope_type: string;
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            priority: "low" | "normal" | "high" | "urgent";
+            /** Format: date-time */
+            due_at?: string | null;
+            context: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TaskListResponse: {
+            items: components["schemas"]["TaskSummary"][];
+            trace_id: string;
+        };
+        CreateTaskRequest: {
+            sop_code?: string;
+            /** Format: uuid */
+            sop_version_id?: string | null;
+            task_type: string;
+            title: string;
+            description?: string;
+            /** Format: uuid */
+            assigned_to?: string | null;
+            scope_type: string;
+            /** Format: uuid */
+            scope_id: string;
+            priority?: string;
+            /** Format: date-time */
+            due_at?: string | null;
+            context?: {
+                [key: string]: unknown;
+            };
+        };
+        AssignTaskRequest: {
+            /** Format: uuid */
+            assigned_to: string;
+            reason: string;
+            row_version: number;
+        };
+        ReviewTaskRequest: {
+            reason: string;
+            row_version: number;
+        };
+        SubmissionItem: {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            goat_id?: string | null;
+            item_key: string;
+            /** @enum {string} */
+            state: "accepted" | "needs_review" | "rejected" | "skipped";
+            result: {
+                [key: string]: unknown;
+            };
+        };
+        SubmissionSummary: {
+            /** Format: uuid */
+            submission_id: string;
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            sop_version_id: string;
+            /** Format: uuid */
+            submitted_by: string;
+            idempotency_key: string;
+            answers: {
+                [key: string]: unknown;
+            };
+            proof_refs: components["schemas"]["ProofReference"][];
+            /** @enum {string} */
+            state: "submitted" | "accepted" | "needs_review" | "rejected" | "voided";
+            validation_report: components["schemas"]["ValidationReport"];
+            items: components["schemas"]["SubmissionItem"][];
+            /** Format: date-time */
+            submitted_at: string;
+            /** Format: date-time */
+            accepted_at?: string | null;
+            row_version: number;
+        };
+        TaskResponse: {
+            task: components["schemas"]["TaskSummary"];
+            sop_version?: components["schemas"]["SOPVersion"] | null;
+            submissions?: components["schemas"]["SubmissionSummary"][];
+            trace_id: string;
+        };
         /** @enum {string} */
         AuthSessionEventType: "auth.sign_in" | "auth.session_refresh" | "auth.sign_out";
         AuthSessionEventRequest: {
@@ -489,12 +1437,291 @@ export interface components {
             /** Format: uuid */
             first_result_id?: string | null;
         };
+        CounterFamilyFreshness: {
+            /** Format: date-time */
+            as_of?: string | null;
+            /** @enum {string} */
+            freshness_status: "green" | "yellow" | "red" | "unknown";
+            /** @enum {string} */
+            serving_state: "never_synced" | "fresh" | "stale" | "rebuilding" | "failed" | "source_unavailable";
+            stale: boolean;
+            rebuild_required: boolean;
+            source_watermark?: string | null;
+            unavailable_sources: string[];
+            /** @enum {string} */
+            source_composition: "legacy_only" | "canonical_only" | "blended";
+            conflict_count: number;
+            projection_version: number;
+        };
+        CreateCountsSyncRunRequest: {
+            /** @default false */
+            dry_run: boolean;
+            /** @description Optional YYYY-MM-DD source watermark date filter. Omit for all current source rows. */
+            snapshot_date?: string | null;
+        };
+        CountsSyncRunResponse: {
+            sync_run_id: string;
+            /** @enum {string} */
+            mode: "dry_run" | "execute";
+            /** @enum {string} */
+            status: "running" | "completed" | "failed" | "source_unavailable";
+            /** Format: date */
+            snapshot_date?: string | null;
+            source_rows_read: number;
+            projection_rows_written: number;
+            rows_skipped: number;
+            unresolved_location_labels: number;
+            freshness: components["schemas"]["CounterFamilyFreshness"];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            trace_id: string;
+        };
+        CreateMortalitySyncRunRequest: {
+            /** @default false */
+            dry_run: boolean;
+        };
+        MortalitySyncRunResponse: {
+            sync_run_id: string;
+            /** @enum {string} */
+            mode: "dry_run" | "execute";
+            /** @enum {string} */
+            status: "running" | "completed" | "failed" | "source_unavailable";
+            source_rows_read: number;
+            events_upserted: number;
+            projection_rows_written: number;
+            rows_skipped: number;
+            dedup_candidate_events: number;
+            unresolved_location_labels: number;
+            freshness: components["schemas"]["CounterFamilyFreshness"];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            trace_id: string;
+        };
         EvidenceRef: {
             /** @enum {string} */
             evidence_type: "source_record" | "identifier" | "goat" | "event" | "media" | "decision" | "import_run" | "conflict" | "location" | "actor";
             evidence_id: string;
             source_system?: string | null;
             description?: string | null;
+        };
+        OperatorProfile: {
+            /** Format: uuid */
+            operator_id: string;
+            /** Format: uuid */
+            user_id: string | null;
+            display_code: string;
+            display_name: string;
+            /** @enum {string} */
+            status: "candidate" | "active" | "inactive" | "suspended" | "left";
+            /** @enum {string} */
+            primary_role_hint: "operator" | "park_head" | "verifier" | "supervisor" | "admin" | "other";
+            /** Format: uuid */
+            primary_location_id: string | null;
+            primary_location: string | null;
+            grant_count: number;
+            capability_count: number;
+            active_device_count: number;
+            metadata: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OperatorListResponse: {
+            items: components["schemas"]["OperatorProfile"][];
+            trace_id: string;
+        };
+        OperatorResponse: {
+            operator: components["schemas"]["OperatorProfile"];
+            trace_id: string;
+        };
+        CreateOperatorRequest: {
+            /** Format: uuid */
+            user_id?: string | null;
+            display_code: string;
+            display_name: string;
+            /**
+             * @default candidate
+             * @enum {string}
+             */
+            status: "candidate" | "active" | "inactive" | "suspended" | "left";
+            /**
+             * @default operator
+             * @enum {string}
+             */
+            primary_role_hint: "operator" | "park_head" | "verifier" | "supervisor" | "admin" | "other";
+            /** Format: uuid */
+            primary_location_id?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        UpdateOperatorRequest: {
+            display_name?: string;
+            /** @enum {string} */
+            primary_role_hint?: "operator" | "park_head" | "verifier" | "supervisor" | "admin" | "other";
+            /** Format: uuid */
+            primary_location_id?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+        };
+        StatusChangeRequest: {
+            reason?: string;
+            row_version: number;
+        };
+        GrantSummary: {
+            /** Format: uuid */
+            grant_id: string;
+            /** Format: uuid */
+            user_id: string;
+            /** @enum {string} */
+            role: "admin" | "park_head" | "operator" | "verifier" | "ceo_internal";
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            status: "active" | "inactive" | "revoked";
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_to: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by: string | null;
+        };
+        GrantListResponse: {
+            items: components["schemas"]["GrantSummary"][];
+            trace_id: string;
+        };
+        CreateGrantRequest: {
+            /** @enum {string} */
+            role: "admin" | "park_head" | "operator" | "verifier" | "ceo_internal";
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
+            /** Format: uuid */
+            scope_id: string;
+            /** Format: date-time */
+            valid_to?: string | null;
+        };
+        CapabilityAssignment: {
+            /** Format: uuid */
+            member_capability_id: string;
+            /** Format: uuid */
+            capability_id: string;
+            capability_code: string;
+            description: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            status: "active" | "inactive" | "revoked";
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_to: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CapabilityResponse: {
+            capability: components["schemas"]["CapabilityAssignment"];
+            trace_id: string;
+        };
+        CreateCapabilityRequest: {
+            capability_code: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
+            /** Format: uuid */
+            scope_id: string;
+            /** Format: date-time */
+            valid_to?: string | null;
+        };
+        DeviceSummary: {
+            /** Format: uuid */
+            device_id: string;
+            /** Format: uuid */
+            operator_id: string;
+            /** @constant */
+            platform: "android";
+            app_install_id: string;
+            device_public_key_hash: string | null;
+            push_token_hash: string | null;
+            app_version: string;
+            os_version: string;
+            /** @enum {string} */
+            status: "active" | "revoked" | "lost" | "retired";
+            /** Format: date-time */
+            last_seen_at: string;
+            /** Format: date-time */
+            registered_at: string;
+            /** Format: date-time */
+            revoked_at: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+        };
+        DeviceListResponse: {
+            items: components["schemas"]["DeviceSummary"][];
+            trace_id: string;
+        };
+        DeviceResponse: {
+            device: components["schemas"]["DeviceSummary"];
+            trace_id: string;
+        };
+        RevokeDeviceRequest: {
+            reason?: string;
+            row_version: number;
+        };
+        SourceCandidate: {
+            /** Format: uuid */
+            candidate_id: string;
+            /** Format: uuid */
+            operator_id: string | null;
+            /** @enum {string} */
+            source_system: "slack" | "app_script" | "sheet" | "bq" | "firebase" | "manual" | "other";
+            source_flow: string;
+            /** @enum {string} */
+            external_ref_type: "slack_user_id" | "email" | "phone" | "staff_label" | "sheet_user" | "firebase_uid" | "other";
+            external_ref_hash: string;
+            /** @enum {string} */
+            status: "candidate" | "mapped" | "rejected" | "conflict" | "retired";
+            confidence: number;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            observation_count: number;
+            review_reason: string | null;
+            observed_role_hint: string | null;
+            observed_scope_hint: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            row_version: number;
+        };
+        SourceCandidateListResponse: {
+            items: components["schemas"]["SourceCandidate"][];
+            trace_id: string;
+        };
+        SourceCandidateResponse: {
+            candidate: components["schemas"]["SourceCandidate"];
+            trace_id: string;
+        };
+        MapSourceCandidateRequest: {
+            /** Format: uuid */
+            operator_id: string;
+            reason?: string;
+            row_version: number;
+        };
+        RejectSourceCandidateRequest: {
+            reason?: string;
+            row_version: number;
         };
         LocationScope: {
             /** Format: uuid */
@@ -1099,6 +2326,290 @@ export interface components {
             run: components["schemas"]["LegacySyncRun"];
             trace_id: string;
         };
+        LocationOperationalAttributes: {
+            usable_for_counts: boolean;
+            usable_for_feed: boolean;
+            usable_for_vaccination: boolean;
+            usable_for_sop: boolean;
+            is_holding: boolean;
+            is_quarantine: boolean;
+            is_icu: boolean;
+            display_order: number;
+            notes: string | null;
+        };
+        CreateLocationRequest: {
+            /** @enum {string} */
+            location_type: "farm" | "park" | "shed" | "cohort" | "pen" | "unknown";
+            location_code?: string | null;
+            name: string;
+            /** Format: uuid */
+            parent_location_id?: string | null;
+            /**
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "inactive" | "staging" | "review";
+            /** @default IN */
+            country: string;
+            state_region?: string | null;
+            district?: string | null;
+            pincode?: string | null;
+            lat?: number | null;
+            lng?: number | null;
+            /** @default Asia/Kolkata */
+            timezone: string;
+            operational?: components["schemas"]["LocationOperationalAttributes"];
+        };
+        UpdateLocationRequest: {
+            /** @enum {string} */
+            location_type?: "farm" | "park" | "shed" | "cohort" | "pen" | "unknown";
+            location_code?: string | null;
+            name?: string;
+            /** Format: uuid */
+            parent_location_id?: string | null;
+            clear_parent?: boolean;
+            /** @enum {string} */
+            status?: "active" | "inactive" | "staging" | "review";
+            country?: string;
+            state_region?: string | null;
+            district?: string | null;
+            pincode?: string | null;
+            lat?: number | null;
+            lng?: number | null;
+            timezone?: string;
+            operational?: components["schemas"]["LocationOperationalAttributes"];
+            row_version: number;
+        };
+        RetireLocationRequest: {
+            reason: string;
+            row_version: number;
+        };
+        DeleteLocationRequest: {
+            reason: string;
+            row_version: number;
+        };
+        CreateLocationAliasRequest: {
+            alias_code: string;
+            /** @enum {string} */
+            source_context: "legacy_location_code" | "legacy_bq_dashboard_shed" | "legacy_bq_counts" | "legacy_bq_mortality" | "counts_source" | "mortality_source" | "manual" | "import";
+            notes?: string | null;
+        };
+        UpdateLocationAliasRequest: {
+            alias_code: string;
+            /** @enum {string} */
+            source_context: "legacy_location_code" | "legacy_bq_dashboard_shed" | "legacy_bq_counts" | "legacy_bq_mortality" | "counts_source" | "mortality_source" | "manual" | "import";
+            notes?: string | null;
+            row_version: number;
+        };
+        RetireLocationAliasRequest: {
+            reason: string;
+            row_version: number;
+        };
+        DeleteLocationAliasRequest: {
+            reason: string;
+            row_version: number;
+        };
+        CreateLocationCapacityRequest: {
+            /** @enum {string} */
+            capacity_kind: "goat_occupancy" | "quarantine" | "feed_trial" | "other";
+            capacity_value: number;
+            /** Format: date */
+            effective_from: string;
+            /** Format: date */
+            effective_to?: string | null;
+            /** @enum {string} */
+            source: "manual" | "legacy_bq" | "android_sop" | "import";
+            source_ref?: string | null;
+            notes?: string | null;
+        };
+        UpdateLocationCapacityRequest: {
+            /** @enum {string} */
+            capacity_kind: "goat_occupancy" | "quarantine" | "feed_trial" | "other";
+            capacity_value: number;
+            /** Format: date */
+            effective_from: string;
+            /** Format: date */
+            effective_to?: string | null;
+            /** @enum {string} */
+            source: "manual" | "legacy_bq" | "android_sop" | "import";
+            source_ref?: string | null;
+            notes?: string | null;
+            row_version: number;
+        };
+        DeleteLocationCapacityRequest: {
+            reason: string;
+            row_version: number;
+        };
+        CreateLocationReviewItemRequest: {
+            /** @enum {string} */
+            review_type: "unknown_alias" | "alias_conflict" | "parent_type_conflict" | "capacity_conflict" | "retire_blocked" | "usage_conflict";
+            source_context?: string | null;
+            source_label?: string | null;
+            normalized_source_label?: string | null;
+            /** Format: uuid */
+            canonical_location_id?: string | null;
+            candidate_location_ids?: string[];
+            evidence?: {
+                [key: string]: unknown;
+            };
+            evidence_hash: string;
+        };
+        ResolveLocationReviewItemRequest: {
+            /** @enum {string} */
+            status: "resolved" | "dismissed";
+            /** Format: uuid */
+            canonical_location_id?: string | null;
+            resolution_notes: string;
+            row_version: number;
+        };
+        LocationSummary: {
+            /** Format: uuid */
+            location_id: string;
+            location_type: string;
+            location_code: string | null;
+            name: string;
+            /** Format: uuid */
+            parent_location_id: string | null;
+            parent_name: string | null;
+            status: string;
+            country: string;
+            state_region: string | null;
+            district: string | null;
+            pincode: string | null;
+            lat: number | null;
+            lng: number | null;
+            timezone: string;
+            operational: components["schemas"]["LocationOperationalAttributes"];
+            current_capacity: number | null;
+            alias_count: number;
+            child_count: number;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        LocationListResponse: {
+            items: components["schemas"]["LocationSummary"][];
+            trace_id: string;
+        };
+        LocationResponse: {
+            location: components["schemas"]["LocationSummary"];
+            trace_id: string;
+        };
+        LocationMutationResponse: {
+            location: components["schemas"]["LocationSummary"];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            trace_id: string;
+        };
+        LocationDeleteResponse: {
+            /** @enum {string} */
+            resource_type: "location" | "location_alias" | "location_capacity_record";
+            /** Format: uuid */
+            resource_id: string;
+            /** Format: uuid */
+            location_id: string | null;
+            deleted: boolean;
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            trace_id: string;
+        };
+        LocationAlias: {
+            /** Format: uuid */
+            alias_id: string;
+            alias_code: string;
+            /** Format: uuid */
+            canonical_location_id: string;
+            source_context: string;
+            status: string;
+            notes: string | null;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        LocationAliasListResponse: {
+            items: components["schemas"]["LocationAlias"][];
+            trace_id: string;
+        };
+        LocationAliasResponse: {
+            alias: components["schemas"]["LocationAlias"];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            trace_id: string;
+        };
+        LocationCapacityRecord: {
+            /** Format: uuid */
+            capacity_record_id: string;
+            /** Format: uuid */
+            location_id: string;
+            capacity_kind: string;
+            capacity_value: number;
+            /** Format: date */
+            effective_from: string;
+            /** Format: date */
+            effective_to: string | null;
+            source: string;
+            source_ref: string | null;
+            notes: string | null;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        LocationCapacityListResponse: {
+            items: components["schemas"]["LocationCapacityRecord"][];
+            trace_id: string;
+        };
+        LocationCapacityResponse: {
+            capacity: components["schemas"]["LocationCapacityRecord"];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            trace_id: string;
+        };
+        LocationReviewItem: {
+            /** Format: uuid */
+            review_id: string;
+            review_type: string;
+            status: string;
+            source_context: string | null;
+            source_label: string | null;
+            normalized_source_label: string | null;
+            /** Format: uuid */
+            canonical_location_id: string | null;
+            candidate_location_ids: string[];
+            evidence_hash: string;
+            resolution_notes: string | null;
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            resolved_at: string | null;
+        };
+        LocationReviewListResponse: {
+            items: components["schemas"]["LocationReviewItem"][];
+            trace_id: string;
+        };
+        LocationReviewItemResponse: {
+            review_item: components["schemas"]["LocationReviewItem"];
+            idempotency: components["schemas"]["IdempotencyMeta"];
+            trace_id: string;
+        };
+        LocationUsageResponse: {
+            /** Format: uuid */
+            location_id: string;
+            goats_currently_assigned: number;
+            goat_location_history_rows: number;
+            child_locations: number;
+            active_aliases: number;
+            active_rbac_grants: number;
+            active_sop_dependencies: number;
+            import_or_source_rows: number;
+            dashboard_projection_rows: number;
+            has_blocking_usage: boolean;
+            trace_id: string;
+        };
         /** @enum {string} */
         CorrectionRequestState: "open" | "assigned" | "needs_field_check" | "approved" | "rejected" | "closed";
         CorrectionRequest: {
@@ -1228,6 +2739,15 @@ export interface components {
         ConflictId: string;
         CandidateId: string;
         GoatId: string;
+        LocationId: string;
+        OperatorId: string;
+        SourceCandidateId: string;
+        SOPId: string;
+        SOPVersionId: string;
+        TaskId: string;
+        AliasId: string;
+        CapacityRecordId: string;
+        ReviewId: string;
         IdentifierId: string;
         CorrectionRequestId: string;
         SyncRunId: string;
@@ -1272,6 +2792,1387 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["ServerError"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listOperators: {
+        parameters: {
+            query?: {
+                status?: string;
+                role_hint?: string;
+                location_id?: string;
+                search?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator roster rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createOperator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOperatorRequest"];
+            };
+        };
+        responses: {
+            /** @description Created operator profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getOperator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    updateOperator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOperatorRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated operator profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    activateOperator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatusChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Activated operator profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    deactivateOperator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatusChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Deactivated operator profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listOperatorGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator grant rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantListResponse"];
+                };
+            };
+        };
+    };
+    createOperatorGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGrantRequest"];
+            };
+        };
+        responses: {
+            /** @description Current operator grants. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantListResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    assignOperatorCapability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCapabilityRequest"];
+            };
+        };
+        responses: {
+            /** @description Capability assignment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityResponse"];
+                };
+            };
+        };
+    };
+    removeOperatorCapability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Capability assignment revoked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityResponse"];
+                };
+            };
+        };
+    };
+    listOperatorDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operator devices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceListResponse"];
+                };
+            };
+        };
+    };
+    revokeOperatorDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: components["parameters"]["OperatorId"];
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Revoked device. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listOperatorSourceCandidates: {
+        parameters: {
+            query?: {
+                status?: string;
+                source_system?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sanitized source candidates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceCandidateListResponse"];
+                };
+            };
+        };
+    };
+    mapOperatorSourceCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: components["parameters"]["SourceCandidateId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapSourceCandidateRequest"];
+            };
+        };
+        responses: {
+            /** @description Mapped source candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceCandidateResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    rejectOperatorSourceCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: components["parameters"]["SourceCandidateId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectSourceCandidateRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejected source candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceCandidateResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listSOPs: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SOP definitions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createSOP: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSOPRequest"];
+            };
+        };
+        responses: {
+            /** @description Created SOP definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getSOP: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sop_id: components["parameters"]["SOPId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SOP definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPResponse"];
+                };
+            };
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    createSOPVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sop_id: components["parameters"]["SOPId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSOPVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created SOP version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPVersionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getSOPVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sop_id: components["parameters"]["SOPId"];
+                sop_version_id: components["parameters"]["SOPVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SOP version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPVersionResponse"];
+                };
+            };
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    dryRunSOPVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sop_id: components["parameters"]["SOPId"];
+                sop_version_id: components["parameters"]["SOPVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DryRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Dry-run result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DryRunResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    publishSOPVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sop_id: components["parameters"]["SOPId"];
+                sop_version_id: components["parameters"]["SOPVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RowVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Published SOP version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPVersionResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    retireSOPVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sop_id: components["parameters"]["SOPId"];
+                sop_version_id: components["parameters"]["SOPVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RowVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Retired SOP version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SOPVersionResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listTasks: {
+        parameters: {
+            query?: {
+                state?: string;
+                assigned_to?: string;
+                scope_type?: string;
+                scope_id?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskListResponse"];
+                };
+            };
+        };
+    };
+    createTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Created task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    assignTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Assigned task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    verifyTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    reworkTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Rework requested. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listLocations: {
+        parameters: {
+            query?: {
+                type?: string;
+                status?: string;
+                parent_location_id?: string;
+                search?: string;
+                alias?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Location master rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createLocation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Location created or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationMutationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getLocation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Location detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    deleteLocation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteLocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Location hard-deleted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationDeleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    updateLocation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Location updated or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationMutationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    retireLocation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetireLocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Location retired or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationMutationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listLocationChildren: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Child location rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    getLocationUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Location usage summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationUsageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    listLocationAliases: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Location aliases. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationAliasListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    createLocationAlias: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLocationAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Alias created or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationAliasResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    deleteLocationAlias: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+                alias_id: components["parameters"]["AliasId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteLocationAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Alias hard-deleted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationDeleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    updateLocationAlias: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+                alias_id: components["parameters"]["AliasId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLocationAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Alias updated or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationAliasResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    retireLocationAlias: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+                alias_id: components["parameters"]["AliasId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetireLocationAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Alias retired or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationAliasResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listLocationCapacity: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Location capacity records. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationCapacityListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    createLocationCapacity: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLocationCapacityRequest"];
+            };
+        };
+        responses: {
+            /** @description Capacity record created or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationCapacityResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    deleteLocationCapacity: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+                capacity_record_id: components["parameters"]["CapacityRecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteLocationCapacityRequest"];
+            };
+        };
+        responses: {
+            /** @description Capacity record hard-deleted or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationDeleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    updateLocationCapacity: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                location_id: components["parameters"]["LocationId"];
+                capacity_record_id: components["parameters"]["CapacityRecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLocationCapacityRequest"];
+            };
+        };
+        responses: {
+            /** @description Capacity record updated or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationCapacityResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listLocationReviewItems: {
+        parameters: {
+            query?: {
+                status?: string;
+                review_type?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Location review queue rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationReviewListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createLocationReviewItem: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLocationReviewItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Review item created or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationReviewItemResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    resolveLocationReviewItem: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                review_id: components["parameters"]["ReviewId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveLocationReviewItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Review item resolved or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationReviewItemResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     listImportRuns: {
@@ -1860,6 +4761,116 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    createCountsSyncRun: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateCountsSyncRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Counts sync run result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsSyncRunResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getCountsSyncRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sync_run_id: components["parameters"]["SyncRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Counts sync run result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsSyncRunResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    createMortalitySyncRun: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateMortalitySyncRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Mortality sync run result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MortalitySyncRunResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getMortalitySyncRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sync_run_id: components["parameters"]["SyncRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mortality sync run result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MortalitySyncRunResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
         };
     };
     listLegacySyncSources: {

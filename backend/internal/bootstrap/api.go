@@ -10,12 +10,21 @@ import (
 	"strings"
 	"time"
 
+	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
+	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	legacysynchttp "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/http"
 	legacysyncpg "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/postgres"
 	legacysyncapp "github.com/vgoats/goatos/backend/internal/legacy_sync/app"
+	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
+	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
+	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
+	mortalityhttp "github.com/vgoats/goatos/backend/internal/mortality/adapters/http"
+	mortalitypg "github.com/vgoats/goatos/backend/internal/mortality/adapters/postgres"
+	mortalityapp "github.com/vgoats/goatos/backend/internal/mortality/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
@@ -27,6 +36,12 @@ import (
 	reportinghttp "github.com/vgoats/goatos/backend/internal/reporting/adapters/http"
 	reportingpg "github.com/vgoats/goatos/backend/internal/reporting/adapters/postgres"
 	reportingapp "github.com/vgoats/goatos/backend/internal/reporting/app"
+	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
+	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
+	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
+	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
+	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
 
 type Config struct {
@@ -116,9 +131,24 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	reportingRepo := reportingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	reportingService := reportingapp.NewService(reportingRepo)
 	reportingHandler := reportinghttp.NewHandler(reportingService, log)
+	locationsRepo := locationspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	locationsService := locationsapp.NewService(locationsRepo)
+	locationsHandler := locationshttp.NewHandler(locationsService, log)
+	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	countsService := countsapp.NewServiceWithResolver(countsRepo, locationsService)
+	countsHandler := countshttp.NewHandler(countsService, log)
+	mortalityRepo := mortalitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	mortalityService := mortalityapp.NewServiceWithResolver(mortalityRepo, locationsService)
+	mortalityHandler := mortalityhttp.NewHandler(mortalityService, log)
 	legacySyncRepo := legacysyncpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	legacySyncService := legacysyncapp.NewService(legacySyncRepo, cfg.Auth.Environment)
 	legacySyncHandler := legacysynchttp.NewHandler(legacySyncService, log)
+	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	workforceService := workforceapp.NewService(workforceRepo)
+	workforceHandler := workforcehttp.NewHandler(workforceService, log)
+	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	sopService := sopapp.NewService(sopRepo)
+	sopHandler := sophttp.NewHandler(sopService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
 	authAuditOptions = append(authAuditOptions, authaudit.WithPendingEmailGrantClaimer(
@@ -147,7 +177,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	})
 	identityhttp.Register(protectedMux, identityHandler)
 	reportinghttp.Register(protectedMux, reportingHandler)
+	countshttp.Register(protectedMux, countsHandler)
+	mortalityhttp.Register(protectedMux, mortalityHandler)
+	locationshttp.Register(protectedMux, locationsHandler)
 	legacysynchttp.Register(protectedMux, legacySyncHandler)
+	workforcehttp.Register(protectedMux, workforceHandler)
+	sophttp.Register(protectedMux, sopHandler)
 
 	mux := http.NewServeMux()
 	authaudit.Register(mux, authAuditHandler)

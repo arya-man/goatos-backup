@@ -1,0 +1,11 @@
+{
+  "name": "@goatos/operator-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "node ../../apps/admin-web/node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "lint": "node scripts/lint.mjs",
+    "test": "rm -rf .test-build && node ../../apps/admin-web/node_modules/typescript/bin/tsc -p tsconfig.test.json && node --test .test-build/apps/operator-mobile/src/**/*.test.js"
+  }
+}
