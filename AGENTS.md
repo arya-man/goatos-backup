@@ -20,6 +20,23 @@ Purpose:
 - Goat OS is the operating system for goat identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
 - Existing UI should be salvaged where useful. Canonical backend/data model/app APIs are built fresh.
 
+Code navigation (graph-first):
+
+- For code-structure questions (callers, callees, dependencies, blast
+  radius/impact, diff review, architecture, hub/dead-code), query the
+  `code-review-graph` MCP tools FIRST. Read files only for what the graph cannot
+  see: constants, config values, HTTP route strings, error text, and
+  uncommitted code.
+- First-pass tools: `query_graph_tool` (callers_of/callees_of/imports_of/
+  tests_for), `semantic_search_nodes_tool`, `get_impact_radius_tool`,
+  `detect_changes_tool`, `get_review_context_tool`,
+  `get_architecture_overview_tool`, `get_minimal_context_tool`.
+- Graph is the fast first pass; native Grep/Read is the fallback for content the
+  graph cannot see. One graph query replaces many grep/read cycles — use it
+  before scanning files. The graph auto-updates on edits.
+- For Mesha wiki/docs/SOPs/diagrams/screenshots, use the Graphify doc/visual
+  graphs first (see the workspace `AGENTS.md` Graphify Doc Search flow).
+
 Current repos:
 
 - `dashboard/` - current live CEO-style Next.js dashboard; do not edit for Goat OS rewiring. Snapshot/copy into `goatos/apps/admin-web/`.
