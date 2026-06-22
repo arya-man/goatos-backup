@@ -128,6 +128,9 @@ BEGIN
       END IF;
     END IF;
   END IF;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -202,9 +205,6 @@ BEGIN
       AND daterange(existing.effective_from, existing.effective_to, '[)') && daterange(NEW.effective_from, NEW.effective_to, '[)')
   ) THEN
     RAISE EXCEPTION 'overlapping capacity record for tenant %, location %, kind %', NEW.tenant_id, NEW.location_id, NEW.capacity_kind;
-  END IF;
-  IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
   END IF;
   RETURN NEW;
 END;
@@ -689,6 +689,39 @@ CREATE TABLE public.counts_source_rows (
     superseded_at timestamp with time zone,
     CONSTRAINT counts_source_rows_payload_object_check CHECK ((jsonb_typeof(payload_json) = 'object'::text)),
     CONSTRAINT counts_source_rows_status_check CHECK ((row_status = ANY (ARRAY['current'::text, 'superseded'::text, 'invalid'::text, 'ignored'::text])))
+);
+
+
+--
+-- Name: counts_sync_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_sync_runs (
+    sync_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    requested_by uuid NOT NULL,
+    mode text NOT NULL,
+    status text NOT NULL,
+    snapshot_date date,
+    source_rows_read integer DEFAULT 0 NOT NULL,
+    projection_rows_written integer DEFAULT 0 NOT NULL,
+    rows_skipped integer DEFAULT 0 NOT NULL,
+    unresolved_location_labels integer DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    source_watermark text,
+    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
+    trace_id text,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT counts_sync_runs_counts_check CHECK (((source_rows_read >= 0) AND (projection_rows_written >= 0) AND (rows_skipped >= 0) AND (unresolved_location_labels >= 0))),
+    CONSTRAINT counts_sync_runs_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT counts_sync_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text]))),
+    CONSTRAINT counts_sync_runs_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
+    CONSTRAINT counts_sync_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'source_unavailable'::text]))),
+    CONSTRAINT counts_sync_runs_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text))
 );
 
 
@@ -2121,6 +2154,40 @@ CREATE TABLE public.mortality_source_rows (
 
 
 --
+-- Name: mortality_sync_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mortality_sync_runs (
+    sync_run_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    requested_by uuid NOT NULL,
+    mode text NOT NULL,
+    status text NOT NULL,
+    source_rows_read integer DEFAULT 0 NOT NULL,
+    events_upserted integer DEFAULT 0 NOT NULL,
+    projection_rows_written integer DEFAULT 0 NOT NULL,
+    rows_skipped integer DEFAULT 0 NOT NULL,
+    dedup_candidate_events integer DEFAULT 0 NOT NULL,
+    unresolved_location_labels integer DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    source_watermark text,
+    unavailable_sources jsonb DEFAULT '[]'::jsonb NOT NULL,
+    trace_id text,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT mortality_sync_runs_counts_check CHECK (((source_rows_read >= 0) AND (events_upserted >= 0) AND (projection_rows_written >= 0) AND (rows_skipped >= 0) AND (dedup_candidate_events >= 0) AND (unresolved_location_labels >= 0))),
+    CONSTRAINT mortality_sync_runs_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT mortality_sync_runs_mode_check CHECK ((mode = ANY (ARRAY['dry_run'::text, 'execute'::text]))),
+    CONSTRAINT mortality_sync_runs_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text, 'source_unavailable'::text]))),
+    CONSTRAINT mortality_sync_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text, 'source_unavailable'::text]))),
+    CONSTRAINT mortality_sync_runs_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text))
+);
+
+
+--
 -- Name: movement_commands; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2791,6 +2858,14 @@ ALTER TABLE ONLY public.counts_source_rows
 
 
 --
+-- Name: counts_sync_runs counts_sync_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_sync_runs
+    ADD CONSTRAINT counts_sync_runs_pkey PRIMARY KEY (sync_run_id);
+
+
+--
 -- Name: feature_coverage_registry feature_coverage_registry_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3335,6 +3410,14 @@ ALTER TABLE ONLY public.mortality_source_rows
 
 
 --
+-- Name: mortality_sync_runs mortality_sync_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_sync_runs
+    ADD CONSTRAINT mortality_sync_runs_pkey PRIMARY KEY (sync_run_id);
+
+
+--
 -- Name: movement_commands movement_commands_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3657,6 +3740,13 @@ CREATE INDEX counts_projection_metric_idx ON public.counts_projection_rows USING
 
 
 --
+-- Name: counts_projection_state_tenant_view_updated_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_projection_state_tenant_view_updated_idx ON public.counts_projection_state USING btree (tenant_id, view_id, updated_at DESC);
+
+
+--
 -- Name: counts_projection_state_unique_view; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3727,6 +3817,13 @@ CREATE UNIQUE INDEX counts_source_rows_current_unique ON public.counts_source_ro
 
 
 --
+-- Name: counts_source_rows_current_watermark_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_source_rows_current_watermark_order_idx ON public.counts_source_rows USING btree (tenant_id, source_watermark_date, source_id, source_row_key, counts_source_row_id) WHERE (row_status = 'current'::text);
+
+
+--
 -- Name: counts_source_rows_sync_run_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3738,6 +3835,13 @@ CREATE INDEX counts_source_rows_sync_run_idx ON public.counts_source_rows USING 
 --
 
 CREATE INDEX counts_source_rows_watermark_idx ON public.counts_source_rows USING btree (tenant_id, source_id, source_watermark_date, counts_source_row_id);
+
+
+--
+-- Name: counts_sync_runs_tenant_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_sync_runs_tenant_created_idx ON public.counts_sync_runs USING btree (tenant_id, created_at DESC, sync_run_id DESC);
 
 
 --
@@ -4095,6 +4199,20 @@ CREATE INDEX goat_identity_events_default_tenant_id_recorded_at_idx ON public.go
 --
 
 CREATE INDEX goat_location_history_goat_timeline_idx ON public.goat_location_history USING btree (goat_id, occurred_at DESC);
+
+
+--
+-- Name: goat_location_history_tenant_from_location_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_location_history_tenant_from_location_idx ON public.goat_location_history USING btree (tenant_id, from_location_id, occurred_at DESC) WHERE (from_location_id IS NOT NULL);
+
+
+--
+-- Name: goat_location_history_tenant_to_location_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_location_history_tenant_to_location_idx ON public.goat_location_history USING btree (tenant_id, to_location_id, occurred_at DESC);
 
 
 --
@@ -4504,6 +4622,13 @@ CREATE INDEX legacy_sync_source_status_tenant_freshness_idx ON public.legacy_syn
 
 
 --
+-- Name: location_aliases_canonical_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX location_aliases_canonical_order_idx ON public.location_aliases USING btree (tenant_id, canonical_location_id, status, source_context, alias_code, alias_id);
+
+
+--
 -- Name: location_aliases_canonical_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4514,7 +4639,7 @@ CREATE INDEX location_aliases_canonical_status_idx ON public.location_aliases US
 -- Name: location_aliases_unique_active_alias; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX location_aliases_unique_active_alias ON public.location_aliases USING btree (tenant_id, source_context, lower(alias_code)) WHERE (status = 'active'::text);
+CREATE UNIQUE INDEX location_aliases_unique_active_alias ON public.location_aliases USING btree (tenant_id, source_context, lower(regexp_replace(btrim(alias_code), '\s+'::text, ' '::text, 'g'::text))) WHERE (status = 'active'::text);
 
 
 --
@@ -4581,6 +4706,13 @@ CREATE INDEX locations_tenant_lower_name_idx ON public.locations USING btree (te
 
 
 --
+-- Name: locations_tenant_parent_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX locations_tenant_parent_order_idx ON public.locations USING btree (tenant_id, parent_location_id, location_type, display_order, name, location_id);
+
+
+--
 -- Name: locations_tenant_parent_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4588,10 +4720,24 @@ CREATE INDEX locations_tenant_parent_status_idx ON public.locations USING btree 
 
 
 --
+-- Name: locations_tenant_status_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX locations_tenant_status_order_idx ON public.locations USING btree (tenant_id, status, location_type, display_order, name, location_id);
+
+
+--
 -- Name: locations_tenant_type_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX locations_tenant_type_idx ON public.locations USING btree (tenant_id, location_type, status);
+
+
+--
+-- Name: locations_tenant_type_status_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX locations_tenant_type_status_order_idx ON public.locations USING btree (tenant_id, location_type, status, display_order, name, location_id);
 
 
 --
@@ -4658,6 +4804,13 @@ CREATE INDEX mortality_projection_metric_idx ON public.mortality_projection_rows
 
 
 --
+-- Name: mortality_projection_state_tenant_period_updated_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_projection_state_tenant_period_updated_idx ON public.mortality_projection_state USING btree (tenant_id, period, updated_at DESC);
+
+
+--
 -- Name: mortality_projection_state_unique_period; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4693,6 +4846,13 @@ CREATE UNIQUE INDEX mortality_review_items_unique_open_evidence ON public.mortal
 
 
 --
+-- Name: mortality_source_rows_current_observed_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_source_rows_current_observed_order_idx ON public.mortality_source_rows USING btree (tenant_id, source_observed_at, source_table, source_row_key, mortality_source_row_id) WHERE (row_status = 'current'::text);
+
+
+--
 -- Name: mortality_source_rows_current_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4711,6 +4871,13 @@ CREATE INDEX mortality_source_rows_hash_idx ON public.mortality_source_rows USIN
 --
 
 CREATE INDEX mortality_source_rows_observed_idx ON public.mortality_source_rows USING btree (tenant_id, source_table, source_observed_at, mortality_source_row_id);
+
+
+--
+-- Name: mortality_sync_runs_tenant_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mortality_sync_runs_tenant_created_idx ON public.mortality_sync_runs USING btree (tenant_id, created_at DESC, sync_run_id DESC);
 
 
 --
@@ -5675,6 +5842,14 @@ ALTER TABLE ONLY public.counts_source_rows
 
 ALTER TABLE ONLY public.counts_source_rows
     ADD CONSTRAINT counts_source_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: counts_sync_runs counts_sync_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_sync_runs
+    ADD CONSTRAINT counts_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -7059,6 +7234,14 @@ ALTER TABLE ONLY public.mortality_source_rows
 
 ALTER TABLE ONLY public.mortality_source_rows
     ADD CONSTRAINT mortality_source_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: mortality_sync_runs mortality_sync_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mortality_sync_runs
+    ADD CONSTRAINT mortality_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

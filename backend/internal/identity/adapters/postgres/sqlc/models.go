@@ -263,6 +263,28 @@ type CountsSourceRow struct {
 	SupersededAt        pgtype.Timestamptz
 }
 
+type CountsSyncRun struct {
+	SyncRunID                pgtype.UUID
+	TenantID                 pgtype.UUID
+	RequestedBy              pgtype.UUID
+	Mode                     string
+	Status                   string
+	SnapshotDate             pgtype.Date
+	SourceRowsRead           int32
+	ProjectionRowsWritten    int32
+	RowsSkipped              int32
+	UnresolvedLocationLabels int32
+	FreshnessStatus          string
+	ServingState             string
+	SourceWatermark          pgtype.Text
+	UnavailableSources       []byte
+	TraceID                  pgtype.Text
+	LastError                pgtype.Text
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+	CompletedAt              pgtype.Timestamptz
+}
+
 type FeatureCoverageRegistry struct {
 	CoverageID               pgtype.UUID
 	TenantID                 pgtype.UUID
@@ -1131,6 +1153,29 @@ type MortalitySourceRow struct {
 	SyncRunID            pgtype.UUID
 	CreatedAt            pgtype.Timestamptz
 	SupersededAt         pgtype.Timestamptz
+}
+
+type MortalitySyncRun struct {
+	SyncRunID                pgtype.UUID
+	TenantID                 pgtype.UUID
+	RequestedBy              pgtype.UUID
+	Mode                     string
+	Status                   string
+	SourceRowsRead           int32
+	EventsUpserted           int32
+	ProjectionRowsWritten    int32
+	RowsSkipped              int32
+	DedupCandidateEvents     int32
+	UnresolvedLocationLabels int32
+	FreshnessStatus          string
+	ServingState             string
+	SourceWatermark          pgtype.Text
+	UnavailableSources       []byte
+	TraceID                  pgtype.Text
+	LastError                pgtype.Text
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+	CompletedAt              pgtype.Timestamptz
 }
 
 type MovementCommand struct {
