@@ -1,0 +1,606 @@
+<meta charset="utf-8">
+<title>Goat OS — Schema & System Design</title>
+<style>
+  :root{
+    --bg:#0f1115;--panel:#161922;--panel2:#1d2130;--ink:#e8ecf3;--mut:#94a0b4;--line:#2a3140;
+    --reuse:#5b9bd5;--new:#48c78e;--abs:#ef6b6b;--p2:#c08cff;--warn:#f0a93b;--acc:#7cc4ff;--pk:#f0a93b;--fk:#7cc4ff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
+  header{padding:26px 20px 14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#13161f,#0f1115)}
+  h1{margin:0;font-size:26px;letter-spacing:-.5px}
+  .sub{color:var(--mut);font-size:13.5px;margin-top:6px}
+  nav{position:sticky;top:0;z-index:20;background:rgba(15,17,21,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+    display:flex;gap:4px;flex-wrap:wrap;padding:9px 16px}
+  nav a{color:var(--mut);text-decoration:none;font:600 12px var(--sans);padding:5px 9px;border-radius:7px}
+  nav a:hover{color:var(--ink);background:var(--panel2)}
+  main{max-width:1180px;margin:0 auto;padding:8px 16px 80px}
+  section{padding:22px 0 6px;border-bottom:1px solid var(--line)}
+  h2{font-size:19px;margin:.2em 0 .1em;letter-spacing:-.3px}
+  .lead{color:var(--mut);font-size:13px;margin:.3em 0 1em}
+  .legend{display:flex;gap:13px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin:6px 0 14px}
+  .legend span{display:inline-flex;gap:6px;align-items:center}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:8px}
+  svg{display:block}
+  .cards{display:grid;gap:13px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  .tbl{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+  .tbl>.h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .tbl>.h b{font:700 13px var(--mono);color:var(--acc)}
+  .tbl>.h .src{font:600 12px var(--mono);color:var(--mut);margin-left:auto}
+  .tbl table{width:100%;border-collapse:collapse}
+  .tbl td{padding:3px 12px;font:11.5px/1.5 var(--mono);border-bottom:1px dashed #232a38;vertical-align:top}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl td.c{color:var(--ink);white-space:nowrap}
+  .tbl td.t{color:var(--mut);width:42%}
+  .pk{color:var(--pk);font-weight:700} .fk{color:var(--fk)} .nw{color:var(--new)} .p2c{color:var(--p2)}
+  .badge{font:700 9px var(--sans);letter-spacing:.4px;padding:2px 6px;border-radius:5px;text-transform:uppercase;white-space:nowrap}
+  .b-reuse{background:rgba(91,155,213,.15);color:var(--reuse);border:1px solid rgba(91,155,213,.4)}
+  .b-new{background:rgba(72,199,142,.15);color:var(--new);border:1px solid rgba(72,199,142,.4)}
+  .b-p2{background:rgba(192,140,255,.13);color:var(--p2);border:1px solid rgba(192,140,255,.4)}
+  .note{font-size:12.5px;color:var(--mut);margin:12px 0 2px}
+  .note b{color:var(--ink)}
+  code{font:11.5px var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px}
+</style>
+
+<header>
+  <h1>Goat OS — Schema &amp; System Design</h1>
+  <div class="sub">PHC&nbsp;Vaccination + Feed&nbsp;Direction on one obligation engine · grounded in committed migrations <code>000001–000060</code> · 2026-06-22</div>
+</header>
+
+<nav>
+  <a href="#sysdesign">System design</a>
+  <a href="#er">ER diagram</a>
+  <a href="#goats">Goats &amp; identity</a>
+  <a href="#location">Locations &amp; shed</a>
+  <a href="#team">Operators / team</a>
+  <a href="#engine">Obligation engine</a>
+  <a href="#inventory">Inventory</a>
+  <a href="#vacc">Vaccination</a>
+  <a href="#feed">Feed direction</a>
+  <a href="#plumbing">Plumbing</a>
+</nav>
+
+<main>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--reuse)"></i> committed (reuse)</span>
+    <span><i class="dot" style="background:var(--new)"></i> net-new</span>
+    <span><i class="dot" style="background:var(--p2)"></i> phase-2</span>
+    <span><i class="dot" style="background:var(--pk)"></i> PK</span>
+    <span><i class="dot" style="background:var(--fk)"></i> FK</span>
+  </div>
+
+  <!-- SYSTEM DESIGN -->
+  <section id="sysdesign">
+    <h2>1 · System design</h2>
+    <p class="lead">GCP-native, modular monolith on Cloud Run. Postgres = source of truth; Cloud Tasks holds only near-term timers. No Temporal/Redpanda/n8n; no Kubernetes.</p>
+    <div class="scrollx">
+      <svg viewBox="0 0 1080 500" width="1080" style="min-width:880px" font-family="ui-monospace,monospace">
+        <defs>
+          <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#7cc4ff"/></marker>
+          <marker id="ao" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#f0a93b"/></marker>
+        </defs>
+        <!-- clients -->
+        <rect x="20" y="40" width="150" height="56" rx="9" fill="#1d2130" stroke="#2a3140"/>
+        <text x="95" y="64" text-anchor="middle" fill="#e8ecf3" font-size="12">Mobile (field)</text>
+        <text x="95" y="82" text-anchor="middle" fill="#94a0b4" font-size="10">scan · dose · proof</text>
+        <rect x="20" y="110" width="150" height="50" rx="9" fill="#1d2130" stroke="#2a3140"/>
+        <text x="95" y="132" text-anchor="middle" fill="#e8ecf3" font-size="12">Admin web</text>
+        <text x="95" y="148" text-anchor="middle" fill="#94a0b4" font-size="10">config · control tower</text>
+
+        <!-- Cloud Run lane -->
+        <rect x="220" y="20" width="300" height="290" rx="12" fill="none" stroke="#2a3140" stroke-dasharray="4"/>
+        <text x="230" y="38" fill="#7cc4ff" font-size="11">CLOUD RUN (one Go monolith, by role)</text>
+        <rect x="240" y="48" width="260" height="48" rx="9" fill="#1d2130" stroke="#5b9bd5"/>
+        <text x="370" y="68" text-anchor="middle" fill="#5b9bd5" font-size="12" font-weight="700">api</text>
+        <text x="370" y="85" text-anchor="middle" fill="#94a0b4" font-size="10">HTTP · writes entity + outbox (1 tx)</text>
+        <rect x="240" y="108" width="260" height="46" rx="9" fill="#1d2130" stroke="#5b9bd5"/>
+        <text x="370" y="127" text-anchor="middle" fill="#5b9bd5" font-size="12" font-weight="700">consumer</text>
+        <text x="370" y="143" text-anchor="middle" fill="#94a0b4" font-size="10">Pub/Sub push → generate obligations</text>
+        <rect x="240" y="166" width="260" height="46" rx="9" fill="#1d2130" stroke="#5b9bd5"/>
+        <text x="370" y="185" text-anchor="middle" fill="#5b9bd5" font-size="12" font-weight="700">sweeper (Job)</text>
+        <text x="370" y="201" text-anchor="middle" fill="#94a0b4" font-size="10">scan due window → enqueue tasks</text>
+        <rect x="240" y="224" width="260" height="46" rx="9" fill="#1d2130" stroke="#5b9bd5"/>
+        <text x="370" y="243" text-anchor="middle" fill="#5b9bd5" font-size="12" font-weight="700">outbox-relay</text>
+        <text x="370" y="259" text-anchor="middle" fill="#94a0b4" font-size="10">poll outbox → publish</text>
+
+        <!-- Postgres -->
+        <rect x="560" y="60" width="220" height="170" rx="12" fill="#16241f" stroke="#48c78e" stroke-width="2"/>
+        <text x="670" y="84" text-anchor="middle" fill="#48c78e" font-size="13" font-weight="700">Cloud SQL Postgres</text>
+        <text x="670" y="104" text-anchor="middle" fill="#cfe9dd" font-size="10.5">SOURCE OF TRUTH</text>
+        <text x="670" y="128" text-anchor="middle" fill="#94a0b4" font-size="10">goats · locations · workforce</text>
+        <text x="670" y="145" text-anchor="middle" fill="#94a0b4" font-size="10">protocol_* · obligation_instances</text>
+        <text x="670" y="162" text-anchor="middle" fill="#94a0b4" font-size="10">inventory · sop_* · outbox</text>
+        <text x="670" y="179" text-anchor="middle" fill="#94a0b4" font-size="10">projections (read models)</text>
+        <text x="670" y="203" text-anchor="middle" fill="#f0a93b" font-size="10">far-future due rows live HERE</text>
+
+        <!-- Pub/Sub + Tasks + Scheduler -->
+        <rect x="820" y="44" width="240" height="46" rx="9" fill="#1d2130" stroke="#7cc4ff"/>
+        <text x="940" y="63" text-anchor="middle" fill="#7cc4ff" font-size="12" font-weight="700">Pub/Sub</text>
+        <text x="940" y="79" text-anchor="middle" fill="#94a0b4" font-size="10">event bus · retry · DLQ</text>
+        <rect x="820" y="104" width="240" height="46" rx="9" fill="#1d2130" stroke="#f0a93b"/>
+        <text x="940" y="123" text-anchor="middle" fill="#f0a93b" font-size="12" font-weight="700">Cloud Tasks</text>
+        <text x="940" y="139" text-anchor="middle" fill="#94a0b4" font-size="10">NEAR-TERM timers only</text>
+        <rect x="820" y="164" width="240" height="46" rx="9" fill="#1d2130" stroke="#f0a93b"/>
+        <text x="940" y="183" text-anchor="middle" fill="#f0a93b" font-size="12" font-weight="700">Cloud Scheduler</text>
+        <text x="940" y="199" text-anchor="middle" fill="#94a0b4" font-size="10">cron → sweeper / feed gen</text>
+        <rect x="820" y="224" width="240" height="46" rx="9" fill="#1d2130" stroke="#2a3140"/>
+        <text x="940" y="243" text-anchor="middle" fill="#e8ecf3" font-size="12" font-weight="700">GCS</text>
+        <text x="940" y="259" text-anchor="middle" fill="#94a0b4" font-size="10">proof video/photo (signed URL)</text>
+
+        <!-- arrows -->
+        <line x1="170" y1="72" x2="238" y2="72" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+        <line x1="170" y1="135" x2="238" y2="130" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+        <line x1="500" y1="72" x2="558" y2="100" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+        <line x1="500" y1="247" x2="640" y2="232" stroke="#7cc4ff" stroke-width="1.4" marker-end="url(#a)"/>
+        <text x="545" y="250" fill="#94a0b4" font-size="9">read outbox</text>
+        <line x1="500" y1="246" x2="818" y2="78" stroke="#7cc4ff" stroke-width="1.4" marker-end="url(#a)"/>
+        <text x="690" y="150" fill="#94a0b4" font-size="9" transform="rotate(-22 690 150)">publish</text>
+        <line x1="818" y1="74" x2="502" y2="120" stroke="#7cc4ff" stroke-width="1.4" marker-end="url(#a)"/>
+        <line x1="938" y1="164" x2="500" y2="180" stroke="#f0a93b" stroke-width="1.4" marker-end="url(#ao)"/>
+        <text x="640" y="168" fill="#f0a93b" font-size="9">cron</text>
+        <line x1="500" y1="190" x2="818" y2="126" stroke="#f0a93b" stroke-width="1.4" marker-end="url(#ao)"/>
+        <text x="640" y="150" fill="#f0a93b" font-size="9">enqueue near-term</text>
+        <line x1="818" y1="126" x2="502" y2="132" stroke="#f0a93b" stroke-width="1.2" marker-end="url(#ao)"/>
+        <line x1="560" y1="150" x2="502" y2="150" stroke="#48c78e" stroke-width="1.4" marker-end="url(#a)"/>
+        <text x="510" y="146" fill="#48c78e" font-size="9">R/W</text>
+
+        <!-- cascade strip -->
+        <rect x="20" y="340" width="1040" height="130" rx="12" fill="#13161f" stroke="#2a3140"/>
+        <text x="34" y="362" fill="#7cc4ff" font-size="11">THE CASCADE (config-driven, CRUD-triggered — app code, not DB triggers)</text>
+        <g font-size="11" fill="#e8ecf3">
+          <rect x="34" y="378" width="150" height="54" rx="8" fill="#1d2130" stroke="#5b9bd5"/><text x="109" y="400" text-anchor="middle">admin publishes</text><text x="109" y="416" text-anchor="middle" fill="#94a0b4" font-size="9.5">protocol_version</text>
+          <rect x="206" y="378" width="150" height="54" rx="8" fill="#1d2130" stroke="#48c78e"/><text x="281" y="400" text-anchor="middle">goat CRUD →</text><text x="281" y="416" text-anchor="middle" fill="#94a0b4" font-size="9.5">obligation_instances</text>
+          <rect x="378" y="378" width="150" height="54" rx="8" fill="#1d2130" stroke="#5b9bd5"/><text x="453" y="400" text-anchor="middle">due → drive</text><text x="453" y="416" text-anchor="middle" fill="#94a0b4" font-size="9.5">sop_task</text>
+          <rect x="550" y="378" width="150" height="54" rx="8" fill="#1d2130" stroke="#5b9bd5"/><text x="625" y="400" text-anchor="middle">execute + proof</text><text x="625" y="416" text-anchor="middle" fill="#94a0b4" font-size="9.5">sop_submission</text>
+          <rect x="722" y="378" width="160" height="54" rx="8" fill="#1d2130" stroke="#48c78e"/><text x="802" y="400" text-anchor="middle">completion</text><text x="802" y="416" text-anchor="middle" fill="#94a0b4" font-size="9.5">*_completions</text>
+          <rect x="904" y="378" width="156" height="54" rx="8" fill="#1d2130" stroke="#f0a93b"/><text x="982" y="396" text-anchor="middle">inventory −1 FEFO</text><text x="982" y="411" text-anchor="middle" fill="#94a0b4" font-size="9.5">+ next + projection</text>
+          <line x1="184" y1="405" x2="204" y2="405" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+          <line x1="356" y1="405" x2="376" y2="405" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+          <line x1="528" y1="405" x2="548" y2="405" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+          <line x1="700" y1="405" x2="720" y2="405" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+          <line x1="882" y1="405" x2="902" y2="405" stroke="#7cc4ff" stroke-width="1.6" marker-end="url(#a)"/>
+        </g>
+        <text x="34" y="456" fill="#94a0b4" font-size="10" font-style="italic">Control Tower reads Postgres / projection — never Cloud Tasks or Pub/Sub state.</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ER -->
+  <section id="er">
+    <h2>2 · ER diagram (core relationships)</h2>
+    <p class="lead">How the engine, the modules, and the committed identity/location/team tables connect. Module tables attach to <code>obligation_instances</code> via <code>obligation_id</code>.</p>
+    <div class="scrollx">
+      <svg viewBox="0 0 1080 520" width="1080" style="min-width:900px" font-family="ui-monospace,monospace" font-size="11">
+        <defs><marker id="e" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7cc4ff"/></marker></defs>
+        <!-- helper boxes -->
+        <!-- identity -->
+        <rect x="30" y="40" width="150" height="40" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="64" text-anchor="middle" fill="#5b9bd5" font-weight="700">goats</text>
+        <rect x="30" y="100" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="121" text-anchor="middle" fill="#5b9bd5">goat_identifiers</text>
+        <rect x="30" y="150" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="171" text-anchor="middle" fill="#5b9bd5">locations</text>
+        <rect x="30" y="200" width="150" height="34" rx="8" fill="#16241f" stroke="#48c78e"/><text x="105" y="221" text-anchor="middle" fill="#48c78e">shed_profiles</text>
+        <rect x="30" y="300" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="321" text-anchor="middle" fill="#5b9bd5">workforce_members</text>
+        <rect x="30" y="350" width="150" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="105" y="371" text-anchor="middle" fill="#5b9bd5">user_scope_grants</text>
+
+        <!-- protocol -->
+        <rect x="300" y="40" width="160" height="40" rx="8" fill="#16241f" stroke="#48c78e"/><text x="380" y="64" text-anchor="middle" fill="#48c78e" font-weight="700">protocol_versions</text>
+        <rect x="300" y="100" width="160" height="34" rx="8" fill="#16241f" stroke="#48c78e"/><text x="380" y="121" text-anchor="middle" fill="#48c78e">protocol_rules</text>
+        <rect x="300" y="150" width="160" height="34" rx="8" fill="#16241f" stroke="#48c78e"/><text x="380" y="171" text-anchor="middle" fill="#48c78e">protocol_triggers</text>
+
+        <!-- obligation -->
+        <rect x="560" y="90" width="180" height="56" rx="9" fill="#16241f" stroke="#48c78e" stroke-width="2"/><text x="650" y="113" text-anchor="middle" fill="#48c78e" font-weight="700">obligation_instances</text><text x="650" y="131" text-anchor="middle" fill="#94a0b4" font-size="9.5">due truth</text>
+        <rect x="560" y="170" width="180" height="34" rx="8" fill="#16241f" stroke="#48c78e"/><text x="650" y="191" text-anchor="middle" fill="#48c78e">obligation_status_events</text>
+        <rect x="560" y="220" width="180" height="34" rx="8" fill="#16241f" stroke="#48c78e"/><text x="650" y="241" text-anchor="middle" fill="#48c78e">obligation_escalations</text>
+
+        <!-- sop + completion + inventory -->
+        <rect x="820" y="40" width="170" height="34" rx="8" fill="#13202c" stroke="#5b9bd5"/><text x="905" y="61" text-anchor="middle" fill="#5b9bd5">sop_tasks</text>
+        <rect x="820" y="92" width="170" height="40" rx="8" fill="#16241f" stroke="#48c78e"/><text x="905" y="116" text-anchor="middle" fill="#48c78e" font-weight="700">vaccination_completions</text>
+        <rect x="820" y="148" width="170" height="36" rx="8" fill="#16241f" stroke="#48c78e"/><text x="905" y="170" text-anchor="middle" fill="#48c78e">feed_packing / directions</text>
+        <rect x="820" y="200" width="170" height="34" rx="8" fill="#16241f" stroke="#f0a93b"/><text x="905" y="221" text-anchor="middle" fill="#f0a93b">inventory_stock</text>
+
+        <!-- edges -->
+        <line x1="180" y1="118" x2="105" y2="80" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <line x1="105" y1="184" x2="105" y2="200" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <text x="112" y="196" fill="#94a0b4" font-size="9">1:1</text>
+        <line x1="460" y1="60" x2="558" y2="105" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <line x1="460" y1="117" x2="558" y2="118" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <line x1="460" y1="167" x2="558" y2="128" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <line x1="180" y1="60" x2="558" y2="112" stroke="#7cc4ff" stroke-dasharray="3" marker-end="url(#e)"/>
+        <text x="320" y="92" fill="#94a0b4" font-size="9">target=goat</text>
+        <line x1="740" y1="105" x2="818" y2="60" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <text x="752" y="80" fill="#94a0b4" font-size="9">sop_task_id</text>
+        <line x1="740" y1="118" x2="818" y2="110" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <text x="748" y="128" fill="#94a0b4" font-size="9">obligation_id</text>
+        <line x1="740" y1="130" x2="818" y2="162" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <line x1="905" y1="132" x2="905" y2="200" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <text x="912" y="196" fill="#94a0b4" font-size="9">FEFO lot</text>
+        <line x1="650" y1="146" x2="650" y2="170" stroke="#7cc4ff" marker-end="url(#e)"/>
+        <line x1="650" y1="204" x2="650" y2="220" stroke="#7cc4ff" marker-end="url(#e)"/>
+
+        <text x="30" y="430" fill="#94a0b4" font-size="11">Authority: Director drafts (<tspan fill="#48c78e">protocol.draft.&lt;category&gt;</tspan>) → COO/CEO publishes (<tspan fill="#48c78e">protocol.publish.&lt;category&gt;</tspan>). Category in the capability code (caps scope tenant/park only). Surface access = role (<tspan fill="#5b9bd5">user_scope_grants</tspan>); publishing = capability (<tspan fill="#5b9bd5">workforce_capabilities</tspan>).</text>
+        <text x="30" y="452" fill="#94a0b4" font-size="11">Execution reuses committed <tspan fill="#5b9bd5">sop_*</tspan>; assignment via <tspan fill="#5b9bd5">workforce_member_capabilities</tspan> (vaccination.execute / feed.report).</text>
+        <text x="30" y="474" fill="#94a0b4" font-size="11">Same engine for both modules — only the completion + config tables differ.</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- GOATS -->
+  <section id="goats">
+    <h2>3 · Goats &amp; identity</h2>
+    <p class="lead">Committed <code>goats</code> is reused as-is + a few provenance/lifecycle columns. <span class="nw">green = add</span>. Canonical names are <code>approx_dob</code> &amp; <code>sex</code> (not dob/gender).</p>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>goats</b><span class="badge b-reuse">000001 · reuse+enhance</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">goat_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">tenant_id</span></td><td class="t">uuid NN</td></tr>
+          <tr><td class="c">display_id</td><td class="t">text</td></tr>
+          <tr><td class="c">species</td><td class="t">text ='goat'</td></tr>
+          <tr><td class="c">breed_id / breed</td><td class="t">uuid / text</td></tr>
+          <tr><td class="c">sex</td><td class="t">female/male/unknown</td></tr>
+          <tr><td class="c">approx_dob</td><td class="t">date</td></tr>
+          <tr><td class="c">age_band</td><td class="t">text</td></tr>
+          <tr><td class="c">lifecycle_status</td><td class="t">text (+CHECK <span class="nw">new</span>)</td></tr>
+          <tr><td class="c">health_status</td><td class="t">text (+CHECK <span class="nw">new</span>)</td></tr>
+          <tr><td class="c">reproductive_status</td><td class="t">text</td></tr>
+          <tr><td class="c">management_stage</td><td class="t">text</td></tr>
+          <tr><td class="c">identity_state</td><td class="t">clean/needs_review/…</td></tr>
+          <tr><td class="c"><span class="fk">current_location_id</span></td><td class="t">→locations</td></tr>
+          <tr><td class="c"><span class="fk">park_id / shed_id / cohort_id</span></td><td class="t">→locations</td></tr>
+          <tr><td class="c">merged_into_goat_id</td><td class="t">uuid</td></tr>
+          <tr><td class="c">row_version</td><td class="t">int</td></tr>
+          <tr><td class="c"><span class="nw">dob + dob_estimated</span></td><td class="t">date / bool <span class="nw">new</span></td></tr>
+          <tr><td class="c"><span class="nw">origin_type</span></td><td class="t">birth/procured/imported <span class="nw">new</span></td></tr>
+          <tr><td class="c"><span class="nw">entry_date</span></td><td class="t">date <span class="nw">new</span></td></tr>
+          <tr><td class="c"><span class="nw">exited_at / exit_reason</span></td><td class="t">ts / text <span class="nw">new</span></td></tr>
+          <tr><td class="c" style="color:var(--mut)">tagging</td><td class="t">derived VIEW over goat_identifiers — NOT a goats column</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>goat_identifiers</b><span class="badge b-reuse">000001 · reuse</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">identifier_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">goat_id</span></td><td class="t">→goats</td></tr>
+          <tr><td class="c">identifier_type</td><td class="t">rfid/old_tag/visual_tag/…</td></tr>
+          <tr><td class="c">identifier_value</td><td class="t">text</td></tr>
+          <tr><td class="c">normalized_value</td><td class="t">text</td></tr>
+          <tr><td class="c">scope_key</td><td class="t">text (park scope)</td></tr>
+          <tr><td class="c">is_primary_for_goat</td><td class="t">bool</td></tr>
+          <tr><td class="c">status</td><td class="t">active/retired/disputed</td></tr>
+          <tr><td class="c">valid_from / valid_to</td><td class="t">ts</td></tr>
+        </table>
+        <div class="h" style="border-top:1px solid var(--line)"><b>goat_location_history</b><span class="badge b-reuse">reuse</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">location_history_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">goat_id</span></td><td class="t">→goats</td></tr>
+          <tr><td class="c"><span class="fk">from/to_location_id</span></td><td class="t">→locations</td></tr>
+          <tr><td class="c">reason · occurred_at</td><td class="t">text · ts</td></tr>
+        </table>
+      </div>
+    </div>
+    <p class="note"><b>Eligibility is multi-factor</b> — not shed-derived alone: <code>age + sex + lifecycle + health + shed/cohort animal_stage + explicit overrides</code> (ICU/quarantine/pregnant/sick defer; individual catch-up allowed). Encoded in <code>protocol_rules.eligibility_json</code>.</p>
+  </section>
+
+  <!-- LOCATION -->
+  <section id="location">
+    <h2>4 · Locations &amp; shed</h2>
+    <p class="lead">No <code>parks</code>/<code>sheds</code> tables — one self-referential <code>locations</code> tree + typed 1:1 profile extensions. Park=airport, Shed=flight.</p>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>locations</b><span class="badge b-reuse">000001/24 · reuse</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">location_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c">location_type</td><td class="t">farm/park/shed/cohort/pen</td></tr>
+          <tr><td class="c">location_code · name</td><td class="t">text</td></tr>
+          <tr><td class="c"><span class="fk">parent_location_id</span></td><td class="t">→locations (tree)</td></tr>
+          <tr><td class="c">state_region · district · pincode</td><td class="t">text</td></tr>
+          <tr><td class="c">lat · lng · timezone</td><td class="t">num · text</td></tr>
+          <tr><td class="c">status</td><td class="t">active/inactive/…</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>shed_profiles</b><span class="badge b-new">new · 1:1 shed</span></div>
+        <table>
+          <tr><td class="c"><span class="pk fk">location_id</span></td><td class="t">PK→locations(shed)</td></tr>
+          <tr><td class="c">sex_grouping</td><td class="t">male/female/mixed</td></tr>
+          <tr><td class="c"><span class="fk">animal_stage_id → animal_stage_lookup</span></td><td class="t">drives eligibility</td></tr>
+          <tr><td class="c"><span class="fk">shed_lifecycle_status_id</span></td><td class="t">→ shed_lifecycle_status_lookup</td></tr>
+          <tr><td class="c">row_layout</td><td class="t">L_C_R/single/custom</td></tr>
+          <tr><td class="c">has_icu_corner</td><td class="t">bool</td></tr>
+          <tr><td class="c">is_feed_prep_at_end</td><td class="t">bool</td></tr>
+          <tr><td class="c">transport_group</td><td class="t">text</td></tr>
+          <tr><td class="c">ordinal_in_park</td><td class="t">int</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>park_profiles</b> · <b>farm_profiles</b><span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c"><span class="pk fk">park_profiles.location_id</span></td><td class="t">PK→locations(park)</td></tr>
+          <tr><td class="c">region_code · total_shed_count</td><td class="t">text · int</td></tr>
+          <tr><td class="c"><span class="fk">manager_workforce_member_id</span></td><td class="t">→workforce</td></tr>
+          <tr><td class="c"><span class="fk">feed_prep_location_id</span></td><td class="t">→locations</td></tr>
+          <tr><td class="c" style="padding-top:8px"><span class="pk fk">farm_profiles.location_id</span></td><td class="t">PK→locations(farm)</td></tr>
+          <tr><td class="c">farm_kind</td><td class="t">contract_farmer/fodder_farm/internal</td></tr>
+          <tr><td class="c" style="color:var(--mut)">↳ disambiguates "farm"</td><td class="t">keeps Feed out of "Farms"</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>animal_stage_lookup</b> vs <b>shed_lifecycle_status_lookup</b><span class="badge b-new">new · split</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">animal_stage_lookup.stage_id</span></td><td class="t">uuid PK — <b>eligibility uses this</b></td></tr>
+          <tr><td class="c">stage_code</td><td class="t">K0/K1/K2/K3/F2/mother/pregnant/milking/icu</td></tr>
+          <tr><td class="c">min/max_age_days · min/max_weight_kg</td><td class="t">config bands</td></tr>
+          <tr><td class="c" style="padding-top:8px"><span class="pk">shed_lifecycle_status_lookup.status_id</span></td><td class="t">uuid PK — NOT dosing</td></tr>
+          <tr><td class="c">status_code</td><td class="t">commissioning/active/cleaning/decommissioned</td></tr>
+        </table>
+        <div class="h" style="border-top:1px solid var(--line)"><b>location_operational_attributes</b><span class="badge b-reuse">reuse</span></div>
+        <table>
+          <tr><td class="c">usable_for_vaccination/feed/sop</td><td class="t">bool</td></tr>
+          <tr><td class="c">is_icu / is_quarantine / is_holding</td><td class="t">bool</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEAM -->
+  <section id="team">
+    <h2>5 · Operators / team (workforce + RBAC)</h2>
+    <p class="lead">All committed (<code>000050</code>/<code>000001</code>) — reused as-is. Who exists, what they can do, where they're scoped.</p>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>workforce_members</b><span class="badge b-reuse">000050 · reuse</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">workforce_member_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c">user_id</td><td class="t">external subject (no FK)</td></tr>
+          <tr><td class="c">display_code · display_name</td><td class="t">text</td></tr>
+          <tr><td class="c">status</td><td class="t">candidate/active/inactive/left</td></tr>
+          <tr><td class="c">primary_role_hint</td><td class="t">operator/park_head/verifier…</td></tr>
+          <tr><td class="c"><span class="fk">primary_location_id</span></td><td class="t">→locations</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>workforce_capabilities</b> + <b>member_capabilities</b><span class="badge b-reuse">reuse</span></div>
+        <table>
+          <tr><td class="c">capability_code</td><td class="t">dotted: vaccination.execute, feed.report, proof.verify, count.verify, rfid.scan…</td></tr>
+          <tr><td class="c"><span class="nw">protocol.draft.&lt;category&gt;</span> · <span class="nw">protocol.publish.&lt;category&gt;</span></td><td class="t">category-specific (vaccination/feed_direction…) — caps have no category dim, so it's in the code <span class="nw">new</span></td></tr>
+          <tr><td class="c" style="padding-top:8px">member_capabilities:</td><td class="t"></td></tr>
+          <tr><td class="c"><span class="fk">workforce_member_id → capability</span></td><td class="t">uuid</td></tr>
+          <tr><td class="c">scope_type</td><td class="t">tenant/park/shed/cohort</td></tr>
+          <tr><td class="c">scope_id · valid_from/to</td><td class="t">uuid · ts</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>user_scope_grants</b><span class="badge b-reuse">000001 · RBAC truth</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">grant_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c">user_id</td><td class="t">external subject</td></tr>
+          <tr><td class="c">role</td><td class="t">admin/park_head/operator/verifier/<b>ceo_internal</b></td></tr>
+          <tr><td class="c">scope_type</td><td class="t">tenant/park/shed/cohort</td></tr>
+          <tr><td class="c">scope_id</td><td class="t">validated vs locations</td></tr>
+          <tr><td class="c">status · valid_from/to</td><td class="t">active/revoked · ts</td></tr>
+          <tr><td class="c" style="color:var(--mut)">↳ role = SURFACE access</td><td class="t">publishing = <b>category capability</b> (protocol.publish.&lt;category&gt;), not role</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENGINE -->
+  <section id="engine">
+    <h2>6 · Generic obligation engine</h2>
+    <p class="lead">All net-new. Rules (admin-authored) → obligations (the queryable due state) → status ledger + escalation. PHC's 10 modules + Feed all reuse this.</p>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>protocol_definitions</b> + <b>protocol_versions</b><span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">protocol_id</span> · code · name</td><td class="t">uuid · text</td></tr>
+          <tr><td class="c">category</td><td class="t">vaccination/deworming/…/feed_direction</td></tr>
+          <tr><td class="c" style="padding-top:8px"><span class="pk">protocol_version_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c">scope_type · scope_id</td><td class="t">tenant/park (per-park calendar); vertical implicit from category</td></tr>
+          <tr><td class="c">version · status</td><td class="t">int · draft/published/retired</td></tr>
+          <tr><td class="c">effective_from / to</td><td class="t">date · <b>EXCLUDE non-overlap</b> per (protocol, scope), not one-published-ever</td></tr>
+          <tr><td class="c">rule_dsl · proof_policy</td><td class="t">jsonb</td></tr>
+          <tr><td class="c"><span class="fk">sop_version_id</span></td><td class="t">→sop_versions</td></tr>
+          <tr><td class="c">drafted_by · published_by</td><td class="t">uuid</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>protocol_rules</b> + <b>protocol_triggers</b><span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">rule_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c">rule_kind</td><td class="t">recurring/age_triggered/event…</td></tr>
+          <tr><td class="c">target_grain</td><td class="t">goat/cohort/shed/park</td></tr>
+          <tr><td class="c">eligibility_json</td><td class="t">sex/age/breed/stage predicate</td></tr>
+          <tr><td class="c">cadence_json · withdrawal_days</td><td class="t">jsonb · int</td></tr>
+          <tr><td class="c" style="padding-top:8px"><span class="pk">trigger_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c">trigger_type</td><td class="t">schedule/goat_lifecycle/upstream_completion</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>obligation_instances</b> ★<span class="badge b-new">new · due truth</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">obligation_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">protocol_version_id · rule_id</span></td><td class="t">uuid · rule_id NN</td></tr>
+          <tr><td class="c"><span class="fk">batch_id</span></td><td class="t">→obligation_batches (drive)</td></tr>
+          <tr><td class="c">target_type · target_id</td><td class="t">goat/shed/… · uuid</td></tr>
+          <tr><td class="c">scope_type · scope_id</td><td class="t">org unit</td></tr>
+          <tr><td class="c">due_at · window_start/end</td><td class="t">ts</td></tr>
+          <tr><td class="c">status</td><td class="t">scheduled/due/completed/missed/waived/canceled</td></tr>
+          <tr><td class="c"><span class="fk">sop_task_id</span></td><td class="t">→sop_tasks</td></tr>
+          <tr><td class="c">idempotency_key</td><td class="t">hash(tenant·ver·<b>rule_id</b>·target·due·seq) UNIQUE</td></tr>
+          <tr><td class="c">guard</td><td class="t">UNIQUE(tenant,ver,<b>rule_id</b>,target,due) NULLS NOT DISTINCT</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>obligation_status_events</b> + <b>escalations</b><span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">obligation_event_id</span></td><td class="t">PK (partitioned by recorded_at)</td></tr>
+          <tr><td class="c"><span class="fk">obligation_id</span> · event_type</td><td class="t">scheduled/became_due/completed…</td></tr>
+          <tr><td class="c">payload · idempotency_key</td><td class="t">jsonb · text</td></tr>
+          <tr><td class="c" style="padding-top:8px"><span class="pk">escalation_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c">level · escalated_to_role</td><td class="t">int · role</td></tr>
+          <tr><td class="c">status</td><td class="t">open/acknowledged/resolved/expired</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>obligation_batches</b> — the DRIVE / work-unit<span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">batch_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">protocol_version_id</span></td><td class="t">uuid</td></tr>
+          <tr><td class="c">scope_type · scope_id</td><td class="t">shed/cohort</td></tr>
+          <tr><td class="c">session · planned_date · window</td><td class="t">Morning/Aft/Eve · date</td></tr>
+          <tr><td class="c">status</td><td class="t">planned/in_progress/completed/superseded</td></tr>
+          <tr><td class="c">estimated_targets</td><td class="t">int</td></tr>
+          <tr><td class="c">planned/reserved/used_quantity</td><td class="t"><b>numeric</b> (generic — doses or kg)</td></tr>
+          <tr><td class="c">quantity_unit</td><td class="t">dose/ml/kg/litre</td></tr>
+          <tr><td class="c"><span class="fk">primary_inventory_lot_id · sop_task_id</span></td><td class="t">→stock · →sop_tasks (ONE per batch)</td></tr>
+          <tr><td class="c">conducted_by · proof_ref · context</td><td class="t">uuid · text · jsonb</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- INVENTORY -->
+  <section id="inventory">
+    <h2>7 · Inventory (generic, FEFO)</h2>
+    <p class="lead">Net-new and generic — vaccines &amp; feed are item categories on ONE stock system. No per-module stock island.</p>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>inventory_items</b> + <b>vaccines</b> (detail)<span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">item_id</span> · name</td><td class="t">uuid · text</td></tr>
+          <tr><td class="c">category · base_unit</td><td class="t">vaccine/feed/… · dose/ml/kg/litre</td></tr>
+          <tr><td class="c" style="padding-top:8px">vaccines (FK item_id):</td><td class="t"></td></tr>
+          <tr><td class="c">manufacturer · default_dose_ml</td><td class="t">text · num</td></tr>
+          <tr><td class="c">requires_booster · booster_interval_days</td><td class="t">bool · int</td></tr>
+          <tr><td class="c">storage_temp_min/max</td><td class="t">num</td></tr>
+          <tr><td class="c"><span class="p2c">withdrawal_period_days</span></td><td class="t">int <span class="p2c">p2</span></td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>inventory_stock</b> (lots)<span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">lot_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">item_id · location_id</span></td><td class="t">→item · →locations(park)</td></tr>
+          <tr><td class="c">lot_number · expiry_date</td><td class="t">text · date (FEFO key)</td></tr>
+          <tr><td class="c">quantity_in_stock</td><td class="t"><b>numeric</b> <b>CHECK ≥ 0</b></td></tr>
+          <tr><td class="c">quantity_reserved · consumed</td><td class="t"><b>numeric</b></td></tr>
+          <tr><td class="c">quantity_unit · reorder_threshold</td><td class="t">dose/ml/kg · numeric</td></tr>
+          <tr><td class="c"><span class="p2c">is_quarantined</span></td><td class="t">bool <span class="p2c">p2</span></td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>inventory_stock_movements</b> — append-only ledger<span class="badge b-new">new · source of truth</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">movement_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">lot_id</span></td><td class="t">→inventory_stock</td></tr>
+          <tr><td class="c">movement_type</td><td class="t">reserve/release/consume/adjust/transfer/expire</td></tr>
+          <tr><td class="c">quantity · quantity_unit</td><td class="t"><b>numeric</b> · dose/ml/kg</td></tr>
+          <tr><td class="c"><span class="fk">batch_id · obligation_id · ref_completion_id</span></td><td class="t">uuid</td></tr>
+          <tr><td class="c">actor_id · reason · occurred_at</td><td class="t">uuid · text · ts</td></tr>
+          <tr><td class="c">idempotency_key</td><td class="t">text UNIQUE</td></tr>
+          <tr><td class="c" style="color:var(--mut)">↳ inventory_stock balances</td><td class="t">= projection of this ledger</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- VACCINATION -->
+  <section id="vacc">
+    <h2>8 · Vaccination module</h2>
+    <p class="lead">Config = <code>protocol_rules</code> (category=vaccination). Due = <code>obligation_instances</code>. Only the completion table is vaccination-specific.</p>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>vaccination_completions</b><span class="badge b-new">new · links engine</span></div>
+        <table>
+          <tr><td class="c"><span class="pk">completion_id</span></td><td class="t">uuid PK</td></tr>
+          <tr><td class="c"><span class="fk">obligation_id</span></td><td class="t">→obligation_instances NN</td></tr>
+          <tr><td class="c"><span class="fk">goat_id</span></td><td class="t">→goats</td></tr>
+          <tr><td class="c"><span class="fk">sop_submission_item_id</span></td><td class="t">→sop_submission_items</td></tr>
+          <tr><td class="c"><span class="fk">vaccine_inventory_lot_id</span></td><td class="t">→inventory_stock (FEFO)</td></tr>
+          <tr><td class="c">doses · dose_ml_given</td><td class="t">int · num</td></tr>
+          <tr><td class="c">route_site</td><td class="t">text</td></tr>
+          <tr><td class="c">adverse_reaction (+problem_id)</td><td class="t">bool (+FK)</td></tr>
+          <tr><td class="c">cold_chain_verified</td><td class="t">bool</td></tr>
+          <tr><td class="c">administered_at · administered_by</td><td class="t">ts · uuid</td></tr>
+          <tr><td class="c">withdrawal_until_date</td><td class="t">date</td></tr>
+          <tr><td class="c">idempotency_key</td><td class="t">UNIQUE(tenant,obligation,goat)</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>config = protocol_rules</b> (no vaccine_config table)<span class="badge b-new">engine</span></div>
+        <table>
+          <tr><td class="c">protocol_definitions.category</td><td class="t">='vaccination'</td></tr>
+          <tr><td class="c">eligibility_json</td><td class="t">sex × age_band × shed-stage × dose#</td></tr>
+          <tr><td class="c">cadence_json</td><td class="t">trigger day · interval · booster offset</td></tr>
+          <tr><td class="c">per-park override</td><td class="t">park-scoped protocol_version</td></tr>
+          <tr><td class="c">booster</td><td class="t">protocol_trigger upstream_completion</td></tr>
+          <tr><td class="c">shed drive</td><td class="t">sop_task grouping shed's due obligations</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEED -->
+  <section id="feed">
+    <h2>9 · Feed direction module</h2>
+    <p class="lead">Ration config is typed (energy math); the plan + directions flow through the engine. v1=midnight, v2=2 PM after shiftings.</p>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>feed config</b> (ration rules)<span class="badge b-new">new · wiki §12</span></div>
+        <table>
+          <tr><td class="c">feed_master</td><td class="t">catalog · feed_type concentrate/pellets/dry/green</td></tr>
+          <tr><td class="c">goat_class_energy_requirement</td><td class="t">UNIQUE(tenant_id, breed_id, animal_stage_id) · daily net energy</td></tr>
+          <tr><td class="c"><span class="pk">feed_pattern</span></td><td class="t">scope park_wide/shed_specific · static/step_change · draft/active/superseded · prev_feed_pattern_id</td></tr>
+          <tr><td class="c">feed_pattern_feeds</td><td class="t">start_qty · target_qty · step_delta</td></tr>
+          <tr><td class="c">feed_session_templates(+items)</td><td class="t">sessions per park (replaces Template sheet)</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>plan + directions + execution</b><span class="badge b-new">new</span></div>
+        <table>
+          <tr><td class="c">supply_planning</td><td class="t">per date×shed×breed×age×feed · replaced not updated</td></tr>
+          <tr><td class="c"><span class="pk">feed_directions</span></td><td class="t">+ direction_version (v1/v2) · active/superseded</td></tr>
+          <tr><td class="c">feed_packing</td><td class="t">packed_qty · video · <b>ledger consume/release (inventory_stock_movements)</b> · pending/packed/flagged/verified</td></tr>
+          <tr><td class="c">feed_consumption</td><td class="t">consumed_qty · 3 proof videos · variance</td></tr>
+          <tr><td class="c">feed_transport</td><td class="t">consolidated per shed/day</td></tr>
+          <tr><td class="c"><span class="fk">obligation_id</span></td><td class="t">each direction → obligation → sop_task</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- PLUMBING -->
+  <section id="plumbing">
+    <h2>10 · Plumbing (committed, reused everywhere)</h2>
+    <div class="cards">
+      <div class="tbl">
+        <div class="h"><b>outbox_messages</b> · <b>idempotency_keys</b><span class="badge b-reuse">000001 · reuse</span></div>
+        <table>
+          <tr><td class="c">event_id UNIQUE · event_type · topic</td><td class="t">transactional outbox</td></tr>
+          <tr><td class="c">status</td><td class="t">pending/publishing/published/dead_letter</td></tr>
+          <tr><td class="c">attempt_count · next_attempt_at</td><td class="t">retry/DLQ</td></tr>
+          <tr><td class="c">idempotency_key (PK table)</td><td class="t">consumer dedup</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>sop_*</b> (execution + proof)<span class="badge b-reuse">000060 · reuse</span></div>
+        <table>
+          <tr><td class="c">sop_definitions / sop_versions</td><td class="t">form_dsl + proof_policy jsonb · one published</td></tr>
+          <tr><td class="c">sop_tasks</td><td class="t">queued→assigned→submitted→accepted</td></tr>
+          <tr><td class="c">sop_submissions</td><td class="t">UNIQUE(tenant,idempotency_key)</td></tr>
+          <tr><td class="c">sop_submission_items</td><td class="t">per-goat result</td></tr>
+        </table>
+      </div>
+      <div class="tbl">
+        <div class="h"><b>audit_log</b> + projection-contract<span class="badge b-reuse">reuse-enhance</span></div>
+        <table>
+          <tr><td class="c">audit_log</td><td class="t">partitioned · every publish/draft logged</td></tr>
+          <tr><td class="c">feature_coverage_registry</td><td class="t">ALTER CHECK +vaccination/feed_direction</td></tr>
+          <tr><td class="c">*_projection_rows / state</td><td class="t">Control Tower read-models</td></tr>
+        </table>
+      </div>
+    </div>
+    <p class="note"><b>Open / blocked (input, not schema):</b> vaccine schedule values (PHC vet protocol) · feed ration values + sessions per park · K2 age band 42-vs-45. <b>Source:</b> committed migrations <code>000001–000060</code> + wiki goatOS §6/§12.</p>
+  </section>
+</main>
