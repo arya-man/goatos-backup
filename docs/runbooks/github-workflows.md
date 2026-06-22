@@ -175,7 +175,8 @@ old or internal product labels.
 The admin-web visible-branding guard is case-insensitive for rendered app,
 component, feature, and server-facing error text so lowercase variants such as
 `vgoat`, `goat os`, or `goat-os` cannot slip through. Internal identifiers such
-as `GOATOS_*`, `@goatos/api-client`, and `GoatOSApiError` remain allowed.
+as `GOATOS_*`, `@goatos/api-client`, `GoatOSApiError`, and the backend SOP form
+schema ID `goatos.sop-form.v1` remain allowed.
 
 The admin-web direct data-source pattern has a local self-test:
 

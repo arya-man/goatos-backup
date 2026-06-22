@@ -4,7 +4,7 @@ import type { BuilderField, BuilderState } from "./model";
 import { flowFacts, type Outcome, type Scenario } from "./preview-engine";
 import { titleCase } from "./templates";
 
-const TRACE_ORDER_HINT: Record<string, string> = {
+const OUTCOME_PATH_HINT: Record<string, string> = {
   operator_execution: "step",
   approval: "approval",
   proof_verification: "proof",
@@ -99,14 +99,14 @@ export function AndroidPreview({
         </div>
         <div className="ostate" style={{ color: toneColor(outcome.tone) }}>{outcome.state}</div>
         <div className="kv">{outcome.kv}</div>
-        <Trace state={state} lit={outcome.lit} />
+        <OutcomePath state={state} lit={outcome.lit} />
         <div className="hint">{outcome.hint}</div>
       </div>
     </aside>
   );
 }
 
-function Trace({ state, lit }: { state: BuilderState; lit: Set<string> }) {
+function OutcomePath({ state, lit }: { state: BuilderState; lit: Set<string> }) {
   const litNodes = state.nodes.filter((n) => lit.has(n.id));
   return (
     <div className="trace">
@@ -118,7 +118,7 @@ function Trace({ state, lit }: { state: BuilderState; lit: Set<string> }) {
         return (
           <span key={n.id} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             {i > 0 ? <span className="sep">›</span> : null}
-            <span className={cls} title={TRACE_ORDER_HINT[n.type]}>{n.label}</span>
+            <span className={cls} title={OUTCOME_PATH_HINT[n.type]}>{n.label}</span>
           </span>
         );
       })}
