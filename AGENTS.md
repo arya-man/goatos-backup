@@ -34,8 +34,17 @@ Code navigation (graph-first):
 - Graph is the fast first pass; native Grep/Read is the fallback for content the
   graph cannot see. One graph query replaces many grep/read cycles — use it
   before scanning files. The graph auto-updates on edits.
-- For Mesha wiki/docs/SOPs/diagrams/screenshots, use the Graphify doc/visual
-  graphs first (see the workspace `AGENTS.md` Graphify Doc Search flow).
+- Setup is per-machine and optional. The graph DB (`.code-review-graph/`) is
+  gitignored and not shipped; nothing auto-installs or auto-builds on clone. To
+  enable: `pip install code-review-graph` (or `pipx`/`uvx`), then
+  `code-review-graph install` (configures MCP for your agent) and
+  `code-review-graph build` (~30s for this repo). If the `code-review-graph`
+  tools are not present, ignore this rule and just use Grep/Read — no setup is
+  required to work in the repo.
+- Maintainer-local only: the Graphify Mesha wiki/doc/visual graphs
+  (`mesha_docs_graph`, `mesha_visual_graph`) are built from sources outside this
+  repo and cannot be reproduced here. Use them if already configured; otherwise
+  skip and use Grep/Read.
 
 Current repos:
 
