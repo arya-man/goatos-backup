@@ -15,6 +15,7 @@ out_files=(
   "$repo_root/backend/internal/protocol/adapters/postgres/sqlc/schema.sql"
   "$repo_root/backend/internal/obligation/adapters/postgres/sqlc/schema.sql"
   "$repo_root/backend/internal/inventory/adapters/postgres/sqlc/schema.sql"
+  "$repo_root/backend/internal/vaccination/adapters/postgres/sqlc/schema.sql"
 )
 
 cleanup() {

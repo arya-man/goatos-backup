@@ -1705,6 +1705,33 @@ type UserScopeGrant struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type VaccinationCompletion struct {
+	CompletionID             pgtype.UUID
+	TenantID                 pgtype.UUID
+	ObligationID             pgtype.UUID
+	BatchID                  pgtype.UUID
+	GoatID                   pgtype.UUID
+	SopSubmissionItemID      pgtype.UUID
+	VaccineInventoryLotID    pgtype.UUID
+	Doses                    pgtype.Int4
+	DoseMlGiven              pgtype.Numeric
+	RouteSite                pgtype.Text
+	AdverseReaction          bool
+	AdverseReactionProblemID pgtype.UUID
+	ColdChainVerified        bool
+	AdministeredAt           pgtype.Timestamptz
+	Status                   string
+	VerifiedBy               pgtype.UUID
+	VerifiedAt               pgtype.Timestamptz
+	RejectionReason          pgtype.Text
+	WithdrawalUntilDate      pgtype.Date
+	RecordedBy               pgtype.UUID
+	IdempotencyKey           string
+	RowVersion               int32
+	CreatedAt                pgtype.Timestamptz
+	UpdatedAt                pgtype.Timestamptz
+}
+
 type Vaccine struct {
 	VaccineID      pgtype.UUID
 	TenantID       pgtype.UUID

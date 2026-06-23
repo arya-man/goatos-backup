@@ -959,7 +959,7 @@ CREATE TABLE public.feature_coverage_registry (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT feature_coverage_registry_module_check CHECK ((feature_module = ANY (ARRAY['counts'::text, 'mortality'::text, 'locations'::text]))),
+    CONSTRAINT feature_coverage_registry_module_check CHECK ((feature_module = ANY (ARRAY['counts'::text, 'mortality'::text, 'locations'::text, 'vaccination'::text]))),
     CONSTRAINT feature_coverage_registry_source_mode_check CHECK ((source_mode = ANY (ARRAY['legacy_bq'::text, 'legacy_sheet'::text, 'goatos_canonical'::text, 'manual_review'::text]))),
     CONSTRAINT feature_coverage_registry_status_check CHECK ((coverage_status = ANY (ARRAY['proposed'::text, 'shadow_passed'::text, 'complete'::text, 'blocked'::text])))
 );
@@ -3168,6 +3168,42 @@ CREATE TABLE public.user_scope_grants (
 
 
 --
+-- Name: vaccination_completions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_completions (
+    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    batch_id uuid,
+    goat_id uuid NOT NULL,
+    sop_submission_item_id uuid,
+    vaccine_inventory_lot_id uuid,
+    doses integer,
+    dose_ml_given numeric,
+    route_site text,
+    adverse_reaction boolean DEFAULT false NOT NULL,
+    adverse_reaction_problem_id uuid,
+    cold_chain_verified boolean DEFAULT false NOT NULL,
+    administered_at timestamp with time zone NOT NULL,
+    status text DEFAULT 'recorded'::text NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rejection_reason text,
+    withdrawal_until_date date,
+    recorded_by uuid,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_completions_dose_ml_check CHECK (((dose_ml_given IS NULL) OR (dose_ml_given > (0)::numeric))),
+    CONSTRAINT vaccination_completions_doses_check CHECK (((doses IS NULL) OR (doses > 0))),
+    CONSTRAINT vaccination_completions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT vaccination_completions_status_check CHECK ((status = ANY (ARRAY['recorded'::text, 'accepted'::text, 'rejected'::text, 'reversed'::text])))
+);
+
+
+--
 -- Name: vaccines; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4654,6 +4690,14 @@ ALTER TABLE ONLY public.sop_submission_items
 
 
 --
+-- Name: sop_submission_items sop_submission_items_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_submission_items
+    ADD CONSTRAINT sop_submission_items_tenant_id_unique UNIQUE (tenant_id, item_id);
+
+
+--
 -- Name: sop_submissions sop_submissions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4715,6 +4759,30 @@ ALTER TABLE ONLY public.tenants
 
 ALTER TABLE ONLY public.user_scope_grants
     ADD CONSTRAINT user_scope_grants_pkey PRIMARY KEY (grant_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_obligation_goat_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_obligation_goat_unique UNIQUE (tenant_id, obligation_id, goat_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_pkey PRIMARY KEY (completion_id);
 
 
 --
@@ -6517,6 +6585,27 @@ CREATE INDEX user_scope_grants_scope_idx ON public.user_scope_grants USING btree
 --
 
 CREATE INDEX user_scope_grants_user_active_idx ON public.user_scope_grants USING btree (user_id, status, valid_from, valid_to);
+
+
+--
+-- Name: vaccination_completions_batch_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_batch_idx ON public.vaccination_completions USING btree (tenant_id, batch_id, status);
+
+
+--
+-- Name: vaccination_completions_goat_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_goat_history_idx ON public.vaccination_completions USING btree (tenant_id, goat_id, administered_at DESC);
+
+
+--
+-- Name: vaccination_completions_obligation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_obligation_idx ON public.vaccination_completions USING btree (tenant_id, obligation_id);
 
 
 --
@@ -9496,6 +9585,54 @@ ALTER TABLE ONLY public.sop_versions
 
 ALTER TABLE ONLY public.user_scope_grants
     ADD CONSTRAINT user_scope_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_batch_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_batch_tenant_fk FOREIGN KEY (tenant_id, batch_id) REFERENCES public.obligation_batches(tenant_id, batch_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_lot_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_lot_tenant_fk FOREIGN KEY (tenant_id, vaccine_inventory_lot_id) REFERENCES public.inventory_stock(tenant_id, stock_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_obligation_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id) REFERENCES public.obligation_instances(tenant_id, obligation_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_submission_item_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_submission_item_tenant_fk FOREIGN KEY (tenant_id, sop_submission_item_id) REFERENCES public.sop_submission_items(tenant_id, item_id);
+
+
+--
+-- Name: vaccination_completions vaccination_completions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_completions
+    ADD CONSTRAINT vaccination_completions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
