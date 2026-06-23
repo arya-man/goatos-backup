@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	invpg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	invapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
@@ -17,10 +16,10 @@ import (
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
-// TestSM5cCompletionFlow drives the SM-5 verification + completion + consume path end-to-end:
-// generate -> sweep+reserve -> accept (completes obligation + consumes a dose) -> double-submit
-// no-op -> reject (no completion, no consume). Stock is conserved throughout.
-func TestSM5cCompletionFlow(t *testing.T) {
+// TestSM5VerifyExistingTwoPhase drives the two-phase operator flow: a dose is RECORDED at submit
+// time, then VERIFIED later. AcceptExisting completes the obligation + consumes a dose; RejectExisting
+// leaves the obligation open and consumes nothing. Both are idempotent on replay.
+func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -30,10 +29,9 @@ func TestSM5cCompletionFlow(t *testing.T) {
 	obl := oblpg.NewRepository(pool, 5*time.Second)
 	vacc := NewRepository(pool, 5*time.Second)
 
-	// Stock: 10 doses on hand, none reserved.
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
-		 VALUES ($1, $2, 'VAC-C', 'Completion test', 'vaccine', 'dose')`, impItem, impTenant); err != nil {
+		 VALUES ($1, $2, 'VAC-V', 'Verify test', 'vaccine', 'dose')`, impItem, impTenant); err != nil {
 		t.Fatalf("seed item: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
@@ -42,9 +40,8 @@ func TestSM5cCompletionFlow(t *testing.T) {
 		t.Fatalf("seed stock: %v", err)
 	}
 
-	// Published version: K1, one birth_age rule.
 	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
-		TenantID: impTenant, Code: "vaccination.complete", Name: "Complete", Category: "vaccination", Status: "draft",
+		TenantID: impTenant, Code: "vaccination.verify", Name: "Verify", Category: "vaccination", Status: "draft",
 	})
 	if err != nil {
 		t.Fatalf("definition: %v", err)
@@ -69,8 +66,8 @@ func TestSM5cCompletionFlow(t *testing.T) {
 		t.Fatalf("publish: %v", err)
 	}
 
-	const g1 = "30000000-0000-4000-8000-0000000000c1"
-	const g2 = "30000000-0000-4000-8000-0000000000c2"
+	const g1 = "30000000-0000-4000-8000-0000000000f1"
+	const g2 = "30000000-0000-4000-8000-0000000000f2"
 	seedGenGoat(t, ctx, pool, g1, "alive")
 	seedGenGoat(t, ctx, pool, g2, "alive")
 
@@ -80,105 +77,74 @@ func TestSM5cCompletionFlow(t *testing.T) {
 		t.Fatalf("generate: res=%+v err=%v", res, err)
 	}
 
-	// Sweep into a drive batch + reserve 2 doses (one per goat, same park scope).
 	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
 	sweep := oblapp.NewSweeperService(obl, nil, reserver)
 	cfg := oblapp.SweepConfig{VaccineItemID: impItem, DosesPerGoat: 1}
-	dueBefore := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
-	if sres, err := sweep.SweepVersion(ctx, impTenant, versionID, cfg, dueBefore); err != nil || sres.Batches != 1 {
-		t.Fatalf("sweep: res=%+v err=%v", sres, err)
-	}
-	if got := reservedQty(t, ctx, pool); got != "2" {
-		t.Fatalf("after reserve: want reserved 2, got %q", got)
+	if _, err := sweep.SweepVersion(ctx, impTenant, versionID, cfg, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("sweep: %v", err)
 	}
 
 	batchID := scanText(t, ctx, pool, `SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 LIMIT 1`, impTenant)
 	ob1 := scanText(t, ctx, pool, `SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, impTenant, g1)
 	ob2 := scanText(t, ctx, pool, `SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, impTenant, g2)
 
-	completion := vaccapp.NewCompletionService(vaccapp.NewService(vacc), obl, reserver)
+	svc := vaccapp.NewService(vacc)
+	completion := vaccapp.NewCompletionService(svc, obl, reserver)
 	doses := int32(1)
-	mk := func(ob, goat, key string) vaccdomain.NewCompletion {
+	record := func(ob, goat, key string) string {
 		batch, lot := batchID, impLot
-		return vaccdomain.NewCompletion{
+		cid, applied, err := svc.RecordCompletion(ctx, vaccdomain.NewCompletion{
 			TenantID: impTenant, ObligationID: ob, GoatID: goat, BatchID: &batch,
 			VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: asOf,
-			IdempotencyKey: key,
+			Status: "recorded", IdempotencyKey: key,
+		})
+		if err != nil || !applied || cid == "" {
+			t.Fatalf("record %s: cid=%q applied=%v err=%v", goat, cid, applied, err)
 		}
+		return cid
 	}
+	cid1 := record(ob1, g1, "sub-g1")
+	cid2 := record(ob2, g2, "sub-g2")
 
-	// Accept g1: completion accepted + obligation completed + 1 dose consumed.
-	ar, err := completion.Accept(ctx, vaccapp.AcceptInput{
-		Completion: mk(ob1, g1, "rec-g1"),
-	})
+	// Verify-accept g1: obligation completed + 1 dose consumed.
+	ar, err := completion.AcceptExisting(ctx, vaccapp.AcceptExistingInput{TenantID: impTenant, CompletionID: cid1})
 	if err != nil || !ar.Applied || !ar.Completed {
-		t.Fatalf("accept g1: %+v err=%v", ar, err)
+		t.Fatalf("accept-existing g1: %+v err=%v", ar, err)
 	}
 	if got := scanText(t, ctx, pool, `SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, ob1); got != "completed" {
-		t.Fatalf("ob1 status: want completed, got %s", got)
+		t.Fatalf("ob1: want completed, got %s", got)
 	}
-	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND goat_id=$2 AND status='accepted'`, impTenant, g1); got != 1 {
-		t.Fatalf("want 1 accepted completion for g1, got %d", got)
-	}
-	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM inventory_stock_movements WHERE tenant_id=$1 AND movement_type='consume'`, impTenant); got != 1 {
-		t.Fatalf("want 1 consume movement, got %d", got)
+	if got := scanText(t, ctx, pool, `SELECT status FROM vaccination_completions WHERE tenant_id=$1 AND completion_id=$2`, impTenant, cid1); got != "accepted" {
+		t.Fatalf("completion g1: want accepted, got %s", got)
 	}
 	if in, res := onHand(t, ctx, pool); in != "9" || res != "1" {
-		t.Fatalf("after consume: want in_stock 9 / reserved 1, got %s / %s", in, res)
+		t.Fatalf("after accept: want in 9 / reserved 1, got %s / %s", in, res)
 	}
 
-	// Double-submit g1 (same idempotency key): no-op — no second completion/consume, balances stable.
-	ar2, err := completion.Accept(ctx, vaccapp.AcceptInput{
-		Completion: mk(ob1, g1, "rec-g1"),
-	})
-	if err != nil || ar2.Applied {
-		t.Fatalf("double-submit should be a no-op: %+v err=%v", ar2, err)
+	// Replay accept: no-op.
+	if ar2, err := completion.AcceptExisting(ctx, vaccapp.AcceptExistingInput{TenantID: impTenant, CompletionID: cid1}); err != nil || ar2.Applied {
+		t.Fatalf("accept-existing replay should be a no-op: %+v err=%v", ar2, err)
 	}
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM inventory_stock_movements WHERE tenant_id=$1 AND movement_type='consume'`, impTenant); got != 1 {
-		t.Fatalf("double-submit added a consume movement, count=%d", got)
-	}
-	if in, res := onHand(t, ctx, pool); in != "9" || res != "1" {
-		t.Fatalf("double-submit changed balances: in %s / reserved %s", in, res)
+		t.Fatalf("replay added a consume movement, count=%d", got)
 	}
 
-	// Reject g2: no completion accepted, obligation stays open, no consume.
-	rr, err := completion.Reject(ctx, vaccapp.RejectInput{
-		Completion: mk(ob2, g2, "rec-g2"), Reason: "blurry proof",
-	})
+	// Verify-reject g2: obligation stays open, nothing consumed.
+	rr, err := completion.RejectExisting(ctx, impTenant, cid2, "blurry proof", nil)
 	if err != nil || !rr.Applied {
-		t.Fatalf("reject g2: %+v err=%v", rr, err)
+		t.Fatalf("reject-existing g2: %+v err=%v", rr, err)
 	}
 	if got := scanText(t, ctx, pool, `SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, ob2); got == "completed" {
 		t.Fatalf("ob2 must not be completed after reject")
 	}
-	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM inventory_stock_movements WHERE tenant_id=$1 AND movement_type='consume'`, impTenant); got != 1 {
-		t.Fatalf("reject must not consume, consume count=%d", got)
+	if got := scanText(t, ctx, pool, `SELECT status FROM vaccination_completions WHERE tenant_id=$1 AND completion_id=$2`, impTenant, cid2); got != "rejected" {
+		t.Fatalf("completion g2: want rejected, got %s", got)
 	}
 	if in, res := onHand(t, ctx, pool); in != "9" || res != "1" {
-		t.Fatalf("reject changed balances: in %s / reserved %s", in, res)
+		t.Fatalf("after reject: balances changed: in %s / reserved %s", in, res)
 	}
-}
-
-func scanText(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) string {
-	t.Helper()
-	var s string
-	if err := pool.QueryRow(ctx, sql, args...).Scan(&s); err != nil {
-		t.Fatalf("scan %q: %v", sql, err)
+	// Replay reject: no-op.
+	if rr2, err := completion.RejectExisting(ctx, impTenant, cid2, "blurry proof", nil); err != nil || rr2.Applied {
+		t.Fatalf("reject-existing replay should be a no-op: %+v err=%v", rr2, err)
 	}
-	return s
-}
-
-func reservedQty(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
-	t.Helper()
-	return scanText(t, ctx, pool, `SELECT quantity_reserved::text FROM inventory_stock WHERE stock_id=$1`, impLot)
-}
-
-func onHand(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (inStock, reserved string) {
-	t.Helper()
-	if err := pool.QueryRow(ctx,
-		`SELECT quantity_in_stock::text, quantity_reserved::text FROM inventory_stock WHERE stock_id=$1`, impLot).
-		Scan(&inStock, &reserved); err != nil {
-		t.Fatalf("onHand: %v", err)
-	}
-	return inStock, reserved
 }

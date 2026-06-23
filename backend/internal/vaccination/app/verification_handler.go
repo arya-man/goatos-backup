@@ -1,0 +1,83 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+)
+
+// Verification event types: a SOP verify outcome for a recorded vaccination completion. The SOP
+// review path (or a composition-layer bridge) publishes one event per verified completion; this
+// handler applies the SM-5 outcome. Same code path for the in-process bus and a future Pub/Sub
+// consumer.
+const (
+	EventVaccinationVerifyAccepted = "vaccination.verify.accepted"
+	EventVaccinationVerifyRejected = "vaccination.verify.rejected"
+)
+
+// VerificationEvent is the payload for the verify events. CompletionID is required; the booster
+// context (protocol version + scope + sequence) is optional and only used on accept.
+type VerificationEvent struct {
+	CompletionID      string `json:"completion_id"`
+	VerifiedBy        string `json:"verified_by,omitempty"`
+	ProtocolVersionID string `json:"protocol_version_id,omitempty"`
+	ScopeType         string `json:"scope_type,omitempty"`
+	ScopeID           string `json:"scope_id,omitempty"`
+	RuleSequence      int32  `json:"rule_sequence,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+}
+
+// VerificationHandler applies a SOP verify outcome to a recorded completion: accept → AcceptExisting
+// (complete obligation + consume dose + booster), reject → RejectExisting (rework, obligation stays
+// open). Idempotent — both delegate to accept/reject-only-when-recorded. eventbus.Handler.
+type VerificationHandler struct {
+	completion *CompletionService
+}
+
+// NewVerificationHandler constructs the handler over a CompletionService.
+func NewVerificationHandler(completion *CompletionService) *VerificationHandler {
+	return &VerificationHandler{completion: completion}
+}
+
+var _ eventbus.Handler = (*VerificationHandler)(nil)
+
+// Register subscribes the handler to both verify event types on a bus.
+func (h *VerificationHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventVaccinationVerifyAccepted, h)
+	bus.Subscribe(EventVaccinationVerifyRejected, h)
+}
+
+// HandleEvent routes the event by type to the matching SM-5 verification outcome.
+func (h *VerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	var p VerificationEvent
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+	}
+	if p.CompletionID == "" {
+		return nil
+	}
+	var verifiedBy *string
+	if p.VerifiedBy != "" {
+		verifiedBy = &p.VerifiedBy
+	}
+	switch e.Type {
+	case EventVaccinationVerifyAccepted:
+		_, err := h.completion.AcceptExisting(ctx, AcceptExistingInput{
+			TenantID:          e.TenantID,
+			CompletionID:      p.CompletionID,
+			VerifiedBy:        verifiedBy,
+			ProtocolVersionID: p.ProtocolVersionID,
+			ScopeType:         p.ScopeType,
+			ScopeID:           p.ScopeID,
+			RuleSequence:      p.RuleSequence,
+		})
+		return err
+	case EventVaccinationVerifyRejected:
+		_, err := h.completion.RejectExisting(ctx, e.TenantID, p.CompletionID, p.Reason, verifiedBy)
+		return err
+	}
+	return nil
+}

@@ -37,6 +37,18 @@ type CompletionHistoryItem struct {
 	WithdrawalUntilDate *time.Time
 }
 
+// AcceptedCompletion is the verification context returned when a recorded completion is accepted:
+// enough to complete the obligation (SM-5) and consume the reserved dose. BatchID/LotID are "" when
+// the completion was not part of a drive (no stock to consume).
+type AcceptedCompletion struct {
+	ObligationID   string
+	GoatID         string
+	BatchID        string
+	LotID          string
+	Doses          int32
+	AdministeredAt time.Time
+}
+
 // LastAccepted is the most recent accepted administration for a goat (next-due / SM-7 basis).
 type LastAccepted struct {
 	CompletionID   string

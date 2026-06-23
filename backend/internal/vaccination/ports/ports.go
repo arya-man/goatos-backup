@@ -22,9 +22,11 @@ type Repository interface {
 	RecordCompletion(ctx context.Context, in domain.NewCompletion) (completionID string, applied bool, err error)
 
 	// AcceptCompletion / RejectCompletion are the verification outcomes (SM-5). Both only act on a
-	// completion still in 'recorded' state.
-	AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) error
-	RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) error
+	// completion still in 'recorded' state (idempotent: applied is false on replay). AcceptCompletion
+	// returns the verification context (obligation/goat/batch/lot/doses) so the caller can complete
+	// the obligation and consume the reserved dose.
+	AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptedCompletion, bool, error)
+	RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (bool, error)
 
 	// ListCompletionsByGoat returns the goat's vaccination history (most recent first).
 	ListCompletionsByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.CompletionHistoryItem, error)

@@ -99,49 +99,62 @@ func (r *Repository) RecordCompletion(ctx context.Context, in domain.NewCompleti
 }
 
 // AcceptCompletion marks a recorded completion accepted (SM-5).
-func (r *Repository) AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) error {
+func (r *Repository) AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptedCompletion, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return fmt.Errorf("vaccination: tenant id: %w", err)
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
 	cid, err := pgconv.UUID(completionID)
 	if err != nil {
-		return fmt.Errorf("vaccination: completion id: %w", err)
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: completion id: %w", err)
 	}
-	if err := r.queries.AcceptVaccinationCompletion(ctx, vaccinationdb.AcceptVaccinationCompletionParams{
+	rows, err := r.queries.AcceptVaccinationCompletion(ctx, vaccinationdb.AcceptVaccinationCompletionParams{
 		VerifiedBy:          pgconv.NullableUUID(verifiedBy),
 		WithdrawalUntilDate: pgconv.Date(withdrawalUntil),
 		TenantID:            tenant,
 		CompletionID:        cid,
-	}); err != nil {
-		return fmt.Errorf("vaccination: accept completion: %w", err)
+	})
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: accept completion: %w", err)
 	}
-	return nil
+	if len(rows) == 0 {
+		return domain.AcceptedCompletion{}, false, nil // already accepted/rejected → no-op
+	}
+	row := rows[0]
+	return domain.AcceptedCompletion{
+		ObligationID:   row.ObligationID,
+		GoatID:         row.GoatID,
+		BatchID:        row.BatchID,
+		LotID:          row.VaccineInventoryLotID,
+		Doses:          row.Doses,
+		AdministeredAt: row.AdministeredAt.Time,
+	}, true, nil
 }
 
-// RejectCompletion marks a recorded completion rejected (SM-5 rework).
-func (r *Repository) RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) error {
+// RejectCompletion marks a recorded completion rejected (SM-5 rework). applied is false on replay.
+func (r *Repository) RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return fmt.Errorf("vaccination: tenant id: %w", err)
+		return false, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
 	cid, err := pgconv.UUID(completionID)
 	if err != nil {
-		return fmt.Errorf("vaccination: completion id: %w", err)
+		return false, fmt.Errorf("vaccination: completion id: %w", err)
 	}
-	if err := r.queries.RejectVaccinationCompletion(ctx, vaccinationdb.RejectVaccinationCompletionParams{
+	n, err := r.queries.RejectVaccinationCompletion(ctx, vaccinationdb.RejectVaccinationCompletionParams{
 		VerifiedBy:      pgconv.NullableUUID(verifiedBy),
 		RejectionReason: pgconv.Text(reason),
 		TenantID:        tenant,
 		CompletionID:    cid,
-	}); err != nil {
-		return fmt.Errorf("vaccination: reject completion: %w", err)
+	})
+	if err != nil {
+		return false, fmt.Errorf("vaccination: reject completion: %w", err)
 	}
-	return nil
+	return n == 1, nil
 }
 
 // ListCompletionsByGoat returns a goat's vaccination history (most recent first).

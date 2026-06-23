@@ -11,11 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const acceptVaccinationCompletion = `-- name: AcceptVaccinationCompletion :exec
+const acceptVaccinationCompletion = `-- name: AcceptVaccinationCompletion :many
 UPDATE vaccination_completions
 SET status = 'accepted', verified_by = $1, verified_at = now(),
     withdrawal_until_date = $2, row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $3 AND completion_id = $4 AND status = 'recorded'
+RETURNING obligation_id::text AS obligation_id,
+          goat_id::text AS goat_id,
+          COALESCE(batch_id::text, '')::text AS batch_id,
+          COALESCE(vaccine_inventory_lot_id::text, '')::text AS vaccine_inventory_lot_id,
+          COALESCE(doses, 0)::int AS doses,
+          administered_at
 `
 
 type AcceptVaccinationCompletionParams struct {
@@ -25,14 +31,48 @@ type AcceptVaccinationCompletionParams struct {
 	CompletionID        pgtype.UUID
 }
 
-func (q *Queries) AcceptVaccinationCompletion(ctx context.Context, arg AcceptVaccinationCompletionParams) error {
-	_, err := q.db.Exec(ctx, acceptVaccinationCompletion,
+type AcceptVaccinationCompletionRow struct {
+	ObligationID          string
+	GoatID                string
+	BatchID               string
+	VaccineInventoryLotID string
+	Doses                 int32
+	AdministeredAt        pgtype.Timestamptz
+}
+
+// SM-5 verify (accept). Acts only on a still-recorded row, returning its verification context so the
+// caller can complete the obligation + consume stock. Idempotent: an already-accepted/rejected row
+// matches nothing → no rows → caller no-ops.
+func (q *Queries) AcceptVaccinationCompletion(ctx context.Context, arg AcceptVaccinationCompletionParams) ([]AcceptVaccinationCompletionRow, error) {
+	rows, err := q.db.Query(ctx, acceptVaccinationCompletion,
 		arg.VerifiedBy,
 		arg.WithdrawalUntilDate,
 		arg.TenantID,
 		arg.CompletionID,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AcceptVaccinationCompletionRow
+	for rows.Next() {
+		var i AcceptVaccinationCompletionRow
+		if err := rows.Scan(
+			&i.ObligationID,
+			&i.GoatID,
+			&i.BatchID,
+			&i.VaccineInventoryLotID,
+			&i.Doses,
+			&i.AdministeredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const recordVaccinationCompletion = `-- name: RecordVaccinationCompletion :one
@@ -95,7 +135,7 @@ func (q *Queries) RecordVaccinationCompletion(ctx context.Context, arg RecordVac
 	return completion_id, err
 }
 
-const rejectVaccinationCompletion = `-- name: RejectVaccinationCompletion :exec
+const rejectVaccinationCompletion = `-- name: RejectVaccinationCompletion :execrows
 UPDATE vaccination_completions
 SET status = 'rejected', verified_by = $1, verified_at = now(),
     rejection_reason = $2, row_version = row_version + 1, updated_at = now()
@@ -109,12 +149,16 @@ type RejectVaccinationCompletionParams struct {
 	CompletionID    pgtype.UUID
 }
 
-func (q *Queries) RejectVaccinationCompletion(ctx context.Context, arg RejectVaccinationCompletionParams) error {
-	_, err := q.db.Exec(ctx, rejectVaccinationCompletion,
+// SM-5 verify (rework). Acts only on a still-recorded row. Idempotent: returns 0 rows on replay.
+func (q *Queries) RejectVaccinationCompletion(ctx context.Context, arg RejectVaccinationCompletionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, rejectVaccinationCompletion,
 		arg.VerifiedBy,
 		arg.RejectionReason,
 		arg.TenantID,
 		arg.CompletionID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

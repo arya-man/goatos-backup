@@ -14,15 +14,20 @@ type ObligationCompleter interface {
 }
 
 // StockConsumer is the slice of the inventory service SM-5 needs: consume reserved doses on accept.
+// The lot's item/location/unit are derived from the lot itself, so callers pass only (batch, lot).
 type StockConsumer interface {
-	ConsumeForBatch(ctx context.Context, tenantID, batchID, lotID, itemID, locationID, key string, qty int64) error
+	ConsumeForBatch(ctx context.Context, tenantID, batchID, lotID, key string, qty int64) error
 }
 
-// CompletionService implements SM-5 verification + completion: record a dose, accept/reject it,
-// complete the obligation on accept, and consume the goat's reserved dose from the drive lot.
-// Idempotent end-to-end — the completion double-submit guard (UNIQUE tenant,obligation,goat) plus
-// the movement idempotency key make a replay a no-op. In-process today; the same code runs behind a
-// future Pub/Sub verification consumer.
+// CompletionService implements SM-5 verification + completion. It supports two flows:
+//   - Accept/Reject: record a dose AND verify it in one call (programmatic / direct use).
+//   - AcceptExisting/RejectExisting: verify a completion already recorded at SOP-submit time (the
+//     two-phase operator flow — record at submit, verify at review).
+//
+// Either way an accepted dose completes its obligation and consumes the reserved dose; a rejected
+// dose leaves the obligation open (rework). Idempotent end-to-end (double-submit guard + accept-only-
+// when-recorded + keyed movements). In-process today; the same code runs behind a future Pub/Sub
+// verification consumer.
 type CompletionService struct {
 	vacc    *Service
 	obl     ObligationCompleter
@@ -43,15 +48,12 @@ func (s *CompletionService) WithBooster(b *BoosterService) *CompletionService {
 	return s
 }
 
-// AcceptInput carries the dose record (Completion), the verification metadata, and the consume
-// context. Stock is consumed only when the completion has a BatchID + VaccineInventoryLotID and
-// ItemID/LocationID are set; otherwise consume is skipped (best-effort).
+// AcceptInput carries the dose record (Completion), the verification metadata, and the optional SM-7
+// booster context. The consume context (item/location/unit) is derived from the completion's lot.
 type AcceptInput struct {
 	Completion      domain.NewCompletion
 	VerifiedBy      *string
 	WithdrawalUntil *time.Time
-	ItemID          string
-	LocationID      string
 	// SM-7 booster context (used only when a booster is wired): the protocol version + the
 	// administered dose's scope and sequence, so the next dose can be scheduled.
 	ProtocolVersionID string
@@ -81,41 +83,62 @@ func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptR
 	if !applied {
 		return AcceptResult{Applied: false}, nil // replay / double-submit
 	}
-	if err := s.vacc.AcceptCompletion(ctx, in.Completion.TenantID, cid, in.VerifiedBy, in.WithdrawalUntil); err != nil {
+	if _, _, err := s.vacc.AcceptCompletion(ctx, in.Completion.TenantID, cid, in.VerifiedBy, in.WithdrawalUntil); err != nil {
 		return AcceptResult{}, err
 	}
 	completed, err := s.obl.MarkCompleted(ctx, in.Completion.TenantID, in.Completion.ObligationID)
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	if s.inv != nil && in.Completion.BatchID != nil && in.Completion.VaccineInventoryLotID != nil &&
-		in.ItemID != "" && in.LocationID != "" {
-		doses := int64(1)
-		if in.Completion.Doses != nil && *in.Completion.Doses > 0 {
-			doses = int64(*in.Completion.Doses)
-		}
-		key := *in.Completion.BatchID + ":consume:" + in.Completion.GoatID
-		if err := s.inv.ConsumeForBatch(ctx, in.Completion.TenantID, *in.Completion.BatchID,
-			*in.Completion.VaccineInventoryLotID, in.ItemID, in.LocationID, key, doses); err != nil {
-			return AcceptResult{}, err
-		}
+	if err := s.consume(ctx, in.Completion.TenantID, deref(in.Completion.BatchID),
+		deref(in.Completion.VaccineInventoryLotID), in.Completion.GoatID, in.Completion.Doses); err != nil {
+		return AcceptResult{}, err
 	}
-	nextScheduled := false
-	if s.booster != nil && in.ProtocolVersionID != "" {
-		nextScheduled, err = s.booster.ScheduleNextDose(ctx, ScheduleNextInput{
-			TenantID:          in.Completion.TenantID,
-			ProtocolVersionID: in.ProtocolVersionID,
-			GoatID:            in.Completion.GoatID,
-			ScopeType:         in.ScopeType,
-			ScopeID:           in.ScopeID,
-			PrevSequence:      in.RuleSequence,
-			AdministeredAt:    in.Completion.AdministeredAt,
-		})
-		if err != nil {
-			return AcceptResult{}, err
-		}
+	next, err := s.scheduleBooster(ctx, in.Completion.TenantID, in.ProtocolVersionID, in.Completion.GoatID,
+		in.ScopeType, in.ScopeID, in.RuleSequence, in.Completion.AdministeredAt)
+	if err != nil {
+		return AcceptResult{}, err
 	}
-	return AcceptResult{CompletionID: cid, Applied: true, Completed: completed, NextScheduled: nextScheduled}, nil
+	return AcceptResult{CompletionID: cid, Applied: true, Completed: completed, NextScheduled: next}, nil
+}
+
+// AcceptExistingInput verifies a completion already recorded (at SOP-submit time) by its id, plus the
+// optional SM-7 booster context (the protocol version + the dose's scope and sequence).
+type AcceptExistingInput struct {
+	TenantID          string
+	CompletionID      string
+	VerifiedBy        *string
+	WithdrawalUntil   *time.Time
+	ProtocolVersionID string
+	ScopeType         string
+	ScopeID           string
+	RuleSequence      int32
+}
+
+// AcceptExisting accepts an already-recorded completion (the SOP verify outcome): it flips the
+// completion to accepted, completes its obligation, consumes the reserved dose, and schedules the
+// next booster. Idempotent: a completion no longer in 'recorded' state is a no-op.
+func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistingInput) (AcceptResult, error) {
+	acc, applied, err := s.vacc.AcceptCompletion(ctx, in.TenantID, in.CompletionID, in.VerifiedBy, in.WithdrawalUntil)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	if !applied {
+		return AcceptResult{Applied: false}, nil // already verified
+	}
+	completed, err := s.obl.MarkCompleted(ctx, in.TenantID, acc.ObligationID)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	if err := s.consume(ctx, in.TenantID, acc.BatchID, acc.LotID, acc.GoatID, &acc.Doses); err != nil {
+		return AcceptResult{}, err
+	}
+	next, err := s.scheduleBooster(ctx, in.TenantID, in.ProtocolVersionID, acc.GoatID,
+		in.ScopeType, in.ScopeID, in.RuleSequence, acc.AdministeredAt)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	return AcceptResult{CompletionID: in.CompletionID, Applied: true, Completed: completed, NextScheduled: next}, nil
 }
 
 // RejectInput carries the dose record + the rejection reason. No obligation completion, no consume.
@@ -142,8 +165,54 @@ func (s *CompletionService) Reject(ctx context.Context, in RejectInput) (RejectR
 	if !applied {
 		return RejectResult{Applied: false}, nil
 	}
-	if err := s.vacc.RejectCompletion(ctx, in.Completion.TenantID, cid, in.Reason, in.VerifiedBy); err != nil {
+	if _, err := s.vacc.RejectCompletion(ctx, in.Completion.TenantID, cid, in.Reason, in.VerifiedBy); err != nil {
 		return RejectResult{}, err
 	}
 	return RejectResult{CompletionID: cid, Applied: true}, nil
+}
+
+// RejectExisting rejects an already-recorded completion (the SOP rework outcome). The obligation
+// stays open. Idempotent: a completion no longer in 'recorded' state is a no-op.
+func (s *CompletionService) RejectExisting(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (RejectResult, error) {
+	applied, err := s.vacc.RejectCompletion(ctx, tenantID, completionID, reason, verifiedBy)
+	if err != nil {
+		return RejectResult{}, err
+	}
+	return RejectResult{CompletionID: completionID, Applied: applied}, nil
+}
+
+// consume consumes the goat's reserved dose for a drive batch. No-op when stock is not wired, the
+// completion was not part of a drive (no batch/lot), or doses is zero.
+func (s *CompletionService) consume(ctx context.Context, tenantID, batchID, lotID, goatID string, doses *int32) error {
+	if s.inv == nil || batchID == "" || lotID == "" {
+		return nil
+	}
+	q := int64(1)
+	if doses != nil && *doses > 0 {
+		q = int64(*doses)
+	}
+	return s.inv.ConsumeForBatch(ctx, tenantID, batchID, lotID, batchID+":consume:"+goatID, q)
+}
+
+// scheduleBooster runs SM-7 when a booster is wired and a protocol version is given.
+func (s *CompletionService) scheduleBooster(ctx context.Context, tenantID, versionID, goatID, scopeType, scopeID string, prevSeq int32, administered time.Time) (bool, error) {
+	if s.booster == nil || versionID == "" {
+		return false, nil
+	}
+	return s.booster.ScheduleNextDose(ctx, ScheduleNextInput{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		GoatID:            goatID,
+		ScopeType:         scopeType,
+		ScopeID:           scopeID,
+		PrevSequence:      prevSeq,
+		AdministeredAt:    administered,
+	})
+}
+
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
