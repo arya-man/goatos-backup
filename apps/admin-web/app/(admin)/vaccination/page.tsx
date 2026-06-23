@@ -1,7 +1,8 @@
 import { VaccinationActionCenterPage } from "@/features/vaccination/action-center";
+import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
 
-export default function VaccinationPage() {
-  return <VaccinationActionCenterPage />;
+export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  return <VaccinationActionCenterPage searchParams={await searchParams} />;
 }

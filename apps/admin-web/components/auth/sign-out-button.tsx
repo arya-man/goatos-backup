@@ -20,7 +20,7 @@ export function SignOutButton() {
           window.location.assign(LOGIN_PATH);
         });
       }}
-      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#334155] px-3 text-xs font-bold text-[#c7d1dc] transition hover:border-[#14f1d9]/70 hover:text-[#14f1d9] disabled:cursor-wait disabled:opacity-70"
+      className="inline-flex h-10 min-w-[40px] items-center gap-2 rounded-lg border border-[#334155] px-3 text-xs font-bold text-[#c7d1dc] transition hover:border-[#14f1d9]/70 hover:text-[#14f1d9] disabled:cursor-wait disabled:opacity-70"
     >
       <LogOut className="h-4 w-4" aria-hidden="true" />
       <span className="hidden sm:inline">{pending ? "Signing out" : "Sign out"}</span>

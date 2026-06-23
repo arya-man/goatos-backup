@@ -36,7 +36,7 @@ export function AndroidPreview({
 
       <div className="phone">
         <div className="notch" />
-        <div className="pscreen">
+        <div className="pscreen" tabIndex={0} role="group" aria-label="Operator app preview">
           <div className="pbar">
             <span className="pt">{shortName} · <span className="mono" style={{ fontSize: 11 }}>TASK-4471</span></span>
             <span className="pill teal">{state.meta.typeLabel}</span>
@@ -66,7 +66,7 @@ export function AndroidPreview({
           {facts.hasApproval ? (
             <div className="togglerow">
               <span>Approval decision</span>
-              <select style={{ width: 130 }} value={scenario.supervisor} onChange={(e) => onScenario({ supervisor: e.target.value as Scenario["supervisor"] })}>
+              <select aria-label="Approval decision" style={{ width: 130 }} value={scenario.supervisor} onChange={(e) => onScenario({ supervisor: e.target.value as Scenario["supervisor"] })}>
                 <option value="pending">pending</option>
                 <option value="approved">approved</option>
                 <option value="rejected">rejected</option>
@@ -76,7 +76,7 @@ export function AndroidPreview({
           {facts.hasProofVerification ? (
             <div className="togglerow">
               <span>Review decision</span>
-              <select style={{ width: 130 }} value={scenario.verifier} onChange={(e) => onScenario({ verifier: e.target.value as Scenario["verifier"] })}>
+              <select aria-label="Review decision" style={{ width: 130 }} value={scenario.verifier} onChange={(e) => onScenario({ verifier: e.target.value as Scenario["verifier"] })}>
                 <option value="pending">pending</option>
                 <option value="approved">approved</option>
                 <option value="rework">rework</option>
