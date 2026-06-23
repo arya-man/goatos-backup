@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -101,6 +102,62 @@ func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 		 WHERE e.tenant_id=$1 AND e.event_type='deferred' AND o.target_id=$2`,
 		impTenant, "30000000-0000-4000-8000-0000000000d1"); got != 1 {
 		t.Fatalf("expected 1 deferred event for quarantine goat, got %d", got)
+	}
+}
+
+func TestGoatCreatedHandlerGeneratesViaBus(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.bus", Name: "Bus", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	ruleDSL := []byte(`{"eligibility":{"stage":"K1","defer_states":["ICU","quarantine","sick"]},` +
+		`"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	goatID := "30000000-0000-4000-8000-0000000000b9"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+
+	bus := eventbus.NewInProcessBus()
+	vaccapp.NewGoatCreatedHandler(vaccapp.NewGenerationService(proto, vacc, obl)).Register(bus)
+
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type: vaccapp.EventGoatCreated, TenantID: impTenant, Key: goatID,
+		OccurredAt: time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.created: %v", err)
+	}
+
+	if got := countRowsVacc(t, ctx, pool,
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3`,
+		impTenant, goatID, versionID); got != 1 {
+		t.Fatalf("expected 1 obligation generated via bus, got %d", got)
 	}
 }
 

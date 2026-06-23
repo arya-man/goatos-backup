@@ -123,6 +123,52 @@ func (q *Queries) CountEligibleShedScopes(ctx context.Context, arg CountEligible
 	return total, err
 }
 
+const getGoatForGeneration = `-- name: GetGoatForGeneration :one
+SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
+       COALESCE(shed_id::text, '')::text AS shed_id,
+       COALESCE(park_id::text, '')::text AS park_id,
+       COALESCE(sex, '')::text AS sex,
+       COALESCE(breed, '')::text AS breed,
+       COALESCE(management_stage, '')::text AS management_stage
+FROM goats
+WHERE tenant_id = $1 AND goat_id = $2::uuid
+`
+
+type GetGoatForGenerationParams struct {
+	TenantID pgtype.UUID
+	GoatID   pgtype.UUID
+}
+
+type GetGoatForGenerationRow struct {
+	GoatID          string
+	Dob             pgtype.Date
+	EntryDate       pgtype.Date
+	LifecycleStatus string
+	ShedID          string
+	ParkID          string
+	Sex             string
+	Breed           string
+	ManagementStage string
+}
+
+// Single-goat generation fields (incl sex/breed/stage for Go-side eligibility match on goat.created).
+func (q *Queries) GetGoatForGeneration(ctx context.Context, arg GetGoatForGenerationParams) (GetGoatForGenerationRow, error) {
+	row := q.db.QueryRow(ctx, getGoatForGeneration, arg.TenantID, arg.GoatID)
+	var i GetGoatForGenerationRow
+	err := row.Scan(
+		&i.GoatID,
+		&i.Dob,
+		&i.EntryDate,
+		&i.LifecycleStatus,
+		&i.ShedID,
+		&i.ParkID,
+		&i.Sex,
+		&i.Breed,
+		&i.ManagementStage,
+	)
+	return i, err
+}
+
 const getLastAcceptedCompletionForGoat = `-- name: GetLastAcceptedCompletionForGoat :one
 SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id, administered_at
 FROM vaccination_completions

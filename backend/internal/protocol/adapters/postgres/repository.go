@@ -214,6 +214,21 @@ func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID str
 	return nil
 }
 
+// ListPublishedVaccinationVersions returns the ids of published vaccination protocol versions.
+func (r *Repository) ListPublishedVaccinationVersions(ctx context.Context, tenantID string) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	ids, err := r.queries.ListPublishedVaccinationVersions(ctx, tenant)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: list published vaccination versions: %w", err)
+	}
+	return ids, nil
+}
+
 // CreateRule inserts one dose/phase rule under a version.
 func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string, error) {
 	ctx, cancel := r.withTimeout(ctx)

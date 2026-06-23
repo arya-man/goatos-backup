@@ -313,6 +313,38 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 	return out, nil
 }
 
+// GetGoatForGeneration loads one goat's generation fields (incl sex/breed/stage).
+func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (domain.EligibleGoat, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.EligibleGoat{}, false, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	goat, err := pgconv.UUID(goatID)
+	if err != nil {
+		return domain.EligibleGoat{}, false, fmt.Errorf("vaccination: goat id: %w", err)
+	}
+	row, err := r.queries.GetGoatForGeneration(ctx, vaccinationdb.GetGoatForGenerationParams{TenantID: tenant, GoatID: goat})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.EligibleGoat{}, false, nil
+	}
+	if err != nil {
+		return domain.EligibleGoat{}, false, fmt.Errorf("vaccination: get goat for generation: %w", err)
+	}
+	return domain.EligibleGoat{
+		GoatID:          row.GoatID,
+		DOB:             pgconv.DateValue(row.Dob),
+		EntryDate:       pgconv.DateValue(row.EntryDate),
+		LifecycleStatus: row.LifecycleStatus,
+		ShedID:          row.ShedID,
+		ParkID:          row.ParkID,
+		Sex:             row.Sex,
+		Breed:           row.Breed,
+		Stage:           row.ManagementStage,
+	}, true, nil
+}
+
 // SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
 func (r *Repository) SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (string, *time.Time, error) {
 	ctx, cancel := r.withTimeout(ctx)

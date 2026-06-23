@@ -18,11 +18,14 @@ import (
 type ProtocolReader interface {
 	GetVersion(ctx context.Context, tenantID, versionID string) (protodomain.Version, error)
 	ListRules(ctx context.Context, tenantID, versionID string) ([]protodomain.Rule, error)
+	ListPublishedVaccinationVersions(ctx context.Context, tenantID string) ([]string, error)
 }
 
-// GoatLister is the chunked eligible-goat source (the vaccination repo).
+// GoatLister is the eligible-goat source (the vaccination repo): chunked for backfill, single for
+// the goat.created path.
 type GoatLister interface {
 	ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error)
+	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (domain.EligibleGoat, bool, error)
 }
 
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
@@ -111,59 +114,8 @@ func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		for _, g := range goats {
-			for _, rule := range rules {
-				due, ok, skip := dueAt(rule, g, asOf)
-				if skip {
-					res.SkippedNoDueDate++
-					continue
-				}
-				if !ok {
-					continue // trigger handled elsewhere (after_previous_completion → SM-7, manual_campaign)
-				}
-				scopeType, scopeID := "tenant", tenantID
-				if g.ParkID != "" {
-					scopeType, scopeID = "park", g.ParkID
-				}
-				key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, due.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
-				obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
-					TenantID:          tenantID,
-					ProtocolVersionID: versionID,
-					RuleID:            rule.RuleID,
-					TargetType:        "goat",
-					TargetID:          g.GoatID,
-					ScopeType:         scopeType,
-					ScopeID:           scopeID,
-					DueAt:             due,
-					Status:            "scheduled",
-					IdempotencyKey:    key,
-					Sequence:          rule.Sequence,
-				})
-				if err != nil {
-					return res, err
-				}
-				if !applied {
-					continue // replay no-op
-				}
-				res.Generated++
-
-				if defersEnabled && g.LifecycleStatus != "alive" {
-					// Visible deferred obligation: it exists (scheduled) but a deferred event explains
-					// why it will not fire until the goat recovers. Never a silent skip.
-					payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "lifecycle_status": g.LifecycleStatus})
-					if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
-						TenantID:       tenantID,
-						ObligationID:   obID,
-						EventType:      "deferred",
-						OccurredAt:     asOf,
-						Payload:        payload,
-						IdempotencyKey: obID + ":deferred",
-						Scope:          "obligation.status_event",
-						RequestHash:    "defer:" + g.LifecycleStatus,
-					}); err != nil {
-						return res, err
-					}
-					res.Deferred++
-				}
+			if err := s.genOneGoat(ctx, tenantID, versionID, rules, defersEnabled, g, asOf, &res); err != nil {
+				return res, err
 			}
 		}
 		if int32(len(goats)) < s.page {
@@ -172,6 +124,124 @@ func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, ve
 		after = goats[len(goats)-1].GoatID
 	}
 	return res, nil
+}
+
+// genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
+// visible deferred event when the goat is in a defer state. Accumulates counts into res.
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, defersEnabled bool, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {
+	for _, rule := range rules {
+		due, ok, skip := dueAt(rule, g, asOf)
+		if skip {
+			res.SkippedNoDueDate++
+			continue
+		}
+		if !ok {
+			continue // after_previous_completion → SM-7, manual_campaign → manual
+		}
+		scopeType, scopeID := "tenant", tenantID
+		if g.ParkID != "" {
+			scopeType, scopeID = "park", g.ParkID
+		}
+		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, due.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
+		obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
+			TenantID:          tenantID,
+			ProtocolVersionID: versionID,
+			RuleID:            rule.RuleID,
+			TargetType:        "goat",
+			TargetID:          g.GoatID,
+			ScopeType:         scopeType,
+			ScopeID:           scopeID,
+			DueAt:             due,
+			Status:            "scheduled",
+			IdempotencyKey:    key,
+			Sequence:          rule.Sequence,
+		})
+		if err != nil {
+			return err
+		}
+		if !applied {
+			continue // replay no-op
+		}
+		res.Generated++
+
+		if defersEnabled && g.LifecycleStatus != "alive" {
+			payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "lifecycle_status": g.LifecycleStatus})
+			if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
+				TenantID:       tenantID,
+				ObligationID:   obID,
+				EventType:      "deferred",
+				OccurredAt:     asOf,
+				Payload:        payload,
+				IdempotencyKey: obID + ":deferred",
+				Scope:          "obligation.status_event",
+				RequestHash:    "defer:" + g.LifecycleStatus,
+			}); err != nil {
+				return err
+			}
+			res.Deferred++
+		}
+	}
+	return nil
+}
+
+// GenerateForGoat generates obligations for ONE goat across all published vaccination versions it
+// is eligible for. Used by the goat.created handler (event-driven SM-1). Idempotent.
+func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
+	var res domain.GenerateResult
+	g, found, err := s.goats.GetGoatForGeneration(ctx, tenantID, goatID)
+	if err != nil {
+		return res, err
+	}
+	if !found || !inCare(g.LifecycleStatus) {
+		return res, nil // exited/unknown goats get no obligations
+	}
+	versionIDs, err := s.proto.ListPublishedVaccinationVersions(ctx, tenantID)
+	if err != nil {
+		return res, err
+	}
+	for _, versionID := range versionIDs {
+		v, err := s.proto.GetVersion(ctx, tenantID, versionID)
+		if err != nil {
+			return res, err
+		}
+		var dsl genDSL
+		if len(v.RuleDsl) > 0 {
+			_ = json.Unmarshal(v.RuleDsl, &dsl)
+		}
+		if !goatMatchesEligibility(g, dsl.Eligibility) {
+			continue
+		}
+		rules, err := s.proto.ListRules(ctx, tenantID, versionID)
+		if err != nil {
+			return res, err
+		}
+		if err := s.genOneGoat(ctx, tenantID, versionID, rules, len(dsl.Eligibility.DeferStates) > 0, g, asOf, &res); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
+func inCare(lifecycle string) bool {
+	switch lifecycle {
+	case "alive", "sick", "under_treatment", "quarantine", "icu":
+		return true
+	default:
+		return false
+	}
+}
+
+func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility) bool {
+	if s := normDim(e.Stage); s != "" && s != g.Stage {
+		return false
+	}
+	if s := normDim(e.Sex); s != "" && s != g.Sex {
+		return false
+	}
+	if s := normDim(e.Breed); s != "" && s != g.Breed {
+		return false
+	}
+	return true
 }
 
 // dueAt computes a rule's due date for a goat. ok=false with skip=false means the trigger is not an

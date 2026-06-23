@@ -17,6 +17,14 @@ FROM protocol_versions
 WHERE tenant_id = @tenant_id AND protocol_id = @protocol_id AND status = 'published'
 ORDER BY effective_from DESC, protocol_version_id DESC;
 
+-- name: ListPublishedVaccinationVersions :many
+-- Published vaccination protocol versions for a tenant (drives per-goat SM-1 on goat.created).
+SELECT pv.protocol_version_id::text AS protocol_version_id
+FROM protocol_versions pv
+JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = @tenant_id AND pv.status = 'published' AND pd.category = 'vaccination'
+ORDER BY pv.protocol_version_id;
+
 -- name: ListRulesForVersion :many
 SELECT rule_id::text AS rule_id, dose_code, "sequence", trigger_type, offset_days,
        due_window_days, min_gap_days, "repeat", COALESCE(repeat_until_after_age, '')::text AS repeat_until_after_age,

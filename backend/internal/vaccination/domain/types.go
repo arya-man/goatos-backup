@@ -66,7 +66,9 @@ type ImpactRequest struct {
 	AsOf          time.Time
 }
 
-// EligibleGoat is one row from the chunked generation listing (in-care cohort).
+// EligibleGoat is one row from the chunked generation listing (in-care cohort). Sex/Breed/Stage
+// are populated only on the single-goat path (GetGoatForGeneration) for Go-side eligibility match;
+// the chunked path pre-filters in SQL so they are left empty there.
 type EligibleGoat struct {
 	GoatID          string
 	DOB             *time.Time
@@ -74,6 +76,9 @@ type EligibleGoat struct {
 	LifecycleStatus string
 	ShedID          string
 	ParkID          string
+	Sex             string
+	Breed           string
+	Stage           string
 }
 
 // GenerateResult summarises an SM-1 generation run.

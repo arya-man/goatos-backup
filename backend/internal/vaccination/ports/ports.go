@@ -42,4 +42,8 @@ type Repository interface {
 	// ListEligibleGoatsForGeneration returns a chunked (keyset by goat_id) page of the in-care
 	// cohort matching the filter; afterGoatID is the cursor ("" starts at the beginning).
 	ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error)
+
+	// GetGoatForGeneration loads one goat's generation fields (incl sex/breed/stage). found is
+	// false when the goat does not exist.
+	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (g domain.EligibleGoat, found bool, err error)
 }

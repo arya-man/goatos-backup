@@ -91,6 +91,35 @@ func (q *Queries) GetProtocolVersion(ctx context.Context, arg GetProtocolVersion
 	return i, err
 }
 
+const listPublishedVaccinationVersions = `-- name: ListPublishedVaccinationVersions :many
+SELECT pv.protocol_version_id::text AS protocol_version_id
+FROM protocol_versions pv
+JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = $1 AND pv.status = 'published' AND pd.category = 'vaccination'
+ORDER BY pv.protocol_version_id
+`
+
+// Published vaccination protocol versions for a tenant (drives per-goat SM-1 on goat.created).
+func (q *Queries) ListPublishedVaccinationVersions(ctx context.Context, tenantID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listPublishedVaccinationVersions, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var protocol_version_id string
+		if err := rows.Scan(&protocol_version_id); err != nil {
+			return nil, err
+		}
+		items = append(items, protocol_version_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublishedVersionsForProtocol = `-- name: ListPublishedVersionsForProtocol :many
 SELECT protocol_version_id::text AS protocol_version_id, scope_type,
        COALESCE(scope_id::text, '')::text AS scope_id, version, effective_from, effective_to

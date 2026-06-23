@@ -75,6 +75,17 @@ WHERE tenant_id = @tenant_id
 ORDER BY goat_id
 LIMIT @row_limit;
 
+-- name: GetGoatForGeneration :one
+-- Single-goat generation fields (incl sex/breed/stage for Go-side eligibility match on goat.created).
+SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
+       COALESCE(shed_id::text, '')::text AS shed_id,
+       COALESCE(park_id::text, '')::text AS park_id,
+       COALESCE(sex, '')::text AS sex,
+       COALESCE(breed, '')::text AS breed,
+       COALESCE(management_stage, '')::text AS management_stage
+FROM goats
+WHERE tenant_id = @tenant_id AND goat_id = @goat_id::uuid;
+
 -- name: SumAvailableStockForItem :one
 -- Available (unreserved) doses for the vaccine item + earliest expiry, within an optional location.
 SELECT COALESCE(SUM(quantity_in_stock - quantity_reserved), 0)::numeric AS available,
