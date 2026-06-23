@@ -27,7 +27,7 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 
 type NavLeaf = { label: string; href: string; icon: React.ElementType; badge?: string };
 
-// Primary command nav (mock .nav items) — only routes that exist today.
+// Primary command nav — only routes that exist today.
 const primary: NavLeaf[] = [
   { label: "Control Tower", href: "/", icon: TowerControl },
   { label: "Action Center", href: "/vaccination", icon: Zap },
@@ -36,7 +36,7 @@ const primary: NavLeaf[] = [
   { label: "Goat Passport", href: "/herd", icon: Search },
 ];
 
-// Operational modules (mock .ggrp/.subnav style) — existing live routes.
+// Operational modules — existing live routes.
 const modules: NavLeaf[] = [
   { label: "Counts", href: "/counts", icon: BarChart3 },
   { label: "Locations", href: "/locations", icon: MapPinned },
