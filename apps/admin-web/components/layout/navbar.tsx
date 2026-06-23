@@ -24,6 +24,7 @@ function formatSegment(segment: string): string {
     "import-review": "Import Review",
     "legacy-sync": "Legacy Sync",
     sops: "SOP Builder",
+    vaccination: "Vaccination",
     tasks: "Tasks",
   };
   if (upperCaseWords[decoded.toLowerCase()]) return upperCaseWords[decoded.toLowerCase()];

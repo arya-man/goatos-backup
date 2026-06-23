@@ -395,6 +395,68 @@ export async function getGoatTimeline(params: GoatTimelineParams): Promise<ApiRe
   );
 }
 
+// ---- Phase 1A vaccination / protocol obligation engine (off-spec backend endpoints) ----
+
+export interface ActionCenterObligation {
+  obligation_id: string;
+  protocol_version_id: string;
+  rule_id: string;
+  target_type: string;
+  target_id: string;
+  scope_type: string;
+  scope_id: string;
+  due_at: string;
+  status: string;
+}
+
+export interface ActionCenterResponse {
+  items: ActionCenterObligation[];
+}
+
+export interface VaccinationQueueItem {
+  completion_id: string;
+  obligation_id: string;
+  goat_id: string;
+  batch_id?: string;
+  administered_at: string;
+  doses: number;
+  route_site?: string;
+}
+
+export interface VaccinationQueueResponse {
+  items: VaccinationQueueItem[];
+}
+
+export async function getVaccinationActionCenter(
+  params: { status?: string; limit?: number } = {},
+): Promise<ApiResult<ActionCenterResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/action-center/obligations" as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ActionCenterResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({ status: params.status ?? "due", limit: params.limit ?? 100 }),
+    }),
+  );
+}
+
+export async function getVaccinationVerificationQueue(
+  params: { limit?: number } = {},
+): Promise<ApiResult<VaccinationQueueResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/vaccination/verification-queue" as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VaccinationQueueResponse>(path, {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit ?? 100 }),
+    }),
+  );
+}
+
 export async function createCorrectionRequest(
   body: CreateCorrectionRequestBody,
   idempotencyKey: string,
