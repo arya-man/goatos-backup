@@ -268,8 +268,11 @@ Assert generated code matches committed code.
 Validate important SQL query plans.
 Validate hand-written hot-path plans such as outbox claim, auth grant lookup,
 Import Review state filtering, the real generated Import Review reason-filter
-shape, the JSONB reason-index probe, and the disabled source breed/category
-disposition count/list probes.
+shape, the JSONB reason-index probe, the disabled source breed/category
+disposition count/list probes, and the Phase 1A obligation/vaccination reads
+(obligation due-window, scope rollup, target/open-by-goat lookups, inventory
+FEFO/ledger, vaccination eligibility/generation keyset, the SOP verify fan-out
+by task, and the verification-queue scan).
 Exercise migration invariants.
 Reject whitespace errors.
 ```

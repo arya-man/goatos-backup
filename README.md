@@ -202,6 +202,35 @@ In short:
 The backend identity/reporting/event foundation is built and green.
 ```
 
+### Built — Phase 1A Protocol & Vaccination Backend (local, tested)
+
+On top of the identity spine, the Phase 1A protocol/obligation engine and the
+PHC vaccination module are built and green against local Postgres (full
+`go test ./...`, migration, sqlc, and query-plan gates). This is **backend +
+APIs only — not shipped** (see pending list below).
+
+- Generic obligation engine: protocol definitions/versions/rules, a
+  source-backed publish gate (only `vaccinations_db`/`phc`/`vet`
+  approved values can be published — manual/unsourced values stay draft), and
+  per-goat obligation generation (SM-1), cancel-on-exit (SM-3), shed-shift
+  re-scope (SM-2, minimal), drive sweep → batch → SOP task → FEFO stock reserve
+  (SM-4), completion + verification + stock consume/release (SM-5), and booster
+  scheduling (SM-7). Idempotent throughout; in-process event dispatch behind
+  Pub/Sub-ready handler interfaces.
+- Two-phase SOP verification: dose recorded at submit, verified at review; a
+  task-level SOP verify/rework fans out to one vaccination outcome per recorded
+  completion.
+- Live impact preview: real eligible/catch-up/obligation/batch counts and doses
+  required-vs-available with stock/expiry warnings (no mock math).
+- HTTP APIs behind the app boundary (tenant-scoped, paginated, indexed,
+  query-plan-checked): protocol config + publish, vaccination impact-preview,
+  Action Center (due obligations), Verification queue (awaiting-review
+  completions), and the Goat Passport read (history + next-due + last dose).
+
+No production vaccine schedule values exist yet — the module ships the engine
+and a SOP execution/proof skeleton only; real rules require source-backed PHC
+values before publish.
+
 ### Not Finished Yet
 
 The local Phase 1 identity/admin-review spine is complete; Phase 1 is **not
@@ -223,6 +252,11 @@ Still pending before Phase 1 is production-launch-ready:
 - Production identity-provider provisioning behind the JWKS mode: real IdP
   endpoint, signing keys, sessions, key rotation, revocation, and secret
   management.
+- Phase 1A vaccination/protocol: capability (RBAC) enforcement on the new
+  config/publish/queue endpoints; admin-web screens (config, impact preview,
+  Action Center, Verification queue, Protocol Adherence, Passport); real
+  Pub/Sub verification/booster egress (today in-process only); and real
+  source-backed PHC vaccine rule values before any production publish.
 - Real production event publishing (Pub/Sub egress) and the outbox publisher
   worker deploy.
 - Applying the approved `goatos-dev` Layer 1 foundation Terraform plan, then
