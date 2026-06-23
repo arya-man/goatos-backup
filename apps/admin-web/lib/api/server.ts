@@ -457,6 +457,76 @@ export async function getVaccinationVerificationQueue(
   );
 }
 
+export interface ImpactPreviewResult {
+  eligible_goats: number;
+  catchup_goats: number;
+  obligations: number;
+  batches: number;
+  doses_required: number;
+  doses_available: string;
+  earliest_expiry?: string;
+  warnings: string[];
+}
+
+export interface ImpactPreviewInput {
+  stage?: string;
+  sex?: string;
+  breed?: string;
+  park_id?: string;
+  vaccine_item_id?: string;
+  location_id?: string;
+  doses_per_goat?: number;
+  dose_rows?: number;
+  horizon_days?: number;
+}
+
+export async function previewVaccinationImpact(body: ImpactPreviewInput): Promise<ApiResult<ImpactPreviewResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/protocols/vaccination/impact-preview" as keyof AppApiPaths & string;
+  return request(() => client.request<ImpactPreviewResult>(path, { method: "POST", cache: "no-store", body }));
+}
+
+export async function createProtocolDefinition(body: {
+  code: string;
+  name: string;
+  category: string;
+}): Promise<ApiResult<{ protocol_id: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/protocols" as keyof AppApiPaths & string;
+  return request(() => client.request<{ protocol_id: string }>(path, { method: "POST", cache: "no-store", body }));
+}
+
+export async function createProtocolVersion(
+  protocolId: string,
+  body: { scope_type: string; scope_id?: string; version: number; effective_from: string; rule_dsl: unknown; proof_policy?: unknown },
+): Promise<ApiResult<{ protocol_version_id: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/protocols/${encodeURIComponent(protocolId)}/versions` as keyof AppApiPaths & string;
+  return request(() => client.request<{ protocol_version_id: string }>(path, { method: "POST", cache: "no-store", body }));
+}
+
+export async function addProtocolRule(versionId: string, body: Record<string, unknown>): Promise<ApiResult<{ rule_id: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/protocols/versions/${encodeURIComponent(versionId)}/rules` as keyof AppApiPaths & string;
+  return request(() => client.request<{ rule_id: string }>(path, { method: "POST", cache: "no-store", body }));
+}
+
+export async function publishProtocolVersion(versionId: string): Promise<ApiResult<Record<string, never>>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/protocols/versions/${encodeURIComponent(versionId)}/publish` as keyof AppApiPaths & string;
+  return request(() => client.request<Record<string, never>>(path, { method: "POST", cache: "no-store" }));
+}
+
 export async function acceptVaccinationCompletion(
   completionId: string,
 ): Promise<ApiResult<{ applied: boolean; completed: boolean }>> {
