@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -218,6 +219,59 @@ func (r *Repository) CreateBatch(ctx context.Context, in domain.NewBatch) (strin
 		return "", fmt.Errorf("obligation: create batch: %w", err)
 	}
 	return id, nil
+}
+
+// CancelOpenForGoat cancels a goat's scheduled/due obligations (SM-3 death/sale) and writes a
+// 'canceled' status event for each, in one transaction. Idempotent: a re-run finds no open rows
+// and cancels nothing. Completed/accepted/missed history is never touched (WHERE status filter).
+func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	goat, err := pgconv.UUID(goatID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: goat id: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	ids, err := qtx.CancelOpenObligationsForGoat(ctx, obligationdb.CancelOpenObligationsForGoatParams{
+		TenantID: tenant,
+		TargetID: goat,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel open for goat: %w", err)
+	}
+	payload, _ := json.Marshal(map[string]string{"reason": reason})
+	now := time.Now()
+	for _, id := range ids {
+		oid, err := pgconv.UUID(id)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: obligation id: %w", err)
+		}
+		if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oid,
+			EventType:      "canceled",
+			OccurredAt:     pgconv.Timestamptz(now),
+			Payload:        payload,
+			IdempotencyKey: id + ":canceled",
+		}); err != nil {
+			return 0, fmt.Errorf("obligation: cancel event: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit cancel: %w", err)
+	}
+	return len(ids), nil
 }
 
 // RecordStatusEvent appends a status event with a reserve-before-insert idempotency guard, in

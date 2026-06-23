@@ -28,6 +28,10 @@ type Repository interface {
 
 	CreateBatch(ctx context.Context, in domain.NewBatch) (batchID string, err error)
 
+	// CancelOpenForGoat cancels a goat's scheduled/due obligations (SM-3) + writes 'canceled'
+	// events, in one txn. Idempotent; completed/accepted history untouched. Returns count canceled.
+	CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error)
+
 	// RecordStatusEvent appends a status event guarded by a reserve-before-insert against the
 	// shared idempotency_keys table, inside one transaction. applied is false on retry (the key
 	// was already reserved), so retries never duplicate status events.

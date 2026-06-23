@@ -40,6 +40,17 @@ INSERT INTO obligation_status_events (
 )
 RETURNING obligation_event_id::text AS obligation_event_id;
 
+-- name: CancelOpenObligationsForGoat :many
+-- SM-3: cancel a goat's still-open obligations on death/sale. Idempotent — completed/accepted/
+-- missed/already-canceled rows are not matched. Uses obligation_instances_target_idx.
+UPDATE obligation_instances
+SET status = 'canceled', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = @tenant_id
+  AND target_type = 'goat'
+  AND target_id = @target_id
+  AND status IN ('scheduled', 'due')
+RETURNING obligation_id::text AS obligation_id;
+
 -- name: CompleteIdempotencyKey :exec
 UPDATE idempotency_keys
 SET status = 'completed', result_type = @result_type, result_id = @result_id, completed_at = now()

@@ -11,6 +11,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelOpenObligationsForGoat = `-- name: CancelOpenObligationsForGoat :many
+UPDATE obligation_instances
+SET status = 'canceled', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1
+  AND target_type = 'goat'
+  AND target_id = $2
+  AND status IN ('scheduled', 'due')
+RETURNING obligation_id::text AS obligation_id
+`
+
+type CancelOpenObligationsForGoatParams struct {
+	TenantID pgtype.UUID
+	TargetID pgtype.UUID
+}
+
+// SM-3: cancel a goat's still-open obligations on death/sale. Idempotent — completed/accepted/
+// missed/already-canceled rows are not matched. Uses obligation_instances_target_idx.
+func (q *Queries) CancelOpenObligationsForGoat(ctx context.Context, arg CancelOpenObligationsForGoatParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, cancelOpenObligationsForGoat, arg.TenantID, arg.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var obligation_id string
+		if err := rows.Scan(&obligation_id); err != nil {
+			return nil, err
+		}
+		items = append(items, obligation_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const completeIdempotencyKey = `-- name: CompleteIdempotencyKey :exec
 UPDATE idempotency_keys
 SET status = 'completed', result_type = $1, result_id = $2, completed_at = now()
