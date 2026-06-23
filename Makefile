@@ -22,7 +22,7 @@ sqlc-generate:
 	cd backend && "$(SQLC)" generate -f sqlc.yaml
 
 sqlc-check: sqlc-generate
-	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc backend/internal/legacy_import/adapters/postgres/sqlc backend/internal/reporting/adapters/postgres/sqlc backend/internal/protocol/adapters/postgres/sqlc backend/internal/obligation/adapters/postgres/sqlc backend/internal/inventory/adapters/postgres/sqlc backend/internal/vaccination/adapters/postgres/sqlc
+	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc backend/internal/legacy_import/adapters/postgres/sqlc backend/internal/reporting/adapters/postgres/sqlc backend/internal/protocol/adapters/postgres/sqlc backend/internal/obligation/adapters/postgres/sqlc backend/internal/inventory/adapters/postgres/sqlc backend/internal/vaccination/adapters/postgres/sqlc backend/internal/feed/adapters/postgres/sqlc
 
 check: guardrails docker-storage-scripts-test
 	$(MAKE) test

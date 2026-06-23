@@ -98,3 +98,16 @@ sql:
         emit_db_tags: false
         emit_prepared_queries: false
         emit_interface: false
+  - engine: postgresql
+    schema: internal/feed/adapters/postgres/sqlc/schema.sql
+    queries:
+      - internal/feed/adapters/postgres/sqlc/query.sql
+    gen:
+      go:
+        package: feeddb
+        out: internal/feed/adapters/postgres/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_db_tags: false
+        emit_prepared_queries: false
+        emit_interface: false

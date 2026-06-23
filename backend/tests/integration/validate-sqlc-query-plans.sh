@@ -484,6 +484,28 @@ ORDER BY administered_at ASC, completion_id ASC
 LIMIT 100;"
 }
 
+validate_feed_review_queue_plan() {
+  # Feed verification queue: directions awaiting review must use feed_direction_completions_review_idx.
+  explain_must_use_index "FeedReviewQueue" 'Seq Scan on feed_direction_completions' "EXPLAIN (COSTS OFF)
+SELECT completion_id
+FROM feed_direction_completions
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND status = 'recorded'
+ORDER BY fed_at ASC, completion_id ASC
+LIMIT 100;"
+}
+
+validate_feed_shed_history_plan() {
+  # Per-shed feed history must use feed_direction_completions_shed_history_idx.
+  explain_must_use_index "FeedShedHistory" 'Seq Scan on feed_direction_completions' "EXPLAIN (COSTS OFF)
+SELECT completion_id, fed_at, status
+FROM feed_direction_completions
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND shed_id = '55000000-0000-4000-8000-0000000000f1'
+ORDER BY fed_at DESC, completion_id DESC
+LIMIT 100;"
+}
+
 validate_vaccination_fanout_plan() {
   # SOP verify fan-out resolves a task's recorded completions; the large vaccination_completions
   # table must be reached via vaccination_completions_submission_item_idx, not a scan.
@@ -517,5 +539,7 @@ validate_vaccination_eligible_plan
 validate_vaccination_generation_scan_plan
 validate_vaccination_review_queue_plan
 validate_vaccination_fanout_plan
+validate_feed_review_queue_plan
+validate_feed_shed_history_plan
 
-echo "Validated $checked_count generated sqlc query plans and 20 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 22 hand-written query plans"
