@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -21,27 +22,36 @@ type Reads interface {
 	VerificationQueue(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error)
 }
 
-// Handler serves vaccination endpoints.
-type Handler struct {
-	svc Reads
-	log *slog.Logger
+// Verifier is the SM-5 verification slice (CompletionService): accept/reject a recorded completion.
+type Verifier interface {
+	AcceptExisting(ctx context.Context, in app.AcceptExistingInput) (app.AcceptResult, error)
+	RejectExisting(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (app.RejectResult, error)
 }
 
-// NewHandler constructs the handler with an optional logger.
-func NewHandler(svc Reads, log ...*slog.Logger) *Handler {
+// Handler serves vaccination endpoints.
+type Handler struct {
+	svc    Reads
+	verify Verifier
+	log    *slog.Logger
+}
+
+// NewHandler constructs the handler. verify may be nil (verification routes 503 until wired).
+func NewHandler(svc Reads, verify Verifier, log ...*slog.Logger) *Handler {
 	var l *slog.Logger
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	} else {
 		l = slog.Default()
 	}
-	return &Handler{svc: svc, log: l}
+	return &Handler{svc: svc, verify: verify, log: l}
 }
 
 // Register mounts the vaccination routes.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
 	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
+	mux.HandleFunc("POST /vaccination/completions/{completion_id}/accept", h.AcceptCompletion)
+	mux.HandleFunc("POST /vaccination/completions/{completion_id}/reject", h.RejectCompletion)
 }
 
 const (
@@ -178,6 +188,69 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, queueResponse{Items: items})
+}
+
+type rejectRequest struct {
+	Reason string `json:"reason"`
+}
+
+// AcceptCompletion verifies (accepts) a recorded completion: completes its obligation + consumes the
+// reserved dose. Idempotent — a completion no longer 'recorded' is a no-op.
+func (h *Handler) AcceptCompletion(w http.ResponseWriter, r *http.Request) {
+	if h.verify == nil {
+		h.unavailable(w, r)
+		return
+	}
+	res, err := h.verify.AcceptExisting(r.Context(), app.AcceptExistingInput{
+		TenantID:     tenantID(r),
+		CompletionID: r.PathValue("completion_id"),
+		VerifiedBy:   actorPtr(r),
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]bool{"applied": res.Applied, "completed": res.Completed})
+}
+
+// RejectCompletion rejects (or requests rework on) a recorded completion: the obligation stays open.
+// The reason distinguishes a plain reject from a rework request. Idempotent.
+func (h *Handler) RejectCompletion(w http.ResponseWriter, r *http.Request) {
+	if h.verify == nil {
+		h.unavailable(w, r)
+		return
+	}
+	var req rejectRequest
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+			return
+		}
+	}
+	res, err := h.verify.RejectExisting(r.Context(), tenantID(r), r.PathValue("completion_id"), req.Reason, actorPtr(r))
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]bool{"applied": res.Applied})
+}
+
+func (h *Handler) unavailable(w http.ResponseWriter, r *http.Request) {
+	httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+		errorEnvelope{Code: "verification_unavailable", Message: "verification is not wired", TraceID: traceID(r)}, nil)
+}
+
+func actorPtr(r *http.Request) *string {
+	if a := httpmiddleware.ActorIDFromContext(r.Context()); a != "" {
+		return &a
+	}
+	return nil
+}
+
+func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
+	httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+		errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {

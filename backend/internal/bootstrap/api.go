@@ -16,6 +16,8 @@ import (
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
+	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	legacysynchttp "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/http"
 	legacysyncpg "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/postgres"
 	legacysyncapp "github.com/vgoats/goatos/backend/internal/legacy_sync/app"
@@ -161,13 +163,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopService := sopapp.NewService(sopRepo)
 	sopHandler := sophttp.NewHandler(sopService, log)
 
-	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	protocolService := protocolapp.NewService(protocolRepo)
 	protocolHandler := protocolhttp.NewHandler(protocolService, log)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationService := obligationapp.NewService(obligationRepo)
 	obligationHandler := obligationhttp.NewHandler(obligationService, log)
 	vaccinationService := vaccinationapp.NewService(vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
-	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, log)
+	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService).
+		WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
+	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)

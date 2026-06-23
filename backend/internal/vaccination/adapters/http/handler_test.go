@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -34,7 +35,7 @@ func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 		DosesAvailable: "50", Warnings: nil,
 	}}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(fake))
+	Register(mux, NewHandler(fake, nil))
 
 	body := `{"stage":"K1","sex":"female","doses_per_goat":1,"dose_rows":1,"vaccine_item_id":"item-1"}`
 	rec := httptest.NewRecorder()
@@ -63,11 +64,54 @@ func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
 
 func TestImpactPreviewRejectsBadJSON(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(&fakeImpact{}))
+	Register(mux, NewHandler(&fakeImpact{}, nil))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/protocols/vaccination/impact-preview", strings.NewReader("{not json")))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for bad json, got %d", rec.Code)
+	}
+}
+
+type fakeVerifier struct {
+	acceptedID string
+	rejectedID string
+	reason     string
+}
+
+func (f *fakeVerifier) AcceptExisting(_ context.Context, in app.AcceptExistingInput) (app.AcceptResult, error) {
+	f.acceptedID = in.CompletionID
+	return app.AcceptResult{CompletionID: in.CompletionID, Applied: true, Completed: true}, nil
+}
+func (f *fakeVerifier) RejectExisting(_ context.Context, _, completionID, reason string, _ *string) (app.RejectResult, error) {
+	f.rejectedID, f.reason = completionID, reason
+	return app.RejectResult{CompletionID: completionID, Applied: true}, nil
+}
+
+func TestAcceptRejectEndpoints(t *testing.T) {
+	fv := &fakeVerifier{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, fv))
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/vaccination/completions/c1/accept", nil))
+	if rec.Code != http.StatusOK || fv.acceptedID != "c1" {
+		t.Fatalf("accept: code=%d acceptedID=%s", rec.Code, fv.acceptedID)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/vaccination/completions/c2/reject", strings.NewReader(`{"reason":"rework_requested"}`)))
+	if rec.Code != http.StatusOK || fv.rejectedID != "c2" || fv.reason != "rework_requested" {
+		t.Fatalf("reject: code=%d rejectedID=%s reason=%s", rec.Code, fv.rejectedID, fv.reason)
+	}
+}
+
+func TestVerifyUnavailableWhenNotWired(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/vaccination/completions/c1/accept", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 when verify not wired, got %d", rec.Code)
 	}
 }
 
@@ -76,7 +120,7 @@ func TestVerificationQueueShapeAndLimit(t *testing.T) {
 		{CompletionID: "c1", GoatID: "g1", Doses: 1},
 	}}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(fake))
+	Register(mux, NewHandler(fake, nil))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/verification-queue?limit=9000", nil))

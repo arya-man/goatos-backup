@@ -138,6 +138,8 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/protocols/vaccination/impact-preview"},
 		{"GET", "/action-center/obligations"},
 		{"GET", "/vaccination/verification-queue"},
+		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/accept"},
+		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/reject"},
 		{"GET", "/goats/10000000-0000-4000-8000-000000000001/passport"},
 	}
 	for _, route := range implemented {

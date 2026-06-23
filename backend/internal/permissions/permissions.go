@@ -49,6 +49,7 @@ const (
 	ProtocolPublish           = "protocol.publish"
 	ObligationRead            = "obligation.read"
 	VaccinationRead           = "vaccination.read"
+	VaccinationVerify         = "vaccination.verify"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -62,7 +63,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
-		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {},
+		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
@@ -72,7 +73,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		AnalyticsMortalityRead: {}, AnalyticsMortalityReview: {},
 		OperatorsRead: {},
 		TaskRead:      {}, TaskVerify: {},
-		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
+		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 	},
 	RoleParkHead: {
 		GoatRead: {}, CorrectionCreate: {}, AnalyticsIdentityRead: {},
@@ -94,7 +95,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
-		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {},
+		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 	},
 }
 
