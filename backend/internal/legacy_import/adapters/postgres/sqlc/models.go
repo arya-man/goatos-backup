@@ -333,6 +333,30 @@ type FeatureCoverageRegistry struct {
 	RowVersion               int32
 }
 
+type FeedDirectionCompletion struct {
+	CompletionID            pgtype.UUID
+	TenantID                pgtype.UUID
+	ObligationID            pgtype.UUID
+	BatchID                 pgtype.UUID
+	ShedID                  pgtype.UUID
+	RationProtocolVersionID pgtype.UUID
+	SopSubmissionItemID     pgtype.UUID
+	FeedInventoryLotID      pgtype.UUID
+	QuantityFed             pgtype.Numeric
+	QuantityUnit            pgtype.Text
+	HeadCount               pgtype.Int4
+	FedAt                   pgtype.Timestamptz
+	Status                  string
+	VerifiedBy              pgtype.UUID
+	VerifiedAt              pgtype.Timestamptz
+	RejectionReason         pgtype.Text
+	RecordedBy              pgtype.UUID
+	IdempotencyKey          string
+	RowVersion              int32
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
 type Goat struct {
 	GoatID             pgtype.UUID
 	TenantID           pgtype.UUID

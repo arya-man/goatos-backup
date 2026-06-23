@@ -959,9 +959,42 @@ CREATE TABLE public.feature_coverage_registry (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT feature_coverage_registry_module_check CHECK ((feature_module = ANY (ARRAY['counts'::text, 'mortality'::text, 'locations'::text, 'vaccination'::text]))),
+    CONSTRAINT feature_coverage_registry_module_check CHECK ((feature_module = ANY (ARRAY['counts'::text, 'mortality'::text, 'locations'::text, 'vaccination'::text, 'feed'::text]))),
     CONSTRAINT feature_coverage_registry_source_mode_check CHECK ((source_mode = ANY (ARRAY['legacy_bq'::text, 'legacy_sheet'::text, 'goatos_canonical'::text, 'manual_review'::text]))),
     CONSTRAINT feature_coverage_registry_status_check CHECK ((coverage_status = ANY (ARRAY['proposed'::text, 'shadow_passed'::text, 'complete'::text, 'blocked'::text])))
+);
+
+
+--
+-- Name: feed_direction_completions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_direction_completions (
+    completion_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    batch_id uuid,
+    shed_id uuid NOT NULL,
+    ration_protocol_version_id uuid,
+    sop_submission_item_id uuid,
+    feed_inventory_lot_id uuid,
+    quantity_fed numeric,
+    quantity_unit text,
+    head_count integer,
+    fed_at timestamp with time zone NOT NULL,
+    status text DEFAULT 'recorded'::text NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    rejection_reason text,
+    recorded_by uuid,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT feed_direction_completions_head_count_check CHECK (((head_count IS NULL) OR (head_count >= 0))),
+    CONSTRAINT feed_direction_completions_quantity_check CHECK (((quantity_fed IS NULL) OR (quantity_fed > (0)::numeric))),
+    CONSTRAINT feed_direction_completions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT feed_direction_completions_status_check CHECK ((status = ANY (ARRAY['recorded'::text, 'accepted'::text, 'rejected'::text, 'reversed'::text])))
 );
 
 
@@ -3746,6 +3779,30 @@ ALTER TABLE ONLY public.feature_coverage_registry
 
 
 --
+-- Name: feed_direction_completions feed_direction_completions_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_obligation_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_obligation_unique UNIQUE (tenant_id, obligation_id);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
 -- Name: goat_custody_history goat_custody_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5136,6 +5193,34 @@ CREATE INDEX feature_coverage_registry_status_idx ON public.feature_coverage_reg
 --
 
 CREATE UNIQUE INDEX feature_coverage_registry_unique_grain ON public.feature_coverage_registry USING btree (tenant_id, feature_module, section, metric_key, grain_key, covered_window, source_mode);
+
+
+--
+-- Name: feed_direction_completions_batch_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_direction_completions_batch_idx ON public.feed_direction_completions USING btree (tenant_id, batch_id, status);
+
+
+--
+-- Name: feed_direction_completions_obligation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_direction_completions_obligation_idx ON public.feed_direction_completions USING btree (tenant_id, obligation_id);
+
+
+--
+-- Name: feed_direction_completions_review_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_direction_completions_review_idx ON public.feed_direction_completions USING btree (tenant_id, fed_at) WHERE (status = 'recorded'::text);
+
+
+--
+-- Name: feed_direction_completions_shed_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX feed_direction_completions_shed_history_idx ON public.feed_direction_completions USING btree (tenant_id, shed_id, fed_at DESC);
 
 
 --
@@ -7751,6 +7836,54 @@ ALTER TABLE ONLY public.farm_profiles
 
 ALTER TABLE ONLY public.feature_coverage_registry
     ADD CONSTRAINT feature_coverage_registry_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_batch_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_batch_tenant_fk FOREIGN KEY (tenant_id, batch_id) REFERENCES public.obligation_batches(tenant_id, batch_id);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_lot_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_lot_tenant_fk FOREIGN KEY (tenant_id, feed_inventory_lot_id) REFERENCES public.inventory_stock(tenant_id, stock_id);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_obligation_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id) REFERENCES public.obligation_instances(tenant_id, obligation_id);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_shed_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_shed_tenant_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_submission_item_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_submission_item_tenant_fk FOREIGN KEY (tenant_id, sop_submission_item_id) REFERENCES public.sop_submission_items(tenant_id, item_id);
+
+
+--
+-- Name: feed_direction_completions feed_direction_completions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_direction_completions
+    ADD CONSTRAINT feed_direction_completions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
