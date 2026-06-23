@@ -24,15 +24,23 @@ type StockConsumer interface {
 // the movement idempotency key make a replay a no-op. In-process today; the same code runs behind a
 // future Pub/Sub verification consumer.
 type CompletionService struct {
-	vacc *Service
-	obl  ObligationCompleter
-	inv  StockConsumer
+	vacc    *Service
+	obl     ObligationCompleter
+	inv     StockConsumer
+	booster *BoosterService
 }
 
 // NewCompletionService wires the vaccination service, the obligation completer, and the stock
 // consumer. inv may be nil to disable stock consumption (e.g. non-drive flows).
 func NewCompletionService(vacc *Service, obl ObligationCompleter, inv StockConsumer) *CompletionService {
 	return &CompletionService{vacc: vacc, obl: obl, inv: inv}
+}
+
+// WithBooster enables SM-7: on accept, schedule the next after_previous_completion dose from the
+// administered date. Returns the service for chaining.
+func (s *CompletionService) WithBooster(b *BoosterService) *CompletionService {
+	s.booster = b
+	return s
 }
 
 // AcceptInput carries the dose record (Completion), the verification metadata, and the consume
@@ -44,14 +52,22 @@ type AcceptInput struct {
 	WithdrawalUntil *time.Time
 	ItemID          string
 	LocationID      string
+	// SM-7 booster context (used only when a booster is wired): the protocol version + the
+	// administered dose's scope and sequence, so the next dose can be scheduled.
+	ProtocolVersionID string
+	ScopeType         string
+	ScopeID           string
+	RuleSequence      int32
 }
 
 // AcceptResult reports the outcome. Applied is false on a replay/double-submit no-op. Completed is
-// true when this call transitioned the obligation to completed.
+// true when this call transitioned the obligation to completed. NextScheduled is true when a booster
+// dose was scheduled (SM-7).
 type AcceptResult struct {
-	CompletionID string
-	Applied      bool
-	Completed    bool
+	CompletionID  string
+	Applied       bool
+	Completed     bool
+	NextScheduled bool
 }
 
 // Accept records the dose, accepts it on verification, completes the obligation, and consumes the
@@ -84,7 +100,22 @@ func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptR
 			return AcceptResult{}, err
 		}
 	}
-	return AcceptResult{CompletionID: cid, Applied: true, Completed: completed}, nil
+	nextScheduled := false
+	if s.booster != nil && in.ProtocolVersionID != "" {
+		nextScheduled, err = s.booster.ScheduleNextDose(ctx, ScheduleNextInput{
+			TenantID:          in.Completion.TenantID,
+			ProtocolVersionID: in.ProtocolVersionID,
+			GoatID:            in.Completion.GoatID,
+			ScopeType:         in.ScopeType,
+			ScopeID:           in.ScopeID,
+			PrevSequence:      in.RuleSequence,
+			AdministeredAt:    in.Completion.AdministeredAt,
+		})
+		if err != nil {
+			return AcceptResult{}, err
+		}
+	}
+	return AcceptResult{CompletionID: cid, Applied: true, Completed: completed, NextScheduled: nextScheduled}, nil
 }
 
 // RejectInput carries the dose record + the rejection reason. No obligation completion, no consume.
