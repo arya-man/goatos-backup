@@ -151,3 +151,55 @@ func (q *Queries) ListDueObligations(ctx context.Context, arg ListDueObligations
 	}
 	return items, nil
 }
+
+const listUnbatchedDueForVersion = `-- name: ListUnbatchedDueForVersion :many
+SELECT obligation_id::text AS obligation_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+  AND status IN ('scheduled', 'due')
+  AND batch_id IS NULL
+  AND due_at <= $3
+ORDER BY scope_id, obligation_id
+LIMIT $4
+`
+
+type ListUnbatchedDueForVersionParams struct {
+	TenantID          pgtype.UUID
+	ProtocolVersionID pgtype.UUID
+	DueBefore         pgtype.Timestamptz
+	RowLimit          int32
+}
+
+type ListUnbatchedDueForVersionRow struct {
+	ObligationID string
+	ScopeType    string
+	ScopeID      string
+}
+
+// SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
+// scope downstream. batch_id IS NULL makes re-sweeps idempotent. Uses obligation due-window index.
+func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatchedDueForVersionParams) ([]ListUnbatchedDueForVersionRow, error) {
+	rows, err := q.db.Query(ctx, listUnbatchedDueForVersion,
+		arg.TenantID,
+		arg.ProtocolVersionID,
+		arg.DueBefore,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnbatchedDueForVersionRow
+	for rows.Next() {
+		var i ListUnbatchedDueForVersionRow
+		if err := rows.Scan(&i.ObligationID, &i.ScopeType, &i.ScopeID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	obligationdb "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres/sqlc"
@@ -176,6 +177,68 @@ func (r *Repository) CountByScope(ctx context.Context, tenantID, scopeType, scop
 		return 0, fmt.Errorf("obligation: count by scope: %w", err)
 	}
 	return total, nil
+}
+
+// ListUnbatchedDueForVersion lists unbatched scheduled/due obligations for a version in the window.
+func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32) ([]domain.UnbatchedDue, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(versionID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: version id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := r.queries.ListUnbatchedDueForVersion(ctx, obligationdb.ListUnbatchedDueForVersionParams{
+		TenantID:          tenant,
+		ProtocolVersionID: version,
+		DueBefore:         pgconv.Timestamptz(dueBefore),
+		RowLimit:          limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list unbatched due: %w", err)
+	}
+	out := make([]domain.UnbatchedDue, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.UnbatchedDue{ObligationID: row.ObligationID, ScopeType: row.ScopeType, ScopeID: row.ScopeID})
+	}
+	return out, nil
+}
+
+// AttachObligationsToBatch attaches still-unbatched obligations to a batch (returns count attached).
+func (r *Repository) AttachObligationsToBatch(ctx context.Context, tenantID, batchID string, obligationIDs []string) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: batch id: %w", err)
+	}
+	ids := make([]pgtype.UUID, 0, len(obligationIDs))
+	for _, id := range obligationIDs {
+		u, err := pgconv.UUID(id)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: obligation id: %w", err)
+		}
+		ids = append(ids, u)
+	}
+	n, err := r.queries.AttachObligationsToBatch(ctx, obligationdb.AttachObligationsToBatchParams{
+		BatchID:       batch,
+		TenantID:      tenant,
+		ObligationIds: ids,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("obligation: attach to batch: %w", err)
+	}
+	return n, nil
 }
 
 // CreateBatch inserts a work-unit batch.

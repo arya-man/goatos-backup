@@ -63,6 +63,19 @@ type NewBatch struct {
 	ConductedBy           *string
 }
 
+// UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).
+type UnbatchedDue struct {
+	ObligationID string
+	ScopeType    string
+	ScopeID      string
+}
+
+// SweepResult summarises an SM-4 sweep (batches created, obligations attached).
+type SweepResult struct {
+	Batches     int
+	Obligations int
+}
+
 // NewStatusEvent is the input to append an obligation status event. Scope/RequestHash drive the
 // shared idempotency_keys reserve-before-insert guard (cross-partition dedup).
 type NewStatusEvent struct {

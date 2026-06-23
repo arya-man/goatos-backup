@@ -13,6 +13,19 @@ WHERE tenant_id = @tenant_id AND status = @status AND due_at <= @due_before
 ORDER BY due_at ASC, obligation_id ASC
 LIMIT @row_limit;
 
+-- name: ListUnbatchedDueForVersion :many
+-- SM-4 sweeper: unbatched scheduled/due obligations for a version within the window, grouped by
+-- scope downstream. batch_id IS NULL makes re-sweeps idempotent. Uses obligation due-window index.
+SELECT obligation_id::text AS obligation_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id
+FROM obligation_instances
+WHERE tenant_id = @tenant_id
+  AND protocol_version_id = @protocol_version_id
+  AND status IN ('scheduled', 'due')
+  AND batch_id IS NULL
+  AND due_at <= @due_before
+ORDER BY scope_id, obligation_id
+LIMIT @row_limit;
+
 -- name: CountObligationsByScope :one
 -- Per-scope rollup. Uses obligation_instances_scope_idx (tenant_id, scope_type, scope_id, status, due_at).
 SELECT COUNT(*)::bigint AS total

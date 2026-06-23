@@ -11,6 +11,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const attachObligationsToBatch = `-- name: AttachObligationsToBatch :execrows
+UPDATE obligation_instances
+SET batch_id = $1, updated_at = now()
+WHERE tenant_id = $2
+  AND obligation_id = ANY($3::uuid[])
+  AND batch_id IS NULL
+`
+
+type AttachObligationsToBatchParams struct {
+	BatchID       pgtype.UUID
+	TenantID      pgtype.UUID
+	ObligationIds []pgtype.UUID
+}
+
+// Attach a set of still-unbatched obligations to a batch (idempotent: already-batched are skipped).
+func (q *Queries) AttachObligationsToBatch(ctx context.Context, arg AttachObligationsToBatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, attachObligationsToBatch, arg.BatchID, arg.TenantID, arg.ObligationIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cancelOpenObligationsForGoat = `-- name: CancelOpenObligationsForGoat :many
 UPDATE obligation_instances
 SET status = 'canceled', row_version = row_version + 1, updated_at = now()

@@ -40,6 +40,14 @@ INSERT INTO obligation_status_events (
 )
 RETURNING obligation_event_id::text AS obligation_event_id;
 
+-- name: AttachObligationsToBatch :execrows
+-- Attach a set of still-unbatched obligations to a batch (idempotent: already-batched are skipped).
+UPDATE obligation_instances
+SET batch_id = @batch_id, updated_at = now()
+WHERE tenant_id = @tenant_id
+  AND obligation_id = ANY(@obligation_ids::uuid[])
+  AND batch_id IS NULL;
+
 -- name: CancelOpenObligationsForGoat :many
 -- SM-3: cancel a goat's still-open obligations on death/sale. Idempotent — completed/accepted/
 -- missed/already-canceled rows are not matched. Uses obligation_instances_target_idx.

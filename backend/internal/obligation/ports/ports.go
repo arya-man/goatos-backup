@@ -28,6 +28,11 @@ type Repository interface {
 
 	CreateBatch(ctx context.Context, in domain.NewBatch) (batchID string, err error)
 
+	// SM-4 sweeper: list unbatched due obligations for a version (idempotent input) + attach a set
+	// to a batch (only still-unbatched rows; returns count attached).
+	ListUnbatchedDueForVersion(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32) ([]domain.UnbatchedDue, error)
+	AttachObligationsToBatch(ctx context.Context, tenantID, batchID string, obligationIDs []string) (int64, error)
+
 	// CancelOpenForGoat cancels a goat's scheduled/due obligations (SM-3) + writes 'canceled'
 	// events, in one txn. Idempotent; completed/accepted history untouched. Returns count canceled.
 	CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error)
