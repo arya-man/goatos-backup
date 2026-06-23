@@ -10,15 +10,6 @@ import {
 } from "../config-actions";
 import type { ImpactPreviewResult } from "@/lib/api/server";
 
-const input =
-  "min-h-[40px] w-full rounded-md border border-[#334155] bg-[#0f1115] px-2.5 py-2 text-sm text-[#c7d1dc] focus:border-[#14f1d9]/60 focus:outline-none";
-const label = "mb-1 block text-xs text-[#93a4b8]";
-const card = "rounded-xl border border-[#334155] bg-[#1A1D24]";
-const cardHd = "flex items-center gap-3 border-b border-[#334155] px-4 py-3";
-const btn = "inline-flex min-h-[40px] items-center rounded-md border px-3 py-2 text-sm font-medium";
-const btnMut = `${btn} border-[#334155] text-[#c7d1dc] hover:border-[#14f1d9]/40`;
-const btnPrimary = `${btn} border-[#14f1d9] bg-[rgba(20,241,217,0.1)] text-[#14f1d9] disabled:opacity-50`;
-
 const triggerTypes = ["birth_age", "post_arrival", "calendar", "after_previous_completion", "manual_campaign"];
 const repeats = ["none", "every_n_days", "yearly", "until_age", "after_age"];
 const catchUps = ["immediate", "next_cycle", "phc_approval", "defer"];
@@ -97,115 +88,129 @@ export function ScheduleBuilder() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="cfgform" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {notice ? (
-        <div
-          className={`rounded-md border px-4 py-2.5 text-sm ${
-            notice.ok ? "border-[#1f8f65] bg-[#0c1a13] text-[#7dd3a7]" : "border-[#a16207] bg-[#1f1a07] text-[#facc15]"
-          }`}
-        >
-          {notice.message}
-          {notice.code ? <span className="ml-2 opacity-70">[{notice.code}]</span> : null}
-        </div>
+        notice.ok ? (
+          <div className="note">
+            <span className="tag t-ok">ok</span> {notice.message}
+            {notice.code ? <span className="muted">&nbsp;[{notice.code}]</span> : null}
+          </div>
+        ) : (
+          <div className="alert warn">
+            <span aria-hidden className="ic">
+              ⚠
+            </span>
+            <div>
+              {notice.message}
+              {notice.code ? <span className="muted">&nbsp;[{notice.code}]</span> : null}
+            </div>
+          </div>
+        )
       ) : null}
 
       {/* Draft editor */}
-      <section className={card}>
-        <div className={cardHd}>
+      <section className="card">
+        <div className="hd">
           <span aria-hidden>💉</span>
-          <h2 className="text-sm font-bold text-white">Draft editor — vaccination schedule</h2>
-          <span className={`rounded-md border px-2 py-0.5 text-xs ${sourceBacked ? "border-[#1f8f65] text-[#7dd3a7]" : "border-[#a16207] text-[#facc15]"}`}>
+          <h3>Draft editor — vaccination schedule</h3>
+          <span className={`tag ${sourceBacked ? "t-ok" : "t-warn"}`}>
             {sourceBacked ? "Approved · publishable" : "Draft · not source-backed · cannot publish"}
           </span>
-          <span className="ml-auto text-xs text-[#8899AA]">draft does not generate live work</span>
+          <div className="sp" />
+          <span className="muted small">draft does not generate live work</span>
         </div>
-        <div className="grid gap-3 p-4 md:grid-cols-3">
-          <div>
-            <span className={label}>Protocol code</span>
-            <input aria-label="Protocol code" className={input} value={code} onChange={(e) => setCode(e.target.value)} placeholder="vaccination.enterotox" />
-          </div>
-          <div>
-            <span className={label}>Name</span>
-            <input aria-label="Name" className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Enterotoxaemia" />
-          </div>
-          <div>
-            <span className={label}>Effective from</span>
-            <input type="date" aria-label="Effective from" className={input} value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-          </div>
-          <div>
-            <span className={label}>Scope</span>
-            <select aria-label="Scope" className={input} value={scopeType} onChange={(e) => setScopeType(e.target.value)}>
-              <option value="tenant">tenant (company default)</option>
-              <option value="park">park override</option>
-            </select>
-          </div>
-          {scopeType === "park" ? (
+        <div className="bd">
+          <div className="grid g3">
             <div>
-              <span className={label}>Park id</span>
-              <input aria-label="Park id" className={input} value={scopeId} onChange={(e) => setScopeId(e.target.value)} placeholder="park location id" />
+              <label>Protocol code</label>
+              <input aria-label="Protocol code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="vaccination.enterotox" />
             </div>
-          ) : null}
-        </div>
+            <div>
+              <label>Name</label>
+              <input aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enterotoxaemia" />
+            </div>
+            <div>
+              <label>Effective from</label>
+              <input type="date" aria-label="Effective from" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+            </div>
+            <div>
+              <label>Scope</label>
+              <select aria-label="Scope" value={scopeType} onChange={(e) => setScopeType(e.target.value)}>
+                <option value="tenant">tenant (company default)</option>
+                <option value="park">park override</option>
+              </select>
+            </div>
+            {scopeType === "park" ? (
+              <div>
+                <label>Park id</label>
+                <input aria-label="Park id" value={scopeId} onChange={(e) => setScopeId(e.target.value)} placeholder="park location id" />
+              </div>
+            ) : null}
+          </div>
 
-        <div className="border-t border-[#334155] px-4 py-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#93a4b8]">Eligibility</div>
-          <div className="grid gap-3 md:grid-cols-4">
-            <div>
-              <span className={label}>Stage</span>
-              <input aria-label="Stage" className={input} value={stage} onChange={(e) => setStage(e.target.value)} placeholder="K1 (blank = any)" />
+          <div style={{ borderTop: "1px solid var(--line2)", marginTop: 14, paddingTop: 12 }}>
+            <div className="muted small" style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 8 }}>
+              Eligibility
             </div>
-            <div>
-              <span className={label}>Sex</span>
-              <input aria-label="Sex" className={input} value={sex} onChange={(e) => setSex(e.target.value)} placeholder="any" />
-            </div>
-            <div>
-              <span className={label}>Breed</span>
-              <input aria-label="Breed" className={input} value={breed} onChange={(e) => setBreed(e.target.value)} placeholder="any" />
-            </div>
-            <div>
-              <span className={label}>Park (eligibility)</span>
-              <input aria-label="Park (eligibility)" className={input} value={parkId} onChange={(e) => setParkId(e.target.value)} placeholder="park id (blank = all)" />
+            <div className="grid g4">
+              <div>
+                <label>Stage</label>
+                <input aria-label="Stage" value={stage} onChange={(e) => setStage(e.target.value)} placeholder="K1 (blank = any)" />
+              </div>
+              <div>
+                <label>Sex</label>
+                <input aria-label="Sex" value={sex} onChange={(e) => setSex(e.target.value)} placeholder="any" />
+              </div>
+              <div>
+                <label>Breed</label>
+                <input aria-label="Breed" value={breed} onChange={(e) => setBreed(e.target.value)} placeholder="any" />
+              </div>
+              <div>
+                <label>Park (eligibility)</label>
+                <input aria-label="Park (eligibility)" value={parkId} onChange={(e) => setParkId(e.target.value)} placeholder="park id (blank = all)" />
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       {/* Schedule[] multi-dose rows */}
-      <section className={card}>
-        <div className={cardHd}>
+      <section className="card">
+        <div className="hd">
           <span aria-hidden>🗓</span>
-          <h2 className="text-sm font-bold text-white">Schedule — doses</h2>
-          <span className="rounded bg-[#22262E] px-1.5 py-0.5 text-[11px] text-[#c7d1dc]">{doses.length}</span>
-          <button type="button" className={`${btnMut} ml-auto`} onClick={() => setDoses((r) => [...r, newDose(r.length + 1)])}>
+          <h3>Schedule — doses</h3>
+          <span className="tag t-mut">{doses.length}</span>
+          <div className="sp" />
+          <button type="button" className="btn sm" onClick={() => setDoses((r) => [...r, newDose(r.length + 1)])}>
             + Add dose
           </button>
         </div>
-        <div className="overflow-auto p-4">
-          <table className="w-full min-w-[820px] border-collapse text-sm">
+        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Dose schedule rows">
+          <table>
             <thead>
-              <tr className="border-b border-[#334155] text-left text-[11px] uppercase tracking-wide text-[#93a4b8]">
-                <th className="px-2 py-2">Dose code</th>
-                <th className="px-2 py-2">Seq</th>
-                <th className="px-2 py-2">Trigger</th>
-                <th className="px-2 py-2">Offset (d)</th>
-                <th className="px-2 py-2">Window (d)</th>
-                <th className="px-2 py-2">Min gap (d)</th>
-                <th className="px-2 py-2">Repeat</th>
-                <th className="px-2 py-2">Catch-up</th>
-                <th className="px-2 py-2" />
+              <tr>
+                <th>Dose code</th>
+                <th>Seq</th>
+                <th>Trigger</th>
+                <th>Offset (d)</th>
+                <th>Window (d)</th>
+                <th>Min gap (d)</th>
+                <th>Repeat</th>
+                <th>Catch-up</th>
+                <th />
               </tr>
             </thead>
             <tbody>
               {doses.map((d, i) => (
-                <tr key={i} className="border-b border-[#23272f]">
-                  <td className="px-2 py-2">
-                    <input aria-label="Dose code" className={input} value={d.doseCode} onChange={(e) => setDose(i, { doseCode: e.target.value })} placeholder="primary" />
+                <tr key={i}>
+                  <td>
+                    <input aria-label="Dose code" value={d.doseCode} onChange={(e) => setDose(i, { doseCode: e.target.value })} placeholder="primary" />
                   </td>
-                  <td className="px-2 py-2 w-16">
-                    <input aria-label="Sequence" type="number" className={input} value={d.sequence} onChange={(e) => setDose(i, { sequence: Number(e.target.value) })} />
+                  <td style={{ width: 76 }}>
+                    <input aria-label="Sequence" type="number" value={d.sequence} onChange={(e) => setDose(i, { sequence: Number(e.target.value) })} />
                   </td>
-                  <td className="px-2 py-2">
-                    <select aria-label="Trigger type" className={input} value={d.triggerType} onChange={(e) => setDose(i, { triggerType: e.target.value })}>
+                  <td>
+                    <select aria-label="Trigger type" value={d.triggerType} onChange={(e) => setDose(i, { triggerType: e.target.value })}>
                       {triggerTypes.map((t) => (
                         <option key={t} value={t}>
                           {t}
@@ -213,17 +218,17 @@ export function ScheduleBuilder() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-2 py-2 w-20">
-                    <input aria-label="Offset days" type="number" className={input} value={d.offsetDays} onChange={(e) => setDose(i, { offsetDays: Number(e.target.value) })} />
+                  <td style={{ width: 92 }}>
+                    <input aria-label="Offset days" type="number" value={d.offsetDays} onChange={(e) => setDose(i, { offsetDays: Number(e.target.value) })} />
                   </td>
-                  <td className="px-2 py-2 w-20">
-                    <input aria-label="Due window days" type="number" className={input} value={d.dueWindowDays} onChange={(e) => setDose(i, { dueWindowDays: Number(e.target.value) })} />
+                  <td style={{ width: 92 }}>
+                    <input aria-label="Due window days" type="number" value={d.dueWindowDays} onChange={(e) => setDose(i, { dueWindowDays: Number(e.target.value) })} />
                   </td>
-                  <td className="px-2 py-2 w-20">
-                    <input aria-label="Min gap days" type="number" className={input} value={d.minGapDays} onChange={(e) => setDose(i, { minGapDays: Number(e.target.value) })} />
+                  <td style={{ width: 92 }}>
+                    <input aria-label="Min gap days" type="number" value={d.minGapDays} onChange={(e) => setDose(i, { minGapDays: Number(e.target.value) })} />
                   </td>
-                  <td className="px-2 py-2">
-                    <select aria-label="Repeat" className={input} value={d.repeat} onChange={(e) => setDose(i, { repeat: e.target.value })}>
+                  <td>
+                    <select aria-label="Repeat" value={d.repeat} onChange={(e) => setDose(i, { repeat: e.target.value })}>
                       {repeats.map((t) => (
                         <option key={t} value={t}>
                           {t}
@@ -231,8 +236,8 @@ export function ScheduleBuilder() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-2 py-2">
-                    <select aria-label="Catch up" className={input} value={d.catchUp} onChange={(e) => setDose(i, { catchUp: e.target.value })}>
+                  <td>
+                    <select aria-label="Catch up" value={d.catchUp} onChange={(e) => setDose(i, { catchUp: e.target.value })}>
                       {catchUps.map((t) => (
                         <option key={t} value={t}>
                           {t}
@@ -240,8 +245,15 @@ export function ScheduleBuilder() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-2 py-2">
-                    <button type="button" aria-label="Remove dose" className={btnMut} onClick={() => setDoses((r) => r.filter((_, idx) => idx !== i))} disabled={doses.length === 1}>
+                  <td>
+                    <button
+                      type="button"
+                      aria-label="Remove dose"
+                      className="btn sm"
+                      onClick={() => setDoses((r) => r.filter((_, idx) => idx !== i))}
+                      disabled={doses.length === 1}
+                      style={doses.length === 1 ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                    >
                       ✕
                     </button>
                   </td>
@@ -253,111 +265,134 @@ export function ScheduleBuilder() {
       </section>
 
       {/* Source / review state (the publish-gate inputs) */}
-      <section className={card}>
-        <div className={cardHd}>
+      <section className="card">
+        <div className="hd">
           <span aria-hidden>🔏</span>
-          <h2 className="text-sm font-bold text-white">Source &amp; review</h2>
-          <span className="ml-auto text-xs text-[#8899AA]">only vaccinations_db / phc / vet · approved · with approver can publish</span>
+          <h3>Source &amp; review</h3>
+          <div className="sp" />
+          <span className="muted small">only vaccinations_db / phc / vet · approved · with approver can publish</span>
         </div>
-        <div className="grid gap-3 p-4 md:grid-cols-4">
-          <div>
-            <span className={label}>Source system</span>
-            <select aria-label="Source system" className={input} value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}>
-              {sourceSystems.map((s) => (
-                <option key={s} value={s}>
-                  {s || "—"}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <span className={label}>Source ref</span>
-            <input aria-label="Source ref" className={input} value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder="PHC §6.2" />
-          </div>
-          <div>
-            <span className={label}>Review status</span>
-            <select aria-label="Review status" className={input} value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
-              <option value="draft">draft</option>
-              <option value="reviewed">reviewed</option>
-              <option value="approved">approved</option>
-            </select>
-          </div>
-          <div>
-            <span className={label}>Approved by</span>
-            <input aria-label="Approved by" className={input} value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)} placeholder="approver name/id" />
+        <div className="bd">
+          <div className="grid g4">
+            <div>
+              <label>Source system</label>
+              <select aria-label="Source system" value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}>
+                {sourceSystems.map((s) => (
+                  <option key={s} value={s}>
+                    {s || "—"}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>Source ref</label>
+              <input aria-label="Source ref" value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder="PHC §6.2" />
+            </div>
+            <div>
+              <label>Review status</label>
+              <select aria-label="Review status" value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
+                <option value="draft">draft</option>
+                <option value="reviewed">reviewed</option>
+                <option value="approved">approved</option>
+              </select>
+            </div>
+            <div>
+              <label>Approved by</label>
+              <input aria-label="Approved by" value={approvedBy} onChange={(e) => setApprovedBy(e.target.value)} placeholder="approver name/id" />
+            </div>
           </div>
         </div>
       </section>
 
       {/* Live impact preview */}
-      <section className={card}>
-        <div className={cardHd}>
+      <section className="card">
+        <div className="hd">
           <span aria-hidden>📈</span>
-          <h2 className="text-sm font-bold text-white">Impact preview</h2>
-          <span className="ml-auto flex items-center gap-2">
-            <input aria-label="Vaccine item id" className={`${input} w-44`} value={vaccineItemId} onChange={(e) => setVaccineItemId(e.target.value)} placeholder="vaccine item id (stock)" />
-            <input aria-label="Doses per goat" type="number" className={`${input} w-24`} value={dosesPerGoat} onChange={(e) => setDosesPerGoat(Number(e.target.value))} />
-            <button type="button" className={btnMut} onClick={preview} disabled={pending}>
+          <h3>Impact preview</h3>
+          <div className="sp" />
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              aria-label="Vaccine item id"
+              value={vaccineItemId}
+              onChange={(e) => setVaccineItemId(e.target.value)}
+              placeholder="vaccine item id (stock)"
+              style={{ width: 180 }}
+            />
+            <input
+              aria-label="Doses per goat"
+              type="number"
+              value={dosesPerGoat}
+              onChange={(e) => setDosesPerGoat(Number(e.target.value))}
+              style={{ width: 90 }}
+            />
+            <button type="button" className="btn sm" onClick={preview} disabled={pending}>
               {pending ? "Computing…" : "Preview impact"}
             </button>
           </span>
         </div>
-        <div className="p-4">
+        <div className="bd">
           {impact ? (
             <>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="grid g4">
                 {[
                   ["Eligible goats", impact.eligible_goats],
                   ["Obligations / cycle", impact.obligations],
                   ["Batches (SOP tasks)", impact.batches],
                   ["Doses required", impact.doses_required],
                 ].map(([l, v]) => (
-                  <div key={String(l)} className="rounded-md border border-[#334155] px-3 py-2">
-                    <div className="text-xs uppercase text-[#93a4b8]">{l}</div>
-                    <div className="mt-1 text-lg font-semibold text-white">{String(v)}</div>
+                  <div key={String(l)} className="kpi">
+                    <div className="lab">{l}</div>
+                    <div className="val">{String(v)}</div>
                   </div>
                 ))}
               </div>
-              <div className="mt-3 text-xs text-[#8899AA]">
-                doses available: <b className="text-[#c7d1dc]">{impact.doses_available || "—"}</b>
+              <div className="muted small" style={{ marginTop: 12 }}>
+                doses available: <b>{impact.doses_available || "—"}</b>
                 {impact.earliest_expiry ? ` · earliest expiry ${impact.earliest_expiry.slice(0, 10)}` : ""}
               </div>
               {impact.warnings.length > 0 ? (
-                <ul className="mt-3 space-y-1">
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
                   {impact.warnings.map((w, i) => (
-                    <li key={i} className="rounded-md border border-[#a16207] bg-[#1f1a07] px-3 py-1.5 text-xs text-[#facc15]">
-                      ⚠ {w}
-                    </li>
+                    <div key={i} className="alert warn">
+                      <span aria-hidden className="ic">
+                        ⚠
+                      </span>
+                      <div>{w}</div>
+                    </div>
                   ))}
-                </ul>
+                </div>
               ) : null}
             </>
           ) : (
-            <p className="text-sm text-[#8899AA]">Run a preview to compute live eligible goats, obligations, drive batches, and doses-vs-stock.</p>
+            <p className="muted small">Run a preview to compute live eligible goats, obligations, drive batches, and doses-vs-stock.</p>
           )}
         </div>
       </section>
 
       {/* Publish gate */}
-      <section className={card}>
-        <div className={cardHd}>
+      <section className="card">
+        <div className="hd">
           <span aria-hidden>✅</span>
-          <h2 className="text-sm font-bold text-white">Publish</h2>
+          <h3>Publish</h3>
         </div>
-        <div className="p-4">
-          <p className="text-sm leading-6 text-[#8899AA]">
+        <div className="bd">
+          <p className="muted small" style={{ lineHeight: 1.6 }}>
             Published versions are immutable — a change creates a new version. Drafts do not generate obligations. A
             draft that is not source-backed cannot be published; only vaccinations_db / phc / vet values reviewed and
             approved can publish, after which obligations generate from this version.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className={btnMut} onClick={save} disabled={pending}>
+          <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <button type="button" className="btn" onClick={save} disabled={pending}>
               {pending ? "Saving…" : "Save draft"}
             </button>
-            <button type="button" className={btnPrimary} onClick={publish} disabled={pending || !versionId}>
+            <button type="button" className="btn p" onClick={publish} disabled={pending || !versionId} style={!versionId ? { opacity: 0.5 } : undefined}>
               Publish
             </button>
-            {versionId ? <span className="self-center text-xs text-[#8899AA]">draft version saved · {versionId.slice(0, 8)}</span> : <span className="self-center text-xs text-[#8899AA]">save the draft to enable publish</span>}
+            {versionId ? (
+              <span className="muted small">draft version saved · {versionId.slice(0, 8)}</span>
+            ) : (
+              <span className="muted small">save the draft to enable publish</span>
+            )}
           </div>
         </div>
       </section>

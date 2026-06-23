@@ -5,26 +5,13 @@ import {
   type ActionCenterObligation,
   type VaccinationQueueItem,
 } from "@/lib/api/server";
-import { ActionNotice, ErrorPanel, PageHeader } from "@/components/admin-primitives";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 
 type Tone = "ok" | "warn" | "dng" | "info" | "mut";
 
-const toneClass: Record<Tone, string> = {
-  ok: "border-[#1f8f65] text-[#7dd3a7]",
-  warn: "border-[#a16207] text-[#facc15]",
-  dng: "border-[#b91c1c] text-[#fca5a5]",
-  info: "border-[#0e7490] text-[#67e8f9]",
-  mut: "border-[#334155] text-[#93a4b8]",
-};
-
 function Tag({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  return (
-    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${toneClass[tone]}`}>
-      {children}
-    </span>
-  );
+  return <span className={`tag t-${tone}`}>{children}</span>;
 }
 
 type Bucket = "all" | "overdue" | "today" | "verify" | "rework" | "deferred" | "completed";
@@ -66,36 +53,26 @@ function todayIso(): string {
 function windowDueBefore(windowDays: number): string | undefined {
   return windowDays > 0 ? new Date(Date.now() + windowDays * 86_400_000).toISOString() : undefined;
 }
-function th(label: string) {
-  return (
-    <th className="whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-[#93a4b8]">
-      {label}
-    </th>
-  );
-}
 
-const actionBtn =
-  "inline-flex min-h-[40px] items-center rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-[rgba(20,241,217,0.06)]";
-
-// SubmitButton posts a per-row server action form (Verify / Reject / Rework). Real, not display-only.
+// ActionForm posts a per-row server action (Verify / Reject / Rework). Real, not display-only.
 function ActionForm({
   action,
   completionId,
   reason,
-  tone,
+  primary,
   children,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   completionId: string;
   reason?: string;
-  tone: Tone;
+  primary?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <form action={action} className="inline">
+    <form action={action} style={{ display: "inline" }}>
       <input type="hidden" name="completion_id" value={completionId} />
       {reason ? <input type="hidden" name="reason" value={reason} /> : null}
-      <button type="submit" className={`${actionBtn} ${toneClass[tone]}`}>
+      <button type="submit" className={`btn sm${primary ? " p" : ""}`}>
         {children}
       </button>
     </form>
@@ -105,7 +82,7 @@ function ActionForm({
 // DisabledButton renders a visible-but-intentionally-disabled action with a reason (no fake actions).
 function DisabledButton({ children, reason }: { children: React.ReactNode; reason: string }) {
   return (
-    <button type="button" disabled title={reason} className={`${actionBtn} ${toneClass.mut} cursor-not-allowed opacity-50`}>
+    <button type="button" disabled title={reason} className="btn sm" style={{ opacity: 0.5, cursor: "not-allowed" }}>
       {children}
     </button>
   );
@@ -129,31 +106,27 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-[#334155] bg-[#1A1D24]">
-      <div className="flex items-center gap-3 border-b border-[#334155] px-4 py-3">
-        <span aria-hidden className="text-base">
-          {icon}
-        </span>
-        <h2 className="text-sm font-bold text-white">{title}</h2>
+    <section className="card">
+      <div className="hd">
+        <span aria-hidden>{icon}</span>
+        <h3>{title}</h3>
         <Tag tone={tone}>{count}</Tag>
-        <span className="ml-auto hidden text-xs text-[#8899AA] sm:block">{description}</span>
+        <div className="sp" />
+        <span className="muted small">{description}</span>
       </div>
-      <div className="overflow-auto">{children}</div>
+      {children}
     </section>
   );
 }
 
 function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-[#93a4b8]">{label}</span>
+    <div className="fld" style={{ marginBottom: 0 }}>
+      <label>{label}</label>
       {children}
-    </label>
+    </div>
   );
 }
-
-const inputCls =
-  "min-h-[40px] rounded-md border border-[#334155] bg-[#0f1115] px-2 py-1.5 text-sm text-[#c7d1dc] focus:border-[#14f1d9]/60 focus:outline-none";
 
 export async function VaccinationActionCenterPage({ searchParams }: { searchParams?: RouteSearchParams }) {
   const sp = searchParams ?? {};
@@ -210,119 +183,138 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
   };
 
   return (
-    <div className="min-w-0">
-      <PageHeader
-        eyebrow="PHC · Vaccination"
-        title="Action Center"
-        description="The operational command surface — every vaccination obligation grouped by computed adherence/work state. Act on a card: verify, reject, or request rework (live); start the SOP / submit proof (via the SOP engine); open the goat passport. Every action writes the audit trail and ripples into Adherence + counts."
-        actions={
-          <div className="flex gap-2">
-            <Link
-              href="/vaccination/adherence"
-              className="inline-flex min-h-[40px] items-center rounded-md border border-[#334155] px-3 py-2 text-sm text-[#c7d1dc] hover:border-[#14f1d9]/40"
-            >
-              Protocol Adherence →
-            </Link>
-            <Link
-              href="/vaccination/config"
-              className="inline-flex min-h-[40px] items-center rounded-md border border-[#334155] px-3 py-2 text-sm text-[#c7d1dc] hover:border-[#14f1d9]/40"
-            >
-              Config →
-            </Link>
+    <div className="screen on">
+      <div className="phead">
+        <div>
+          <div className="crumb">
+            PHC · <b>Vaccination</b>
           </div>
-        }
-      />
+          <h1>Action Center</h1>
+          <div className="sub">
+            Every vaccination obligation grouped by computed work state. Verify, reject, or request rework (live); open
+            the goat passport. Every action writes the audit trail and ripples into Adherence + counts.
+          </div>
+        </div>
+        <div className="sp" style={{ flex: 1 }} />
+        <Link href="/vaccination/adherence" className="btn">
+          Protocol Adherence →
+        </Link>
+        <Link href="/vaccination/config" className="btn">
+          Config →
+        </Link>
+      </div>
 
-      {actionStatus ? <div className="mb-3"><ActionNotice status={actionStatus} message={actionMessage} /></div> : null}
+      {actionStatus ? (
+        actionStatus === "success" ? (
+          <div className="note" style={{ marginBottom: 14 }}>
+            <Tag tone="ok">done</Tag> {actionMessage ?? "Action completed."}
+          </div>
+        ) : (
+          <div className="alert" style={{ marginBottom: 14 }}>
+            <b>Action failed</b>&nbsp;{actionMessage ?? actionStatus}
+          </div>
+        )
+      ) : null}
 
       {/* Scope / date / source-state context bar */}
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#334155] bg-[#161922] px-4 py-2.5 text-xs">
-        <span className="text-[#93a4b8]">Scope</span>
-        <span className="rounded-md border border-[#334155] px-2 py-1 text-[#c7d1dc]">{park || "all parks"}</span>
-        <span className="rounded-md border border-[#334155] px-2 py-1 text-[#c7d1dc]">{shed || "all sheds"}</span>
-        <span className="rounded-md border border-[#334155] px-2 py-1 text-[#c7d1dc]">as of {today}</span>
-        <span className="mx-1 h-4 w-px bg-[#334155]" />
+      <div className="fchipsbar" style={{ marginBottom: 14 }}>
+        <span className="muted small">Scope</span>
+        <Tag tone="mut">{park || "all parks"}</Tag>
+        <Tag tone="mut">{shed || "all sheds"}</Tag>
+        <Tag tone="mut">as of {today}</Tag>
         <Tag tone="warn">rules: Draft · pending source-backed approval</Tag>
-        <span className="ml-auto flex items-center gap-2">
-          <Tag tone="mut">stock: not evaluated</Tag>
-          <Tag tone="mut">proof policy: skeleton</Tag>
-        </span>
+        <div className="sp" style={{ flex: 1 }} />
+        <Tag tone="mut">stock: not evaluated</Tag>
+        <Tag tone="mut">proof policy: skeleton</Tag>
       </div>
 
       {/* Real filter bar (GET → searchParams → server re-fetch/filter) */}
-      <form method="get" className="mb-4 grid grid-cols-2 gap-3 rounded-xl border border-[#334155] bg-[#1A1D24] p-3 md:grid-cols-6">
+      <form method="get" className="card" style={{ marginBottom: 14 }}>
         {bucket !== "all" ? <input type="hidden" name="bucket" value={bucket} /> : null}
-        <FilterField label="Due window">
-          <select name="window" defaultValue={windowId} className={inputCls}>
-            {windowDefs.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="Park (id)">
-          <input name="park" defaultValue={park} placeholder="park id" className={inputCls} />
-        </FilterField>
-        <FilterField label="Shed (id)">
-          <input name="shed" defaultValue={shed} placeholder="shed id" className={inputCls} />
-        </FilterField>
-        <FilterField label="Protocol version (id)">
-          <input name="version" defaultValue={version} placeholder="version id" className={inputCls} />
-        </FilterField>
-        <FilterField label="Owner">
-          <input disabled placeholder="needs SOP assignment data" title="Owner filter needs SOP task assignment data (SOP execution slice)" className={`${inputCls} cursor-not-allowed opacity-50`} />
-        </FilterField>
-        <div className="flex items-end gap-2">
-          <button type="submit" className={`${actionBtn} ${toneClass.info}`}>
-            Apply
-          </button>
-          <Link href="/vaccination" className={`${actionBtn} ${toneClass.mut}`}>
-            Reset
-          </Link>
+        <div
+          className="bd"
+          style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 14, alignItems: "end" }}
+        >
+          <FilterField label="Due window">
+            <select name="window" defaultValue={windowId} aria-label="Due window">
+              {windowDefs.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="Park (id)">
+            <input name="park" defaultValue={park} placeholder="park id" aria-label="Park id" />
+          </FilterField>
+          <FilterField label="Shed (id)">
+            <input name="shed" defaultValue={shed} placeholder="shed id" aria-label="Shed id" />
+          </FilterField>
+          <FilterField label="Protocol version (id)">
+            <input name="version" defaultValue={version} placeholder="version id" aria-label="Protocol version id" />
+          </FilterField>
+          <FilterField label="Owner">
+            <input
+              disabled
+              placeholder="needs SOP assignment data"
+              title="Owner filter needs SOP task assignment data (SOP execution slice)"
+              style={{ opacity: 0.5, cursor: "not-allowed" }}
+              aria-label="Owner (disabled)"
+            />
+          </FilterField>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" className="btn p">
+              Apply
+            </button>
+            <Link href="/vaccination" className="btn">
+              Reset
+            </Link>
+          </div>
         </div>
       </form>
 
       {/* Quick-filter status board tabs */}
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="chipset" style={{ marginBottom: 16 }}>
         {bucketDefs.map((b) => {
           const active = b.id === bucket;
           return (
-            <Link
-              key={b.id}
-              href={bucketHref(b.id)}
-              className={`inline-flex min-h-[40px] items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium ${
-                active
-                  ? "border-[#14f1d9] bg-[rgba(20,241,217,0.08)] text-[#14f1d9]"
-                  : "border-[#334155] text-[#c7d1dc] hover:border-[#14f1d9]/40"
-              }`}
-            >
-              {b.label}
-              <span className={`rounded px-1.5 py-0.5 text-[11px] ${active ? "bg-[#14f1d9]/15" : "bg-[#22262E]"}`}>
-                {counts[b.id]}
-              </span>
+            <Link key={b.id} href={bucketHref(b.id)} className={`chip${active ? " on" : ""}`}>
+              {b.label} <Tag tone={active ? "ok" : "mut"}>{counts[b.id]}</Tag>
             </Link>
           );
         })}
       </div>
 
-      {!actionCenter.ok ? <div className="mb-4"><ErrorPanel error={actionCenter.error} /></div> : null}
-      {actionCenter.ok && !queue.ok ? <div className="mb-4"><ErrorPanel error={queue.error} /></div> : null}
+      {!actionCenter.ok ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <b>{actionCenter.error.code}</b>&nbsp;{actionCenter.error.message}
+        </div>
+      ) : null}
+      {actionCenter.ok && !queue.ok ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <b>{queue.error.code}</b>&nbsp;{queue.error.message}
+        </div>
+      ) : null}
 
       {nothingLive ? (
-        <div className="rounded-xl border border-[#334155] bg-[#1A1D24] p-8 text-center">
-          <div className="mx-auto mb-3 text-2xl">🛈</div>
-          <h2 className="text-base font-bold text-white">No live obligations yet — the command surface is ready</h2>
-          <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-[#8899AA]">
-            The vaccination engine deliberately generates <b>nothing</b> until a protocol version is{" "}
-            <b>published through the source-backed gate</b> (source_system ∈ vaccinations_db / phc / vet, approved
-            review, named approver). No vaccine schedule values are invented. Once a real PHC schedule is published and
-            generation runs, due obligations, SOP tasks, and the verification queue populate the buckets above — each row
-            actionable (verify · reject · request rework · open passport, with start-SOP / submit-proof via the SOP engine).
-          </p>
-        </div>
+        <section className="card">
+          <div className="bd" style={{ textAlign: "center", padding: 32 }}>
+            <div aria-hidden style={{ fontSize: 24, marginBottom: 10 }}>
+              🛈
+            </div>
+            <h3 style={{ margin: 0, fontSize: 16 }}>No live obligations yet — the command surface is ready</h3>
+            <p className="muted" style={{ maxWidth: 680, margin: "8px auto 0", lineHeight: 1.6, fontSize: 13 }}>
+              The vaccination engine deliberately generates <b>nothing</b> until a protocol version is{" "}
+              <b>published through the source-backed gate</b> (source_system ∈ vaccinations_db / phc / vet, approved
+              review, named approver). No vaccine schedule values are invented. Once a real PHC schedule is published and
+              generation runs, due obligations, SOP tasks, and the verification queue populate the buckets above — each
+              row actionable (verify · reject · request rework · open passport, with start-SOP / submit-proof via the SOP
+              engine).
+            </p>
+          </div>
+        </section>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {showDue ? (
             <SectionCard
               title="Due & overdue"
@@ -332,43 +324,49 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
               description="Scheduled directions due for execution"
             >
               {obligations.length === 0 ? (
-                <p className="px-4 py-5 text-sm text-[#8899AA]">No due obligations for the current filters.</p>
+                <div className="bd">
+                  <p className="muted small">No due obligations for the current filters.</p>
+                </div>
               ) : (
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-[#334155]">
-                      {th("Goat")}
-                      {th("Due")}
-                      {th("Status")}
-                      {th("Scope")}
-                      {th("Next action")}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {obligations.map((o) => (
-                      <tr key={o.obligation_id} className="border-b border-[#23272f]">
-                        <td className="px-3 py-2 font-mono text-[#c7d1dc]">{shortId(o.target_id)}</td>
-                        <td className="px-3 py-2 text-[#c7d1dc]">
-                          {fmtDate(o.due_at)} {isOverdue(o.due_at) ? <Tag tone="dng">overdue</Tag> : null}
-                        </td>
-                        <td className="px-3 py-2">
-                          <Tag tone="warn">{o.status}</Tag>
-                        </td>
-                        <td className="px-3 py-2 text-[#8899AA]">
-                          {o.scope_type}:{shortId(o.scope_id)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-wrap gap-1.5">
-                            <DisabledButton reason={SOP_REASON}>Start SOP</DisabledButton>
-                            <Link href={`/goats/${o.target_id}`} className={`${actionBtn} ${toneClass.mut}`}>
-                              Passport
-                            </Link>
-                          </div>
-                        </td>
+                <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Due obligations">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Goat</th>
+                        <th>Due</th>
+                        <th>Status</th>
+                        <th>Scope</th>
+                        <th>Next action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {obligations.map((o) => (
+                        <tr key={o.obligation_id}>
+                          <td>
+                            <span className="gid">{shortId(o.target_id)}</span>
+                          </td>
+                          <td>
+                            {fmtDate(o.due_at)} {isOverdue(o.due_at) ? <Tag tone="dng">overdue</Tag> : null}
+                          </td>
+                          <td>
+                            <Tag tone="warn">{o.status}</Tag>
+                          </td>
+                          <td className="muted">
+                            {o.scope_type}:{shortId(o.scope_id)}
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              <DisabledButton reason={SOP_REASON}>Start SOP</DisabledButton>
+                              <Link href={`/goats/${o.target_id}`} className="btn sm">
+                                Passport
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </SectionCard>
           ) : null}
@@ -382,57 +380,73 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
               description="Administered doses recorded, awaiting review"
             >
               {queueItems.length === 0 ? (
-                <p className="px-4 py-5 text-sm text-[#8899AA]">Nothing awaiting verification.</p>
+                <div className="bd">
+                  <p className="muted small">Nothing awaiting verification.</p>
+                </div>
               ) : (
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-[#334155]">
-                      {th("Goat")}
-                      {th("Administered")}
-                      {th("Doses")}
-                      {th("Verify")}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {queueItems.map((q) => (
-                      <tr key={q.completion_id} className="border-b border-[#23272f]">
-                        <td className="px-3 py-2 font-mono text-[#c7d1dc]">{shortId(q.goat_id)}</td>
-                        <td className="px-3 py-2 text-[#c7d1dc]">{fmtDate(q.administered_at)}</td>
-                        <td className="px-3 py-2 text-[#c7d1dc]">{q.doses}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-wrap gap-1.5">
-                            <ActionForm action={verifyCompletionAction} completionId={q.completion_id} tone="ok">
-                              Verify
-                            </ActionForm>
-                            <ActionForm action={rejectCompletionAction} completionId={q.completion_id} reason="rejected" tone="dng">
-                              Reject
-                            </ActionForm>
-                            <ActionForm action={rejectCompletionAction} completionId={q.completion_id} reason="rework_requested" tone="info">
-                              Request rework
-                            </ActionForm>
-                            <Link href={`/goats/${q.goat_id}`} className={`${actionBtn} ${toneClass.mut}`}>
-                              Passport
-                            </Link>
-                          </div>
-                        </td>
+                <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Awaiting verification">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Goat</th>
+                        <th>Administered</th>
+                        <th>Doses</th>
+                        <th>Verify</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {queueItems.map((q) => (
+                        <tr key={q.completion_id}>
+                          <td>
+                            <span className="gid">{shortId(q.goat_id)}</span>
+                          </td>
+                          <td>{fmtDate(q.administered_at)}</td>
+                          <td>{q.doses}</td>
+                          <td>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              <ActionForm action={verifyCompletionAction} completionId={q.completion_id} primary>
+                                Verify
+                              </ActionForm>
+                              <ActionForm action={rejectCompletionAction} completionId={q.completion_id} reason="rejected">
+                                Reject
+                              </ActionForm>
+                              <ActionForm
+                                action={rejectCompletionAction}
+                                completionId={q.completion_id}
+                                reason="rework_requested"
+                              >
+                                Request rework
+                              </ActionForm>
+                              <Link href={`/goats/${q.goat_id}`} className="btn sm">
+                                Passport
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </SectionCard>
           ) : null}
 
           {bucket === "all" ? (
-            <div className="grid gap-4 xl:grid-cols-3">
+            <div className="grid g3">
               <SectionCard title="Rework requested" icon="↩︎" count={0} tone="mut" description="Returned for re-do">
-                <p className="px-4 py-5 text-sm text-[#8899AA]">None.</p>
+                <div className="bd">
+                  <p className="muted small">None.</p>
+                </div>
               </SectionCard>
               <SectionCard title="Deferred / explained" icon="⏸" count={0} tone="mut" description="SM-1 defer (ICU / quarantine)">
-                <p className="px-4 py-5 text-sm text-[#8899AA]">None — defers are surfaced here, never silently hidden.</p>
+                <div className="bd">
+                  <p className="muted small">None — defers are surfaced here, never silently hidden.</p>
+                </div>
               </SectionCard>
               <SectionCard title="Completed recently" icon="✓" count={0} tone="ok" description="Closed by accepted proof">
-                <p className="px-4 py-5 text-sm text-[#8899AA]">None yet.</p>
+                <div className="bd">
+                  <p className="muted small">None yet.</p>
+                </div>
               </SectionCard>
             </div>
           ) : null}
