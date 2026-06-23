@@ -38,6 +38,9 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	protocolhttp "github.com/vgoats/goatos/backend/internal/protocol/adapters/http"
+	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 	reportinghttp "github.com/vgoats/goatos/backend/internal/reporting/adapters/http"
 	reportingpg "github.com/vgoats/goatos/backend/internal/reporting/adapters/postgres"
 	reportingapp "github.com/vgoats/goatos/backend/internal/reporting/app"
@@ -158,6 +161,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopService := sopapp.NewService(sopRepo)
 	sopHandler := sophttp.NewHandler(sopService, log)
 
+	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	protocolHandler := protocolhttp.NewHandler(protocolService, log)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationService := obligationapp.NewService(obligationRepo)
 	obligationHandler := obligationhttp.NewHandler(obligationService, log)
@@ -199,6 +204,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	legacysynchttp.Register(protectedMux, legacySyncHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
 	sophttp.Register(protectedMux, sopHandler)
+	protocolhttp.Register(protectedMux, protocolHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	obligationhttp.Register(protectedMux, obligationHandler)
 	passporthttp.Register(protectedMux, passportHandler)

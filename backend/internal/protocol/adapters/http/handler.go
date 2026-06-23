@@ -1,0 +1,271 @@
+// Package http exposes the protocol config API (definitions, versions, rules, publish).
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/protocol/app"
+	"github.com/vgoats/goatos/backend/internal/protocol/domain"
+	"github.com/vgoats/goatos/backend/internal/protocol/ports"
+)
+
+// ProtocolConfig is the slice of the protocol service this handler needs.
+type ProtocolConfig interface {
+	CreateDefinition(ctx context.Context, in domain.NewDefinition) (string, error)
+	CreateVersion(ctx context.Context, in domain.NewVersion) (string, error)
+	AddRule(ctx context.Context, in domain.NewRule) (string, error)
+	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
+	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error
+}
+
+// Handler serves the protocol config endpoints.
+type Handler struct {
+	config ProtocolConfig
+	log    *slog.Logger
+}
+
+// NewHandler constructs the handler with an optional logger.
+func NewHandler(config ProtocolConfig, log ...*slog.Logger) *Handler {
+	var l *slog.Logger
+	if len(log) > 0 && log[0] != nil {
+		l = log[0]
+	} else {
+		l = slog.Default()
+	}
+	return &Handler{config: config, log: l}
+}
+
+// Register mounts the protocol config routes.
+func Register(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("POST /protocols", h.CreateDefinition)
+	mux.HandleFunc("POST /protocols/{protocol_id}/versions", h.CreateVersion)
+	mux.HandleFunc("POST /protocols/versions/{version_id}/rules", h.AddRule)
+	mux.HandleFunc("GET /protocols/versions/{version_id}", h.GetVersion)
+	mux.HandleFunc("POST /protocols/versions/{version_id}/publish", h.PublishVersion)
+}
+
+type errorEnvelope struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	TraceID string `json:"trace_id"`
+}
+
+// ---- create definition ----
+
+type createDefinitionRequest struct {
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+}
+
+func (h *Handler) CreateDefinition(w http.ResponseWriter, r *http.Request) {
+	var req createDefinitionRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	id, err := h.config.CreateDefinition(r.Context(), domain.NewDefinition{
+		TenantID: tenantID(r), Code: req.Code, Name: req.Name, Category: req.Category,
+		Status: "draft", CreatedBy: actorPtr(r),
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, map[string]string{"protocol_id": id})
+}
+
+// ---- create version (always draft) ----
+
+type createVersionRequest struct {
+	ScopeType     string          `json:"scope_type"`
+	ScopeID       *string         `json:"scope_id"`
+	Version       int32           `json:"version"`
+	VersionLabel  string          `json:"version_label"`
+	EffectiveFrom time.Time       `json:"effective_from"`
+	EffectiveTo   *time.Time      `json:"effective_to"`
+	RuleDsl       json.RawMessage `json:"rule_dsl"`
+	ProofPolicy   json.RawMessage `json:"proof_policy"`
+	SopVersionID  *string         `json:"sop_version_id"`
+}
+
+func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
+	var req createVersionRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	id, err := h.config.CreateVersion(r.Context(), domain.NewVersion{
+		TenantID: tenantID(r), ProtocolID: r.PathValue("protocol_id"),
+		ScopeType: req.ScopeType, ScopeID: req.ScopeID, Version: req.Version, VersionLabel: req.VersionLabel,
+		Status: "draft", EffectiveFrom: req.EffectiveFrom, EffectiveTo: req.EffectiveTo,
+		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
+		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r),
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, map[string]string{"protocol_version_id": id})
+}
+
+// ---- add rule ----
+
+type addRuleRequest struct {
+	DoseCode            string          `json:"dose_code"`
+	Sequence            int32           `json:"sequence"`
+	TriggerType         string          `json:"trigger_type"`
+	OffsetDays          int32           `json:"offset_days"`
+	DueWindowDays       int32           `json:"due_window_days"`
+	MinGapDays          int32           `json:"min_gap_days"`
+	Repeat              string          `json:"repeat"`
+	RepeatUntilAfterAge string          `json:"repeat_until_after_age"`
+	CatchUp             string          `json:"catch_up"`
+	EligibilityJSON     json.RawMessage `json:"eligibility_json"`
+	ProofPolicy         json.RawMessage `json:"proof_policy"`
+	WithdrawalDays      *int32          `json:"withdrawal_days"`
+	SortOrder           int32           `json:"sort_order"`
+}
+
+func (h *Handler) AddRule(w http.ResponseWriter, r *http.Request) {
+	var req addRuleRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	id, err := h.config.AddRule(r.Context(), domain.NewRule{
+		TenantID: tenantID(r), ProtocolVersionID: r.PathValue("version_id"),
+		DoseCode: req.DoseCode, Sequence: req.Sequence, TriggerType: req.TriggerType,
+		OffsetDays: req.OffsetDays, DueWindowDays: req.DueWindowDays, MinGapDays: req.MinGapDays,
+		Repeat: req.Repeat, RepeatUntilAfterAge: req.RepeatUntilAfterAge, CatchUp: req.CatchUp,
+		EligibilityJSON: rawOrEmpty(req.EligibilityJSON), ProofPolicy: rawOrEmpty(req.ProofPolicy),
+		WithdrawalDays: req.WithdrawalDays, SortOrder: req.SortOrder,
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, map[string]string{"rule_id": id})
+}
+
+// ---- get version ----
+
+type versionResponse struct {
+	ProtocolVersionID string          `json:"protocol_version_id"`
+	ProtocolID        string          `json:"protocol_id"`
+	ScopeType         string          `json:"scope_type"`
+	ScopeID           string          `json:"scope_id"`
+	Version           int32           `json:"version"`
+	Status            string          `json:"status"`
+	EffectiveFrom     *time.Time      `json:"effective_from,omitempty"`
+	EffectiveTo       *time.Time      `json:"effective_to,omitempty"`
+	RuleDsl           json.RawMessage `json:"rule_dsl"`
+	ProofPolicy       json.RawMessage `json:"proof_policy"`
+	SopVersionID      string          `json:"sop_version_id,omitempty"`
+	RowVersion        int32           `json:"row_version"`
+}
+
+func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
+	v, err := h.config.GetVersion(r.Context(), tenantID(r), r.PathValue("version_id"))
+	if errors.Is(err, ports.ErrNotFound) {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "protocol version not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, versionResponse{
+		ProtocolVersionID: v.ProtocolVersionID, ProtocolID: v.ProtocolID,
+		ScopeType: v.ScopeType, ScopeID: v.ScopeID, Version: v.Version, Status: v.Status,
+		EffectiveFrom: v.EffectiveFrom, EffectiveTo: v.EffectiveTo,
+		RuleDsl: rawOrNull(v.RuleDsl), ProofPolicy: rawOrNull(v.ProofPolicy),
+		SopVersionID: v.SopVersionID, RowVersion: v.RowVersion,
+	})
+}
+
+// ---- publish (source-backed gate) ----
+
+func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
+	err := h.config.PublishVersion(r.Context(), tenantID(r), r.PathValue("version_id"), actorPtr(r))
+	if errors.Is(err, app.ErrNotPublishable) {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			errorEnvelope{Code: "not_publishable", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "protocol version not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- helpers ----
+
+func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		h.badRequest(w, r, "invalid_body", "request body could not be read")
+		return false
+	}
+	if len(body) == 0 {
+		h.badRequest(w, r, "empty_body", "request body is required")
+		return false
+	}
+	if err := json.Unmarshal(body, dst); err != nil {
+		h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+		return false
+	}
+	return true
+}
+
+func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
+	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
+}
+
+func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
+	httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+		errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
+}
+
+func rawOrEmpty(m json.RawMessage) []byte {
+	if len(m) == 0 {
+		return []byte(`{}`)
+	}
+	return m
+}
+
+func rawOrNull(b []byte) json.RawMessage {
+	if len(b) == 0 {
+		return json.RawMessage(`null`)
+	}
+	return json.RawMessage(b)
+}
+
+func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContext(r.Context()) }
+
+func actorPtr(r *http.Request) *string {
+	if a := httpmiddleware.ActorIDFromContext(r.Context()); a != "" {
+		return &a
+	}
+	return nil
+}
+
+func traceID(r *http.Request) string {
+	if t := httpmiddleware.TraceIDFromContext(r.Context()); t != "" {
+		return t
+	}
+	return "missing-trace"
+}
