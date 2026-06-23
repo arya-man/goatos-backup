@@ -113,6 +113,17 @@ var protectedRoutes = []Route{
 	{OperationID: "getMortalityDashboardSnapshot", Method: "GET", Pattern: "/analytics/mortality/dashboard", Permissions: []string{AnalyticsMortalityRead}},
 	{OperationID: "createMortalitySyncRun", Method: "POST", Pattern: "/admin/mortality/sync-runs", Permissions: []string{AnalyticsMortalitySync}, AdminOnly: true},
 	{OperationID: "getMortalitySyncRun", Method: "GET", Pattern: "/admin/mortality/sync-runs/{sync_run_id}", Permissions: []string{AnalyticsMortalityRead}},
+
+	// Phase 1A — protocol config / vaccination obligation engine.
+	{OperationID: "createProtocolDefinition", Method: "POST", Pattern: "/protocols", Permissions: []string{ProtocolWrite}},
+	{OperationID: "createProtocolVersion", Method: "POST", Pattern: "/protocols/{protocol_id}/versions", Permissions: []string{ProtocolWrite}},
+	{OperationID: "addProtocolRule", Method: "POST", Pattern: "/protocols/versions/{version_id}/rules", Permissions: []string{ProtocolWrite}},
+	{OperationID: "getProtocolVersion", Method: "GET", Pattern: "/protocols/versions/{version_id}", Permissions: []string{ProtocolRead}},
+	{OperationID: "publishProtocolVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/publish", Permissions: []string{ProtocolPublish}},
+	{OperationID: "vaccinationImpactPreview", Method: "POST", Pattern: "/protocols/vaccination/impact-preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "listDueObligations", Method: "GET", Pattern: "/action-center/obligations", Permissions: []string{ObligationRead}},
+	{OperationID: "vaccinationVerificationQueue", Method: "GET", Pattern: "/vaccination/verification-queue", Permissions: []string{VaccinationRead}},
+	{OperationID: "getGoatVaccinationPassport", Method: "GET", Pattern: "/goats/{goat_id}/passport", Permissions: []string{GoatRead}},
 }
 
 func ProtectedRoutes() []Route {

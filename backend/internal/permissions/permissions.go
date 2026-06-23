@@ -44,6 +44,11 @@ const (
 	TaskAssign                = "task.assign"
 	TaskExecute               = "task.execute"
 	TaskVerify                = "task.verify"
+	ProtocolRead              = "protocol.read"
+	ProtocolWrite             = "protocol.write"
+	ProtocolPublish           = "protocol.publish"
+	ObligationRead            = "obligation.read"
+	VaccinationRead           = "vaccination.read"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -57,6 +62,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
@@ -66,12 +72,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		AnalyticsMortalityRead: {}, AnalyticsMortalityReview: {},
 		OperatorsRead: {},
 		TaskRead:      {}, TaskVerify: {},
+		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
 	},
 	RoleParkHead: {
 		GoatRead: {}, CorrectionCreate: {}, AnalyticsIdentityRead: {},
 		LocationsRead: {}, AnalyticsCountsRead: {}, AnalyticsMortalityRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		ProtocolRead: {}, ObligationRead: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, CorrectionCreate: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {},
@@ -86,6 +94,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {},
 	},
 }
 
