@@ -48,7 +48,8 @@ func (q *Queries) GetProtocolDefinitionByCode(ctx context.Context, arg GetProtoc
 const getProtocolVersion = `-- name: GetProtocolVersion :one
 SELECT protocol_version_id::text AS protocol_version_id, protocol_id::text AS protocol_id,
        scope_type, COALESCE(scope_id::text, '')::text AS scope_id, version, status,
-       effective_from, effective_to, rule_dsl, proof_policy, row_version
+       effective_from, effective_to, rule_dsl, proof_policy,
+       COALESCE(sop_version_id::text, '')::text AS sop_version_id, row_version
 FROM protocol_versions
 WHERE tenant_id = $1 AND protocol_version_id = $2
 `
@@ -69,6 +70,7 @@ type GetProtocolVersionRow struct {
 	EffectiveTo       pgtype.Date
 	RuleDsl           []byte
 	ProofPolicy       []byte
+	SopVersionID      string
 	RowVersion        int32
 }
 
@@ -86,6 +88,7 @@ func (q *Queries) GetProtocolVersion(ctx context.Context, arg GetProtocolVersion
 		&i.EffectiveTo,
 		&i.RuleDsl,
 		&i.ProofPolicy,
+		&i.SopVersionID,
 		&i.RowVersion,
 	)
 	return i, err

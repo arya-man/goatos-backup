@@ -156,6 +156,7 @@ func (r *Repository) GetVersion(ctx context.Context, tenantID, versionID string)
 		EffectiveTo:       pgconv.DateValue(row.EffectiveTo),
 		RuleDsl:           row.RuleDsl,
 		ProofPolicy:       row.ProofPolicy,
+		SopVersionID:      row.SopVersionID,
 		RowVersion:        row.RowVersion,
 	}, nil
 }

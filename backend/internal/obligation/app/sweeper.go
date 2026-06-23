@@ -8,22 +8,29 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 )
 
-// SweeperService implements SM-4 batching: collect unbatched due obligations for a version, group
-// them by scope (shed/park), and create one batch per scope, attaching its obligations. Idempotent:
-// a re-sweep finds no unbatched rows and creates nothing. (sop_task spawn + FEFO stock reserve are
-// added in the following slices.)
-type SweeperService struct {
-	repo ports.Repository
-	page int32
+// TaskCreator spawns one SOP task per batch. Implemented by a thin adapter over the SOP module
+// (sop.CreateTask) at wiring time; the sweeper stays decoupled from SOP types. nil disables spawn.
+type TaskCreator interface {
+	CreateTaskForBatch(ctx context.Context, tenantID, sopVersionID, taskType, title, scopeType, scopeID string) (taskID string, err error)
 }
 
-// NewSweeperService constructs the sweeper.
-func NewSweeperService(repo ports.Repository) *SweeperService {
-	return &SweeperService{repo: repo, page: 1000}
+// SweeperService implements SM-4 batching: collect unbatched due obligations for a version, group
+// them by scope (shed/park), spawn one SOP task per batch, and create one batch per scope attaching
+// its obligations. Idempotent: a re-sweep finds no unbatched rows → no new batches/tasks.
+type SweeperService struct {
+	repo  ports.Repository
+	tasks TaskCreator
+	page  int32
+}
+
+// NewSweeperService constructs the sweeper. tasks may be nil to skip SOP task spawn.
+func NewSweeperService(repo ports.Repository, tasks TaskCreator) *SweeperService {
+	return &SweeperService{repo: repo, tasks: tasks, page: 1000}
 }
 
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
-func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID string, dueBefore time.Time) (domain.SweepResult, error) {
+// sopVersionID (the version's SOP) drives task spawn; "" or a nil TaskCreator skips it.
+func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID, sopVersionID string, dueBefore time.Time) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	for {
 		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
@@ -55,6 +62,14 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
+			var sopTaskID *string
+			if s.tasks != nil && sopVersionID != "" {
+				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, sopVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
+				if err != nil {
+					return res, err
+				}
+				sopTaskID = &taskID
+			}
 			batchID, err := s.repo.CreateBatch(ctx, domain.NewBatch{
 				TenantID:          tenantID,
 				ProtocolVersionID: versionID,
@@ -62,6 +77,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 				ScopeID:           g.scopeID,
 				Status:            "planned",
 				EstimatedTargets:  int32(len(g.ids)),
+				SopTaskID:         sopTaskID,
 			})
 			if err != nil {
 				return res, err

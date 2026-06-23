@@ -53,6 +53,7 @@ type Version struct {
 	EffectiveTo       *time.Time
 	RuleDsl           []byte
 	ProofPolicy       []byte
+	SopVersionID      string
 	RowVersion        int32
 }
 
