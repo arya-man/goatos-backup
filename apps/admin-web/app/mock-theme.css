@@ -21,7 +21,7 @@
     --amber:#C9871F; --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06); --ring:rgba(84,160,44,.26);
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
   a{color:inherit;text-decoration:none}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;letter-spacing:.2px}
   svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
@@ -300,9 +300,9 @@
   .alert{display:flex;align-items:center;gap:13px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 32%,transparent);border-left:4px solid var(--danger);border-radius:12px;padding:13px 16px;margin-bottom:16px}
   .alert .ic{color:var(--danger)} .alert b{color:var(--danger)}
   .alert.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--amber) 32%,transparent);border-left-color:var(--amber)} .alert.warn .ic{color:var(--amber)} .alert.warn b{color:var(--amber)}
-  table{width:100%;border-collapse:collapse}
-  th{text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--faint);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
-  td{padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+  .screen table{width:100%;border-collapse:collapse}
+  .screen th{text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--faint);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
+  .screen td{padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   tr:last-child td{border-bottom:0}
   tbody tr:hover{background:var(--bg)}
   .gid{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:var(--brand-d);background:var(--brand-soft);padding:2px 7px;border-radius:6px}
@@ -449,7 +449,7 @@
   .glimpse{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
   /* ---------- table containment (no page horizontal scroll) ---------- */
   .card .bd{overflow-x:auto}
-  th,td{white-space:nowrap}
+  .screen th,.screen td{white-space:nowrap}
   /* ---------- mobile / off-canvas nav ---------- */
   .navscrim{position:fixed;inset:0;background:rgba(6,12,9,.5);opacity:0;pointer-events:none;transition:.2s;z-index:44}
   .navscrim.on{opacity:1;pointer-events:auto}
