@@ -337,6 +337,52 @@ func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, re
 	return len(ids), nil
 }
 
+// MarkCompleted marks an obligation completed (SM-5) and writes a 'completed' status event, in one
+// txn. Returns completed=false (no-op) when the obligation is already terminal. Idempotent.
+func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	obl, err := pgconv.UUID(obligationID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: obligation id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("obligation: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	n, err := qtx.MarkObligationCompleted(ctx, obligationdb.MarkObligationCompletedParams{TenantID: tenant, ObligationID: obl})
+	if err != nil {
+		return false, fmt.Errorf("obligation: mark completed: %w", err)
+	}
+	if n == 0 {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return false, fmt.Errorf("obligation: commit noop complete: %w", cerr)
+		}
+		return false, nil
+	}
+	if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+		TenantID:       tenant,
+		ObligationID:   obl,
+		EventType:      "completed",
+		OccurredAt:     pgconv.Timestamptz(time.Now()),
+		Payload:        []byte(`{"event":"completed"}`),
+		IdempotencyKey: obligationID + ":completed",
+	}); err != nil {
+		return false, fmt.Errorf("obligation: completed event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("obligation: commit complete: %w", err)
+	}
+	return true, nil
+}
+
 // RecordStatusEvent appends a status event with a reserve-before-insert idempotency guard, in
 // one transaction. Returns applied=false on retry (key already reserved) — no duplicate event.
 func (r *Repository) RecordStatusEvent(ctx context.Context, ev domain.NewStatusEvent) (string, bool, error) {

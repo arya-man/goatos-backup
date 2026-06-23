@@ -232,6 +232,29 @@ func (q *Queries) InsertObligationStatusEvent(ctx context.Context, arg InsertObl
 	return obligation_event_id, err
 }
 
+const markObligationCompleted = `-- name: MarkObligationCompleted :execrows
+UPDATE obligation_instances
+SET status = 'completed', completed_at = now(), row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1
+  AND obligation_id = $2
+  AND status IN ('scheduled', 'due', 'in_progress')
+`
+
+type MarkObligationCompletedParams struct {
+	TenantID     pgtype.UUID
+	ObligationID pgtype.UUID
+}
+
+// SM-5: mark an obligation completed on accepted verification. Idempotent: a row already terminal
+// (completed/missed/waived/canceled/superseded) is not matched, so a re-run completes nothing.
+func (q *Queries) MarkObligationCompleted(ctx context.Context, arg MarkObligationCompletedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markObligationCompleted, arg.TenantID, arg.ObligationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const reserveIdempotencyKey = `-- name: ReserveIdempotencyKey :one
 INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
 VALUES ($1, $2, $3, $4, 'started')

@@ -48,6 +48,15 @@ WHERE tenant_id = @tenant_id
   AND obligation_id = ANY(@obligation_ids::uuid[])
   AND batch_id IS NULL;
 
+-- name: MarkObligationCompleted :execrows
+-- SM-5: mark an obligation completed on accepted verification. Idempotent: a row already terminal
+-- (completed/missed/waived/canceled/superseded) is not matched, so a re-run completes nothing.
+UPDATE obligation_instances
+SET status = 'completed', completed_at = now(), row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = @tenant_id
+  AND obligation_id = @obligation_id
+  AND status IN ('scheduled', 'due', 'in_progress');
+
 -- name: CancelOpenObligationsForGoat :many
 -- SM-3: cancel a goat's still-open obligations on death/sale. Idempotent — completed/accepted/
 -- missed/already-canceled rows are not matched. Uses obligation_instances_target_idx.

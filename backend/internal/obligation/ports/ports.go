@@ -33,6 +33,10 @@ type Repository interface {
 	ListUnbatchedDueForVersion(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32) ([]domain.UnbatchedDue, error)
 	AttachObligationsToBatch(ctx context.Context, tenantID, batchID string, obligationIDs []string) (int64, error)
 
+	// MarkCompleted marks an obligation completed (SM-5) + writes a 'completed' event, in one txn.
+	// Returns false (no-op) when already terminal. Idempotent.
+	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
+
 	// CancelOpenForGoat cancels a goat's scheduled/due obligations (SM-3) + writes 'canceled'
 	// events, in one txn. Idempotent; completed/accepted history untouched. Returns count canceled.
 	CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error)
