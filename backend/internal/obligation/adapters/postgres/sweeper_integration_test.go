@@ -84,8 +84,8 @@ func TestSM4bSpawnsSopTaskPerBatch(t *testing.T) {
 		t.Fatalf("get version: %v", err)
 	}
 	creator := &rawTaskCreator{pool: pool}
-	sweep := oblapp.NewSweeperService(repo, creator)
-	res, err := sweep.SweepVersion(ctx, tenantID, versionID, v.SopVersionID, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	sweep := oblapp.NewSweeperService(repo, creator, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{SOPVersionID: v.SopVersionID}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestSM4bSpawnsSopTaskPerBatch(t *testing.T) {
 	}
 
 	// Idempotent re-sweep: no new batches, no new tasks.
-	res2, err := sweep.SweepVersion(ctx, tenantID, versionID, v.SopVersionID, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	res2, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{SOPVersionID: v.SopVersionID}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("re-sweep: %v", err)
 	}
@@ -154,8 +154,8 @@ func TestSM4SweeperBatchesByScope(t *testing.T) {
 	ins(cbePark, 2, "o2")
 	ins(cpt, 1, "o3")
 
-	sweep := oblapp.NewSweeperService(repo, nil)
-	res, err := sweep.SweepVersion(ctx, tenantID, versionID, "", time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestSM4SweeperBatchesByScope(t *testing.T) {
 		t.Fatalf("expected 2 batches, got %d", got)
 	}
 
-	res2, err := sweep.SweepVersion(ctx, tenantID, versionID, "", time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	res2, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("re-sweep: %v", err)
 	}

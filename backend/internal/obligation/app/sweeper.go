@@ -14,23 +14,37 @@ type TaskCreator interface {
 	CreateTaskForBatch(ctx context.Context, tenantID, sopVersionID, taskType, title, scopeType, scopeID string) (taskID string, err error)
 }
 
-// SweeperService implements SM-4 batching: collect unbatched due obligations for a version, group
-// them by scope (shed/park), spawn one SOP task per batch, and create one batch per scope attaching
-// its obligations. Idempotent: a re-sweep finds no unbatched rows → no new batches/tasks.
-type SweeperService struct {
-	repo  ports.Repository
-	tasks TaskCreator
-	page  int32
+// StockReserver reserves doses for a batch (FEFO). Satisfied by the inventory app service; nil
+// disables reserve. Best-effort: no stock is a no-op.
+type StockReserver interface {
+	ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64) error
 }
 
-// NewSweeperService constructs the sweeper. tasks may be nil to skip SOP task spawn.
-func NewSweeperService(repo ports.Repository, tasks TaskCreator) *SweeperService {
-	return &SweeperService{repo: repo, tasks: tasks, page: 1000}
+// SweepConfig carries the per-version batch config resolved by the caller from the protocol version:
+// the SOP to instantiate, the vaccine item to reserve, and doses per goat.
+type SweepConfig struct {
+	SOPVersionID  string
+	VaccineItemID string
+	DosesPerGoat  int32
+}
+
+// SweeperService implements SM-4 batching: collect unbatched due obligations for a version, group
+// them by scope (shed/park), spawn one SOP task per batch, reserve stock, and create one batch per
+// scope attaching its obligations. Idempotent: a re-sweep finds no unbatched rows → no new work.
+type SweeperService struct {
+	repo     ports.Repository
+	tasks    TaskCreator
+	reserver StockReserver
+	page     int32
+}
+
+// NewSweeperService constructs the sweeper. tasks/reserver may be nil to skip spawn/reserve.
+func NewSweeperService(repo ports.Repository, tasks TaskCreator, reserver StockReserver) *SweeperService {
+	return &SweeperService{repo: repo, tasks: tasks, reserver: reserver, page: 1000}
 }
 
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
-// sopVersionID (the version's SOP) drives task spawn; "" or a nil TaskCreator skips it.
-func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID, sopVersionID string, dueBefore time.Time) (domain.SweepResult, error) {
+func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	for {
 		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
@@ -63,8 +77,8 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID, 
 		for _, k := range order {
 			g := groups[k]
 			var sopTaskID *string
-			if s.tasks != nil && sopVersionID != "" {
-				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, sopVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
+			if s.tasks != nil && cfg.SOPVersionID != "" {
+				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
 				if err != nil {
 					return res, err
 				}
@@ -81,6 +95,16 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID, 
 			})
 			if err != nil {
 				return res, err
+			}
+			if s.reserver != nil && cfg.VaccineItemID != "" {
+				dosesPer := cfg.DosesPerGoat
+				if dosesPer < 1 {
+					dosesPer = 1
+				}
+				qty := int64(len(g.ids)) * int64(dosesPer)
+				if err := s.reserver.ReserveForBatch(ctx, tenantID, batchID, g.scopeID, cfg.VaccineItemID, qty); err != nil {
+					return res, err
+				}
 			}
 			n, err := s.repo.AttachObligationsToBatch(ctx, tenantID, batchID, g.ids)
 			if err != nil {
