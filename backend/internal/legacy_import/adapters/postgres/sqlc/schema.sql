@@ -17,6 +17,13 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: btree_gist; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
+
+
+--
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -260,6 +267,133 @@ $$;
 
 
 --
+-- Name: validate_location_profile_type(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_location_profile_type() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  expected_type text := TG_ARGV[0];
+  found_type text;
+BEGIN
+  SELECT location_type
+    INTO found_type
+    FROM locations
+    WHERE tenant_id = NEW.tenant_id
+      AND location_id = NEW.location_id;
+
+  IF found_type IS NULL THEN
+    RAISE EXCEPTION 'location % does not exist for tenant %', NEW.location_id, NEW.tenant_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  IF found_type <> expected_type THEN
+    RAISE EXCEPTION 'profile expects location_type % but location % is %', expected_type, NEW.location_id, found_type
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_obligation_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_obligation_scope() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  found_type text;
+BEGIN
+  IF NEW.scope_type = 'tenant' THEN
+    IF NEW.scope_id <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'tenant scope must use tenant_id as scope_id'
+        USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.scope_type = 'custodian_party' THEN
+    IF NOT EXISTS (SELECT 1 FROM parties WHERE party_id = NEW.scope_id) THEN
+      RAISE EXCEPTION 'custodian party scope % does not exist', NEW.scope_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  SELECT location_type
+    INTO found_type
+    FROM locations
+    WHERE tenant_id = NEW.tenant_id
+      AND location_id = NEW.scope_id;
+
+  IF found_type IS NULL THEN
+    RAISE EXCEPTION 'location scope % does not exist for tenant %', NEW.scope_id, NEW.tenant_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  IF found_type <> NEW.scope_type THEN
+    RAISE EXCEPTION 'scope type % does not match location type % for scope %', NEW.scope_type, found_type, NEW.scope_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_obligation_target(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_obligation_target() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  found_type text;
+BEGIN
+  IF NEW.target_type = 'tenant' THEN
+    IF NEW.target_id <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'tenant target must use tenant_id as target_id'
+        USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.target_type = 'goat' THEN
+    IF NOT EXISTS (SELECT 1 FROM goats WHERE tenant_id = NEW.tenant_id AND goat_id = NEW.target_id) THEN
+      RAISE EXCEPTION 'goat target % does not exist for tenant %', NEW.target_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- park / shed / cohort
+  SELECT location_type
+    INTO found_type
+    FROM locations
+    WHERE tenant_id = NEW.tenant_id
+      AND location_id = NEW.target_id;
+
+  IF found_type IS NULL THEN
+    RAISE EXCEPTION 'location target % does not exist for tenant %', NEW.target_id, NEW.tenant_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  IF found_type <> NEW.target_type THEN
+    RAISE EXCEPTION 'target type % does not match location type % for target %', NEW.target_type, found_type, NEW.target_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: validate_outbox_event_tenant(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -289,6 +423,41 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'outbox event % does not exist for tenant %', NEW.event_id, NEW.tenant_id
       USING ERRCODE = '23503';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_protocol_version_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_protocol_version_scope() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  found_type text;
+BEGIN
+  IF NEW.scope_type = 'tenant' THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT location_type
+    INTO found_type
+    FROM locations
+    WHERE tenant_id = NEW.tenant_id
+      AND location_id = NEW.scope_id;
+
+  IF found_type IS NULL THEN
+    RAISE EXCEPTION 'protocol version park scope % does not exist for tenant %', NEW.scope_id, NEW.tenant_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  IF found_type <> 'park' THEN
+    RAISE EXCEPTION 'protocol version scope % must be a park, got %', NEW.scope_id, found_type
+      USING ERRCODE = '23514';
   END IF;
 
   RETURN NEW;
@@ -345,6 +514,28 @@ $$;
 
 SET default_tablespace = '';
 
+SET default_table_access_method = heap;
+
+--
+-- Name: animal_stage_lookup; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.animal_stage_lookup (
+    animal_stage_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    stage_code text NOT NULL,
+    name text NOT NULL,
+    min_age_days integer,
+    max_age_days integer,
+    sort_order integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT animal_stage_lookup_age_check CHECK (((min_age_days IS NULL) OR (max_age_days IS NULL) OR (max_age_days >= min_age_days))),
+    CONSTRAINT animal_stage_lookup_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+);
+
+
 --
 -- Name: audit_log; Type: TABLE; Schema: public; Owner: -
 --
@@ -369,8 +560,6 @@ CREATE TABLE public.audit_log (
 )
 PARTITION BY RANGE (recorded_at);
 
-
-SET default_table_access_method = heap;
 
 --
 -- Name: audit_log_2026_06; Type: TABLE; Schema: public; Owner: -
@@ -726,6 +915,26 @@ CREATE TABLE public.counts_sync_runs (
 
 
 --
+-- Name: farm_profiles; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.farm_profiles (
+    location_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    farm_kind text,
+    capacity integer,
+    notes text DEFAULT ''::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT farm_profiles_capacity_check CHECK (((capacity IS NULL) OR (capacity >= 0))),
+    CONSTRAINT farm_profiles_kind_check CHECK (((farm_kind IS NULL) OR (farm_kind = ANY (ARRAY['core'::text, 'holding'::text, 'contract'::text])))),
+    CONSTRAINT farm_profiles_row_version_check CHECK ((row_version >= 1))
+);
+
+
+--
 -- Name: feature_coverage_registry; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -852,9 +1061,18 @@ CREATE TABLE public.goats (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
+    dob date,
+    dob_estimated boolean DEFAULT true NOT NULL,
+    origin_type text,
+    entry_date date,
+    exited_at timestamp with time zone,
+    exit_reason text,
     CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
+    CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
+    CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
     CONSTRAINT goats_identity_state_check CHECK ((identity_state = ANY (ARRAY['clean'::text, 'needs_review'::text, 'disputed'::text, 'merged'::text, 'inactive'::text]))),
     CONSTRAINT goats_merge_redirect_shape_check CHECK ((((identity_state = 'merged'::text) AND (merged_into_goat_id IS NOT NULL) AND (merged_into_goat_id <> goat_id)) OR ((identity_state <> 'merged'::text) AND (merged_into_goat_id IS NULL)))),
+    CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text, 'unknown'::text])))),
     CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT goats_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'unknown'::text])))),
     CONSTRAINT goats_source_confidence_check CHECK (((source_confidence IS NULL) OR ((source_confidence >= (0)::numeric) AND (source_confidence <= (1)::numeric)))),
@@ -1568,6 +1786,79 @@ CREATE TABLE public.identity_match_candidates (
 
 
 --
+-- Name: inventory_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inventory_items (
+    item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    item_code text NOT NULL,
+    name text NOT NULL,
+    category text NOT NULL,
+    base_unit text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT inventory_items_category_check CHECK ((category = ANY (ARRAY['vaccine'::text, 'dewormer'::text, 'medicine'::text, 'feed'::text, 'supplement'::text, 'consumable'::text, 'other'::text]))),
+    CONSTRAINT inventory_items_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT inventory_items_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: inventory_stock; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inventory_stock (
+    stock_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    item_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    lot_code text,
+    expiry_date date,
+    quantity_in_stock numeric DEFAULT 0 NOT NULL,
+    quantity_reserved numeric DEFAULT 0 NOT NULL,
+    quantity_unit text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT inventory_stock_qty_check CHECK ((quantity_in_stock >= (0)::numeric)),
+    CONSTRAINT inventory_stock_reserved_check CHECK ((quantity_reserved >= (0)::numeric)),
+    CONSTRAINT inventory_stock_reserved_le_check CHECK ((quantity_reserved <= quantity_in_stock)),
+    CONSTRAINT inventory_stock_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT inventory_stock_status_check CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'quarantined'::text, 'depleted'::text])))
+);
+
+
+--
+-- Name: inventory_stock_movements; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inventory_stock_movements (
+    movement_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    lot_id uuid NOT NULL,
+    item_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    movement_type text NOT NULL,
+    quantity numeric NOT NULL,
+    quantity_unit text NOT NULL,
+    batch_id uuid,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    reason text,
+    idempotency_key text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT inventory_stock_movements_quantity_check CHECK ((quantity > (0)::numeric)),
+    CONSTRAINT inventory_stock_movements_type_check CHECK ((movement_type = ANY (ARRAY['receive'::text, 'reserve'::text, 'consume'::text, 'release'::text, 'adjust'::text, 'expire'::text, 'transfer_out'::text, 'transfer_in'::text])))
+);
+
+
+--
 -- Name: legacy_import_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2207,6 +2498,260 @@ CREATE TABLE public.movement_commands (
 
 
 --
+-- Name: obligation_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_batches (
+    batch_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    session text,
+    planned_date date,
+    window_start timestamp with time zone,
+    window_end timestamp with time zone,
+    status text DEFAULT 'planned'::text NOT NULL,
+    estimated_targets integer DEFAULT 0 NOT NULL,
+    planned_quantity numeric,
+    reserved_quantity numeric DEFAULT 0 NOT NULL,
+    used_quantity numeric DEFAULT 0 NOT NULL,
+    quantity_unit text,
+    primary_inventory_lot_id uuid,
+    sop_task_id uuid,
+    conducted_by uuid,
+    proof_ref text,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT obligation_batches_reserved_check CHECK ((reserved_quantity >= (0)::numeric)),
+    CONSTRAINT obligation_batches_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT obligation_batches_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT obligation_batches_status_check CHECK ((status = ANY (ARRAY['planned'::text, 'in_progress'::text, 'completed'::text, 'superseded'::text, 'canceled'::text]))),
+    CONSTRAINT obligation_batches_used_check CHECK ((used_quantity >= (0)::numeric))
+);
+
+
+--
+-- Name: obligation_escalations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_escalations (
+    escalation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    level integer NOT NULL,
+    escalated_to_user_id uuid,
+    escalated_to_role text,
+    reason text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    opened_at timestamp with time zone DEFAULT now() NOT NULL,
+    acknowledged_at timestamp with time zone,
+    resolved_at timestamp with time zone,
+    CONSTRAINT obligation_escalations_level_check CHECK ((level >= 1)),
+    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
+    CONSTRAINT obligation_escalations_status_check CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'resolved'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: obligation_instances; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_instances (
+    obligation_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    rule_id uuid NOT NULL,
+    batch_id uuid,
+    target_type text NOT NULL,
+    target_id uuid NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    due_at timestamp with time zone NOT NULL,
+    window_start timestamp with time zone,
+    window_end timestamp with time zone,
+    status text DEFAULT 'scheduled'::text NOT NULL,
+    sop_task_id uuid,
+    idempotency_key text NOT NULL,
+    generated_by_trigger_id uuid,
+    sequence integer DEFAULT 1 NOT NULL,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT obligation_instances_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT obligation_instances_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
+    CONSTRAINT obligation_instances_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'canceled'::text, 'superseded'::text]))),
+    CONSTRAINT obligation_instances_target_type_check CHECK ((target_type = ANY (ARRAY['goat'::text, 'cohort'::text, 'shed'::text, 'park'::text, 'tenant'::text])))
+);
+
+
+--
+-- Name: obligation_status_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+)
+PARTITION BY RANGE (recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_06; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_2026_06 (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: obligation_status_events_2026_07; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_2026_07 (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: obligation_status_events_2026_08; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_2026_08 (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: obligation_status_events_2026_09; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_2026_09 (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: obligation_status_events_2026_10; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_2026_10 (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: obligation_status_events_2026_11; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_2026_11 (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: obligation_status_events_2026_12; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_2026_12 (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: obligation_status_events_default; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.obligation_status_events_default (
+    obligation_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    obligation_id uuid NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+);
+
+
+--
 -- Name: orgs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2252,6 +2797,25 @@ CREATE TABLE public.outbox_messages (
 
 
 --
+-- Name: park_profiles; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.park_profiles (
+    location_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_code text,
+    capacity integer,
+    notes text DEFAULT ''::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT park_profiles_capacity_check CHECK (((capacity IS NULL) OR (capacity >= 0))),
+    CONSTRAINT park_profiles_row_version_check CHECK ((row_version >= 1))
+);
+
+
+--
 -- Name: parties; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2264,6 +2828,150 @@ CREATE TABLE public.parties (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT parties_party_type_check CHECK ((party_type = ANY (ARRAY['org'::text, 'person'::text, 'token_pool'::text, 'system'::text]))),
     CONSTRAINT parties_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'review'::text])))
+);
+
+
+--
+-- Name: protocol_definitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.protocol_definitions (
+    protocol_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    code text NOT NULL,
+    name text NOT NULL,
+    category text NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT protocol_definitions_category_check CHECK ((category = ANY (ARRAY['vaccination'::text, 'deworming'::text, 'biosecurity'::text, 'feed_water_testing'::text, 'panel_cleaning'::text, 'sanitization'::text, 'fire_safety'::text, 'sop_video'::text, 'stock_check'::text, 'director_reporting'::text, 'feed_direction'::text]))),
+    CONSTRAINT protocol_definitions_code_format_check CHECK ((code ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'::text)),
+    CONSTRAINT protocol_definitions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT protocol_definitions_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: protocol_rules; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.protocol_rules (
+    rule_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    dose_code text NOT NULL,
+    sequence integer DEFAULT 1 NOT NULL,
+    trigger_type text NOT NULL,
+    offset_days integer DEFAULT 0 NOT NULL,
+    due_window_days integer DEFAULT 0 NOT NULL,
+    min_gap_days integer DEFAULT 0 NOT NULL,
+    repeat text DEFAULT 'none'::text NOT NULL,
+    repeat_until_after_age text,
+    catch_up text DEFAULT 'phc_approval'::text NOT NULL,
+    eligibility_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    sop_version_id uuid,
+    proof_policy jsonb DEFAULT '{}'::jsonb NOT NULL,
+    withdrawal_days integer,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT protocol_rules_catch_up_check CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'phc_approval'::text, 'defer'::text]))),
+    CONSTRAINT protocol_rules_gap_check CHECK ((min_gap_days >= 0)),
+    CONSTRAINT protocol_rules_offset_check CHECK ((offset_days >= 0)),
+    CONSTRAINT protocol_rules_repeat_check CHECK ((repeat = ANY (ARRAY['none'::text, 'every_n_days'::text, 'yearly'::text, 'until_age'::text, 'after_age'::text]))),
+    CONSTRAINT protocol_rules_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['birth_age'::text, 'post_arrival'::text, 'calendar'::text, 'after_previous_completion'::text, 'manual_campaign'::text]))),
+    CONSTRAINT protocol_rules_window_check CHECK ((due_window_days >= 0))
+);
+
+
+--
+-- Name: protocol_triggers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.protocol_triggers (
+    trigger_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    trigger_type text NOT NULL,
+    trigger_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT protocol_triggers_type_check CHECK ((trigger_type = ANY (ARRAY['schedule'::text, 'goat_lifecycle'::text, 'location_event'::text, 'manual'::text, 'upstream_completion'::text])))
+);
+
+
+--
+-- Name: protocol_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.protocol_versions (
+    protocol_version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_id uuid NOT NULL,
+    scope_type text DEFAULT 'tenant'::text NOT NULL,
+    scope_id uuid,
+    version integer NOT NULL,
+    version_label text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    effective_from date NOT NULL,
+    effective_to date,
+    rule_dsl jsonb DEFAULT '{}'::jsonb NOT NULL,
+    proof_policy jsonb DEFAULT '{}'::jsonb NOT NULL,
+    sop_version_id uuid,
+    drafted_by uuid,
+    published_by uuid,
+    published_at timestamp with time zone,
+    retired_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT protocol_versions_effective_range_check CHECK (((effective_to IS NULL) OR (effective_to > effective_from))),
+    CONSTRAINT protocol_versions_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT protocol_versions_scope_shape_check CHECK ((((scope_type = 'tenant'::text) AND (scope_id IS NULL)) OR ((scope_type = 'park'::text) AND (scope_id IS NOT NULL)))),
+    CONSTRAINT protocol_versions_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'park'::text]))),
+    CONSTRAINT protocol_versions_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'retired'::text]))),
+    CONSTRAINT protocol_versions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: shed_lifecycle_status_lookup; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shed_lifecycle_status_lookup (
+    shed_lifecycle_status_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    status_code text NOT NULL,
+    name text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT shed_lifecycle_status_lookup_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: shed_profiles; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shed_profiles (
+    location_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    animal_stage_id uuid,
+    shed_lifecycle_status_id uuid,
+    sex text,
+    capacity integer,
+    has_icu boolean DEFAULT false NOT NULL,
+    notes text DEFAULT ''::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT shed_profiles_capacity_check CHECK (((capacity IS NULL) OR (capacity >= 0))),
+    CONSTRAINT shed_profiles_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT shed_profiles_sex_check CHECK (((sex IS NULL) OR (sex = ANY (ARRAY['female'::text, 'male'::text, 'mixed'::text]))))
 );
 
 
@@ -2457,6 +3165,46 @@ CREATE TABLE public.user_scope_grants (
     CONSTRAINT user_scope_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
     CONSTRAINT user_scope_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
 );
+
+
+--
+-- Name: vaccines; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccines (
+    vaccine_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    item_id uuid NOT NULL,
+    disease text,
+    manufacturer text,
+    doses_per_vial integer,
+    withdrawal_days integer,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccines_doses_check CHECK (((doses_per_vial IS NULL) OR (doses_per_vial > 0))),
+    CONSTRAINT vaccines_withdrawal_check CHECK (((withdrawal_days IS NULL) OR (withdrawal_days >= 0)))
+);
+
+
+--
+-- Name: vw_goat_tagging; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vw_goat_tagging AS
+ SELECT tenant_id,
+    goat_id,
+    identifier_id,
+    identifier_type,
+    identifier_value,
+    normalized_value,
+    scope_key,
+    is_primary_for_goat,
+    status,
+    valid_from,
+    valid_to
+   FROM public.goat_identifiers gi
+  WHERE (status = 'active'::text);
 
 
 --
@@ -2738,6 +3486,86 @@ ALTER TABLE ONLY public.goat_identity_events ATTACH PARTITION public.goat_identi
 
 
 --
+-- Name: obligation_status_events_2026_06; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_06 FOR VALUES FROM ('2026-06-01 00:00:00+00') TO ('2026-07-01 00:00:00+00');
+
+
+--
+-- Name: obligation_status_events_2026_07; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_07 FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00');
+
+
+--
+-- Name: obligation_status_events_2026_08; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_08 FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01 00:00:00+00');
+
+
+--
+-- Name: obligation_status_events_2026_09; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_09 FOR VALUES FROM ('2026-09-01 00:00:00+00') TO ('2026-10-01 00:00:00+00');
+
+
+--
+-- Name: obligation_status_events_2026_10; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_10 FOR VALUES FROM ('2026-10-01 00:00:00+00') TO ('2026-11-01 00:00:00+00');
+
+
+--
+-- Name: obligation_status_events_2026_11; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_11 FOR VALUES FROM ('2026-11-01 00:00:00+00') TO ('2026-12-01 00:00:00+00');
+
+
+--
+-- Name: obligation_status_events_2026_12; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_2026_12 FOR VALUES FROM ('2026-12-01 00:00:00+00') TO ('2027-01-01 00:00:00+00');
+
+
+--
+-- Name: obligation_status_events_default; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligation_status_events_default DEFAULT;
+
+
+--
+-- Name: animal_stage_lookup animal_stage_lookup_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.animal_stage_lookup
+    ADD CONSTRAINT animal_stage_lookup_code_unique UNIQUE (tenant_id, stage_code);
+
+
+--
+-- Name: animal_stage_lookup animal_stage_lookup_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.animal_stage_lookup
+    ADD CONSTRAINT animal_stage_lookup_pkey PRIMARY KEY (animal_stage_id);
+
+
+--
+-- Name: animal_stage_lookup animal_stage_lookup_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.animal_stage_lookup
+    ADD CONSTRAINT animal_stage_lookup_tenant_id_unique UNIQUE (tenant_id, animal_stage_id);
+
+
+--
 -- Name: audit_log audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2863,6 +3691,14 @@ ALTER TABLE ONLY public.counts_source_rows
 
 ALTER TABLE ONLY public.counts_sync_runs
     ADD CONSTRAINT counts_sync_runs_pkey PRIMARY KEY (sync_run_id);
+
+
+--
+-- Name: farm_profiles farm_profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.farm_profiles
+    ADD CONSTRAINT farm_profiles_pkey PRIMARY KEY (location_id);
 
 
 --
@@ -3058,6 +3894,22 @@ ALTER TABLE ONLY public.goats
 
 
 --
+-- Name: goats goats_health_status_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.goats
+    ADD CONSTRAINT goats_health_status_check CHECK (((health_status IS NULL) OR (health_status = ANY (ARRAY['healthy'::text, 'sick'::text, 'under_treatment'::text, 'recovering'::text, 'quarantine'::text, 'icu'::text])))) NOT VALID;
+
+
+--
+-- Name: goats goats_lifecycle_status_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.goats
+    ADD CONSTRAINT goats_lifecycle_status_check CHECK ((lifecycle_status = ANY (ARRAY['alive'::text, 'sick'::text, 'under_treatment'::text, 'quarantine'::text, 'icu'::text, 'dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text]))) NOT VALID;
+
+
+--
 -- Name: goats goats_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3191,6 +4043,70 @@ ALTER TABLE ONLY public.identity_decisions
 
 ALTER TABLE ONLY public.identity_match_candidates
     ADD CONSTRAINT identity_match_candidates_pkey PRIMARY KEY (candidate_id);
+
+
+--
+-- Name: inventory_items inventory_items_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_items
+    ADD CONSTRAINT inventory_items_code_unique UNIQUE (tenant_id, item_code);
+
+
+--
+-- Name: inventory_items inventory_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_items
+    ADD CONSTRAINT inventory_items_pkey PRIMARY KEY (item_id);
+
+
+--
+-- Name: inventory_items inventory_items_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_items
+    ADD CONSTRAINT inventory_items_tenant_id_unique UNIQUE (tenant_id, item_id);
+
+
+--
+-- Name: inventory_stock inventory_stock_lot_identity_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock
+    ADD CONSTRAINT inventory_stock_lot_identity_unique UNIQUE (tenant_id, stock_id, item_id, location_id);
+
+
+--
+-- Name: inventory_stock_movements inventory_stock_movements_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock_movements
+    ADD CONSTRAINT inventory_stock_movements_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: inventory_stock_movements inventory_stock_movements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock_movements
+    ADD CONSTRAINT inventory_stock_movements_pkey PRIMARY KEY (movement_id);
+
+
+--
+-- Name: inventory_stock inventory_stock_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock
+    ADD CONSTRAINT inventory_stock_pkey PRIMARY KEY (stock_id);
+
+
+--
+-- Name: inventory_stock inventory_stock_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock
+    ADD CONSTRAINT inventory_stock_tenant_id_unique UNIQUE (tenant_id, stock_id);
 
 
 --
@@ -3426,6 +4342,134 @@ ALTER TABLE ONLY public.movement_commands
 
 
 --
+-- Name: obligation_batches obligation_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_batches
+    ADD CONSTRAINT obligation_batches_pkey PRIMARY KEY (batch_id);
+
+
+--
+-- Name: obligation_batches obligation_batches_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_batches
+    ADD CONSTRAINT obligation_batches_tenant_id_unique UNIQUE (tenant_id, batch_id);
+
+
+--
+-- Name: obligation_escalations obligation_escalations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_escalations
+    ADD CONSTRAINT obligation_escalations_pkey PRIMARY KEY (escalation_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_dup_guard; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_dup_guard UNIQUE NULLS NOT DISTINCT (tenant_id, protocol_version_id, rule_id, target_type, target_id, due_at);
+
+
+--
+-- Name: obligation_instances obligation_instances_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_instances obligation_instances_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_pkey PRIMARY KEY (obligation_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_tenant_id_unique UNIQUE (tenant_id, obligation_id);
+
+
+--
+-- Name: obligation_status_events obligation_status_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events
+    ADD CONSTRAINT obligation_status_events_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_06 obligation_status_events_2026_06_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_2026_06
+    ADD CONSTRAINT obligation_status_events_2026_06_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_07 obligation_status_events_2026_07_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_2026_07
+    ADD CONSTRAINT obligation_status_events_2026_07_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_08 obligation_status_events_2026_08_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_2026_08
+    ADD CONSTRAINT obligation_status_events_2026_08_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_09 obligation_status_events_2026_09_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_2026_09
+    ADD CONSTRAINT obligation_status_events_2026_09_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_10 obligation_status_events_2026_10_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_2026_10
+    ADD CONSTRAINT obligation_status_events_2026_10_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_11 obligation_status_events_2026_11_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_2026_11
+    ADD CONSTRAINT obligation_status_events_2026_11_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_2026_12 obligation_status_events_2026_12_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_2026_12
+    ADD CONSTRAINT obligation_status_events_2026_12_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
+-- Name: obligation_status_events_default obligation_status_events_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events_default
+    ADD CONSTRAINT obligation_status_events_default_pkey PRIMARY KEY (obligation_event_id, recorded_at);
+
+
+--
 -- Name: orgs orgs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3450,11 +4494,147 @@ ALTER TABLE ONLY public.outbox_messages
 
 
 --
+-- Name: park_profiles park_profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.park_profiles
+    ADD CONSTRAINT park_profiles_pkey PRIMARY KEY (location_id);
+
+
+--
 -- Name: parties parties_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.parties
     ADD CONSTRAINT parties_pkey PRIMARY KEY (party_id);
+
+
+--
+-- Name: protocol_definitions protocol_definitions_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_definitions
+    ADD CONSTRAINT protocol_definitions_code_unique UNIQUE (tenant_id, code);
+
+
+--
+-- Name: protocol_definitions protocol_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_definitions
+    ADD CONSTRAINT protocol_definitions_pkey PRIMARY KEY (protocol_id);
+
+
+--
+-- Name: protocol_definitions protocol_definitions_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_definitions
+    ADD CONSTRAINT protocol_definitions_tenant_id_unique UNIQUE (tenant_id, protocol_id);
+
+
+--
+-- Name: protocol_rules protocol_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rules
+    ADD CONSTRAINT protocol_rules_pkey PRIMARY KEY (rule_id);
+
+
+--
+-- Name: protocol_rules protocol_rules_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rules
+    ADD CONSTRAINT protocol_rules_tenant_id_unique UNIQUE (tenant_id, rule_id);
+
+
+--
+-- Name: protocol_rules protocol_rules_version_dose_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rules
+    ADD CONSTRAINT protocol_rules_version_dose_unique UNIQUE (tenant_id, protocol_version_id, dose_code);
+
+
+--
+-- Name: protocol_triggers protocol_triggers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_triggers
+    ADD CONSTRAINT protocol_triggers_pkey PRIMARY KEY (trigger_id);
+
+
+--
+-- Name: protocol_triggers protocol_triggers_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_triggers
+    ADD CONSTRAINT protocol_triggers_tenant_id_unique UNIQUE (tenant_id, trigger_id);
+
+
+--
+-- Name: protocol_versions protocol_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_versions
+    ADD CONSTRAINT protocol_versions_pkey PRIMARY KEY (protocol_version_id);
+
+
+--
+-- Name: protocol_versions protocol_versions_published_no_overlap; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_versions
+    ADD CONSTRAINT protocol_versions_published_no_overlap EXCLUDE USING gist (tenant_id WITH =, protocol_id WITH =, scope_type WITH =, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid) WITH =, daterange(effective_from, effective_to, '[)'::text) WITH &&) WHERE ((status = 'published'::text));
+
+
+--
+-- Name: protocol_versions protocol_versions_scope_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_versions
+    ADD CONSTRAINT protocol_versions_scope_version_unique UNIQUE NULLS NOT DISTINCT (tenant_id, protocol_id, scope_type, scope_id, version);
+
+
+--
+-- Name: protocol_versions protocol_versions_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_versions
+    ADD CONSTRAINT protocol_versions_tenant_id_unique UNIQUE (tenant_id, protocol_version_id);
+
+
+--
+-- Name: shed_lifecycle_status_lookup shed_lifecycle_status_lookup_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_lifecycle_status_lookup
+    ADD CONSTRAINT shed_lifecycle_status_lookup_code_unique UNIQUE (tenant_id, status_code);
+
+
+--
+-- Name: shed_lifecycle_status_lookup shed_lifecycle_status_lookup_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_lifecycle_status_lookup
+    ADD CONSTRAINT shed_lifecycle_status_lookup_pkey PRIMARY KEY (shed_lifecycle_status_id);
+
+
+--
+-- Name: shed_lifecycle_status_lookup shed_lifecycle_status_lookup_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_lifecycle_status_lookup
+    ADD CONSTRAINT shed_lifecycle_status_lookup_tenant_id_unique UNIQUE (tenant_id, shed_lifecycle_status_id);
+
+
+--
+-- Name: shed_profiles shed_profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_profiles
+    ADD CONSTRAINT shed_profiles_pkey PRIMARY KEY (location_id);
 
 
 --
@@ -3490,11 +4670,27 @@ ALTER TABLE ONLY public.sop_tasks
 
 
 --
+-- Name: sop_tasks sop_tasks_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_tasks
+    ADD CONSTRAINT sop_tasks_tenant_id_unique UNIQUE (tenant_id, task_id);
+
+
+--
 -- Name: sop_versions sop_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.sop_versions
     ADD CONSTRAINT sop_versions_pkey PRIMARY KEY (sop_version_id);
+
+
+--
+-- Name: sop_versions sop_versions_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_versions
+    ADD CONSTRAINT sop_versions_tenant_id_unique UNIQUE (tenant_id, sop_version_id);
 
 
 --
@@ -3519,6 +4715,22 @@ ALTER TABLE ONLY public.tenants
 
 ALTER TABLE ONLY public.user_scope_grants
     ADD CONSTRAINT user_scope_grants_pkey PRIMARY KEY (grant_id);
+
+
+--
+-- Name: vaccines vaccines_item_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccines
+    ADD CONSTRAINT vaccines_item_unique UNIQUE (tenant_id, item_id);
+
+
+--
+-- Name: vaccines vaccines_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccines
+    ADD CONSTRAINT vaccines_pkey PRIMARY KEY (vaccine_id);
 
 
 --
@@ -4510,6 +5722,20 @@ CREATE INDEX identity_match_candidates_queue_idx ON public.identity_match_candid
 
 
 --
+-- Name: inventory_stock_fefo_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX inventory_stock_fefo_idx ON public.inventory_stock USING btree (tenant_id, location_id, item_id, expiry_date) WHERE (quantity_in_stock > (0)::numeric);
+
+
+--
+-- Name: inventory_stock_movements_lot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX inventory_stock_movements_lot_idx ON public.inventory_stock_movements USING btree (tenant_id, lot_id, occurred_at);
+
+
+--
 -- Name: legacy_import_rows_matched_goat_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4895,6 +6121,237 @@ CREATE INDEX movement_commands_task_idx ON public.movement_commands USING btree 
 
 
 --
+-- Name: obligation_batches_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_batches_scope_idx ON public.obligation_batches USING btree (tenant_id, scope_type, scope_id, status);
+
+
+--
+-- Name: obligation_escalations_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_escalations_status_idx ON public.obligation_escalations USING btree (tenant_id, status, level);
+
+
+--
+-- Name: obligation_instances_batch_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_instances_batch_idx ON public.obligation_instances USING btree (tenant_id, batch_id, status);
+
+
+--
+-- Name: obligation_instances_due_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_instances_due_window_idx ON public.obligation_instances USING btree (tenant_id, status, due_at, obligation_id);
+
+
+--
+-- Name: obligation_instances_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_instances_scope_idx ON public.obligation_instances USING btree (tenant_id, scope_type, scope_id, status, due_at);
+
+
+--
+-- Name: obligation_instances_target_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_instances_target_idx ON public.obligation_instances USING btree (tenant_id, target_type, target_id, status);
+
+
+--
+-- Name: obligation_status_events_obligation_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_obligation_idx ON ONLY public.obligation_status_events USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_06_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_06_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_06 USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_idempotency_idx ON ONLY public.obligation_status_events USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_2026_06_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_06_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_06 USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_2026_07_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_07_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_07 USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_07_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_07_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_07 USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_2026_08_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_08_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_08 USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_08_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_08_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_08 USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_2026_09_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_09_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_09 USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_09_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_09_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_09 USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_2026_10_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_10_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_10 USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_10_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_10_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_10 USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_2026_11_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_11_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_11 USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_11_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_11_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_11 USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_2026_12_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_12_obligation_id_occurred_at_idx ON public.obligation_status_events_2026_12 USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_12_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_12_tenant_id_idempotency_key_idx ON public.obligation_status_events_2026_12 USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: obligation_status_events_tenant_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_tenant_type_recorded_idx ON ONLY public.obligation_status_events USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx1 ON public.obligation_status_events_2026_07 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx2 ON public.obligation_status_events_2026_08 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx3; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx3 ON public.obligation_status_events_2026_09 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx4; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx4 ON public.obligation_status_events_2026_10 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx5; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx5 ON public.obligation_status_events_2026_11 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx6; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorde_idx6 ON public.obligation_status_events_2026_12 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_2026_tenant_id_event_type_recorded_idx ON public.obligation_status_events_2026_06 USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_defa_tenant_id_event_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_defa_tenant_id_event_type_recorded_idx ON public.obligation_status_events_default USING btree (tenant_id, event_type, recorded_at DESC);
+
+
+--
+-- Name: obligation_status_events_default_obligation_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_default_obligation_id_occurred_at_idx ON public.obligation_status_events_default USING btree (obligation_id, occurred_at DESC);
+
+
+--
+-- Name: obligation_status_events_default_tenant_id_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_default_tenant_id_idempotency_key_idx ON public.obligation_status_events_default USING btree (tenant_id, idempotency_key);
+
+
+--
 -- Name: outbox_messages_aggregate_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4913,6 +6370,34 @@ CREATE INDEX outbox_messages_created_at_idx ON public.outbox_messages USING btre
 --
 
 CREATE INDEX outbox_messages_status_next_attempt_idx ON public.outbox_messages USING btree (status, next_attempt_at, created_at);
+
+
+--
+-- Name: protocol_rules_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX protocol_rules_version_idx ON public.protocol_rules USING btree (tenant_id, protocol_version_id, sort_order);
+
+
+--
+-- Name: protocol_triggers_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX protocol_triggers_version_idx ON public.protocol_triggers USING btree (tenant_id, protocol_version_id, is_active);
+
+
+--
+-- Name: protocol_versions_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX protocol_versions_lookup_idx ON public.protocol_versions USING btree (tenant_id, protocol_id, status, effective_from);
+
+
+--
+-- Name: shed_profiles_animal_stage_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shed_profiles_animal_stage_idx ON public.shed_profiles USING btree (animal_stage_id);
 
 
 --
@@ -5574,6 +7059,237 @@ ALTER INDEX public.goat_identity_events_tenant_recorded_at_idx ATTACH PARTITION 
 
 
 --
+-- Name: obligation_status_events_2026_06_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_06_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_2026_06_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_06_pkey;
+
+
+--
+-- Name: obligation_status_events_2026_06_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_06_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: obligation_status_events_2026_07_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_07_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_2026_07_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_07_pkey;
+
+
+--
+-- Name: obligation_status_events_2026_07_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_07_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: obligation_status_events_2026_08_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_08_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_2026_08_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_08_pkey;
+
+
+--
+-- Name: obligation_status_events_2026_08_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_08_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: obligation_status_events_2026_09_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_09_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_2026_09_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_09_pkey;
+
+
+--
+-- Name: obligation_status_events_2026_09_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_09_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: obligation_status_events_2026_10_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_10_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_2026_10_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_10_pkey;
+
+
+--
+-- Name: obligation_status_events_2026_10_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_10_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: obligation_status_events_2026_11_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_11_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_2026_11_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_11_pkey;
+
+
+--
+-- Name: obligation_status_events_2026_11_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_11_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: obligation_status_events_2026_12_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_2026_12_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_2026_12_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_2026_12_pkey;
+
+
+--
+-- Name: obligation_status_events_2026_12_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_2026_12_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx1;
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx2;
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx3; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx3;
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx4; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx4;
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx5; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx5;
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorde_idx6; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorde_idx6;
+
+
+--
+-- Name: obligation_status_events_2026_tenant_id_event_type_recorded_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_2026_tenant_id_event_type_recorded_idx;
+
+
+--
+-- Name: obligation_status_events_defa_tenant_id_event_type_recorded_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_tenant_type_recorded_idx ATTACH PARTITION public.obligation_status_events_defa_tenant_id_event_type_recorded_idx;
+
+
+--
+-- Name: obligation_status_events_default_obligation_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_obligation_idx ATTACH PARTITION public.obligation_status_events_default_obligation_id_occurred_at_idx;
+
+
+--
+-- Name: obligation_status_events_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_pkey ATTACH PARTITION public.obligation_status_events_default_pkey;
+
+
+--
+-- Name: obligation_status_events_default_tenant_id_idempotency_key_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION public.obligation_status_events_default_tenant_id_idempotency_key_idx;
+
+
+--
+-- Name: farm_profiles farm_profiles_validate_type_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER farm_profiles_validate_type_trg BEFORE INSERT OR UPDATE OF tenant_id, location_id ON public.farm_profiles FOR EACH ROW EXECUTE FUNCTION public.validate_location_profile_type('farm');
+
+
+--
 -- Name: goat_custody_history goat_custody_history_block_merged_goat_child_write_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5679,6 +7395,27 @@ CREATE TRIGGER locations_seeded_scope_guard_update_trg BEFORE UPDATE OF location
 
 
 --
+-- Name: obligation_batches obligation_batches_validate_scope_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER obligation_batches_validate_scope_trg BEFORE INSERT OR UPDATE OF tenant_id, scope_type, scope_id ON public.obligation_batches FOR EACH ROW EXECUTE FUNCTION public.validate_obligation_scope();
+
+
+--
+-- Name: obligation_instances obligation_instances_validate_scope_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER obligation_instances_validate_scope_trg BEFORE INSERT OR UPDATE OF tenant_id, scope_type, scope_id ON public.obligation_instances FOR EACH ROW EXECUTE FUNCTION public.validate_obligation_scope();
+
+
+--
+-- Name: obligation_instances obligation_instances_validate_target_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER obligation_instances_validate_target_trg BEFORE INSERT OR UPDATE OF tenant_id, target_type, target_id ON public.obligation_instances FOR EACH ROW EXECUTE FUNCTION public.validate_obligation_target();
+
+
+--
 -- Name: outbox_messages outbox_messages_validate_event_tenant_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5686,10 +7423,39 @@ CREATE TRIGGER outbox_messages_validate_event_tenant_trg BEFORE INSERT OR UPDATE
 
 
 --
+-- Name: park_profiles park_profiles_validate_type_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER park_profiles_validate_type_trg BEFORE INSERT OR UPDATE OF tenant_id, location_id ON public.park_profiles FOR EACH ROW EXECUTE FUNCTION public.validate_location_profile_type('park');
+
+
+--
+-- Name: protocol_versions protocol_versions_validate_scope_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER protocol_versions_validate_scope_trg BEFORE INSERT OR UPDATE OF tenant_id, scope_type, scope_id ON public.protocol_versions FOR EACH ROW EXECUTE FUNCTION public.validate_protocol_version_scope();
+
+
+--
+-- Name: shed_profiles shed_profiles_validate_type_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER shed_profiles_validate_type_trg BEFORE INSERT OR UPDATE OF tenant_id, location_id ON public.shed_profiles FOR EACH ROW EXECUTE FUNCTION public.validate_location_profile_type('shed');
+
+
+--
 -- Name: user_scope_grants user_scope_grants_validate_scope_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER user_scope_grants_validate_scope_trg BEFORE INSERT OR UPDATE OF tenant_id, scope_type, scope_id ON public.user_scope_grants FOR EACH ROW EXECUTE FUNCTION public.validate_user_scope_grant();
+
+
+--
+-- Name: animal_stage_lookup animal_stage_lookup_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.animal_stage_lookup
+    ADD CONSTRAINT animal_stage_lookup_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -5850,6 +7616,30 @@ ALTER TABLE ONLY public.counts_source_rows
 
 ALTER TABLE ONLY public.counts_sync_runs
     ADD CONSTRAINT counts_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: farm_profiles farm_profiles_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.farm_profiles
+    ADD CONSTRAINT farm_profiles_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: farm_profiles farm_profiles_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.farm_profiles
+    ADD CONSTRAINT farm_profiles_location_tenant_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: farm_profiles farm_profiles_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.farm_profiles
+    ADD CONSTRAINT farm_profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -6837,6 +8627,62 @@ ALTER TABLE ONLY public.identity_match_candidates
 
 
 --
+-- Name: inventory_items inventory_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_items
+    ADD CONSTRAINT inventory_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: inventory_stock inventory_stock_item_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock
+    ADD CONSTRAINT inventory_stock_item_tenant_fk FOREIGN KEY (tenant_id, item_id) REFERENCES public.inventory_items(tenant_id, item_id);
+
+
+--
+-- Name: inventory_stock inventory_stock_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock
+    ADD CONSTRAINT inventory_stock_location_tenant_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: inventory_stock_movements inventory_stock_movements_batch_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock_movements
+    ADD CONSTRAINT inventory_stock_movements_batch_tenant_fk FOREIGN KEY (tenant_id, batch_id) REFERENCES public.obligation_batches(tenant_id, batch_id);
+
+
+--
+-- Name: inventory_stock_movements inventory_stock_movements_lot_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock_movements
+    ADD CONSTRAINT inventory_stock_movements_lot_tenant_fk FOREIGN KEY (tenant_id, lot_id, item_id, location_id) REFERENCES public.inventory_stock(tenant_id, stock_id, item_id, location_id);
+
+
+--
+-- Name: inventory_stock_movements inventory_stock_movements_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock_movements
+    ADD CONSTRAINT inventory_stock_movements_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: inventory_stock inventory_stock_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inventory_stock
+    ADD CONSTRAINT inventory_stock_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: legacy_import_policies legacy_import_policies_identifier_policy_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7269,6 +9115,118 @@ ALTER TABLE ONLY public.movement_commands
 
 
 --
+-- Name: obligation_batches obligation_batches_lot_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_batches
+    ADD CONSTRAINT obligation_batches_lot_tenant_fk FOREIGN KEY (tenant_id, primary_inventory_lot_id) REFERENCES public.inventory_stock(tenant_id, stock_id);
+
+
+--
+-- Name: obligation_batches obligation_batches_sop_task_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_batches
+    ADD CONSTRAINT obligation_batches_sop_task_tenant_fk FOREIGN KEY (tenant_id, sop_task_id) REFERENCES public.sop_tasks(tenant_id, task_id);
+
+
+--
+-- Name: obligation_batches obligation_batches_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_batches
+    ADD CONSTRAINT obligation_batches_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: obligation_batches obligation_batches_version_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_batches
+    ADD CONSTRAINT obligation_batches_version_tenant_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: obligation_escalations obligation_escalations_obligation_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_escalations
+    ADD CONSTRAINT obligation_escalations_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id) REFERENCES public.obligation_instances(tenant_id, obligation_id);
+
+
+--
+-- Name: obligation_escalations obligation_escalations_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_escalations
+    ADD CONSTRAINT obligation_escalations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_batch_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_batch_tenant_fk FOREIGN KEY (tenant_id, batch_id) REFERENCES public.obligation_batches(tenant_id, batch_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_rule_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_rule_tenant_fk FOREIGN KEY (tenant_id, rule_id) REFERENCES public.protocol_rules(tenant_id, rule_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_sop_task_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_sop_task_tenant_fk FOREIGN KEY (tenant_id, sop_task_id) REFERENCES public.sop_tasks(tenant_id, task_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_trigger_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_trigger_tenant_fk FOREIGN KEY (tenant_id, generated_by_trigger_id) REFERENCES public.protocol_triggers(tenant_id, trigger_id);
+
+
+--
+-- Name: obligation_instances obligation_instances_version_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_instances
+    ADD CONSTRAINT obligation_instances_version_tenant_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: obligation_status_events obligation_status_events_obligation_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.obligation_status_events
+    ADD CONSTRAINT obligation_status_events_obligation_tenant_fk FOREIGN KEY (tenant_id, obligation_id) REFERENCES public.obligation_instances(tenant_id, obligation_id);
+
+
+--
+-- Name: obligation_status_events obligation_status_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.obligation_status_events
+    ADD CONSTRAINT obligation_status_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: orgs orgs_party_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7282,6 +9240,150 @@ ALTER TABLE ONLY public.orgs
 
 ALTER TABLE ONLY public.outbox_messages
     ADD CONSTRAINT outbox_messages_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: park_profiles park_profiles_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.park_profiles
+    ADD CONSTRAINT park_profiles_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: park_profiles park_profiles_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.park_profiles
+    ADD CONSTRAINT park_profiles_location_tenant_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: park_profiles park_profiles_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.park_profiles
+    ADD CONSTRAINT park_profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: protocol_definitions protocol_definitions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_definitions
+    ADD CONSTRAINT protocol_definitions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: protocol_rules protocol_rules_sop_version_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rules
+    ADD CONSTRAINT protocol_rules_sop_version_tenant_fk FOREIGN KEY (tenant_id, sop_version_id) REFERENCES public.sop_versions(tenant_id, sop_version_id);
+
+
+--
+-- Name: protocol_rules protocol_rules_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rules
+    ADD CONSTRAINT protocol_rules_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: protocol_rules protocol_rules_version_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_rules
+    ADD CONSTRAINT protocol_rules_version_tenant_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: protocol_triggers protocol_triggers_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_triggers
+    ADD CONSTRAINT protocol_triggers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: protocol_triggers protocol_triggers_version_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_triggers
+    ADD CONSTRAINT protocol_triggers_version_tenant_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: protocol_versions protocol_versions_protocol_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_versions
+    ADD CONSTRAINT protocol_versions_protocol_tenant_fk FOREIGN KEY (tenant_id, protocol_id) REFERENCES public.protocol_definitions(tenant_id, protocol_id);
+
+
+--
+-- Name: protocol_versions protocol_versions_sop_version_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_versions
+    ADD CONSTRAINT protocol_versions_sop_version_tenant_fk FOREIGN KEY (tenant_id, sop_version_id) REFERENCES public.sop_versions(tenant_id, sop_version_id);
+
+
+--
+-- Name: protocol_versions protocol_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.protocol_versions
+    ADD CONSTRAINT protocol_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: shed_lifecycle_status_lookup shed_lifecycle_status_lookup_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_lifecycle_status_lookup
+    ADD CONSTRAINT shed_lifecycle_status_lookup_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: shed_profiles shed_profiles_animal_stage_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_profiles
+    ADD CONSTRAINT shed_profiles_animal_stage_tenant_fk FOREIGN KEY (tenant_id, animal_stage_id) REFERENCES public.animal_stage_lookup(tenant_id, animal_stage_id);
+
+
+--
+-- Name: shed_profiles shed_profiles_lifecycle_status_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_profiles
+    ADD CONSTRAINT shed_profiles_lifecycle_status_tenant_fk FOREIGN KEY (tenant_id, shed_lifecycle_status_id) REFERENCES public.shed_lifecycle_status_lookup(tenant_id, shed_lifecycle_status_id);
+
+
+--
+-- Name: shed_profiles shed_profiles_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_profiles
+    ADD CONSTRAINT shed_profiles_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: shed_profiles shed_profiles_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_profiles
+    ADD CONSTRAINT shed_profiles_location_tenant_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: shed_profiles shed_profiles_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shed_profiles
+    ADD CONSTRAINT shed_profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -7394,6 +9496,22 @@ ALTER TABLE ONLY public.sop_versions
 
 ALTER TABLE ONLY public.user_scope_grants
     ADD CONSTRAINT user_scope_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccines vaccines_item_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccines
+    ADD CONSTRAINT vaccines_item_tenant_fk FOREIGN KEY (tenant_id, item_id) REFERENCES public.inventory_items(tenant_id, item_id);
+
+
+--
+-- Name: vaccines vaccines_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccines
+    ADD CONSTRAINT vaccines_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

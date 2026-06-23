@@ -384,6 +384,61 @@ if [ "$checked_count" -ne "$declared_count" ]; then
   exit 1
 fi
 
+# --- Phase 0 protocol/obligation/inventory hot paths (million-goat scale) ---
+
+validate_obligation_due_window_plan() {
+  explain_must_use_index "ObligationDueWindow" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT obligation_id, due_at
+FROM obligation_instances
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND status = 'scheduled'
+  AND due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+ORDER BY due_at ASC, obligation_id ASC
+LIMIT 100;"
+}
+
+validate_obligation_scope_count_plan() {
+  explain_must_use_index "ObligationCountByScope" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND scope_type = 'park'
+  AND scope_id = '00000000-0000-4000-8000-000000003001'
+  AND status = 'scheduled';"
+}
+
+validate_inventory_fefo_plan() {
+  explain_must_use_index "InventoryFEFOPick" 'Seq Scan on inventory_stock' "EXPLAIN (COSTS OFF)
+SELECT stock_id, expiry_date
+FROM inventory_stock
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND location_id = '00000000-0000-4000-8000-000000003001'
+  AND item_id = '00000000-0000-4000-8000-0000000000bb'
+  AND quantity_in_stock > 0
+  AND quantity_in_stock > quantity_reserved
+ORDER BY expiry_date ASC NULLS LAST, stock_id ASC
+LIMIT 1;"
+}
+
+validate_inventory_movements_ledger_plan() {
+  explain_must_use_index "InventoryMovementsByLot" 'Seq Scan on inventory_stock_movements' "EXPLAIN (COSTS OFF)
+SELECT movement_id, occurred_at
+FROM inventory_stock_movements
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND lot_id = '00000000-0000-4000-8000-0000000000cc'
+ORDER BY occurred_at;"
+}
+
+validate_obligation_target_lookup_plan() {
+  explain_must_use_index "ObligationByTarget" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT obligation_id, status
+FROM obligation_instances
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND target_type = 'goat'
+  AND target_id = '00000000-0000-4000-8000-0000000000aa'
+  AND status = 'scheduled';"
+}
+
 validate_outbox_claim_plan
 validate_auth_grant_lookup_plan
 validate_import_run_reason_gin_probe_plan
@@ -392,5 +447,10 @@ validate_import_run_state_filter_plan
 validate_correction_request_actor_plan
 validate_correction_request_state_plan
 validate_herd_search_filter_plans
+validate_obligation_due_window_plan
+validate_obligation_scope_count_plan
+validate_inventory_fefo_plan
+validate_inventory_movements_ledger_plan
+validate_obligation_target_lookup_plan
 
-echo "Validated $checked_count generated sqlc query plans and 10 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 15 hand-written query plans"

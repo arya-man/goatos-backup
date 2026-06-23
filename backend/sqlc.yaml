@@ -42,3 +42,45 @@ sql:
         emit_db_tags: false
         emit_prepared_queries: false
         emit_interface: false
+  - engine: postgresql
+    schema: internal/protocol/adapters/postgres/sqlc/schema.sql
+    queries:
+      - internal/protocol/adapters/postgres/sqlc/query.sql
+      - internal/protocol/adapters/postgres/sqlc/commands.sql
+    gen:
+      go:
+        package: protocoldb
+        out: internal/protocol/adapters/postgres/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_db_tags: false
+        emit_prepared_queries: false
+        emit_interface: false
+  - engine: postgresql
+    schema: internal/obligation/adapters/postgres/sqlc/schema.sql
+    queries:
+      - internal/obligation/adapters/postgres/sqlc/query.sql
+      - internal/obligation/adapters/postgres/sqlc/commands.sql
+    gen:
+      go:
+        package: obligationdb
+        out: internal/obligation/adapters/postgres/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_db_tags: false
+        emit_prepared_queries: false
+        emit_interface: false
+  - engine: postgresql
+    schema: internal/inventory/adapters/postgres/sqlc/schema.sql
+    queries:
+      - internal/inventory/adapters/postgres/sqlc/query.sql
+      - internal/inventory/adapters/postgres/sqlc/commands.sql
+    gen:
+      go:
+        package: inventorydb
+        out: internal/inventory/adapters/postgres/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_db_tags: false
+        emit_prepared_queries: false
+        emit_interface: false

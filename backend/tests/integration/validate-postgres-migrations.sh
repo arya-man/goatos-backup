@@ -687,5 +687,86 @@ VALUES (
 "
 
 run_psql <<'SQL'
+\echo 'Seeding Phase 0 protocol/inventory fixtures (positive paths)'
+DO $$
+DECLARE
+  tenant uuid := '00000000-0000-4000-8000-000000000001';
+  cbe uuid := '00000000-0000-4000-8000-000000003001'; -- park
+  item_v uuid := 'a0000000-0000-4000-8000-000000000001';
+  lot_v uuid := 'a0000000-0000-4000-8000-000000000002';
+  proto_v uuid := 'a0000000-0000-4000-8000-000000000003';
+  pv1 uuid := 'a0000000-0000-4000-8000-000000000004';
+BEGIN
+  INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+    VALUES (item_v, tenant, 'VAC-ENTEROTOX', 'Enterotoxaemia vaccine', 'vaccine', 'dose');
+  INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit)
+    VALUES (lot_v, tenant, item_v, cbe, 100, 0, 'dose');
+  -- valid ledger movement (lot/item/location/tenant all match the lot)
+  INSERT INTO inventory_stock_movements (tenant_id, lot_id, item_id, location_id, movement_type, quantity, quantity_unit, idempotency_key)
+    VALUES (tenant, lot_v, item_v, cbe, 'receive', 100, 'dose', 'mvmt-seed-receive');
+  INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category)
+    VALUES (proto_v, tenant, 'vaccination.enterotox', 'Enterotoxaemia', 'vaccination');
+  INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
+    VALUES (pv1, tenant, proto_v, 'tenant', NULL, 1, DATE '2026-06-01');
+  -- valid batch: scope_type park matches cbe's location_type
+  INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id)
+    VALUES ('a0000000-0000-4000-8000-000000000005', tenant, pv1, 'park', cbe);
+  -- valid park-scoped version (cbe is a park; distinct scope from the tenant default)
+  INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
+    VALUES ('a0000000-0000-4000-8000-000000000006', tenant, proto_v, 'park', cbe, 1, DATE '2026-06-01');
+  -- a dose rule + valid obligation targeting an existing goat under a park scope
+  INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+    VALUES ('a0000000-0000-4000-8000-000000000007', tenant, pv1, 'primary', 'birth_age');
+  INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, idempotency_key)
+    VALUES (tenant, pv1, 'a0000000-0000-4000-8000-000000000007', 'goat', '10000000-0000-4000-8000-000000000001', 'park', cbe, TIMESTAMPTZ '2026-08-01 00:00:00+00', 'oblig-seed-1');
+END $$;
+SQL
+
+expect_failure "inventory stock quantity cannot be negative" "
+INSERT INTO inventory_stock (tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000003001', -1, 0, 'dose');
+"
+
+expect_failure "movement lot/item/location must match the stock lot" "
+INSERT INTO inventory_stock_movements (tenant_id, lot_id, item_id, location_id, movement_type, quantity, quantity_unit, idempotency_key)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', gen_random_uuid(), '00000000-0000-4000-8000-000000003001', 'consume', 5, 'dose', 'mvmt-bad-item');
+"
+
+expect_failure "movement quantity must be positive" "
+INSERT INTO inventory_stock_movements (tenant_id, lot_id, item_id, location_id, movement_type, quantity, quantity_unit, idempotency_key)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000003001', 'consume', 0, 'dose', 'mvmt-zero-qty');
+"
+
+expect_failure "tenant-default protocol version number is unique (NULLS NOT DISTINCT)" "
+INSERT INTO protocol_versions (tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000003', 'tenant', NULL, 1, DATE '2026-07-01');
+"
+
+expect_failure "obligation batch scope_type must match location type" "
+INSERT INTO obligation_batches (tenant_id, protocol_version_id, scope_type, scope_id)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000004', 'shed', '00000000-0000-4000-8000-000000003001');
+"
+
+expect_failure "protocol version park scope must be a real park location" "
+INSERT INTO protocol_versions (tenant_id, protocol_id, scope_type, scope_id, version, effective_from)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000003', 'park', '00000000-0000-4000-8000-000000003003', 2, DATE '2026-06-01');
+"
+
+expect_failure "obligation goat target must reference a real same-tenant goat" "
+INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, idempotency_key)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000007', 'goat', '99999999-0000-4000-8000-000000000999', 'park', '00000000-0000-4000-8000-000000003001', TIMESTAMPTZ '2026-08-02 00:00:00+00', 'oblig-bad-goat');
+"
+
+expect_failure "obligation shed target must reference a shed location" "
+INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, idempotency_key)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000007', 'shed', '00000000-0000-4000-8000-000000003001', 'park', '00000000-0000-4000-8000-000000003001', TIMESTAMPTZ '2026-08-03 00:00:00+00', 'oblig-bad-shed');
+"
+
+expect_failure "protocol version sop_version_id must reference a same-tenant sop_version" "
+INSERT INTO protocol_versions (tenant_id, protocol_id, scope_type, scope_id, version, effective_from, sop_version_id)
+VALUES ('00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000003', 'tenant', NULL, 3, DATE '2026-09-01', '88888888-0000-4000-8000-000000000888');
+"
+
+run_psql <<'SQL'
 \echo 'Migration validation complete'
 SQL

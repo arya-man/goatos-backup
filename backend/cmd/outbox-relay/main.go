@@ -10,7 +10,7 @@ import (
 	"time"
 
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
-	outboxlogging "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher/logging"
+	outboxpublisher "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -57,7 +57,14 @@ func run(args []string) error {
 
 	logger := observability.New(observability.Config{Service: "outbox-relay"})
 	repo := outboxpg.NewRepository(pool, pgCfg.QueryTimeout)
-	publisher := outboxlogging.NewPublisher(logger)
+	publisherKind := os.Getenv("GOATOS_OUTBOX_PUBLISHER")
+	if outboxpublisher.WantsPubSub(publisherKind) {
+		// The Pub/Sub broker client (a cloud.google.com/go/pubsub/v2 wrapper, honouring
+		// PUBSUB_EMULATOR_HOST locally) is injected at deploy wiring time. Until then the relay
+		// safely falls back to the logging publisher rather than failing closed.
+		logger.Warn("pubsub_publisher_requested_without_client_falling_back_to_logging")
+	}
+	publisher := outboxpublisher.Select(publisherKind, logger, nil)
 	service := outboxapp.NewService(repo, publisher, validator, outboxapp.Config{
 		Limit:        cfg.Limit,
 		MaxAttempts:  cfg.MaxAttempts,

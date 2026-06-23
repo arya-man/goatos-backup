@@ -8,6 +8,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AnimalStageLookup struct {
+	AnimalStageID pgtype.UUID
+	TenantID      pgtype.UUID
+	StageCode     string
+	Name          string
+	MinAgeDays    pgtype.Int4
+	MaxAgeDays    pgtype.Int4
+	SortOrder     int32
+	Status        string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type AuditLog struct {
 	AuditID      pgtype.UUID
 	TenantID     pgtype.UUID
@@ -285,6 +298,18 @@ type CountsSyncRun struct {
 	CompletedAt              pgtype.Timestamptz
 }
 
+type FarmProfile struct {
+	LocationID pgtype.UUID
+	TenantID   pgtype.UUID
+	FarmKind   pgtype.Text
+	Capacity   pgtype.Int4
+	Notes      string
+	Context    []byte
+	RowVersion int32
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+}
+
 type FeatureCoverageRegistry struct {
 	CoverageID               pgtype.UUID
 	TenantID                 pgtype.UUID
@@ -336,6 +361,12 @@ type Goat struct {
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
 	CreatedBy          pgtype.UUID
+	Dob                pgtype.Date
+	DobEstimated       bool
+	OriginType         pgtype.Text
+	EntryDate          pgtype.Date
+	ExitedAt           pgtype.Timestamptz
+	ExitReason         pgtype.Text
 }
 
 type GoatCustodyHistory struct {
@@ -735,6 +766,54 @@ type IdentityMatchCandidate struct {
 	DecisionID      pgtype.UUID
 	CreatedAt       pgtype.Timestamptz
 	RowVersion      int32
+}
+
+type InventoryItem struct {
+	ItemID     pgtype.UUID
+	TenantID   pgtype.UUID
+	ItemCode   string
+	Name       string
+	Category   string
+	BaseUnit   string
+	Status     string
+	Context    []byte
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	RowVersion int32
+}
+
+type InventoryStock struct {
+	StockID          pgtype.UUID
+	TenantID         pgtype.UUID
+	ItemID           pgtype.UUID
+	LocationID       pgtype.UUID
+	LotCode          pgtype.Text
+	ExpiryDate       pgtype.Date
+	QuantityInStock  pgtype.Numeric
+	QuantityReserved pgtype.Numeric
+	QuantityUnit     string
+	Status           string
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	RowVersion       int32
+}
+
+type InventoryStockMovement struct {
+	MovementID     pgtype.UUID
+	TenantID       pgtype.UUID
+	LotID          pgtype.UUID
+	ItemID         pgtype.UUID
+	LocationID     pgtype.UUID
+	MovementType   string
+	Quantity       pgtype.Numeric
+	QuantityUnit   string
+	BatchID        pgtype.UUID
+	OccurredAt     pgtype.Timestamptz
+	RecordedAt     pgtype.Timestamptz
+	ActorID        pgtype.UUID
+	Reason         pgtype.Text
+	IdempotencyKey string
+	Context        []byte
 }
 
 type LegacyImportPolicy struct {
@@ -1189,6 +1268,178 @@ type MovementCommand struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type ObligationBatch struct {
+	BatchID               pgtype.UUID
+	TenantID              pgtype.UUID
+	ProtocolVersionID     pgtype.UUID
+	ScopeType             string
+	ScopeID               pgtype.UUID
+	Session               pgtype.Text
+	PlannedDate           pgtype.Date
+	WindowStart           pgtype.Timestamptz
+	WindowEnd             pgtype.Timestamptz
+	Status                string
+	EstimatedTargets      int32
+	PlannedQuantity       pgtype.Numeric
+	ReservedQuantity      pgtype.Numeric
+	UsedQuantity          pgtype.Numeric
+	QuantityUnit          pgtype.Text
+	PrimaryInventoryLotID pgtype.UUID
+	SopTaskID             pgtype.UUID
+	ConductedBy           pgtype.UUID
+	ProofRef              pgtype.Text
+	Context               []byte
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	RowVersion            int32
+}
+
+type ObligationEscalation struct {
+	EscalationID      pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	Level             int32
+	EscalatedToUserID pgtype.UUID
+	EscalatedToRole   pgtype.Text
+	Reason            string
+	Status            string
+	OpenedAt          pgtype.Timestamptz
+	AcknowledgedAt    pgtype.Timestamptz
+	ResolvedAt        pgtype.Timestamptz
+}
+
+type ObligationInstance struct {
+	ObligationID         pgtype.UUID
+	TenantID             pgtype.UUID
+	ProtocolVersionID    pgtype.UUID
+	RuleID               pgtype.UUID
+	BatchID              pgtype.UUID
+	TargetType           string
+	TargetID             pgtype.UUID
+	ScopeType            string
+	ScopeID              pgtype.UUID
+	DueAt                pgtype.Timestamptz
+	WindowStart          pgtype.Timestamptz
+	WindowEnd            pgtype.Timestamptz
+	Status               string
+	SopTaskID            pgtype.UUID
+	IdempotencyKey       string
+	GeneratedByTriggerID pgtype.UUID
+	Sequence             int32
+	CompletedAt          pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	RowVersion           int32
+}
+
+type ObligationStatusEvent struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEvents202606 struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEvents202607 struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEvents202608 struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEvents202609 struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEvents202610 struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEvents202611 struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEvents202612 struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
+type ObligationStatusEventsDefault struct {
+	ObligationEventID pgtype.UUID
+	TenantID          pgtype.UUID
+	ObligationID      pgtype.UUID
+	EventType         string
+	OccurredAt        pgtype.Timestamptz
+	RecordedAt        pgtype.Timestamptz
+	ActorID           pgtype.UUID
+	Payload           []byte
+	IdempotencyKey    string
+}
+
 type Org struct {
 	PartyID   pgtype.UUID
 	OrgType   string
@@ -1220,6 +1471,18 @@ type OutboxMessage struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type ParkProfile struct {
+	LocationID pgtype.UUID
+	TenantID   pgtype.UUID
+	ParkCode   pgtype.Text
+	Capacity   pgtype.Int4
+	Notes      string
+	Context    []byte
+	RowVersion int32
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+}
+
 type Party struct {
 	PartyID     pgtype.UUID
 	PartyType   string
@@ -1227,6 +1490,99 @@ type Party struct {
 	Status      string
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
+}
+
+type ProtocolDefinition struct {
+	ProtocolID pgtype.UUID
+	TenantID   pgtype.UUID
+	Code       string
+	Name       string
+	Category   string
+	Status     string
+	CreatedBy  pgtype.UUID
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	RowVersion int32
+}
+
+type ProtocolRule struct {
+	RuleID              pgtype.UUID
+	TenantID            pgtype.UUID
+	ProtocolVersionID   pgtype.UUID
+	DoseCode            string
+	Sequence            int32
+	TriggerType         string
+	OffsetDays          int32
+	DueWindowDays       int32
+	MinGapDays          int32
+	Repeat              string
+	RepeatUntilAfterAge pgtype.Text
+	CatchUp             string
+	EligibilityJson     []byte
+	SopVersionID        pgtype.UUID
+	ProofPolicy         []byte
+	WithdrawalDays      pgtype.Int4
+	SortOrder           int32
+	CreatedAt           pgtype.Timestamptz
+}
+
+type ProtocolTrigger struct {
+	TriggerID         pgtype.UUID
+	TenantID          pgtype.UUID
+	ProtocolVersionID pgtype.UUID
+	TriggerType       string
+	TriggerConfig     []byte
+	IsActive          bool
+	CreatedAt         pgtype.Timestamptz
+}
+
+type ProtocolVersion struct {
+	ProtocolVersionID pgtype.UUID
+	TenantID          pgtype.UUID
+	ProtocolID        pgtype.UUID
+	ScopeType         string
+	ScopeID           pgtype.UUID
+	Version           int32
+	VersionLabel      string
+	Status            string
+	EffectiveFrom     pgtype.Date
+	EffectiveTo       pgtype.Date
+	RuleDsl           []byte
+	ProofPolicy       []byte
+	SopVersionID      pgtype.UUID
+	DraftedBy         pgtype.UUID
+	PublishedBy       pgtype.UUID
+	PublishedAt       pgtype.Timestamptz
+	RetiredAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RowVersion        int32
+}
+
+type ShedLifecycleStatusLookup struct {
+	ShedLifecycleStatusID pgtype.UUID
+	TenantID              pgtype.UUID
+	StatusCode            string
+	Name                  string
+	SortOrder             int32
+	Status                string
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type ShedProfile struct {
+	LocationID            pgtype.UUID
+	TenantID              pgtype.UUID
+	AnimalStageID         pgtype.UUID
+	ShedLifecycleStatusID pgtype.UUID
+	Sex                   pgtype.Text
+	Capacity              pgtype.Int4
+	HasIcu                bool
+	Notes                 string
+	Context               []byte
+	RowVersion            int32
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
 }
 
 type SopDefinition struct {
@@ -1347,6 +1703,33 @@ type UserScopeGrant struct {
 	ValidTo   pgtype.Timestamptz
 	CreatedBy pgtype.UUID
 	CreatedAt pgtype.Timestamptz
+}
+
+type Vaccine struct {
+	VaccineID      pgtype.UUID
+	TenantID       pgtype.UUID
+	ItemID         pgtype.UUID
+	Disease        pgtype.Text
+	Manufacturer   pgtype.Text
+	DosesPerVial   pgtype.Int4
+	WithdrawalDays pgtype.Int4
+	Context        []byte
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type VwGoatTagging struct {
+	TenantID         pgtype.UUID
+	GoatID           pgtype.UUID
+	IdentifierID     pgtype.UUID
+	IdentifierType   string
+	IdentifierValue  string
+	NormalizedValue  string
+	ScopeKey         string
+	IsPrimaryForGoat bool
+	Status           string
+	ValidFrom        pgtype.Timestamptz
+	ValidTo          pgtype.Timestamptz
 }
 
 type WorkforceAbsence struct {
