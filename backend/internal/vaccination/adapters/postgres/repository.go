@@ -157,6 +157,28 @@ func (r *Repository) RejectCompletion(ctx context.Context, tenantID, completionI
 	return n == 1, nil
 }
 
+// ListRecordedCompletionsByTask returns the still-recorded completion ids captured under a SOP
+// task's submissions (the verify fan-out source).
+func (r *Repository) ListRecordedCompletionsByTask(ctx context.Context, tenantID, taskID string) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	task, err := pgconv.UUID(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: task id: %w", err)
+	}
+	ids, err := r.queries.ListRecordedCompletionsByTask(ctx, vaccinationdb.ListRecordedCompletionsByTaskParams{
+		TenantID: tenant, TaskID: task,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: list recorded completions by task: %w", err)
+	}
+	return ids, nil
+}
+
 // ListCompletionsByGoat returns a goat's vaccination history (most recent first).
 func (r *Repository) ListCompletionsByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.CompletionHistoryItem, error) {
 	ctx, cancel := r.withTimeout(ctx)

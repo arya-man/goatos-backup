@@ -6609,6 +6609,13 @@ CREATE INDEX vaccination_completions_obligation_idx ON public.vaccination_comple
 
 
 --
+-- Name: vaccination_completions_submission_item_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_submission_item_idx ON public.vaccination_completions USING btree (tenant_id, sop_submission_item_id) WHERE (sop_submission_item_id IS NOT NULL);
+
+
+--
 -- Name: workforce_absences_member_window_idx; Type: INDEX; Schema: public; Owner: -
 --
 

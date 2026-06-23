@@ -31,6 +31,10 @@ type Repository interface {
 	// ListCompletionsByGoat returns the goat's vaccination history (most recent first).
 	ListCompletionsByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.CompletionHistoryItem, error)
 
+	// ListRecordedCompletionsByTask returns the still-recorded completion ids under a SOP task's
+	// submissions (the SOP verify fan-out source).
+	ListRecordedCompletionsByTask(ctx context.Context, tenantID, taskID string) ([]string, error)
+
 	// GetLastAcceptedForGoat returns the most recent accepted administration; found is false when none.
 	GetLastAcceptedForGoat(ctx context.Context, tenantID, goatID string) (rec domain.LastAccepted, found bool, err error)
 

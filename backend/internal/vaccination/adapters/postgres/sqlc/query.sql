@@ -9,6 +9,19 @@ WHERE tenant_id = @tenant_id AND goat_id = @goat_id
 ORDER BY administered_at DESC
 LIMIT @row_limit;
 
+-- name: ListRecordedCompletionsByTask :many
+-- SOP verify fan-out: the still-recorded vaccination completions captured under a SOP task's
+-- submissions, so a task-level verify/rework can be applied per completion. Drives from the task's
+-- submissions (sop_submissions_task_history_idx) -> items (sop_submission_items_submission_idx) ->
+-- completions (vaccination_completions_submission_item_idx).
+SELECT c.completion_id::text AS completion_id
+FROM vaccination_completions c
+JOIN sop_submission_items i ON i.tenant_id = c.tenant_id AND i.item_id = c.sop_submission_item_id
+JOIN sop_submissions s ON s.tenant_id = i.tenant_id AND s.submission_id = i.submission_id
+WHERE c.tenant_id = @tenant_id AND s.task_id = @task_id AND c.status = 'recorded'
+  AND c.sop_submission_item_id IS NOT NULL
+ORDER BY c.completion_id;
+
 -- name: GetLastAcceptedCompletionForGoat :one
 -- Next-due / SM-7 basis: most recent accepted administration for a goat.
 SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id, administered_at

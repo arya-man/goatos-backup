@@ -460,6 +460,21 @@ ORDER BY goat_id
 LIMIT 500;"
 }
 
+validate_vaccination_fanout_plan() {
+  # SOP verify fan-out resolves a task's recorded completions; the large vaccination_completions
+  # table must be reached via vaccination_completions_submission_item_idx, not a scan.
+  explain_must_use_index "VaccinationFanoutByTask" 'Seq Scan on vaccination_completions' "EXPLAIN (COSTS OFF)
+SELECT c.completion_id
+FROM vaccination_completions c
+JOIN sop_submission_items i ON i.tenant_id = c.tenant_id AND i.item_id = c.sop_submission_item_id
+JOIN sop_submissions s ON s.tenant_id = i.tenant_id AND s.submission_id = i.submission_id
+WHERE c.tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND s.task_id = '00000000-0000-4000-8000-0000000000dd'
+  AND c.status = 'recorded'
+  AND c.sop_submission_item_id IS NOT NULL
+ORDER BY c.completion_id;"
+}
+
 validate_outbox_claim_plan
 validate_auth_grant_lookup_plan
 validate_import_run_reason_gin_probe_plan
@@ -475,5 +490,6 @@ validate_inventory_movements_ledger_plan
 validate_obligation_target_lookup_plan
 validate_vaccination_eligible_plan
 validate_vaccination_generation_scan_plan
+validate_vaccination_fanout_plan
 
-echo "Validated $checked_count generated sqlc query plans and 17 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 18 hand-written query plans"

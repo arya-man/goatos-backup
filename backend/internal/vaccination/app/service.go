@@ -40,3 +40,9 @@ func (s *Service) RejectCompletion(ctx context.Context, tenantID, completionID, 
 func (s *Service) GoatHistory(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.CompletionHistoryItem, error) {
 	return s.repo.ListCompletionsByGoat(ctx, tenantID, goatID, limit)
 }
+
+// RecordedCompletionsByTask returns the still-recorded completion ids under a SOP task (verify
+// fan-out source).
+func (s *Service) RecordedCompletionsByTask(ctx context.Context, tenantID, taskID string) ([]string, error) {
+	return s.repo.ListRecordedCompletionsByTask(ctx, tenantID, taskID)
+}
