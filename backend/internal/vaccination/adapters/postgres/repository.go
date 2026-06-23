@@ -268,6 +268,51 @@ func (r *Repository) CountEligibleShedScopes(ctx context.Context, f domain.Impac
 	return n, nil
 }
 
+// ListEligibleGoatsForGeneration returns a chunked page of the in-care cohort for SM-1.
+func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(f.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	after := afterGoatID
+	if after == "" {
+		after = "00000000-0000-0000-0000-000000000000"
+	}
+	afterUUID, err := pgconv.UUID(after)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: cursor: %w", err)
+	}
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := r.queries.ListEligibleGoatsForGeneration(ctx, vaccinationdb.ListEligibleGoatsForGenerationParams{
+		TenantID:    tenant,
+		Stage:       f.Stage,
+		Sex:         f.Sex,
+		Breed:       f.Breed,
+		ParkID:      pgconv.NullableUUID(f.ParkID),
+		AfterGoatID: afterUUID,
+		RowLimit:    limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: list eligible goats: %w", err)
+	}
+	out := make([]domain.EligibleGoat, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.EligibleGoat{
+			GoatID:          row.GoatID,
+			DOB:             pgconv.DateValue(row.Dob),
+			EntryDate:       pgconv.DateValue(row.EntryDate),
+			LifecycleStatus: row.LifecycleStatus,
+			ShedID:          row.ShedID,
+			ParkID:          row.ParkID,
+		})
+	}
+	return out, nil
+}
+
 // SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
 func (r *Repository) SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (string, *time.Time, error) {
 	ctx, cancel := r.withTimeout(ctx)

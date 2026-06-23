@@ -150,6 +150,79 @@ func (q *Queries) GetLastAcceptedCompletionForGoat(ctx context.Context, arg GetL
 	return i, err
 }
 
+const listEligibleGoatsForGeneration = `-- name: ListEligibleGoatsForGeneration :many
+SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
+       COALESCE(shed_id::text, '')::text AS shed_id,
+       COALESCE(park_id::text, '')::text AS park_id
+FROM goats
+WHERE tenant_id = $1
+  AND lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND ($2::text = '' OR management_stage = $2::text)
+  AND ($3::text = '' OR sex = $3::text)
+  AND ($4::text = '' OR breed = $4::text)
+  AND ($5::uuid IS NULL OR park_id = $5::uuid)
+  AND goat_id > $6::uuid
+ORDER BY goat_id
+LIMIT $7
+`
+
+type ListEligibleGoatsForGenerationParams struct {
+	TenantID    pgtype.UUID
+	Stage       string
+	Sex         string
+	Breed       string
+	ParkID      pgtype.UUID
+	AfterGoatID pgtype.UUID
+	RowLimit    int32
+}
+
+type ListEligibleGoatsForGenerationRow struct {
+	GoatID          string
+	Dob             pgtype.Date
+	EntryDate       pgtype.Date
+	LifecycleStatus string
+	ShedID          string
+	ParkID          string
+}
+
+// Chunked (keyset) listing of the in-care cohort for SM-1 generation. Cursor by goat_id over the
+// (tenant_id, goat_id) unique index. Includes defer-state goats (icu/quarantine/sick) so the
+// handler can emit a visible deferred obligation rather than silently skipping them.
+func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEligibleGoatsForGenerationParams) ([]ListEligibleGoatsForGenerationRow, error) {
+	rows, err := q.db.Query(ctx, listEligibleGoatsForGeneration,
+		arg.TenantID,
+		arg.Stage,
+		arg.Sex,
+		arg.Breed,
+		arg.ParkID,
+		arg.AfterGoatID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEligibleGoatsForGenerationRow
+	for rows.Next() {
+		var i ListEligibleGoatsForGenerationRow
+		if err := rows.Scan(
+			&i.GoatID,
+			&i.Dob,
+			&i.EntryDate,
+			&i.LifecycleStatus,
+			&i.ShedID,
+			&i.ParkID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVaccinationCompletionsByGoat = `-- name: ListVaccinationCompletionsByGoat :many
 SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id,
        COALESCE(batch_id::text, '')::text AS batch_id, administered_at, status,

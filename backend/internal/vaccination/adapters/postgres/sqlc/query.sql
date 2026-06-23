@@ -57,6 +57,24 @@ WHERE tenant_id = @tenant_id
   AND (@health::text = '' OR COALESCE(health_status, '') = @health::text)
   AND (sqlc.narg('park_id')::uuid IS NULL OR park_id = sqlc.narg('park_id')::uuid);
 
+-- name: ListEligibleGoatsForGeneration :many
+-- Chunked (keyset) listing of the in-care cohort for SM-1 generation. Cursor by goat_id over the
+-- (tenant_id, goat_id) unique index. Includes defer-state goats (icu/quarantine/sick) so the
+-- handler can emit a visible deferred obligation rather than silently skipping them.
+SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
+       COALESCE(shed_id::text, '')::text AS shed_id,
+       COALESCE(park_id::text, '')::text AS park_id
+FROM goats
+WHERE tenant_id = @tenant_id
+  AND lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND (@stage::text = '' OR management_stage = @stage::text)
+  AND (@sex::text = '' OR sex = @sex::text)
+  AND (@breed::text = '' OR breed = @breed::text)
+  AND (sqlc.narg('park_id')::uuid IS NULL OR park_id = sqlc.narg('park_id')::uuid)
+  AND goat_id > @after_goat_id::uuid
+ORDER BY goat_id
+LIMIT @row_limit;
+
 -- name: SumAvailableStockForItem :one
 -- Available (unreserved) doses for the vaccine item + earliest expiry, within an optional location.
 SELECT COALESCE(SUM(quantity_in_stock - quantity_reserved), 0)::numeric AS available,

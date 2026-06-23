@@ -38,4 +38,8 @@ type Repository interface {
 	CountEligibleShedScopes(ctx context.Context, f domain.ImpactFilter) (int64, error)
 	// SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
 	SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (available string, earliestExpiry *time.Time, err error)
+
+	// ListEligibleGoatsForGeneration returns a chunked (keyset by goat_id) page of the in-care
+	// cohort matching the filter; afterGoatID is the cursor ("" starts at the beginning).
+	ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error)
 }

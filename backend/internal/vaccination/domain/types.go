@@ -66,6 +66,23 @@ type ImpactRequest struct {
 	AsOf          time.Time
 }
 
+// EligibleGoat is one row from the chunked generation listing (in-care cohort).
+type EligibleGoat struct {
+	GoatID          string
+	DOB             *time.Time
+	EntryDate       *time.Time
+	LifecycleStatus string
+	ShedID          string
+	ParkID          string
+}
+
+// GenerateResult summarises an SM-1 generation run.
+type GenerateResult struct {
+	Generated        int
+	Deferred         int
+	SkippedNoDueDate int
+}
+
 // ImpactPreview is the computed live impact (eligible goats, catch-up, obligations, batches,
 // doses required vs available, warnings). Mock math is replaced by these real counts.
 type ImpactPreview struct {

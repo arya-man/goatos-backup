@@ -448,6 +448,18 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
   AND management_stage = 'K1';"
 }
 
+validate_vaccination_generation_scan_plan() {
+  explain_must_use_index "VaccinationGenerationKeyset" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
+SELECT goat_id, dob
+FROM goats
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND management_stage = 'K1'
+  AND goat_id > '00000000-0000-0000-0000-000000000000'::uuid
+ORDER BY goat_id
+LIMIT 500;"
+}
+
 validate_outbox_claim_plan
 validate_auth_grant_lookup_plan
 validate_import_run_reason_gin_probe_plan
@@ -462,5 +474,6 @@ validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
 validate_obligation_target_lookup_plan
 validate_vaccination_eligible_plan
+validate_vaccination_generation_scan_plan
 
-echo "Validated $checked_count generated sqlc query plans and 16 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 17 hand-written query plans"
