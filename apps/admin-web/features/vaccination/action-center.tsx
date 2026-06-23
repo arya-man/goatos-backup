@@ -208,12 +208,20 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
         title="Action Center"
         description="The operational command surface — every vaccination obligation grouped by computed adherence/work state. Act on a card: verify, reject, or request rework (live); start the SOP / submit proof (via the SOP engine); open the goat passport. Every action writes the audit trail and ripples into Adherence + counts."
         actions={
-          <Link
-            href="/vaccination/config"
-            className="inline-flex min-h-[40px] items-center rounded-md border border-[#334155] px-3 py-2 text-sm text-[#c7d1dc] hover:border-[#14f1d9]/40"
-          >
-            Config — Schedule Builder →
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href="/vaccination/adherence"
+              className="inline-flex min-h-[40px] items-center rounded-md border border-[#334155] px-3 py-2 text-sm text-[#c7d1dc] hover:border-[#14f1d9]/40"
+            >
+              Protocol Adherence →
+            </Link>
+            <Link
+              href="/vaccination/config"
+              className="inline-flex min-h-[40px] items-center rounded-md border border-[#334155] px-3 py-2 text-sm text-[#c7d1dc] hover:border-[#14f1d9]/40"
+            >
+              Config →
+            </Link>
+          </div>
         }
       />
 

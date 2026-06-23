@@ -46,6 +46,7 @@ const routes = [
   { name: "overview", path: "/" },
   { name: "vaccination", path: "/vaccination" },
   { name: "vaccination-config", path: "/vaccination/config" },
+  { name: "vaccination-adherence", path: "/vaccination/adherence" },
   { name: "counts", path: "/counts" },
   { name: "counts-core-farms", path: "/counts?view=core-farms" },
   { name: "locations", path: "/locations" },

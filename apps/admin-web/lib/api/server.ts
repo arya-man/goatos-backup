@@ -527,6 +527,41 @@ export async function publishProtocolVersion(versionId: string): Promise<ApiResu
   return request(() => client.request<Record<string, never>>(path, { method: "POST", cache: "no-store" }));
 }
 
+export interface VaccinationPassportDue {
+  obligation_id: string;
+  protocol_version_id: string;
+  rule_id: string;
+  status: string;
+  due_at: string;
+  sequence: number;
+}
+export interface VaccinationPassportHistoryItem {
+  completion_id: string;
+  obligation_id: string;
+  batch_id?: string;
+  status: string;
+  route_site?: string;
+  administered_at: string;
+  doses: number;
+  adverse_reaction: boolean;
+  withdrawal_until?: string;
+}
+export interface VaccinationPassport {
+  goat_id: string;
+  next_due: VaccinationPassportDue | null;
+  open_obligations: VaccinationPassportDue[];
+  last_accepted: { completion_id: string; obligation_id: string; administered_at: string } | null;
+  vaccination_history: VaccinationPassportHistoryItem[];
+}
+
+export async function getGoatVaccinationPassport(goatId: string): Promise<ApiResult<VaccinationPassport>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/goats/${encodeURIComponent(goatId)}/passport` as keyof AppApiPaths & string;
+  return request(() => client.request<VaccinationPassport>(path, { cache: "no-store" }));
+}
+
 export async function acceptVaccinationCompletion(
   completionId: string,
 ): Promise<ApiResult<{ applied: boolean; completed: boolean }>> {
