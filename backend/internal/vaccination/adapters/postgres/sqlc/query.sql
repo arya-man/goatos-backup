@@ -16,3 +16,53 @@ FROM vaccination_completions
 WHERE tenant_id = @tenant_id AND goat_id = @goat_id AND status = 'accepted'
 ORDER BY administered_at DESC
 LIMIT 1;
+
+-- name: CountEligibleGoats :one
+-- Live impact: alive goats matching a rule's eligibility dims within an optional park scope.
+-- Optional text dims use the ('' OR col = @x) idiom; park scope via a nullable narg uuid.
+SELECT count(*)::bigint AS total
+FROM goats
+WHERE tenant_id = @tenant_id
+  AND lifecycle_status = 'alive'
+  AND (@stage::text = '' OR management_stage = @stage::text)
+  AND (@sex::text = '' OR sex = @sex::text)
+  AND (@breed::text = '' OR breed = @breed::text)
+  AND (@health::text = '' OR COALESCE(health_status, '') = @health::text)
+  AND (sqlc.narg('park_id')::uuid IS NULL OR park_id = sqlc.narg('park_id')::uuid);
+
+-- name: CountCatchupGoats :one
+-- Eligible goats that already have an accepted completion (next-due from last accepted, not DOB).
+SELECT count(DISTINCT g.goat_id)::bigint AS total
+FROM goats g
+JOIN vaccination_completions vc
+  ON vc.tenant_id = g.tenant_id AND vc.goat_id = g.goat_id AND vc.status = 'accepted'
+WHERE g.tenant_id = @tenant_id
+  AND g.lifecycle_status = 'alive'
+  AND (@stage::text = '' OR g.management_stage = @stage::text)
+  AND (@sex::text = '' OR g.sex = @sex::text)
+  AND (@breed::text = '' OR g.breed = @breed::text)
+  AND (@health::text = '' OR COALESCE(g.health_status, '') = @health::text)
+  AND (sqlc.narg('park_id')::uuid IS NULL OR g.park_id = sqlc.narg('park_id')::uuid);
+
+-- name: CountEligibleShedScopes :one
+-- Estimated drive batches = distinct sheds holding eligible goats (one shed drive per shed).
+SELECT count(DISTINCT shed_id)::bigint AS total
+FROM goats
+WHERE tenant_id = @tenant_id
+  AND lifecycle_status = 'alive'
+  AND shed_id IS NOT NULL
+  AND (@stage::text = '' OR management_stage = @stage::text)
+  AND (@sex::text = '' OR sex = @sex::text)
+  AND (@breed::text = '' OR breed = @breed::text)
+  AND (@health::text = '' OR COALESCE(health_status, '') = @health::text)
+  AND (sqlc.narg('park_id')::uuid IS NULL OR park_id = sqlc.narg('park_id')::uuid);
+
+-- name: SumAvailableStockForItem :one
+-- Available (unreserved) doses for the vaccine item + earliest expiry, within an optional location.
+SELECT COALESCE(SUM(quantity_in_stock - quantity_reserved), 0)::numeric AS available,
+       MIN(expiry_date)::date AS earliest_expiry
+FROM inventory_stock
+WHERE tenant_id = @tenant_id
+  AND item_id = @item_id
+  AND quantity_in_stock > quantity_reserved
+  AND (sqlc.narg('location_id')::uuid IS NULL OR location_id = sqlc.narg('location_id')::uuid);

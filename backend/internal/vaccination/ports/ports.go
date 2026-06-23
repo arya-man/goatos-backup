@@ -31,4 +31,11 @@ type Repository interface {
 
 	// GetLastAcceptedForGoat returns the most recent accepted administration; found is false when none.
 	GetLastAcceptedForGoat(ctx context.Context, tenantID, goatID string) (rec domain.LastAccepted, found bool, err error)
+
+	// Impact-preview counts (live). All scoped by tenant + the eligibility filter.
+	CountEligibleGoats(ctx context.Context, f domain.ImpactFilter) (int64, error)
+	CountCatchupGoats(ctx context.Context, f domain.ImpactFilter) (int64, error)
+	CountEligibleShedScopes(ctx context.Context, f domain.ImpactFilter) (int64, error)
+	// SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
+	SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (available string, earliestExpiry *time.Time, err error)
 }

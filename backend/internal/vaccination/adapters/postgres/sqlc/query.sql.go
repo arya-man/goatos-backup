@@ -11,6 +11,118 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countCatchupGoats = `-- name: CountCatchupGoats :one
+SELECT count(DISTINCT g.goat_id)::bigint AS total
+FROM goats g
+JOIN vaccination_completions vc
+  ON vc.tenant_id = g.tenant_id AND vc.goat_id = g.goat_id AND vc.status = 'accepted'
+WHERE g.tenant_id = $1
+  AND g.lifecycle_status = 'alive'
+  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($3::text = '' OR g.sex = $3::text)
+  AND ($4::text = '' OR g.breed = $4::text)
+  AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
+  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
+`
+
+type CountCatchupGoatsParams struct {
+	TenantID pgtype.UUID
+	Stage    string
+	Sex      string
+	Breed    string
+	Health   string
+	ParkID   pgtype.UUID
+}
+
+// Eligible goats that already have an accepted completion (next-due from last accepted, not DOB).
+func (q *Queries) CountCatchupGoats(ctx context.Context, arg CountCatchupGoatsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countCatchupGoats,
+		arg.TenantID,
+		arg.Stage,
+		arg.Sex,
+		arg.Breed,
+		arg.Health,
+		arg.ParkID,
+	)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
+const countEligibleGoats = `-- name: CountEligibleGoats :one
+SELECT count(*)::bigint AS total
+FROM goats
+WHERE tenant_id = $1
+  AND lifecycle_status = 'alive'
+  AND ($2::text = '' OR management_stage = $2::text)
+  AND ($3::text = '' OR sex = $3::text)
+  AND ($4::text = '' OR breed = $4::text)
+  AND ($5::text = '' OR COALESCE(health_status, '') = $5::text)
+  AND ($6::uuid IS NULL OR park_id = $6::uuid)
+`
+
+type CountEligibleGoatsParams struct {
+	TenantID pgtype.UUID
+	Stage    string
+	Sex      string
+	Breed    string
+	Health   string
+	ParkID   pgtype.UUID
+}
+
+// Live impact: alive goats matching a rule's eligibility dims within an optional park scope.
+// Optional text dims use the (” OR col = @x) idiom; park scope via a nullable narg uuid.
+func (q *Queries) CountEligibleGoats(ctx context.Context, arg CountEligibleGoatsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countEligibleGoats,
+		arg.TenantID,
+		arg.Stage,
+		arg.Sex,
+		arg.Breed,
+		arg.Health,
+		arg.ParkID,
+	)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
+const countEligibleShedScopes = `-- name: CountEligibleShedScopes :one
+SELECT count(DISTINCT shed_id)::bigint AS total
+FROM goats
+WHERE tenant_id = $1
+  AND lifecycle_status = 'alive'
+  AND shed_id IS NOT NULL
+  AND ($2::text = '' OR management_stage = $2::text)
+  AND ($3::text = '' OR sex = $3::text)
+  AND ($4::text = '' OR breed = $4::text)
+  AND ($5::text = '' OR COALESCE(health_status, '') = $5::text)
+  AND ($6::uuid IS NULL OR park_id = $6::uuid)
+`
+
+type CountEligibleShedScopesParams struct {
+	TenantID pgtype.UUID
+	Stage    string
+	Sex      string
+	Breed    string
+	Health   string
+	ParkID   pgtype.UUID
+}
+
+// Estimated drive batches = distinct sheds holding eligible goats (one shed drive per shed).
+func (q *Queries) CountEligibleShedScopes(ctx context.Context, arg CountEligibleShedScopesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countEligibleShedScopes,
+		arg.TenantID,
+		arg.Stage,
+		arg.Sex,
+		arg.Breed,
+		arg.Health,
+		arg.ParkID,
+	)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
 const getLastAcceptedCompletionForGoat = `-- name: GetLastAcceptedCompletionForGoat :one
 SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id, administered_at
 FROM vaccination_completions
@@ -96,4 +208,33 @@ func (q *Queries) ListVaccinationCompletionsByGoat(ctx context.Context, arg List
 		return nil, err
 	}
 	return items, nil
+}
+
+const sumAvailableStockForItem = `-- name: SumAvailableStockForItem :one
+SELECT COALESCE(SUM(quantity_in_stock - quantity_reserved), 0)::numeric AS available,
+       MIN(expiry_date)::date AS earliest_expiry
+FROM inventory_stock
+WHERE tenant_id = $1
+  AND item_id = $2
+  AND quantity_in_stock > quantity_reserved
+  AND ($3::uuid IS NULL OR location_id = $3::uuid)
+`
+
+type SumAvailableStockForItemParams struct {
+	TenantID   pgtype.UUID
+	ItemID     pgtype.UUID
+	LocationID pgtype.UUID
+}
+
+type SumAvailableStockForItemRow struct {
+	Available      pgtype.Numeric
+	EarliestExpiry pgtype.Date
+}
+
+// Available (unreserved) doses for the vaccine item + earliest expiry, within an optional location.
+func (q *Queries) SumAvailableStockForItem(ctx context.Context, arg SumAvailableStockForItemParams) (SumAvailableStockForItemRow, error) {
+	row := q.db.QueryRow(ctx, sumAvailableStockForItem, arg.TenantID, arg.ItemID, arg.LocationID)
+	var i SumAvailableStockForItemRow
+	err := row.Scan(&i.Available, &i.EarliestExpiry)
+	return i, err
 }

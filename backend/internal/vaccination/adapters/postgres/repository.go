@@ -207,3 +207,86 @@ func (r *Repository) GetLastAcceptedForGoat(ctx context.Context, tenantID, goatI
 		AdministeredAt: row.AdministeredAt.Time,
 	}, true, nil
 }
+
+func (r *Repository) eligParams(f domain.ImpactFilter) (vaccinationdb.CountEligibleGoatsParams, error) {
+	tenant, err := pgconv.UUID(f.TenantID)
+	if err != nil {
+		return vaccinationdb.CountEligibleGoatsParams{}, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	return vaccinationdb.CountEligibleGoatsParams{
+		TenantID: tenant,
+		Stage:    f.Stage,
+		Sex:      f.Sex,
+		Breed:    f.Breed,
+		Health:   f.Health,
+		ParkID:   pgconv.NullableUUID(f.ParkID),
+	}, nil
+}
+
+// CountEligibleGoats counts alive goats matching the eligibility filter.
+func (r *Repository) CountEligibleGoats(ctx context.Context, f domain.ImpactFilter) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	p, err := r.eligParams(f)
+	if err != nil {
+		return 0, err
+	}
+	n, err := r.queries.CountEligibleGoats(ctx, p)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: count eligible: %w", err)
+	}
+	return n, nil
+}
+
+// CountCatchupGoats counts eligible goats with a prior accepted completion.
+func (r *Repository) CountCatchupGoats(ctx context.Context, f domain.ImpactFilter) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	p, err := r.eligParams(f)
+	if err != nil {
+		return 0, err
+	}
+	n, err := r.queries.CountCatchupGoats(ctx, vaccinationdb.CountCatchupGoatsParams(p))
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: count catchup: %w", err)
+	}
+	return n, nil
+}
+
+// CountEligibleShedScopes counts distinct sheds holding eligible goats (≈ drive batches).
+func (r *Repository) CountEligibleShedScopes(ctx context.Context, f domain.ImpactFilter) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	p, err := r.eligParams(f)
+	if err != nil {
+		return 0, err
+	}
+	n, err := r.queries.CountEligibleShedScopes(ctx, vaccinationdb.CountEligibleShedScopesParams(p))
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: count shed scopes: %w", err)
+	}
+	return n, nil
+}
+
+// SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
+func (r *Repository) SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (string, *time.Time, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	item, err := pgconv.UUID(itemID)
+	if err != nil {
+		return "", nil, fmt.Errorf("vaccination: item id: %w", err)
+	}
+	row, err := r.queries.SumAvailableStockForItem(ctx, vaccinationdb.SumAvailableStockForItemParams{
+		TenantID:   tenant,
+		ItemID:     item,
+		LocationID: pgconv.NullableUUID(locationID),
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("vaccination: sum available stock: %w", err)
+	}
+	return pgconv.NumericString(row.Available), pgconv.DateValue(row.EarliestExpiry), nil
+}
