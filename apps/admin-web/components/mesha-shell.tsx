@@ -49,13 +49,22 @@ const modules: NavLeaf[] = [
   { label: "Mortality", href: "/dashboard/mortality", icon: HeartPulse },
 ];
 
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
+const allHrefs: string[] = [...primary, ...modules].map((n) => n.href);
+
+// A route can prefix-match several nav hrefs (e.g. /vaccination/adherence matches both /vaccination
+// and /vaccination/adherence). Only the LONGEST (most specific) match should highlight.
+function activeHref(pathname: string): string {
+  let best = "";
+  for (const href of allHrefs) {
+    const match = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+    if (match && href.length > best.length) best = href;
+  }
+  return best;
 }
 
 export function MeshaShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/";
+  const active = activeHref(pathname);
   const [navOpen, setNavOpen] = useState(false);
 
   function toggleTheme() {
@@ -97,7 +106,7 @@ export function MeshaShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={n.href}
                 href={n.href}
-                className={`nav ${isActive(pathname, n.href) ? "on" : ""}`}
+                className={`nav ${active === n.href ? "on" : ""}`}
                 onClick={() => setNavOpen(false)}
               >
                 <Icon className="ic" />
@@ -116,7 +125,7 @@ export function MeshaShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={n.href}
                 href={n.href}
-                className={`leaf ${isActive(pathname, n.href) ? "on" : ""}`}
+                className={`leaf ${active === n.href ? "on" : ""}`}
                 onClick={() => setNavOpen(false)}
               >
                 {n.label}
