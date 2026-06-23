@@ -44,6 +44,18 @@ type DueObligation struct {
 	Status            string
 }
 
+// OpenObligation is a goat's still-open obligation (Goat Passport next-due), earliest due first.
+type OpenObligation struct {
+	ObligationID      string
+	ProtocolVersionID string
+	RuleID            string
+	ScopeType         string
+	ScopeID           string
+	DueAt             time.Time
+	Status            string
+	Sequence          int32
+}
+
 // NewBatch is the input to create a work-unit batch (a drive / feed session).
 type NewBatch struct {
 	TenantID              string

@@ -46,3 +46,8 @@ func (s *Service) GoatHistory(ctx context.Context, tenantID, goatID string, limi
 func (s *Service) RecordedCompletionsByTask(ctx context.Context, tenantID, taskID string) ([]string, error) {
 	return s.repo.ListRecordedCompletionsByTask(ctx, tenantID, taskID)
 }
+
+// LastAccepted returns a goat's most recent accepted administration (Goat Passport / SM-7 basis).
+func (s *Service) LastAccepted(ctx context.Context, tenantID, goatID string) (domain.LastAccepted, bool, error) {
+	return s.repo.GetLastAcceptedForGoat(ctx, tenantID, goatID)
+}

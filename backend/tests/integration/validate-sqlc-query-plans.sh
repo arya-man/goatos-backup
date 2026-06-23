@@ -439,6 +439,19 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
   AND status = 'scheduled';"
 }
 
+validate_obligation_open_by_goat_plan() {
+  # Goat Passport next-due: a goat's open obligations must come via obligation_instances_target_idx.
+  explain_must_use_index "ObligationOpenByGoat" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT obligation_id, due_at, status
+FROM obligation_instances
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND target_type = 'goat'
+  AND target_id = '00000000-0000-4000-8000-0000000000aa'
+  AND status IN ('scheduled', 'due', 'in_progress')
+ORDER BY due_at ASC, obligation_id ASC
+LIMIT 200;"
+}
+
 validate_vaccination_eligible_plan() {
   explain_must_use_index "VaccinationEligibleGoats" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
 SELECT count(*)
@@ -488,8 +501,9 @@ validate_obligation_scope_count_plan
 validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
 validate_obligation_target_lookup_plan
+validate_obligation_open_by_goat_plan
 validate_vaccination_eligible_plan
 validate_vaccination_generation_scan_plan
 validate_vaccination_fanout_plan
 
-echo "Validated $checked_count generated sqlc query plans and 18 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 19 hand-written query plans"

@@ -186,6 +186,65 @@ func (q *Queries) ListDueObligations(ctx context.Context, arg ListDueObligations
 	return items, nil
 }
 
+const listOpenObligationsByGoat = `-- name: ListOpenObligationsByGoat :many
+SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protocol_version_id,
+       rule_id::text AS rule_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id,
+       due_at, status, "sequence"
+FROM obligation_instances
+WHERE tenant_id = $1 AND target_type = 'goat' AND target_id = $2
+  AND status IN ('scheduled', 'due', 'in_progress')
+ORDER BY due_at ASC, obligation_id ASC
+LIMIT $3
+`
+
+type ListOpenObligationsByGoatParams struct {
+	TenantID pgtype.UUID
+	TargetID pgtype.UUID
+	RowLimit int32
+}
+
+type ListOpenObligationsByGoatRow struct {
+	ObligationID      string
+	ProtocolVersionID string
+	RuleID            string
+	ScopeType         string
+	ScopeID           string
+	DueAt             pgtype.Timestamptz
+	Status            string
+	Sequence          int32
+}
+
+// Goat Passport next-due: a goat's still-open obligations, earliest due first. Uses
+// obligation_instances_target_idx (tenant_id, target_type, target_id, status).
+func (q *Queries) ListOpenObligationsByGoat(ctx context.Context, arg ListOpenObligationsByGoatParams) ([]ListOpenObligationsByGoatRow, error) {
+	rows, err := q.db.Query(ctx, listOpenObligationsByGoat, arg.TenantID, arg.TargetID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenObligationsByGoatRow
+	for rows.Next() {
+		var i ListOpenObligationsByGoatRow
+		if err := rows.Scan(
+			&i.ObligationID,
+			&i.ProtocolVersionID,
+			&i.RuleID,
+			&i.ScopeType,
+			&i.ScopeID,
+			&i.DueAt,
+			&i.Status,
+			&i.Sequence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnbatchedDueForVersion = `-- name: ListUnbatchedDueForVersion :many
 SELECT obligation_id::text AS obligation_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id
 FROM obligation_instances

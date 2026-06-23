@@ -25,6 +25,9 @@ import (
 	mortalityhttp "github.com/vgoats/goatos/backend/internal/mortality/adapters/http"
 	mortalitypg "github.com/vgoats/goatos/backend/internal/mortality/adapters/postgres"
 	mortalityapp "github.com/vgoats/goatos/backend/internal/mortality/app"
+	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
+	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
@@ -39,6 +42,8 @@ import (
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
+	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -149,6 +154,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	sopService := sopapp.NewService(sopRepo)
 	sopHandler := sophttp.NewHandler(sopService, log)
+
+	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	vaccinationService := vaccinationapp.NewService(vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	passportService := passportapp.NewService(vaccinationService, obligationRepo)
+	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
 	authAuditOptions = append(authAuditOptions, authaudit.WithPendingEmailGrantClaimer(
@@ -183,6 +193,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	legacysynchttp.Register(protectedMux, legacySyncHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
 	sophttp.Register(protectedMux, sopHandler)
+	passporthttp.Register(protectedMux, passportHandler)
 
 	mux := http.NewServeMux()
 	authaudit.Register(mux, authAuditHandler)

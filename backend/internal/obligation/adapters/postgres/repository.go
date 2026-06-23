@@ -443,6 +443,43 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	return true, nil
 }
 
+// ListOpenByGoat returns a goat's still-open obligations, earliest due first (Goat Passport next-due).
+func (r *Repository) ListOpenByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.OpenObligation, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	goat, err := pgconv.UUID(goatID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.queries.ListOpenObligationsByGoat(ctx, obligationdb.ListOpenObligationsByGoatParams{
+		TenantID: tenant, TargetID: goat, RowLimit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list open by goat: %w", err)
+	}
+	out := make([]domain.OpenObligation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.OpenObligation{
+			ObligationID:      row.ObligationID,
+			ProtocolVersionID: row.ProtocolVersionID,
+			RuleID:            row.RuleID,
+			ScopeType:         row.ScopeType,
+			ScopeID:           row.ScopeID,
+			DueAt:             row.DueAt.Time,
+			Status:            row.Status,
+			Sequence:          row.Sequence,
+		})
+	}
+	return out, nil
+}
+
 // GetBoosterContext returns an obligation's protocol version, scope, and sequence (SM-7 basis on the
 // verify path). Returns ports.ErrNotFound when the obligation does not exist.
 func (r *Repository) GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error) {

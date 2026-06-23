@@ -41,6 +41,9 @@ type Repository interface {
 	// the verify path). Returns ErrNotFound when the obligation does not exist.
 	GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error)
 
+	// ListOpenByGoat returns a goat's still-open obligations, earliest due first (Goat Passport).
+	ListOpenByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.OpenObligation, error)
+
 	// ReScopeOpenForGoat moves a shifted goat's open, unbatched obligations to a new scope (SM-2)
 	// + writes 'rescoped' events, in one txn. Completed/in-progress/batched rows untouched.
 	// Idempotent; returns count re-scoped.
