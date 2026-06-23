@@ -17,15 +17,11 @@ const (
 )
 
 // VerificationEvent is the payload for the verify events. CompletionID is required; the booster
-// context (protocol version + scope + sequence) is optional and only used on accept.
+// context is derived from the obligation on accept, so it is not carried here.
 type VerificationEvent struct {
-	CompletionID      string `json:"completion_id"`
-	VerifiedBy        string `json:"verified_by,omitempty"`
-	ProtocolVersionID string `json:"protocol_version_id,omitempty"`
-	ScopeType         string `json:"scope_type,omitempty"`
-	ScopeID           string `json:"scope_id,omitempty"`
-	RuleSequence      int32  `json:"rule_sequence,omitempty"`
-	Reason            string `json:"reason,omitempty"`
+	CompletionID string `json:"completion_id"`
+	VerifiedBy   string `json:"verified_by,omitempty"`
+	Reason       string `json:"reason,omitempty"`
 }
 
 // VerificationHandler applies a SOP verify outcome to a recorded completion: accept → AcceptExisting
@@ -66,13 +62,9 @@ func (h *VerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event)
 	switch e.Type {
 	case EventVaccinationVerifyAccepted:
 		_, err := h.completion.AcceptExisting(ctx, AcceptExistingInput{
-			TenantID:          e.TenantID,
-			CompletionID:      p.CompletionID,
-			VerifiedBy:        verifiedBy,
-			ProtocolVersionID: p.ProtocolVersionID,
-			ScopeType:         p.ScopeType,
-			ScopeID:           p.ScopeID,
-			RuleSequence:      p.RuleSequence,
+			TenantID:     e.TenantID,
+			CompletionID: p.CompletionID,
+			VerifiedBy:   verifiedBy,
 		})
 		return err
 	case EventVaccinationVerifyRejected:

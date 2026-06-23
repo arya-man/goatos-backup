@@ -3,6 +3,15 @@ SELECT obligation_id::text AS obligation_id, status, due_at, row_version
 FROM obligation_instances
 WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key;
 
+-- name: GetObligationBoosterContext :one
+-- SM-7 basis on the verify path: the obligation's version + scope + sequence, looked up by PK
+-- (obligation_instances_tenant_id_unique) so the booster can schedule the next dose without the
+-- caller threading protocol context through the verification event.
+SELECT protocol_version_id::text AS protocol_version_id,
+       scope_type, COALESCE(scope_id::text, '')::text AS scope_id, "sequence"
+FROM obligation_instances
+WHERE tenant_id = @tenant_id AND obligation_id = @obligation_id;
+
 -- name: ListDueObligations :many
 -- Due-window scan. Uses obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id).
 SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protocol_version_id,

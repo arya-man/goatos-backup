@@ -8,9 +8,12 @@ import (
 )
 
 // ObligationCompleter is the slice of the obligation repo SM-5 needs: flip the obligation to
-// completed (+ 'completed' event) when its verification is accepted.
+// completed (+ 'completed' event) on accept, and (for SM-7 on the verify path) read its protocol
+// version + scope + sequence so the next dose can be scheduled without the caller threading that
+// context through the verification event.
 type ObligationCompleter interface {
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
+	GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error)
 }
 
 // StockConsumer is the slice of the inventory service SM-5 needs: consume reserved doses on accept.
@@ -102,22 +105,20 @@ func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptR
 	return AcceptResult{CompletionID: cid, Applied: true, Completed: completed, NextScheduled: next}, nil
 }
 
-// AcceptExistingInput verifies a completion already recorded (at SOP-submit time) by its id, plus the
-// optional SM-7 booster context (the protocol version + the dose's scope and sequence).
+// AcceptExistingInput verifies a completion already recorded (at SOP-submit time) by its id. The
+// SM-7 booster context is derived from the obligation, so the verification event need only carry the
+// completion id.
 type AcceptExistingInput struct {
-	TenantID          string
-	CompletionID      string
-	VerifiedBy        *string
-	WithdrawalUntil   *time.Time
-	ProtocolVersionID string
-	ScopeType         string
-	ScopeID           string
-	RuleSequence      int32
+	TenantID        string
+	CompletionID    string
+	VerifiedBy      *string
+	WithdrawalUntil *time.Time
 }
 
 // AcceptExisting accepts an already-recorded completion (the SOP verify outcome): it flips the
 // completion to accepted, completes its obligation, consumes the reserved dose, and schedules the
-// next booster. Idempotent: a completion no longer in 'recorded' state is a no-op.
+// next booster (deriving the protocol version + scope + sequence from the obligation). Idempotent: a
+// completion no longer in 'recorded' state is a no-op.
 func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistingInput) (AcceptResult, error) {
 	acc, applied, err := s.vacc.AcceptCompletion(ctx, in.TenantID, in.CompletionID, in.VerifiedBy, in.WithdrawalUntil)
 	if err != nil {
@@ -133,10 +134,15 @@ func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistin
 	if err := s.consume(ctx, in.TenantID, acc.BatchID, acc.LotID, acc.GoatID, &acc.Doses); err != nil {
 		return AcceptResult{}, err
 	}
-	next, err := s.scheduleBooster(ctx, in.TenantID, in.ProtocolVersionID, acc.GoatID,
-		in.ScopeType, in.ScopeID, in.RuleSequence, acc.AdministeredAt)
-	if err != nil {
-		return AcceptResult{}, err
+	next := false
+	if s.booster != nil {
+		versionID, scopeType, scopeID, seq, gerr := s.obl.GetBoosterContext(ctx, in.TenantID, acc.ObligationID)
+		if gerr != nil {
+			return AcceptResult{}, gerr
+		}
+		if next, err = s.scheduleBooster(ctx, in.TenantID, versionID, acc.GoatID, scopeType, scopeID, seq, acc.AdministeredAt); err != nil {
+			return AcceptResult{}, err
+		}
 	}
 	return AcceptResult{CompletionID: in.CompletionID, Applied: true, Completed: completed, NextScheduled: next}, nil
 }

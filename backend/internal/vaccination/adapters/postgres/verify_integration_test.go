@@ -62,6 +62,14 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("rule: %v", err)
 	}
+	// Dose 2 (booster) so the verify path exercises SM-7 with context derived from the obligation.
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "booster", Sequence: 2,
+		TriggerType: "after_previous_completion", OffsetDays: 0, MinGapDays: 21, Repeat: "none",
+		CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("rule2: %v", err)
+	}
 	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -89,7 +97,7 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	ob2 := scanText(t, ctx, pool, `SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, impTenant, g2)
 
 	svc := vaccapp.NewService(vacc)
-	completion := vaccapp.NewCompletionService(svc, obl, reserver)
+	completion := vaccapp.NewCompletionService(svc, obl, reserver).WithBooster(vaccapp.NewBoosterService(proto, obl))
 	doses := int32(1)
 	record := func(ob, goat, key string) string {
 		batch, lot := batchID, impLot
@@ -106,10 +114,13 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	cid1 := record(ob1, g1, "sub-g1")
 	cid2 := record(ob2, g2, "sub-g2")
 
-	// Verify-accept g1: obligation completed + 1 dose consumed.
+	// Verify-accept g1: obligation completed + 1 dose consumed + booster scheduled (context derived).
 	ar, err := completion.AcceptExisting(ctx, vaccapp.AcceptExistingInput{TenantID: impTenant, CompletionID: cid1})
-	if err != nil || !ar.Applied || !ar.Completed {
+	if err != nil || !ar.Applied || !ar.Completed || !ar.NextScheduled {
 		t.Fatalf("accept-existing g1: %+v err=%v", ar, err)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g1); got != 1 {
+		t.Fatalf("want 1 booster (dose-2) obligation for g1 via verify path, got %d", got)
 	}
 	if got := scanText(t, ctx, pool, `SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, ob1); got != "completed" {
 		t.Fatalf("ob1: want completed, got %s", got)

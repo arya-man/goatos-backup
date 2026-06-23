@@ -443,6 +443,32 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	return true, nil
 }
 
+// GetBoosterContext returns an obligation's protocol version, scope, and sequence (SM-7 basis on the
+// verify path). Returns ports.ErrNotFound when the obligation does not exist.
+func (r *Repository) GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", "", "", 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	obl, err := pgconv.UUID(obligationID)
+	if err != nil {
+		return "", "", "", 0, fmt.Errorf("obligation: obligation id: %w", err)
+	}
+	row, err := r.queries.GetObligationBoosterContext(ctx, obligationdb.GetObligationBoosterContextParams{
+		TenantID:     tenant,
+		ObligationID: obl,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", "", 0, ports.ErrNotFound
+	}
+	if err != nil {
+		return "", "", "", 0, fmt.Errorf("obligation: get booster context: %w", err)
+	}
+	return row.ProtocolVersionID, row.ScopeType, row.ScopeID, row.Sequence, nil
+}
+
 // RecordStatusEvent appends a status event with a reserve-before-insert idempotency guard, in
 // one transaction. Returns applied=false on retry (key already reserved) — no duplicate event.
 func (r *Repository) RecordStatusEvent(ctx context.Context, ev domain.NewStatusEvent) (string, bool, error) {

@@ -38,6 +38,40 @@ func (q *Queries) CountObligationsByScope(ctx context.Context, arg CountObligati
 	return total, err
 }
 
+const getObligationBoosterContext = `-- name: GetObligationBoosterContext :one
+SELECT protocol_version_id::text AS protocol_version_id,
+       scope_type, COALESCE(scope_id::text, '')::text AS scope_id, "sequence"
+FROM obligation_instances
+WHERE tenant_id = $1 AND obligation_id = $2
+`
+
+type GetObligationBoosterContextParams struct {
+	TenantID     pgtype.UUID
+	ObligationID pgtype.UUID
+}
+
+type GetObligationBoosterContextRow struct {
+	ProtocolVersionID string
+	ScopeType         string
+	ScopeID           string
+	Sequence          int32
+}
+
+// SM-7 basis on the verify path: the obligation's version + scope + sequence, looked up by PK
+// (obligation_instances_tenant_id_unique) so the booster can schedule the next dose without the
+// caller threading protocol context through the verification event.
+func (q *Queries) GetObligationBoosterContext(ctx context.Context, arg GetObligationBoosterContextParams) (GetObligationBoosterContextRow, error) {
+	row := q.db.QueryRow(ctx, getObligationBoosterContext, arg.TenantID, arg.ObligationID)
+	var i GetObligationBoosterContextRow
+	err := row.Scan(
+		&i.ProtocolVersionID,
+		&i.ScopeType,
+		&i.ScopeID,
+		&i.Sequence,
+	)
+	return i, err
+}
+
 const getObligationByIdempotencyKey = `-- name: GetObligationByIdempotencyKey :one
 SELECT obligation_id::text AS obligation_id, status, due_at, row_version
 FROM obligation_instances

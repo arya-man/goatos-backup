@@ -37,6 +37,10 @@ type Repository interface {
 	// Returns false (no-op) when already terminal. Idempotent.
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
 
+	// GetBoosterContext returns an obligation's protocol version, scope, and sequence (SM-7 basis on
+	// the verify path). Returns ErrNotFound when the obligation does not exist.
+	GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error)
+
 	// ReScopeOpenForGoat moves a shifted goat's open, unbatched obligations to a new scope (SM-2)
 	// + writes 'rescoped' events, in one txn. Completed/in-progress/batched rows untouched.
 	// Idempotent; returns count re-scoped.
