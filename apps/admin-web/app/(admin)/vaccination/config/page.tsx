@@ -1,4 +1,4 @@
-import { ConfigSchedulePage } from "@/features/vaccination/config";
+import { ConfigSchedulePage } from "@/features/vaccination";
 
 export const dynamic = "force-dynamic";
 

@@ -58,6 +58,14 @@ function isOverdue(iso: string): boolean {
   const d = new Date(iso);
   return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
 }
+// Request-time helpers kept at module scope so the component render stays pure (no Date.now/new Date
+// in the React render path — RSC renders once per request).
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+function windowDueBefore(windowDays: number): string | undefined {
+  return windowDays > 0 ? new Date(Date.now() + windowDays * 86_400_000).toISOString() : undefined;
+}
 function th(label: string) {
   return (
     <th className="whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-[#93a4b8]">
@@ -158,7 +166,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
   const actionMessage = one(sp, "action_message");
 
   const windowDays = windowDefs.find((w) => w.id === windowId)?.days ?? 0;
-  const dueBefore = windowDays > 0 ? new Date(Date.now() + windowDays * 86_400_000).toISOString() : undefined;
+  const dueBefore = windowDueBefore(windowDays);
 
   const [actionCenter, queue] = await Promise.all([
     getVaccinationActionCenter({ status: "due", dueBefore, limit: 200 }),
@@ -183,7 +191,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
     completed: 0,
   };
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const nothingLive = obligations.length === 0 && queueItems.length === 0;
   const showDue = bucket === "all" || bucket === "overdue" || bucket === "today";
   const showVerify = bucket === "all" || bucket === "verify";

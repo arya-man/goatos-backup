@@ -1,4 +1,4 @@
-import { VaccinationActionCenterPage } from "@/features/vaccination/action-center";
+import { VaccinationActionCenterPage } from "@/features/vaccination";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";

@@ -1,5 +1,5 @@
 import { GoatPassportPage } from "@/features/goat-passport";
-import { VaccinationPassportSection } from "@/features/vaccination/passport-section";
+import { VaccinationPassportSection } from "@/features/vaccination";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";

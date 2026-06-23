@@ -1,4 +1,4 @@
-import { ProtocolAdherencePage } from "@/features/vaccination/adherence";
+import { ProtocolAdherencePage } from "@/features/vaccination";
 
 export const dynamic = "force-dynamic";
 

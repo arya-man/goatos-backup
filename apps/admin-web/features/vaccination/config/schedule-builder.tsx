@@ -7,7 +7,7 @@ import {
   saveDraft,
   type ActionResult,
   type DoseRow,
-} from "@/features/vaccination/config-actions";
+} from "../config-actions";
 import type { ImpactPreviewResult } from "@/lib/api/server";
 
 const input =
