@@ -428,7 +428,7 @@ export interface VaccinationQueueResponse {
 }
 
 export async function getVaccinationActionCenter(
-  params: { status?: string; limit?: number } = {},
+  params: { status?: string; dueBefore?: string; limit?: number } = {},
 ): Promise<ApiResult<ActionCenterResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -437,7 +437,7 @@ export async function getVaccinationActionCenter(
   return request(() =>
     client.request<ActionCenterResponse>(path, {
       cache: "no-store",
-      query: compactQuery({ status: params.status ?? "due", limit: params.limit ?? 100 }),
+      query: compactQuery({ status: params.status ?? "due", due_before: params.dueBefore, limit: params.limit ?? 100 }),
     }),
   );
 }
@@ -455,6 +455,27 @@ export async function getVaccinationVerificationQueue(
       query: compactQuery({ limit: params.limit ?? 100 }),
     }),
   );
+}
+
+export async function acceptVaccinationCompletion(
+  completionId: string,
+): Promise<ApiResult<{ applied: boolean; completed: boolean }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/vaccination/completions/${encodeURIComponent(completionId)}/accept` as keyof AppApiPaths & string;
+  return request(() => client.request<{ applied: boolean; completed: boolean }>(path, { method: "POST", cache: "no-store" }));
+}
+
+export async function rejectVaccinationCompletion(
+  completionId: string,
+  reason: string,
+): Promise<ApiResult<{ applied: boolean }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/vaccination/completions/${encodeURIComponent(completionId)}/reject` as keyof AppApiPaths & string;
+  return request(() => client.request<{ applied: boolean }>(path, { method: "POST", cache: "no-store", body: { reason } }));
 }
 
 export async function createCorrectionRequest(
