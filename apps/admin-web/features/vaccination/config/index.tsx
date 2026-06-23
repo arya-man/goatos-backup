@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { ScheduleBuilder } from "./schedule-builder";
+import { VaccinationTabs } from "../vaccination-tabs";
 
 export function ConfigSchedulePage() {
   return (
@@ -15,11 +15,9 @@ export function ConfigSchedulePage() {
             from PUBLISHED, source-backed rules. Drafts never generate live work.
           </div>
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <Link href="/vaccination" className="btn">
-          ← Action Center
-        </Link>
       </div>
+
+      <VaccinationTabs current="config" />
 
       <div className="alert warn" style={{ marginBottom: 14 }}>
         <span aria-hidden className="ic">

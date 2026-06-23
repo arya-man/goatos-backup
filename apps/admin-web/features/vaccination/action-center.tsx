@@ -7,6 +7,7 @@ import {
 } from "@/lib/api/server";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
+import { VaccinationTabs } from "./vaccination-tabs";
 
 type Tone = "ok" | "warn" | "dng" | "info" | "mut";
 
@@ -191,18 +192,13 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
           </div>
           <h1>Action Center</h1>
           <div className="sub">
-            Every vaccination obligation grouped by computed work state. Verify, reject, or request rework (live); open
+            Every vaccination obligation grouped by computed work state — verify, reject, or request rework (live), open
             the goat passport. Every action writes the audit trail and ripples into Adherence + counts.
           </div>
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <Link href="/vaccination/adherence" className="btn">
-          Protocol Adherence →
-        </Link>
-        <Link href="/vaccination/config" className="btn">
-          Config →
-        </Link>
       </div>
+
+      <VaccinationTabs current={bucket === "verify" ? "verify" : "action"} />
 
       {actionStatus ? (
         actionStatus === "success" ? (

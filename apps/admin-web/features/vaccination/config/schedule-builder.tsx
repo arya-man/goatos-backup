@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { AlertTriangle, CalendarDays, CheckCircle2, ShieldCheck, Syringe, TrendingUp } from "lucide-react";
 import {
   publishVersion,
   runImpactPreview,
@@ -97,9 +98,7 @@ export function ScheduleBuilder() {
           </div>
         ) : (
           <div className="alert warn">
-            <span aria-hidden className="ic">
-              ⚠
-            </span>
+            <AlertTriangle className="ic" />
             <div>
               {notice.message}
               {notice.code ? <span className="muted">&nbsp;[{notice.code}]</span> : null}
@@ -111,7 +110,7 @@ export function ScheduleBuilder() {
       {/* Draft editor */}
       <section className="card">
         <div className="hd">
-          <span aria-hidden>💉</span>
+          <Syringe className="ic" />
           <h3>Draft editor — vaccination schedule</h3>
           <span className={`tag ${sourceBacked ? "t-ok" : "t-warn"}`}>
             {sourceBacked ? "Approved · publishable" : "Draft · not source-backed · cannot publish"}
@@ -177,7 +176,7 @@ export function ScheduleBuilder() {
       {/* Schedule[] multi-dose rows */}
       <section className="card">
         <div className="hd">
-          <span aria-hidden>🗓</span>
+          <CalendarDays className="ic" />
           <h3>Schedule — doses</h3>
           <span className="tag t-mut">{doses.length}</span>
           <div className="sp" />
@@ -267,7 +266,7 @@ export function ScheduleBuilder() {
       {/* Source / review state (the publish-gate inputs) */}
       <section className="card">
         <div className="hd">
-          <span aria-hidden>🔏</span>
+          <ShieldCheck className="ic" />
           <h3>Source &amp; review</h3>
           <div className="sp" />
           <span className="muted small">only vaccinations_db / phc / vet · approved · with approver can publish</span>
@@ -307,7 +306,7 @@ export function ScheduleBuilder() {
       {/* Live impact preview */}
       <section className="card">
         <div className="hd">
-          <span aria-hidden>📈</span>
+          <TrendingUp className="ic" />
           <h3>Impact preview</h3>
           <div className="sp" />
           <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -354,9 +353,7 @@ export function ScheduleBuilder() {
                 <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
                   {impact.warnings.map((w, i) => (
                     <div key={i} className="alert warn">
-                      <span aria-hidden className="ic">
-                        ⚠
-                      </span>
+                      <AlertTriangle className="ic" />
                       <div>{w}</div>
                     </div>
                   ))}
@@ -372,7 +369,7 @@ export function ScheduleBuilder() {
       {/* Publish gate */}
       <section className="card">
         <div className="hd">
-          <span aria-hidden>✅</span>
+          <CheckCircle2 className="ic" />
           <h3>Publish</h3>
         </div>
         <div className="bd">

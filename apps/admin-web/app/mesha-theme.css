@@ -21,8 +21,12 @@
     --amber:#C9871F; --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06); --ring:rgba(84,160,44,.26);
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--f);-webkit-font-smoothing:antialiased}
   a{color:inherit;text-decoration:none}
+  /* theme toggle: one icon button, show only the opposite action */
+  .theme-moon{display:none}
+  :root.light .theme-sun{display:none}
+  :root.light .theme-moon{display:block}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;letter-spacing:.2px}
   svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
   /* top bar */
@@ -330,8 +334,8 @@
   .sla.run{background:var(--warnx);color:var(--warn)} .sla.brk{background:var(--dangerx);color:var(--danger)} .sla.ok{background:var(--okx);color:var(--brand-d)}
   .vproof{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:650}
   .subtabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:18px;width:max-content;max-width:100%;overflow:auto}
-  .subtabs button{border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
-  .subtabs button.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
+  .subtabs button,.subtabs a{border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
+  .subtabs button.on,.subtabs a.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
   .chain{display:flex;align-items:stretch;gap:0;overflow:auto;padding:2px}
   .cstep{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative;margin-right:22px}
   .cstep:last-child{margin-right:0}

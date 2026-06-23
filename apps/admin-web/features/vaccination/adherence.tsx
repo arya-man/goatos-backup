@@ -5,6 +5,7 @@ import {
   type ActionCenterObligation,
   type VaccinationQueueItem,
 } from "@/lib/api/server";
+import { VaccinationTabs } from "./vaccination-tabs";
 
 type Tone = "ok" | "warn" | "dng" | "info" | "mut";
 function Tag({ tone, children }: { tone: Tone; children: React.ReactNode }) {
@@ -113,11 +114,9 @@ export async function ProtocolAdherencePage() {
             obligations are hidden; gaps, deferred/explained, and verification/rework surface here.
           </div>
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <Link href="/vaccination" className="btn">
-          ← Action Center
-        </Link>
       </div>
+
+      <VaccinationTabs current="adherence" />
 
       <div className="fchipsbar" style={{ marginBottom: 14 }}>
         <span className="muted small">Scope</span>
