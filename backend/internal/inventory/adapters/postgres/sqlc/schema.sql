@@ -6609,6 +6609,13 @@ CREATE INDEX vaccination_completions_obligation_idx ON public.vaccination_comple
 
 
 --
+-- Name: vaccination_completions_review_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_review_idx ON public.vaccination_completions USING btree (tenant_id, administered_at) WHERE (status = 'recorded'::text);
+
+
+--
 -- Name: vaccination_completions_submission_item_idx; Type: INDEX; Schema: public; Owner: -
 --
 

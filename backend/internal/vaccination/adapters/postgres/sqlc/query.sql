@@ -22,6 +22,17 @@ WHERE c.tenant_id = @tenant_id AND s.task_id = @task_id AND c.status = 'recorded
   AND c.sop_submission_item_id IS NOT NULL
 ORDER BY c.completion_id;
 
+-- name: ListRecordedCompletions :many
+-- Verification queue: completions awaiting review (status='recorded'), earliest administered first.
+-- Uses vaccination_completions_review_idx (tenant_id, administered_at) WHERE status='recorded'.
+SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id, COALESCE(batch_id::text, '')::text AS batch_id,
+       administered_at, COALESCE(doses, 0)::int AS doses, COALESCE(route_site, '')::text AS route_site
+FROM vaccination_completions
+WHERE tenant_id = @tenant_id AND status = 'recorded'
+ORDER BY administered_at ASC, completion_id ASC
+LIMIT @row_limit;
+
 -- name: GetLastAcceptedCompletionForGoat :one
 -- Next-due / SM-7 basis: most recent accepted administration for a goat.
 SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id, administered_at

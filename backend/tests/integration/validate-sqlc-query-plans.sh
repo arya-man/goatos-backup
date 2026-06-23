@@ -473,6 +473,17 @@ ORDER BY goat_id
 LIMIT 500;"
 }
 
+validate_vaccination_review_queue_plan() {
+  # Verification queue: completions awaiting review must use vaccination_completions_review_idx.
+  explain_must_use_index "VaccinationReviewQueue" 'Seq Scan on vaccination_completions' "EXPLAIN (COSTS OFF)
+SELECT completion_id
+FROM vaccination_completions
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
+  AND status = 'recorded'
+ORDER BY administered_at ASC, completion_id ASC
+LIMIT 100;"
+}
+
 validate_vaccination_fanout_plan() {
   # SOP verify fan-out resolves a task's recorded completions; the large vaccination_completions
   # table must be reached via vaccination_completions_submission_item_idx, not a scan.
@@ -504,6 +515,7 @@ validate_obligation_target_lookup_plan
 validate_obligation_open_by_goat_plan
 validate_vaccination_eligible_plan
 validate_vaccination_generation_scan_plan
+validate_vaccination_review_queue_plan
 validate_vaccination_fanout_plan
 
-echo "Validated $checked_count generated sqlc query plans and 19 hand-written query plans"
+echo "Validated $checked_count generated sqlc query plans and 20 hand-written query plans"

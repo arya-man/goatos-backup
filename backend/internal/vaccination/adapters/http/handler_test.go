@@ -12,13 +12,20 @@ import (
 )
 
 type fakeImpact struct {
-	got     domain.ImpactRequest
-	preview domain.ImpactPreview
+	got      domain.ImpactRequest
+	preview  domain.ImpactPreview
+	queue    []domain.RecordedCompletion
+	gotLimit int32
 }
 
 func (f *fakeImpact) ImpactPreview(_ context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error) {
 	f.got = req
 	return f.preview, nil
+}
+
+func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, limit int32) ([]domain.RecordedCompletion, error) {
+	f.gotLimit = limit
+	return f.queue, nil
 }
 
 func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {
@@ -61,5 +68,32 @@ func TestImpactPreviewRejectsBadJSON(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/protocols/vaccination/impact-preview", strings.NewReader("{not json")))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for bad json, got %d", rec.Code)
+	}
+}
+
+func TestVerificationQueueShapeAndLimit(t *testing.T) {
+	fake := &fakeImpact{queue: []domain.RecordedCompletion{
+		{CompletionID: "c1", GoatID: "g1", Doses: 1},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(fake))
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/verification-queue?limit=9000", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if fake.gotLimit != 500 {
+		t.Fatalf("limit must clamp to 500, got %d", fake.gotLimit)
+	}
+	var resp queueResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Items) != 1 || resp.Items[0].CompletionID != "c1" {
+		t.Fatalf("queue response: %+v err=%v", resp, err)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/verification-queue?limit=-3", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad limit: want 400, got %d", rec.Code)
 	}
 }

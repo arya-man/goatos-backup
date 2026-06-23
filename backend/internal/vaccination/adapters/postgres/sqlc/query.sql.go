@@ -269,6 +269,61 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 	return items, nil
 }
 
+const listRecordedCompletions = `-- name: ListRecordedCompletions :many
+SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id, COALESCE(batch_id::text, '')::text AS batch_id,
+       administered_at, COALESCE(doses, 0)::int AS doses, COALESCE(route_site, '')::text AS route_site
+FROM vaccination_completions
+WHERE tenant_id = $1 AND status = 'recorded'
+ORDER BY administered_at ASC, completion_id ASC
+LIMIT $2
+`
+
+type ListRecordedCompletionsParams struct {
+	TenantID pgtype.UUID
+	RowLimit int32
+}
+
+type ListRecordedCompletionsRow struct {
+	CompletionID   string
+	ObligationID   string
+	GoatID         string
+	BatchID        string
+	AdministeredAt pgtype.Timestamptz
+	Doses          int32
+	RouteSite      string
+}
+
+// Verification queue: completions awaiting review (status='recorded'), earliest administered first.
+// Uses vaccination_completions_review_idx (tenant_id, administered_at) WHERE status='recorded'.
+func (q *Queries) ListRecordedCompletions(ctx context.Context, arg ListRecordedCompletionsParams) ([]ListRecordedCompletionsRow, error) {
+	rows, err := q.db.Query(ctx, listRecordedCompletions, arg.TenantID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecordedCompletionsRow
+	for rows.Next() {
+		var i ListRecordedCompletionsRow
+		if err := rows.Scan(
+			&i.CompletionID,
+			&i.ObligationID,
+			&i.GoatID,
+			&i.BatchID,
+			&i.AdministeredAt,
+			&i.Doses,
+			&i.RouteSite,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecordedCompletionsByTask = `-- name: ListRecordedCompletionsByTask :many
 SELECT c.completion_id::text AS completion_id
 FROM vaccination_completions c

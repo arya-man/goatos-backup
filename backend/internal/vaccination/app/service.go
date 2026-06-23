@@ -51,3 +51,9 @@ func (s *Service) RecordedCompletionsByTask(ctx context.Context, tenantID, taskI
 func (s *Service) LastAccepted(ctx context.Context, tenantID, goatID string) (domain.LastAccepted, bool, error) {
 	return s.repo.GetLastAcceptedForGoat(ctx, tenantID, goatID)
 }
+
+// VerificationQueue returns completions awaiting review (status='recorded'), earliest administered
+// first.
+func (s *Service) VerificationQueue(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error) {
+	return s.repo.ListRecordedCompletions(ctx, tenantID, limit)
+}

@@ -35,6 +35,10 @@ type Repository interface {
 	// submissions (the SOP verify fan-out source).
 	ListRecordedCompletionsByTask(ctx context.Context, tenantID, taskID string) ([]string, error)
 
+	// ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest
+	// administered first (the Verification queue).
+	ListRecordedCompletions(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error)
+
 	// GetLastAcceptedForGoat returns the most recent accepted administration; found is false when none.
 	GetLastAcceptedForGoat(ctx context.Context, tenantID, goatID string) (rec domain.LastAccepted, found bool, err error)
 

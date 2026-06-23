@@ -179,6 +179,39 @@ func (r *Repository) ListRecordedCompletionsByTask(ctx context.Context, tenantID
 	return ids, nil
 }
 
+// ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest
+// administered first (the Verification queue).
+func (r *Repository) ListRecordedCompletions(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.queries.ListRecordedCompletions(ctx, vaccinationdb.ListRecordedCompletionsParams{
+		TenantID: tenant, RowLimit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: list recorded completions: %w", err)
+	}
+	out := make([]domain.RecordedCompletion, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.RecordedCompletion{
+			CompletionID:   row.CompletionID,
+			ObligationID:   row.ObligationID,
+			GoatID:         row.GoatID,
+			BatchID:        row.BatchID,
+			AdministeredAt: row.AdministeredAt.Time,
+			Doses:          row.Doses,
+			RouteSite:      row.RouteSite,
+		})
+	}
+	return out, nil
+}
+
 // ListCompletionsByGoat returns a goat's vaccination history (most recent first).
 func (r *Repository) ListCompletionsByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.CompletionHistoryItem, error) {
 	ctx, cancel := r.withTimeout(ctx)

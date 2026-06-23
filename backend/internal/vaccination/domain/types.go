@@ -49,6 +49,17 @@ type AcceptedCompletion struct {
 	AdministeredAt time.Time
 }
 
+// RecordedCompletion is one completion awaiting review (Verification queue).
+type RecordedCompletion struct {
+	CompletionID   string
+	ObligationID   string
+	GoatID         string
+	BatchID        string
+	AdministeredAt time.Time
+	Doses          int32
+	RouteSite      string
+}
+
 // LastAccepted is the most recent accepted administration for a goat (next-due / SM-7 basis).
 type LastAccepted struct {
 	CompletionID   string

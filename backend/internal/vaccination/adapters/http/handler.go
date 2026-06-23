@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -14,32 +15,39 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
-// ImpactPreviewer is the slice of the vaccination service this handler needs.
-type ImpactPreviewer interface {
+// Reads is the slice of the vaccination service this handler needs.
+type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
+	VerificationQueue(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error)
 }
 
 // Handler serves vaccination endpoints.
 type Handler struct {
-	impact ImpactPreviewer
-	log    *slog.Logger
+	svc Reads
+	log *slog.Logger
 }
 
 // NewHandler constructs the handler with an optional logger.
-func NewHandler(impact ImpactPreviewer, log ...*slog.Logger) *Handler {
+func NewHandler(svc Reads, log ...*slog.Logger) *Handler {
 	var l *slog.Logger
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	} else {
 		l = slog.Default()
 	}
-	return &Handler{impact: impact, log: l}
+	return &Handler{svc: svc, log: l}
 }
 
 // Register mounts the vaccination routes.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
+	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
 }
+
+const (
+	defaultQueueLimit = 100
+	maxQueueLimit     = 500
+)
 
 type errorEnvelope struct {
 	Code    string `json:"code"`
@@ -87,7 +95,7 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	preview, err := h.impact.ImpactPreview(r.Context(), domain.ImpactRequest{
+	preview, err := h.svc.ImpactPreview(r.Context(), domain.ImpactRequest{
 		Filter: domain.ImpactFilter{
 			TenantID: tenantID(r),
 			Stage:    req.Stage,
@@ -120,6 +128,56 @@ func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 		EarliestExpiry: preview.EarliestExpiry,
 		Warnings:       warnings,
 	})
+}
+
+type queueItem struct {
+	CompletionID   string    `json:"completion_id"`
+	ObligationID   string    `json:"obligation_id"`
+	GoatID         string    `json:"goat_id"`
+	BatchID        string    `json:"batch_id,omitempty"`
+	AdministeredAt time.Time `json:"administered_at"`
+	Doses          int32     `json:"doses"`
+	RouteSite      string    `json:"route_site,omitempty"`
+}
+
+type queueResponse struct {
+	Items []queueItem `json:"items"`
+}
+
+// VerificationQueue lists completions awaiting review (earliest administered first), bounded by limit
+// (default 100, max 500).
+func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
+	limit := int32(defaultQueueLimit)
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxQueueLimit {
+			n = maxQueueLimit
+		}
+		limit = int32(n)
+	}
+	rows, err := h.svc.VerificationQueue(r.Context(), tenantID(r), limit)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
+		return
+	}
+	items := make([]queueItem, 0, len(rows))
+	for _, c := range rows {
+		items = append(items, queueItem{
+			CompletionID:   c.CompletionID,
+			ObligationID:   c.ObligationID,
+			GoatID:         c.GoatID,
+			BatchID:        c.BatchID,
+			AdministeredAt: c.AdministeredAt,
+			Doses:          c.Doses,
+			RouteSite:      c.RouteSite,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, queueResponse{Items: items})
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
