@@ -337,6 +337,66 @@ func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, re
 	return len(ids), nil
 }
 
+// ReScopeOpenForGoat moves a shifted goat's still-open, unbatched obligations to a new scope (SM-2)
+// and writes a 'rescoped' status event per moved obligation, in one txn. Completed/in-progress/
+// batched obligations are untouched. Idempotent: a shift to the same scope moves nothing and writes
+// no events. Returns the count re-scoped.
+func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, scopeType, scopeID string) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	goat, err := pgconv.UUID(goatID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	scope, err := pgconv.UUID(scopeID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: scope id: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	ids, err := qtx.ReScopeOpenObligationsForGoat(ctx, obligationdb.ReScopeOpenObligationsForGoatParams{
+		TenantID:  tenant,
+		TargetID:  goat,
+		ScopeType: scopeType,
+		ScopeID:   scope,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("obligation: re-scope open for goat: %w", err)
+	}
+	payload, _ := json.Marshal(map[string]string{"scope_type": scopeType, "scope_id": scopeID})
+	now := time.Now()
+	for _, id := range ids {
+		oid, err := pgconv.UUID(id)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: obligation id: %w", err)
+		}
+		if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oid,
+			EventType:      "rescoped",
+			OccurredAt:     pgconv.Timestamptz(now),
+			Payload:        payload,
+			IdempotencyKey: id + ":rescoped:" + scopeID,
+		}); err != nil {
+			return 0, fmt.Errorf("obligation: rescoped event: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit re-scope: %w", err)
+	}
+	return len(ids), nil
+}
+
 // MarkCompleted marks an obligation completed (SM-5) and writes a 'completed' status event, in one
 // txn. Returns completed=false (no-op) when the obligation is already terminal. Idempotent.
 func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error) {

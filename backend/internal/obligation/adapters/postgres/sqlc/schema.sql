@@ -2602,7 +2602,7 @@ CREATE TABLE public.obligation_status_events (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 )
 PARTITION BY RANGE (recorded_at);
 
@@ -2621,7 +2621,7 @@ CREATE TABLE public.obligation_status_events_2026_06 (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -2639,7 +2639,7 @@ CREATE TABLE public.obligation_status_events_2026_07 (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -2657,7 +2657,7 @@ CREATE TABLE public.obligation_status_events_2026_08 (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -2675,7 +2675,7 @@ CREATE TABLE public.obligation_status_events_2026_09 (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -2693,7 +2693,7 @@ CREATE TABLE public.obligation_status_events_2026_10 (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -2711,7 +2711,7 @@ CREATE TABLE public.obligation_status_events_2026_11 (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -2729,7 +2729,7 @@ CREATE TABLE public.obligation_status_events_2026_12 (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 
@@ -2747,7 +2747,7 @@ CREATE TABLE public.obligation_status_events_default (
     actor_id uuid,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
     idempotency_key text NOT NULL,
-    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text])))
+    CONSTRAINT obligation_status_events_type_check CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
 );
 
 

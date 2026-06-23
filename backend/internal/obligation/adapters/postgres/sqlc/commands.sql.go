@@ -255,6 +255,54 @@ func (q *Queries) MarkObligationCompleted(ctx context.Context, arg MarkObligatio
 	return result.RowsAffected(), nil
 }
 
+const reScopeOpenObligationsForGoat = `-- name: ReScopeOpenObligationsForGoat :many
+UPDATE obligation_instances
+SET scope_type = $1, scope_id = $2, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $3
+  AND target_type = 'goat'
+  AND target_id = $4
+  AND status IN ('scheduled', 'due')
+  AND batch_id IS NULL
+  AND (scope_type IS DISTINCT FROM $1 OR scope_id IS DISTINCT FROM $2)
+RETURNING obligation_id::text AS obligation_id
+`
+
+type ReScopeOpenObligationsForGoatParams struct {
+	ScopeType string
+	ScopeID   pgtype.UUID
+	TenantID  pgtype.UUID
+	TargetID  pgtype.UUID
+}
+
+// SM-2: on a goat shift, move the goat's still-open, unbatched obligations to the new scope. The
+// IS DISTINCT FROM guard makes a same-scope replay match nothing (no row_version churn → idempotent).
+// Completed/in-progress/missed/canceled and already-batched obligations are never touched. Uses
+// obligation_instances_target_idx.
+func (q *Queries) ReScopeOpenObligationsForGoat(ctx context.Context, arg ReScopeOpenObligationsForGoatParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, reScopeOpenObligationsForGoat,
+		arg.ScopeType,
+		arg.ScopeID,
+		arg.TenantID,
+		arg.TargetID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var obligation_id string
+		if err := rows.Scan(&obligation_id); err != nil {
+			return nil, err
+		}
+		items = append(items, obligation_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reserveIdempotencyKey = `-- name: ReserveIdempotencyKey :one
 INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
 VALUES ($1, $2, $3, $4, 'started')

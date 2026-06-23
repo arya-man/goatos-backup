@@ -37,6 +37,11 @@ type Repository interface {
 	// Returns false (no-op) when already terminal. Idempotent.
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
 
+	// ReScopeOpenForGoat moves a shifted goat's open, unbatched obligations to a new scope (SM-2)
+	// + writes 'rescoped' events, in one txn. Completed/in-progress/batched rows untouched.
+	// Idempotent; returns count re-scoped.
+	ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, scopeType, scopeID string) (int, error)
+
 	// CancelOpenForGoat cancels a goat's scheduled/due obligations (SM-3) + writes 'canceled'
 	// events, in one txn. Idempotent; completed/accepted history untouched. Returns count canceled.
 	CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error)
