@@ -42,6 +42,7 @@ import (
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	vaccinationhttp "github.com/vgoats/goatos/backend/internal/vaccination/adapters/http"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
@@ -157,6 +158,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	vaccinationService := vaccinationapp.NewService(vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, log)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
@@ -193,6 +195,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	legacysynchttp.Register(protectedMux, legacySyncHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
 	sophttp.Register(protectedMux, sopHandler)
+	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 
 	mux := http.NewServeMux()
