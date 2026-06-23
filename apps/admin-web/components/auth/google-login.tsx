@@ -166,11 +166,24 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       </div>
       <div className="mt-3 min-h-7">
         {message ? (
-          <p className="rounded-lg border border-[#7f1d1d] bg-[#1d1214] px-3 py-2 text-sm leading-6 text-[#fecaca]">
+          <p
+            style={{
+              borderRadius: 9,
+              border: "1px solid color-mix(in srgb, var(--danger) 40%, transparent)",
+              background: "var(--dangerx)",
+              color: "var(--danger)",
+              padding: "8px 12px",
+              fontSize: 13,
+              lineHeight: 1.6,
+            }}
+          >
             {message}
           </p>
         ) : isBusy ? (
-          <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-[#8899AA]">
+          <p
+            className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em]"
+            style={{ color: "var(--muted)" }}
+          >
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             {statusText}
           </p>
