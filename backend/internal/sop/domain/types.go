@@ -170,6 +170,45 @@ type ReviewTaskRequest struct {
 	RowVersion int    `json:"row_version"`
 }
 
+type RetryReviewFanoutsRequest struct {
+	Limit int `json:"limit"`
+}
+
+type RetryReviewFanoutsResponse struct {
+	Applied int    `json:"applied"`
+	TraceID string `json:"trace_id"`
+}
+
+type RetrySubmissionFanoutsRequest struct {
+	Limit int `json:"limit"`
+}
+
+type RetrySubmissionFanoutsResponse struct {
+	Applied int    `json:"applied"`
+	TraceID string `json:"trace_id"`
+}
+
+type FailedSubmissionFanout struct {
+	TaskID                      string `json:"task_id"`
+	SubmissionID                string `json:"submission_id"`
+	SOPCode                     string `json:"sop_code"`
+	TaskType                    string `json:"task_type"`
+	TaskState                   string `json:"task_state"`
+	SubmittedAt                 string `json:"submitted_at"`
+	FanoutUpdatedAt             string `json:"fanout_updated_at"`
+	AgeSeconds                  int64  `json:"age_seconds"`
+	AttemptCount                int    `json:"attempt_count"`
+	LastError                   string `json:"last_error"`
+	EligibleSubmissionItems     int    `json:"eligible_submission_items"`
+	MaterializedCompletionCount int    `json:"materialized_completion_count"`
+	MissingCompletionCount      int    `json:"missing_completion_count"`
+}
+
+type FailedSubmissionFanoutsResponse struct {
+	Items   []FailedSubmissionFanout `json:"items"`
+	TraceID string                   `json:"trace_id"`
+}
+
 type SubmissionSummary struct {
 	SubmissionID     string           `json:"submission_id"`
 	TaskID           string           `json:"task_id"`
@@ -201,6 +240,12 @@ type ProofReference struct {
 	SubjectID   *string        `json:"subject_id"`
 	UploadState string         `json:"upload_state"`
 	Metadata    map[string]any `json:"metadata"`
+}
+
+type ProofBinding struct {
+	TaskID    string
+	ScopeType string
+	ScopeID   string
 }
 
 type SubmitTaskRequest struct {

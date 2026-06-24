@@ -3,6 +3,8 @@ package app
 import (
 	"errors"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 func TestValidatePublishable(t *testing.T) {
@@ -70,5 +72,28 @@ func TestValidatePublishable(t *testing.T) {
 				t.Fatalf("expected ErrNotPublishable, got %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateExecutionContract(t *testing.T) {
+	valid := domain.Version{
+		SopVersionID: "62000000-0000-4000-8000-000000000001",
+		ProofPolicy:  []byte(`{"required":true,"types":["video"]}`),
+		RuleDsl:      []byte(`{"schedule":[{"dose_code":"primary"}]}`),
+	}
+	if err := ValidateExecutionContract(valid); err != nil {
+		t.Fatalf("valid execution contract rejected: %v", err)
+	}
+
+	missingSOP := valid
+	missingSOP.SopVersionID = ""
+	if err := ValidateExecutionContract(missingSOP); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("missing SOP should be not publishable, got %v", err)
+	}
+
+	missingProof := valid
+	missingProof.ProofPolicy = []byte(`{}`)
+	if err := ValidateExecutionContract(missingProof); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("missing proof policy should be not publishable, got %v", err)
 	}
 }

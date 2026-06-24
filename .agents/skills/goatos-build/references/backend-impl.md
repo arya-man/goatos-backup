@@ -11,6 +11,8 @@ Canonical docs:
 - `docs/protocol-engine/state-machines.md`
 - `docs/phc-vaccination/TRD.md`
 - `docs/phc-vaccination/V1-FOUNDATION-SPEC.md`
+- `context/execution/vaccination-process-integrity-backend-handoff.md`
+- `context/execution/sop-vaccination-backend-handoff.md`
 
 ## Current Backend Shape
 
@@ -44,9 +46,30 @@ Admin config/SOP policy
   -> protocol versions and rules
   -> vaccination obligations and drives
   -> proof and verification state
-  -> Parks vaccination execution context
-  -> Control Tower/Action Center projections later
+  -> vaccination execution context
+  -> process-integrity projection
+  -> Control Tower / Action Center / Protocol Adherence / Workflow drilldowns
 ```
+
+The dashboard exists to prove the configured process is being followed. Backend
+must expose process state as source of truth; frontend must not guess it. For the
+current slice, read `context/execution/vaccination-process-integrity-backend-handoff.md`
+before changing vaccination projections, Action Center APIs, Control Tower APIs,
+or SOP/proof/verification completion flow.
+
+## Process-Integrity And Handoff Guardrails
+
+- Keep one process-integrity command model. Vaccination may be the default
+  domain today; procurement must later feed the same CT/AC/PA/WF surfaces through
+  `?domain=procurement`, not a nested procurement command engine.
+- Keep one SOP/proof/verification engine. Procurement source-health, dispatch,
+  transit, and arrival proof extend existing SOP/proof modules and policies; do
+  not create a procurement-only SOP runtime or media path.
+- Treat `procurement_phc_handoffs.event_status` as tracking only. The accepted
+  intake handoff is proven only when tests show the handler/consumer generated
+  vaccination obligations and CT/AC/PA/WF/Vaccination read models reflect them.
+- Large dirty SOP/contract changes must be audited as extensions of current
+  modules before new prompts build on them.
 
 ## Current API/RBAC Surface
 

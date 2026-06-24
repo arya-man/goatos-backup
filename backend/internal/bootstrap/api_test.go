@@ -120,6 +120,37 @@ func TestAuthMaxTokenTTLFromEnv(t *testing.T) {
 	}
 }
 
+func TestBuildProofStorageFailsClosedOutsideLocal(t *testing.T) {
+	for _, env := range []string{"dev", "stg", "staging", "prod", "production"} {
+		t.Run(env+"/empty", func(t *testing.T) {
+			t.Setenv("GOATOS_ENV", env)
+			t.Setenv("GOATOS_MEDIA_STORAGE", "")
+			if _, err := buildProofStorage(); err == nil {
+				t.Fatal("empty GOATOS_MEDIA_STORAGE accepted outside local/test")
+			}
+		})
+		t.Run(env+"/local", func(t *testing.T) {
+			t.Setenv("GOATOS_ENV", env)
+			t.Setenv("GOATOS_MEDIA_STORAGE", "local")
+			if _, err := buildProofStorage(); err == nil {
+				t.Fatal("local proof storage accepted outside local/test")
+			}
+		})
+	}
+}
+
+func TestBuildProofStorageAllowsLocalOnlyForLocalTestDevelopment(t *testing.T) {
+	for _, env := range []string{"", "local", "test", "development"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("GOATOS_ENV", env)
+			t.Setenv("GOATOS_MEDIA_STORAGE", "")
+			if _, err := buildProofStorage(); err != nil {
+				t.Fatalf("local proof storage rejected for %q: %v", env, err)
+			}
+		})
+	}
+}
+
 func TestAuthAuditOptionsFromConfig(t *testing.T) {
 	options, err := buildAuthAuditOptions(AuthConfig{
 		AuthSessionAllowedTenantIDs:   []string{"00000000-0000-4000-8000-000000000001"},

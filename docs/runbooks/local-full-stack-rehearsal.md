@@ -33,7 +33,9 @@ Active admin-web routes:
 /login
 /
 /vaccination
-/vaccination/adherence
+/action-center
+/protocol-adherence
+/workflows
 /config
 /goats/{goat_id}
 ```

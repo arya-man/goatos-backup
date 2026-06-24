@@ -111,9 +111,10 @@ schema fields so the protocol engine is not hardcoded to vaccination.
 
 ## 6. Frontend acceptance
 
-Routes in scope: `/login · / · /vaccination · /config ·
-/vaccination/adherence · /goats/{goat_id}`. Mesha green/black · compact sidebar ·
-PHC vertical with Vaccination nested · Admin/Data Ops with Config · Parks/Sheds as foundation only · no
+Routes in scope: `/login · / · /action-center · /protocol-adherence ·
+/workflows · /vaccination · /config · /goats/{goat_id}`. Mesha green/black ·
+compact sidebar · PHC vertical with Vaccination as an operational module ·
+Admin/Data Ops with Config · Parks/Sheds as foundation only · no
 Operations/Legacy/SOP/cyan nav · no huge fonts · no horizontal clipping · clean
 theme toggle · Goat Passport contextual/detail only (no global goat search).
 Config screen matches `mock/goatos-dashboard-mock.html` (table + New-draft-rule +

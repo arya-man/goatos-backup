@@ -4,18 +4,13 @@ import { redirect } from "next/navigation";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dateTime, dash, joinParts, shortId } from "@/lib/format";
+import { Tag } from "@/components/ui-primitives";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { addIdentifierAction, retireIdentifierAction } from "./actions";
 
 const identifierTypes = ["old_tag", "rfid", "visual_tag", "sheet_row_id", "purchase_load_id", "temp_field_id", "external_system_id"];
 const evidenceTypes = ["source_record", "identifier", "goat", "event", "media", "decision", "import_run", "conflict", "location", "actor"];
-
-type Tone = "ok" | "warn" | "dng" | "info" | "mut";
-
-function Tag({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  return <span className={`tag t-${tone}`}>{children}</span>;
-}
 
 function MiniMetric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -61,7 +56,7 @@ function FormSelect({
   return (
     <div>
       <label>{label}</label>
-      <select name={name} required={required} defaultValue={defaultValue ?? ""}>
+      <select name={name} aria-label={label} required={required} defaultValue={defaultValue ?? ""}>
         {emptyLabel ? <option value="">{emptyLabel}</option> : null}
         {options.map((option) => (
           <option key={option} value={option}>
@@ -89,7 +84,7 @@ function FormField({
   return (
     <div>
       <label>{label}</label>
-      <input name={name} required={required} defaultValue={defaultValue} placeholder={placeholder} />
+      <input name={name} aria-label={label} required={required} defaultValue={defaultValue} placeholder={placeholder} />
     </div>
   );
 }

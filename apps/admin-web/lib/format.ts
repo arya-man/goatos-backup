@@ -24,3 +24,27 @@ export function joinParts(parts: Array<string | null | undefined>): string {
   const filtered = parts.filter((part): part is string => Boolean(part));
   return filtered.length > 0 ? filtered.join(" · ") : "—";
 }
+
+// ISO-shaped formatters used by the vaccination / parks process-integrity screens. Distinct from
+// the locale-based `dateTime` above on purpose: these mirror the mock's compact ISO presentation.
+// Defined once so every screen renders dates identically.
+
+// "YYYY-MM-DD", or "—" when missing, or the raw string when unparseable.
+export function fmtDate(iso?: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 10);
+}
+
+// "YYYY-MM-DD HH:MM", or "" when missing, or the raw string when unparseable.
+export function fmtDateTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace("T", " ");
+}
+
+// "YYYY-MM-DD" for the current day (UTC). Call at module scope in RSC files so the render path
+// stays free of `new Date`.
+export function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}

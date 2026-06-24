@@ -38,7 +38,7 @@ Admin Config + SOP/protocol rules
         ↓
 PHC vaccination operations
         ↓
-Parks vaccination execution context
+Vaccination execution context (park/shed scope inside /vaccination)
         ↓
 Control Tower gap summary
 ```
@@ -77,7 +77,7 @@ The local foundation is built and tested against Postgres:
   material, but current product work must not rebuild a BigQuery-backed
   dashboard or import-review loop unless the scope is explicitly reopened.
 - The current active admin-web direction is the connected Admin Config + PHC
-  Vaccination + Parks vaccination execution slice, with Control Tower
+  Vaccination + vaccination execution context slice, with Control Tower
   summarizing process gaps instead of legacy dashboard parity.
 - Local Docker storage runbook plus read-only report and guarded Goat OS temp
   volume cleanup tooling.
@@ -95,7 +95,7 @@ In short:
 
 ```text
 The identity spine and vaccination engine foundation are built.
-The active build is Admin Config + PHC Vaccination + Parks vaccination context.
+The active build is Admin Config + PHC Vaccination + vaccination execution context.
 ```
 
 ### Built — Protocol & Vaccination Backend Foundation (local, tested)
@@ -137,8 +137,10 @@ Still pending for the current vaccination slice:
 - Production identity-provider provisioning behind the JWKS mode: real IdP
   endpoint, signing keys, sessions, key rotation, revocation, and secret
   management.
-- Parks vaccination execution layer: park/shed/stage/defer context, owner
-  chain, blockers, and SOP/proof state around each vaccination drive.
+- Vaccination execution context: park/shed/stage/defer context, owner
+  chain, blockers, and SOP/proof state around each vaccination drive, rendered
+  inside PHC/Vaccination. Deep shed detail belongs under
+  /vaccination/execution/sheds/{shed_id}.
 - Action Center computed work-state model below the UI: due, overdue, blocked,
   proof-pending, verification-pending, rejected, deferred, owner-missing, and
   completed/recent states from real workflow sources.
@@ -157,16 +159,16 @@ Intentionally not active now:
 - Old Import Review, conflict/candidate queues, correction queues, counts,
   mortality, legacy sync, and BigQuery-backed dashboard parity.
 - Generic Parks dashboard pages unrelated to vaccination execution.
-- Standalone Action Center and full Control Tower products before the operating
-  Admin/PHC/Parks surfaces are real.
+- Generic all-domain Action Center or Control Tower products before the
+  operating Admin/PHC/Parks/Procurement module surfaces are real.
 
 Immediate next order:
 
 ```text
-1. Build Parks vaccination execution context around the PHC vaccination rows:
-   park, shed, stage, defer status, owner chain, blocker, SOP/proof state.
-2. Complete the Action Center work-state model underneath PHC/Parks without
-   turning it into a standalone product yet.
+1. Build vaccination execution context (park/shed/stage/defer/blocker/owner)
+   around the PHC vaccination rows, rendered inside /vaccination.
+2. Keep the top-level Action Center work-state lens fed by PHC/vaccination without
+   turning it into a generic all-domain product yet.
 3. Provision production auth (IdP/JWKS + secrets), event egress, and cloud
    deploy under vgoats.com without calling the local dev-token demo shippable.
 ```
@@ -257,9 +259,11 @@ ordered around the vaccination process-integrity slice:
    Vaccination obligations, drives, proof, verification, missed/deferred
    handling, and goat vaccination passport history.
 
-3. Parks Vaccination Execution
+3. Vaccination Execution Context
    Park, shed, animal stage, defer status, blocker, owner chain, SOP/proof
-   status, and verification status around each vaccination drive.
+   status, and verification status around each vaccination drive (rendered
+   inside /vaccination; deep shed detail belongs under
+   /vaccination/execution/sheds/{shed_id}).
 
 4. Action Center Work-State Model
    Due, overdue, blocked, proof-pending, verification-pending, rejected,
@@ -279,8 +283,8 @@ ordered around the vaccination process-integrity slice:
 
 Later verticals such as feed direction, health, breeding, procurement, sales,
 devices, analytics, and AI analyst remain real Goat OS scope, but they should
-not pull the current build away from Admin Config + PHC Vaccination + Parks
-vaccination execution.
+not pull the current build away from Admin Config + PHC Vaccination + vaccination
+execution context.
 
 ## What The CEO Should Know Today
 
@@ -295,7 +299,9 @@ The current build is focused on the vaccination process-integrity layer:
 
 - Admin Config and source-backed protocol rules.
 - PHC vaccination obligations, drives, proof, and verification.
-- Parks vaccination context: park, shed, stage, defer state, owner, blocker.
+- Vaccination execution context: park, shed, stage, defer state, owner, blocker
+  (rendered inside /vaccination; deep shed detail belongs under
+  /vaccination/execution/sheds/{shed_id}).
 - Action Center work states underneath the operating screens.
 - Control Tower summary only after the underlying gaps are real.
 
@@ -306,10 +312,11 @@ gaps, not decorate incomplete workflows.
 
 Recommended next execution order:
 
-1. Build Parks vaccination execution context around the current PHC vaccination
-   rows.
-2. Finish the Action Center work-state backend model without introducing a
-   separate standalone Action Center product yet.
+1. Build vaccination execution context (park/shed/stage/defer/blocker/owner)
+   inside /vaccination around the current PHC vaccination rows, with shed detail
+   at /vaccination/execution/sheds/{shed_id}.
+2. Finish the top-level Action Center work-state backend model without
+   introducing a generic all-domain product yet.
 3. Keep Admin Config category-driven while wiring vaccination SOP/proof policy
    from source-backed protocol versions.
 4. Add production identity-provider integration later: JWKS/asymmetric token
@@ -365,5 +372,5 @@ Docker-backed Postgres integration tests
 Goat OS is now focused on the vaccination process-integrity slice.
 
 The identity and vaccination foundations are strong, but the product is not
-user-ready until Parks execution context, the full work-state model, production
+user-ready until vaccination execution context, the full work-state model, production
 auth, event egress, and deployment are complete.

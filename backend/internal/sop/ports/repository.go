@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
 )
@@ -75,15 +76,65 @@ type ReviewTaskCommand struct {
 	Body     domain.ReviewTaskRequest
 }
 
+type ReviewFanoutStatusCommand struct {
+	TenantID       string
+	TaskID         string
+	TaskRowVersion int
+	Outcome        string
+	ActorID        string
+	Reason         string
+	Status         string
+	LastError      string
+}
+
+type ReviewFanoutAttempt struct {
+	TenantID       string
+	TaskID         string
+	TaskRowVersion int
+	Outcome        string
+	ActorID        string
+	Reason         string
+}
+
+type SubmissionFanoutStatusCommand struct {
+	TenantID     string
+	TaskID       string
+	SubmissionID string
+	ActorID      string
+	Status       string
+	LastError    string
+}
+
+type SubmissionFanoutAttempt struct {
+	TenantID     string
+	TaskID       string
+	SubmissionID string
+	ActorID      string
+}
+
+type ListAgedFailedSubmissionFanoutsParams struct {
+	TenantID      string
+	UpdatedBefore time.Time
+	Now           time.Time
+	Limit         int
+}
+
 type SubmitTaskCommand struct {
-	TenantID        string
-	ActorID         string
-	TaskID          string
-	Body            domain.SubmitTaskRequest
-	Report          domain.ValidationReport
-	ItemState       string
-	TaskState       string
-	MovementPayload map[string]any
+	TenantID                 string
+	ActorID                  string
+	TaskID                   string
+	Body                     domain.SubmitTaskRequest
+	Report                   domain.ValidationReport
+	ItemState                string
+	TaskState                string
+	MovementPayload          map[string]any
+	SubmissionItems          []SubmissionItemInput
+	SubmissionFanoutRequired bool
+}
+
+type SubmissionItemInput struct {
+	GoatID  string
+	ItemKey string
 }
 
 type Repository interface {
@@ -101,5 +152,10 @@ type Repository interface {
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error)
 	AssignTask(ctx context.Context, cmd AssignTaskCommand) (domain.TaskSummary, error)
 	ReviewTask(ctx context.Context, cmd ReviewTaskCommand) (domain.TaskSummary, error)
+	ListPendingReviewFanouts(ctx context.Context, tenantID string, limit int) ([]ReviewFanoutAttempt, error)
+	RecordReviewFanoutStatus(ctx context.Context, cmd ReviewFanoutStatusCommand) error
+	ListPendingSubmissionFanouts(ctx context.Context, tenantID string, limit int) ([]SubmissionFanoutAttempt, error)
+	RecordSubmissionFanoutStatus(ctx context.Context, cmd SubmissionFanoutStatusCommand) error
+	ListAgedFailedSubmissionFanouts(ctx context.Context, params ListAgedFailedSubmissionFanoutsParams) ([]domain.FailedSubmissionFanout, error)
 	SubmitTask(ctx context.Context, cmd SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error)
 }

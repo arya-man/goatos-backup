@@ -340,6 +340,7 @@ func (r *Repository) ReviewTask(ctx context.Context, cmd ports.ReviewTaskCommand
 	}
 	defer rollback(ctx, tx)
 	var taskID string
+	var taskRowVersion int
 	err = tx.QueryRow(ctx, `
 UPDATE sop_tasks
 SET state = $4,
@@ -350,7 +351,7 @@ SET state = $4,
 WHERE tenant_id = $1::uuid
   AND task_id = $2::uuid
   AND row_version = $3
-RETURNING task_id::text`, cmd.TenantID, cmd.TaskID, cmd.Body.RowVersion, cmd.State, cmd.ActorID).Scan(&taskID)
+RETURNING task_id::text, row_version`, cmd.TenantID, cmd.TaskID, cmd.Body.RowVersion, cmd.State, cmd.ActorID).Scan(&taskID, &taskRowVersion)
 	if err != nil {
 		return domain.TaskSummary{}, mapUpdateErr(err)
 	}
@@ -362,11 +363,309 @@ RETURNING task_id::text`, cmd.TenantID, cmd.TaskID, cmd.Body.RowVersion, cmd.Sta
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "sop.task."+cmd.State, "sop_task", taskID, map[string]any{"reason": cmd.Body.Reason}); err != nil {
 		return domain.TaskSummary{}, err
 	}
+	if cmd.State == "accepted" || cmd.State == "rework_requested" {
+		if err := insertReviewFanout(ctx, tx, ports.ReviewFanoutStatusCommand{
+			TenantID:       cmd.TenantID,
+			TaskID:         taskID,
+			TaskRowVersion: taskRowVersion,
+			Outcome:        cmd.State,
+			ActorID:        cmd.ActorID,
+			Reason:         cmd.Body.Reason,
+			Status:         "pending",
+		}); err != nil {
+			return domain.TaskSummary{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.TaskSummary{}, err
 	}
 	task, _, _, err := r.GetTask(context.WithoutCancel(ctx), cmd.TenantID, taskID)
 	return task, err
+}
+
+func (r *Repository) RecordReviewFanoutStatus(ctx context.Context, cmd ports.ReviewFanoutStatusCommand) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+INSERT INTO sop_task_review_fanouts (
+  tenant_id, task_id, task_row_version, outcome, status, requested_by, reason,
+  attempt_count, last_error, completed_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, $7,
+	  CASE WHEN $5 IN ('completed', 'failed', 'superseded') THEN 1 ELSE 0 END,
+  $8,
+	  CASE WHEN $5 IN ('completed', 'superseded') THEN now() ELSE NULL END
+	)
+	ON CONFLICT (tenant_id, task_id, task_row_version, outcome) DO UPDATE
+	SET status = EXCLUDED.status,
+	    requested_by = COALESCE(EXCLUDED.requested_by, sop_task_review_fanouts.requested_by),
+	    reason = COALESCE(NULLIF(EXCLUDED.reason, ''), sop_task_review_fanouts.reason),
+	    attempt_count = CASE
+	      WHEN EXCLUDED.status IN ('completed', 'failed', 'superseded') THEN sop_task_review_fanouts.attempt_count + 1
+	      ELSE sop_task_review_fanouts.attempt_count
+	    END,
+	    last_error = EXCLUDED.last_error,
+	    completed_at = CASE WHEN EXCLUDED.status IN ('completed', 'superseded') THEN now() ELSE NULL END,
+	    updated_at = now()`,
+		cmd.TenantID,
+		cmd.TaskID,
+		cmd.TaskRowVersion,
+		cmd.Outcome,
+		cmd.Status,
+		cmd.ActorID,
+		cmd.Reason,
+		cmd.LastError,
+	)
+	return err
+}
+
+func (r *Repository) ListPendingReviewFanouts(ctx context.Context, tenantID string, limit int) ([]ports.ReviewFanoutAttempt, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT tenant_id::text,
+       task_id::text,
+       task_row_version,
+       outcome,
+       COALESCE(requested_by::text, '')::text,
+       reason
+FROM sop_task_review_fanouts
+WHERE tenant_id = $1::uuid
+  AND status IN ('pending', 'failed')
+ORDER BY updated_at ASC, review_fanout_id ASC
+LIMIT $2`, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ports.ReviewFanoutAttempt
+	for rows.Next() {
+		var attempt ports.ReviewFanoutAttempt
+		if err := rows.Scan(
+			&attempt.TenantID,
+			&attempt.TaskID,
+			&attempt.TaskRowVersion,
+			&attempt.Outcome,
+			&attempt.ActorID,
+			&attempt.Reason,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func insertReviewFanout(ctx context.Context, tx pgx.Tx, cmd ports.ReviewFanoutStatusCommand) error {
+	_, err := tx.Exec(ctx, `
+INSERT INTO sop_task_review_fanouts (
+  tenant_id, task_id, task_row_version, outcome, status, requested_by, reason
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, $7
+)
+ON CONFLICT (tenant_id, task_id, task_row_version, outcome) DO UPDATE
+SET status = 'pending',
+    requested_by = COALESCE(EXCLUDED.requested_by, sop_task_review_fanouts.requested_by),
+    reason = EXCLUDED.reason,
+    last_error = '',
+    updated_at = now()`,
+		cmd.TenantID,
+		cmd.TaskID,
+		cmd.TaskRowVersion,
+		cmd.Outcome,
+		cmd.Status,
+		cmd.ActorID,
+		cmd.Reason,
+	)
+	return err
+}
+
+func (r *Repository) RecordSubmissionFanoutStatus(ctx context.Context, cmd ports.SubmissionFanoutStatusCommand) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+INSERT INTO sop_task_submission_fanouts (
+  tenant_id, task_id, submission_id, status, requested_by,
+  attempt_count, last_error, completed_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4, nullif($5, '')::uuid,
+  CASE WHEN $4 IN ('completed', 'failed', 'skipped') THEN 1 ELSE 0 END,
+  $6,
+  CASE WHEN $4 IN ('completed', 'skipped') THEN now() ELSE NULL END
+)
+ON CONFLICT (tenant_id, submission_id) DO UPDATE
+SET status = EXCLUDED.status,
+    requested_by = COALESCE(EXCLUDED.requested_by, sop_task_submission_fanouts.requested_by),
+    attempt_count = CASE
+      WHEN EXCLUDED.status IN ('completed', 'failed', 'skipped') THEN sop_task_submission_fanouts.attempt_count + 1
+      ELSE sop_task_submission_fanouts.attempt_count
+    END,
+    last_error = EXCLUDED.last_error,
+    completed_at = CASE WHEN EXCLUDED.status IN ('completed', 'skipped') THEN now() ELSE NULL END,
+    updated_at = now()`,
+		cmd.TenantID,
+		cmd.TaskID,
+		cmd.SubmissionID,
+		cmd.Status,
+		cmd.ActorID,
+		cmd.LastError,
+	)
+	return err
+}
+
+func (r *Repository) ListPendingSubmissionFanouts(ctx context.Context, tenantID string, limit int) ([]ports.SubmissionFanoutAttempt, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT tenant_id::text,
+       task_id::text,
+       submission_id::text,
+       COALESCE(requested_by::text, '')::text
+FROM sop_task_submission_fanouts
+WHERE tenant_id = $1::uuid
+  AND status IN ('pending', 'failed')
+ORDER BY updated_at ASC, submission_fanout_id ASC
+LIMIT $2`, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ports.SubmissionFanoutAttempt
+	for rows.Next() {
+		var attempt ports.SubmissionFanoutAttempt
+		if err := rows.Scan(
+			&attempt.TenantID,
+			&attempt.TaskID,
+			&attempt.SubmissionID,
+			&attempt.ActorID,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) ListAgedFailedSubmissionFanouts(ctx context.Context, params ports.ListAgedFailedSubmissionFanoutsParams) ([]domain.FailedSubmissionFanout, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if params.Limit <= 0 || params.Limit > 100 {
+		params.Limit = 50
+	}
+	if params.Now.IsZero() {
+		params.Now = time.Now().UTC()
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT f.task_id::text,
+       f.submission_id::text,
+       sd.code,
+       st.task_type,
+       st.state,
+       ss.submitted_at,
+       f.updated_at,
+       GREATEST(0, floor(EXTRACT(EPOCH FROM ($3::timestamptz - f.updated_at)))::bigint),
+       f.attempt_count,
+       f.last_error,
+       count(si.item_id)::int,
+       count(DISTINCT vc.sop_submission_item_id)::int
+FROM sop_task_submission_fanouts f
+JOIN sop_tasks st
+  ON st.tenant_id = f.tenant_id
+ AND st.task_id = f.task_id
+JOIN sop_definitions sd
+  ON sd.tenant_id = st.tenant_id
+ AND sd.sop_id = st.sop_id
+JOIN sop_submissions ss
+  ON ss.tenant_id = f.tenant_id
+ AND ss.submission_id = f.submission_id
+LEFT JOIN sop_submission_items si
+  ON si.tenant_id = f.tenant_id
+ AND si.task_id = f.task_id
+ AND si.submission_id = f.submission_id
+ AND si.goat_id IS NOT NULL
+ AND si.state IN ('accepted', 'needs_review')
+LEFT JOIN vaccination_completions vc
+  ON vc.tenant_id = si.tenant_id
+ AND vc.sop_submission_item_id = si.item_id
+ AND vc.status <> 'reversed'
+WHERE f.tenant_id = $1::uuid
+  AND f.status = 'failed'
+  AND f.updated_at <= $2::timestamptz
+  AND (
+    sd.code IN ('vaccination.drive', 'vaccination.session')
+    OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+  )
+GROUP BY f.submission_fanout_id, f.task_id, f.submission_id, sd.code, st.task_type, st.state, ss.submitted_at, f.updated_at, f.attempt_count, f.last_error
+ORDER BY f.updated_at ASC, f.submission_fanout_id ASC
+LIMIT $4`, params.TenantID, params.UpdatedBefore, params.Now, params.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.FailedSubmissionFanout{}
+	for rows.Next() {
+		var item domain.FailedSubmissionFanout
+		var submittedAt, fanoutUpdatedAt time.Time
+		if err := rows.Scan(
+			&item.TaskID,
+			&item.SubmissionID,
+			&item.SOPCode,
+			&item.TaskType,
+			&item.TaskState,
+			&submittedAt,
+			&fanoutUpdatedAt,
+			&item.AgeSeconds,
+			&item.AttemptCount,
+			&item.LastError,
+			&item.EligibleSubmissionItems,
+			&item.MaterializedCompletionCount,
+		); err != nil {
+			return nil, err
+		}
+		item.SubmittedAt = submittedAt.UTC().Format(time.RFC3339)
+		item.FanoutUpdatedAt = fanoutUpdatedAt.UTC().Format(time.RFC3339)
+		item.MissingCompletionCount = item.EligibleSubmissionItems - item.MaterializedCompletionCount
+		if item.MissingCompletionCount < 0 {
+			item.MissingCompletionCount = 0
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func insertSubmissionFanout(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID string) error {
+	_, err := tx.Exec(ctx, `
+INSERT INTO sop_task_submission_fanouts (
+  tenant_id, task_id, submission_id, status, requested_by
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'pending', nullif($4, '')::uuid
+)
+ON CONFLICT (tenant_id, submission_id) DO UPDATE
+SET status = 'pending',
+    requested_by = COALESCE(EXCLUDED.requested_by, sop_task_submission_fanouts.requested_by),
+    last_error = '',
+    updated_at = now()`,
+		cmd.TenantID,
+		cmd.TaskID,
+		submissionID,
+		cmd.ActorID,
+	)
+	return err
 }
 
 func (r *Repository) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error) {
@@ -440,10 +739,15 @@ RETURNING task_id::text`, cmd.TenantID, cmd.TaskID, cmd.TaskState).Scan(&taskID)
 	if cmd.TaskState == "accepted" {
 		payload, _ := json.Marshal(nonNilMap(cmd.MovementPayload))
 		_, err = tx.Exec(ctx, `
-INSERT INTO movement_commands (tenant_id, task_id, submission_id, command_type, state, payload)
+	INSERT INTO movement_commands (tenant_id, task_id, submission_id, command_type, state, payload)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'shifting.apply', 'accepted', $4::jsonb)
 ON CONFLICT (tenant_id, submission_id, command_type) DO NOTHING`, cmd.TenantID, cmd.TaskID, submissionID, payload)
 		if err != nil {
+			return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
+		}
+	}
+	if cmd.SubmissionFanoutRequired {
+		if err := insertSubmissionFanout(ctx, tx, cmd, submissionID); err != nil {
 			return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 		}
 	}
@@ -653,7 +957,10 @@ LIMIT 1`, cmd.TenantID, cmd.Body.IdempotencyKey).Scan(&submissionID, &taskID, &a
 }
 
 func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID string) error {
-	keys := itemKeys(cmd.Body.Answers)
+	keys := cmd.SubmissionItems
+	if len(keys) == 0 {
+		keys = itemKeys(cmd.Body.Answers)
+	}
 	for _, item := range keys {
 		result, _ := json.Marshal(map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)})
 		_, err := tx.Exec(ctx, `
@@ -935,24 +1242,19 @@ INSERT INTO audit_log (
 	return err
 }
 
-type submissionItemKey struct {
-	GoatID  string
-	ItemKey string
-}
-
-func itemKeys(answers map[string]any) []submissionItemKey {
+func itemKeys(answers map[string]any) []ports.SubmissionItemInput {
 	raw, ok := answers["goat_ids"].([]any)
 	if !ok || len(raw) == 0 {
-		return []submissionItemKey{{ItemKey: "batch"}}
+		return []ports.SubmissionItemInput{{ItemKey: "batch"}}
 	}
-	out := make([]submissionItemKey, 0, len(raw))
+	out := make([]ports.SubmissionItemInput, 0, len(raw))
 	for i, value := range raw {
 		goatID, _ := value.(string)
 		if goatID == "" {
-			out = append(out, submissionItemKey{ItemKey: "goat-" + time.Now().UTC().Format("150405")})
+			out = append(out, ports.SubmissionItemInput{ItemKey: "goat-" + time.Now().UTC().Format("150405")})
 			continue
 		}
-		out = append(out, submissionItemKey{GoatID: goatID, ItemKey: goatID})
+		out = append(out, ports.SubmissionItemInput{GoatID: goatID, ItemKey: goatID})
 		if i >= 999 {
 			break
 		}

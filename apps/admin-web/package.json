@@ -14,7 +14,8 @@
     "smoke:visual:update-baseline": "node scripts/smoke-visual-live.mjs --baseline-dir .codex-goatos-render/admin-web-baselines --update-baseline",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "check:mock-fidelity": "node scripts/check-mock-fidelity.mjs"
+    "check:ia-guard": "node scripts/check-ia-guard.mjs",
+    "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-mock-fidelity.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.5.0",

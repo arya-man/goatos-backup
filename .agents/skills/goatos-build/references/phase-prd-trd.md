@@ -4,7 +4,7 @@ Load this before implementing, reviewing, or changing any delivery phase.
 
 ## Active Override — Protocol Engine Phase 0
 
-For current PHC vaccination, Parks vaccination execution, protocol config,
+For current PHC vaccination, vaccination execution context, protocol config,
 obligation, and inventory-ledger work, the active build spec is:
 
 ```text

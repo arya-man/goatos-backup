@@ -286,7 +286,7 @@ Phase 1 has one web surface: `admin-web`. Build it with the same boundary
 discipline now:
 
 - SSR/server components for read-heavy pages wherever possible.
-- route-level modules for Admin Config, PHC Vaccination, Parks vaccination
+- route-level modules for Admin Config, PHC Vaccination, vaccination execution
   context, contextual Goat Passport, and later Control Tower/Action Center
   summaries.
 - standalone module entrypoints for local/demo testing.

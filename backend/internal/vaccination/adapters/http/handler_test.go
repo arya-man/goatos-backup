@@ -24,7 +24,7 @@ func (f *fakeImpact) ImpactPreview(_ context.Context, req domain.ImpactRequest) 
 	return f.preview, nil
 }
 
-func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, limit int32) ([]domain.RecordedCompletion, error) {
+func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, _ string, limit int32) ([]domain.RecordedCompletion, error) {
 	f.gotLimit = limit
 	return f.queue, nil
 }

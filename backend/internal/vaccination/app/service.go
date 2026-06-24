@@ -47,6 +47,12 @@ func (s *Service) RecordedCompletionsByTask(ctx context.Context, tenantID, taskI
 	return s.repo.ListRecordedCompletionsByTask(ctx, tenantID, taskID)
 }
 
+// RecordCompletionsFromSubmission creates one recorded completion per goat item in a vaccination
+// SOP submission. This is the submit-time bridge before verification accepts/rejects the proof.
+func (s *Service) RecordCompletionsFromSubmission(ctx context.Context, tenantID, taskID, submissionID, recordedBy string) (int, error) {
+	return s.repo.RecordCompletionsFromSubmission(ctx, tenantID, taskID, submissionID, recordedBy)
+}
+
 // LastAccepted returns a goat's most recent accepted administration (Goat Passport / SM-7 basis).
 func (s *Service) LastAccepted(ctx context.Context, tenantID, goatID string) (domain.LastAccepted, bool, error) {
 	return s.repo.GetLastAcceptedForGoat(ctx, tenantID, goatID)
@@ -54,6 +60,6 @@ func (s *Service) LastAccepted(ctx context.Context, tenantID, goatID string) (do
 
 // VerificationQueue returns completions awaiting review (status='recorded'), earliest administered
 // first.
-func (s *Service) VerificationQueue(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error) {
-	return s.repo.ListRecordedCompletions(ctx, tenantID, limit)
+func (s *Service) VerificationQueue(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error) {
+	return s.repo.ListRecordedCompletions(ctx, tenantID, parkID, limit)
 }

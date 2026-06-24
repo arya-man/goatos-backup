@@ -13,6 +13,8 @@ Canonical docs:
 - `context/source-findings/drive-docs-findings.md`
 - `context/execution/next-contracts.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
+- `context/execution/sop-vaccination-backend-handoff.md`
+- `context/execution/vaccination-process-integrity-backend-handoff.md`
 
 Rules:
 
@@ -37,8 +39,12 @@ Rules:
 - Dynamic pickers come from backend reference data/offline caches, not hardcoded
   Slack dropdowns.
 - The current walking slice is vaccination: SOP/proof policy is configured by
-  source-backed protocol versions and executed through PHC/Parks vaccination
-  work, not a revived generic `/sops` or `/tasks` admin page.
+  source-backed protocol versions and executed through PHC/vaccination work.
+  Vaccination execution context (park/shed/stage/defer/blocker/owner context)
+  renders inside /vaccination, not as a separate Parks module.
+  `/sops` is reopened only as the Admin/Data Ops SOP Library for the vaccination
+  slice; it must not display non-vaccination SOP inventory or revive old `/tasks`/
+  generic SOP product behavior.
 - The project-level target is Android SOP runner -> Goat OS app API -> backend
   validation/idempotency/proof/audit -> module-owned canonical event -> Postgres
   projections. BQ/Sheets are removable only per feature/grain after coverage,
@@ -52,3 +58,6 @@ Rules:
 - Before calling SOP replacement closed, cross-check the module that owns the
   workflow, the proof policy, the Android runner, and the backend verification
   path. Vaccination is only one vertical using the shared SOP/proof engine.
+- For the current vaccination process-integrity slice, SOP is not complete until
+  it feeds the backend process-integrity model used by Protocol Adherence,
+  Action Center, Control Tower, vaccination execution context, and workflow drilldowns.

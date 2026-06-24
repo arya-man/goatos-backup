@@ -1,24 +1,14 @@
 import Link from "next/link";
-import { Pause, Syringe, Video } from "lucide-react";
-import {
-  getVaccinationActionCenter,
-  getVaccinationVerificationQueue,
-  type ActionCenterObligation,
-  type VaccinationQueueItem,
-} from "@/lib/api/server";
-import { VaccinationTabs } from "./vaccination-tabs";
+import { Syringe } from "lucide-react";
+import { getVaccinationAdherence } from "@/lib/api/server";
+import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity } from "@/lib/api/server";
+import { one, type RouteSearchParams } from "@/lib/search-params";
+import { backendScope, parseScope, scopeHref } from "@/lib/scope";
+import { SEVERITY_META, SEVERITY_ORDER, WORK_STATE_META } from "./process-integrity";
+import { Tag } from "@/components/ui-primitives";
 
-type Tone = "ok" | "warn" | "dng" | "info" | "mut";
-function Tag({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  return <span className={`tag t-${tone}`}>{children}</span>;
-}
-
-// Module-scope so the RSC render path stays pure (no new Date in render).
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-const accentVar: Record<Tone, string> = {
+type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
+const accentVar: Record<Tone4, string> = {
   ok: "var(--ok)",
   warn: "var(--amber)",
   dng: "var(--danger)",
@@ -26,7 +16,7 @@ const accentVar: Record<Tone, string> = {
   mut: "var(--line)",
 };
 
-function Kpi({ label, value, sub, tone = "mut" }: { label: string; value: React.ReactNode; sub?: string; tone?: Tone }) {
+function Kpi({ label, value, sub, tone = "mut" }: { label: string; value: React.ReactNode; sub?: string; tone?: Tone4 }) {
   return (
     <div className="kpi">
       <span className="acc" style={{ background: accentVar[tone] }} />
@@ -37,147 +27,157 @@ function Kpi({ label, value, sub, tone = "mut" }: { label: string; value: React.
   );
 }
 
-const cols = ["Expected", "Actual", "Gap", "Severity", "Owner", "Next action", "Evidence"];
+const ADHERENCE_COLS = ["Expected", "Actual", "Gap", "Severity", "Owner", "Next action", "Evidence"];
 
-function ModuleCard({
-  icon,
-  title,
-  badge,
-  badgeTone,
-  rightBadge,
-  rows,
-  emptyNote,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  badge: string;
-  badgeTone: Tone;
-  rightBadge?: React.ReactNode;
-  rows: React.ReactNode[];
-  emptyNote: string;
-}) {
-  return (
-    <section className="card">
-      <div className="hd">
-        {icon}
-        <h3>{title}</h3>
-        <Tag tone={badgeTone}>{badge}</Tag>
-        <div className="sp" />
-        {rightBadge ?? null}
-      </div>
-      {rows.length > 0 ? (
-        // Populated: the 7-column table scrolls horizontally inside the card when needed.
-        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={`${title} adherence table`}>
-          <table>
-            <thead>
-              <tr>
-                {cols.map((c) => (
-                  <th key={c}>{c}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>{rows}</tbody>
-          </table>
-        </div>
-      ) : (
-        // Empty: a wrapping note — never a wide single-row table (which overflowed/clipped the card).
-        <p className="muted small" style={{ margin: 0, padding: "16px 4px", lineHeight: 1.6 }}>
-          {emptyNote}
-        </p>
-      )}
-    </section>
-  );
+function ownerOf(row: AdherenceRow): string {
+  return row.owner?.operator_name ?? row.owner?.park_head_name ?? "unassigned";
 }
 
-export async function ProtocolAdherencePage() {
-  const [actionCenter, queue] = await Promise.all([
-    getVaccinationActionCenter({ status: "due", limit: 200 }),
-    getVaccinationVerificationQueue({ limit: 200 }),
-  ]);
-  const obligations: ActionCenterObligation[] = actionCenter.ok ? actionCenter.data.items : [];
-  const queueItems: VaccinationQueueItem[] = queue.ok ? queue.data.items : [];
-  const hasData = obligations.length > 0 || queueItems.length > 0;
-  const today = todayIso();
+function EvidenceCell({ evidence }: { evidence: ProcessIntegrityEvidence }) {
+  if (evidence.latest_rejection_reason) {
+    return <Tag tone="dng" title={evidence.latest_rejection_reason}>rejected</Tag>;
+  }
+  if (evidence.evidence_count > 0) {
+    return (
+      <Tag tone="ok" title={evidence.audit_ref ?? undefined}>
+        {evidence.evidence_count} proof{evidence.evidence_count === 1 ? "" : "s"}
+      </Tag>
+    );
+  }
+  return <span className="muted">—</span>;
+}
+
+export async function ProtocolAdherencePage({ searchParams }: { searchParams?: RouteSearchParams }) {
+  const sp = searchParams ?? {};
+  const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as ProcessIntegritySeverity | "all";
+  const scope = parseScope(sp);
+  const { parkId } = backendScope(scope);
+
+  const result = await getVaccinationAdherence({
+    parkId,
+    severity: severityFilter === "all" ? undefined : severityFilter,
+    limit: 200,
+  });
+
+  const summary = result.ok ? result.data.summary : null;
+  const rows: AdherenceRow[] = result.ok ? result.data.rows : [];
+
+  // Filter links preserve the full top-bar scope (scopeHref) + the page severity filter.
+  function hrefWith(overrides: Record<string, string | undefined>): string {
+    return scopeHref("/protocol-adherence", scope, {}, { severity: severityFilter, ...overrides });
+  }
 
   return (
     <div className="screen on">
       <div className="phead">
         <div>
-          <div className="crumb">
-            PHC · <b>Vaccination</b>
-          </div>
           <h1>Protocol Adherence</h1>
           <div className="sub">
-            Is the agreed process being followed? Adherence is computed from each obligation&apos;s expected rule vs the
-            actual SOP submission + proof — Expected → Actual → Gap → Severity → Owner → Next → Evidence. On-track
-            obligations are hidden; gaps, deferred/explained, and verification/rework surface here.
+            <b>Is the agreed process being followed?</b> Expected → Actual → Gap → Severity → Owner → Next → Evidence.
+            On-track obligations are summarized, not listed; gaps and deferred/explained rows surface here.
           </div>
         </div>
       </div>
 
-      <VaccinationTabs current="adherence" />
-
-      <div className="fchipsbar" style={{ marginBottom: 14 }}>
-        <span className="muted small">Scope</span>
-        <Tag tone="mut">all parks</Tag>
-        <Tag tone="mut">all sheds</Tag>
-        <Tag tone="mut">as of {today}</Tag>
-        <div className="sp" style={{ flex: 1 }} />
-        <Tag tone="warn">rules: Draft · pending source-backed approval</Tag>
-      </div>
-
+      {/* Mock KPI row, from the real adherence summary. Park/date scope lives in the top bar only. */}
       <div className="grid g4" style={{ marginBottom: 14 }}>
-        <Kpi label="Overall adherence" value={hasData ? "—" : "n/a"} sub="needs published rules + proof" tone="warn" />
-        <Kpi label="Open process gaps" value={0} sub="no published protocol" tone="mut" />
         <Kpi
-          label="Due (not yet acted)"
-          value={obligations.length}
-          sub="from generated obligations"
-          tone={obligations.length ? "warn" : "mut"}
+          label="Overall adherence"
+          value={summary ? `${Math.round(summary.adherence_percent)}%` : "n/a"}
+          sub="on-time + correct"
+          tone={summary ? (summary.adherence_percent >= 90 ? "ok" : summary.adherence_percent >= 70 ? "warn" : "dng") : "mut"}
         />
-        <Kpi
-          label="Awaiting verification"
-          value={queueItems.length}
-          sub="recorded doses"
-          tone={queueItems.length ? "warn" : "mut"}
-        />
+        <Kpi label="Open process gaps" value={summary ? summary.open_gap_count : "n/a"} sub="across vaccination rules" tone={summary && summary.open_gap_count > 0 ? "warn" : "mut"} />
+        <Kpi label="Deferred / explained" value={summary ? summary.deferred_count : "n/a"} sub="ICU / quarantine / sick" tone="mut" />
+        <Kpi label="On-track (no action)" value={summary ? summary.process_intact_count : "n/a"} sub={summary ? `${summary.completed_count}/${summary.expected_count} done` : "obligations"} tone="ok" />
       </div>
 
-      <div className="note" style={{ marginBottom: 14 }}>
-        Adherence is computed from <b>published</b> rules. No vaccination protocol is published yet (source-backed gate),
-        so there are no expected-vs-actual gaps to compute. Publish a source-backed schedule in{" "}
+      {!result.ok ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
+        </div>
+      ) : null}
+
+      {/* Severity filter (server-side). */}
+      <div className="chipset" style={{ marginBottom: 14 }}>
+        <Link href={hrefWith({ severity: "all" })} className={`chip${severityFilter === "all" ? " on" : ""}`}>
+          All severity
+        </Link>
+        {SEVERITY_ORDER.map((s) => (
+          <Link key={s} href={hrefWith({ severity: s })} className={`chip${severityFilter === s ? " on" : ""}`}>
+            {SEVERITY_META[s].label}
+          </Link>
+        ))}
+      </div>
+
+      <section className="card">
+        <div className="hd">
+          <Syringe className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
+          <h3>Vaccination</h3>
+          {summary ? <Tag tone={summary.adherence_percent >= 90 ? "ok" : "warn"}>{Math.round(summary.adherence_percent)}% adherence</Tag> : null}
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="muted small">expected vs actual + SOP proof</span>
+        </div>
+        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Vaccination adherence ledger">
+          <table>
+            <thead>
+              <tr>
+                {ADHERENCE_COLS.map((c) => (
+                  <th key={c}>{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={ADHERENCE_COLS.length}>
+                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                      {result.ok
+                        ? "No open vaccination adherence gaps for this scope — every obligation is on track, deferred/explained, or none has been generated yet."
+                        : "Adherence rows are unavailable until the service responds."}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr key={row.row_id}>
+                    <td>
+                      <b>{row.expected}</b>
+                    </td>
+                    <td className="muted">{row.actual}</td>
+                    <td>
+                      <Tag tone={WORK_STATE_META[row.work_state].tone}>{row.gap}</Tag>
+                    </td>
+                    <td>
+                      <Tag tone={SEVERITY_META[row.severity].tone}>{SEVERITY_META[row.severity].label}</Tag>
+                    </td>
+                    <td className="muted">{ownerOf(row)}</td>
+                    <td>
+                      <Link href={`/workflows/${encodeURIComponent(row.row_id)}`} className="lk small">
+                        {row.next_action}
+                      </Link>
+                    </td>
+                    <td>
+                      <EvidenceCell evidence={row.evidence} />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="note" style={{ marginTop: 14 }}>
+        Adherence is computed from <b>published</b> rules vs actual SOP submission + proof. Set the process in{" "}
         <Link href="/config?category=vaccination" className="lk">
           Config — Protocol Rules
+        </Link>{" "}
+        and{" "}
+        <Link href="/sops" className="lk">
+          SOP Library
         </Link>
-        ; gaps, deferred/explained obligations, and verification/rework then populate the cards below.
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <ModuleCard
-          icon={<Syringe className="ic" />}
-          title="Vaccination"
-          badge="adherence: pending"
-          badgeTone="warn"
-          rightBadge={<Tag tone="warn">rules: Draft · pending source-backed approval</Tag>}
-          rows={[]}
-          emptyNote="No computed gaps — publish a source-backed vaccination schedule to generate obligations, then expected-vs-actual gaps appear here (skipped, missing-proof, overdue, deferred)."
-        />
-        <ModuleCard
-          icon={<Video className="ic" />}
-          title="Verification / SOP proof"
-          badge={`${queueItems.length} awaiting`}
-          badgeTone={queueItems.length ? "warn" : "mut"}
-          rows={[]}
-          emptyNote="Recorded doses awaiting review + rework requests surface here once drives run. Act on them in the Action Center verification queue."
-        />
-        <ModuleCard
-          icon={<Pause className="ic" />}
-          title="Deferred / explained"
-          badge="SM-1 defer"
-          badgeTone="mut"
-          rows={[]}
-          emptyNote="ICU / quarantine / sick goats are deferred by SM-1 and surfaced here (never silently skipped) — visible with an auto-resume-on-recovery next action."
-        />
+        ; deferred/explained rows stay visible here instead of silently disappearing.
       </div>
     </div>
   );

@@ -18,10 +18,9 @@ Build and verify these surfaces only:
 The working product model is:
 
 - **Admin / Data Ops** owns generic protocol config and SOP policy.
-- **PHC / Vaccination** owns vaccination operations, execution, proof, and
-  verification.
-- **Parks vaccination layer** provides physical execution context: park, shed,
-  stage, defer/blocker state, owner chain, and linked vaccination drive status.
+- **PHC / Vaccination** owns vaccination operations, proof, and verification.
+  Vaccination execution context (park, shed, stage, defer/blocker, owner, SOP/proof
+  status) renders INSIDE /vaccination#execution, not as a separate Parks route.
 - **Action Center status logic** exists underneath the slice as due, overdue,
   blocked, proof-pending, verification-pending, rejected, deferred, and
   owner-missing state. A standalone Action Center page can come later.

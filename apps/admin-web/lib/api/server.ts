@@ -14,6 +14,25 @@ export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterOb
 export type ActionCenterResponse = AppApiComponents["schemas"]["ActionCenterResponse"];
 export type VaccinationQueueItem = AppApiComponents["schemas"]["VaccinationQueueItem"];
 export type VaccinationQueueResponse = AppApiComponents["schemas"]["VaccinationQueueResponse"];
+
+// Process-integrity read model — the canonical truth feeding Action Center, Protocol Adherence,
+// Control Tower, and workflow drilldown. One backend projection, not the Parks physical projection.
+export type WorkState = AppApiComponents["schemas"]["WorkState"];
+export type ProcessIntegritySeverity = AppApiComponents["schemas"]["ProcessIntegritySeverity"];
+export type ProcessIntegrityOwner = AppApiComponents["schemas"]["ProcessIntegrityOwner"];
+export type ProcessIntegrityEvidence = AppApiComponents["schemas"]["ProcessIntegrityEvidence"];
+export type ProcessIntegritySOPState = AppApiComponents["schemas"]["ProcessIntegritySOPState"];
+export type ProcessIntegrityProofState = AppApiComponents["schemas"]["ProcessIntegrityProofState"];
+export type ProcessIntegrityVerificationState = AppApiComponents["schemas"]["ProcessIntegrityVerificationState"];
+export type CountByWorkState = AppApiComponents["schemas"]["CountByWorkState"];
+export type AdherenceSummary = AppApiComponents["schemas"]["AdherenceSummary"];
+export type AdherenceRow = AppApiComponents["schemas"]["AdherenceRow"];
+export type ProtocolAdherenceResponse = AppApiComponents["schemas"]["ProtocolAdherenceResponse"];
+export type ControlTowerSummary = AppApiComponents["schemas"]["ControlTowerSummary"];
+export type ControlTowerAlert = AppApiComponents["schemas"]["ControlTowerAlert"];
+export type ControlTowerResponse = AppApiComponents["schemas"]["ControlTowerResponse"];
+export type WorkflowNode = AppApiComponents["schemas"]["WorkflowNode"];
+export type WorkflowDrilldownResponse = AppApiComponents["schemas"]["WorkflowDrilldownResponse"];
 export type ImpactPreviewInput = AppApiComponents["schemas"]["ImpactPreviewInput"];
 export type ImpactPreviewResult = AppApiComponents["schemas"]["ImpactPreviewResult"];
 export type VaccinationPassportDue = AppApiComponents["schemas"]["VaccinationPassportDue"];
@@ -22,9 +41,34 @@ export type VaccinationPassport = AppApiComponents["schemas"]["VaccinationPasspo
 export type AcceptVaccinationCompletionResponse = AppApiComponents["schemas"]["AcceptVaccinationCompletionResponse"];
 export type RejectVaccinationCompletionResponse = AppApiComponents["schemas"]["RejectVaccinationCompletionResponse"];
 
+export type VaccinationExecutionResponse = AppApiComponents["schemas"]["VaccinationExecutionResponse"];
+export type VaccinationExecutionRow = AppApiComponents["schemas"]["VaccinationExecutionRow"];
+export type VaccinationOperationsResponse = AppApiComponents["schemas"]["VaccinationOperationsResponse"];
+export type VaccinationOperationsCohort = AppApiComponents["schemas"]["VaccinationOperationsCohort"];
+export type VaccinationOperationsProtocol = AppApiComponents["schemas"]["VaccinationOperationsProtocol"];
+export type VaccinationOperationsCell = AppApiComponents["schemas"]["VaccinationOperationsCell"];
+export type VaccinationExecutionShedDrilldown = AppApiComponents["schemas"]["VaccinationExecutionShedDrilldown"];
+export type VaccinationExecutionWorkState = AppApiComponents["schemas"]["VaccinationExecutionWorkState"];
+export type VaccinationExecutionSeverity = AppApiComponents["schemas"]["VaccinationExecutionSeverity"];
+export type VaccinationExecutionSOPStatus = AppApiComponents["schemas"]["VaccinationExecutionSOPStatus"];
+export type VaccinationExecutionProofStatus = AppApiComponents["schemas"]["VaccinationExecutionProofStatus"];
+export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]["VaccinationExecutionVerificationStatus"];
+
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
 export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentifierRequest"];
 export type RetireIdentifierRequestBody = AdminApiComponents["schemas"]["RetireIdentifierRequest"];
+
+// SOP Library (Admin / Data Ops) — real generated admin-api types, no hand-rolled shapes.
+export type SOPDefinition = AdminApiComponents["schemas"]["SOPDefinition"];
+export type SOPVersion = AdminApiComponents["schemas"]["SOPVersion"];
+export type SOPListResponse = AdminApiComponents["schemas"]["SOPListResponse"];
+export type SOPResponse = AdminApiComponents["schemas"]["SOPResponse"];
+export type SOPVersionResponse = AdminApiComponents["schemas"]["SOPVersionResponse"];
+export type CreateSOPRequest = AdminApiComponents["schemas"]["CreateSOPRequest"];
+export type CreateSOPVersionRequest = AdminApiComponents["schemas"]["CreateSOPVersionRequest"];
+export type DryRunRequest = AdminApiComponents["schemas"]["DryRunRequest"];
+export type DryRunResponse = AdminApiComponents["schemas"]["DryRunResponse"];
+export type SOPValidationReport = AdminApiComponents["schemas"]["ValidationReport"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -128,7 +172,7 @@ export function getAdminRuntimeStatus() {
   };
 }
 
-function apiClientOptions(config: ServerConfig) {
+export function apiClientOptions(config: ServerConfig) {
   return {
     baseUrl: config.baseUrl,
     bearerToken: config.bearerToken,
@@ -187,22 +231,96 @@ export async function getGoatTimeline(params: GoatTimelineParams): Promise<ApiRe
   );
 }
 
+// Action Center — the canonical process-integrity rows for vaccination work. Real dedicated endpoint
+// (/vaccination/action-center), not the Parks physical projection. Filters + counts are server-side.
 export async function getVaccinationActionCenter(
-  params: { status?: string; dueBefore?: string; limit?: number } = {},
+  params: {
+    parkId?: string;
+    shedId?: string;
+    workState?: WorkState;
+    severity?: ProcessIntegritySeverity;
+    dueBefore?: string;
+    cursor?: string;
+    limit?: number;
+  } = {},
 ): Promise<ApiResult<ActionCenterResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<ActionCenterResponse>("/action-center/obligations", {
+    client.request<ActionCenterResponse>("/vaccination/action-center", {
       cache: "no-store",
-      query: compactQuery({ status: params.status ?? "due", due_before: params.dueBefore, limit: params.limit ?? 100 }),
+      query: compactQuery({
+        park_id: params.parkId,
+        shed_id: params.shedId,
+        work_state: params.workState,
+        severity: params.severity,
+        due_before: params.dueBefore,
+        cursor: params.cursor,
+        limit: params.limit ?? 200,
+      }),
     }),
   );
 }
 
+// Protocol Adherence — per rule/drive/cohort expected-vs-actual ledger (real /vaccination/adherence).
+export async function getVaccinationAdherence(
+  params: {
+    parkId?: string;
+    shedId?: string;
+    workState?: WorkState;
+    severity?: ProcessIntegritySeverity;
+    cursor?: string;
+    limit?: number;
+  } = {},
+): Promise<ApiResult<ProtocolAdherenceResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProtocolAdherenceResponse>("/vaccination/adherence", {
+      cache: "no-store",
+      query: compactQuery({
+        park_id: params.parkId,
+        shed_id: params.shedId,
+        work_state: params.workState,
+        severity: params.severity,
+        cursor: params.cursor,
+        limit: params.limit ?? 200,
+      }),
+    }),
+  );
+}
+
+// Control Tower — exception-only leadership summary + alerts (real /control-tower/vaccination).
+export async function getVaccinationControlTower(
+  params: { parkId?: string; shedId?: string; dueBefore?: string; limit?: number } = {},
+): Promise<ApiResult<ControlTowerResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ControlTowerResponse>("/control-tower/vaccination", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.parkId, shed_id: params.shedId, due_before: params.dueBefore, limit: params.limit }),
+    }),
+  );
+}
+
+// Workflow drilldown — config -> obligation -> drive -> SOP -> proof -> verify -> completion chain
+// for a single Action Center / Adherence row (real /vaccination/workflows/{row_id}).
+export async function getVaccinationWorkflowDrilldown(
+  rowId: string,
+): Promise<ApiResult<WorkflowDrilldownResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/vaccination/workflows/${encodeURIComponent(rowId)}` as keyof AppApiPaths & string;
+  return request(() => client.request<WorkflowDrilldownResponse>(path, { cache: "no-store" }));
+}
+
 export async function getVaccinationVerificationQueue(
-  params: { limit?: number } = {},
+  params: { parkId?: string; limit?: number } = {},
 ): Promise<ApiResult<VaccinationQueueResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -210,9 +328,49 @@ export async function getVaccinationVerificationQueue(
   return request(() =>
     client.request<VaccinationQueueResponse>("/vaccination/verification-queue", {
       cache: "no-store",
-      query: compactQuery({ limit: params.limit ?? 100 }),
+      query: compactQuery({ park_id: params.parkId, limit: params.limit ?? 100 }),
     }),
   );
+}
+
+export async function getVaccinationExecution(
+  params: { parkId?: string; workState?: VaccinationExecutionWorkState; limit?: number } = {},
+): Promise<ApiResult<VaccinationExecutionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationExecutionResponse>("/vaccination/execution", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.parkId, work_state: params.workState, limit: params.limit }),
+    }),
+  );
+}
+
+// Source-backed vaccination operations read model — cohort × protocol matrix + per-cohort detail with real
+// last_dose. Powers the /vaccination matrix + cohort-detail sections (NOT the Action Center pivot).
+export async function getVaccinationOperations(
+  params: { parkId?: string; asOf?: string; dueBefore?: string; limit?: number } = {},
+): Promise<ApiResult<VaccinationOperationsResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperationsResponse>("/vaccination/operations", {
+      cache: "no-store",
+      query: compactQuery({ park_id: params.parkId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit }),
+    }),
+  );
+}
+
+export async function getVaccinationExecutionShedDrilldown(
+  shedId: string,
+): Promise<ApiResult<VaccinationExecutionShedDrilldown>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}` as keyof AppApiPaths & string;
+  return request(() => client.request<VaccinationExecutionShedDrilldown>(path, { cache: "no-store" }));
 }
 
 export async function previewVaccinationImpact(body: ImpactPreviewInput): Promise<ApiResult<ImpactPreviewResult>> {
@@ -289,6 +447,92 @@ export async function rejectVaccinationCompletion(
   return request(() => client.request<RejectVaccinationCompletionResponse>(path, { method: "POST", cache: "no-store", body: { reason } }));
 }
 
+// ---- SOP Library (Admin / Data Ops) — committed admin SOP engine endpoints ----
+// All go through the Admin API client (tenant-scoped). The list endpoint is intentionally thin
+// (SOPDefinition only); the SOP Library fetches per-SOP detail to read the latest version's
+// form_dsl + proof_policy for the card facets. No client-side mock rows, no fake `source: mock`.
+
+export async function listSops(params: { status?: string; limit?: number } = {}): Promise<ApiResult<SOPListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SOPListResponse>("/admin/sops", {
+      cache: "no-store",
+      query: compactQuery({ status: params.status, limit: params.limit ?? 200 }),
+    }),
+  );
+}
+
+export async function getSop(sopId: string): Promise<ApiResult<SOPResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/sops/${encodeURIComponent(sopId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<SOPResponse>(path, { cache: "no-store" }));
+}
+
+export async function createSop(body: CreateSOPRequest): Promise<ApiResult<SOPResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() => client.request<SOPResponse>("/admin/sops", { method: "POST", cache: "no-store", body }));
+}
+
+export async function createSopVersion(
+  sopId: string,
+  body: CreateSOPVersionRequest,
+): Promise<ApiResult<SOPVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/sops/${encodeURIComponent(sopId)}/versions` as keyof AdminApiPaths & string;
+  return request(() => client.request<SOPVersionResponse>(path, { method: "POST", cache: "no-store", body }));
+}
+
+export async function dryRunSopVersion(
+  sopId: string,
+  versionId: string,
+  body: DryRunRequest,
+): Promise<ApiResult<DryRunResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path =
+    `/admin/sops/${encodeURIComponent(sopId)}/versions/${encodeURIComponent(versionId)}/dry-run` as keyof AdminApiPaths & string;
+  return request(() => client.request<DryRunResponse>(path, { method: "POST", cache: "no-store", body }));
+}
+
+export async function publishSopVersion(
+  sopId: string,
+  versionId: string,
+  rowVersion: number,
+): Promise<ApiResult<SOPVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path =
+    `/admin/sops/${encodeURIComponent(sopId)}/versions/${encodeURIComponent(versionId)}/publish` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SOPVersionResponse>(path, { method: "POST", cache: "no-store", body: { row_version: rowVersion } }),
+  );
+}
+
+export async function retireSopVersion(
+  sopId: string,
+  versionId: string,
+  rowVersion: number,
+): Promise<ApiResult<SOPVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path =
+    `/admin/sops/${encodeURIComponent(sopId)}/versions/${encodeURIComponent(versionId)}/retire` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SOPVersionResponse>(path, { method: "POST", cache: "no-store", body: { row_version: rowVersion } }),
+  );
+}
+
 export async function addGoatIdentifier(
   goatId: string,
   body: AddIdentifierRequestBody,
@@ -328,7 +572,7 @@ export async function retireGoatIdentifier(
   );
 }
 
-async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
+export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   try {
     return { ok: true, data: await fn() };
   } catch (error) {
@@ -356,6 +600,19 @@ function normalizeApiError(error: unknown): ApiUiError {
         status: error.status,
         code,
         message: "Configured tenant does not match the signed-in admin session.",
+        traceId: envelope?.trace_id,
+        retryable: envelope?.retryable,
+      };
+    }
+    if (error.status === 403 && code === "route_not_registered") {
+      // Backend-side 403 from the route registry (permissions.Match miss), NOT a DB grant. It means
+      // the running API does not register this route — typically a stale/older API build. This is an
+      // env/runtime issue, not an authorization one; do not blame DB grants.
+      return {
+        kind: "permission_denied",
+        status: error.status,
+        code,
+        message: "Backend route is not registered — the running API is stale or built from older source. Restart the API from current source.",
         traceId: envelope?.trace_id,
         retryable: envelope?.retryable,
       };
@@ -420,7 +677,7 @@ function parseEnvelope(body: unknown): ErrorEnvelope | null {
   return maybe as ErrorEnvelope;
 }
 
-function compactQuery(values: Record<string, string | number | boolean | null | undefined>) {
+export function compactQuery(values: Record<string, string | number | boolean | null | undefined>) {
   const query: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(values)) {
     if (value === null || value === undefined || value === "") continue;

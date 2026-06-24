@@ -386,6 +386,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/tasks/review-fanouts/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry durable SOP review fanout rows. */
+        post: operations["retrySOPReviewFanouts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tasks/submission-fanouts/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry durable SOP submission fanout rows. */
+        post: operations["retrySOPSubmissionFanouts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tasks/submission-fanouts/failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List aged failed vaccination SOP submission fanouts. */
+        get: operations["listAgedFailedSOPSubmissionFanouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/locations": {
         parameters: {
             query?: never;
@@ -641,6 +692,143 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/source-entry/loads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List procurement source-entry loads. */
+        get: operations["listProcurementSourceEntryLoads"];
+        put?: never;
+        /** Create a procurement source-entry load. */
+        post: operations["createProcurementSourceEntryLoad"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/loads/{load_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a procurement source-entry load detail timeline. */
+        get: operations["getProcurementSourceEntryLoad"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/loads/{load_id}/goats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a source-only or candidate goat to a procurement load. */
+        post: operations["addProcurementSourceEntryLoadGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/goats/{goat_id}/source-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record source-side health SOP outcome. */
+        post: operations["recordProcurementSourceHealth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/goats/{goat_id}/pre-dispatch-decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record accept, reject, defer, or block before truck dispatch. */
+        post: operations["recordProcurementPreDispatchDecision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/loads/{load_id}/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record truck loading and transit proof for a procurement load. */
+        post: operations["dispatchProcurementSourceEntryLoad"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/loads/{load_id}/arrival-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record park arrival gate review and discrepancies. */
+        post: operations["recordProcurementArrivalReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/loads/{load_id}/accept-intake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept arrived goats into canonical herd truth and create PHC handoff markers. */
+        post: operations["acceptProcurementIntake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -679,9 +867,7 @@ export interface components {
             form_dsl: {
                 [key: string]: unknown;
             };
-            proof_policy: {
-                [key: string]: unknown;
-            };
+            proof_policy: components["schemas"]["SOPProofPolicy"];
             compatibility: {
                 [key: string]: unknown;
             };
@@ -729,12 +915,59 @@ export interface components {
             form_dsl: {
                 [key: string]: unknown;
             };
-            proof_policy: {
-                [key: string]: unknown;
-            };
+            proof_policy: components["schemas"]["SOPProofPolicy"];
             compatibility?: {
                 [key: string]: unknown;
             };
+        };
+        SOPProofPolicy: {
+            required: boolean;
+            /** @enum {string} */
+            subject_scope: "batch" | "goat" | "shed" | "task";
+            /**
+             * @deprecated
+             * @description Deprecated legacy alias. Use subject_scope.
+             * @enum {string}
+             */
+            scope?: "batch" | "goat" | "shed" | "task";
+            types: ("photo" | "video")[];
+            minimum_count: number;
+            verify_before_apply?: boolean;
+            expected_subjects?: ("batch" | "goat" | "shed" | "task" | "vial_lot" | "administration" | "other")[];
+            retention_policy?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        RetryFanoutsRequest: {
+            /** @default 50 */
+            limit: number;
+        };
+        RetryFanoutsResponse: {
+            applied: number;
+            trace_id: string;
+        };
+        FailedSubmissionFanout: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            submission_id: string;
+            sop_code: string;
+            task_type: string;
+            task_state: string;
+            /** Format: date-time */
+            submitted_at: string;
+            /** Format: date-time */
+            fanout_updated_at: string;
+            age_seconds: number;
+            attempt_count: number;
+            last_error: string;
+            eligible_submission_items: number;
+            materialized_completion_count: number;
+            missing_completion_count: number;
+        };
+        FailedSubmissionFanoutsResponse: {
+            items: components["schemas"]["FailedSubmissionFanout"][];
+            trace_id: string;
         };
         RowVersionRequest: {
             row_version: number;
@@ -744,7 +977,7 @@ export interface components {
             /** @enum {string} */
             proof_type: "photo" | "video" | "attachment";
             /** @enum {string} */
-            subject_type: "batch" | "goat" | "shed" | "task" | "other";
+            subject_type: "batch" | "goat" | "shed" | "task" | "vial_lot" | "administration" | "other";
             subject_id?: string | null;
             /** @enum {string} */
             upload_state: "pending" | "uploading" | "completed" | "failed";
@@ -1475,6 +1708,485 @@ export interface components {
             has_blocking_usage: boolean;
             trace_id: string;
         };
+        CreateProcurementLoadRequest: {
+            /** Format: uuid */
+            source_party_id: string;
+            /** Format: uuid */
+            source_location_id?: string | null;
+            expected_count?: number;
+            /** Format: date */
+            purchase_date?: string | null;
+            /** Format: date-time */
+            planned_dispatch_at?: string | null;
+            notes?: string;
+            context?: {
+                [key: string]: unknown;
+            };
+        };
+        AddProcurementLoadGoatRequest: {
+            /** Format: uuid */
+            goat_id?: string | null;
+            source_tag?: string | null;
+            source_rfid?: string | null;
+            temporary_id?: string | null;
+            selection_state?: components["schemas"]["ProcurementSelectionState"];
+            selection_reason?: string;
+            current_state?: components["schemas"]["ProcurementGoatState"];
+            /** @enum {unknown} */
+            identity_review_state?: "pending" | "clean" | "conflict" | "unknown_extra";
+            identity_review_ref?: string | null;
+            ownership_state?: components["schemas"]["ProcurementOwnershipState"];
+            health_state?: components["schemas"]["ProcurementHealthState"];
+            /** Format: date-time */
+            warmup_started_at?: string | null;
+            /** Format: date-time */
+            warmup_ended_at?: string | null;
+            warmup_days?: number | null;
+            /** Format: uuid */
+            holding_location_id?: string | null;
+            proof_refs?: {
+                [key: string]: unknown;
+            }[];
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        RecordProcurementSourceHealthRequest: {
+            /** Format: uuid */
+            load_id: string;
+            /** @enum {unknown} */
+            health_state: "passed" | "failed" | "deferred";
+            reason?: string;
+            /** Format: date-time */
+            checked_at?: string | null;
+            /** Format: uuid */
+            proof_ref_id?: string | null;
+            /** Format: uuid */
+            sop_task_id?: string | null;
+        };
+        RecordProcurementDecisionRequest: {
+            /** Format: uuid */
+            load_id: string;
+            /** @enum {unknown} */
+            decision_type: "accepted" | "rejected" | "deferred" | "blocked";
+            reason?: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: uuid */
+            proof_ref_id?: string | null;
+            /** Format: uuid */
+            sop_task_id?: string | null;
+            /** Format: uuid */
+            owner_id?: string | null;
+            resume_condition?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        DispatchProcurementLoadRequest: {
+            /** Format: uuid */
+            from_location_id?: string | null;
+            /** Format: uuid */
+            to_location_id: string;
+            goat_ids?: string[];
+            /** Format: date-time */
+            dispatched_at?: string | null;
+            /** Format: date-time */
+            arrived_at?: string | null;
+            /** Format: uuid */
+            proof_ref_id?: string | null;
+        };
+        RecordProcurementArrivalReviewRequest: {
+            /** Format: uuid */
+            park_location_id: string;
+            expected_count?: number;
+            loaded_count?: number;
+            arrived_count?: number;
+            matched_count?: number;
+            missing_count?: number;
+            extra_count?: number;
+            rejected_count?: number;
+            health_flags?: {
+                [key: string]: unknown;
+            }[];
+            weight_flags?: {
+                [key: string]: unknown;
+            }[];
+            /** Format: uuid */
+            media_proof_id?: string | null;
+            /** @enum {unknown} */
+            status?: "pending" | "mismatch" | "accepted" | "rejected" | "deferred" | "blocked";
+            /** Format: date-time */
+            reviewed_at?: string | null;
+            goats?: components["schemas"]["ProcurementArrivalGoatRequest"][];
+        };
+        ProcurementArrivalGoatRequest: {
+            /** Format: uuid */
+            goat_id?: string | null;
+            temporary_id?: string | null;
+            source_tag?: string | null;
+            arrival_state: components["schemas"]["ProcurementArrivalState"];
+            health_flag?: string | null;
+            weight_flag?: string | null;
+            /** Format: uuid */
+            proof_ref_id?: string | null;
+            notes?: string;
+        };
+        AcceptProcurementIntakeRequest: {
+            goat_ids?: string[];
+            /** Format: uuid */
+            park_location_id: string;
+            /** Format: uuid */
+            shed_location_id: string;
+            /** Format: date-time */
+            accepted_at?: string | null;
+            /** Format: date */
+            entry_date?: string | null;
+            trusted_vaccination_history?: {
+                [key: string]: unknown;
+            }[];
+            /** @enum {string|null} */
+            intake_health_signal?: "clear" | "defer" | "quarantine" | "review" | null;
+        };
+        ProcurementLoadListResponse: {
+            items: components["schemas"]["ProcurementLoad"][];
+            next_cursor?: string | null;
+            trace_id: string;
+        };
+        ProcurementActionCenterResponse: {
+            /** @enum {string} */
+            source: "api";
+            items: components["schemas"]["ProcurementWorkRow"][];
+            counts_by_work_state: components["schemas"]["ProcurementCountByWorkState"][];
+            next_cursor?: string | null;
+        };
+        ProcurementProtocolAdherenceResponse: {
+            /** @enum {string} */
+            source: "api";
+            summary: components["schemas"]["ProcurementAdherenceSummary"];
+            rows: components["schemas"]["ProcurementAdherenceRow"][];
+            next_cursor?: string | null;
+        };
+        ProcurementControlTowerResponse: {
+            /** @enum {string} */
+            source: "api";
+            summary: components["schemas"]["ProcurementControlTowerSummary"];
+            alerts: components["schemas"]["ProcurementControlTowerAlert"][];
+        };
+        ProcurementWorkflowDrilldownResponse: {
+            /** @enum {string} */
+            source: "api";
+            row: components["schemas"]["ProcurementWorkRow"];
+            nodes: components["schemas"]["ProcurementWorkflowNode"][];
+        };
+        ProcurementWorkRow: {
+            row_id: string;
+            /** Format: uuid */
+            load_id: string;
+            load_status: components["schemas"]["ProcurementLoadStatus"];
+            /** Format: uuid */
+            load_goat_id?: string | null;
+            /** Format: uuid */
+            goat_id?: string | null;
+            /** Format: uuid */
+            source_party_id: string;
+            /** @enum {string} */
+            work_type: "accepted_intake" | "arrival_gate" | "arrival_mismatch" | "dispatch_proof" | "identity" | "load_setup" | "ownership" | "pre_dispatch" | "rejected_review" | "source_entry" | "source_health";
+            work_state: components["schemas"]["ProcurementWorkState"];
+            severity: components["schemas"]["ProcurementSeverity"];
+            title: string;
+            detail: string;
+            next_action: string;
+            blocker_reason?: string | null;
+            /** Format: uuid */
+            owner_id?: string | null;
+            /** Format: date-time */
+            due_at?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            warmup_days?: number | null;
+            expected_count: number;
+            completed_count: number;
+        };
+        ProcurementCountByWorkState: {
+            work_state: components["schemas"]["ProcurementWorkState"];
+            count: number;
+        };
+        ProcurementAdherenceSummary: {
+            expected_count: number;
+            completed_count: number;
+            open_gap_count: number;
+            blocked_count: number;
+            deferred_count: number;
+            process_intact_count: number;
+            adherence_percent: number;
+        };
+        ProcurementAdherenceRow: {
+            row_id: string;
+            /** Format: uuid */
+            load_id: string;
+            /** Format: uuid */
+            goat_id?: string | null;
+            expected: string;
+            actual: string;
+            gap: string;
+            severity: components["schemas"]["ProcurementSeverity"];
+            work_state: components["schemas"]["ProcurementWorkState"];
+            next_action: string;
+        };
+        ProcurementControlTowerSummary: {
+            process_intact: boolean;
+            critical_count: number;
+            warning_count: number;
+            open_gap_count: number;
+            missing_proof_count: number;
+            arrival_mismatch_count: number;
+            owner_missing_count: number;
+            identity_conflict_count: number;
+        };
+        ProcurementControlTowerAlert: {
+            row_id: string;
+            /** Format: uuid */
+            load_id: string;
+            /** Format: uuid */
+            goat_id?: string | null;
+            severity: components["schemas"]["ProcurementSeverity"];
+            work_state: components["schemas"]["ProcurementWorkState"];
+            title: string;
+            detail: string;
+            next_action: string;
+            evidence_link: string;
+        };
+        ProcurementWorkflowNode: {
+            key: string;
+            label: string;
+            state: string;
+            /** Format: date-time */
+            timestamp?: string | null;
+            ref_id?: string | null;
+        };
+        ProcurementLoadResponse: {
+            load: components["schemas"]["ProcurementLoad"];
+            trace_id: string;
+        };
+        ProcurementLoadGoatResponse: {
+            goat: components["schemas"]["ProcurementLoadGoat"];
+            trace_id: string;
+        };
+        ProcurementSourceHealthResponse: {
+            health_check: components["schemas"]["ProcurementSourceHealthCheck"];
+            trace_id: string;
+        };
+        ProcurementDecisionResponse: {
+            decision: components["schemas"]["ProcurementDecision"];
+            trace_id: string;
+        };
+        ProcurementTransitHandoffResponse: {
+            handoff: components["schemas"]["ProcurementTransitHandoff"];
+            trace_id: string;
+        };
+        ProcurementArrivalReviewResponse: {
+            review: components["schemas"]["ProcurementArrivalReview"];
+            trace_id: string;
+        };
+        ProcurementIntakeHandoffResponse: {
+            handoffs: components["schemas"]["ProcurementPHCHandoff"][];
+            trace_id: string;
+        };
+        ProcurementLoadDetailResponse: {
+            detail: components["schemas"]["ProcurementLoadDetail"];
+            trace_id: string;
+        };
+        ProcurementLoadDetail: {
+            load: components["schemas"]["ProcurementLoad"];
+            goats: components["schemas"]["ProcurementLoadGoat"][];
+            holding_stays: components["schemas"]["ProcurementHoldingStay"][];
+            source_health_checks: components["schemas"]["ProcurementSourceHealthCheck"][];
+            decisions: components["schemas"]["ProcurementDecision"][];
+            transit_handoffs: components["schemas"]["ProcurementTransitHandoff"][];
+            arrival_reviews: components["schemas"]["ProcurementArrivalReview"][];
+            phc_handoffs: components["schemas"]["ProcurementPHCHandoff"][];
+            timeline: components["schemas"]["ProcurementTimelineEvent"][];
+        };
+        ProcurementLoad: {
+            /** Format: uuid */
+            load_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            source_party_id: string;
+            /** Format: uuid */
+            source_location_id?: string | null;
+            expected_count: number;
+            /** Format: date */
+            purchase_date?: string | null;
+            /** Format: date-time */
+            planned_dispatch_at?: string | null;
+            status: components["schemas"]["ProcurementLoadStatus"];
+            notes?: string;
+            context?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementLoadGoat: {
+            /** Format: uuid */
+            load_goat_id: string;
+            /** Format: uuid */
+            load_id: string;
+            /** Format: uuid */
+            goat_id: string;
+            source_tag?: string | null;
+            source_rfid?: string | null;
+            temporary_id?: string | null;
+            selection_state: components["schemas"]["ProcurementSelectionState"];
+            current_state: components["schemas"]["ProcurementGoatState"];
+            /** @enum {unknown} */
+            identity_review_state: "pending" | "clean" | "conflict" | "unknown_extra";
+            ownership_state: components["schemas"]["ProcurementOwnershipState"];
+            health_state: components["schemas"]["ProcurementHealthState"];
+            warmup_days?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementHoldingStay: {
+            /** Format: uuid */
+            stay_id?: string;
+            /** Format: uuid */
+            goat_id?: string;
+            /** Format: uuid */
+            load_id?: string;
+            /** Format: uuid */
+            holding_location_id?: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** Format: date-time */
+            ended_at?: string | null;
+            /** @enum {unknown} */
+            warmup_state?: "not_started" | "in_progress" | "completed" | "outside_normal_window";
+            warmup_days?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementSourceHealthCheck: {
+            /** Format: uuid */
+            health_check_id?: string;
+            /** Format: uuid */
+            goat_id?: string;
+            /** Format: uuid */
+            load_id?: string;
+            /** @enum {unknown} */
+            health_state?: "passed" | "failed" | "deferred";
+            /** Format: date-time */
+            checked_at?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementDecision: {
+            /** Format: uuid */
+            decision_id?: string;
+            /** Format: uuid */
+            goat_id?: string;
+            /** Format: uuid */
+            load_id?: string;
+            decision_stage?: string;
+            /** @enum {unknown} */
+            decision_type?: "accepted" | "rejected" | "deferred" | "blocked";
+            reason?: string;
+            /** Format: date-time */
+            decided_at?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementTransitHandoff: {
+            /** Format: uuid */
+            handoff_id?: string;
+            /** Format: uuid */
+            load_id?: string;
+            loaded_count?: number;
+            /** Format: date-time */
+            dispatched_at?: string;
+            /** @enum {unknown} */
+            discrepancy_state?: "none" | "partial_load" | "accepted_not_loaded" | "missing" | "extra" | "mismatch" | "blocked";
+            /** @enum {unknown} */
+            status?: "planned" | "in_transit" | "arrived" | "canceled";
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementArrivalReview: {
+            /** Format: uuid */
+            review_id?: string;
+            /** Format: uuid */
+            load_id?: string;
+            /** Format: uuid */
+            park_location_id?: string;
+            /** @enum {unknown} */
+            status?: "pending" | "mismatch" | "accepted" | "rejected" | "deferred" | "blocked";
+            goats?: components["schemas"]["ProcurementArrivalGoat"][];
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementArrivalGoat: {
+            /** Format: uuid */
+            review_goat_id?: string;
+            /** Format: uuid */
+            goat_id?: string | null;
+            arrival_state?: components["schemas"]["ProcurementArrivalState"];
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementPHCHandoff: {
+            /** Format: uuid */
+            handoff_id?: string;
+            /** Format: uuid */
+            load_id?: string;
+            /** Format: uuid */
+            goat_id?: string;
+            /** Format: date-time */
+            accepted_at?: string;
+            /** Format: uuid */
+            park_location_id?: string;
+            /** Format: uuid */
+            shed_location_id?: string;
+            /** Format: date */
+            entry_date?: string;
+            /** @enum {unknown} */
+            event_status?: "pending" | "emitted" | "canceled";
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementTimelineEvent: {
+            event_type?: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            /** Format: uuid */
+            goat_id?: string | null;
+            ref_id?: string;
+            state?: string;
+            summary?: string;
+        };
+        /** @enum {unknown} */
+        ProcurementWorkState: "due" | "overdue" | "proof_pending" | "deferred" | "blocked" | "owner_missing" | "rejected" | "completed";
+        /** @enum {unknown} */
+        ProcurementSeverity: "ok" | "watch" | "at_risk" | "critical" | "broken";
+        /** @enum {unknown} */
+        ProcurementLoadStatus: "source_warmup" | "health_pending" | "pre_dispatch_pending" | "dispatch_ready" | "in_transit" | "arrival_review" | "accepted_intake" | "rejected" | "deferred" | "blocked" | "canceled";
+        /** @enum {unknown} */
+        ProcurementSelectionState: "source_only" | "candidate" | "purchased" | "accepted" | "rejected" | "deferred" | "blocked" | "loaded" | "arrival_accepted" | "arrival_rejected" | "accepted_herd_intake" | "dead" | "sold" | "lost";
+        /** @enum {unknown} */
+        ProcurementGoatState: "source_holding" | "source_warmup" | "source_candidate" | "source_health_pending" | "source_health_passed" | "source_health_failed" | "source_rejected" | "pre_dispatch_pending" | "pre_dispatch_accepted" | "pre_dispatch_rejected" | "pre_dispatch_deferred" | "pre_dispatch_blocked" | "dispatch_ready" | "loading_pending" | "loaded" | "in_transit" | "arrival_review_pending" | "arrival_accepted" | "arrival_rejected" | "accepted_herd_intake" | "dead" | "sold" | "lost" | "canceled";
+        /** @enum {unknown} */
+        ProcurementOwnershipState: "pending" | "shared_pending" | "mesha_owned" | "blocked" | "not_owned" | "settled";
+        /** @enum {unknown} */
+        ProcurementHealthState: "pending" | "passed" | "failed" | "deferred";
+        /** @enum {unknown} */
+        ProcurementArrivalState: "matched" | "missing" | "extra_unresolved" | "health_flag" | "weight_flag" | "accepted" | "rejected" | "deferred" | "blocked";
     };
     responses: {
         /** @description Validation error. */
@@ -1561,6 +2273,11 @@ export interface components {
     };
     parameters: {
         GoatId: string;
+        ProcurementLoadId: string;
+        ProcurementWorkState: components["schemas"]["ProcurementWorkState"];
+        ProcurementSeverity: components["schemas"]["ProcurementSeverity"];
+        ProcurementLimit: number;
+        ProcurementCursor: string;
         LocationId: string;
         OperatorId: string;
         SOPId: string;
@@ -1621,6 +2338,7 @@ export interface operations {
                 location_id?: string;
                 search?: string;
                 limit?: number;
+                cursor?: string;
                 offset?: number;
             };
             header?: never;
@@ -2293,6 +3011,87 @@ export interface operations {
                 };
             };
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    retrySOPReviewFanouts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryFanoutsRequest"];
+            };
+        };
+        responses: {
+            /** @description Retry result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryFanoutsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    retrySOPSubmissionFanouts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryFanoutsRequest"];
+            };
+        };
+        responses: {
+            /** @description Retry result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryFanoutsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listAgedFailedSOPSubmissionFanouts: {
+        parameters: {
+            query?: {
+                /** @description Only failed fanouts last updated at least this many minutes ago are returned. */
+                older_than_minutes?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aged failed vaccination SOP submission fanouts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FailedSubmissionFanoutsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listLocations: {
@@ -2975,6 +3774,274 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    listProcurementSourceEntryLoads: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+                cursor?: components["parameters"]["ProcurementCursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Procurement source-entry load rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementLoadListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createProcurementSourceEntryLoad: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProcurementLoadRequest"];
+            };
+        };
+        responses: {
+            /** @description Created or replayed procurement load. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementLoadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getProcurementSourceEntryLoad: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                load_id: components["parameters"]["ProcurementLoadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Procurement load detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementLoadDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    addProcurementSourceEntryLoadGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                load_id: components["parameters"]["ProcurementLoadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddProcurementLoadGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Procurement load goat row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementLoadGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    recordProcurementSourceHealth: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordProcurementSourceHealthRequest"];
+            };
+        };
+        responses: {
+            /** @description Source health check. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementSourceHealthResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    recordProcurementPreDispatchDecision: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordProcurementDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Pre-dispatch decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementDecisionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    dispatchProcurementSourceEntryLoad: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                load_id: components["parameters"]["ProcurementLoadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DispatchProcurementLoadRequest"];
+            };
+        };
+        responses: {
+            /** @description Transit handoff. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementTransitHandoffResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    recordProcurementArrivalReview: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                load_id: components["parameters"]["ProcurementLoadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordProcurementArrivalReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Arrival review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementArrivalReviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    acceptProcurementIntake: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                load_id: components["parameters"]["ProcurementLoadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptProcurementIntakeRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted intake PHC handoff markers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementIntakeHandoffResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

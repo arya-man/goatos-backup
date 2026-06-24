@@ -158,4 +158,23 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	if rr2, err := completion.RejectExisting(ctx, impTenant, cid2, "blurry proof", nil); err != nil || rr2.Applied {
 		t.Fatalf("reject-existing replay should be a no-op: %+v err=%v", rr2, err)
 	}
+
+	// Corrected resubmission for the same obligation/goat must be allowed after rejection. The
+	// rejected row remains history; the new recorded row is the one the verifier can accept.
+	batch, lot := batchID, impLot
+	correctedID, applied, err := svc.RecordCompletion(ctx, vaccdomain.NewCompletion{
+		TenantID: impTenant, ObligationID: ob2, GoatID: g2, BatchID: &batch,
+		VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: asOf,
+		Status: "recorded", IdempotencyKey: "sub-g2-corrected",
+	})
+	if err != nil || !applied || correctedID == "" {
+		t.Fatalf("corrected record after reject: id=%q applied=%v err=%v", correctedID, applied, err)
+	}
+	ar3, err := completion.AcceptExisting(ctx, vaccapp.AcceptExistingInput{TenantID: impTenant, CompletionID: correctedID})
+	if err != nil || !ar3.Applied || !ar3.Completed {
+		t.Fatalf("accept corrected completion: %+v err=%v", ar3, err)
+	}
+	if got := scanText(t, ctx, pool, `SELECT status FROM vaccination_completions WHERE tenant_id=$1 AND completion_id=$2`, impTenant, correctedID); got != "accepted" {
+		t.Fatalf("corrected completion: want accepted, got %s", got)
+	}
 }

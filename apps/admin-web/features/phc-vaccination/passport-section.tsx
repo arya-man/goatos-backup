@@ -4,17 +4,10 @@ import {
   type VaccinationPassport,
   type VaccinationPassportHistoryItem,
 } from "@/lib/api/server";
+import { Tag } from "@/components/ui-primitives";
+import { fmtDate } from "@/lib/format";
 
 type Tone = "ok" | "warn" | "dng" | "info" | "mut";
-function Tag({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  return <span className={`tag t-${tone}`}>{children}</span>;
-}
-
-function fmtDate(iso?: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 10);
-}
 function statusTone(status: string): Tone {
   if (status === "accepted") return "ok";
   if (status === "rejected") return "dng";

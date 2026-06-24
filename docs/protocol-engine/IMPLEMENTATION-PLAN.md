@@ -74,7 +74,7 @@ protocol_definitions → protocol_versions (PUBLISHED, effective-dated) → prot
 Adherence = **computed**: expected (rule) vs actual (completion + proof + timing). `sop_versions` = the *how*; obligations = the *what's due*; protocol = the *what should happen*.
 
 ## E. Frontend: current slice vs later
-- **Build now:** Admin Config / Protocol Rules (`/config`), PHC Vaccination Operations, Parks vaccination execution context, contextual Goat Passport vaccination history, and the work-state data needed by those screens.
+- **Build now:** Admin Config / Protocol Rules (`/config`), PHC Vaccination module surface, vaccination execution context scoped by park/shed, contextual Goat Passport vaccination history, and the work-state data needed by those screens.
 - **Design now, full UI later:** standalone Action Center and Control Tower. Their status model must exist underneath PHC/Parks, but their full command-room surfaces should summarize real gaps only after the operating workflows are wired.
 - **Later verticals:** feed direction, procurement, breeding, HR, analytics, and the other non-vaccination modules remain valid Goat OS scope, but must not pull this slice back into the old generic dashboard/admin phase ladder.
 

@@ -2,7 +2,7 @@
 
 This is the long-range product coverage map in plain Goat OS language. It is
 not the active build order. The active execution order is the Admin Config + PHC
-Vaccination + Parks vaccination execution slice described in `README.md`,
+Vaccination + vaccination execution context slice described in `README.md`,
 `docs/phases/README.md`, and `context/frontend/current-admin-web-scope.md`.
 
 Engineering rails like repo setup, contracts, CI, dev/stg/prod, analytics, and

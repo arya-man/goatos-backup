@@ -270,17 +270,20 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 }
 
 const listRecordedCompletions = `-- name: ListRecordedCompletions :many
-SELECT completion_id::text AS completion_id, obligation_id::text AS obligation_id,
-       goat_id::text AS goat_id, COALESCE(batch_id::text, '')::text AS batch_id,
-       administered_at, COALESCE(doses, 0)::int AS doses, COALESCE(route_site, '')::text AS route_site
-FROM vaccination_completions
-WHERE tenant_id = $1 AND status = 'recorded'
-ORDER BY administered_at ASC, completion_id ASC
-LIMIT $2
+SELECT vc.completion_id::text AS completion_id, vc.obligation_id::text AS obligation_id,
+       vc.goat_id::text AS goat_id, COALESCE(vc.batch_id::text, '')::text AS batch_id,
+       vc.administered_at, COALESCE(vc.doses, 0)::int AS doses, COALESCE(vc.route_site, '')::text AS route_site
+FROM vaccination_completions vc
+LEFT JOIN goats g ON g.tenant_id = vc.tenant_id AND g.goat_id = vc.goat_id
+WHERE vc.tenant_id = $1 AND vc.status = 'recorded'
+  AND ($2::uuid IS NULL OR g.park_id = $2::uuid)
+ORDER BY vc.administered_at ASC, vc.completion_id ASC
+LIMIT $3
 `
 
 type ListRecordedCompletionsParams struct {
 	TenantID pgtype.UUID
+	ParkID   pgtype.UUID
 	RowLimit int32
 }
 
@@ -295,9 +298,10 @@ type ListRecordedCompletionsRow struct {
 }
 
 // Verification queue: completions awaiting review (status='recorded'), earliest administered first.
-// Uses vaccination_completions_review_idx (tenant_id, administered_at) WHERE status='recorded'.
+// Uses vaccination_completions_review_idx (tenant_id, administered_at) WHERE status='recorded'. The
+// optional park_id scope filters by the completed goat's park so the top-bar park scope reaches the queue.
 func (q *Queries) ListRecordedCompletions(ctx context.Context, arg ListRecordedCompletionsParams) ([]ListRecordedCompletionsRow, error) {
-	rows, err := q.db.Query(ctx, listRecordedCompletions, arg.TenantID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listRecordedCompletions, arg.TenantID, arg.ParkID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

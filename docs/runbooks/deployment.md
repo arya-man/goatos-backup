@@ -277,7 +277,7 @@ canonical redirect is a user-friendly fallback, not the primary exposure model.
    rollback.
 5. **Smoke.** See "Smoke checks" — must pass before announcing the release.
 6. **Process integrity smoke.** Confirm the current Admin Config + PHC
-   Vaccination + Parks vaccination execution APIs are healthy before announcing
+   Vaccination + vaccination execution APIs are healthy before announcing
    the release.
 
 ## Smoke checks

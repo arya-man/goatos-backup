@@ -3,15 +3,19 @@
   "$id": "https://goatos.local/contracts/jsonschema/sop-proof-policy.schema.json",
   "title": "Goat OS SOP Proof Policy",
   "type": "object",
-  "required": ["required", "scope", "types", "minimum_count"],
+  "required": ["required", "subject_scope", "types", "minimum_count"],
   "additionalProperties": true,
   "properties": {
     "required": { "type": "boolean" },
-    "scope": { "enum": ["batch", "goat", "shed", "task"] },
+    "subject_scope": { "enum": ["batch", "goat", "shed", "task"] },
+    "scope": {
+      "enum": ["batch", "goat", "shed", "task"],
+      "description": "Deprecated legacy alias. Use subject_scope."
+    },
     "types": {
       "type": "array",
       "minItems": 1,
-      "items": { "enum": ["photo", "video", "attachment"] }
+      "items": { "enum": ["photo", "video"] }
     },
     "minimum_count": { "type": "integer", "minimum": 0 },
     "verify_before_apply": { "type": "boolean" },

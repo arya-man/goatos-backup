@@ -17,6 +17,7 @@ tags:
   - name: Operator Management
   - name: SOP Builder
   - name: Tasks
+  - name: Procurement Source Entry
 paths:
   /auth/session-events:
     post:
@@ -102,6 +103,12 @@ paths:
             type: integer
             minimum: 1
             maximum: 500
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
         - name: offset
           in: query
           required: false
@@ -703,6 +710,93 @@ paths:
                 $ref: "#/components/schemas/TaskResponse"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/tasks/review-fanouts/retry:
+    post:
+      tags:
+        - Tasks
+      operationId: retrySOPReviewFanouts
+      summary: Retry durable SOP review fanout rows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryFanoutsRequest"
+      responses:
+        "200":
+          description: Retry result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryFanoutsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/tasks/submission-fanouts/retry:
+    post:
+      tags:
+        - Tasks
+      operationId: retrySOPSubmissionFanouts
+      summary: Retry durable SOP submission fanout rows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryFanoutsRequest"
+      responses:
+        "200":
+          description: Retry result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryFanoutsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/tasks/submission-fanouts/failed:
+    get:
+      tags:
+        - Tasks
+      operationId: listAgedFailedSOPSubmissionFanouts
+      summary: List aged failed vaccination SOP submission fanouts.
+      parameters:
+        - name: older_than_minutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10080
+            default: 15
+          description: Only failed fanouts last updated at least this many minutes ago are returned.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Aged failed vaccination SOP submission fanouts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailedSubmissionFanoutsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /admin/locations:
     get:
       tags:
@@ -1404,6 +1498,257 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /procurement/source-entry/loads:
+    get:
+      tags:
+        - Procurement Source Entry
+      operationId: listProcurementSourceEntryLoads
+      summary: List procurement source-entry loads.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - $ref: "#/components/parameters/ProcurementCursor"
+      responses:
+        "200":
+          description: Procurement source-entry load rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementLoadListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: createProcurementSourceEntryLoad
+      summary: Create a procurement source-entry load.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProcurementLoadRequest"
+      responses:
+        "200":
+          description: Created or replayed procurement load.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementLoadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /procurement/source-entry/loads/{load_id}:
+    get:
+      tags:
+        - Procurement Source Entry
+      operationId: getProcurementSourceEntryLoad
+      summary: Get a procurement source-entry load detail timeline.
+      parameters:
+        - $ref: "#/components/parameters/ProcurementLoadId"
+      responses:
+        "200":
+          description: Procurement load detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementLoadDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /procurement/source-entry/loads/{load_id}/goats:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: addProcurementSourceEntryLoadGoat
+      summary: Add a source-only or candidate goat to a procurement load.
+      parameters:
+        - $ref: "#/components/parameters/ProcurementLoadId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddProcurementLoadGoatRequest"
+      responses:
+        "200":
+          description: Procurement load goat row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementLoadGoatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /procurement/source-entry/goats/{goat_id}/source-health:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: recordProcurementSourceHealth
+      summary: Record source-side health SOP outcome.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordProcurementSourceHealthRequest"
+      responses:
+        "200":
+          description: Source health check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementSourceHealthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /procurement/source-entry/goats/{goat_id}/pre-dispatch-decision:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: recordProcurementPreDispatchDecision
+      summary: Record accept, reject, defer, or block before truck dispatch.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordProcurementDecisionRequest"
+      responses:
+        "200":
+          description: Pre-dispatch decision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementDecisionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /procurement/source-entry/loads/{load_id}/dispatch:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: dispatchProcurementSourceEntryLoad
+      summary: Record truck loading and transit proof for a procurement load.
+      parameters:
+        - $ref: "#/components/parameters/ProcurementLoadId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchProcurementLoadRequest"
+      responses:
+        "200":
+          description: Transit handoff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementTransitHandoffResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /procurement/source-entry/loads/{load_id}/arrival-review:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: recordProcurementArrivalReview
+      summary: Record park arrival gate review and discrepancies.
+      parameters:
+        - $ref: "#/components/parameters/ProcurementLoadId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordProcurementArrivalReviewRequest"
+      responses:
+        "200":
+          description: Arrival review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementArrivalReviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /procurement/source-entry/loads/{load_id}/accept-intake:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: acceptProcurementIntake
+      summary: Accept arrived goats into canonical herd truth and create PHC handoff markers.
+      parameters:
+        - $ref: "#/components/parameters/ProcurementLoadId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptProcurementIntakeRequest"
+      responses:
+        "200":
+          description: Accepted intake PHC handoff markers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementIntakeHandoffResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
   securitySchemes:
     bearerAuth:
@@ -1418,6 +1763,40 @@ components:
       schema:
         type: string
         format: uuid
+    ProcurementLoadId:
+      name: load_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProcurementWorkState:
+      name: work_state
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/ProcurementWorkState"
+    ProcurementSeverity:
+      name: severity
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/ProcurementSeverity"
+    ProcurementLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+    ProcurementCursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 512
     LocationId:
       name: location_id
       in: path
@@ -1656,8 +2035,7 @@ components:
           type: object
           additionalProperties: true
         proof_policy:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/SOPProofPolicy"
         compatibility:
           type: object
           additionalProperties: true
@@ -1780,11 +2158,151 @@ components:
           type: object
           additionalProperties: true
         proof_policy:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/SOPProofPolicy"
         compatibility:
           type: object
           additionalProperties: true
+    SOPProofPolicy:
+      type: object
+      additionalProperties: true
+      required:
+        - required
+        - subject_scope
+        - types
+        - minimum_count
+      properties:
+        required:
+          type: boolean
+        subject_scope:
+          type: string
+          enum:
+            - batch
+            - goat
+            - shed
+            - task
+        scope:
+          type: string
+          deprecated: true
+          description: Deprecated legacy alias. Use subject_scope.
+          enum:
+            - batch
+            - goat
+            - shed
+            - task
+        types:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum:
+              - photo
+              - video
+        minimum_count:
+          type: integer
+          minimum: 0
+        verify_before_apply:
+          type: boolean
+        expected_subjects:
+          type: array
+          items:
+            type: string
+            enum:
+              - batch
+              - goat
+              - shed
+              - task
+              - vial_lot
+              - administration
+              - other
+        retention_policy:
+          type: string
+    RetryFanoutsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    RetryFanoutsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - applied
+        - trace_id
+      properties:
+        applied:
+          type: integer
+          minimum: 0
+        trace_id:
+          type: string
+    FailedSubmissionFanout:
+      type: object
+      additionalProperties: false
+      required:
+        - task_id
+        - submission_id
+        - sop_code
+        - task_type
+        - task_state
+        - submitted_at
+        - fanout_updated_at
+        - age_seconds
+        - attempt_count
+        - last_error
+        - eligible_submission_items
+        - materialized_completion_count
+        - missing_completion_count
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        submission_id:
+          type: string
+          format: uuid
+        sop_code:
+          type: string
+        task_type:
+          type: string
+        task_state:
+          type: string
+        submitted_at:
+          type: string
+          format: date-time
+        fanout_updated_at:
+          type: string
+          format: date-time
+        age_seconds:
+          type: integer
+          minimum: 0
+        attempt_count:
+          type: integer
+          minimum: 0
+        last_error:
+          type: string
+        eligible_submission_items:
+          type: integer
+          minimum: 0
+        materialized_completion_count:
+          type: integer
+          minimum: 0
+        missing_completion_count:
+          type: integer
+          minimum: 0
+    FailedSubmissionFanoutsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FailedSubmissionFanout"
+        trace_id:
+          type: string
     RowVersionRequest:
       type: object
       additionalProperties: false
@@ -1819,6 +2337,8 @@ components:
             - goat
             - shed
             - task
+            - vial_lot
+            - administration
             - other
         subject_id:
           type:
@@ -4171,3 +4691,1304 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    CreateProcurementLoadRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - source_party_id
+      properties:
+        source_party_id:
+          type: string
+          format: uuid
+        source_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        expected_count:
+          type: integer
+          minimum: 0
+        purchase_date:
+          type:
+            - string
+            - "null"
+          format: date
+        planned_dispatch_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        notes:
+          type: string
+          maxLength: 2000
+        context:
+          type: object
+          additionalProperties: true
+    AddProcurementLoadGoatRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        source_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        source_rfid:
+          type:
+            - string
+            - "null"
+          maxLength: 160
+        temporary_id:
+          type:
+            - string
+            - "null"
+          maxLength: 160
+        selection_state:
+          $ref: "#/components/schemas/ProcurementSelectionState"
+        selection_reason:
+          type: string
+          maxLength: 500
+        current_state:
+          $ref: "#/components/schemas/ProcurementGoatState"
+        identity_review_state:
+          enum:
+            - pending
+            - clean
+            - conflict
+            - unknown_extra
+        identity_review_ref:
+          type:
+            - string
+            - "null"
+          maxLength: 300
+        ownership_state:
+          $ref: "#/components/schemas/ProcurementOwnershipState"
+        health_state:
+          $ref: "#/components/schemas/ProcurementHealthState"
+        warmup_started_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        warmup_ended_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        warmup_days:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        holding_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        proof_refs:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+    RecordProcurementSourceHealthRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - load_id
+        - health_state
+      properties:
+        load_id:
+          type: string
+          format: uuid
+        health_state:
+          enum:
+            - passed
+            - failed
+            - deferred
+        reason:
+          type: string
+          maxLength: 1000
+        checked_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        proof_ref_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        sop_task_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    RecordProcurementDecisionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - load_id
+        - decision_type
+      properties:
+        load_id:
+          type: string
+          format: uuid
+        decision_type:
+          enum:
+            - accepted
+            - rejected
+            - deferred
+            - blocked
+        reason:
+          type: string
+          maxLength: 1000
+        decided_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        proof_ref_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        sop_task_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        owner_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        resume_condition:
+          type:
+            - string
+            - "null"
+          maxLength: 1000
+        metadata:
+          type: object
+          additionalProperties: true
+    DispatchProcurementLoadRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - to_location_id
+      properties:
+        from_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        to_location_id:
+          type: string
+          format: uuid
+        goat_ids:
+          type: array
+          maxItems: 1000
+          items:
+            type: string
+            format: uuid
+        dispatched_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        arrived_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        proof_ref_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    RecordProcurementArrivalReviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_location_id
+      properties:
+        park_location_id:
+          type: string
+          format: uuid
+        expected_count:
+          type: integer
+          minimum: 0
+        loaded_count:
+          type: integer
+          minimum: 0
+        arrived_count:
+          type: integer
+          minimum: 0
+        matched_count:
+          type: integer
+          minimum: 0
+        missing_count:
+          type: integer
+          minimum: 0
+        extra_count:
+          type: integer
+          minimum: 0
+        rejected_count:
+          type: integer
+          minimum: 0
+        health_flags:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: true
+        weight_flags:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: true
+        media_proof_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        status:
+          enum:
+            - pending
+            - mismatch
+            - accepted
+            - rejected
+            - deferred
+            - blocked
+        reviewed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        goats:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementArrivalGoatRequest"
+    ProcurementArrivalGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - arrival_state
+      properties:
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        temporary_id:
+          type:
+            - string
+            - "null"
+          maxLength: 160
+        source_tag:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+        arrival_state:
+          $ref: "#/components/schemas/ProcurementArrivalState"
+        health_flag:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        weight_flag:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+        proof_ref_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        notes:
+          type: string
+          maxLength: 1000
+    AcceptProcurementIntakeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_location_id
+        - shed_location_id
+      properties:
+        goat_ids:
+          type: array
+          maxItems: 1000
+          items:
+            type: string
+            format: uuid
+        park_location_id:
+          type: string
+          format: uuid
+        shed_location_id:
+          type: string
+          format: uuid
+        accepted_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        entry_date:
+          type:
+            - string
+            - "null"
+          format: date
+        trusted_vaccination_history:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: true
+        intake_health_signal:
+          type:
+            - string
+            - "null"
+          enum:
+            - clear
+            - defer
+            - quarantine
+            - review
+            - null
+    ProcurementLoadListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ProcurementLoad"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+        trace_id:
+          type: string
+    ProcurementActionCenterResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - items
+        - counts_by_work_state
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ProcurementWorkRow"
+        counts_by_work_state:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementCountByWorkState"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+    ProcurementProtocolAdherenceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - summary
+        - rows
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        summary:
+          $ref: "#/components/schemas/ProcurementAdherenceSummary"
+        rows:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ProcurementAdherenceRow"
+        next_cursor:
+          type:
+            - string
+            - "null"
+          maxLength: 512
+    ProcurementControlTowerResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - summary
+        - alerts
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        summary:
+          $ref: "#/components/schemas/ProcurementControlTowerSummary"
+        alerts:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ProcurementControlTowerAlert"
+    ProcurementWorkflowDrilldownResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - row
+        - nodes
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        row:
+          $ref: "#/components/schemas/ProcurementWorkRow"
+        nodes:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ProcurementWorkflowNode"
+    ProcurementWorkRow:
+      type: object
+      additionalProperties: false
+      required:
+        - row_id
+        - load_id
+        - load_status
+        - source_party_id
+        - work_type
+        - work_state
+        - severity
+        - title
+        - detail
+        - next_action
+        - updated_at
+        - expected_count
+        - completed_count
+      properties:
+        row_id:
+          type: string
+          maxLength: 128
+        load_id:
+          type: string
+          format: uuid
+        load_status:
+          $ref: "#/components/schemas/ProcurementLoadStatus"
+        load_goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        source_party_id:
+          type: string
+          format: uuid
+        work_type:
+          type: string
+          enum:
+            - accepted_intake
+            - arrival_gate
+            - arrival_mismatch
+            - dispatch_proof
+            - identity
+            - load_setup
+            - ownership
+            - pre_dispatch
+            - rejected_review
+            - source_entry
+            - source_health
+        work_state:
+          $ref: "#/components/schemas/ProcurementWorkState"
+        severity:
+          $ref: "#/components/schemas/ProcurementSeverity"
+        title:
+          type: string
+        detail:
+          type: string
+        next_action:
+          type: string
+        blocker_reason:
+          type:
+            - string
+            - "null"
+        owner_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        warmup_days:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        expected_count:
+          type: integer
+          minimum: 0
+        completed_count:
+          type: integer
+          minimum: 0
+    ProcurementCountByWorkState:
+      type: object
+      additionalProperties: false
+      required:
+        - work_state
+        - count
+      properties:
+        work_state:
+          $ref: "#/components/schemas/ProcurementWorkState"
+        count:
+          type: integer
+          minimum: 0
+    ProcurementAdherenceSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - expected_count
+        - completed_count
+        - open_gap_count
+        - blocked_count
+        - deferred_count
+        - process_intact_count
+        - adherence_percent
+      properties:
+        expected_count:
+          type: integer
+          minimum: 0
+        completed_count:
+          type: integer
+          minimum: 0
+        open_gap_count:
+          type: integer
+          minimum: 0
+        blocked_count:
+          type: integer
+          minimum: 0
+        deferred_count:
+          type: integer
+          minimum: 0
+        process_intact_count:
+          type: integer
+          minimum: 0
+        adherence_percent:
+          type: number
+    ProcurementAdherenceRow:
+      type: object
+      additionalProperties: false
+      required:
+        - row_id
+        - load_id
+        - expected
+        - actual
+        - gap
+        - severity
+        - work_state
+        - next_action
+      properties:
+        row_id:
+          type: string
+        load_id:
+          type: string
+          format: uuid
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        expected:
+          type: string
+        actual:
+          type: string
+        gap:
+          type: string
+        severity:
+          $ref: "#/components/schemas/ProcurementSeverity"
+        work_state:
+          $ref: "#/components/schemas/ProcurementWorkState"
+        next_action:
+          type: string
+    ProcurementControlTowerSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - process_intact
+        - critical_count
+        - warning_count
+        - open_gap_count
+        - missing_proof_count
+        - arrival_mismatch_count
+        - owner_missing_count
+        - identity_conflict_count
+      properties:
+        process_intact:
+          type: boolean
+        critical_count:
+          type: integer
+          minimum: 0
+        warning_count:
+          type: integer
+          minimum: 0
+        open_gap_count:
+          type: integer
+          minimum: 0
+        missing_proof_count:
+          type: integer
+          minimum: 0
+        arrival_mismatch_count:
+          type: integer
+          minimum: 0
+        owner_missing_count:
+          type: integer
+          minimum: 0
+        identity_conflict_count:
+          type: integer
+          minimum: 0
+    ProcurementControlTowerAlert:
+      type: object
+      additionalProperties: false
+      required:
+        - row_id
+        - load_id
+        - severity
+        - work_state
+        - title
+        - detail
+        - next_action
+        - evidence_link
+      properties:
+        row_id:
+          type: string
+        load_id:
+          type: string
+          format: uuid
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        severity:
+          $ref: "#/components/schemas/ProcurementSeverity"
+        work_state:
+          $ref: "#/components/schemas/ProcurementWorkState"
+        title:
+          type: string
+        detail:
+          type: string
+        next_action:
+          type: string
+        evidence_link:
+          type: string
+    ProcurementWorkflowNode:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - state
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        state:
+          type: string
+        timestamp:
+          type:
+            - string
+            - "null"
+          format: date-time
+        ref_id:
+          type:
+            - string
+            - "null"
+    ProcurementLoadResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - load
+        - trace_id
+      properties:
+        load:
+          $ref: "#/components/schemas/ProcurementLoad"
+        trace_id:
+          type: string
+    ProcurementLoadGoatResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - goat
+        - trace_id
+      properties:
+        goat:
+          $ref: "#/components/schemas/ProcurementLoadGoat"
+        trace_id:
+          type: string
+    ProcurementSourceHealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - health_check
+        - trace_id
+      properties:
+        health_check:
+          $ref: "#/components/schemas/ProcurementSourceHealthCheck"
+        trace_id:
+          type: string
+    ProcurementDecisionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - decision
+        - trace_id
+      properties:
+        decision:
+          $ref: "#/components/schemas/ProcurementDecision"
+        trace_id:
+          type: string
+    ProcurementTransitHandoffResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - handoff
+        - trace_id
+      properties:
+        handoff:
+          $ref: "#/components/schemas/ProcurementTransitHandoff"
+        trace_id:
+          type: string
+    ProcurementArrivalReviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - review
+        - trace_id
+      properties:
+        review:
+          $ref: "#/components/schemas/ProcurementArrivalReview"
+        trace_id:
+          type: string
+    ProcurementIntakeHandoffResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - handoffs
+        - trace_id
+      properties:
+        handoffs:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementPHCHandoff"
+        trace_id:
+          type: string
+    ProcurementLoadDetailResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - detail
+        - trace_id
+      properties:
+        detail:
+          $ref: "#/components/schemas/ProcurementLoadDetail"
+        trace_id:
+          type: string
+    ProcurementLoadDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - load
+        - goats
+        - holding_stays
+        - source_health_checks
+        - decisions
+        - transit_handoffs
+        - arrival_reviews
+        - phc_handoffs
+        - timeline
+      properties:
+        load:
+          $ref: "#/components/schemas/ProcurementLoad"
+        goats:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementLoadGoat"
+        holding_stays:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementHoldingStay"
+        source_health_checks:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementSourceHealthCheck"
+        decisions:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementDecision"
+        transit_handoffs:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ProcurementTransitHandoff"
+        arrival_reviews:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ProcurementArrivalReview"
+        phc_handoffs:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementPHCHandoff"
+        timeline:
+          type: array
+          maxItems: 5000
+          items:
+            $ref: "#/components/schemas/ProcurementTimelineEvent"
+    ProcurementLoad:
+      type: object
+      additionalProperties: true
+      required:
+        - load_id
+        - tenant_id
+        - source_party_id
+        - expected_count
+        - status
+        - created_at
+        - updated_at
+        - row_version
+      properties:
+        load_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        source_party_id:
+          type: string
+          format: uuid
+        source_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        expected_count:
+          type: integer
+          minimum: 0
+        purchase_date:
+          type:
+            - string
+            - "null"
+          format: date
+        planned_dispatch_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        status:
+          $ref: "#/components/schemas/ProcurementLoadStatus"
+        notes:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+    ProcurementLoadGoat:
+      type: object
+      additionalProperties: true
+      required:
+        - load_goat_id
+        - load_id
+        - goat_id
+        - selection_state
+        - current_state
+        - identity_review_state
+        - ownership_state
+        - health_state
+      properties:
+        load_goat_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        source_tag:
+          type:
+            - string
+            - "null"
+        source_rfid:
+          type:
+            - string
+            - "null"
+        temporary_id:
+          type:
+            - string
+            - "null"
+        selection_state:
+          $ref: "#/components/schemas/ProcurementSelectionState"
+        current_state:
+          $ref: "#/components/schemas/ProcurementGoatState"
+        identity_review_state:
+          enum:
+            - pending
+            - clean
+            - conflict
+            - unknown_extra
+        ownership_state:
+          $ref: "#/components/schemas/ProcurementOwnershipState"
+        health_state:
+          $ref: "#/components/schemas/ProcurementHealthState"
+        warmup_days:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+    ProcurementHoldingStay:
+      type: object
+      additionalProperties: true
+      properties:
+        stay_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        holding_location_id:
+          type: string
+          format: uuid
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        warmup_state:
+          enum:
+            - not_started
+            - in_progress
+            - completed
+            - outside_normal_window
+        warmup_days:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+    ProcurementSourceHealthCheck:
+      type: object
+      additionalProperties: true
+      properties:
+        health_check_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        health_state:
+          enum:
+            - passed
+            - failed
+            - deferred
+        checked_at:
+          type: string
+          format: date-time
+    ProcurementDecision:
+      type: object
+      additionalProperties: true
+      properties:
+        decision_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        decision_stage:
+          type: string
+        decision_type:
+          enum:
+            - accepted
+            - rejected
+            - deferred
+            - blocked
+        reason:
+          type: string
+        decided_at:
+          type: string
+          format: date-time
+    ProcurementTransitHandoff:
+      type: object
+      additionalProperties: true
+      properties:
+        handoff_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        loaded_count:
+          type: integer
+          minimum: 0
+        dispatched_at:
+          type: string
+          format: date-time
+        discrepancy_state:
+          enum:
+            - none
+            - partial_load
+            - accepted_not_loaded
+            - missing
+            - extra
+            - mismatch
+            - blocked
+        status:
+          enum:
+            - planned
+            - in_transit
+            - arrived
+            - canceled
+    ProcurementArrivalReview:
+      type: object
+      additionalProperties: true
+      properties:
+        review_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        park_location_id:
+          type: string
+          format: uuid
+        status:
+          enum:
+            - pending
+            - mismatch
+            - accepted
+            - rejected
+            - deferred
+            - blocked
+        goats:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementArrivalGoat"
+    ProcurementArrivalGoat:
+      type: object
+      additionalProperties: true
+      properties:
+        review_goat_id:
+          type: string
+          format: uuid
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        arrival_state:
+          $ref: "#/components/schemas/ProcurementArrivalState"
+    ProcurementPHCHandoff:
+      type: object
+      additionalProperties: true
+      properties:
+        handoff_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        accepted_at:
+          type: string
+          format: date-time
+        park_location_id:
+          type: string
+          format: uuid
+        shed_location_id:
+          type: string
+          format: uuid
+        entry_date:
+          type: string
+          format: date
+        event_status:
+          enum:
+            - pending
+            - emitted
+            - canceled
+    ProcurementTimelineEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        goat_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        ref_id:
+          type: string
+        state:
+          type: string
+        summary:
+          type: string
+    ProcurementWorkState:
+      enum:
+        - due
+        - overdue
+        - proof_pending
+        - deferred
+        - blocked
+        - owner_missing
+        - rejected
+        - completed
+    ProcurementSeverity:
+      enum:
+        - ok
+        - watch
+        - at_risk
+        - critical
+        - broken
+    ProcurementLoadStatus:
+      enum:
+        - source_warmup
+        - health_pending
+        - pre_dispatch_pending
+        - dispatch_ready
+        - in_transit
+        - arrival_review
+        - accepted_intake
+        - rejected
+        - deferred
+        - blocked
+        - canceled
+    ProcurementSelectionState:
+      enum:
+        - source_only
+        - candidate
+        - purchased
+        - accepted
+        - rejected
+        - deferred
+        - blocked
+        - loaded
+        - arrival_accepted
+        - arrival_rejected
+        - accepted_herd_intake
+        - dead
+        - sold
+        - lost
+    ProcurementGoatState:
+      enum:
+        - source_holding
+        - source_warmup
+        - source_candidate
+        - source_health_pending
+        - source_health_passed
+        - source_health_failed
+        - source_rejected
+        - pre_dispatch_pending
+        - pre_dispatch_accepted
+        - pre_dispatch_rejected
+        - pre_dispatch_deferred
+        - pre_dispatch_blocked
+        - dispatch_ready
+        - loading_pending
+        - loaded
+        - in_transit
+        - arrival_review_pending
+        - arrival_accepted
+        - arrival_rejected
+        - accepted_herd_intake
+        - dead
+        - sold
+        - lost
+        - canceled
+    ProcurementOwnershipState:
+      enum:
+        - pending
+        - shared_pending
+        - mesha_owned
+        - blocked
+        - not_owned
+        - settled
+    ProcurementHealthState:
+      enum:
+        - pending
+        - passed
+        - failed
+        - deferred
+    ProcurementArrivalState:
+      enum:
+        - matched
+        - missing
+        - extra_unresolved
+        - health_flag
+        - weight_flag
+        - accepted
+        - rejected
+        - deferred
+        - blocked

@@ -43,9 +43,13 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 const routes = [
   { name: "login", path: "/login" },
   { name: "control-tower", path: "/" },
+  { name: "action-center", path: "/action-center" },
+  { name: "protocol-adherence", path: "/protocol-adherence" },
+  { name: "workflows", path: "/workflows" },
   { name: "vaccination", path: "/vaccination" },
+  { name: "vaccination-execution", path: "/vaccination#execution" },
   { name: "config", path: "/config?category=vaccination" },
-  { name: "vaccination-adherence", path: "/vaccination/adherence" },
+  { name: "sops", path: "/sops" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];
 

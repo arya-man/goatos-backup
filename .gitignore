@@ -53,6 +53,8 @@ Screenshots/
 
 # local agent/render scratch
 .codex-goatos-render/
+.codex-visual/
+**/.claude/launch.json
 .code-review-graph/
 
 # graphify machine-specific files (graph.json committed, these are not)

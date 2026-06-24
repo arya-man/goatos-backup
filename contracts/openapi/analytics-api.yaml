@@ -5,7 +5,7 @@ info:
   summary: Reserved analytics facade for governed projections.
   description: >
     Analytics contracts are intentionally empty for the current Admin Config +
-    PHC Vaccination + Parks vaccination execution slice. Do not revive old
+    PHC Vaccination (incl. park/shed execution context) slice. Do not revive old
     counts, mortality, or identity-count dashboard endpoints here unless the
     product scope explicitly reopens that vertical with projection-backed APIs.
 servers:

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 // ErrNotPublishable is returned when a protocol version fails the source-backed approval gate.
@@ -23,7 +26,14 @@ type sourceMeta struct {
 }
 
 type ruleDSLEnvelope struct {
-	Source sourceMeta `json:"source"`
+	Source   sourceMeta    `json:"source"`
+	Schedule []scheduleRow `json:"schedule"`
+}
+
+type scheduleRow struct {
+	DoseCode    string          `json:"dose_code"`
+	SOPVersion  string          `json:"sop_version"`
+	ProofPolicy json.RawMessage `json:"proof_policy"`
 }
 
 // ValidatePublishable enforces the source-backed approval gate on a version's rule_dsl: the nested
@@ -51,6 +61,38 @@ func ValidatePublishable(ruleDSL []byte) error {
 	return nil
 }
 
+func ValidateExecutionContract(v domain.Version) error {
+	if strings.TrimSpace(v.SopVersionID) == "" {
+		return fmt.Errorf("%w: missing sop_version_id", ErrNotPublishable)
+	}
+	if !nonEmptyJSONObject(v.ProofPolicy) {
+		return fmt.Errorf("%w: missing proof_policy", ErrNotPublishable)
+	}
+	var env ruleDSLEnvelope
+	if len(v.RuleDsl) > 0 {
+		if err := json.Unmarshal(v.RuleDsl, &env); err != nil {
+			return fmt.Errorf("%w: invalid rule_dsl: %v", ErrNotPublishable, err)
+		}
+	}
+	for idx, row := range env.Schedule {
+		if strings.TrimSpace(row.SOPVersion) == "" && strings.TrimSpace(v.SopVersionID) == "" {
+			return fmt.Errorf("%w: schedule[%d] missing sop_version", ErrNotPublishable, idx)
+		}
+		if len(row.ProofPolicy) == 0 && !nonEmptyJSONObject(v.ProofPolicy) {
+			return fmt.Errorf("%w: schedule[%d] missing proof_policy", ErrNotPublishable, idx)
+		}
+	}
+	return nil
+}
+
+func nonEmptyJSONObject(raw []byte) bool {
+	var m map[string]any
+	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
+		return false
+	}
+	return len(m) > 0
+}
+
 // PublishVersion publishes a draft version only after the source-backed gate passes. The DB also
 // enforces the published-window EXCLUDE non-overlap; capability (CEO/COO protocol.publish.*) is
 // enforced at the API/RBAC boundary (later slice).
@@ -60,6 +102,9 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		return err
 	}
 	if err := ValidatePublishable(v.RuleDsl); err != nil {
+		return err
+	}
+	if err := ValidateExecutionContract(v); err != nil {
 		return err
 	}
 	return s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy)

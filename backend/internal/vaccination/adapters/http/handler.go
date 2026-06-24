@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -19,7 +20,7 @@ import (
 // Reads is the slice of the vaccination service this handler needs.
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
-	VerificationQueue(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error)
+	VerificationQueue(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error)
 }
 
 // Verifier is the SM-5 verification slice (CompletionService): accept/reject a recorded completion.
@@ -170,7 +171,12 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = int32(n)
 	}
-	rows, err := h.svc.VerificationQueue(r.Context(), tenantID(r), limit)
+	parkID := r.URL.Query().Get("park_id")
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return
+	}
+	rows, err := h.svc.VerificationQueue(r.Context(), tenantID(r), parkID, limit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)

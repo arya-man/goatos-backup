@@ -9,13 +9,21 @@ function redirectParams(result: { applied?: boolean }, ok: boolean, action: stri
   return `?action_status=${status}&action_message=${encodeURIComponent(message)}`;
 }
 
+// A verify/reject ripples across every screen that reads the process-integrity model: the Action Center
+// board + verify queue, PHC Vaccination ops, Protocol Adherence, and the Control Tower summary.
+function revalidateVaccinationViews(): void {
+  for (const p of ["/action-center", "/vaccination", "/protocol-adherence", "/workflows", "/"]) {
+    revalidatePath(p);
+  }
+}
+
 // verifyCompletionAction accepts a recorded completion (SM-5 verify): completes the obligation +
 // consumes the reserved dose. Bound to the Verify button in the verification queue.
 export async function verifyCompletionAction(formData: FormData): Promise<void> {
   const completionId = String(formData.get("completion_id") ?? "");
   if (!completionId) return;
   const result = await acceptVaccinationCompletion(completionId);
-  revalidatePath("/vaccination");
+  revalidateVaccinationViews();
   void redirectParams(result.ok ? result.data : {}, result.ok, "verify");
 }
 
@@ -25,5 +33,5 @@ export async function rejectCompletionAction(formData: FormData): Promise<void> 
   const reason = String(formData.get("reason") ?? "rejected");
   if (!completionId) return;
   await rejectVaccinationCompletion(completionId, reason);
-  revalidatePath("/vaccination");
+  revalidateVaccinationViews();
 }

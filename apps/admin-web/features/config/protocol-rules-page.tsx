@@ -70,9 +70,9 @@ export function ConfigProtocolRulesPage({ category }: { category: string }) {
             <b style={{ color: "var(--ink)" }}>adherence</b> gap
           </div>
           <div className="note" style={{ marginTop: 10 }}>
-            After publish, every obligation, SOP task, and adherence gap is generated from <b>this config</b>. PHC/
-            Vaccination can review the effect in{" "}
-            <Link href="/vaccination/adherence" className="lk">
+            After publish, every obligation, SOP task, and adherence gap is generated from <b>this config</b>. Review the
+            effect in{" "}
+            <Link href="/protocol-adherence" className="lk">
               Protocol Adherence
             </Link>
           </div>

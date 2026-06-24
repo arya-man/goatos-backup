@@ -37,6 +37,9 @@ const (
 	ObligationRead            = "obligation.read"
 	VaccinationRead           = "vaccination.read"
 	VaccinationVerify         = "vaccination.verify"
+	ProcurementRead           = "procurement.read"
+	ProcurementWrite          = "procurement.write"
+	ProcurementReview         = "procurement.review"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -48,6 +51,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
@@ -55,16 +59,18 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {},
 		TaskRead:      {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		ProcurementRead: {}, ProcurementReview: {},
 	},
 	RoleParkHead: {
 		GoatRead:      {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
-		ProtocolRead: {}, ObligationRead: {},
+		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
+		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
 	RoleOperator: {
-		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {},
+		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, ProcurementRead: {}, ProcurementWrite: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {},
@@ -74,6 +80,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
 }
 

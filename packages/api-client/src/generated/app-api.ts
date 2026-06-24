@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/admin/tasks/review-fanouts/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry pending or failed task review fanout rows. */
+        post: operations["retrySOPReviewFanouts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/me": {
         parameters: {
             query?: never;
@@ -115,6 +132,74 @@ export interface paths {
         };
         /** Download a pinned SOP version. */
         get: operations["getAppSOPVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/proofs/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a server-owned proof record and signed upload target. */
+        post: operations["createProofUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/proofs/{proof_id}/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Local-dev signed proof upload target. */
+        put: operations["uploadProofLocal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/proofs/{proof_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finalize a proof upload with captured metadata. */
+        post: operations["completeProofUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/proofs/{proof_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get or follow a signed proof download URL. */
+        get: operations["downloadProof"];
         put?: never;
         post?: never;
         delete?: never;
@@ -317,8 +402,127 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List bounded vaccination obligations for the operating work table. */
+        /** Compatibility path for the vaccination Action Center process-integrity rows. */
         get: operations["listActionCenterObligations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/action-center": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List actionable vaccination process-integrity rows with server-side filters and keyset pagination. */
+        get: operations["listVaccinationActionCenter"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/adherence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read expected-vs-actual vaccination protocol adherence rows from process integrity. */
+        get: operations["getVaccinationProtocolAdherence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/control-tower/vaccination": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Summarize broken or at-risk vaccination process integrity for Control Tower. */
+        get: operations["getVaccinationControlTower"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/workflows/{row_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Explain one vaccination process chain from config through completion. */
+        get: operations["getVaccinationWorkflowDrilldown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Source-backed vaccination operations — cohort × protocol matrix + per-cohort detail. */
+        get: operations["getVaccinationOperations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List vaccination execution rows grouped by park and shed context. */
+        get: operations["listVaccinationExecution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/execution/sheds/{shed_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get vaccination execution context for one shed. */
+        get: operations["getVaccinationExecutionShedDrilldown"];
         put?: never;
         post?: never;
         delete?: never;
@@ -486,13 +690,83 @@ export interface components {
             /** @enum {string} */
             proof_type: "photo" | "video" | "attachment";
             /** @enum {string} */
-            subject_type: "batch" | "goat" | "shed" | "task" | "other";
+            subject_type: "batch" | "goat" | "shed" | "task" | "vial_lot" | "administration" | "other";
             subject_id?: string | null;
             /** @enum {string} */
             upload_state: "pending" | "uploading" | "completed" | "failed";
             metadata: {
                 [key: string]: unknown;
             };
+        };
+        CreateProofUploadRequest: {
+            /** @enum {string} */
+            proof_type: "photo" | "video" | "attachment";
+            mime_type: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "farm" | "park" | "shed" | "cohort" | "batch" | "task" | "goat";
+            /** Format: uuid */
+            scope_id: string;
+            /** @enum {string} */
+            subject_type: "batch" | "goat" | "shed" | "task" | "vial_lot" | "administration" | "other";
+            /** Format: uuid */
+            subject_id?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        CompleteProofUploadRequest: {
+            content_hash?: string;
+            mime_type?: string;
+            /** Format: int64 */
+            size_bytes?: number;
+            /** Format: int64 */
+            duration_ms?: number | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        ProofArtifact: {
+            /** Format: uuid */
+            proof_id: string;
+            /** @enum {string} */
+            storage_provider: "local" | "gcs";
+            /** @enum {string} */
+            proof_type: "photo" | "video" | "attachment";
+            subject_type: string;
+            /** Format: uuid */
+            subject_id?: string | null;
+            /** @enum {string} */
+            upload_state: "pending" | "uploading" | "completed" | "failed";
+            mime_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** Format: int64 */
+            duration_ms?: number | null;
+            content_hash: string;
+            metadata: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            uploaded_at?: string | null;
+        };
+        CreateProofUploadResponse: {
+            proof: components["schemas"]["ProofArtifact"];
+            upload_url: string;
+            /** @enum {string} */
+            upload_method: "PUT";
+            headers: {
+                [key: string]: string;
+            };
+            /** Format: date-time */
+            expires_at: string;
+        };
+        ProofResponse: {
+            proof: components["schemas"]["ProofArtifact"];
+        };
+        DownloadProofResponse: {
+            download_url: string;
         };
         SubmissionItem: {
             /** Format: uuid */
@@ -534,6 +808,14 @@ export interface components {
             task: components["schemas"]["TaskSummary"];
             sop_version?: components["schemas"]["SOPVersion"] | null;
             submissions?: components["schemas"]["SubmissionSummary"][];
+            trace_id: string;
+        };
+        RetryReviewFanoutsRequest: {
+            /** @default 50 */
+            limit: number;
+        };
+        RetryReviewFanoutsResponse: {
+            applied: number;
             trace_id: string;
         };
         SubmitTaskRequest: {
@@ -882,24 +1164,313 @@ export interface components {
             first_result_id?: string | null;
         };
         /** @enum {string} */
-        WorkState: "due" | "overdue" | "blocked" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "owner_missing" | "scheduled" | "in_progress" | "missed" | "completed";
+        WorkState: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "owner_missing" | "blocked" | "completed";
+        /** @enum {string} */
+        ProcessIntegritySeverity: "ok" | "watch" | "at_risk" | "broken";
+        /** @enum {string} */
+        ProcessIntegrityOwnerState: "assigned" | "missing";
+        /** @enum {string} */
+        ProcessIntegritySOPState: "not_started" | "in_progress" | "submitted" | "accepted" | "rework";
+        /** @enum {string} */
+        ProcessIntegrityProofState: "not_required" | "missing" | "uploaded" | "accepted" | "rejected";
+        /** @enum {string} */
+        ProcessIntegrityVerificationState: "not_ready" | "pending" | "accepted" | "rejected";
+        ProcessIntegrityOwner: {
+            /** Format: uuid */
+            operator_id?: string;
+            operator_name?: string;
+            /** Format: uuid */
+            park_head_id?: string;
+            park_head_name?: string;
+            /** Format: uuid */
+            verifier_id?: string;
+            verifier_name?: string;
+            /** Format: uuid */
+            escalation_owner_id?: string;
+            escalation_owner_name?: string;
+        };
+        ProcessIntegrityEvidence: {
+            proof_ids: string[];
+            evidence_count: number;
+            /** Format: date-time */
+            latest_evidence_at?: string;
+            latest_rejection_reason?: string;
+            audit_ref?: string;
+        };
+        CountByWorkState: {
+            work_state: components["schemas"]["WorkState"];
+            count: number;
+        };
         ActionCenterObligation: {
+            /** @enum {string} */
+            category: "vaccination";
+            row_id: string;
+            process_key: string;
+            /** Format: uuid */
             obligation_id: string;
+            /** Format: uuid */
+            batch_id?: string;
+            /** Format: uuid */
+            sop_task_id?: string;
+            /** Format: uuid */
+            sop_submission_id?: string;
+            /** Format: uuid */
+            completion_id?: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** Format: uuid */
+            cohort_id?: string;
+            /** Format: uuid */
+            goat_id?: string;
+            animal_stage: string;
+            /** Format: uuid */
+            protocol_id: string;
+            /** Format: uuid */
             protocol_version_id: string;
+            /** Format: uuid */
             rule_id: string;
-            target_type: string;
-            target_id: string;
-            scope_type: string;
-            scope_id: string;
+            protocol_name: string;
+            dose_code: string;
+            drive_name?: string;
+            /** Format: uuid */
+            sop_version_id?: string;
+            proof_policy: string;
             /** Format: date-time */
             due_at: string;
-            status: string;
+            /** Format: date-time */
+            window_start?: string;
+            /** Format: date-time */
+            window_end?: string;
+            expected_count: number;
+            obligation_status: string;
+            batch_status?: string;
+            sop_task_state: components["schemas"]["ProcessIntegritySOPState"];
+            submission_state?: string;
+            proof_state: components["schemas"]["ProcessIntegrityProofState"];
+            verification_state: components["schemas"]["ProcessIntegrityVerificationState"];
+            completion_state?: string;
+            completed_count: number;
+            proof_count: number;
+            rejected_count: number;
+            deferred_count: number;
             work_state: components["schemas"]["WorkState"];
-            owner_id?: string | null;
-            blocker?: string | null;
+            gap_type: string;
+            severity: components["schemas"]["ProcessIntegritySeverity"];
+            blocker_reason?: string;
+            owner_state: components["schemas"]["ProcessIntegrityOwnerState"];
+            next_action: string;
+            process_intact: boolean;
+            owner: components["schemas"]["ProcessIntegrityOwner"];
+            evidence: components["schemas"]["ProcessIntegrityEvidence"];
         };
         ActionCenterResponse: {
+            /** @enum {string} */
+            source: "api";
             items: components["schemas"]["ActionCenterObligation"][];
+            counts_by_work_state: components["schemas"]["CountByWorkState"][];
+            next_cursor?: string;
+        };
+        AdherenceSummary: {
+            expected_count: number;
+            completed_count: number;
+            open_gap_count: number;
+            deferred_count: number;
+            process_intact_count: number;
+            adherence_percent: number;
+        };
+        AdherenceRow: {
+            row_id: string;
+            expected: string;
+            actual: string;
+            gap: string;
+            severity: components["schemas"]["ProcessIntegritySeverity"];
+            owner: components["schemas"]["ProcessIntegrityOwner"];
+            next_action: string;
+            evidence: components["schemas"]["ProcessIntegrityEvidence"];
+            work_state: components["schemas"]["WorkState"];
+        };
+        ProtocolAdherenceResponse: {
+            /** @enum {string} */
+            source: "api";
+            summary: components["schemas"]["AdherenceSummary"];
+            rows: components["schemas"]["AdherenceRow"][];
+            next_cursor?: string;
+        };
+        ControlTowerSummary: {
+            process_intact: boolean;
+            critical_count: number;
+            warning_count: number;
+            open_gap_count: number;
+            verification_backlog: number;
+            owner_missing_count: number;
+            config_or_sop_blockers: number;
+        };
+        ControlTowerAlert: {
+            row_id: string;
+            severity: components["schemas"]["ProcessIntegritySeverity"];
+            work_state: components["schemas"]["WorkState"];
+            title: string;
+            detail: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            drive_name?: string;
+            owner: components["schemas"]["ProcessIntegrityOwner"];
+            next_action: string;
+            evidence_link: string;
+        };
+        ControlTowerResponse: {
+            /** @enum {string} */
+            source: "api";
+            summary: components["schemas"]["ControlTowerSummary"];
+            alerts: components["schemas"]["ControlTowerAlert"][];
+        };
+        WorkflowNode: {
+            key: string;
+            label: string;
+            state: string;
+            /** Format: date-time */
+            timestamp?: string;
+            actor?: string;
+            owner?: string;
+            evidence?: string;
+            blocker?: string;
+        };
+        WorkflowDrilldownResponse: {
+            /** @enum {string} */
+            source: "api";
+            row: components["schemas"]["ActionCenterObligation"];
+            nodes: components["schemas"]["WorkflowNode"][];
+        };
+        /** @enum {string} */
+        VaccinationExecutionWorkState: "due" | "overdue" | "scheduled" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "blocked" | "owner_missing" | "completed";
+        /** @enum {string} */
+        VaccinationExecutionSeverity: "ok" | "watch" | "at_risk" | "broken";
+        /** @enum {string} */
+        VaccinationExecutionSOPStatus: "not_started" | "in_progress" | "submitted" | "accepted" | "rework";
+        /** @enum {string} */
+        VaccinationExecutionProofStatus: "not_required" | "missing" | "uploaded" | "rejected" | "accepted";
+        /** @enum {string} */
+        VaccinationExecutionVerificationStatus: "not_ready" | "pending" | "verified" | "rejected";
+        VaccinationExecutionOwner: {
+            operatorName?: string;
+            parkHeadName?: string;
+            verifierName?: string;
+        };
+        VaccinationExecutionRow: {
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId: string;
+            shedName: string;
+            animalStage: string;
+            /** Format: uuid */
+            driveId?: string;
+            driveName?: string;
+            /** Format: date */
+            dueDate?: string;
+            workState: components["schemas"]["VaccinationExecutionWorkState"];
+            severity: components["schemas"]["VaccinationExecutionSeverity"];
+            owner?: components["schemas"]["VaccinationExecutionOwner"];
+            blockerReason?: string;
+            sopStatus: components["schemas"]["VaccinationExecutionSOPStatus"];
+            proofStatus: components["schemas"]["VaccinationExecutionProofStatus"];
+            verificationStatus: components["schemas"]["VaccinationExecutionVerificationStatus"];
+            nextAction: string;
+        };
+        VaccinationExecutionResponse: {
+            /** @enum {string} */
+            source: "api";
+            rows: components["schemas"]["VaccinationExecutionRow"][];
+        };
+        VaccinationOperationsProtocol: {
+            /** Format: uuid */
+            protocolId: string;
+            name: string;
+        };
+        /** @description Obligation/completion tallies for a cohort × protocol cell (or a cohort rollup), computed as-of OperationsQuery.as_of. proofPending = completions recorded and awaiting verification; rejected = rework (rejected completions); accepted = verified doses. */
+        VaccinationOperationsCounts: {
+            overdue: number;
+            due: number;
+            inProgress: number;
+            scheduled: number;
+            deferred: number;
+            accepted: number;
+            proofPending: number;
+            rejected: number;
+            total: number;
+        };
+        VaccinationOperationsCell: {
+            /** Format: uuid */
+            protocolId: string;
+            workState: components["schemas"]["VaccinationExecutionWorkState"];
+            /** Format: date-time */
+            lastDose?: string;
+            /** Format: date-time */
+            nextDue?: string;
+            counts: components["schemas"]["VaccinationOperationsCounts"];
+        };
+        VaccinationOperationsCohort: {
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId: string;
+            shedName: string;
+            stage: string;
+            ageBand?: string;
+            animals: number;
+            /** Format: date-time */
+            lastDose?: string;
+            /** Format: date-time */
+            nextDue?: string;
+            workState: components["schemas"]["VaccinationExecutionWorkState"];
+            counts: components["schemas"]["VaccinationOperationsCounts"];
+            cells: components["schemas"]["VaccinationOperationsCell"][];
+        };
+        VaccinationOperationsResponse: {
+            /** @enum {string} */
+            source: "api";
+            protocols: components["schemas"]["VaccinationOperationsProtocol"][];
+            cohorts: components["schemas"]["VaccinationOperationsCohort"][];
+        };
+        VaccinationExecutionDriveSummary: {
+            driveId?: string;
+            driveName?: string;
+            workState: components["schemas"]["VaccinationExecutionWorkState"];
+            severity: components["schemas"]["VaccinationExecutionSeverity"];
+        };
+        VaccinationExecutionShedSummary: {
+            total: number;
+            due: number;
+            overdue: number;
+            proofPending: number;
+            verificationPending: number;
+            rejected: number;
+            deferred: number;
+            blocked: number;
+            ownerMissing: number;
+            completed: number;
+        };
+        VaccinationExecutionShedDrilldown: {
+            /** Format: uuid */
+            parkId: string;
+            parkName: string;
+            /** Format: uuid */
+            shedId: string;
+            shedName: string;
+            animalStages: string[];
+            drives: components["schemas"]["VaccinationExecutionDriveSummary"][];
+            rows: components["schemas"]["VaccinationExecutionRow"][];
+            summary: components["schemas"]["VaccinationExecutionShedSummary"];
         };
         VaccinationQueueItem: {
             completion_id: string;
@@ -1144,6 +1715,8 @@ export interface components {
         ProtocolId: string;
         ProtocolVersionId: string;
         CompletionId: string;
+        ShedId: string;
+        ProofId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1151,6 +1724,34 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    retrySOPReviewFanouts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryReviewFanoutsRequest"];
+            };
+        };
+        responses: {
+            /** @description Review fanouts retried. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryReviewFanoutsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appMe: {
         parameters: {
             query?: never;
@@ -1320,6 +1921,130 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SOPVersionResponse"];
                 };
+            };
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    createProofUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProofUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Proof upload target. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateProofUploadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    uploadProofLocal: {
+        parameters: {
+            query: {
+                expires: string;
+                sig: string;
+            };
+            header?: never;
+            path: {
+                proof_id: components["parameters"]["ProofId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Completed local proof upload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProofResponse"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    completeProofUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proof_id: components["parameters"]["ProofId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteProofUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Completed proof record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProofResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    downloadProof: {
+        parameters: {
+            query?: {
+                expires?: string;
+                sig?: string;
+            };
+            header?: never;
+            path: {
+                proof_id: components["parameters"]["ProofId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed download URL for non-local clients. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadProofResponse"];
+                };
+            };
+            /** @description Redirect to signed storage URL. */
+            307: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: components["responses"]["NotFoundOrNotAllowed"];
         };
@@ -1639,10 +2364,17 @@ export interface operations {
     listActionCenterObligations: {
         parameters: {
             query?: {
+                park_id?: string;
+                shed_id?: string;
                 /** @description Current compatibility alias for work_state. */
                 status?: components["schemas"]["WorkState"];
                 work_state?: components["schemas"]["WorkState"];
+                severity?: components["schemas"]["ProcessIntegritySeverity"];
+                owner_id?: string;
+                protocol_version_id?: string;
+                due_after?: string;
                 due_before?: string;
+                cursor?: string;
                 limit?: number;
             };
             header?: never;
@@ -1666,9 +2398,227 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listVaccinationActionCenter: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                work_state?: components["schemas"]["WorkState"];
+                severity?: components["schemas"]["ProcessIntegritySeverity"];
+                owner_id?: string;
+                protocol_version_id?: string;
+                due_after?: string;
+                due_before?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination Action Center rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionCenterResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationProtocolAdherence: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                work_state?: components["schemas"]["WorkState"];
+                severity?: components["schemas"]["ProcessIntegritySeverity"];
+                owner_id?: string;
+                protocol_version_id?: string;
+                due_after?: string;
+                due_before?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination Protocol Adherence ledger. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProtocolAdherenceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationControlTower: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                due_before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination Control Tower summary and alerts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlTowerResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationWorkflowDrilldown: {
+        parameters: {
+            query?: {
+                due_before?: string;
+            };
+            header?: never;
+            path: {
+                row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination workflow drilldown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDrilldownResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationOperations: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                as_of?: string;
+                due_before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination operations matrix + per-cohort detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperationsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listVaccinationExecution: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                work_state?: components["schemas"]["VaccinationExecutionWorkState"];
+                due_before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination execution rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationExecutionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationExecutionShedDrilldown: {
+        parameters: {
+            query?: {
+                due_before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                shed_id: components["parameters"]["ShedId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination execution shed drilldown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationExecutionShedDrilldown"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     vaccinationVerificationQueue: {
         parameters: {
             query?: {
+                /** @description Optional park scope (top-bar park); filters the queue to that park's completions. */
+                park_id?: string;
                 limit?: number;
             };
             header?: never;

@@ -44,6 +44,9 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/tasks/{task_id}/assign", h.AssignTask)
 	mux.HandleFunc("POST /admin/tasks/{task_id}/verify", h.VerifyTask)
 	mux.HandleFunc("POST /admin/tasks/{task_id}/rework", h.ReworkTask)
+	mux.HandleFunc("GET /admin/tasks/submission-fanouts/failed", h.ListFailedSubmissionFanouts)
+	mux.HandleFunc("POST /admin/tasks/review-fanouts/retry", h.RetryReviewFanouts)
+	mux.HandleFunc("POST /admin/tasks/submission-fanouts/retry", h.RetrySubmissionFanouts)
 
 	mux.HandleFunc("GET /app/tasks", h.ListAppTasks)
 	mux.HandleFunc("GET /app/tasks/{task_id}", h.GetTask)
@@ -189,6 +192,40 @@ func (h *Handler) ReworkTask(w nethttp.ResponseWriter, r *nethttp.Request) {
 	h.reviewTask(w, r, "rework")
 }
 
+func (h *Handler) RetryReviewFanouts(w nethttp.ResponseWriter, r *nethttp.Request) {
+	var body domain.RetryReviewFanoutsRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	applied, err := h.service.RetryReviewFanouts(r.Context(), tenantID(r), body.Limit)
+	h.respond(w, r, &domain.RetryReviewFanoutsResponse{Applied: applied, TraceID: traceID(r)}, err)
+}
+
+func (h *Handler) RetrySubmissionFanouts(w nethttp.ResponseWriter, r *nethttp.Request) {
+	var body domain.RetrySubmissionFanoutsRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	applied, err := h.service.RetrySubmissionFanouts(r.Context(), tenantID(r), body.Limit)
+	h.respond(w, r, &domain.RetrySubmissionFanoutsResponse{Applied: applied, TraceID: traceID(r)}, err)
+}
+
+func (h *Handler) ListFailedSubmissionFanouts(w nethttp.ResponseWriter, r *nethttp.Request) {
+	query := r.URL.Query()
+	olderThanMinutes, ok := parseOptionalInt(query.Get("older_than_minutes"))
+	if !ok {
+		h.respond(w, r, nil, app.BadRequest("invalid_older_than_minutes", "older_than_minutes must be an integer"))
+		return
+	}
+	limit, ok := parseOptionalInt(query.Get("limit"))
+	if !ok {
+		h.respond(w, r, nil, app.BadRequest("invalid_limit", "limit must be an integer"))
+		return
+	}
+	result, err := h.service.ListAgedFailedSubmissionFanouts(r.Context(), tenantID(r), olderThanMinutes, limit, traceID(r))
+	h.respond(w, r, result, err)
+}
+
 func (h *Handler) reviewTask(w nethttp.ResponseWriter, r *nethttp.Request, action string) {
 	var body domain.ReviewTaskRequest
 	if !decodeJSON(w, r, &body) {
@@ -289,6 +326,18 @@ func parseLimit(raw string) int {
 		return 0
 	}
 	return limit
+}
+
+func parseOptionalInt(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, true
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
 }
 
 func tenantID(r *nethttp.Request) string {

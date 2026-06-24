@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,12 +14,56 @@ import (
 )
 
 type Service struct {
-	repo ports.Repository
-	now  func() time.Time
+	repo         ports.Repository
+	proofs       ProofValidator
+	submission   SubmissionHook
+	reviewFanout TaskReviewFanout
+	now          func() time.Time
 }
+
+const (
+	defaultFailedSubmissionFanoutAgeMinutes = 15
+	maxFailedSubmissionFanoutAgeMinutes     = 7 * 24 * 60
+	maxFailedSubmissionFanoutLimit          = 100
+)
 
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo, now: time.Now}
+}
+
+func (s *Service) WithClock(now func() time.Time) *Service {
+	if now != nil {
+		s.now = now
+	}
+	return s
+}
+
+type ProofValidator interface {
+	ResolveProofRefs(ctx context.Context, tenantID string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error)
+}
+
+type TaskReviewFanout interface {
+	OnTaskVerified(ctx context.Context, tenantID, taskID, verifiedBy string) (int, error)
+	OnTaskReworked(ctx context.Context, tenantID, taskID, verifiedBy, reason string) (int, error)
+}
+
+type SubmissionHook interface {
+	OnTaskSubmitted(ctx context.Context, tenantID string, task domain.TaskSummary, submission domain.SubmissionSummary) error
+}
+
+func (s *Service) WithProofValidator(proofs ProofValidator) *Service {
+	s.proofs = proofs
+	return s
+}
+
+func (s *Service) WithSubmissionHook(hook SubmissionHook) *Service {
+	s.submission = hook
+	return s
+}
+
+func (s *Service) WithTaskReviewFanout(fanout TaskReviewFanout) *Service {
+	s.reviewFanout = fanout
+	return s
 }
 
 func (s *Service) ListSOPs(ctx context.Context, params ports.ListSOPsParams, traceID string) (*domain.SOPListResponse, error) {
@@ -213,6 +258,99 @@ func (s *Service) ReworkTask(ctx context.Context, cmd ports.ReviewTaskCommand, t
 	return s.reviewTask(ctx, cmd, traceID)
 }
 
+func (s *Service) RetryReviewFanouts(ctx context.Context, tenantID string, limit int) (int, error) {
+	if err := validateTenant(tenantID); err != nil {
+		return 0, err
+	}
+	attempts, err := s.repo.ListPendingReviewFanouts(ctx, tenantID, limit)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	applied := 0
+	for _, attempt := range attempts {
+		task, _, _, err := s.repo.GetTask(ctx, tenantID, attempt.TaskID)
+		if err != nil {
+			return applied, mapRepoErr(err)
+		}
+		if task.State != attempt.Outcome || task.RowVersion != attempt.TaskRowVersion {
+			if err := s.repo.RecordReviewFanoutStatus(ctx, supersededReviewFanoutStatus(tenantID, attempt, task)); err != nil {
+				return applied, mapRepoErr(err)
+			}
+			continue
+		}
+		err = s.applyReviewFanout(ctx, ports.ReviewTaskCommand{
+			TenantID: tenantID,
+			ActorID:  attempt.ActorID,
+			TaskID:   attempt.TaskID,
+			State:    attempt.Outcome,
+			Body: domain.ReviewTaskRequest{
+				Reason:     attempt.Reason,
+				RowVersion: attempt.TaskRowVersion,
+			},
+		}, task, attempt.TaskRowVersion)
+		if err != nil {
+			return applied, err
+		}
+		applied++
+	}
+	return applied, nil
+}
+
+func (s *Service) RetrySubmissionFanouts(ctx context.Context, tenantID string, limit int) (int, error) {
+	if err := validateTenant(tenantID); err != nil {
+		return 0, err
+	}
+	attempts, err := s.repo.ListPendingSubmissionFanouts(ctx, tenantID, limit)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	applied := 0
+	for _, attempt := range attempts {
+		task, _, submissions, err := s.repo.GetTask(ctx, tenantID, attempt.TaskID)
+		if err != nil {
+			return applied, mapRepoErr(err)
+		}
+		submission, ok := findSubmission(submissions, attempt.SubmissionID)
+		if !ok || !submissionFanoutNeeded(task) {
+			if err := s.repo.RecordSubmissionFanoutStatus(ctx, skippedSubmissionFanoutStatus(tenantID, attempt, task)); err != nil {
+				return applied, mapRepoErr(err)
+			}
+			continue
+		}
+		if err := s.applySubmissionFanout(ctx, tenantID, task, submission, true); err != nil {
+			return applied, err
+		}
+		applied++
+	}
+	return applied, nil
+}
+
+func (s *Service) ListAgedFailedSubmissionFanouts(ctx context.Context, tenantID string, olderThanMinutes, limit int, traceID string) (*domain.FailedSubmissionFanoutsResponse, error) {
+	if err := validateTenant(tenantID); err != nil {
+		return nil, err
+	}
+	if olderThanMinutes < 0 || olderThanMinutes > maxFailedSubmissionFanoutAgeMinutes {
+		return nil, BadRequest("invalid_older_than_minutes", "older_than_minutes must be between 0 and 10080")
+	}
+	if limit < 0 {
+		return nil, BadRequest("invalid_limit", "limit must be a positive integer")
+	}
+	if olderThanMinutes == 0 {
+		olderThanMinutes = defaultFailedSubmissionFanoutAgeMinutes
+	}
+	now := s.now().UTC()
+	items, err := s.repo.ListAgedFailedSubmissionFanouts(ctx, ports.ListAgedFailedSubmissionFanoutsParams{
+		TenantID:      tenantID,
+		UpdatedBefore: now.Add(-time.Duration(olderThanMinutes) * time.Minute),
+		Now:           now,
+		Limit:         boundedLimit(limit, maxFailedSubmissionFanoutLimit),
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &domain.FailedSubmissionFanoutsResponse{Items: items, TraceID: traceID}, nil
+}
+
 func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, traceID string) (*domain.SubmissionResponse, error) {
 	if err := validateTenantActorID(cmd.TenantID, cmd.ActorID, cmd.TaskID, "task_id"); err != nil {
 		return nil, err
@@ -240,6 +378,17 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
 		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
 	}
+	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
+		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, domain.ProofBinding{
+			TaskID:    task.TaskID,
+			ScopeType: task.ScopeType,
+			ScopeID:   task.ScopeID,
+		}, cmd.Body.ProofRefs)
+		if err != nil {
+			return nil, BadRequest("invalid_proof_refs", "proof_refs must reference server-issued proof records for this tenant")
+		}
+		cmd.Body.ProofRefs = proofRefs
+	}
 	evaluation := Evaluate(version.FormDSL, version.ProofPolicy, cmd.Body.Answers, cmd.Body.ProofRefs)
 	cmd.Report = domain.ValidationReport{Valid: evaluation.Valid, Errors: evaluation.Errors, Warnings: evaluation.Warnings}
 	if !evaluation.Valid {
@@ -247,14 +396,22 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	}
 	cmd.ItemState = "accepted"
 	cmd.TaskState = "accepted"
-	if proofRequiresReview(version.ProofPolicy) {
+	requiresProof := evaluationRequiresProof(evaluation)
+	if requiresProof && boolValue(version.ProofPolicy, "verify_before_apply") {
 		cmd.ItemState = "needs_review"
 		cmd.TaskState = "needs_review"
 	}
+	cmd.SubmissionItems = buildSubmissionItems(version.FormDSL, cmd.Body.Answers)
 	cmd.MovementPayload = buildMovementPayload(task, cmd.Body)
-	submission, updatedTask, _, err := s.repo.SubmitTask(ctx, cmd)
+	cmd.SubmissionFanoutRequired = s.submission != nil && submissionFanoutNeeded(task)
+	submission, updatedTask, replay, err := s.repo.SubmitTask(ctx, cmd)
 	if err != nil {
 		return nil, mapRepoErr(err)
+	}
+	if cmd.SubmissionFanoutRequired && !replay {
+		if err := s.applySubmissionFanout(ctx, cmd.TenantID, updatedTask, submission, false); err != nil {
+			return nil, err
+		}
 	}
 	return &domain.SubmissionResponse{Submission: submission, Task: updatedTask, TraceID: traceID}, nil
 }
@@ -268,9 +425,142 @@ func (s *Service) reviewTask(ctx context.Context, cmd ports.ReviewTaskCommand, t
 	}
 	task, err := s.repo.ReviewTask(ctx, cmd)
 	if err != nil {
-		return nil, mapRepoErr(err)
+		if errors.Is(err, ports.ErrConflict) {
+			current, _, _, getErr := s.repo.GetTask(ctx, cmd.TenantID, cmd.TaskID)
+			if getErr != nil || current.State != cmd.State {
+				return nil, mapRepoErr(err)
+			}
+			task = current
+		} else {
+			return nil, mapRepoErr(err)
+		}
+	}
+	if err := s.applyReviewFanout(ctx, cmd, task, task.RowVersion); err != nil {
+		return nil, err
 	}
 	return &domain.TaskResponse{Task: task, TraceID: traceID}, nil
+}
+
+func (s *Service) applyReviewFanout(ctx context.Context, cmd ports.ReviewTaskCommand, task domain.TaskSummary, statusTaskRowVersion int) error {
+	if s.reviewFanout == nil || (cmd.State != "accepted" && cmd.State != "rework_requested") {
+		return nil
+	}
+	if statusTaskRowVersion <= 0 {
+		statusTaskRowVersion = task.RowVersion
+	}
+	status := ports.ReviewFanoutStatusCommand{
+		TenantID:       cmd.TenantID,
+		TaskID:         cmd.TaskID,
+		TaskRowVersion: statusTaskRowVersion,
+		Outcome:        cmd.State,
+		ActorID:        cmd.ActorID,
+		Reason:         cmd.Body.Reason,
+	}
+	var err error
+	switch cmd.State {
+	case "accepted":
+		_, err = s.reviewFanout.OnTaskVerified(ctx, cmd.TenantID, cmd.TaskID, cmd.ActorID)
+	case "rework_requested":
+		_, err = s.reviewFanout.OnTaskReworked(ctx, cmd.TenantID, cmd.TaskID, cmd.ActorID, cmd.Body.Reason)
+	}
+	if err != nil {
+		status.Status = "failed"
+		status.LastError = sanitizeFanoutError(err)
+		if markErr := s.repo.RecordReviewFanoutStatus(ctx, status); markErr != nil {
+			return errors.Join(err, markErr)
+		}
+		return err
+	}
+	status.Status = "completed"
+	if err := s.repo.RecordReviewFanoutStatus(ctx, status); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) applySubmissionFanout(ctx context.Context, tenantID string, task domain.TaskSummary, submission domain.SubmissionSummary, failClosed bool) error {
+	if s.submission == nil || !submissionFanoutNeeded(task) {
+		return nil
+	}
+	status := ports.SubmissionFanoutStatusCommand{
+		TenantID:     tenantID,
+		TaskID:       task.TaskID,
+		SubmissionID: submission.SubmissionID,
+		ActorID:      submission.SubmittedBy,
+	}
+	if err := s.submission.OnTaskSubmitted(ctx, tenantID, task, submission); err != nil {
+		status.Status = "failed"
+		status.LastError = sanitizeFanoutError(err)
+		if markErr := s.repo.RecordSubmissionFanoutStatus(ctx, status); markErr != nil {
+			return errors.Join(err, markErr)
+		}
+		if failClosed {
+			return err
+		}
+		return nil
+	}
+	status.Status = "completed"
+	return s.repo.RecordSubmissionFanoutStatus(ctx, status)
+}
+
+func supersededReviewFanoutStatus(tenantID string, attempt ports.ReviewFanoutAttempt, task domain.TaskSummary) ports.ReviewFanoutStatusCommand {
+	return ports.ReviewFanoutStatusCommand{
+		TenantID:       tenantID,
+		TaskID:         attempt.TaskID,
+		TaskRowVersion: attempt.TaskRowVersion,
+		Outcome:        attempt.Outcome,
+		ActorID:        attempt.ActorID,
+		Reason:         attempt.Reason,
+		Status:         "superseded",
+		LastError:      fmt.Sprintf("task is now %s at row_version %d", task.State, task.RowVersion),
+	}
+}
+
+func skippedSubmissionFanoutStatus(tenantID string, attempt ports.SubmissionFanoutAttempt, task domain.TaskSummary) ports.SubmissionFanoutStatusCommand {
+	return ports.SubmissionFanoutStatusCommand{
+		TenantID:     tenantID,
+		TaskID:       attempt.TaskID,
+		SubmissionID: attempt.SubmissionID,
+		ActorID:      attempt.ActorID,
+		Status:       "skipped",
+		LastError:    fmt.Sprintf("task %s is no longer vaccination fanout eligible", task.TaskID),
+	}
+}
+
+func findSubmission(submissions []domain.SubmissionSummary, submissionID string) (domain.SubmissionSummary, bool) {
+	for _, submission := range submissions {
+		if submission.SubmissionID == submissionID {
+			return submission, true
+		}
+	}
+	return domain.SubmissionSummary{}, false
+}
+
+func submissionFanoutNeeded(task domain.TaskSummary) bool {
+	switch task.SOPCode {
+	case "vaccination.drive", "vaccination.session":
+		return true
+	}
+	switch task.TaskType {
+	case "vaccination", "vaccination_drive", "vaccination_session":
+		return true
+	default:
+		return false
+	}
+}
+
+func evaluationRequiresProof(evaluation domain.DryRunResponse) bool {
+	for _, step := range evaluation.WorkflowPath {
+		if step == "proof_verification" {
+			return true
+		}
+	}
+	for _, issue := range evaluation.Errors {
+		if issue.Code == "proof_required" || issue.Code == "proof_subject_required" {
+			return true
+		}
+	}
+	return false
 }
 
 func ValidateFormDSL(formDSL, proofPolicy map[string]any) domain.ValidationReport {
@@ -296,6 +586,7 @@ func ValidateFormDSL(formDSL, proofPolicy map[string]any) domain.ValidationRepor
 		}
 		key := stringValue(field, "key")
 		fieldType := stringValue(field, "type")
+		normalizedType, aliased := normalizeFieldType(fieldType)
 		if key == "" {
 			addError(&report, fmt.Sprintf("form_dsl.fields.%d.key", idx), "required", "field key is required")
 		}
@@ -303,13 +594,16 @@ func ValidateFormDSL(formDSL, proofPolicy map[string]any) domain.ValidationRepor
 			addError(&report, "form_dsl.fields", "duplicate", "field keys must be unique")
 		}
 		seen[key] = struct{}{}
-		if !supportedFieldType(fieldType) {
+		if !supportedFieldType(normalizedType) {
 			addError(&report, fmt.Sprintf("form_dsl.fields.%s.type", key), "unsupported", "field type is not supported")
 		}
+		if aliased {
+			addWarning(&report, fmt.Sprintf("form_dsl.fields.%s.type", key), "field_type_alias", "field type alias normalized to "+normalizedType)
+		}
 	}
-	if proofRequired(proofPolicy) && !hasProofField(fields) {
-		addError(&report, "proof_policy", "missing_proof_field", "proof policy requires a photo_proof or video_proof field")
-	}
+	validateRepeatForEachGoat(&report, formDSL["repeat_for_each_goat"], seen)
+	validateRules(&report, formDSL["rules"], seen)
+	validateProofPolicy(&report, proofPolicy, fields)
 	return report
 }
 
@@ -325,6 +619,7 @@ func Evaluate(formDSL, proofPolicy map[string]any, answers map[string]any, proof
 	}
 	fields, _ := formDSL["fields"].([]any)
 	answers = nonNilMap(answers)
+	fieldStateIndex := map[string]int{}
 	for _, raw := range fields {
 		field, ok := raw.(map[string]any)
 		if !ok {
@@ -333,19 +628,94 @@ func Evaluate(formDSL, proofPolicy map[string]any, answers map[string]any, proof
 		key := stringValue(field, "key")
 		required := boolValue(field, "required")
 		state := domain.FieldState{Key: key, Visible: true, Required: required}
-		if required && isEmptyAnswer(answers[key]) {
+		out.FieldStates = append(out.FieldStates, state)
+		fieldStateIndex[key] = len(out.FieldStates) - 1
+	}
+	proofRequiredByRule := false
+	supervisorRequired := false
+	if rules, ok := formDSL["rules"].([]any); ok {
+		for idx, raw := range rules {
+			rule, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			ruleType := stringValue(rule, "type")
+			matches, evaluable := conditionMatches(rule["when"], answers)
+			if !evaluable {
+				out.Warnings = append(out.Warnings, domain.ValidationIssue{Field: fmt.Sprintf("rules.%d.when", idx), Code: "not_evaluable", Message: "rule condition could not be evaluated"})
+				continue
+			}
+			switch ruleType {
+			case "visible_if":
+				if idx, ok := fieldStateIndex[stringValue(rule, "field")]; ok {
+					out.FieldStates[idx].Visible = matches
+					if !matches {
+						out.FieldStates[idx].Required = false
+					}
+				}
+			case "required_if":
+				if matches {
+					if idx, ok := fieldStateIndex[stringValue(rule, "field")]; ok {
+						out.FieldStates[idx].Required = true
+					}
+				}
+			case "enabled_if":
+				if !matches {
+					if idx, ok := fieldStateIndex[stringValue(rule, "field")]; ok {
+						out.FieldStates[idx].Blocked = true
+						out.FieldStates[idx].Message = ruleMessage(rule, "Field is disabled by rule.")
+					}
+				}
+			case "proof_required_if":
+				if matches {
+					proofRequiredByRule = true
+				}
+			case "block_submission_if":
+				if matches {
+					addErrorToList(&out.Errors, "rules", "blocked", ruleMessage(rule, "submission blocked by SOP rule"))
+				}
+			case "requires_supervisor_if":
+				if matches {
+					supervisorRequired = true
+					out.Warnings = append(out.Warnings, domain.ValidationIssue{Field: "workflow", Code: "supervisor_required", Message: ruleMessage(rule, "supervisor approval is required")})
+				}
+			}
+		}
+	}
+	for i := range out.FieldStates {
+		state := &out.FieldStates[i]
+		if state.Key == "" || !state.Visible {
+			continue
+		}
+		if state.Required && isEmptyAnswer(answers[state.Key]) {
 			state.Blocked = true
 			state.Message = "Required answer missing."
-			addErrorToList(&out.Errors, key, "required", "required answer missing")
+			addErrorToList(&out.Errors, state.Key, "required", "required answer missing")
+			continue
 		}
-		out.FieldStates = append(out.FieldStates, state)
+		if !isEmptyAnswer(answers[state.Key]) {
+			validateAnswerValue(&out.Errors, fieldByKey(fields, state.Key), answers[state.Key])
+		}
 	}
-	if proofRequired(proofPolicy) && !hasCompletedProof(proofRefs) {
+	requiresProof := proofRequired(proofPolicy) || proofRequiredByRule
+	proofBlocked := false
+	if requiresProof && completedProofCount(proofRefs, proofPolicy) < proofMinimumCount(proofPolicy) {
 		addErrorToList(&out.Errors, "proof_refs", "proof_required", "completed proof is required")
+		proofBlocked = true
+	}
+	for _, subject := range missingExpectedProofSubjects(proofRefs, proofPolicy) {
+		addErrorToList(&out.Errors, "proof_refs", "proof_subject_required", "completed proof is required for subject "+subject)
+		proofBlocked = true
+	}
+	if proofBlocked {
 		out.WorkflowPath = append(out.WorkflowPath, "proof_verification")
 		out.FinalState = "blocked"
-	} else if proofRequiresReview(proofPolicy) {
+	} else if requiresProof && boolValue(proofPolicy, "verify_before_apply") {
 		out.WorkflowPath = append(out.WorkflowPath, "proof_verification")
+		out.FinalState = "needs_review"
+	}
+	if supervisorRequired && out.FinalState == "accepted" {
+		out.WorkflowPath = append(out.WorkflowPath, "supervisor_approval")
 		out.FinalState = "needs_review"
 	}
 	if len(out.Errors) > 0 {
@@ -365,6 +735,104 @@ func buildMovementPayload(task domain.TaskSummary, body domain.SubmitTaskRequest
 		"category":                body.Answers["category"],
 		"priority":                body.Answers["priority"],
 	}
+}
+
+func buildSubmissionItems(formDSL map[string]any, answers map[string]any) []ports.SubmissionItemInput {
+	sourceField := repeatSourceField(formDSL)
+	if sourceField == "" {
+		return []ports.SubmissionItemInput{{ItemKey: "batch"}}
+	}
+	goatIDs := goatIDsFromAnswer(answers[sourceField])
+	if len(goatIDs) == 0 {
+		return []ports.SubmissionItemInput{{ItemKey: "batch"}}
+	}
+	out := make([]ports.SubmissionItemInput, 0, len(goatIDs))
+	for _, goatID := range goatIDs {
+		if goatID == "" {
+			continue
+		}
+		out = append(out, ports.SubmissionItemInput{GoatID: goatID, ItemKey: goatID})
+		if len(out) >= 1000 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return []ports.SubmissionItemInput{{ItemKey: "batch"}}
+	}
+	return out
+}
+
+func repeatSourceField(formDSL map[string]any) string {
+	switch repeat := formDSL["repeat_for_each_goat"].(type) {
+	case bool:
+		if !repeat {
+			return ""
+		}
+	case string:
+		return strings.TrimSpace(repeat)
+	case map[string]any:
+		return stringValue(repeat, "source_field")
+	case nil:
+		return ""
+	}
+	fields, _ := formDSL["fields"].([]any)
+	for _, raw := range fields {
+		field, ok := raw.(map[string]any)
+		if !ok || !boolValue(field, "repeat") {
+			continue
+		}
+		fieldType, _ := normalizeFieldType(stringValue(field, "type"))
+		switch fieldType {
+		case "goat_scan", "goat_lookup", "rfid_scan":
+			return stringValue(field, "key")
+		}
+	}
+	for _, raw := range fields {
+		field, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		key := stringValue(field, "key")
+		if key == "goat_ids" || key == "goats" {
+			return key
+		}
+	}
+	return ""
+}
+
+func goatIDsFromAnswer(raw any) []string {
+	switch typed := raw.(type) {
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			out = appendGoatID(out, item)
+		}
+		return out
+	case []string:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			out = appendGoatID(out, item)
+		}
+		return out
+	default:
+		return appendGoatID(nil, typed)
+	}
+}
+
+func appendGoatID(out []string, raw any) []string {
+	switch typed := raw.(type) {
+	case string:
+		if v := strings.TrimSpace(typed); v != "" {
+			return append(out, v)
+		}
+	case map[string]any:
+		for _, key := range []string{"goat_id", "id", "value"} {
+			if v := strings.TrimSpace(fmt.Sprint(typed[key])); v != "" && v != "<nil>" {
+				return append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 func validateVersionCommand(cmd ports.VersionCommand) error {
@@ -490,21 +958,418 @@ func normalizeCode(v string) string {
 	return v
 }
 
+func sanitizeFanoutError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return "fanout_failed"
+	}
+	if len(msg) > 240 {
+		return msg[:240]
+	}
+	return msg
+}
+
 func supportedFieldType(v string) bool {
 	switch v {
-	case "text", "number", "date_time", "select", "multiselect", "goat_lookup", "rfid_scan", "location_picker", "photo_proof", "video_proof":
+	case "text", "number", "date_time", "boolean", "select", "multiselect",
+		"goat_scan", "rfid_scan", "goat_lookup",
+		"shed_picker", "cohort_picker", "location_picker",
+		"vaccine_batch_picker", "medicine_picker", "session_picker",
+		"photo_proof", "video_proof":
 		return true
 	default:
 		return false
 	}
 }
 
-func proofRequired(policy map[string]any) bool {
-	return boolValue(policy, "required")
+func normalizeFieldType(v string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(v))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	normalized = strings.ReplaceAll(normalized, " ", "_")
+	switch normalized {
+	case "yesno", "yes_no", "yes/no":
+		return "boolean", true
+	case "datetime", "date_time_picker":
+		return "date_time", true
+	case "rfid", "rfid_reader":
+		return "rfid_scan", true
+	case "shed", "shed_location_picker":
+		return "shed_picker", true
+	case "cohort", "cohort_location_picker":
+		return "cohort_picker", true
+	default:
+		return normalized, normalized != v
+	}
 }
 
-func proofRequiresReview(policy map[string]any) bool {
-	return proofRequired(policy) && boolValue(policy, "verify_before_apply")
+func validateRepeatForEachGoat(report *domain.ValidationReport, raw any, fields map[string]struct{}) {
+	if raw == nil {
+		return
+	}
+	switch typed := raw.(type) {
+	case bool:
+		return
+	case string:
+		if typed == "" {
+			addError(report, "form_dsl.repeat_for_each_goat", "invalid", "repeat_for_each_goat source field is empty")
+			return
+		}
+		if _, ok := fields[typed]; !ok {
+			addError(report, "form_dsl.repeat_for_each_goat", "unknown_field", "repeat_for_each_goat source field must exist")
+		}
+	case map[string]any:
+		source := stringValue(typed, "source_field")
+		if source == "" {
+			addError(report, "form_dsl.repeat_for_each_goat.source_field", "required", "source_field is required")
+			return
+		}
+		if _, ok := fields[source]; !ok {
+			addError(report, "form_dsl.repeat_for_each_goat.source_field", "unknown_field", "source_field must exist")
+		}
+	default:
+		addError(report, "form_dsl.repeat_for_each_goat", "invalid", "repeat_for_each_goat must be boolean, string, or object")
+	}
+}
+
+func validateRules(report *domain.ValidationReport, raw any, fields map[string]struct{}) {
+	if raw == nil {
+		return
+	}
+	rules, ok := raw.([]any)
+	if !ok {
+		addError(report, "form_dsl.rules", "invalid", "rules must be an array")
+		return
+	}
+	for idx, rawRule := range rules {
+		path := fmt.Sprintf("form_dsl.rules.%d", idx)
+		rule, ok := rawRule.(map[string]any)
+		if !ok {
+			addError(report, path, "invalid", "rule must be an object")
+			continue
+		}
+		ruleType := stringValue(rule, "type")
+		if !supportedRuleType(ruleType) {
+			addError(report, path+".type", "unsupported", "rule type is not supported")
+			continue
+		}
+		field := stringValue(rule, "field")
+		if ruleTargetsField(ruleType) {
+			if field == "" {
+				addError(report, path+".field", "required", "rule field is required")
+			} else if _, ok := fields[field]; !ok {
+				addError(report, path+".field", "unknown_field", "rule field must exist")
+			}
+		}
+		if ruleNeedsCondition(ruleType) {
+			validateCondition(report, path+".when", rule["when"], fields)
+		}
+	}
+}
+
+func supportedRuleType(v string) bool {
+	switch strings.TrimSpace(v) {
+	case "visible_if", "required_if", "enabled_if", "proof_required_if",
+		"block_submission_if", "requires_supervisor_if":
+		return true
+	default:
+		return false
+	}
+}
+
+func ruleTargetsField(v string) bool {
+	switch v {
+	case "visible_if", "required_if", "enabled_if", "proof_required_if":
+		return true
+	default:
+		return false
+	}
+}
+
+func ruleNeedsCondition(v string) bool {
+	switch v {
+	case "visible_if", "required_if", "enabled_if", "proof_required_if", "block_submission_if", "requires_supervisor_if":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateCondition(report *domain.ValidationReport, path string, raw any, fields map[string]struct{}) {
+	if raw == nil {
+		addError(report, path, "required", "condition is required")
+		return
+	}
+	condition, ok := raw.(map[string]any)
+	if !ok {
+		addError(report, path, "invalid", "condition must be an object")
+		return
+	}
+	if rawAll, ok := condition["all"]; ok {
+		validateConditionList(report, path+".all", rawAll, fields)
+		return
+	}
+	if rawAny, ok := condition["any"]; ok {
+		validateConditionList(report, path+".any", rawAny, fields)
+		return
+	}
+	field := stringValue(condition, "field")
+	if field == "" {
+		addError(report, path+".field", "required", "condition field is required")
+	} else if _, ok := fields[field]; !ok {
+		addError(report, path+".field", "unknown_field", "condition field must exist")
+	}
+	if !supportedConditionOperator(stringValue(condition, "operator")) {
+		addError(report, path+".operator", "unsupported", "condition operator is not supported")
+	}
+}
+
+func validateConditionList(report *domain.ValidationReport, path string, raw any, fields map[string]struct{}) {
+	items, ok := raw.([]any)
+	if !ok || len(items) == 0 {
+		addError(report, path, "invalid", "condition list must be a non-empty array")
+		return
+	}
+	for idx, item := range items {
+		validateCondition(report, fmt.Sprintf("%s.%d", path, idx), item, fields)
+	}
+}
+
+func supportedConditionOperator(v string) bool {
+	switch strings.TrimSpace(v) {
+	case "equals", "not_equals", "empty", "not_empty", "in", "not_in", "gt", "gte", "lt", "lte":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateProofPolicy(report *domain.ValidationReport, policy map[string]any, fields []any) {
+	if policy == nil {
+		addError(report, "proof_policy", "required", "proof_policy is required")
+		return
+	}
+	if _, ok := policy["scope"]; ok {
+		addWarning(report, "proof_policy.scope", "deprecated", "scope is deprecated; use subject_scope")
+	}
+	subjectScope := stringValue(policy, "subject_scope")
+	if !validProofSubjectScope(subjectScope) {
+		addError(report, "proof_policy.subject_scope", "required", "subject_scope must be batch, goat, shed, or task")
+	}
+	types, ok := proofPolicyTypes(policy)
+	if !ok {
+		addError(report, "proof_policy.types", "required", "types must be a non-empty array")
+	} else {
+		for _, proofType := range types {
+			if !supportedProofType(proofType) {
+				addError(report, "proof_policy.types", "unsupported", "proof type is not supported")
+			}
+		}
+	}
+	minimum, ok := proofPolicyMinimum(policy)
+	if !ok {
+		addError(report, "proof_policy.minimum_count", "required", "minimum_count must be a non-negative integer")
+	}
+	if proofRequired(policy) {
+		if ok && minimum < 1 {
+			addError(report, "proof_policy.minimum_count", "invalid", "minimum_count must be at least 1 when proof is required")
+		}
+		if !hasProofFieldForTypes(fields, types) {
+			addError(report, "proof_policy", "missing_proof_field", "proof policy requires a matching photo_proof or video_proof field")
+		}
+	}
+}
+
+func validProofSubjectScope(v string) bool {
+	switch v {
+	case "batch", "goat", "shed", "task":
+		return true
+	default:
+		return false
+	}
+}
+
+func proofPolicyTypes(policy map[string]any) ([]string, bool) {
+	raw, ok := policy["types"]
+	if !ok {
+		return nil, false
+	}
+	var values []string
+	switch typed := raw.(type) {
+	case []any:
+		values = make([]string, 0, len(typed))
+		for _, value := range typed {
+			s, ok := value.(string)
+			if !ok {
+				return nil, false
+			}
+			values = append(values, s)
+		}
+	case []string:
+		values = typed
+	default:
+		return nil, false
+	}
+	if len(values) == 0 {
+		return nil, false
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		s := strings.ToLower(strings.TrimSpace(value))
+		if s == "" {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
+}
+
+func supportedProofType(v string) bool {
+	switch v {
+	case "photo", "video":
+		return true
+	default:
+		return false
+	}
+}
+
+func proofPolicyMinimum(policy map[string]any) (int, bool) {
+	switch v := policy["minimum_count"].(type) {
+	case float64:
+		i := int(v)
+		return i, v >= 0 && float64(i) == v
+	case int:
+		return v, v >= 0
+	case int32:
+		return int(v), v >= 0
+	case int64:
+		return int(v), v >= 0
+	default:
+		return 0, false
+	}
+}
+
+func validateAnswerValue(errors *[]domain.ValidationIssue, field map[string]any, value any) {
+	if field == nil {
+		return
+	}
+	key := stringValue(field, "key")
+	fieldType, _ := normalizeFieldType(stringValue(field, "type"))
+	switch fieldType {
+	case "number":
+		if _, ok := numericAnswer(value); !ok {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must be numeric")
+		}
+	case "boolean":
+		if !boolAnswer(value) {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must be boolean")
+		}
+	case "date_time":
+		if !dateTimeAnswer(value) {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must be an RFC3339 timestamp")
+		}
+	case "goat_scan", "goat_lookup":
+		if !uuidListAnswer(value) {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must contain goat UUIDs")
+		}
+	case "vaccine_batch_picker", "medicine_picker", "shed_picker", "cohort_picker", "location_picker", "session_picker":
+		if !uuidStringAnswer(value) {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must be a UUID")
+		}
+	case "multiselect":
+		if !stringListAnswer(value) {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must be an array of strings")
+		}
+	case "text", "select", "rfid_scan", "photo_proof", "video_proof":
+		if !stringAnswer(value) {
+			addErrorToList(errors, key, "invalid_answer_type", "answer must be a string")
+		}
+	}
+}
+
+func fieldByKey(fields []any, key string) map[string]any {
+	for _, raw := range fields {
+		field, ok := raw.(map[string]any)
+		if ok && stringValue(field, "key") == key {
+			return field
+		}
+	}
+	return nil
+}
+
+func boolAnswer(v any) bool {
+	switch typed := v.(type) {
+	case bool:
+		return true
+	case string:
+		_, err := strconv.ParseBool(strings.TrimSpace(typed))
+		return err == nil
+	default:
+		return false
+	}
+}
+
+func dateTimeAnswer(v any) bool {
+	s, ok := v.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339, strings.TrimSpace(s))
+	return err == nil
+}
+
+func uuidStringAnswer(v any) bool {
+	s, ok := v.(string)
+	return ok && uuidutil.IsUUIDString(strings.TrimSpace(s))
+}
+
+func uuidListAnswer(v any) bool {
+	items := goatIDsFromAnswer(v)
+	if len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if !uuidutil.IsUUIDString(item) {
+			return false
+		}
+	}
+	return true
+}
+
+func stringListAnswer(v any) bool {
+	var items []string
+	switch typed := v.(type) {
+	case []any:
+		items = make([]string, 0, len(typed))
+		for _, item := range typed {
+			s, ok := item.(string)
+			if !ok {
+				return false
+			}
+			items = append(items, s)
+		}
+	case []string:
+		items = typed
+	default:
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func stringAnswer(v any) bool {
+	_, ok := v.(string)
+	return ok
+}
+
+func proofRequired(policy map[string]any) bool {
+	return boolValue(policy, "required")
 }
 
 func hasProofField(fields []any) bool {
@@ -513,7 +1378,8 @@ func hasProofField(fields []any) bool {
 		if !ok {
 			continue
 		}
-		switch stringValue(field, "type") {
+		fieldType, _ := normalizeFieldType(stringValue(field, "type"))
+		switch fieldType {
 		case "photo_proof", "video_proof":
 			return true
 		}
@@ -521,13 +1387,219 @@ func hasProofField(fields []any) bool {
 	return false
 }
 
-func hasCompletedProof(refs []domain.ProofReference) bool {
+func hasProofFieldForTypes(fields []any, proofTypes []string) bool {
+	if len(proofTypes) == 0 {
+		return hasProofField(fields)
+	}
+	available := map[string]bool{}
+	for _, raw := range fields {
+		field, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		fieldType, _ := normalizeFieldType(stringValue(field, "type"))
+		switch fieldType {
+		case "photo_proof":
+			available["photo"] = true
+		case "video_proof":
+			available["video"] = true
+		}
+	}
+	for _, proofType := range proofTypes {
+		if !available[proofType] {
+			return false
+		}
+	}
+	return true
+}
+
+func completedProofCount(refs []domain.ProofReference, policy map[string]any) int {
+	allowedTypes := proofTypeSet(policy)
+	count := 0
 	for _, ref := range refs {
-		if ref.ProofID != "" && (ref.UploadState == "" || ref.UploadState == "completed") {
+		if ref.ProofID == "" || (ref.UploadState != "" && ref.UploadState != "completed") {
+			continue
+		}
+		if len(allowedTypes) > 0 && !allowedTypes[ref.ProofType] {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func proofMinimumCount(policy map[string]any) int {
+	if policy == nil {
+		return 1
+	}
+	if minimum, ok := proofPolicyMinimum(policy); ok && minimum > 1 {
+		return minimum
+	}
+	return 1
+}
+
+func proofTypeSet(policy map[string]any) map[string]bool {
+	if policy == nil {
+		return nil
+	}
+	raw, ok := proofPolicyTypes(policy)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, value := range raw {
+		out[value] = true
+	}
+	return out
+}
+
+func missingExpectedProofSubjects(refs []domain.ProofReference, policy map[string]any) []string {
+	expected := expectedProofSubjects(policy)
+	if len(expected) == 0 {
+		return nil
+	}
+	allowedTypes := proofTypeSet(policy)
+	covered := map[string]bool{}
+	for _, ref := range refs {
+		if ref.ProofID == "" || (ref.UploadState != "" && ref.UploadState != "completed") {
+			continue
+		}
+		if len(allowedTypes) > 0 && !allowedTypes[ref.ProofType] {
+			continue
+		}
+		covered[ref.SubjectType] = true
+	}
+	var missing []string
+	for _, subject := range expected {
+		if !covered[subject] {
+			missing = append(missing, subject)
+		}
+	}
+	return missing
+}
+
+func expectedProofSubjects(policy map[string]any) []string {
+	if policy == nil {
+		return nil
+	}
+	raw, ok := policy["expected_subjects"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, value := range raw {
+		if s := strings.TrimSpace(fmt.Sprint(value)); s != "" && s != "<nil>" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func conditionMatches(raw any, answers map[string]any) (bool, bool) {
+	condition, ok := raw.(map[string]any)
+	if !ok {
+		return false, false
+	}
+	if all, ok := condition["all"].([]any); ok {
+		for _, item := range all {
+			matches, evaluable := conditionMatches(item, answers)
+			if !evaluable || !matches {
+				return false, evaluable
+			}
+		}
+		return true, true
+	}
+	if any, ok := condition["any"].([]any); ok {
+		evaluableAny := false
+		for _, item := range any {
+			matches, evaluable := conditionMatches(item, answers)
+			evaluableAny = evaluableAny || evaluable
+			if evaluable && matches {
+				return true, true
+			}
+		}
+		return false, evaluableAny
+	}
+	field := stringValue(condition, "field")
+	operator := stringValue(condition, "operator")
+	if field == "" || operator == "" {
+		return false, false
+	}
+	answer := answers[field]
+	switch operator {
+	case "empty":
+		return isEmptyAnswer(answer), true
+	case "not_empty":
+		return !isEmptyAnswer(answer), true
+	case "equals":
+		return fmt.Sprint(answer) == fmt.Sprint(condition["value"]), true
+	case "not_equals":
+		return fmt.Sprint(answer) != fmt.Sprint(condition["value"]), true
+	case "in", "not_in":
+		found := valueInList(answer, condition["value"])
+		if operator == "not_in" {
+			return !found, true
+		}
+		return found, true
+	case "gt", "gte", "lt", "lte":
+		left, lok := numericAnswer(answer)
+		right, rok := numericAnswer(condition["value"])
+		if !lok || !rok {
+			return false, false
+		}
+		switch operator {
+		case "gt":
+			return left > right, true
+		case "gte":
+			return left >= right, true
+		case "lt":
+			return left < right, true
+		case "lte":
+			return left <= right, true
+		}
+	}
+	return false, false
+}
+
+func valueInList(answer, rawList any) bool {
+	values, ok := rawList.([]any)
+	if !ok {
+		return false
+	}
+	answerValue := fmt.Sprint(answer)
+	for _, value := range values {
+		if answerValue == fmt.Sprint(value) {
 			return true
 		}
 	}
 	return false
+}
+
+func numericAnswer(v any) (float64, bool) {
+	switch typed := v.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func ruleMessage(rule map[string]any, fallback string) string {
+	if msg := stringValue(rule, "message"); msg != "" {
+		return msg
+	}
+	return fallback
 }
 
 func isEmptyAnswer(v any) bool {
@@ -547,6 +1619,10 @@ func isEmptyAnswer(v any) bool {
 func addError(report *domain.ValidationReport, field, code, message string) {
 	report.Valid = false
 	report.Errors = append(report.Errors, domain.ValidationIssue{Field: field, Code: code, Message: message})
+}
+
+func addWarning(report *domain.ValidationReport, field, code, message string) {
+	report.Warnings = append(report.Warnings, domain.ValidationIssue{Field: field, Code: code, Message: message})
 }
 
 func addErrorToList(list *[]domain.ValidationIssue, field, code, message string) {

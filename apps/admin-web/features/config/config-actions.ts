@@ -87,7 +87,9 @@ export async function publishVersion(versionId: string, source: RuleInput["sourc
   if (!gate.ok) return { ok: false, message: gate.message ?? "not publishable" };
   const res = await publishProtocolVersion(versionId);
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
-  revalidatePath("/config");
-  revalidatePath("/vaccination");
+  // A publish generates obligations, which surface across every process-integrity screen.
+  for (const p of ["/config", "/action-center", "/vaccination", "/protocol-adherence", "/workflows", "/"]) {
+    revalidatePath(p);
+  }
   return { ok: true, message: "published — immutable · source-backed; obligations now generate from this version" };
 }

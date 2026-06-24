@@ -65,6 +65,24 @@ Goat OS agent skill bundle and reference map
 Environment, load testing, and doc hygiene
   context/execution/env-load-test-and-doc-hygiene.md
 
+SOP + vaccination backend handoff
+  context/execution/sop-vaccination-backend-handoff.md
+
+Vaccination process-integrity backend handoff
+  context/execution/vaccination-process-integrity-backend-handoff.md
+
+Vaccination process-integrity frontend handoff
+  context/frontend/vaccination-process-integrity-frontend-handoff.md
+
+Procurement/source-entry backend handoff
+  context/execution/procurement-source-entry-backend-handoff.md
+
+Procurement/source-entry frontend handoff
+  context/frontend/procurement-source-entry-frontend-handoff.md
+
+Procurement source-entry -> vaccination E2E plan
+  context/execution/procurement-vaccination-e2e-plan.md
+
 Two-developer build plan
   context/execution/two-dev-build-plan.md
 
@@ -120,12 +138,56 @@ slack:
   Inbound Slack form ingestion is legacy cutover only and must pass through Goat OS APIs, permissions, validation, audit, and idempotency.
 
 frontend:
+  Product taxonomy is fixed: a vertical is a business operating domain
+  (PHC, Parks, Procurement, Admin/Data Ops, Counts, Breeding, Inventory,
+  HR/People, Farmer Network); a module is a workflow/product inside a vertical
+  (PHC -> Vaccination, Procurement -> Source Entry, or future Parks-owned
+  modules). Parks is only scope/context for vaccination execution; it is not the
+  owner of a vaccination module. Control Tower, Action Center, Protocol
+  Adherence, and Workflows are
+  top-level command lenses, not verticals/modules; Config and SOP Library are
+  top-level Admin/Data Ops authority screens.
   Current admin-web review scope supersedes the old dashboard/admin product
   surface. Follow context/frontend/current-admin-web-scope.md: build only the
-  current Control Tower shell, PHC/Vaccination, Admin Config, Parks vaccination
-  execution context, and contextual Goat Passport detail surfaces. Old
-  Operations/Legacy/SOP/counts/import routes are removed from active admin-web
-  until explicitly brought back.
+  current Control Tower shell, PHC/Vaccination, Admin Config, vaccination
+  execution context (rendered inside /vaccination), Admin/Data Ops
+  SOP Library for vaccination SOP policy, and contextual Goat Passport detail
+  surfaces. Parks is a vertical, but it is NOT a vaccination product route,
+  module, or sidebar entry. Old
+  Operations/Legacy/counts/import routes and old generic SOP/task pages are removed
+  from active admin-web until explicitly brought back.
+  For the current process-integrity slice, Control Tower, Action Center,
+  Protocol Adherence, and Workflow drilldowns are not useless side screens:
+  they are four lenses on the same vaccination truth. Read
+  context/execution/vaccination-process-integrity-backend-handoff.md and
+  context/frontend/vaccination-process-integrity-frontend-handoff.md before
+  changing backend projections, admin-web routes, or mock-matching dashboard
+  surfaces.
+  Procurement/source-entry is a separate slice. The business rule is documented:
+  a goat journey can start at purchase/source/holding farm before main park
+  arrival, including source warmup and pre-dispatch rejection. Read
+  context/execution/procurement-source-entry-backend-handoff.md and
+  context/frontend/procurement-source-entry-frontend-handoff.md before building
+  that slice. When backend contracts exist, prove the seeded source-entry ->
+  accepted-intake -> vaccination path from
+  context/execution/procurement-vaccination-e2e-plan.md before adding broad CRUD
+  or calling the slice done. Do not mix procurement into the current
+  vaccination-only UI unless scope is explicitly reopened.
+  Command-room/authority surfaces are top-level only: Control Tower, Action
+  Center, Protocol Adherence, Workflows, Config, and SOP Library must not be
+  duplicated under procurement, PHC, Parks, or any future vertical as routes,
+  compatibility redirects, tabs, or nav items. A vertical can feed those screens
+  through a selected domain/category/filter/lens such as `?domain=procurement`
+  or `?category=vaccination`, but agents must not create nested routes like
+  `/vaccination/adherence`, `/vaccination/config`,
+  `/procurement/source-entry/action-center`, `/procurement/source-entry/control-tower`,
+  or `/parks/vaccination/{anything}` as a product path.
+
+  There is no `/parks/vaccination` exception. Vaccination execution belongs under
+  PHC/Vaccination: use `/vaccination` and
+  `/vaccination/execution/sheds/{shed_id}` directly. Scope chrome rule: keep
+  park/date/source scope in the top bar or behind Filters. Do not repeat
+  "Scope", "All parks", source, or date chips inside page bodies.
   Android Field App owns conditional SOP form execution; Slack forms are legacy/migration input only.
 
 scratch vs salvage:

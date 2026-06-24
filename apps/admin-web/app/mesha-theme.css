@@ -61,8 +61,10 @@
   .parksel{position:relative}
   .parkbtn{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 11px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer;max-width:230px}
   .parkbtn:hover{border-color:var(--brand)} .parkbtn span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .parkmenu{position:absolute;top:46px;right:0;width:300px;max-width:90vw;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px;opacity:0;pointer-events:none;transform:translateY(-6px);transition:.16s;z-index:50}
-  .parkmenu.on{opacity:1;pointer-events:auto;transform:none}
+  /* closed menu must be truly hidden (visibility), not just opacity:0 — an opacity-only hide leaves an
+     invisible but hit-testable layer overlapping the page (fails the overlap/a11y gate). */
+  .parkmenu{position:absolute;top:46px;right:0;width:300px;max-width:90vw;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:8px;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-6px);transition:opacity .16s,transform .16s,visibility .16s;z-index:50}
+  .parkmenu.on{opacity:1;visibility:visible;pointer-events:auto;transform:none}
   .pm-search{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-bottom:6px;color:var(--muted)}
   .pm-search input{border:0;background:transparent;outline:0;flex:1;font:inherit;color:var(--ink)}
   .pm-list{max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:1px}
@@ -72,6 +74,7 @@
   .pm-item .pn{font-weight:600;font-size:13px}.pm-item .pr{color:var(--faint);font-size:11px;margin-left:auto}
   .pm-item.on .tick{color:var(--brand);margin-left:8px}
   .pm-hint{font-size:11px;color:var(--faint);padding:8px 10px 3px;border-top:1px solid var(--line2);margin-top:5px}
+  .pm-label{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:4px 10px 6px}
   /* contextual help (ℹ) + in-screen park filter */
   .ihelp{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);color:var(--muted);font-size:10px;font-weight:800;cursor:pointer;margin-left:6px;vertical-align:middle;font-style:normal;line-height:1}
   .ihelp:hover{border-color:var(--brand);color:var(--brand)}
@@ -88,9 +91,6 @@
   .sopstep select,.sopstep input{border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink);outline:0}
   .sopstep input{flex:1;min-width:90px}
   .sopstep .ss-cond{font-size:11px;color:var(--muted);width:100%;padding-left:30px}
-  .lensbar{display:flex;align-items:center;gap:6px;width:100%;margin-top:9px;flex-wrap:wrap}
-  .lenslink{font-size:12px;font-weight:650;color:var(--brand-d);background:var(--brand-soft);border:1px solid var(--line);padding:4px 10px;border-radius:7px;cursor:pointer}
-  .lenslink:hover{border-color:var(--brand)}
   .helpgrid .hk{font-weight:700;white-space:nowrap}
   .charts{column-width:340px;column-gap:14px}
   @media(max-width:1080px){.charts{grid-template-columns:1fr}}
@@ -121,10 +121,13 @@
   #acQuickTabs .qc{font-weight:800;color:var(--brand-d);margin-left:3px}
   .trigtag{display:inline-flex;align-items:center;gap:3px;background:var(--bg);border:1px solid var(--line2);border-radius:6px;padding:1px 6px;font-weight:650;color:var(--muted);text-transform:capitalize}
   #acQuickTabs button:not(.on) .qc{color:var(--muted)}
-  .subtabs button .cbq,#acQuickTabs .qc{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:16px;padding:0 5px;margin-left:7px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800;vertical-align:middle}
-  .subtabs button.on .cbq,#acQuickTabs button.on .qc{background:var(--brand-soft);color:var(--brand-d)}
+  .subtabs button .cbq,.subtabs a .cbq,#acQuickTabs .qc{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:16px;padding:0 5px;margin-left:7px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800;vertical-align:middle}
+  .subtabs button.on .cbq,.subtabs a.on .cbq,#acQuickTabs button.on .qc,#acQuickTabs a.on .qc{background:var(--brand-soft);color:var(--brand-d)}
+  .subtabs a.disabled,.subtabs button:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
   .wftoolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
   .wfwrap{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+  /* Right column must shrink so the chain map scrolls internally instead of widening the grid. */
+  .wfmain{min-width:0;display:flex;flex-direction:column;gap:14px}
   @media(max-width:920px){.wfwrap{grid-template-columns:1fr}}
   .wfcat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px;max-height:660px;overflow:auto;box-shadow:var(--shadow);position:sticky;top:14px}
   .wfgrp{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:740;letter-spacing:.4px;color:var(--muted);text-transform:uppercase;padding:13px 8px 6px}
@@ -147,6 +150,8 @@
   .hmeta{color:var(--muted);font-size:11px;margin-top:2px}
   .htime{color:var(--faint);font-size:11px;white-space:nowrap;flex:none}
   @media(max-width:820px){.qgrid{grid-template-columns:1fr}}
+  /* Mock taskboard: fixed multi-column board that scrolls horizontally (ported from the mock). */
+  .taskboard{display:grid;grid-template-columns:repeat(5,minmax(208px,1fr));gap:12px;overflow-x:auto;padding-bottom:6px}
   @media(max-width:1080px){.taskboard{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:560px){.taskboard{grid-template-columns:1fr}}
   .tcol{background:var(--bg);border:1px solid var(--line2);border-radius:12px;padding:8px;min-width:0}
@@ -189,7 +194,7 @@
   .userpick .me:hover{border-color:var(--brand);color:var(--brand)}
   .me > span:not(.av){display:flex;flex-direction:column;align-items:flex-start;min-width:0}
   .av{width:30px;height:30px;border-radius:50%;background:#26384d;color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px}
-  .me .nm{font-weight:600;font-size:13px;line-height:1.15;white-space:nowrap}.me .rl{color:var(--faint);font-size:11px;line-height:1.15;white-space:nowrap}
+  .me .nm{font-weight:600;font-size:13px;line-height:1.15;white-space:nowrap}.me .rl{color:var(--muted);font-size:11px;line-height:1.15;white-space:nowrap}
   /* user / role-switcher menu — stack name over description, no cramped wrap */
   #userMenu{width:310px;z-index:140;background:#101812;box-shadow:0 18px 48px rgba(0,0,0,.62)}
   .role-menu-title{display:flex;flex-direction:column;gap:2px;padding:10px 12px 8px}
@@ -230,7 +235,9 @@
   .nav.on .ic{color:#08130B}
   .nav .ic{width:17px;height:17px}
   .nav .ct{margin-left:auto;font-size:11px;font-weight:700;background:var(--danger);color:#fff;padding:1px 7px;border-radius:20px}
-  .ggrp{display:flex;align-items:center;gap:11px;padding:9px 12px;margin-top:6px;border-radius:10px;cursor:pointer;color:var(--sidebar-ink);font-weight:700;font-size:11px;letter-spacing:.5px;text-transform:uppercase}
+  /* Vertical group headers (PHC / Procurement / Admin / Data Ops) match the nav item type scale — same
+     14px body size as .nav, just heavier — so they don't render visibly smaller than the command nav. */
+  .ggrp{display:flex;align-items:center;gap:11px;padding:9px 12px;margin-top:6px;border-radius:10px;cursor:pointer;color:var(--sidebar-ink);font-weight:650}
   .ggrp:hover{background:color-mix(in srgb,var(--brand) 8%,var(--sidebar));color:var(--sidebar-ink2)}
   .ggrp .ic{width:16px;height:16px;opacity:.85}
   .ggrp .chev{margin-left:auto;width:14px;height:14px;opacity:.6;transition:transform .2s}
@@ -248,7 +255,7 @@
   .parked .ggrp,.parked .leaf{opacity:.6}
   .parked .leaf .pk{margin-left:auto;font-size:9px;letter-spacing:.4px;color:#6f8779;border:1px solid #2c4337;padding:1px 6px;border-radius:6px}
   .grow{flex:1}
-  .sidefoot{font-size:11px;color:#5f7468;padding:10px 12px;border-top:1px solid #243a2e;margin-top:8px}
+  .sidefoot{font-size:11px;color:var(--sidebar-ink);padding:10px 12px;border-top:1px solid #243a2e;margin-top:8px}
   /* main */
   .main{flex:1;min-width:0;overflow:auto}
   .wrap{max-width:1320px;margin:0 auto;padding:20px 26px 60px}
@@ -260,7 +267,8 @@
   .phead h1{margin:0;font-size:21px;letter-spacing:-.4px}
   .phead .sub{color:var(--muted);font-size:13px}
   .phead .sp{flex:1}
-  .crumb{font-size:12px;color:var(--faint);font-weight:600;margin-bottom:3px}
+  /* breadcrumb microcopy — --muted (not --faint) to clear WCAG AA contrast on --panel (a11y gate). */
+  .crumb{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:3px}
   .crumb b{color:var(--brand-d)}
   .tag{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:7px;font-size:11px;font-weight:700;letter-spacing:.2px}
   .t-ok{background:var(--okx);color:var(--brand-d)} .t-warn{background:var(--warnx);color:var(--warn)}
@@ -324,7 +332,7 @@
   .alert .ic{color:var(--danger)} .alert b{color:var(--danger)}
   .alert.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--amber) 32%,transparent);border-left-color:var(--amber)} .alert.warn .ic{color:var(--amber)} .alert.warn b{color:var(--amber)}
   .screen table{width:100%;border-collapse:collapse}
-  .screen th{text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--faint);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
+  .screen th{text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
   .screen td{padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   tr:last-child td{border-bottom:0}
   tbody tr:hover{background:var(--bg)}
@@ -335,7 +343,7 @@
   .fitem{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--line2)}
   .fitem:last-child{border-bottom:0}
   .fic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none}
-  .fitem .tx{flex:1}.fitem .tx b{font-weight:650}.fitem .mt{color:var(--faint);font-size:12px;margin-top:1px}
+  .fitem .tx{flex:1}.fitem .tx b{font-weight:650}.fitem .mt{color:var(--muted);font-size:12px;margin-top:1px}
   .fitem .tm{color:var(--faint);font-size:11.5px;white-space:nowrap}
   .lane{margin-bottom:18px}
   .lane .lh{display:flex;align-items:center;gap:9px;margin:6px 2px 10px;font-weight:700;font-size:13px}
@@ -355,9 +363,8 @@
   .subtabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:18px;width:max-content;max-width:100%;overflow:auto}
   .subtabs button,.subtabs a{border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
   .subtabs button.on,.subtabs a.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
-  .chain{display:flex;align-items:stretch;gap:0;overflow:auto;padding:2px}
-  .cstep{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative;margin-right:22px}
-  .cstep:last-child{margin-right:0}
+  .chain{display:flex;flex-wrap:wrap;align-items:stretch;gap:14px 22px;overflow:auto;padding:2px}
+  .cstep{flex:1 1 168px;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative}
   .cstep::after{content:"";position:absolute;right:-18px;top:50%;width:14px;height:14px;border-top:2px solid var(--line);border-right:2px solid var(--line);transform:translateY(-50%) rotate(45deg)}
   .cstep:last-child::after{display:none}
   .cstep{cursor:pointer}
@@ -384,7 +391,31 @@
   .dfoot{padding:13px 18px;background:var(--panel);border-top:1px solid var(--line);display:flex;gap:10px}
   .metagrid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:11px;overflow:hidden}
   .metagrid div{background:var(--panel);padding:9px 12px}
-  .metagrid .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--faint);font-weight:700}
+  /* Vaccination execution rows: a table when the CARD is wide enough, stacked cards otherwise.
+     Container query (not viewport) so it stacks on real content width — the 256px sidebar + wrap padding
+     can leave ~590px at a 900px viewport, which must stack rather than clip 6 columns; it also adapts to
+     the collapsed icon-rail state, which a viewport breakpoint cannot see. */
+  .pexec{display:flex;flex-direction:column;container-type:inline-size}
+  .pexec .pexh,.pexec .pexr{display:grid;grid-template-columns:1.25fr 1.2fr 1.1fr 1.4fr 1.2fr 1.5fr;gap:14px;align-items:start;padding:12px 16px}
+  .pexec .pexh{border-bottom:1px solid var(--line);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--faint);font-weight:700}
+  .pexec .pexr{border-bottom:1px solid var(--line)}
+  .pexec .pexr:last-child{border-bottom:0}
+  .pexec .pexc{min-width:0}
+  .pexec .pexc-h{display:none;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--faint);font-weight:700;margin-bottom:5px}
+  @container (max-width:900px){
+    .pexec .pexh{display:none}
+    .pexec .pexr{grid-template-columns:1fr;gap:12px;padding:14px}
+    .pexec .pexc-h{display:block}
+  }
+  /* Fallback for engines without container-query support: stack by viewport. */
+  @supports not (container-type:inline-size){
+    @media(max-width:1180px){
+      .pexec .pexh{display:none}
+      .pexec .pexr{grid-template-columns:1fr;gap:12px;padding:14px}
+      .pexec .pexc-h{display:block}
+    }
+  }
+  .metagrid .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700}
   .metagrid .v{font-weight:600;margin-top:2px}
   .stepper{display:flex;flex-direction:column;gap:0}
   .step{display:flex;gap:12px;position:relative;padding-bottom:16px}
@@ -482,6 +513,8 @@
     .search{display:none}
     .side{position:fixed;left:0;top:58px;z-index:46;transform:translateX(-104%);transition:transform .24s ease;box-shadow:8px 0 34px rgba(0,0,0,.45)}
     .side.open{transform:none}
+    /* Off-canvas nav rows stay >=40px tap targets on touch widths. */
+    .side .nav,.side .leaf,.side .ggrp{min-height:40px}
     .wrap{padding:16px 14px 56px}
     .phead h1{font-size:19px}
     .phead{gap:10px}
@@ -491,7 +524,19 @@
   @media(max-width:560px){
     .top{gap:9px;padding:0 11px}
     .me .nm,.me .rl{display:none}
-    .me{padding:3px}
+    /* Narrow topbar must fit ~390px without compressing controls (no clipping) and keep >=40px tap
+       targets. Drop the non-essential scope/date chips; pin icon buttons + the role button to 40px. */
+    .top .pscope{display:none}
+    .iconbtn{flex:none;width:40px;height:40px}
+    .me{padding:3px;flex:none;min-height:40px}
+    /* Standalone action/footer links (Action Center →, Protocol Adherence ledger →, table next-actions)
+       become >=40px tap targets on touch widths. Inline prose links (.lk without .small) stay inline. */
+    .lk.small{display:inline-flex;align-items:center;min-height:40px}
+    /* Buttons stay >=40px tap targets on touch widths (the mock's compact desktop padding is too short). */
+    .btn,.btn.sm{min-height:40px}
+    /* Tabs, quick-filter tabs, and filter chips are real controls — keep them >=40px on touch widths. */
+    .subtabs a,.subtabs button{min-height:40px}
+    .chip{display:inline-flex;align-items:center;min-height:40px}
     .g4{grid-template-columns:repeat(2,1fr)}
     .g3,.g2{grid-template-columns:1fr}
     .kpi .val{font-size:21px}

@@ -80,5 +80,5 @@ Old Goat Passport and generic SOP task-engine phase folders were deleted
 because they described the old import-review, identity-review, generic SOP/admin,
 counts, mortality, and legacy-sync track. Use the active docs above plus
 `context/frontend/current-admin-web-scope.md` for the current Admin Config + PHC
-Vaccination + Parks vaccination execution slice.
+Vaccination + vaccination execution context slice.
 ```

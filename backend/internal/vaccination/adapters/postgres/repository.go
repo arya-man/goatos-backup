@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
@@ -179,20 +180,155 @@ func (r *Repository) ListRecordedCompletionsByTask(ctx context.Context, tenantID
 	return ids, nil
 }
 
+// RecordCompletionsFromSubmission records one completion per per-goat SOP submission item for a
+// vaccination task. The matching obligation comes from the generic obligation batch/task linkage.
+func (r *Repository) RecordCompletionsFromSubmission(ctx context.Context, tenantID, taskID, submissionID, recordedBy string) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	task, err := pgconv.UUID(taskID)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: task id: %w", err)
+	}
+	submission, err := pgconv.UUID(submissionID)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: submission id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+INSERT INTO vaccination_completions (
+  tenant_id,
+  obligation_id,
+  batch_id,
+  goat_id,
+  sop_submission_item_id,
+  vaccine_inventory_lot_id,
+  doses,
+  dose_ml_given,
+  route_site,
+  adverse_reaction,
+  cold_chain_verified,
+  administered_at,
+  status,
+  recorded_by,
+  idempotency_key
+)
+SELECT
+  si.tenant_id,
+  oi.obligation_id,
+  oi.batch_id,
+  si.goat_id,
+  si.item_id,
+  nullif(ss.answers ->> 'vaccine_lot_id', '')::uuid,
+  COALESCE(nullif(ss.answers ->> 'doses', '')::int, 1),
+  nullif(ss.answers ->> 'dose_ml_given', '')::numeric,
+  nullif(ss.answers ->> 'route_site', ''),
+  COALESCE((ss.answers ->> 'adverse_reaction')::boolean, false),
+  COALESCE((ss.answers ->> 'cold_chain_verified')::boolean, false),
+  COALESCE(nullif(ss.answers ->> 'administered_at', '')::timestamptz, ss.submitted_at),
+  'recorded',
+  nullif($4, '')::uuid,
+  'vaccination:sop_submission_item:' || si.item_id::text
+FROM sop_submission_items si
+JOIN sop_submissions ss
+  ON ss.tenant_id = si.tenant_id
+ AND ss.submission_id = si.submission_id
+JOIN sop_tasks st
+  ON st.tenant_id = si.tenant_id
+ AND st.task_id = si.task_id
+JOIN sop_definitions sd
+  ON sd.tenant_id = st.tenant_id
+ AND sd.sop_id = st.sop_id
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = st.tenant_id
+ AND ob.sop_task_id = st.task_id
+JOIN obligation_instances oi
+  ON oi.tenant_id = si.tenant_id
+ AND oi.target_type = 'goat'
+ AND oi.target_id = si.goat_id
+ AND (
+      oi.sop_task_id = st.task_id
+      OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
+ )
+WHERE si.tenant_id = $1
+  AND si.task_id = $2
+  AND si.submission_id = $3
+  AND si.goat_id IS NOT NULL
+  AND si.state IN ('accepted', 'needs_review')
+	  AND (
+	    sd.code IN ('vaccination.drive', 'vaccination.session')
+	    OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+	  )
+	ON CONFLICT DO NOTHING
+	RETURNING completion_id::text`,
+		tenant, task, submission, recordedBy)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: record completions from submission: %w", err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("vaccination: record completions from submission rows: %w", err)
+	}
+	eligibleItems, materializedItems, err := r.submissionFanoutCounts(ctx, tenant, task, submission)
+	if err != nil {
+		return 0, err
+	}
+	if materializedItems < eligibleItems {
+		return materializedItems, fmt.Errorf("vaccination: materialized %d of %d eligible submission items", materializedItems, eligibleItems)
+	}
+	if materializedItems > 0 {
+		return materializedItems, nil
+	}
+	return count, nil
+}
+
+func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, submission pgtype.UUID) (eligibleItems, materializedItems int, err error) {
+	err = r.pool.QueryRow(ctx, `
+	SELECT count(si.item_id)::int,
+	       count(DISTINCT vc.sop_submission_item_id)::int
+	FROM sop_submission_items si
+	LEFT JOIN vaccination_completions vc
+	  ON vc.tenant_id = si.tenant_id
+	 AND vc.sop_submission_item_id = si.item_id
+	WHERE si.tenant_id = $1
+	  AND si.task_id = $2
+	  AND si.submission_id = $3
+	  AND si.goat_id IS NOT NULL
+	  AND si.state IN ('accepted', 'needs_review')`,
+		tenant, task, submission).Scan(&eligibleItems, &materializedItems)
+	if err != nil {
+		return 0, 0, fmt.Errorf("vaccination: count submission fanout rows: %w", err)
+	}
+	return eligibleItems, materializedItems, nil
+}
+
 // ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest
 // administered first (the Verification queue).
-func (r *Repository) ListRecordedCompletions(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error) {
+func (r *Repository) ListRecordedCompletions(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
+	var park pgtype.UUID
+	if parkID != "" {
+		park, err = pgconv.UUID(parkID)
+		if err != nil {
+			return nil, fmt.Errorf("vaccination: park id: %w", err)
+		}
+	}
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := r.queries.ListRecordedCompletions(ctx, vaccinationdb.ListRecordedCompletionsParams{
-		TenantID: tenant, RowLimit: limit,
+		TenantID: tenant, ParkID: park, RowLimit: limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: list recorded completions: %w", err)

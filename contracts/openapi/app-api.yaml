@@ -13,13 +13,45 @@ security:
 tags:
   - name: Operator App Bootstrap
   - name: Operator Tasks
+  - name: SOP Admin
   - name: Goats
   - name: Identifiers
   - name: Protocol Config
   - name: Action Center
+  - name: Control Tower
+  - name: Protocol Adherence
+  - name: Workflows
+  - name: Proof Media
   - name: Vaccination
   - name: Vaccination Passport
 paths:
+  /admin/tasks/review-fanouts/retry:
+    post:
+      tags:
+        - SOP Admin
+      operationId: retrySOPReviewFanouts
+      summary: Retry pending or failed task review fanout rows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryReviewFanoutsRequest"
+      responses:
+        "200":
+          description: Review fanouts retried.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryReviewFanoutsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/me:
     get:
       tags:
@@ -175,6 +207,131 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SOPVersionResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /app/proofs/uploads:
+    post:
+      tags:
+        - Proof Media
+      operationId: createProofUpload
+      summary: Create a server-owned proof record and signed upload target.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProofUploadRequest"
+      responses:
+        "201":
+          description: Proof upload target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateProofUploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/proofs/{proof_id}/upload:
+    put:
+      tags:
+        - Proof Media
+      operationId: uploadProofLocal
+      summary: Local-dev signed proof upload target.
+      parameters:
+        - $ref: "#/components/parameters/ProofId"
+        - name: expires
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: sig
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Completed local proof upload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProofResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /app/proofs/{proof_id}/complete:
+    post:
+      tags:
+        - Proof Media
+      operationId: completeProofUpload
+      summary: Finalize a proof upload with captured metadata.
+      parameters:
+        - $ref: "#/components/parameters/ProofId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteProofUploadRequest"
+      responses:
+        "200":
+          description: Completed proof record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProofResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/proofs/{proof_id}/download:
+    get:
+      tags:
+        - Proof Media
+      operationId: downloadProof
+      summary: Get or follow a signed proof download URL.
+      parameters:
+        - $ref: "#/components/parameters/ProofId"
+        - name: expires
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sig
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Signed download URL for non-local clients.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadProofResponse"
+        "307":
+          description: Redirect to signed storage URL.
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
   /app/tasks/{task_id}/submissions:
@@ -544,8 +701,20 @@ paths:
       tags:
         - Action Center
       operationId: listActionCenterObligations
-      summary: List bounded vaccination obligations for the operating work table.
+      summary: Compatibility path for the vaccination Action Center process-integrity rows.
       parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -557,12 +726,42 @@ paths:
           required: false
           schema:
             $ref: "#/components/schemas/WorkState"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProcessIntegritySeverity"
+        - name: owner_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: protocol_version_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: due_after
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
         - name: due_before
           in: query
           required: false
           schema:
             type: string
             format: date-time
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
         - name: limit
           in: query
           required: false
@@ -585,6 +784,385 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/action-center:
+    get:
+      tags:
+        - Action Center
+      operationId: listVaccinationActionCenter
+      summary: List actionable vaccination process-integrity rows with server-side filters and keyset pagination.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: work_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkState"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProcessIntegritySeverity"
+        - name: owner_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: protocol_version_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: due_after
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination Action Center rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionCenterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/adherence:
+    get:
+      tags:
+        - Protocol Adherence
+      operationId: getVaccinationProtocolAdherence
+      summary: Read expected-vs-actual vaccination protocol adherence rows from process integrity.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: work_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkState"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProcessIntegritySeverity"
+        - name: owner_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: protocol_version_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: due_after
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination Protocol Adherence ledger.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtocolAdherenceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /control-tower/vaccination:
+    get:
+      tags:
+        - Control Tower
+      operationId: getVaccinationControlTower
+      summary: Summarize broken or at-risk vaccination process integrity for Control Tower.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination Control Tower summary and alerts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlTowerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/workflows/{row_id}:
+    get:
+      tags:
+        - Workflows
+      operationId: getVaccinationWorkflowDrilldown
+      summary: Explain one vaccination process chain from config through completion.
+      parameters:
+        - name: row_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Vaccination workflow drilldown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDrilldownResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/operations:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationOperations
+      summary: Source-backed vaccination operations — cohort × protocol matrix + per-cohort detail.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination operations matrix + per-cohort detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperationsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/execution:
+    get:
+      tags:
+        - Vaccination
+      operationId: listVaccinationExecution
+      summary: List vaccination execution rows grouped by park and shed context.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: work_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/VaccinationExecutionWorkState"
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination execution rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationExecutionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/execution/sheds/{shed_id}:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationExecutionShedDrilldown
+      summary: Get vaccination execution context for one shed.
+      parameters:
+        - $ref: "#/components/parameters/ShedId"
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination execution shed drilldown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationExecutionShedDrilldown"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/verification-queue:
     get:
       tags:
@@ -592,6 +1170,13 @@ paths:
       operationId: vaccinationVerificationQueue
       summary: List recorded vaccination completions awaiting proof verification.
       parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: Optional park scope (top-bar park); filters the queue to that park's completions.
+          schema:
+            type: string
+            format: uuid
         - name: limit
           in: query
           required: false
@@ -771,6 +1356,20 @@ components:
       schema:
         type: string
         minLength: 1
+    ShedId:
+      name: shed_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProofId:
+      name: proof_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
     BadRequest:
       description: Validation error.
@@ -1055,6 +1654,8 @@ components:
             - goat
             - shed
             - task
+            - vial_lot
+            - administration
             - other
         subject_id:
           type:
@@ -1070,6 +1671,184 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    CreateProofUploadRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - proof_type
+        - mime_type
+        - scope_type
+        - scope_id
+        - subject_type
+      properties:
+        proof_type:
+          type: string
+          enum:
+            - photo
+            - video
+            - attachment
+        mime_type:
+          type: string
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - farm
+            - park
+            - shed
+            - cohort
+            - batch
+            - task
+            - goat
+        scope_id:
+          type: string
+          format: uuid
+        subject_type:
+          type: string
+          enum:
+            - batch
+            - goat
+            - shed
+            - task
+            - vial_lot
+            - administration
+            - other
+        subject_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+    CompleteProofUploadRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        content_hash:
+          type: string
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        duration_ms:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 0
+        metadata:
+          type: object
+          additionalProperties: true
+    ProofArtifact:
+      type: object
+      additionalProperties: false
+      required:
+        - proof_id
+        - storage_provider
+        - proof_type
+        - subject_type
+        - upload_state
+        - mime_type
+        - size_bytes
+        - content_hash
+        - metadata
+        - created_at
+      properties:
+        proof_id:
+          type: string
+          format: uuid
+        storage_provider:
+          type: string
+          enum:
+            - local
+            - gcs
+        proof_type:
+          type: string
+          enum:
+            - photo
+            - video
+            - attachment
+        subject_type:
+          type: string
+        subject_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        upload_state:
+          type: string
+          enum:
+            - pending
+            - uploading
+            - completed
+            - failed
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        duration_ms:
+          type:
+            - integer
+            - "null"
+          format: int64
+        content_hash:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        uploaded_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    CreateProofUploadResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - proof
+        - upload_url
+        - upload_method
+        - headers
+        - expires_at
+      properties:
+        proof:
+          $ref: "#/components/schemas/ProofArtifact"
+        upload_url:
+          type: string
+        upload_method:
+          type: string
+          enum:
+            - PUT
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+    ProofResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - proof
+      properties:
+        proof:
+          $ref: "#/components/schemas/ProofArtifact"
+    DownloadProofResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - download_url
+      properties:
+        download_url:
+          type: string
     SubmissionItem:
       type: object
       additionalProperties: false
@@ -1179,6 +1958,27 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SubmissionSummary"
+        trace_id:
+          type: string
+    RetryReviewFanoutsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    RetryReviewFanoutsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - applied
+        - trace_id
+      properties:
+        applied:
+          type: integer
+          minimum: 0
         trace_id:
           type: string
     SubmitTaskRequest:
@@ -2335,70 +3135,846 @@ components:
     WorkState:
       type: string
       enum:
+        - scheduled
         - due
         - overdue
-        - blocked
+        - in_progress
         - proof_pending
         - verification_pending
         - rejected
         - deferred
         - owner_missing
-        - scheduled
-        - in_progress
-        - missed
+        - blocked
         - completed
+    ProcessIntegritySeverity:
+      type: string
+      enum:
+        - ok
+        - watch
+        - at_risk
+        - broken
+    ProcessIntegrityOwnerState:
+      type: string
+      enum:
+        - assigned
+        - missing
+    ProcessIntegritySOPState:
+      type: string
+      enum:
+        - not_started
+        - in_progress
+        - submitted
+        - accepted
+        - rework
+    ProcessIntegrityProofState:
+      type: string
+      enum:
+        - not_required
+        - missing
+        - uploaded
+        - accepted
+        - rejected
+    ProcessIntegrityVerificationState:
+      type: string
+      enum:
+        - not_ready
+        - pending
+        - accepted
+        - rejected
+    ProcessIntegrityOwner:
+      type: object
+      additionalProperties: false
+      properties:
+        operator_id:
+          type: string
+          format: uuid
+        operator_name:
+          type: string
+        park_head_id:
+          type: string
+          format: uuid
+        park_head_name:
+          type: string
+        verifier_id:
+          type: string
+          format: uuid
+        verifier_name:
+          type: string
+        escalation_owner_id:
+          type: string
+          format: uuid
+        escalation_owner_name:
+          type: string
+    ProcessIntegrityEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - proof_ids
+        - evidence_count
+      properties:
+        proof_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        evidence_count:
+          type: integer
+          minimum: 0
+        latest_evidence_at:
+          type: string
+          format: date-time
+        latest_rejection_reason:
+          type: string
+        audit_ref:
+          type: string
+    CountByWorkState:
+      type: object
+      additionalProperties: false
+      required:
+        - work_state
+        - count
+      properties:
+        work_state:
+          $ref: "#/components/schemas/WorkState"
+        count:
+          type: integer
+          minimum: 0
     ActionCenterObligation:
       type: object
       additionalProperties: false
       required:
+        - category
+        - row_id
+        - process_key
         - obligation_id
         - protocol_version_id
         - rule_id
-        - target_type
-        - target_id
-        - scope_type
-        - scope_id
+        - park_id
+        - park_name
+        - shed_id
+        - shed_name
+        - animal_stage
+        - protocol_id
+        - protocol_name
+        - dose_code
+        - proof_policy
         - due_at
-        - status
+        - expected_count
+        - obligation_status
+        - sop_task_state
+        - proof_state
+        - verification_state
+        - completed_count
+        - proof_count
+        - rejected_count
+        - deferred_count
         - work_state
+        - gap_type
+        - severity
+        - owner_state
+        - next_action
+        - process_intact
+        - owner
+        - evidence
       properties:
+        category:
+          type: string
+          enum:
+            - vaccination
+        row_id:
+          type: string
+        process_key:
+          type: string
         obligation_id:
           type: string
+          format: uuid
+        batch_id:
+          type: string
+          format: uuid
+        sop_task_id:
+          type: string
+          format: uuid
+        sop_submission_id:
+          type: string
+          format: uuid
+        completion_id:
+          type: string
+          format: uuid
+        park_id:
+          type: string
+          format: uuid
+        park_name:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        cohort_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        animal_stage:
+          type: string
+        protocol_id:
+          type: string
+          format: uuid
         protocol_version_id:
           type: string
+          format: uuid
         rule_id:
           type: string
-        target_type:
+          format: uuid
+        protocol_name:
           type: string
-        target_id:
+        dose_code:
           type: string
-        scope_type:
+        drive_name:
           type: string
-        scope_id:
+        sop_version_id:
+          type: string
+          format: uuid
+        proof_policy:
           type: string
         due_at:
           type: string
           format: date-time
-        status:
+        window_start:
           type: string
+          format: date-time
+        window_end:
+          type: string
+          format: date-time
+        expected_count:
+          type: integer
+          minimum: 0
+        obligation_status:
+          type: string
+        batch_status:
+          type: string
+        sop_task_state:
+          $ref: "#/components/schemas/ProcessIntegritySOPState"
+        submission_state:
+          type: string
+        proof_state:
+          $ref: "#/components/schemas/ProcessIntegrityProofState"
+        verification_state:
+          $ref: "#/components/schemas/ProcessIntegrityVerificationState"
+        completion_state:
+          type: string
+        completed_count:
+          type: integer
+          minimum: 0
+        proof_count:
+          type: integer
+          minimum: 0
+        rejected_count:
+          type: integer
+          minimum: 0
+        deferred_count:
+          type: integer
+          minimum: 0
         work_state:
           $ref: "#/components/schemas/WorkState"
-        owner_id:
+        gap_type:
           type: string
-          nullable: true
-        blocker:
+        severity:
+          $ref: "#/components/schemas/ProcessIntegritySeverity"
+        blocker_reason:
           type: string
-          nullable: true
+        owner_state:
+          $ref: "#/components/schemas/ProcessIntegrityOwnerState"
+        next_action:
+          type: string
+        process_intact:
+          type: boolean
+        owner:
+          $ref: "#/components/schemas/ProcessIntegrityOwner"
+        evidence:
+          $ref: "#/components/schemas/ProcessIntegrityEvidence"
     ActionCenterResponse:
       type: object
       additionalProperties: false
       required:
+        - source
         - items
+        - counts_by_work_state
       properties:
+        source:
+          type: string
+          enum:
+            - api
         items:
           type: array
           items:
             $ref: "#/components/schemas/ActionCenterObligation"
+        counts_by_work_state:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountByWorkState"
+        next_cursor:
+          type: string
+    AdherenceSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - expected_count
+        - completed_count
+        - open_gap_count
+        - deferred_count
+        - process_intact_count
+        - adherence_percent
+      properties:
+        expected_count:
+          type: integer
+          minimum: 0
+        completed_count:
+          type: integer
+          minimum: 0
+        open_gap_count:
+          type: integer
+          minimum: 0
+        deferred_count:
+          type: integer
+          minimum: 0
+        process_intact_count:
+          type: integer
+          minimum: 0
+        adherence_percent:
+          type: number
+    AdherenceRow:
+      type: object
+      additionalProperties: false
+      required:
+        - row_id
+        - expected
+        - actual
+        - gap
+        - severity
+        - owner
+        - next_action
+        - evidence
+        - work_state
+      properties:
+        row_id:
+          type: string
+        expected:
+          type: string
+        actual:
+          type: string
+        gap:
+          type: string
+        severity:
+          $ref: "#/components/schemas/ProcessIntegritySeverity"
+        owner:
+          $ref: "#/components/schemas/ProcessIntegrityOwner"
+        next_action:
+          type: string
+        evidence:
+          $ref: "#/components/schemas/ProcessIntegrityEvidence"
+        work_state:
+          $ref: "#/components/schemas/WorkState"
+    ProtocolAdherenceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - summary
+        - rows
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        summary:
+          $ref: "#/components/schemas/AdherenceSummary"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdherenceRow"
+        next_cursor:
+          type: string
+    ControlTowerSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - process_intact
+        - critical_count
+        - warning_count
+        - open_gap_count
+        - verification_backlog
+        - owner_missing_count
+        - config_or_sop_blockers
+      properties:
+        process_intact:
+          type: boolean
+        critical_count:
+          type: integer
+          minimum: 0
+        warning_count:
+          type: integer
+          minimum: 0
+        open_gap_count:
+          type: integer
+          minimum: 0
+        verification_backlog:
+          type: integer
+          minimum: 0
+        owner_missing_count:
+          type: integer
+          minimum: 0
+        config_or_sop_blockers:
+          type: integer
+          minimum: 0
+    ControlTowerAlert:
+      type: object
+      additionalProperties: false
+      required:
+        - row_id
+        - severity
+        - work_state
+        - title
+        - detail
+        - park_id
+        - park_name
+        - shed_id
+        - shed_name
+        - owner
+        - next_action
+        - evidence_link
+      properties:
+        row_id:
+          type: string
+        severity:
+          $ref: "#/components/schemas/ProcessIntegritySeverity"
+        work_state:
+          $ref: "#/components/schemas/WorkState"
+        title:
+          type: string
+        detail:
+          type: string
+        park_id:
+          type: string
+          format: uuid
+        park_name:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        drive_name:
+          type: string
+        owner:
+          $ref: "#/components/schemas/ProcessIntegrityOwner"
+        next_action:
+          type: string
+        evidence_link:
+          type: string
+    ControlTowerResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - summary
+        - alerts
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        summary:
+          $ref: "#/components/schemas/ControlTowerSummary"
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControlTowerAlert"
+    WorkflowNode:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - state
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        state:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        actor:
+          type: string
+        owner:
+          type: string
+        evidence:
+          type: string
+        blocker:
+          type: string
+    WorkflowDrilldownResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - row
+        - nodes
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        row:
+          $ref: "#/components/schemas/ActionCenterObligation"
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowNode"
+    VaccinationExecutionWorkState:
+      type: string
+      enum:
+        - due
+        - overdue
+        - scheduled
+        - in_progress
+        - proof_pending
+        - verification_pending
+        - rejected
+        - deferred
+        - blocked
+        - owner_missing
+        - completed
+    VaccinationExecutionSeverity:
+      type: string
+      enum:
+        - ok
+        - watch
+        - at_risk
+        - broken
+    VaccinationExecutionSOPStatus:
+      type: string
+      enum:
+        - not_started
+        - in_progress
+        - submitted
+        - accepted
+        - rework
+    VaccinationExecutionProofStatus:
+      type: string
+      enum:
+        - not_required
+        - missing
+        - uploaded
+        - rejected
+        - accepted
+    VaccinationExecutionVerificationStatus:
+      type: string
+      enum:
+        - not_ready
+        - pending
+        - verified
+        - rejected
+    VaccinationExecutionOwner:
+      type: object
+      additionalProperties: false
+      properties:
+        operatorName:
+          type: string
+        parkHeadName:
+          type: string
+        verifierName:
+          type: string
+    VaccinationExecutionRow:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - parkName
+        - shedId
+        - shedName
+        - animalStage
+        - workState
+        - severity
+        - sopStatus
+        - proofStatus
+        - verificationStatus
+        - nextAction
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        animalStage:
+          type: string
+        driveId:
+          type: string
+          format: uuid
+        driveName:
+          type: string
+        dueDate:
+          type: string
+          format: date
+        workState:
+          $ref: "#/components/schemas/VaccinationExecutionWorkState"
+        severity:
+          $ref: "#/components/schemas/VaccinationExecutionSeverity"
+        owner:
+          $ref: "#/components/schemas/VaccinationExecutionOwner"
+        blockerReason:
+          type: string
+        sopStatus:
+          $ref: "#/components/schemas/VaccinationExecutionSOPStatus"
+        proofStatus:
+          $ref: "#/components/schemas/VaccinationExecutionProofStatus"
+        verificationStatus:
+          $ref: "#/components/schemas/VaccinationExecutionVerificationStatus"
+        nextAction:
+          type: string
+    VaccinationExecutionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - rows
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationExecutionRow"
+    VaccinationOperationsProtocol:
+      type: object
+      additionalProperties: false
+      required:
+        - protocolId
+        - name
+      properties:
+        protocolId:
+          type: string
+          format: uuid
+        name:
+          type: string
+    VaccinationOperationsCounts:
+      type: object
+      additionalProperties: false
+      description: >-
+        Obligation/completion tallies for a cohort × protocol cell (or a cohort rollup), computed as-of
+        OperationsQuery.as_of. proofPending = completions recorded and awaiting verification;
+        rejected = rework (rejected completions); accepted = verified doses.
+      required:
+        - overdue
+        - due
+        - inProgress
+        - scheduled
+        - deferred
+        - accepted
+        - proofPending
+        - rejected
+        - total
+      properties:
+        overdue:
+          type: integer
+        due:
+          type: integer
+        inProgress:
+          type: integer
+        scheduled:
+          type: integer
+        deferred:
+          type: integer
+        accepted:
+          type: integer
+        proofPending:
+          type: integer
+        rejected:
+          type: integer
+        total:
+          type: integer
+    VaccinationOperationsCell:
+      type: object
+      additionalProperties: false
+      required:
+        - protocolId
+        - workState
+        - counts
+      properties:
+        protocolId:
+          type: string
+          format: uuid
+        workState:
+          $ref: "#/components/schemas/VaccinationExecutionWorkState"
+        lastDose:
+          type: string
+          format: date-time
+        nextDue:
+          type: string
+          format: date-time
+        counts:
+          $ref: "#/components/schemas/VaccinationOperationsCounts"
+    VaccinationOperationsCohort:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - parkName
+        - shedId
+        - shedName
+        - stage
+        - animals
+        - workState
+        - counts
+        - cells
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        stage:
+          type: string
+        ageBand:
+          type: string
+        animals:
+          type: integer
+        lastDose:
+          type: string
+          format: date-time
+        nextDue:
+          type: string
+          format: date-time
+        workState:
+          $ref: "#/components/schemas/VaccinationExecutionWorkState"
+        counts:
+          $ref: "#/components/schemas/VaccinationOperationsCounts"
+        cells:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationOperationsCell"
+    VaccinationOperationsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - protocols
+        - cohorts
+      properties:
+        source:
+          type: string
+          enum:
+            - api
+        protocols:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationOperationsProtocol"
+        cohorts:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationOperationsCohort"
+    VaccinationExecutionDriveSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - workState
+        - severity
+      properties:
+        driveId:
+          type: string
+        driveName:
+          type: string
+        workState:
+          $ref: "#/components/schemas/VaccinationExecutionWorkState"
+        severity:
+          $ref: "#/components/schemas/VaccinationExecutionSeverity"
+    VaccinationExecutionShedSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - total
+        - due
+        - overdue
+        - proofPending
+        - verificationPending
+        - rejected
+        - deferred
+        - blocked
+        - ownerMissing
+        - completed
+      properties:
+        total:
+          type: integer
+        due:
+          type: integer
+        overdue:
+          type: integer
+        proofPending:
+          type: integer
+        verificationPending:
+          type: integer
+        rejected:
+          type: integer
+        deferred:
+          type: integer
+        blocked:
+          type: integer
+        ownerMissing:
+          type: integer
+        completed:
+          type: integer
+    VaccinationExecutionShedDrilldown:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - parkName
+        - shedId
+        - shedName
+        - animalStages
+        - drives
+        - rows
+        - summary
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        parkName:
+          type: string
+        shedId:
+          type: string
+          format: uuid
+        shedName:
+          type: string
+        animalStages:
+          type: array
+          items:
+            type: string
+        drives:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationExecutionDriveSummary"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationExecutionRow"
+        summary:
+          $ref: "#/components/schemas/VaccinationExecutionShedSummary"
     VaccinationQueueItem:
       type: object
       additionalProperties: false

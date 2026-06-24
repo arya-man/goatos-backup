@@ -17,6 +17,10 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleVerifier, OperatorsManageCapability, false},
 		{RoleAdmin, SOPPublish, true},
 		{RoleParkHead, TaskAssign, true},
+		{RoleParkHead, VaccinationRead, true},
+		{RoleParkHead, ProcurementReview, true},
+		{RoleOperator, ProcurementWrite, true},
+		{RoleVerifier, ProcurementWrite, false},
 		{RoleOperator, TaskExecute, true},
 		{RoleOperator, SOPWrite, false},
 		{RoleVerifier, TaskVerify, true},
@@ -91,10 +95,20 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/admin/tasks/63000000-0000-4000-8000-000000000001/assign"},
 		{"POST", "/admin/tasks/63000000-0000-4000-8000-000000000001/verify"},
 		{"POST", "/admin/tasks/63000000-0000-4000-8000-000000000001/rework"},
+		{"GET", "/admin/tasks/submission-fanouts/failed"},
 		{"GET", "/app/tasks"},
 		{"GET", "/app/tasks/63000000-0000-4000-8000-000000000001"},
 		{"GET", "/app/sop-versions/62000000-0000-4000-8000-000000000001"},
 		{"POST", "/app/tasks/63000000-0000-4000-8000-000000000001/submissions"},
+		{"GET", "/procurement/source-entry/loads"},
+		{"POST", "/procurement/source-entry/loads"},
+		{"GET", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/goats"},
+		{"POST", "/procurement/source-entry/goats/10000000-0000-4000-8000-000000000001/source-health"},
+		{"POST", "/procurement/source-entry/goats/10000000-0000-4000-8000-000000000001/pre-dispatch-decision"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/dispatch"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/arrival-review"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/accept-intake"},
 		{"POST", "/protocols"},
 		{"POST", "/protocols/64000000-0000-4000-8000-000000000001/versions"},
 		{"POST", "/protocols/versions/65000000-0000-4000-8000-000000000001/rules"},
@@ -102,6 +116,13 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/protocols/versions/65000000-0000-4000-8000-000000000001/publish"},
 		{"POST", "/protocols/vaccination/impact-preview"},
 		{"GET", "/action-center/obligations"},
+		{"GET", "/vaccination/action-center"},
+		{"GET", "/vaccination/adherence"},
+		{"GET", "/control-tower/vaccination"},
+		{"GET", "/vaccination/workflows/batch:66000000-0000-4000-8000-000000000001:rule:65000000-0000-4000-8000-000000000001:shed:55000000-0000-4000-8000-000000000001"},
+		{"GET", "/vaccination/operations"},
+		{"GET", "/vaccination/execution"},
+		{"GET", "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001"},
 		{"GET", "/vaccination/verification-queue"},
 		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/accept"},
 		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/reject"},
@@ -110,6 +131,47 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 	for _, route := range implemented {
 		if _, ok := Match(route.method, route.path); !ok {
 			t.Fatalf("implemented route not registered: %s %s", route.method, route.path)
+		}
+	}
+}
+
+func TestVaccinationBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/control-tower/vaccination"},
+		{"GET", "/vaccination/action-center"},
+		{"GET", "/vaccination/adherence"},
+		{"GET", "/vaccination/workflows/batch:66000000-0000-4000-8000-000000000001:rule:65000000-0000-4000-8000-000000000001:shed:55000000-0000-4000-8000-000000000001"},
+		{"GET", "/vaccination/operations"},
+		{"GET", "/vaccination/execution"},
+	}
+	for _, route := range routes {
+		if _, ok := Match(route.method, route.path); !ok {
+			t.Fatalf("vaccination backend route smoke failed: %s %s is not registered", route.method, route.path)
+		}
+	}
+}
+
+func TestProcurementBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/procurement/source-entry/loads"},
+		{"POST", "/procurement/source-entry/loads"},
+		{"GET", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/goats"},
+		{"POST", "/procurement/source-entry/goats/10000000-0000-4000-8000-000000000001/source-health"},
+		{"POST", "/procurement/source-entry/goats/10000000-0000-4000-8000-000000000001/pre-dispatch-decision"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/dispatch"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/arrival-review"},
+		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/accept-intake"},
+	}
+	for _, route := range routes {
+		if _, ok := Match(route.method, route.path); !ok {
+			t.Fatalf("procurement backend route smoke failed: %s %s is not registered", route.method, route.path)
 		}
 	}
 }

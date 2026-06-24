@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -18,9 +19,10 @@ import (
 	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
-	obligationhttp "github.com/vgoats/goatos/backend/internal/obligation/adapters/http"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
-	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	vaccexechttp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/http"
+	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -28,15 +30,29 @@ import (
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	processintegrityhttp "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/http"
+	processintegritypg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
+	processintegrityapp "github.com/vgoats/goatos/backend/internal/processintegrity/app"
+	procurementhttp "github.com/vgoats/goatos/backend/internal/procurement/adapters/http"
+	procurementpg "github.com/vgoats/goatos/backend/internal/procurement/adapters/postgres"
+	procurementapp "github.com/vgoats/goatos/backend/internal/procurement/app"
+	proofhttp "github.com/vgoats/goatos/backend/internal/proof/adapters/http"
+	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
+	proofgcs "github.com/vgoats/goatos/backend/internal/proof/adapters/storage/gcs"
+	prooflocal "github.com/vgoats/goatos/backend/internal/proof/adapters/storage/local"
+	proofapp "github.com/vgoats/goatos/backend/internal/proof/app"
+	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 	protocolhttp "github.com/vgoats/goatos/backend/internal/protocol/adapters/http"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	vaccinationhttp "github.com/vgoats/goatos/backend/internal/vaccination/adapters/http"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
@@ -111,6 +127,61 @@ func ConfigFromEnv() Config {
 	}
 }
 
+type gcsServiceAccount struct {
+	ClientEmail string `json:"client_email"`
+	PrivateKey  string `json:"private_key"`
+}
+
+func buildProofStorage() (proofports.Storage, error) {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_MEDIA_STORAGE")))
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_ENV")))
+	if mode == "" {
+		if !localProofStorageAllowed(env) {
+			return nil, fmt.Errorf("GOATOS_MEDIA_STORAGE must be set to gcs for GOATOS_ENV=%q", env)
+		}
+		mode = "local"
+	}
+	switch mode {
+	case "local":
+		if !localProofStorageAllowed(env) {
+			return nil, fmt.Errorf("GOATOS_MEDIA_STORAGE=local is only allowed for local/test environments")
+		}
+		return prooflocal.New(os.Getenv("GOATOS_LOCAL_MEDIA_DIR"), os.Getenv("GOATOS_LOCAL_MEDIA_SIGNING_SECRET")), nil
+	case "gcs":
+		bucket := strings.TrimSpace(os.Getenv("GOATOS_GCS_BUCKET"))
+		email := strings.TrimSpace(os.Getenv("GOATOS_GCS_CLIENT_EMAIL"))
+		privateKey := os.Getenv("GOATOS_GCS_PRIVATE_KEY")
+		if raw := strings.TrimSpace(os.Getenv("GOATOS_GCS_SERVICE_ACCOUNT_JSON")); raw != "" {
+			var sa gcsServiceAccount
+			if err := json.Unmarshal([]byte(raw), &sa); err != nil {
+				return nil, fmt.Errorf("invalid GOATOS_GCS_SERVICE_ACCOUNT_JSON: %w", err)
+			}
+			if email == "" {
+				email = sa.ClientEmail
+			}
+			if privateKey == "" {
+				privateKey = sa.PrivateKey
+			}
+		}
+		storage, err := proofgcs.New(bucket, email, privateKey)
+		if err != nil {
+			return nil, fmt.Errorf("proof GCS storage: %w", err)
+		}
+		return storage, nil
+	default:
+		return nil, fmt.Errorf("unsupported GOATOS_MEDIA_STORAGE %q", mode)
+	}
+}
+
+func localProofStorageAllowed(env string) bool {
+	switch env {
+	case "", "local", "test", "development":
+		return true
+	default:
+		return false
+	}
+}
+
 func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	verifier, err := buildAuthVerifier(cfg.Auth, log)
 	if err != nil {
@@ -135,20 +206,36 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	workforceService := workforceapp.NewService(workforceRepo)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
+	proofStorage, err := buildProofStorage()
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	proofService := proofapp.NewService(proofpg.NewRepository(pool, cfg.Postgres.QueryTimeout), proofStorage)
+	proofHandler := proofhttp.NewHandler(proofService, log)
 	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	sopService := sopapp.NewService(sopRepo)
-	sopHandler := sophttp.NewHandler(sopService, log)
+	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	protocolService := protocolapp.NewService(protocolRepo)
 	protocolHandler := protocolhttp.NewHandler(protocolService, log)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	obligationService := obligationapp.NewService(obligationRepo)
-	obligationHandler := obligationhttp.NewHandler(obligationService, log)
+	processIntegrityService := processintegrityapp.NewService(processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
+	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, log)
+	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
+	procurementHandler := procurementhttp.NewHandler(procurementService, log)
 	vaccinationService := vaccinationapp.NewService(vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService).
 		WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
+	bus := eventbus.NewInProcessBus()
+	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
+	sopService.
+		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
+		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
+	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
@@ -181,10 +268,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	identityhttp.Register(protectedMux, identityHandler)
 	locationshttp.Register(protectedMux, locationsHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
+	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
+	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
+	procurementhttp.Register(protectedMux, procurementHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
-	obligationhttp.Register(protectedMux, obligationHandler)
+	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 
 	mux := http.NewServeMux()

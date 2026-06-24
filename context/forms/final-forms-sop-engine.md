@@ -258,7 +258,7 @@ operator management / app bootstrap
 
 Use `docs/protocol-engine/`, `docs/phc-vaccination/`, and
 `context/frontend/current-admin-web-scope.md` as the live cross-check for the
-current Admin Config + PHC Vaccination + Parks vaccination execution slice. The
+current Admin Config + PHC Vaccination + vaccination execution context slice. The
 old generic SOP task-engine closeout was deleted from the active tree and must
 not be used to revive the old phase ladder.
 

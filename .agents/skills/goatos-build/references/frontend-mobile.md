@@ -6,6 +6,8 @@ visibility, generated clients, offline sync, media capture, or app adapters.
 Canonical docs:
 
 - `context/frontend/current-admin-web-scope.md`
+- `context/frontend/vaccination-process-integrity-frontend-handoff.md`
+- `context/execution/vaccination-process-integrity-backend-handoff.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
 - `docs/phc-vaccination/PRD.md`
@@ -21,10 +23,25 @@ The current admin-web slice is:
 ```text
 Admin / Data Ops config + SOP policy
 PHC Vaccination operations
-Parks vaccination execution context
+Vaccination execution context scoped by park/shed
 Control Tower process-gap summary
 Goat Passport contextual drilldown
 ```
+
+The current admin-web dashboard is a process-integrity product, not decorative
+KPIs. Keep these four lenses, all vaccination-only:
+
+```text
+Control Tower      = process intact/not intact summary
+Action Center      = exact work/gaps to act on now
+Protocol Adherence = expected vs actual, gap, severity, owner, next action, evidence
+Workflow drilldown = config -> obligation -> SOP -> proof -> verification -> completion
+```
+
+Use `context/frontend/vaccination-process-integrity-frontend-handoff.md` for the
+mock-shaped frontend split before reshaping `/`, `/action-center`,
+`/protocol-adherence`, `/workflows`, `/vaccination`, or
+`/sops`.
 
 Build these routes/surfaces only unless the user explicitly reopens scope:
 
@@ -32,18 +49,36 @@ Build these routes/surfaces only unless the user explicitly reopens scope:
 /login
 /
 /vaccination
-/vaccination/adherence
+/action-center
+/protocol-adherence
+/workflows
+/workflows/{row_id}
 /config
+/sops
 /goats/{goat_id}
 ```
 
-Parks is in scope only for vaccination context: park, shed, animal stage,
-defer/blocker state, owner chain, drive status, proof status, and verification
-status. Do not rebuild old Locations or a generic Parks vertical.
+Scope lock: do not turn shared engines into visible product breadth. For the
+current `/sops` route, the backend SOP engine can remain generic, but admin-web
+must present the vaccination SOP slice only. Show vaccination SOPs such as
+`vaccination.drive` / `vaccination.*`; hide or zero/disable other domains in
+the visible surface; do not show shifting, procurement, HR, counts, breeding,
+feed, inventory, or generic health SOPs as active review cards.
 
-The standalone Action Center page can come later, but the shared status model
-must already power PHC/Parks: due, overdue, blocked, proof-pending,
-verification-pending, rejected, deferred, and owner-missing.
+Parks is a vertical, but it does NOT own the Vaccination product route/module.
+Vaccination execution
+context (park, shed, animal stage, defer/blocker state, owner chain, drive status,
+proof status, verification status) renders ONLY inside /vaccination,
+not as a separate Parks route or sidebar entry. Do not rebuild old Locations or a
+generic Parks vertical.
+
+Do not confuse "not generic Action Center" with "no Action Center." Action
+Center is the top-level `/action-center` command lens. `/vaccination` is the PHC
+Vaccination operations module only; it must not contain Action Center,
+Protocol Adherence, Workflows, Config, or SOP Library as tabs, nested pages, or
+large shortcut cards. The shared status model must power PHC/Parks/Control
+Tower: due, overdue, blocked, proof-pending, verification-pending, rejected,
+deferred, owner-missing, and completed.
 
 ## UI Rules
 

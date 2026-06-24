@@ -35,9 +35,13 @@ type Repository interface {
 	// submissions (the SOP verify fan-out source).
 	ListRecordedCompletionsByTask(ctx context.Context, tenantID, taskID string) ([]string, error)
 
+	// RecordCompletionsFromSubmission materializes vaccination_completions from a vaccination SOP
+	// submission's per-goat items. Idempotent on the submission-item idempotency key.
+	RecordCompletionsFromSubmission(ctx context.Context, tenantID, taskID, submissionID, recordedBy string) (int, error)
+
 	// ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest
-	// administered first (the Verification queue).
-	ListRecordedCompletions(ctx context.Context, tenantID string, limit int32) ([]domain.RecordedCompletion, error)
+	// administered first (the Verification queue). parkID is an optional park scope (empty = all parks).
+	ListRecordedCompletions(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error)
 
 	// GetLastAcceptedForGoat returns the most recent accepted administration; found is false when none.
 	GetLastAcceptedForGoat(ctx context.Context, tenantID, goatID string) (rec domain.LastAccepted, found bool, err error)
