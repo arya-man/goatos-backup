@@ -167,6 +167,8 @@ func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 		"Seq Scan on shed_profiles",
 		"Seq Scan on animal_stage_lookup",
 		"Seq Scan on location_operational_attributes",
+		// Substring also matches partition scans (obligation_status_events_2026_06, …).
+		"Seq Scan on obligation_status_events",
 	} {
 		if strings.Contains(plan, forbidden) {
 			t.Fatalf("process integrity plan used %q:\n%s", forbidden, plan)
@@ -371,6 +373,66 @@ func TestProcessIntegrityAsOfReconstruction(t *testing.T) {
 	}
 	if base.Evidence.EvidenceCount != 0 || len(base.Evidence.ProofIDs) != 0 {
 		t.Fatalf("pre-evidence as_of: base evidence must be unseen (submitted after as_of), got count=%d ids=%v", base.Evidence.EvidenceCount, base.Evidence.ProofIDs)
+	}
+}
+
+// TestProcessIntegrityBoundsVerificationByVerifiedAt proves the verification-timestamp edge for CT/AC/PA/WF:
+// a dose administered before as_of but accepted (verified_at) after as_of reads as verification_pending,
+// not completed/accepted, until as_of passes verified_at.
+func TestProcessIntegrityBoundsVerificationByVerifiedAt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	const (
+		piVerBatch = "71000000-0000-4000-8000-000000000040"
+		piVerObl   = "71000000-0000-4000-8000-000000000041"
+		piVerComp  = "71000000-0000-4000-8000-000000000042"
+	)
+	execPI(t, ctx, pool, "verify batch",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+		 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-20', $5)`,
+		piVerBatch, piTenant, piVersion, piShed, piOperator)
+	execPI(t, ctx, pool, "verify obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, completed_at, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, TIMESTAMPTZ '2026-06-20 00:00:00+00', 'completed', TIMESTAMPTZ '2026-06-30 10:00:00+00', 'pi-verify-obl', 5)`,
+		piVerObl, piTenant, piVersion, piRule, piVerBatch, piGoat, piShed)
+	// Dose administered 2026-06-20 (before as_of) but ACCEPTED/verified 2026-06-30 (after the before-probe).
+	execPI(t, ctx, pool, "verify completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, verified_at, idempotency_key, recorded_by)
+		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-20 09:00:00+00', 'accepted', TIMESTAMPTZ '2026-06-30 10:00:00+00', 'pi-verify-comp', $6)`,
+		piVerComp, piTenant, piVerObl, piVerBatch, piGoat, piOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	dueBefore := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+
+	before, err := repo.ListRows(ctx, domain.Query{
+		TenantID: piTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("ListRows(before verify): %v", err)
+	}
+	rb := rowByBatchSubstr(before.Rows, piVerBatch)
+	if rb == nil {
+		t.Fatalf("verify row missing before: %#v", before.Rows)
+	}
+	if rb.WorkState != domain.WorkStateVerificationPending || rb.VerificationState == domain.VerificationStateAccepted {
+		t.Fatalf("before verify: want verification_pending and not accepted, got work=%s verification=%s", rb.WorkState, rb.VerificationState)
+	}
+
+	after, err := repo.ListRows(ctx, domain.Query{
+		TenantID: piTenant, AsOf: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("ListRows(after verify): %v", err)
+	}
+	ra := rowByBatchSubstr(after.Rows, piVerBatch)
+	if ra == nil || ra.WorkState != domain.WorkStateCompleted || ra.VerificationState != domain.VerificationStateAccepted {
+		t.Fatalf("after verify: want completed + accepted, got %#v", ra)
 	}
 }
 

@@ -349,17 +349,30 @@ WITH completions AS (
   SELECT DISTINCT ON (obligation_id)
     obligation_id,
     completion_id,
-    status AS completion_status,
-    verified_by,
-    verified_at,
-    rejection_reason,
-    updated_at AS completion_updated_at
-  FROM vaccination_completions
-  WHERE tenant_id = $1::uuid
-    AND status <> 'reversed'
-    AND COALESCE(administered_at, created_at) <= $10::timestamptz
+    asof_status AS completion_status,
+    -- Only a verification PROVEN to be after as_of (downgrade) is stripped of its verifier/rejection at
+    -- as_of. A NULL verified_at is no proof, so the stored status/fields are trusted (no faked history).
+    CASE WHEN downgrade THEN NULL ELSE verified_by END AS verified_by,
+    CASE WHEN downgrade THEN NULL ELSE verified_at END AS verified_at,
+    CASE WHEN downgrade THEN NULL ELSE rejection_reason END AS rejection_reason,
+    completion_updated_at
+  FROM (
+    SELECT
+      obligation_id, completion_id, verified_by, verified_at, rejection_reason,
+      updated_at AS completion_updated_at, administered_at, created_at,
+      (verified_at IS NOT NULL AND verified_at > $10::timestamptz) AS downgrade,
+      -- as_of correctness on the VERIFICATION: accept/reject PROVEN after as_of was only 'recorded' at as_of.
+      CASE
+        WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $10::timestamptz THEN 'recorded'
+        ELSE status
+      END AS asof_status
+    FROM vaccination_completions
+    WHERE tenant_id = $1::uuid
+      AND status <> 'reversed'
+      AND COALESCE(administered_at, created_at) <= $10::timestamptz
+  ) c
   ORDER BY obligation_id,
-    CASE WHEN status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+    CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
     administered_at DESC NULLS LAST,
     created_at DESC
 ),

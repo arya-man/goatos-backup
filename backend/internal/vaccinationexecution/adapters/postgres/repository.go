@@ -246,7 +246,12 @@ raw AS (
     g.lifecycle_status AS goat_lifecycle_status,
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
-    vc.status AS completion_status,
+    -- as_of correctness on the verification: a dose accepted/rejected AFTER as_of was only 'recorded'
+    -- (proof pending) at as_of (accept/reject stamps verified_at = now()).
+    CASE
+      WHEN vc.status IN ('accepted', 'rejected') AND vc.verified_at IS NOT NULL AND vc.verified_at > $7::timestamptz THEN 'recorded'
+      ELSE vc.status
+    END AS completion_status,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -556,17 +561,28 @@ WITH completions AS (
   -- the most recent historical attempt. last_accepted_at is the latest ACCEPTED dose (the real last_dose).
   SELECT
     obligation_id,
-    (ARRAY_AGG(status ORDER BY
-      CASE WHEN status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
       administered_at DESC,
       created_at DESC))[1] AS effective_status,
-    MAX(administered_at) FILTER (WHERE status = 'accepted') AS last_accepted_at
-  FROM vaccination_completions
-  WHERE tenant_id = $1::uuid
-    -- as_of correctness: a completion is only "seen" if its event time (administered_at, falling back to
-    -- the recording time) is at or before as_of. A dose administered/recorded AFTER as_of must not count,
-    -- so effective_status and last_accepted_at reconstruct true state as of $2.
-    AND COALESCE(administered_at, created_at) <= $2::timestamptz
+    MAX(administered_at) FILTER (WHERE asof_status = 'accepted') AS last_accepted_at
+  FROM (
+    SELECT
+      obligation_id, administered_at, created_at,
+      -- as_of correctness on the VERIFICATION, not just existence: accept/reject flips status and stamps
+      -- verified_at = now(). A dose administered before as_of but accepted/rejected AFTER as_of was still
+      -- only 'recorded' (proof pending) at as_of. So a verification not yet stamped by as_of reads as
+      -- 'recorded'; last_accepted_at therefore only counts doses accepted-and-verified by as_of.
+      CASE
+        WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $2::timestamptz THEN 'recorded'
+        ELSE status
+      END AS asof_status
+    FROM vaccination_completions
+    WHERE tenant_id = $1::uuid
+      -- existence bound: a completion is only "seen" if its event time (administered_at, falling back to
+      -- the recording time) is at or before as_of.
+      AND COALESCE(administered_at, created_at) <= $2::timestamptz
+  ) c
   GROUP BY obligation_id
 ),
 terminal_events AS (

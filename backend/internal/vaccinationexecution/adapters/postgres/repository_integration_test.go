@@ -435,6 +435,8 @@ func TestVaccinationOperationsProductionQueryPlanUsesIndexes(t *testing.T) {
 		"Seq Scan on goats",
 		"Seq Scan on vaccination_completions",
 		"Seq Scan on locations",
+		// Substring also matches partition scans (obligation_status_events_2026_06, …).
+		"Seq Scan on obligation_status_events",
 	} {
 		if strings.Contains(plan, forbidden) {
 			t.Fatalf("production vaccination operations plan used %q:\n%s", forbidden, plan)
@@ -852,6 +854,77 @@ func execRowByDrive(rows []domain.ExecutionRow, driveID string) *domain.Executio
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestVaccinationOperationsBoundsVerificationByVerifiedAt proves the verification timestamp edge: a dose
+// administered BEFORE as_of but accepted AFTER as_of must read as proof-pending (recorded), not accepted,
+// and must not set last_dose, until as_of passes verified_at.
+func TestVaccinationOperationsBoundsVerificationByVerifiedAt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		vGoat  = "70000000-0000-4000-8000-0000000000b0"
+		vBatch = "70000000-0000-4000-8000-0000000000b1"
+		vObl   = "70000000-0000-4000-8000-0000000000b2"
+		vComp  = "70000000-0000-4000-8000-0000000000b3"
+	)
+	// K7 cohort: obligation completed on accept; dose ADMINISTERED 2026-06-20 but ACCEPTED (verified_at) and
+	// completed_at on 2026-06-30.
+	execProjectionSQL(t, ctx, pool, "verify goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
+		   current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'clean', $3, $4, $5, $4, 'K7', 'healthy')`,
+		vGoat, testTenant, testParty, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, vBatch, "completed")
+	insertProjectionObligation(t, ctx, pool, vObl, vBatch, vGoat, "completed", "2026-06-20 00:00:00+00", "vaccexec-verify-obl")
+	execProjectionSQL(t, ctx, pool, "verify completed_at",
+		`UPDATE obligation_instances SET completed_at = TIMESTAMPTZ '2026-06-30 10:00:00+00' WHERE tenant_id = $1 AND obligation_id = $2`,
+		testTenant, vObl)
+	execProjectionSQL(t, ctx, pool, "verify dose",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, verified_at, idempotency_key, recorded_by)
+		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-20 09:00:00+00', 'accepted', TIMESTAMPTZ '2026-06-30 10:00:00+00', 'vaccexec-verify-comp', $6)`,
+		vComp, testTenant, vObl, vBatch, vGoat, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	dueBefore := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+
+	// as_of BEFORE verified_at (dose already administered): proof recorded, NOT accepted, no last_dose.
+	before, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{
+		TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationOperations(before verify): %v", err)
+	}
+	k7 := opsRowByStage(before, "K7")
+	if k7 == nil {
+		t.Fatalf("K7 cohort missing: %#v", before)
+	}
+	if k7.AcceptedCount != 0 || k7.ProofPendingCount != 1 {
+		t.Errorf("before verify: want accepted=0 proofPending=1, got accepted=%d proofPending=%d", k7.AcceptedCount, k7.ProofPendingCount)
+	}
+	if k7.LastDose != nil {
+		t.Errorf("before verify: lastDose want nil (accept is after as_of), got %v", k7.LastDose)
+	}
+
+	// as_of AFTER verified_at: the accept now counts; last_dose is the administered time.
+	after, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{
+		TenantID: testTenant, AsOf: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationOperations(after verify): %v", err)
+	}
+	k7a := opsRowByStage(after, "K7")
+	if k7a == nil || k7a.AcceptedCount != 1 || k7a.ProofPendingCount != 0 {
+		t.Fatalf("after verify: want accepted=1 proofPending=0, got %#v", k7a)
+	}
+	if k7a.LastDose == nil || !k7a.LastDose.Equal(time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)) {
+		t.Errorf("after verify: lastDose want 2026-06-20T09:00Z, got %v", k7a.LastDose)
+	}
+}
 
 func opsRowByStage(rows []domain.OperationsRow, stage string) *domain.OperationsRow {
 	for i := range rows {
