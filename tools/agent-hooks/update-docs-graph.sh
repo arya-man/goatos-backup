@@ -1,20 +1,71 @@
 #!/usr/bin/env bash
 # PostToolUse hook: auto-rebuild goatos-docs Graphify graph when tracked .md files change.
-# Runs claude -p in background (debounced — at most once per 60s).
+# Runs claude -p in background (debounced: at most once per 60s).
 
-FILE_PATH=$(python3 -c "
-import os, json
+HOOK_INPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/goatos-docs-graph-hook.XXXXXX")"
+trap 'rm -f "$HOOK_INPUT_FILE"' EXIT
+cat >"$HOOK_INPUT_FILE" 2>/dev/null || true
+
+CHANGED_MD_PATHS=$(HOOK_INPUT_FILE="$HOOK_INPUT_FILE" python3 - <<'PY' 2>/dev/null || true
+import json
+import os
+import re
+from pathlib import Path
+
+
+def normalize(path):
+    path = (path or "").strip()
+    if not path:
+        return ""
+    cwd = os.getcwd()
+    if os.path.isabs(path):
+        try:
+            path = os.path.relpath(path, cwd)
+        except ValueError:
+            return ""
+    return path.removeprefix("./")
+
+
+def add_path(paths, path):
+    path = normalize(path)
+    if re.match(r"^(docs|context|\.agents/skills)/.*\.md$", path):
+        paths.add(path)
+
+
+paths = set()
+
+# Claude Code exposes tool input in an environment variable.
 try:
-    print(json.loads(os.environ.get('CLAUDE_TOOL_INPUT', '{}')).get('file_path', ''))
+    claude_input = json.loads(os.environ.get("CLAUDE_TOOL_INPUT", "{}"))
 except Exception:
-    print('')
-" 2>/dev/null || echo "")
+    claude_input = {}
+if isinstance(claude_input, dict):
+    add_path(paths, claude_input.get("file_path"))
 
-# Only fire for .md files in tracked directories
-if [ -z "$FILE_PATH" ]; then
-    exit 0
-fi
-if ! echo "$FILE_PATH" | grep -qE '^(docs|context|\.agents/skills)/.*\.md$'; then
+# Codex sends one hook JSON object on stdin. For apply_patch, file paths are in
+# the patch command headers.
+try:
+    stdin_payload = Path(os.environ["HOOK_INPUT_FILE"]).read_text()
+    codex_input = json.loads(stdin_payload) if stdin_payload.strip() else {}
+except Exception:
+    codex_input = {}
+if isinstance(codex_input, dict):
+    tool_input = codex_input.get("tool_input")
+    if isinstance(tool_input, dict):
+        add_path(paths, tool_input.get("file_path"))
+        command = tool_input.get("command")
+        if isinstance(command, str):
+            for line in command.splitlines():
+                match = re.match(r"\*\*\* (?:Add|Update|Delete) File: (.+)$", line)
+                if match:
+                    add_path(paths, match.group(1))
+
+for path in sorted(paths):
+    print(path)
+PY
+)
+
+if [ -z "$CHANGED_MD_PATHS" ]; then
     exit 0
 fi
 
