@@ -19,7 +19,11 @@ PHC (Preventive Health Care) is **not** just vaccination. The config engine must
 
 | PHC modules (all reuse the engine) |
 |---|
-| **Vaccination** ← build this week · Deworming · Biosecurity / quarantine · Feed & water testing · Panel cleaning · Shed sanitization · Fire / safety checks · SOP-video verification · Stock anti-misuse / PHC inventory checks · Daily/weekly director reporting |
+| **Vaccination** ← build this week · Deworming · Biosecurity / quarantine · Feed & water testing · Panel cleaning · Shed sanitization · Fire / safety checks · SOP-video verification · Stock anti-misuse / PHC inventory checks |
+
+> **Director reporting is cross-cutting**, not a PHC module — it is an org-wide
+> reporting cadence (daily/weekly EOD/rollups) that spans every vertical. Do not
+> treat it as PHC/Vaccination scope.
 
 **This week's build = Vaccination only**, but the config shape (`protocol_definitions.category`) is generic so deworming/biosecurity/sanitization slot in later with zero engine changes. (Feed Direction is a module of the **separate Feed vertical** — on the same engine; "parks" is the scope dimension, not a vertical; see [feed-direction/PRD.md](../feed-direction/PRD.md).)
 

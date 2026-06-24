@@ -18,11 +18,6 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 ```text
 /app/bin/api
 /app/bin/outbox-relay
-/app/bin/rebuild-identity-counters
-/app/bin/update-identity-counters
-/app/bin/rfid-import
-/app/bin/rfid-apply
-/app/bin/bq-reconcile
 /app/bin/seed-dev-grant
 /app/bin/seed-dev-email-grants
 /app/bin/mint-dev-token
@@ -35,9 +30,10 @@ entrypoint. Example:
 docker run --rm --entrypoint /app/bin/outbox-relay goatos-backend:local -limit 10
 ```
 
-`bq-reconcile` is the current legacy sync executor primitive packaged for dev
-bring-up. The dedicated scheduled legacy-sync executor remains the P13 build
-item.
+Old import/reconciliation/reporting binaries are no longer packaged in the
+runtime image. If migration audit tooling is reintroduced later, it must be a
+new backend-only cutover artifact, not an admin-web product surface.
+
 
 `backend/Dockerfile.migrate` builds a migration image containing
 `/app/bin/migrate` plus `backend/migrations/postgres/*.sql`. It reads

@@ -18,7 +18,32 @@ Ignore unless explicitly asked for historical archaeology:
 Purpose:
 
 - Goat OS is the operating system for goat identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
-- Existing UI should be salvaged where useful. Canonical backend/data model/app APIs are built fresh.
+- Canonical backend/data model/app APIs are built fresh.
+- Current admin-web frontend scope supersedes the old dashboard/admin product
+  surface. For admin-web UI work, read
+  `context/frontend/current-admin-web-scope.md`: build the connected Admin
+  Config + PHC Vaccination + Parks vaccination execution slice, with Control
+  Tower summarizing only process gaps. Old Operations/Legacy/SOP/counts/import
+  routes are removed from active admin-web and must not be rebuilt unless scope
+  is explicitly reopened.
+- **NON-NEGOTIABLE — the ONLY admin-web UI/UX source of truth is the mock**
+  `mock/goatos-dashboard-mock.html`. PORT its layout, structure, table shapes,
+  empty states, icon system, spacing, and density. It is **not a color theme**.
+  **Never reuse/adapt/recolor old admin UI** (`admin-primitives.tsx`, old
+  cyan/slate palette, emoji icons, collapse-to-KPI layouts) — the old admin UI
+  is gone; rebuild from scratch to the mock. MANDATORY before any frontend
+  `git mesha-push`: `npm --prefix apps/admin-web run check:mock-fidelity` must
+  pass + visual compare to the mock.
+- Frontend IA guardrails: PHC is a vertical and must not use the syringe/
+  injection icon; the syringe/injection icon belongs to the Vaccination module.
+  Counts is a separate vertical, so Control Tower must not show raw goat census
+  totals as its own KPI. Control Tower is for gaps, adherence, exceptions,
+  escalations, and next actions.
+- Config / Protocol Rules is a generic Admin / Data Ops authority screen
+  (`/config`) for CEO/COO/superadmin users. It is not owned by PHC/Vaccination.
+  PHC/Vaccination may link to `/config?category=vaccination`, but the Config UI
+  must stay category/schema-driven: changing category changes the form fields and
+  `rule_dsl`; do not show vaccination fields for `feed_direction`.
 
 Code navigation (graph-first):
 
@@ -89,9 +114,10 @@ Do:
 - Keep frontend/mobile data access behind generated clients and app APIs.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
-  legacy dashboard in a separate tab when there is a legacy analogue. The counts
-  dashboard reference is
-  `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
+  authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`
+  (port its structure, not just its colors). Old dashboard/admin pages are NOT
+  the visual target and must not be reused/recolored. Before push, run the
+  mandatory gate `npm --prefix apps/admin-web run check:mock-fidelity`.
   Check pixel-level UI quality: sidebar/nav alignment, tab/title spacing,
   typography, color, card padding, chart sizing, labels, icons, empty space,
   overflow, clipping, and desktop/narrow responsive states. Do not accept

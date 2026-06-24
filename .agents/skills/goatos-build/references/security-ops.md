@@ -12,7 +12,8 @@ Canonical docs:
 - `docs/features/operator-management/TRD.md`
 - `docs/features/operator-management/AGENT-TASK-ADMIN.md`
 - `docs/features/operator-management/AGENT-TASK-ANDROID.md`
-- `docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md`
+- `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
+- `docs/phc-vaccination/TRD.md`
 
 Rules:
 

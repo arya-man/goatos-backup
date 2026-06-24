@@ -46,6 +46,9 @@ Analytics, BI, AI, telemetry, infra cost controls
 Frontend, mobile, backend adapter architecture
   context/frontend/final-frontend-mobile-backend-architecture.md
 
+Current admin-web frontend scope and removed old routes
+  context/frontend/current-admin-web-scope.md
+
 AI agent context and API protocol decisions
   context/agents/ai-agent-context-and-protocols.md
 
@@ -120,8 +123,12 @@ slack:
   Inbound Slack form ingestion is legacy cutover only and must pass through Goat OS APIs, permissions, validation, audit, and idempotency.
 
 frontend:
-  Keep existing dashboard/mobile UI where useful.
-  Build missing task-first Goat OS screens.
+  Current admin-web review scope supersedes the old dashboard/admin product
+  surface. Follow context/frontend/current-admin-web-scope.md: build only the
+  current Control Tower shell, PHC/Vaccination, Admin Config, Parks vaccination
+  execution context, and contextual Goat Passport detail surfaces. Old
+  Operations/Legacy/SOP/counts/import routes are removed from active admin-web
+  until explicitly brought back.
   Android Field App owns conditional SOP form execution; Slack forms are legacy/migration input only.
 
 scratch vs salvage:

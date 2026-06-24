@@ -6,12 +6,10 @@ task lifecycle, weekly assignment, verification, or Slack-form replacement.
 Canonical docs:
 
 - `context/forms/final-forms-sop-engine.md`
-- `docs/phases/phase-02-sop-task-engine/PRD.md`
-- `docs/phases/phase-02-sop-task-engine/TRD.md`
-- `docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md`
-- `docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md`
-- `docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md`
-- `docs/phases/phase-02-sop-task-engine/AGENT-TASK-SOP-BUILDER.md`
+- `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
+- `docs/protocol-engine/state-machines.md`
+- `docs/phc-vaccination/PRD.md`
+- `docs/phc-vaccination/TRD.md`
 - `docs/features/operator-management/PRD.md`
 - `docs/features/operator-management/TRD.md`
 - `docs/features/operator-management/AGENT-TASK-ADMIN.md`
@@ -39,21 +37,19 @@ Rules:
   original media, rectified media, verifier, and corrected answer where needed.
 - Dynamic pickers come from backend reference data/offline caches, not hardcoded
   Slack dropdowns.
-- Phase 2 starts with the Shifting SOP as the walking skeleton for the reusable
-  SOP/task engine. Vaccination, health, feed, death, birth/abortion,
-  procurement, and other Slack-derived workflows must migrate onto the same DSL
-  and runtime rather than creating one-off forms.
+- The current walking slice is vaccination: SOP/proof policy is configured by
+  source-backed protocol versions and executed through PHC/Parks vaccination
+  work, not a revived generic `/sops` or `/tasks` admin page.
 - The project-level target is Android SOP runner -> Goat OS app API -> backend
   validation/idempotency/proof/audit -> module-owned canonical event -> Postgres
   projections. BQ/Sheets are removable only per feature/grain after coverage,
   cross-source dedup, and shadow parity gates pass.
-- Keep three gates separate: Phase 2 Shifting platform acceptance, legacy SOP
-  execution retirement, and dashboard BQ/Sheets retirement. Do not let a
-  Shifting demo or Android path imply full SOP closeout.
+- Keep three gates separate: vaccination execution acceptance, legacy SOP
+  execution retirement, and dashboard BQ/Sheets retirement. Do not let one
+  vaccination proof path imply full SOP closeout.
 - Android SOP execution depends on Operator Management for active profile,
   verified login, scope grants, capabilities, device/session state, app
   bootstrap, and dynamic task/SOP visibility.
-- Before calling SOP replacement closed, cross-check Counts, Locations, and
-  Mortality dependencies in `SOP-CLOSEOUT.md`; especially count verification,
-  weight, status/stage, death, birth/abortion, sale/exit, and proof/video flows
-  that are not all covered by the Shifting walking skeleton.
+- Before calling SOP replacement closed, cross-check the module that owns the
+  workflow, the proof policy, the Android runner, and the backend verification
+  path. Vaccination is only one vertical using the shared SOP/proof engine.

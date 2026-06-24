@@ -267,12 +267,10 @@ Regenerate sqlc code.
 Assert generated code matches committed code.
 Validate important SQL query plans.
 Validate hand-written hot-path plans such as outbox claim, auth grant lookup,
-Import Review state filtering, the real generated Import Review reason-filter
-shape, the JSONB reason-index probe, the disabled source breed/category
-disposition count/list probes, and the Phase 1A obligation/vaccination reads
-(obligation due-window, scope rollup, target/open-by-goat lookups, inventory
-FEFO/ledger, vaccination eligibility/generation keyset, the SOP verify fan-out
-by task, and the verification-queue scan).
+identity lookup/timeline, obligation due-window and scope rollups, target/open
+obligation lookups, inventory FEFO/ledger, vaccination generation keyset, the
+SOP verify fan-out by task, vaccination verification queue, and feed review/
+shed-history reads.
 Exercise migration invariants.
 Reject whitespace errors.
 ```
@@ -290,15 +288,8 @@ sqlc-check failed
 validate-sqlc-plans failed
   query no longer uses expected index
   new sqlc query lacks plan expectation
-  hot apply/read query introduced an avoidable Sort
-  Import Review generated reason-filter query lost its ordered indexed path
-  Import Review JSONB reason probe is not using the GIN reason index
-  disabled source breed/category disposition query lost its indexed tenant/run path
-
-The Import Review generated reason-filter no-Sort check is the Phase 1 local
-ordered-keyset proof. When the staging/1M sparse-reason strategy lands, revise
-that assertion if the chosen reason-keyset or GIN-bitmap plan legitimately
-needs a sort.
+  hot read query introduced an avoidable Sort
+  obligation/vaccination/feed process-integrity query lost its indexed access path
 
 validate-migrations failed
   migration does not apply cleanly

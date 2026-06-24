@@ -10,7 +10,7 @@
 
 ## 1. Scope of this TRD
 
-Vaccination is the **first module of the PHC vertical** (PHC also covers deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks, director reporting — all on the **same** engine). This TRD covers:
+Vaccination is the **first module of the PHC vertical** (PHC also covers deworming, biosecurity, feed/water testing, panel cleaning, sanitization, fire-safety, SOP-video, stock checks — all on the **same** engine). Daily/weekly **director reporting is cross-cutting** (an org-wide reporting cadence), **not a PHC/Vaccination module**, and is out of scope here. This TRD covers:
 1. The **goats current→target delta** (identity data the cascade reads).
 2. The **shed/location profile delta** (the dosing anchor).
 3. **Vaccination-specific tables** that link into the generic engine.

@@ -276,8 +276,9 @@ canonical redirect is a user-friendly fallback, not the primary exposure model.
 4. **Deploy.** Roll the new image. Keep the previous revision available for
    rollback.
 5. **Smoke.** See "Smoke checks" — must pass before announcing the release.
-6. **Counters.** After any large data load, run `rebuild-identity-counters` for
-   the tenant, then confirm analytics freshness is not `rebuild_required`.
+6. **Process integrity smoke.** Confirm the current Admin Config + PHC
+   Vaccination + Parks vaccination execution APIs are healthy before announcing
+   the release.
 
 ## Smoke checks
 
@@ -286,7 +287,8 @@ GET /livez     -> 204 (no auth; use this for Cloud Run liveness smoke)
 GET /readyz    -> 204 (DB reachable)
 A real bearer token (from the IdP) on a read route (e.g. GET /goats/search) -> 200
 A token with wrong issuer/audience/alg -> 401
-GET /analytics/identity/counts -> 200 with freshness fields, no rebuild_required after a clean rebuild
+GET /action-center/obligations -> 200 for an authorized internal role
+GET /protocols/versions/{version_id} -> 200 for an authorized config role
 ```
 
 For admin-web dashboard smoke, use the canonical dashboard host and the
@@ -305,8 +307,8 @@ canonical-host redirect/custom-domain setup.
 can reserve or intercept that exact path before it reaches the container. Use
 `/livez` for public Cloud Run smoke checks.
 
-`backend/tests/integration/smoke-auth-local.sh` is the local analogue; the
-production smoke uses a real IdP token instead of a minted HS256 token.
+Local smoke should use `make dev-local`, backend `go test ./...`, and the
+admin-web visual smoke for the current active routes.
 
 ## Rollback
 
@@ -315,8 +317,9 @@ production smoke uses a real IdP token instead of a minted HS256 token.
 2. If a migration caused the failure: a forward-only fix migration is preferred.
    Only use a down-migration if the change is provably reversible and no rows
    depend on it. Never hand-edit data to "undo" — write a corrective migration.
-3. Counters/projections are rebuildable: re-run rebuild-identity-counters after
-   any rollback that touched identity data.
+3. If a rollback touched process state, run the relevant forward repair or
+   projection rebuild job for that module. Do not reintroduce the deleted
+   identity-counter commands.
 ```
 
 ## Monitoring / alerts (per env)
@@ -327,7 +330,7 @@ Wire these before calling an environment production-ready:
 API latency (p50/p95/p99) and error rate per route
 DB pressure: connections, slow queries, Cloud SQL CPU/mem
 Outbox lag: pending/oldest-unpublished age, dead_letter count
-Counter freshness: rebuild_required true, projection staleness
+Process projection staleness for obligation/vaccination/control surfaces
 Import/sync run failures and conflict volume
 ```
 

@@ -67,15 +67,18 @@ adapter, analytics, and SDK boundaries are mechanically enforced".
 ## Active Phase Docs
 
 ```text
-phase-01-goat-passport/
-  PRD.md
-  TRD.md
+Current active path:
+  docs/protocol-engine/PHASE-0-CHECKLIST.md
+  docs/protocol-engine/IMPLEMENTATION-PLAN.md
+  docs/protocol-engine/obligation-engine.md
+  docs/protocol-engine/state-machines.md
+  docs/phc-vaccination/PRD.md
+  docs/phc-vaccination/TRD.md
+  docs/phc-vaccination/V1-FOUNDATION-SPEC.md
 
-phase-02-sop-task-engine/
-  PRD.md
-  TRD.md
-  SOP-CLOSEOUT.md
-  PARALLEL-AGENT-RUNBOOK.md
-  INTEGRATION-CHECKLIST.md
-  AGENT-TASK-SOP-BUILDER.md
+Old Goat Passport and generic SOP task-engine phase folders were deleted
+because they described the old import-review, identity-review, generic SOP/admin,
+counts, mortality, and legacy-sync track. Use the active docs above plus
+`context/frontend/current-admin-web-scope.md` for the current Admin Config + PHC
+Vaccination + Parks vaccination execution slice.
 ```

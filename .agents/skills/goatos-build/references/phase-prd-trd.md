@@ -2,14 +2,28 @@
 
 Load this before implementing, reviewing, or changing any delivery phase.
 
+## Active Override — Protocol Engine Phase 0
+
+For current PHC vaccination, Parks vaccination execution, protocol config,
+obligation, and inventory-ledger work, the active build spec is:
+
+```text
+docs/protocol-engine/PHASE-0-CHECKLIST.md
+docs/protocol-engine/IMPLEMENTATION-PLAN.md
+docs/protocol-engine/obligation-engine.md
+docs/protocol-engine/state-machines.md
+docs/protocol-engine/migration-and-cutover.md
+docs/phc-vaccination/PRD.md
+docs/phc-vaccination/TRD.md
+```
+
+Use those files as the source of truth for migrations `000070-074`, protocol
+rules, obligations, inventory ledger, source-backed config, and million-goat
+query shape.
+
 Canonical docs:
 
 - `docs/phases/README.md`
-- active phase `docs/phases/<phase>/PRD.md`
-- active phase `docs/phases/<phase>/TRD.md`
-- active phase `docs/phases/<phase>/BUILD-STATUS.md`, if present
-- active phase discovery/proposal docs, if present, such as
-  `docs/phases/phase-01-goat-passport/legacy-discovery-proposals.md`
 - `context/product/goat-os-feature-phases.md`
 - `context/execution/two-dev-build-plan.md`
 - `context/source-findings/drive-docs-findings.md`
@@ -17,6 +31,9 @@ Canonical docs:
 
 Rules:
 
+- For Protocol Engine / PHC Vaccination work, read the active docs above before
+  code. Do not rely on deleted old phase docs for the protocol/obligation
+  schema or frontend direction.
 - Write and review the detailed PRD/TRD for the selected phase before code.
 - Do not generate detailed PRD/TRD files for every future phase at once.
 - Every phase must repeat the architecture invariants: modular monolith,
@@ -36,8 +53,11 @@ Rules:
 - Keep references short. Do not duplicate the full PRD/TRD inside skill files.
 - Use phase docs for "what to build"; use skill references for "what context to
   load and which rules must not be forgotten."
+- For protocol/config work, never treat "demo" or "sandbox" as a rule state.
+  `protocol_versions.status` remains `draft`/`published`/`retired`; source and
+  approval are separate metadata.
 
-Current Phase 1 locked foundation:
+Locked identity foundation:
 
 ```text
 goat_id immutable internal ID; display_id human ID.
@@ -53,18 +73,8 @@ merges set `merged_into_goat_id`; lookups redirect to the survivor; P8 booking,
 allocation, and replacement resolve to the survivor before availability and
 no-double-promise checks.
 events/audit/history are partition-aware; idempotency is explicit.
-Phase 1 stores policy inputs but does not execute customer/festival eligibility.
-```
-
-Current Phase 1 build status:
-
-```text
-Before continuing Phase 1 implementation, read
-docs/phases/phase-01-goat-passport/BUILD-STATUS.md.
-
-It records the built contracts, migrations, Go read API foundation, verified
-edge-case fixes, temporary X-GoatOS-Tenant-ID scaffold, sqlc deferment, and
-remaining work.
+The current vaccination slice stores policy inputs but does not invent
+customer/festival eligibility or vaccine schedule values.
 ```
 
 Cross-phase facts already captured:

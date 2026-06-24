@@ -2,65 +2,100 @@
 
 Read first:
 
-- `../../context/frontend/final-frontend-mobile-backend-architecture.md`
-- `../../context/analytics/final-analytics-infra.md`
+- `../../context/frontend/current-admin-web-scope.md`
+- `../../mock/goatos-dashboard-mock.html`
 
-Purpose:
+## Current Scope
 
-- Snapshot of the current CEO/admin dashboard UI for safe Goat OS rewiring.
-- The live `../../dashboard/` repo is not touched.
+Admin-web is being rebuilt around the vaccination process-integrity slice:
 
-Do:
+- **Admin / Data Ops**: generic protocol config and SOP policy at `/config`.
+- **PHC / Vaccination**: vaccination operations at `/vaccination` and
+  `/vaccination/adherence`.
+- **Parks vaccination layer**: park/shed/stage/defer/blocker/owner context
+  inside the vaccination workflow. Do not build generic Parks yet.
+- **Goat Passport**: contextual drilldown at `/goats/{goat_id}` only.
+- **Control Tower**: root summary shell for broken or at-risk process only.
 
-- Preserve useful layout, charts, route inventory, and UX patterns.
-- Move data access behind generated analytics/app clients.
-- Gate pages by server-side auth/RBAC.
-- Treat frontend visual QA as a release gate, not a courtesy check.
-- If the user is checking the Google dev URL, a Git push is not enough. Do not
-  say the live dev UI is fixed until `goatos-admin-web-dev` has been rebuilt,
-  pushed as a `linux/amd64` image, deployed to Cloud Run, and verified by
-  reading the live service revision/image. Follow `docs/runbooks/containers.md`
-  "Admin-web dev deploy checklist".
-- After any frontend code change, run the relevant lint/typecheck/build plus
-  the live visual smoke when local backend/admin-web can be started:
+The full Action Center page and full Control Tower product can come later, but
+the status model underneath PHC/Parks must exist: due, overdue, blocked,
+proof-pending, verification-pending, rejected, deferred, and owner-missing.
 
-  ```bash
-  npm run smoke:visual:live
-  ```
+## UI Source Of Truth
 
-- Open the generated screenshots under
-  `.codex-goatos-render/admin-web-screenshots/` and inspect every touched route.
-  Do not report "verified in Chrome" unless screenshots were actually reviewed.
-- For pages with a legacy counterpart, open the legacy dashboard in another tab
-  and compare the local page against it before pushing. For counts, use
-  `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
-- Check sidebar/nav label alignment, tab/title spacing, typography, colors,
-  margins, padding, card geometry, chart sizing, graph labels, icons, empty
-  space, overflow, clipping, desktop/narrow responsive states, and whether any
-  error/config page is being mistaken for a real UI proof.
-- Keep peer dashboard panels visually even by default. Two cards that represent
-  equal-priority queues, summaries, or status panels must use equal grid columns
-  and aligned card edges/heights at desktop breakpoints. Do not use arbitrary
-  weighted fractions such as `1.05fr/0.95fr` for peer cards unless the layout is
-  intentionally master/detail and the screenshot review calls that out.
-- `npm run smoke:visual:live` includes layout geometry checks, serious/critical
-  axe checks, screenshot capture, token-leak checks, and optional visual
-  baseline diffing. Build/typecheck passing is not enough for frontend work.
-- Use the baseline commands when a visual baseline exists or when establishing a
-  local comparison set:
+`../../mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of
+truth. Port its layout, table shapes, empty states, icon system, spacing, font
+scale, and density. It is not a color theme.
 
-  ```bash
-  npm run smoke:visual:update-baseline
-  npm run smoke:visual:baseline
-  ```
+Do not reuse, adapt, recolor, or recreate the old admin UI. The old
+`admin-primitives` component, old chart/layout components, and old dashboard
+routes have been deleted.
 
-Do not:
+Required before frontend handoff:
 
-- Do not add direct BigQuery/Sheets/GCS/DB access as the final data path.
-- Do not expose unauthenticated real goat data.
-- Do not treat this copy as proof that live dashboards have changed.
-- Do not confuse `git mesha-push main` with a Google dev deploy. Pushed code is
-  only in Git; the raw Cloud Run URL still serves the previous image until the
-  admin-web image is rebuilt and the service is redeployed.
-- Do not use a `missing_config`, token error, blank page, or console-only check
-  as visual QA evidence.
+```bash
+npm run check:mock-fidelity
+npm run lint
+npm run typecheck
+npm run build
+```
+
+When local backend/admin-web can run:
+
+```bash
+npm run smoke:visual:live
+```
+
+Open the generated screenshots under
+`.codex-goatos-render/admin-web-screenshots/` before claiming visual QA.
+
+## Active Routes
+
+Only these routes are current product routes:
+
+```text
+/login
+/
+/vaccination
+/vaccination/adherence
+/config
+/goats/{goat_id}
+```
+
+`/vaccination/config` may redirect to `/config?category=vaccination` for
+compatibility, but Config itself stays generic and category/schema-driven.
+
+## Hard Rules
+
+- PHC is a vertical and must not use the syringe/injection icon.
+- Vaccination may use the syringe/injection icon.
+- Parks/Sheds are execution context for vaccination, not a generic Parks
+  product build in this slice.
+- Control Tower must not show raw goat census/count totals or generic dashboard
+  KPIs.
+- Goat Passport is reached from scoped rows, cohorts, obligations, or known URLs;
+  do not add a global million-goat search as the main workflow.
+- Backend/API/RBAC/session wiring may be reused; old frontend routes and old
+  visual shell must not be reused.
+- Do not add direct BigQuery, Sheets, GCS, Firestore, or database access from
+  frontend code.
+
+## Removed From Active Admin-Web
+
+Do not rebuild these unless the product scope is explicitly reopened:
+
+```text
+/counts
+/locations
+/operators
+/sops
+/tasks
+/import-review
+/data-quality
+/data-quality/review-guide
+/legacy-sync
+/dashboard/mortality
+/herd
+```
+
+The live `../../dashboard/` repo remains untouched reference material only.

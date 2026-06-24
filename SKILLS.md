@@ -52,13 +52,21 @@ Before implementing any phase:
 
 ```text
 1. Read docs/phases/README.md.
-2. Read that phase's PRD.md and TRD.md.
+2. Read the active PRD/TRD listed there.
 3. Load .agents/skills/goatos-build/SKILL.md.
 4. Load the reference files relevant to the changed area.
 5. If the phase introduces a new permanent rule, module, tool, API pattern, or
    workflow, update the relevant skill reference before coding.
 6. Keep deep product truth in context/ and docs/phases/.
 7. Keep skill references short routing/playbook files, not duplicate specs.
+```
+
+Current override:
+
+```text
+For Protocol Engine Phase 0 (PHC vaccination, feed direction, protocol config,
+obligations, inventory ledger), load .agents/skills/goatos-build/SKILL.md and
+then docs/protocol-engine/* and docs/phc-vaccination/*.
 ```
 
 After implementing any phase:

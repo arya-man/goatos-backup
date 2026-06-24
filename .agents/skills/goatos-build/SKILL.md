@@ -19,19 +19,40 @@ Load the context index from the current Goat OS repo/workspace root:
 
 Then load only the references needed for the task from the table below.
 
+## Current Active Build Path
+
+For protocol/config-driven operations work, the active implementation path is
+**Protocol Engine Phase 0**. Use these as the source of truth for PHC
+vaccination, feed direction, protocol rules, obligations, inventory ledger,
+Action Center, Protocol Adherence, and Phase 0 implementation:
+
+```text
+docs/protocol-engine/PHASE-0-CHECKLIST.md
+docs/protocol-engine/IMPLEMENTATION-PLAN.md
+docs/protocol-engine/obligation-engine.md
+docs/protocol-engine/state-machines.md
+docs/protocol-engine/migration-and-cutover.md
+docs/phc-vaccination/TRD.md
+docs/feed-direction/TRD.md
+mock/goatos-dashboard-mock.html
+```
+
+Use older `docs/phases/*` docs for existing built repo patterns and historical
+status only. They do not override the protocol-engine Phase 0 contract above.
+
 ## Reference Guide
 
 | Reference | Load when |
 | --- | --- |
 | `references/repo-structure.md` | Creating/scaffolding `goatos/`, moving docs, setting up `.claude`, `.agents`, `AGENTS.md`, `CLAUDE.md`, or deciding where files live |
 | `references/architecture.md` | Reviewing or changing contexts, modules, boundaries, ports/adapters, backend shape, or AI authority rules |
-| `references/backend-impl.md` | Extending/reviewing built Go backend code, Phase 1 identity read APIs, backend package patterns, request middleware, tenant-scoped queries, sqlc follow-up, RFID import/apply operations, source discovery, local full-stack rehearsal, anomaly reports, local import runbooks, observability and logging, panic recovery, or log sinks |
+| `references/backend-impl.md` | Extending/reviewing built Go backend code, current API wiring, identity passport/identifier surfaces, protocol/obligation/vaccination modules, backend package patterns, request middleware, tenant-scoped queries, sqlc follow-up, observability and logging, panic recovery, or log sinks |
 | `references/forms-sop.md` | Working on SOP forms, form DSL, builder/editor, native runner, task engine, verification flow, or Slack-form replacement |
 | `references/contracts-events.md` | Adding/changing OpenAPI, JSON Schema, protobuf, event envelope, decision records, generated clients, or contract drift checks |
 | `references/frontend-mobile.md` | Reusing existing dashboard/mobile UI, changing admin-web/operator-mobile, role-aware dashboard, RBAC UI visibility, or app data adapters |
 | `references/analytics-infra.md` | Analytics, BI, AI analyst, BigQuery, Tinybird, Cube, dbt, Metabase, telemetry, cost guardrails, or dashboard metric source |
-| `references/execution-plan.md` | Splitting work across two developers/agents, delivery phases, dev/stg/prod setup, load testing, SLOs, or migration spike |
-| `references/phase-prd-trd.md` | Starting or reviewing a phase PRD/TRD, checking phase scope, or ensuring phase docs update agent references before code |
+| `references/execution-plan.md` | Splitting work across two developers/agents, Protocol Engine Phase 0, delivery phases, dev/stg/prod setup, load testing, SLOs, or migration spike |
+| `references/phase-prd-trd.md` | Starting or reviewing a phase PRD/TRD, Protocol Engine Phase 0, checking phase scope, or ensuring phase docs update agent references before code |
 | `references/source-findings.md` | Using facts from General/Slack docs, customer promise safety findings, legacy source docs, or checking whether source facts reached canonical docs |
 | `references/existing-repos.md` | Inspecting or migrating from `dashboard`, `vgoats-dashboard`, `procurement_app`, `slack-automation-scripts`, or `website` reference repos |
 | `references/security-ops.md` | Dashboard gating, Slack token rotation, secrets, IAM tiers, prod read-only agent access, or auth/RBAC concerns |
@@ -74,6 +95,9 @@ one product; this skill is the navigation layer.
 - Keep Slack/Sheets/App Script as legacy reference/migration only.
 - When source artifacts add lasting facts, sync the relevant `context/` doc and
   this skill's reference map in the same closeout.
+- For protocol/config work, keep workflow status separate from source/review
+  trust: `protocol_versions.status` is `draft`/`published`/`retired`;
+  source-backed approval lives under `rule_dsl.source`.
 
 ## Must Not
 
@@ -85,3 +109,6 @@ one product; this skill is the navigation layer.
   intentional exception and should be snapshot/cloned into `goatos/apps/` for
   safe rewiring while live repos stay untouched.
 - Do not treat the public website as Goat OS core.
+- Do not use demo/sandbox as protocol rule concepts. Unsourced or unapproved
+  rules remain `draft` with a `not source-backed` warning; only source-backed,
+  approved rules may publish.

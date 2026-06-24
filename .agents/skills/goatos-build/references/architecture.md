@@ -10,8 +10,8 @@ Canonical docs:
 - `context/execution/next-contracts.md`
 - `context/product/glossary.md`
 - `docs/decisions/go-backend-stack.md`
-- `docs/phases/phase-01-goat-passport/PRD.md`
-- `docs/phases/phase-01-goat-passport/TRD.md`
+- `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
+- `docs/phc-vaccination/TRD.md`
 
 Rules:
 
@@ -20,10 +20,10 @@ Rules:
   use net/http or chi for HTTP adapters, pgx + sqlc-style typed SQL for
   Postgres adapters, goose-style plain SQL migrations, and explicit constructor
   wiring. Do not add Gin, GORM/ORM, runtime DI containers, direct client gRPC,
-  or protobuf in Phase 1 without a new ADR.
+  or protobuf for browser/mobile product clients without a new ADR.
 - Modules own tables and expose defined interfaces.
 - Cross-context propagation uses contracts, outbox, Pub/Sub, and APIs.
-- Phase 1 identity foundation uses tenants for isolation, global parties for
+- The identity foundation uses tenants for isolation, global parties for
   actors, shared-PK org subtype rows, owner_party/custodian_party separation,
   temporal ownership/custody ledgers, and locations as separate physical
   entities. Do not reintroduce `owning_farm_id` as identity/ownership truth.

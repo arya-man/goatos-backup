@@ -1,131 +1,91 @@
 # Frontend And Mobile Reference
 
-Load this when working on admin-web, dashboards, operator-mobile, UI reuse,
-RBAC visibility, generated clients, offline sync, media capture, or app adapters.
+Load this when working on admin-web, operator-mobile, UI reuse, RBAC
+visibility, generated clients, offline sync, media capture, or app adapters.
 
 Canonical docs:
 
+- `context/frontend/current-admin-web-scope.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
-- `context/execution/two-dev-build-plan.md`
-- `docs/features/counts/PRD.md`
-- `docs/features/counts/TRD.md`
-- `docs/features/locations/PRD.md`
-- `docs/features/locations/TRD.md`
-- `docs/features/operator-management/PRD.md`
-- `docs/features/operator-management/TRD.md`
-- `docs/features/operator-management/AGENT-TASK-ADMIN.md`
-- `docs/features/operator-management/AGENT-TASK-ANDROID.md`
-- `docs/phases/phase-02-sop-task-engine/PARALLEL-AGENT-RUNBOOK.md`
-- `docs/phases/phase-02-sop-task-engine/INTEGRATION-CHECKLIST.md`
+- `docs/phc-vaccination/PRD.md`
+- `docs/phc-vaccination/TRD.md`
+- `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
+- `docs/protocol-engine/obligation-engine.md`
+- `docs/protocol-engine/state-machines.md`
 
-Rules:
+## Current Admin-Web Build
 
-- Existing live dashboard repos are reference/source material and must stay untouched during Goat OS rewiring.
-- Take fresh snapshots/clones into `goatos/apps/admin-web` and `goatos/apps/investor-web-shadow`; change only those copies.
-- Keep useful UI/components, replace data path with Goat OS APIs/analytics APIs in the goatos copies.
-- Current live dashboard URLs keep running until the new Goat OS dashboards validate against them.
-- Operators use Android task/form app, not BI dashboards.
-- Android operator app visibility comes from Operator Management app bootstrap:
-  active profile, role/scope grants, capabilities, device/session state,
-  compatible app version, and allowed task/SOP manifests.
-- App code depends on generated clients and adapters, not direct vendor SDK calls.
-- Legacy BigQuery is a temporary bridge, not a frontend dependency. Admin-web
-  and mobile screens must not contain BQ table names, column names, or export
-  labels in product UI; those belong behind backend sync/reconciliation
-  adapters. A future "Sync with BQ" control may trigger a backend job and show
-  freshness/status, but the same UI should survive when direct Goat OS capture
-  replaces the BQ bridge.
-- `packages/api-client` is the generated OpenAPI TypeScript client package for
-  app/admin/analytics APIs. Admin-web and future mobile screens must use it
-  through small app adapters instead of hand-copying DTOs.
-- `apps/admin-web` is currently the Phase 1 Mesha-style SSR-first internal admin
-  surface for local Phase 1 screens and defined action forms backed by
-  `@goatos/api-client`.
-  Server-side adapters keep bearer tokens out of browser code; live screens
-  cover the overview, herd search, goat passport with live timeline, identity
-  counts, Import Review with recent-run picker, data quality queues, correction request queue reads,
-  Legacy Sync source/run freshness with a backend-triggered sync modal,
-  Import Review backend-owned CSV downloads relayed through the Next server,
-  and server-side forms for correction create/resolve, candidate reject,
-  conflict reject/merge, field-check requests, identifier-dispute marking, and
-  goat identifier add/retire. The visible shell uses
-  Mesha branding; Goat OS and VGoat labels are internal/legacy labels and must
-  not appear in rendered admin-web UI copy.
-- Fresh local closeout proof on June 12, 2026 rendered the Mesha admin-web
-  against the real RFID import run after guarded RFID-only apply. The historical
-  pre-000015 proof was 711 created goats and 512 review rows; after migration
-  000015, Anantapur Sheep and other nonblank source Breed labels create
-  passports when the other gates pass. Unknown labels remain review-status in
-  the catalog until operator review. The current post-BQ proof expects 1219
-  created passports, 4 duplicate-old-tag import-review rows, 0 errors, and
-  tenant_lifecycle counters alive=1113, sold=71, dead=35, inactive=0 after
-  `backend/cmd/bq-reconcile`, final `rfid-apply`, and counter rebuild. It also
-  expects identity_state 1088 clean / 131 needs_review, 54 lifecycle
-  `status_mismatch` conflicts, and 106 BQ attribute review conflict rows covering
-  108 sex/breed disagreement or BQ self-contradiction occurrences. Current locations are 891
-  shed-level, 56 park-only, and 272 unmatched passports left unchanged. The proof
-  covers overview, counts, herd search, a real goat passport, live Import Review
-  rows, and the live Data Quality conflict queue when BQ conflicts are present.
-  Candidates and correction requests remain honest empty states unless populated;
-  backend tests cover populated list paths separately.
-- Admin-web is upgraded from the copied dashboard's Next 14 / React 18 stack to
-  the frozen framework baseline in
-  `context/frontend/final-frontend-mobile-backend-architecture.md`: Next
-  16.2.9, React 19.2.7, React DOM 19.2.7, Tailwind 4.3.0, React Query 5.101.0,
-  lucide 1.17.0, Recharts 3.8.1, and matching TypeScript/types/ESLint tooling.
-  Do not silently build new screens on the old framework stack.
-- Treat the frontend baseline as intentionally current. Every new frontend
-  dependency, shadcn/Radix-style component, copied legacy component, or chart
-  package must be checked against Next 16, React 19, TypeScript 6, and Tailwind
-  4 before landing. If the latest package is not compatible, document the
-  latest compatible pin and reason in the canonical frontend doc, BUILD-STATUS,
-  and admin-web README.
-- Use surface-level microfrontend discipline, not one giant dashboard bundle:
-  admin/internal, investor/external, operator/device, and public/partner are the
-  real surface boundaries. Phase 1 builds the admin surface now, with feature
-  modules such as goat passport, import review, and analytics counts as
-  standalone-capable route modules inside that surface.
-- Prefer Next.js SSR/server components, route-level loading, dynamic imports for
-  heavy charts/tables, backend pagination, and backend-shaped summaries. Do not
-  client-render and ship every dashboard module up front.
-- Stack rules: use TanStack Query only for client-interactive API views; use
-  Zustand only for local UI state, never canonical goat/backend data or tokens;
-  treat shadcn-style components as local source components; dynamically import
-  Recharts when heavy; defer Auth.js until production web sessions are designed.
-  Phase 1 bearer/dev tokens stay server-side and backend RBAC remains authority.
-- When a second web surface lands, prefer Next.js Multi-Zones or separate Next
-  apps routed by path/domain for independent surface deploys. Use Module
-  Federation only after an explicit decision that runtime module-into-host
-  remotes are needed inside a surface.
-- No-rewrite rule: Phase 1 `admin-web` is the future `/admin` zone. Adding
-  `apps/investor-web` or another surface later must be additive, not a rewrite,
-  because shared UI, generated clients, auth/RBAC helpers, and server-side data
-  adapters live behind package/public module boundaries from the start.
-- Do not allow cross-module deep imports. Feature modules consume public module
-  interfaces plus shared `packages/ui`, generated clients, auth, and RBAC
-  helpers. The first slice that creates real admin feature modules must add a
-  `check-boundaries.sh` guard or equivalent CI check for this boundary.
-- Do not reintroduce executable `apps/admin-web/app/api/*` BigQuery/Sheets
-  routes or `lib/bigquery.ts`. Deleted legacy route code is available in git
-  history if needed as reference.
-- The boundary guard checks rendered/admin-web-facing TypeScript and TSX for
-  visible `Goat OS` or `VGoat` labels. Internal code identifiers such as
-  `GOATOS_*`, `@goatos/api-client`, and `GoatOSApiError` remain allowed.
-- Any frontend code change must be visually verified before push. Open the
-  changed local page, capture/review screenshots, and compare against the legacy
-  dashboard in a second tab when a legacy analogue exists. The counts reference
-  is `https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall`.
-  Check alignment, tab/title spacing, typography, colors, card spacing, chart
-  sizing, labels, icons, empty space, overflow, clipping, and responsive
-  desktop/narrow views. For admin-web, run
-  `npm --prefix apps/admin-web run smoke:visual:live` when the local
-  backend/admin-web can be started; it captures desktop/narrow screenshots and
-  runs layout geometry checks, serious/critical axe checks, token-leak checks,
-  and optional baseline diffs through `smoke:visual:update-baseline` /
-  `smoke:visual:baseline`. Do not treat typecheck/build, a console-only check,
-  or a `missing_config` screenshot as UI proof.
-- Peer dashboard panels must align. Equal-priority cards such as queue/status
-  pairs use equal desktop grid columns and visually matched edges/heights by
-  default. Weighted fractions are reserved for deliberate master/detail layouts,
-  and the visual QA note must explain why asymmetry is intentional.
+The current admin-web slice is:
+
+```text
+Admin / Data Ops config + SOP policy
+PHC Vaccination operations
+Parks vaccination execution context
+Control Tower process-gap summary
+Goat Passport contextual drilldown
+```
+
+Build these routes/surfaces only unless the user explicitly reopens scope:
+
+```text
+/login
+/
+/vaccination
+/vaccination/adherence
+/config
+/goats/{goat_id}
+```
+
+Parks is in scope only for vaccination context: park, shed, animal stage,
+defer/blocker state, owner chain, drive status, proof status, and verification
+status. Do not rebuild old Locations or a generic Parks vertical.
+
+The standalone Action Center page can come later, but the shared status model
+must already power PHC/Parks: due, overdue, blocked, proof-pending,
+verification-pending, rejected, deferred, and owner-missing.
+
+## UI Rules
+
+- `mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of truth.
+- Port the mock's layout, table shapes, empty states, icon system, spacing,
+  density, and interaction model.
+- Do not reuse or recolor old admin-web UI, old `admin-primitives`, old chart
+  components, old layout components, or old dashboard routes.
+- Run `npm --prefix apps/admin-web run check:mock-fidelity` before frontend
+  handoff.
+- Run lint/typecheck/build, and run `smoke:visual:live` when local backend and
+  admin-web can be started.
+
+## Data Access Rules
+
+- Admin-web and mobile use generated OpenAPI clients and small app adapters.
+- Browser/mobile code must not read BigQuery, Sheets, GCS, Firestore, or
+  operational databases directly.
+- Backend RBAC remains authority. Frontend visibility is convenience, not
+  security.
+- Tokens stay server-side for admin-web. Do not put bearer tokens in
+  `NEXT_PUBLIC_*`, localStorage, rendered HTML, query params, or static assets.
+
+## Removed From Active Frontend Scope
+
+Do not revive these old admin/dashboard features unless product scope is
+explicitly reopened and the screen is rebuilt from the mock:
+
+```text
+counts dashboard
+mortality dashboard
+herd search as a global primary surface
+Import Review product UI
+Data Quality queues
+Legacy Sync UI
+old Locations page
+old Operators page
+old SOP builder page
+old Tasks page
+old admin-primitives/charts/layout components
+old app/api BigQuery or Sheets routes
+```
+
+Historical docs and git history may contain those names; treat them as
+archaeology, not active build instructions.

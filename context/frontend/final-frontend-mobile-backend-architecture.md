@@ -363,14 +363,11 @@ Next/RN client
   -> domain services / Cube / Tinybird / signed media APIs
 ```
 
-For dashboards:
+For product dashboards/reports:
 
 ```text
-current:
-  React page -> /api/counts -> BigQuery SQL
-
 target:
-  React page -> analytics-client -> analytics-api -> Cube metric -> BigQuery/Tinybird underneath
+  React page -> generated client -> Goat OS API/projection -> approved analytics layer when needed
 ```
 
 Current Goat OS admin-web readiness foundation:
@@ -558,15 +555,9 @@ Do not change every chart at once. The win is moving data access behind contract
 Every frontend code change must end with real rendered screenshots before push.
 Typecheck, lint, and build are not enough for UI work.
 
-For any page that has a legacy dashboard analogue, open the legacy page in a
-separate browser tab and compare the changed Goat OS page against it before
-pushing. For the counts dashboard, the legacy reference URL is:
-
-```text
-https://dashboard--goatos-sheets.us-central1.hosted.app/counts/overall
-```
-
-The comparison must inspect layout and visual quality, not just route liveness:
+For admin-web, compare changed routes against the active mock/source of truth
+named in `context/frontend/current-admin-web-scope.md`. The comparison must
+inspect layout and visual quality, not just route liveness:
 sidebar alignment, tab/title alignment, typography, color, card spacing,
 padding, chart sizing, axis/label placement, icon treatment, background
 contrast, empty space, overflow, clipping, and responsive desktop/narrow

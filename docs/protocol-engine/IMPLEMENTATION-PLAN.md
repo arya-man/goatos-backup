@@ -14,7 +14,7 @@
 | Workforce / RBAC | `workforce_*`, `user_scope_grants`, `auth_pending_email_grants` (`000050`, `000023`) | `internal/workforce`, `internal/permissions` |
 | **SOP engine** | `sop_definitions/versions/tasks/submissions/submission_items` (`000060`) | **`internal/sop`** — `app/service.go` (`ValidateFormDSL`, `Evaluate`), http handler, postgres repo ✅ |
 | **Transactional outbox** | `outbox_messages`, `idempotency_keys` (`000001`) | **`internal/outbox`** — lease-based relay (ClaimPending→publish→MarkPublished), postgres repo, **logging publisher stub** ✅ |
-| Projection-contract | `feature_coverage_registry`, counts/mortality `*_projection*` (`000030/040`) | `internal/counts`, `internal/mortality` (pattern to mirror) |
+| Projection-contract | `feature_coverage_registry`, process-integrity projection contracts | Obligation/vaccination projections; do not mirror deleted counts/mortality runtime modules |
 | Audit | `audit_log` (partitioned) (`000001`) | platform |
 
 ### 2. Docs / spec only (written, zero code)
@@ -23,7 +23,6 @@
 
 ### 3. Mock only (UI prototype, static data, no backend)
 - `goatos/mock/goatos-dashboard-mock.html` — Control Tower, Action Center (adherence-grouped), **Protocol Adherence**, vaccination/feed module views, role switcher, scope toggle. All static.
-- `goatos-v1-mock.html` — **frozen/dead**; cherry-pick its fixes (viewport-responsive, superadmin-only switcher, category capabilities) then delete.
 
 ### 4. Needs new migration / code
 - **Migrations `000070–078`** (below). `internal/vaccination` + `internal/feed` = **stubs** (build out); `internal/protocol`, `internal/obligation`, `internal/inventory` = **absent** (create).
@@ -74,9 +73,10 @@ protocol_definitions → protocol_versions (PUBLISHED, effective-dated) → prot
 ```
 Adherence = **computed**: expected (rule) vs actual (completion + proof + timing). `sop_versions` = the *how*; obligations = the *what's due*; protocol = the *what should happen*.
 
-## E. Frontend: v1 actual build vs mock-only
-- **v1 ACTUAL** (admin-web Next.js + mobile): Control Tower (reads projections), Action Center (obligations/gaps), **Protocol Adherence**, **Vaccination** (config + drives + stock), **Feed Direction**, **Goat Passport**, **CEO/COO config screen** (draft→impact-preview→publish). Mobile: Action Center + SOP execution + Passport.
-- **Mock-only (NOT v1 code yet):** the other verticals' full screens (Counts/Breeding/Procurement/Parks/HR/etc.) and legacy chart-parity — stay mock until later phases.
+## E. Frontend: current slice vs later
+- **Build now:** Admin Config / Protocol Rules (`/config`), PHC Vaccination Operations, Parks vaccination execution context, contextual Goat Passport vaccination history, and the work-state data needed by those screens.
+- **Design now, full UI later:** standalone Action Center and Control Tower. Their status model must exist underneath PHC/Parks, but their full command-room surfaces should summarize real gaps only after the operating workflows are wired.
+- **Later verticals:** feed direction, procurement, breeding, HR, analytics, and the other non-vaccination modules remain valid Goat OS scope, but must not pull this slice back into the old generic dashboard/admin phase ladder.
 
 ## F. Seed / draft test data
 - **Allowed:** structural seeds — `animal_stage_lookup` bands, park/shed profiles from **real `locations`**, vaccination SOP `form_dsl`/`proof_policy` (from wiki §6 + PHC handbook), capability seeds, and **draft test `protocol_rules` (`status='draft'`, `source_system='manual_admin'`/`review_status='extracted'`)** — these carry a **`not source-backed`** warning, are never `published`, and generate no obligations.
