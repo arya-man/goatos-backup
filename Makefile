@@ -1,6 +1,21 @@
 SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
 
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+
+setup-crg:
+	@echo "Installing code-review-graph for structural code graph (Layer 1)..."
+	pip install code-review-graph || pipx install code-review-graph
+	code-review-graph install
+	code-review-graph build
+	@echo ""
+	@echo "CRG ready. goatos-docs Graphify graph already committed at graphify-out/graph.json."
+	@echo "To rebuild it after major doc changes: make update-docs-graph"
+
+update-docs-graph:
+	@echo "Rebuilding goatos-docs Graphify graph (requires graphify + LLM calls)..."
+	@echo "Run /graphify in Claude Desktop/Terminal:"
+	@echo "  /graphify docs context .agents/skills/goatos-build/references --update"
+	@echo "Then commit the updated graphify-out/graph.json and graphify-out/GRAPH_REPORT.md"
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh

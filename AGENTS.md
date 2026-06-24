@@ -1,5 +1,55 @@
 # Goat OS Workspace Agent Context
 
+## MANDATORY: 4-Layer Lookup on Every Code Question
+
+Work through layers in order. Stop at the layer that answers the question. Do NOT jump to files/grep first.
+
+### Layer 1 — CRG (code structure)
+For callers, callees, imports, blast radius, architecture, dead code, test coverage:
+```
+repo_root: /Users/ravi/mesha/goatos
+
+1. get_architecture_overview_tool  — orient first
+2. semantic_search_nodes_tool      — keywords from the question
+3. query_graph_tool                — callers_of / callees_of / imports_of / tests_for
+4. get_impact_radius_tool          — if anything is changing
+```
+
+### Layer 2 — Graphify (business/product context + technical docs)
+Two graphs. Query both in parallel:
+
+**mesha_docs_graph** — wiki SOPs, farm workflows, vaccination protocols, org model:
+```
+MCP: mesha_docs_graph
+CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
+       --graph /Users/ravi/mesha/graphify-out/graph.json
+```
+
+**goatos-docs graph** — TRDs, ADRs, phase docs, obligation engine, skill references (committed, available to all devs):
+```
+CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
+       --graph ./graphify-out/graph.json
+```
+191 nodes, 265 edges: protocol engine, PHC vaccination, feed direction, frontend scope,
+analytics infra, execution plans, observability, auth, SOP cutover, skill references.
+
+### Layer 3 — Skill references (architecture decisions, TRDs, phase contracts)
+When CRG + Graphify don't cover it — deep implementation rules, phase PRDs/TRDs,
+OpenAPI contracts, form DSL, analytics infra, security/ops rules:
+```
+Load .agents/skills/goatos-build/SKILL.md → pick only the relevant reference doc
+Do NOT load all reference docs — let CRG + Graphify narrow which one applies
+```
+
+### Layer 4 — Grep/Read (CRG blind spots)
+Only for what the graph cannot see:
+- HTTP route strings (`r.GET("/api/v1/...")`)
+- Middleware wired via reflection or string keys
+- Config/env values and constants
+- SQL query strings
+- Uncommitted/unstaged code
+- Any `callers_of = 0` result that seems wrong — verify with grep
+
 Read first:
 
 - `context/README.md`
@@ -19,13 +69,21 @@ Purpose:
 
 - Goat OS is the operating system for goat identity, health, vaccination, genetics, breeding, workforce, SOP tasks, media proof, verification, devices, commerce interfaces, and analytics.
 - Canonical backend/data model/app APIs are built fresh.
+- Scope lock: build exactly the user-approved slice, not adjacent product areas
+  that the shared platform could theoretically support. Generic foundations are
+  allowed only when they serve the approved slice; visible routes, nav, seeded
+  cards, mock data, screenshots, and handoff language must not imply another
+  vertical is built. For the current admin-web review, the visible slice is PHC
+  Vaccination plus Admin/Data Ops config and vaccination SOP policy.
 - Current admin-web frontend scope supersedes the old dashboard/admin product
   surface. For admin-web UI work, read
   `context/frontend/current-admin-web-scope.md`: build the connected Admin
-  Config + PHC Vaccination + Parks vaccination execution slice, with Control
-  Tower summarizing only process gaps. Old Operations/Legacy/SOP/counts/import
-  routes are removed from active admin-web and must not be rebuilt unless scope
-  is explicitly reopened.
+  Config + PHC Vaccination + vaccination execution context slice (rendered inside
+  /vaccination, with shed detail under /vaccination/execution/sheds/{shed_id}),
+  with Control Tower summarizing only process
+  gaps. Old Operations/Legacy/SOP/counts/import routes are removed from active
+  admin-web and must not be rebuilt unless scope is explicitly reopened. Parks is
+  NOT a separate vaccination product route or sidebar entry.
 - **NON-NEGOTIABLE — the ONLY admin-web UI/UX source of truth is the mock**
   `mock/goatos-dashboard-mock.html`. PORT its layout, structure, table shapes,
   empty states, icon system, spacing, and density. It is **not a color theme**.
@@ -34,11 +92,32 @@ Purpose:
   is gone; rebuild from scratch to the mock. MANDATORY before any frontend
   `git mesha-push`: `npm --prefix apps/admin-web run check:mock-fidelity` must
   pass + visual compare to the mock.
-- Frontend IA guardrails: PHC is a vertical and must not use the syringe/
-  injection icon; the syringe/injection icon belongs to the Vaccination module.
-  Counts is a separate vertical, so Control Tower must not show raw goat census
-  totals as its own KPI. Control Tower is for gaps, adherence, exceptions,
-  escalations, and next actions.
+- Frontend product taxonomy is non-negotiable:
+  - **Vertical** = business operating domain/department, such as PHC, Parks,
+    Procurement, Admin/Data Ops, Counts, Breeding, Inventory, HR/People, Farmer
+    Network. A vertical owns operational context.
+  - **Module** = a concrete workflow/product inside a vertical, such as
+    PHC -> Vaccination, PHC -> future Treatment/Deworming, Procurement -> Source
+    Entry, or future Parks-owned modules. Parks is a scope/context dimension for
+    vaccination execution, not the owner of a vaccination module.
+  - **Command lens** = top-level cross-module screen, not a vertical or module:
+    Control Tower, Action Center, Protocol Adherence, and Workflows.
+  PHC is a vertical and must not use the syringe/injection icon; the syringe/
+  injection icon belongs to the Vaccination module. Counts is a separate
+  vertical, so Control Tower must not show raw goat census totals as its own
+  KPI. Control Tower is for gaps, adherence, exceptions, escalations, and next
+  actions.
+- Frontend command-room/authority guardrail: Control Tower, Action Center,
+  Protocol Adherence, and Workflows are top-level screens only. Config and SOP
+  Library are top-level Admin / Data Ops authority screens only. Do not duplicate
+  them under procurement/source-entry, PHC, Parks, or any future vertical as
+  routes, redirects, tabs, or nav items. A vertical can feed those top-level
+  screens through a selected domain/filter/lens such as `?domain=procurement` or
+  `?category=vaccination`, but it must not create nested routes like
+  `/vaccination/adherence`, `/vaccination/config`,
+  `/procurement/source-entry/action-center`, `/procurement/source-entry/control-tower`,
+  or any `/parks/vaccination` nested command paths. Vaccination execution
+  renders INSIDE /vaccination, never as a separate Parks route.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen
   (`/config`) for CEO/COO/superadmin users. It is not owned by PHC/Vaccination.
   PHC/Vaccination may link to `/config?category=vaccination`, but the Config UI
@@ -157,6 +236,13 @@ Do:
 
 Do not:
 
+- Do not break a running local dev server. Never `rm -rf .next` (or delete/move
+  `.next`/`.next/dev`/`.next/cache`), never `kill`/restart/re-port a dev server
+  or port the user started, and never run a production `next build` into an app
+  dir while its `next dev` is live. Stale `.next` type validators after a route
+  delete do not require nuking `.next`. See
+  `apps/admin-web/AGENTS.md` → "Local Dev Server Safety" for the full rule. This
+  applies to every agent (Codex and Claude).
 - Do not reintroduce old staging labels as architecture.
 - Do not let frontend/mobile read BigQuery, Sheets, Firestore, GCS, or operational databases directly.
 - Do not spread vendor SDK calls through product code.

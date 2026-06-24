@@ -54,3 +54,7 @@ Screenshots/
 # local agent/render scratch
 .codex-goatos-render/
 .code-review-graph/
+
+# graphify machine-specific files (graph.json committed, these are not)
+graphify-out/.graphify_python
+graphify-out/cache/

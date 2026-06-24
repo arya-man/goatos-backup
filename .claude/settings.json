@@ -18,6 +18,10 @@
           {
             "type": "command",
             "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh"
+          },
+          {
+            "type": "command",
+            "command": "code-review-graph update /Users/ravi/mesha/goatos >/dev/null 2>&1 &"
           }
         ]
       }

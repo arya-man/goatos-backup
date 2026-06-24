@@ -11,13 +11,41 @@ argument-hint: "[area: backend|forms|mobile|dashboard|analytics|infra|contracts|
 Use this skill for Goat OS engineering work. This file is the single entry point
 for references. Do not route from memory alone.
 
-## Required First Step
+## Required First Step — 4-Layer Lookup
 
-Load the context index from the current Goat OS repo/workspace root:
+Work layers in order. Stop when the question is answered. Never jump to files first.
 
-- `context/README.md`
+**Layer 1 — CRG** (code structure: callers, imports, blast radius)
+```
+repo_root: /Users/ravi/mesha/goatos
+1. semantic_search_nodes_tool  — keywords from the task
+2. query_graph_tool            — callers_of / callees_of / imports_of / tests_for
+3. get_impact_radius_tool      — if anything is changing
+```
 
-Then load only the references needed for the task from the table below.
+**Layer 2 — Graphify** (business context + technical docs). Query both in parallel:
+
+**mesha_docs_graph** — wiki SOPs, farm workflows, vaccination protocols, org model (maintainer-local only):
+```
+MCP: mesha_docs_graph or mesha_visual_graph
+CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
+       --graph /Users/ravi/mesha/graphify-out/graph.json
+```
+
+**goatos-docs graph** — TRDs, ADRs, protocol engine, obligation engine, frontend scope, skill refs (committed, available to all devs):
+```
+CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
+       --graph ./graphify-out/graph.json
+```
+191 nodes, 265 edges. Skip mesha_docs_graph if not configured — use goatos-docs graph alone.
+
+**Layer 3 — Skill references** (architecture decisions, TRDs, contracts)
+Load `context/README.md`, then only the ONE reference doc from the table below
+that CRG + Graphify point toward. Do not load all references blindly.
+
+**Layer 4 — Grep/Read** (CRG blind spots only)
+HTTP route strings, middleware wiring, config values, SQL strings, uncommitted code,
+any `callers_of = 0` that seems wrong.
 
 ## Current Active Build Path
 
@@ -82,6 +110,9 @@ one product; this skill is the navigation layer.
 ## Must
 
 - Read wide, write narrow.
+- Lock to the user-approved slice. Shared/generic infrastructure may be built
+  only to serve that slice, and visible UI/API handoffs must not present future
+  verticals as live product.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the
