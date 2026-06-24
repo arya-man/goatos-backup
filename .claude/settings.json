@@ -22,6 +22,10 @@
           {
             "type": "command",
             "command": "code-review-graph update /Users/ravi/mesha/goatos >/dev/null 2>&1 &"
+          },
+          {
+            "type": "command",
+            "command": "bash tools/agent-hooks/update-docs-graph.sh"
           }
         ]
       }
