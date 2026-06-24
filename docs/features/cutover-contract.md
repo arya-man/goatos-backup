@@ -6,14 +6,13 @@ This contract applies to feature specs that temporarily read legacy
 BigQuery/Sheets source evidence and later cut over to Goat OS Android/backend
 commands as the primary write path.
 
-Current counter-family users:
+Current users:
 
-- `docs/features/counts/PRD.md`
-- `docs/features/counts/TRD.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
-- `docs/features/mortality/PRD.md`
-- `docs/features/mortality/TRD.md`
+
+Old counts and mortality feature specs were deleted from the active tree. Do
+not use this contract to revive the old dashboard parity track.
 
 The goal is one stable frontend/API/projection contract while source adapters
 change underneath it.

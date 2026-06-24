@@ -8,11 +8,10 @@ Read first:
 - `SKILLS.md`
 - `context/README.md`
 - `.agents/skills/goatos-build/SKILL.md`
-- `docs/features/counter-family/AGENT-RUNBOOK.md`
-- `docs/features/counter-family/INTEGRATION-CHECKLIST.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
 - `docs/features/cutover-contract.md`
+- `docs/decisions/high-scale-dashboard-projections.md`
 
 ## Scope
 

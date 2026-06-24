@@ -19,8 +19,9 @@ Rules:
   screenshots, or private rows.
 - If a source fact affects build behavior, it must land in an authoritative
   context doc, not only in analysis or archive.
-- Archive docs are historical only. If a breed, table, SOP, or form field only
-  exists in `docs/archive/planning-history/`, it is not build-canonical.
+- Deleted archive docs and old phase ladders are historical only. If a breed,
+  table, SOP, or form field only exists in git history, it is not
+  build-canonical.
 - Source facts captured so far include:
   - CBE/CPT/CJB/BLR aliases and old-tag scope.
   - RFID source snapshot aggregate counts, RFID uniqueness, old-tag duplicate

@@ -2,27 +2,20 @@
 
 Status: frozen migration checklist.
 
-This maps the archived planning docs into the current authoritative docs.
+This maps former planning topics into the current authoritative docs.
 
-Purpose: make sure nothing discussed in `goatos-categories.md` and related
-planning files is lost while keeping the active docs clean.
+Purpose: make sure old planning topics were not lost while keeping the active
+docs clean.
 
 Do not treat this as living architecture. It is a baseline proving scope was
 not lost during consolidation. Removing rows or narrowing scope needs an
 explicit review note or ADR.
 
-## Source Docs Now Archived
+## Source Docs Removed From Active Tree
 
-```text
-docs/archive/planning-history/goatos-categories.md
-docs/archive/planning-history/goatos-current-system-assessment.md
-docs/archive/planning-history/goatos-dashboard-visibility.md
-docs/archive/planning-history/goatos-frontend-gap-analysis.md
-docs/archive/planning-history/goatos-infra-and-context-direction.md
-docs/archive/planning-history/goatos-pluggable-architecture.md
-docs/archive/planning-history/existing-repos-inventory.md
-docs/archive/planning-history/existing-repos-deep-audit.md
-```
+The old planning snapshots were deleted from the active repo after their useful
+coverage was folded into current context and phase docs. Use git history only
+for explicit historical comparison.
 
 ## What Is Covered Where
 

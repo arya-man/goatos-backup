@@ -10,8 +10,9 @@ Active-doc grep:
 rg "term" context
 ```
 
-Do not include `docs/archive/planning-history/` in normal agent
-searches. That folder is historical only.
+Historical planning/archive docs were removed from the active tree. Do not use
+git history or source material for build direction unless a human explicitly
+asks for archaeology.
 
 ## Authoritative Architecture Sources
 
@@ -78,13 +79,9 @@ These files supersede older root-level planning docs where they disagree. In par
 
 ## Historical / Source Documents
 
-```text
-Historical planning files live outside this canonical context tree:
-  docs/archive/planning-history/
-
-Those files are superseded. Do not use them as build instructions unless a
-human explicitly asks for historical comparison.
-```
+Old planning archives and old phase ladders are intentionally absent from the
+active repo. They are superseded by the current context, protocol-engine, and
+PHC vaccination docs. Use git history only for explicit historical comparison.
 
 ## Ownership Targets
 

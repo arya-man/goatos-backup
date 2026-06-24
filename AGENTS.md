@@ -11,9 +11,9 @@ Read first:
 - `context/analytics/final-analytics-infra.md`
 - `context/agents/ai-agent-context-and-protocols.md`
 
-Ignore unless explicitly asked for historical archaeology:
-
-- `docs/archive/planning-history/`
+Historical planning/archive docs were removed from the active tree. If a human
+explicitly asks for archaeology, use git history or source material rather than
+normal build docs.
 
 Purpose:
 

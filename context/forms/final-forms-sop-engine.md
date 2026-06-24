@@ -63,13 +63,14 @@ Phase 2 platform acceptance, legacy SOP execution retirement, and dashboard
 BQ/Sheets source retirement are separate gates and must not be reported as one
 cutover switch.
 
-Android SOP execution depends on Operator Management:
-`docs/features/operator-management/PRD.md` and
-`docs/features/operator-management/TRD.md`. The native app receives dynamic SOP
-forms through pinned DSL versions and backend app bootstrap, but it only renders
+Android SOP execution depends on workforce/RBAC active profiles, scope grants,
+capabilities, device/session state, and backend app bootstrap. The native app
+receives dynamic SOP forms through pinned DSL versions, but it only renders
 native-supported field types, rule operators, workflow states, option sources,
 and proof actions. Backend bootstrap must hide or block incompatible SOP
-versions instead of requiring an APK update for every form permutation.
+versions instead of requiring an APK update for every form permutation. The old
+operator-management feature specs were deleted from the active tree and must not
+be used to revive the old phase ladder.
 
 ## Why Own The Builder
 
@@ -255,11 +256,11 @@ sale / exit / inactive
 operator management / app bootstrap
 ```
 
-Use `docs/phases/phase-02-sop-task-engine/SOP-CLOSEOUT.md` as the live Phase 2
-cross-check for what is already captured and what remains missing before legacy
-SOP execution and BQ/Sheets dashboard intake can be retired. The closeout file
-does not mean Phase 2 implements every SOP family; it prevents Shifting from
-being mistaken for full SOP replacement.
+Use `docs/protocol-engine/`, `docs/phc-vaccination/`, and
+`context/frontend/current-admin-web-scope.md` as the live cross-check for the
+current Admin Config + PHC Vaccination + Parks vaccination execution slice. The
+old generic SOP task-engine closeout was deleted from the active tree and must
+not be used to revive the old phase ladder.
 
 ## Legacy Slack Form Inputs To Preserve
 

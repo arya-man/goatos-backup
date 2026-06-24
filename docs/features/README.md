@@ -3,33 +3,20 @@
 This folder holds feature-level PRD/TRD documents for Goat OS work that crosses
 phase boundaries or needs its own build-ready contract before implementation.
 
-Phase docs still live in `docs/phases/`. Use this folder when a feature, such
-as Mortality, must define its own product semantics, data ownership, scale
-model, API contract, parity plan, and rollout gates before code starts.
+Phase docs still live in `docs/phases/`. Use this folder when a cross-cutting
+feature needs its own product semantics, data ownership, scale model, API
+contract, parity plan, and rollout gates before code starts.
 
 Current feature docs:
 
-- `docs/features/counter-family/AGENT-RUNBOOK.md`
-- `docs/features/counter-family/INTEGRATION-CHECKLIST.md`
 - `docs/features/cutover-contract.md`
-- `docs/features/counts/AGENT-TASK.md`
-- `docs/features/counts/PRD.md`
-- `docs/features/counts/TRD.md`
 - `docs/features/locations/AGENT-TASK.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
-- `docs/features/mortality/AGENT-TASK.md`
-- `docs/features/mortality/PRD.md`
-- `docs/features/mortality/TRD.md`
-- `docs/features/operator-management/AGENT-TASK-ADMIN.md`
-- `docs/features/operator-management/AGENT-TASK-ANDROID.md`
-- `docs/features/operator-management/PRD.md`
-- `docs/features/operator-management/TRD.md`
 
-Counts and Locations are separate feature specs but one delivery slice:
-Locations owns canonical location tree, aliases, capacity, usage checks, and
-review queues; Counts consumes those records for legacy parity and future
-canonical projections.
+Old counts, mortality, counter-family, and operator-management feature specs
+were deleted from the active tree. Do not rebuild their old dashboard/admin
+tracks unless product scope is explicitly reopened.
 
 The shared cutover contract owns the transition rule for any feature that is
 temporarily fed by BigQuery/Sheets but will later be fed by Android/backend

@@ -28,8 +28,7 @@ is its own feature because other modules depend on it.
 
 - `docs/decisions/high-scale-dashboard-projections.md`
 - `docs/features/cutover-contract.md`
-- `docs/features/counts/PRD.md`
-- `docs/features/counts/TRD.md`
+- `docs/decisions/high-scale-dashboard-projections.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - Existing schema:
   `backend/migrations/postgres/000001_phase_1_identity_foundation.sql`

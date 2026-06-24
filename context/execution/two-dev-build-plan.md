@@ -547,15 +547,9 @@ old Sheets are no longer operational truth
 
 ## What To Delete Or Archive
 
-Do not delete source docs before the meta-repo has a commit.
-
-In the current workspace, old root planning docs have been moved to:
-
-```text
-docs/archive/planning-history/
-```
-
-They include:
+Old root planning/archive docs were removed from the active repo after current
+guidance moved into `context/`, phase docs, and skill references. Use git
+history only when explicitly asked. Former archive topics included:
 
 ```text
 goatos-categories.md

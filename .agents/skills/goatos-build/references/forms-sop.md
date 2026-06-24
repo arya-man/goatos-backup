@@ -10,10 +10,6 @@ Canonical docs:
 - `docs/protocol-engine/state-machines.md`
 - `docs/phc-vaccination/PRD.md`
 - `docs/phc-vaccination/TRD.md`
-- `docs/features/operator-management/PRD.md`
-- `docs/features/operator-management/TRD.md`
-- `docs/features/operator-management/AGENT-TASK-ADMIN.md`
-- `docs/features/operator-management/AGENT-TASK-ANDROID.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/execution/next-contracts.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
@@ -31,6 +27,9 @@ Rules:
 - Legacy Slack schemas are now captured canonically: death, shifting, birth/
   abortion, health diagnosis/follow-up, not-eating, proof policy, correction
   and rectification behavior.
+- Old operator-management feature specs were deleted from the active tree. Use
+  backend workforce/RBAC modules and current protocol/PHC docs for the active
+  execution model.
 - Health symptom field groups/options are captured in the forms doc and source
   findings. Do not rebuild them from memory.
 - Legacy delete-row behavior maps to void/reversal/correction events with audit,

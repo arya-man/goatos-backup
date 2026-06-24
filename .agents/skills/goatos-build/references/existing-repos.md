@@ -8,8 +8,8 @@ Canonical docs:
 - `context/execution/target-repo-structure.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/source-findings/customer-promise-safety-findings.md`
-- archived repo audits under `docs/archive/planning-history/` for historical
-  comparison only
+- git history for deleted repo audits, only when a human explicitly asks for
+  historical comparison
 
 Current workspace repos:
 

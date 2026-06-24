@@ -36,11 +36,10 @@ When `goatos/` is created, move `context/` into `goatos/context/` and update roo
 
 Do not keep two live context folders. One canonical context only.
 
-Archived planning notes must not live under `context/` once `goatos/` exists.
-Agents read `context/` by default, so stale notes inside that tree can revive
-dead decisions. Keep historical planning files outside the canonical context
-tree, under `docs/archive/planning-history/`, unless a human
-explicitly asks for archaeology.
+Historical planning/archive notes must not live under `context/` now that
+`goatos/` exists. Agents read `context/` by default, so stale notes inside that
+tree can revive dead decisions. The old archive was removed from the active
+repo; use git history only when a human explicitly asks for archaeology.
 
 Active-doc grep:
 
@@ -48,11 +47,8 @@ Active-doc grep:
 rg "term" context
 ```
 
-Historical comparison grep:
-
-```bash
-rg "term" docs/archive/planning-history
-```
+Historical comparison, only when explicitly requested, should use git history
+or source material rather than active build docs.
 
 ## Git Strategy
 
@@ -400,20 +396,12 @@ Agent entry files to maintain:
 */CLAUDE.md
 ```
 
-Historical docs are archived outside the canonical agent context here:
+Historical planning/archive docs were removed from the active tree after their
+useful build guidance was folded into `context/`, phase docs, and skill
+references. Do not recreate them as active build instructions. If a human asks
+for archaeology, use git history or source material.
 
-```text
-docs/archive/planning-history/goatos-categories.md
-docs/archive/planning-history/goatos-infra-and-context-direction.md
-docs/archive/planning-history/goatos-pluggable-architecture.md
-docs/archive/planning-history/goatos-dashboard-visibility.md
-docs/archive/planning-history/goatos-frontend-gap-analysis.md
-docs/archive/planning-history/goatos-current-system-assessment.md
-docs/archive/planning-history/existing-repos-inventory.md
-docs/archive/planning-history/existing-repos-deep-audit.md
-```
-
-Do not delete historical docs immediately. They are source history until:
+Historical source material mattered until:
 
 - root meta-repo is initialized
 - current authoritative docs are committed

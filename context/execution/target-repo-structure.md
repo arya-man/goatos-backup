@@ -304,14 +304,9 @@ goatos/
       README.md
 ```
 
-Historical planning files stay outside this repo:
-
-```text
-docs/archive/planning-history/
-```
-
-Agents should not read that folder unless a human explicitly asks for
-historical comparison.
+Historical planning/archive files were removed from the active repo. Agents
+should use git history only when a human explicitly asks for historical
+comparison.
 
 ## Why One Main Repo
 
@@ -437,8 +432,8 @@ Step 3: Move context.
 mv context <mesha-workspace>/goatos/context
 ```
 
-Do not move `docs/archive/planning-history/` into `goatos/context/`.
-It is superseded planning history and should not be part of normal agent reads.
+Do not restore deleted planning archives into `goatos/context/`. They are
+superseded history and should not be part of normal agent reads.
 
 Step 4: Update root pointers.
 

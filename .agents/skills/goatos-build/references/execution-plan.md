@@ -45,6 +45,6 @@ Rules:
   backend is ready.
 - Load tests need pass/fail SLOs before running.
 - Synthetic data must match real skew from existing data, not uniform fantasy data.
-- Historical planning files live outside `context/` under
-  `docs/archive/planning-history/`; do not use them for build
-  instructions unless explicitly asked.
+- Historical planning/archive files were removed from the active tree; do not
+  use git history or source material for build instructions unless explicitly
+  asked.
