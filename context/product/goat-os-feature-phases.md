@@ -1,13 +1,16 @@
-# Goat OS Product Feature Phases
+# Goat OS Product Feature Map
 
-This is the product rollout in plain Goat OS language.
+This is the long-range product coverage map in plain Goat OS language. It is
+not the active build order. The active execution order is the Admin Config + PHC
+Vaccination + Parks vaccination execution slice described in `README.md`,
+`docs/phases/README.md`, and `context/frontend/current-admin-web-scope.md`.
 
 Engineering rails like repo setup, contracts, CI, dev/stg/prod, analytics, and
 load testing run underneath every phase. They are not the product. The product
 is the goat operating system described here.
 
-For the mapping from older planning docs and `goatos-categories.md` into these
-phases, read `context/product/goat-os-coverage-map.md`.
+For the mapping from older planning topics into current authoritative docs, read
+`context/product/goat-os-coverage-map.md`.
 
 ## Workforce Operations Is Cross-Cutting
 
@@ -26,9 +29,9 @@ If work is overdue, who gets escalated?
 What proof shows the work was actually done?
 ```
 
-This starts in Phase 2 for Shifting and becomes a full module in Phase 4. The
-same engine later assigns vaccination, feeding, health follow-ups, weighing,
-movement, breeding checks, device inspections, and verification work.
+This starts with real field workflows and becomes a full operations module over
+time. The same engine later assigns vaccination, feeding, health follow-ups,
+weighing, movement, breeding checks, device inspections, and verification work.
 
 Backfill is not "give it to anybody." Goat OS must pick a backup by skill,
 park/shed scope, current load, and task risk. The new assignee and park head
@@ -53,11 +56,9 @@ When can raw video expire?
 What audit trail proves the work was accepted, rejected, or reworked?
 ```
 
-Phase 2 uses this engine for Shifting proof first, then vaccination proof on the
-same foundation. Phase 3 uses it for health, treatment, death, and abortion.
-Phase 4 uses it for attendance and operator entry logs. Phase 7 uses it for
-procurement load, transit, and arrival proof. Phase 8 uses it for dispatch/exit
-proof.
+The proof engine is reused across shifting, vaccination, health, treatment,
+death, abortion, attendance, procurement load, transit, arrival, dispatch, and
+exit proof.
 
 ## Promise Safety Is A Cross-Phase Vertical Slice
 
@@ -71,20 +72,23 @@ can we prove the answer from source records?
 This is not one module. It is a vertical slice across the product:
 
 ```text
-Phase 1: stable goat passport, identifiers, merge redirects, source evidence,
-         decision records, audit trail, and movement history.
-Phase 3: health, treatment, quarantine, death, and medicine withdrawal periods.
-Phase 5: trusted weight, movement/shifting history, feed records, and growth.
-Phase 8: sellable/readiness policy, allocation, booking, double-book
-         prevention, replacement/substitution, dispatch, and exit proof.
-Phase 10: governed dashboards and promise-risk metrics.
+Identity foundation: stable goat passport, identifiers, merge redirects, source
+                     evidence, decision records, audit trail, and movement
+                     history.
+Health readiness: health, treatment, quarantine, death, and medicine withdrawal
+                  periods.
+Growth/feed: trusted weight, movement/shifting history, feed records, and
+             growth.
+Sales/dispatch: sellable/readiness policy, allocation, booking, double-book
+                prevention, replacement/substitution, dispatch, and exit proof.
+Analytics: governed dashboards and promise-risk metrics.
 ```
 
-The Phase 1 base does not itself perform festival/customer allocation. It makes
-that later allocation safe by giving every later phase one immutable `goat_id`,
-reviewable identity conflicts, source-backed decision records, and an audited
-movement trail. At scale, the later booking invariant must be enforced by the
-database, not by UI checks or in-memory locks.
+The identity base does not itself perform festival/customer allocation. It makes
+that later allocation safe by giving every later workflow one immutable
+`goat_id`, reviewable identity conflicts, source-backed decision records, and an
+audited movement trail. At scale, the later booking invariant must be enforced
+by the database, not by UI checks or in-memory locks.
 
 This is stronger than a one-time report. Goat OS must keep the promise safe as
 facts change: a goat may move, get sick, receive medicine, be exposed to a bad
@@ -130,7 +134,7 @@ lineage:
   impossible parentage is preserved as genetics/data-quality evidence.
 ```
 
-## Phase 1: Goat Passport And Herd Registry
+## Identity Foundation: Goat Passport And Herd Registry
 
 Build the identity layer for every goat.
 
@@ -162,7 +166,7 @@ Dev B builds the admin search/profile screens, goat timeline UI, dirty-data
 review screen, and mobile goat lookup/scan UI.
 ```
 
-## Phase 2: SOP Forms, Task Engine, And Shifting
+## SOP Foundation: Forms, Task Engine, And Shifting
 
 Build the first real field workflow.
 
@@ -171,9 +175,10 @@ What users get:
 - Admin creates and publishes versioned SOP definitions.
 - System creates assigned tasks from SOP definitions.
 - Shifting is the first implemented SOP because it is daily, simple enough to
-  prove the engine, and directly updates current location truth from Phase 1.
+  prove the engine, and directly updates current location truth from the
+  identity foundation.
 - Workforce/roster integration starts with scoped assignment placeholders and
-  grows into Phase 4 fallback/backfill.
+  grows into the later workforce fallback/backfill model.
 - If an operator is absent, the task backfills to a qualified backup by SOP
   capability, park/shed scope, and current load.
 - Backfill notifies the new assignee and park head; if no eligible backup
@@ -207,7 +212,7 @@ Dev B builds the admin SOP/task screens, Android task list, Shifting form
 runner, camera proof capture, offline retry states, and verifier queue UI.
 ```
 
-## Phase 3: Health, Treatment, Death, And Verification
+## Health: Treatment, Death, And Verification
 
 Build the health incident system.
 
@@ -247,7 +252,7 @@ abortion proof flows, health symptom form UI, verifier review screens, and
 mortality dashboard views.
 ```
 
-## Phase 4: Workforce, Park Operations, And Daily Control
+## Workforce: Park Operations And Daily Control
 
 Build the operating layer for people managing goats. This is Goat OS workforce
 ops, not payroll HRMS.
@@ -291,7 +296,7 @@ Dev B builds roster management screens, operator workload views, park-head task
 queues, absence/backfill screens, overdue/escalation views, and operator entry logs.
 ```
 
-## Phase 5: Growth, Feed, Weight, And Movement
+## Growth: Feed, Weight, And Movement
 
 Build day-to-day goat performance tracking.
 
@@ -335,7 +340,7 @@ Dev B builds Android weight/feed/movement forms, feeding task completion UI,
 stage-overdue views, growth charts, feed dashboards, and shed/park movement UI.
 ```
 
-## Phase 5B: Crop, Fodder, Farmer Network, And Feed Supply
+## Feed Supply: Crop, Fodder, Farmer Network, And Feed Supply
 
 Build the crop/fodder operating layer if Goat OS owns feed production and farmer
 coordination. Legacy Slack automation already has farmer onboarding, crop
@@ -377,7 +382,7 @@ Dev B builds farmer/crop admin screens, crop task/proof screens, harvest entry,
 and feed-supply dashboard views.
 ```
 
-## Phase 6: Breeding, Pregnancy, Kidding, And Genetics
+## Breeding: Pregnancy, Kidding, And Genetics
 
 Build the genetics engine around family history and outcomes.
 
@@ -397,7 +402,7 @@ What users get:
 - Imported embryo/semen line tracking.
 - Breeder performance score.
 - Inbreeding risk flags.
-- Source reproduction parameters captured for Phase 6 design: estrus 12-48
+- Source reproduction parameters captured for breeding design: estrus 12-48
   hours, goat cycle around 21 days, progesterone sponge synchronization around
   14 days, natural breeding planning ratio around one buck to five females,
   buck rest, AI/semen-batch protocol, ultrasound from about day 45, gestation
@@ -425,7 +430,7 @@ action screens, colostrum task screens, family-tree views, genetics dashboards,
 and breeder performance screens.
 ```
 
-## Phase 7: Procurement, Inventory, And Cost
+## Procurement: Inventory And Cost
 
 Build purchase and stock control.
 
@@ -468,7 +473,7 @@ Dev B builds purchase/load entry screens, inventory screens, import/reconcile
 screens, transit/arrival proof screens, cost dashboards, and stock warning views.
 ```
 
-## Phase 8: Sales, Allocation, Meat Yield, And Exit
+## Sales: Allocation, Meat Yield, And Exit
 
 Build the commerce-facing operational handoff.
 
@@ -520,7 +525,7 @@ risk/replacement review screens, proof upload flows, meat-yield entry screens,
 and buyer/investor-safe views.
 ```
 
-## Phase 9: Devices, R&D, And AI Assistance
+## Devices: R&D And AI Assistance
 
 Connect hardware and AI as observations, not truth.
 
@@ -553,7 +558,7 @@ Dev B builds device status screens, scan/camera/scale mobile adapters,
 AI-suggestion review UI, and R&D experiment dashboards.
 ```
 
-## Phase 10: Command Center, Analytics, And AI Analyst
+## Command Center: Analytics And AI Analyst
 
 Build the control room.
 

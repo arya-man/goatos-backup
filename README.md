@@ -98,10 +98,10 @@ The identity spine and vaccination engine foundation are built.
 The active build is Admin Config + PHC Vaccination + Parks vaccination context.
 ```
 
-### Built — Phase 1A Protocol & Vaccination Backend (local, tested)
+### Built — Protocol & Vaccination Backend Foundation (local, tested)
 
-On top of the identity spine, the Phase 1A protocol/obligation engine and the
-PHC vaccination module are built and green against local Postgres (full
+On top of the identity spine, the protocol/obligation engine and the PHC
+vaccination module are built and green against local Postgres (full
 `go test ./...`, migration, sqlc, and query-plan gates). This is **backend +
 APIs only — not shipped** (see pending list below).
 
