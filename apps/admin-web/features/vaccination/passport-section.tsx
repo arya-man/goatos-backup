@@ -1,3 +1,4 @@
+import { Syringe } from "lucide-react";
 import {
   getGoatVaccinationPassport,
   type VaccinationPassport,
@@ -38,7 +39,7 @@ export async function VaccinationPassportSection({ goatId }: { goatId: string })
       <div className="screen on">
         <section className="card">
           <div className="hd">
-            <span aria-hidden>💉</span>
+            <Syringe className="ic" aria-hidden="true" />
             <h3>Vaccination</h3>
           </div>
           <div className="bd">
@@ -56,7 +57,7 @@ export async function VaccinationPassportSection({ goatId }: { goatId: string })
     <div className="screen on">
       <section className="card">
         <div className="hd">
-          <span aria-hidden>💉</span>
+          <Syringe className="ic" aria-hidden="true" />
           <h3>Vaccination</h3>
           <Tag tone="mut">
             {history.length} dose{history.length === 1 ? "" : "s"}

@@ -1,5 +1,9 @@
-import { LoadingBlock } from "@/components/admin-primitives";
-
 export default function Loading() {
-  return <LoadingBlock label="Loading Mesha admin data" />;
+  return (
+    <div className="screen on">
+      <section className="card pad">
+        <div className="muted small">Loading Mesha admin data</div>
+      </section>
+    </div>
+  );
 }

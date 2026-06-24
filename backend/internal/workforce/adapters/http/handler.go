@@ -44,9 +44,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("DELETE /admin/operators/{operator_id}/capabilities/{capability_id}", h.RemoveCapability)
 	mux.HandleFunc("GET /admin/operators/{operator_id}/devices", h.ListDevices)
 	mux.HandleFunc("POST /admin/operators/{operator_id}/devices/{device_id}/revoke", h.RevokeDevice)
-	mux.HandleFunc("GET /admin/operator-source-candidates", h.ListSourceCandidates)
-	mux.HandleFunc("POST /admin/operator-source-candidates/{candidate_id}/map", h.MapSourceCandidate)
-	mux.HandleFunc("POST /admin/operator-source-candidates/{candidate_id}/reject", h.RejectSourceCandidate)
 
 	mux.HandleFunc("GET /app/me", h.AppMe)
 	mux.HandleFunc("GET /app/bootstrap", h.Bootstrap)

@@ -1,6 +1,6 @@
 SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
 
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test rebuild-identity-counters update-identity-counters dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh
@@ -22,7 +22,7 @@ sqlc-generate:
 	cd backend && "$(SQLC)" generate -f sqlc.yaml
 
 sqlc-check: sqlc-generate
-	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc backend/internal/legacy_import/adapters/postgres/sqlc backend/internal/reporting/adapters/postgres/sqlc backend/internal/protocol/adapters/postgres/sqlc backend/internal/obligation/adapters/postgres/sqlc backend/internal/inventory/adapters/postgres/sqlc backend/internal/vaccination/adapters/postgres/sqlc backend/internal/feed/adapters/postgres/sqlc
+	git diff --exit-code -- backend/sqlc.yaml backend/internal/identity/adapters/postgres/sqlc backend/internal/protocol/adapters/postgres/sqlc backend/internal/obligation/adapters/postgres/sqlc backend/internal/inventory/adapters/postgres/sqlc backend/internal/vaccination/adapters/postgres/sqlc backend/internal/feed/adapters/postgres/sqlc
 
 check: guardrails docker-storage-scripts-test
 	$(MAKE) test
@@ -74,11 +74,3 @@ docker-cleanup-goatos-execute:
 
 docker-storage-scripts-test:
 	bash tools/dev/test-docker-storage-scripts.sh
-
-rebuild-identity-counters:
-	@if [ -z "$(TENANT_ID)" ]; then echo "TENANT_ID is required"; exit 1; fi
-	cd backend && go run ./cmd/rebuild-identity-counters -tenant-id "$(TENANT_ID)" $(if $(SOURCE_IMPORT_RUN_ID),-source-import-run-id "$(SOURCE_IMPORT_RUN_ID)") $(if $(GRAINS),-grains "$(GRAINS)")
-
-update-identity-counters:
-	@if [ -z "$(TENANT_ID)" ]; then echo "TENANT_ID is required"; exit 1; fi
-	cd backend && go run ./cmd/update-identity-counters -tenant-id "$(TENANT_ID)" $(if $(LIMIT),-limit "$(LIMIT)") $(if $(PROCESSED_EVENTS_RETENTION),-processed-events-retention "$(PROCESSED_EVENTS_RETENTION)")

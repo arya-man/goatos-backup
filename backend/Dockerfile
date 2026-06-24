@@ -13,7 +13,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     mkdir -p /out && \
-    for cmd in api outbox-relay rebuild-identity-counters update-identity-counters rfid-import rfid-apply bq-reconcile seed-dev-grant seed-dev-email-grants mint-dev-token; do \
+    for cmd in api outbox-relay seed-dev-grant seed-dev-email-grants mint-dev-token; do \
       GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "/out/${cmd}" "./cmd/${cmd}"; \
     done
 

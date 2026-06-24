@@ -2,19 +2,23 @@ openapi: 3.1.0
 info:
   title: Goat OS App API
   version: 0.1.0
-  summary: Phase 1 Goat Passport lookup and field correction API.
-  description: REST/JSON API for operator mobile and app clients. All reads are RBAC scope-filtered before response DTOs are built.
+  summary: Goat OS app and operating API for field tasks, goat lookup, protocol config, vaccination, and process integrity.
+  description: REST/JSON API for operator/mobile and current admin-web operating surfaces. Reads and writes are RBAC
+    scope-filtered before response DTOs are built.
 servers:
   - url: https://api.goatos.example.invalid
     description: Synthetic contract server placeholder.
 security:
   - bearerAuth: []
 tags:
-  - name: Goats
-  - name: Identifiers
-  - name: Correction Requests
   - name: Operator App Bootstrap
   - name: Operator Tasks
+  - name: Goats
+  - name: Identifiers
+  - name: Protocol Config
+  - name: Action Center
+  - name: Vaccination
+  - name: Vaccination Passport
 paths:
   /app/me:
     get:
@@ -379,56 +383,314 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-  /identity/correction-requests:
+  /protocols:
     post:
       tags:
-        - Correction Requests
-      operationId: createCorrectionRequest
-      summary: Submit an operator or park-head identity correction request.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
+        - Protocol Config
+      operationId: createProtocolDefinition
+      summary: Create a protocol definition.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateCorrectionRequest"
+              $ref: "#/components/schemas/CreateProtocolDefinitionRequest"
       responses:
         "201":
-          description: Correction request accepted for review.
+          description: Protocol definition created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CorrectionRequestResponse"
-        "200":
-          description: Idempotent replay of an already accepted correction request.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CorrectionRequestResponse"
+                $ref: "#/components/schemas/CreateProtocolDefinitionResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-    get:
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /protocols/{protocol_id}/versions:
+    post:
       tags:
-        - Correction Requests
-      operationId: listCorrectionRequests
-      summary: List correction requests visible to the caller.
+        - Protocol Config
+      operationId: createProtocolVersion
+      summary: Create a draft protocol version.
       parameters:
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/ProtocolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProtocolVersionRequest"
       responses:
-        "200":
-          description: Scope-filtered correction request list.
+        "201":
+          description: Protocol version created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CorrectionRequestListResponse"
+                $ref: "#/components/schemas/CreateProtocolVersionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /protocols/versions/{version_id}/rules:
+    post:
+      tags:
+        - Protocol Config
+      operationId: addProtocolRule
+      summary: Add a dose/phase rule to a draft protocol version.
+      parameters:
+        - $ref: "#/components/parameters/ProtocolVersionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddProtocolRuleRequest"
+      responses:
+        "201":
+          description: Protocol rule created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddProtocolRuleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /protocols/versions/{version_id}:
+    get:
+      tags:
+        - Protocol Config
+      operationId: getProtocolVersion
+      summary: Get a protocol version.
+      parameters:
+        - $ref: "#/components/parameters/ProtocolVersionId"
+      responses:
+        "200":
+          description: Protocol version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtocolVersionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /protocols/versions/{version_id}/publish:
+    post:
+      tags:
+        - Protocol Config
+      operationId: publishProtocolVersion
+      summary: Publish a source-backed protocol version.
+      parameters:
+        - $ref: "#/components/parameters/ProtocolVersionId"
+      responses:
+        "204":
+          description: Protocol version published.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /protocols/vaccination/impact-preview:
+    post:
+      tags:
+        - Vaccination
+      operationId: vaccinationImpactPreview
+      summary: Preview vaccination impact for eligible goats, drive batches, and stock.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImpactPreviewInput"
+      responses:
+        "200":
+          description: Vaccination impact preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImpactPreviewResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /action-center/obligations:
+    get:
+      tags:
+        - Action Center
+      operationId: listActionCenterObligations
+      summary: List bounded vaccination obligations for the operating work table.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkState"
+          description: Current compatibility alias for work_state.
+        - name: work_state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkState"
+        - name: due_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Action Center rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionCenterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/verification-queue:
+    get:
+      tags:
+        - Vaccination
+      operationId: vaccinationVerificationQueue
+      summary: List recorded vaccination completions awaiting proof verification.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination verification queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationQueueResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/completions/{completion_id}/accept:
+    post:
+      tags:
+        - Vaccination
+      operationId: acceptVaccinationCompletion
+      summary: Accept a recorded vaccination completion.
+      parameters:
+        - $ref: "#/components/parameters/CompletionId"
+      responses:
+        "200":
+          description: Completion accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptVaccinationCompletionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /vaccination/completions/{completion_id}/reject:
+    post:
+      tags:
+        - Vaccination
+      operationId: rejectVaccinationCompletion
+      summary: Reject or request rework for a recorded vaccination completion.
+      parameters:
+        - $ref: "#/components/parameters/CompletionId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectVaccinationCompletionRequest"
+      responses:
+        "200":
+          description: Completion rejected or marked for rework.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RejectVaccinationCompletionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /goats/{goat_id}/passport:
+    get:
+      tags:
+        - Vaccination Passport
+      operationId: getGoatVaccinationPassport
+      summary: "Get a goat vaccination passport: open obligations, next due, last accepted dose, and history."
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+      responses:
+        "200":
+          description: Vaccination passport.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationPassport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -488,6 +750,27 @@ components:
         type: string
         minLength: 8
         maxLength: 200
+    ProtocolId:
+      name: protocol_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    ProtocolVersionId:
+      name: version_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    CompletionId:
+      name: completion_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
   responses:
     BadRequest:
       description: Validation error.
@@ -519,11 +802,32 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    UnprocessableEntity:
+      description: Request is syntactically valid but cannot pass the current source-backed gate.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServiceUnavailable:
+      description: Dependency or feature wiring is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
     ValidationIssue:
       type: object
       additionalProperties: false
-      required: [field, code, message]
+      required:
+        - field
+        - code
+        - message
       properties:
         field:
           type: string
@@ -534,7 +838,10 @@ components:
     ValidationReport:
       type: object
       additionalProperties: false
-      required: [valid, errors, warnings]
+      required:
+        - valid
+        - errors
+        - warnings
       properties:
         valid:
           type: boolean
@@ -583,7 +890,10 @@ components:
           type: string
         status:
           type: string
-          enum: [draft, published, retired]
+          enum:
+            - draft
+            - published
+            - retired
         form_dsl:
           type: object
           additionalProperties: true
@@ -617,7 +927,9 @@ components:
     SOPVersionResponse:
       type: object
       additionalProperties: false
-      required: [version, trace_id]
+      required:
+        - version
+        - trace_id
       properties:
         version:
           $ref: "#/components/schemas/SOPVersion"
@@ -666,7 +978,16 @@ components:
           type: string
         state:
           type: string
-          enum: [queued, assigned, in_progress, submitted, accepted, needs_review, rework_requested, rejected, canceled]
+          enum:
+            - queued
+            - assigned
+            - in_progress
+            - submitted
+            - accepted
+            - needs_review
+            - rework_requested
+            - rejected
+            - canceled
         assigned_to:
           type:
             - string
@@ -699,7 +1020,9 @@ components:
     TaskListResponse:
       type: object
       additionalProperties: false
-      required: [items, trace_id]
+      required:
+        - items
+        - trace_id
       properties:
         items:
           type: array
@@ -710,30 +1033,51 @@ components:
     ProofReference:
       type: object
       additionalProperties: false
-      required: [proof_id, proof_type, subject_type, upload_state, metadata]
+      required:
+        - proof_id
+        - proof_type
+        - subject_type
+        - upload_state
+        - metadata
       properties:
         proof_id:
           type: string
         proof_type:
           type: string
-          enum: [photo, video, attachment]
+          enum:
+            - photo
+            - video
+            - attachment
         subject_type:
           type: string
-          enum: [batch, goat, shed, task, other]
+          enum:
+            - batch
+            - goat
+            - shed
+            - task
+            - other
         subject_id:
           type:
             - string
             - "null"
         upload_state:
           type: string
-          enum: [pending, uploading, completed, failed]
+          enum:
+            - pending
+            - uploading
+            - completed
+            - failed
         metadata:
           type: object
           additionalProperties: true
     SubmissionItem:
       type: object
       additionalProperties: false
-      required: [item_id, item_key, state, result]
+      required:
+        - item_id
+        - item_key
+        - state
+        - result
       properties:
         item_id:
           type: string
@@ -747,14 +1091,30 @@ components:
           type: string
         state:
           type: string
-          enum: [accepted, needs_review, rejected, skipped]
+          enum:
+            - accepted
+            - needs_review
+            - rejected
+            - skipped
         result:
           type: object
           additionalProperties: true
     SubmissionSummary:
       type: object
       additionalProperties: false
-      required: [submission_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state, validation_report, items, submitted_at, row_version]
+      required:
+        - submission_id
+        - task_id
+        - sop_version_id
+        - submitted_by
+        - idempotency_key
+        - answers
+        - proof_refs
+        - state
+        - validation_report
+        - items
+        - submitted_at
+        - row_version
       properties:
         submission_id:
           type: string
@@ -779,7 +1139,12 @@ components:
             $ref: "#/components/schemas/ProofReference"
         state:
           type: string
-          enum: [submitted, accepted, needs_review, rejected, voided]
+          enum:
+            - submitted
+            - accepted
+            - needs_review
+            - rejected
+            - voided
         validation_report:
           $ref: "#/components/schemas/ValidationReport"
         items:
@@ -800,7 +1165,9 @@ components:
     TaskResponse:
       type: object
       additionalProperties: false
-      required: [task, trace_id]
+      required:
+        - task
+        - trace_id
       properties:
         task:
           $ref: "#/components/schemas/TaskSummary"
@@ -817,7 +1184,11 @@ components:
     SubmitTaskRequest:
       type: object
       additionalProperties: false
-      required: [sop_version_id, idempotency_key, answers, proof_refs]
+      required:
+        - sop_version_id
+        - idempotency_key
+        - answers
+        - proof_refs
       properties:
         sop_version_id:
           type: string
@@ -836,7 +1207,10 @@ components:
     SubmissionResponse:
       type: object
       additionalProperties: false
-      required: [submission, task, trace_id]
+      required:
+        - submission
+        - task
+        - trace_id
       properties:
         submission:
           $ref: "#/components/schemas/SubmissionSummary"
@@ -895,7 +1269,22 @@ components:
     OperatorProfile:
       type: object
       additionalProperties: false
-      required: [operator_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id, primary_location, grant_count, capability_count, active_device_count, metadata, row_version, created_at, updated_at]
+      required:
+        - operator_id
+        - user_id
+        - display_code
+        - display_name
+        - status
+        - primary_role_hint
+        - primary_location_id
+        - primary_location
+        - grant_count
+        - capability_count
+        - active_device_count
+        - metadata
+        - row_version
+        - created_at
+        - updated_at
       properties:
         operator_id:
           type: string
@@ -915,10 +1304,21 @@ components:
           maxLength: 160
         status:
           type: string
-          enum: [candidate, active, inactive, suspended, left]
+          enum:
+            - candidate
+            - active
+            - inactive
+            - suspended
+            - left
         primary_role_hint:
           type: string
-          enum: [operator, park_head, verifier, supervisor, admin, other]
+          enum:
+            - operator
+            - park_head
+            - verifier
+            - supervisor
+            - admin
+            - other
         primary_location_id:
           type:
             - string
@@ -953,7 +1353,17 @@ components:
     GrantSummary:
       type: object
       additionalProperties: false
-      required: [grant_id, user_id, role, scope_type, scope_id, status, valid_from, valid_to, created_at, created_by]
+      required:
+        - grant_id
+        - user_id
+        - role
+        - scope_type
+        - scope_id
+        - status
+        - valid_from
+        - valid_to
+        - created_at
+        - created_by
       properties:
         grant_id:
           type: string
@@ -963,16 +1373,30 @@ components:
           format: uuid
         role:
           type: string
-          enum: [admin, park_head, operator, verifier, ceo_internal]
+          enum:
+            - admin
+            - park_head
+            - operator
+            - verifier
+            - ceo_internal
         scope_type:
           type: string
-          enum: [tenant, custodian_party, farm, park, shed, cohort]
+          enum:
+            - tenant
+            - custodian_party
+            - farm
+            - park
+            - shed
+            - cohort
         scope_id:
           type: string
           format: uuid
         status:
           type: string
-          enum: [active, inactive, revoked]
+          enum:
+            - active
+            - inactive
+            - revoked
         valid_from:
           type: string
           format: date-time
@@ -992,7 +1416,17 @@ components:
     CapabilityAssignment:
       type: object
       additionalProperties: false
-      required: [member_capability_id, capability_id, capability_code, description, scope_type, scope_id, status, valid_from, valid_to, created_at]
+      required:
+        - member_capability_id
+        - capability_id
+        - capability_code
+        - description
+        - scope_type
+        - scope_id
+        - status
+        - valid_from
+        - valid_to
+        - created_at
       properties:
         member_capability_id:
           type: string
@@ -1009,13 +1443,22 @@ components:
           maxLength: 500
         scope_type:
           type: string
-          enum: [tenant, custodian_party, farm, park, shed, cohort]
+          enum:
+            - tenant
+            - custodian_party
+            - farm
+            - park
+            - shed
+            - cohort
         scope_id:
           type: string
           format: uuid
         status:
           type: string
-          enum: [active, inactive, revoked]
+          enum:
+            - active
+            - inactive
+            - revoked
         valid_from:
           type: string
           format: date-time
@@ -1030,7 +1473,21 @@ components:
     DeviceSummary:
       type: object
       additionalProperties: false
-      required: [device_id, operator_id, platform, app_install_id, device_public_key_hash, push_token_hash, app_version, os_version, status, last_seen_at, registered_at, revoked_at, metadata, row_version]
+      required:
+        - device_id
+        - operator_id
+        - platform
+        - app_install_id
+        - device_public_key_hash
+        - push_token_hash
+        - app_version
+        - os_version
+        - status
+        - last_seen_at
+        - registered_at
+        - revoked_at
+        - metadata
+        - row_version
       properties:
         device_id:
           type: string
@@ -1064,7 +1521,11 @@ components:
           maxLength: 80
         status:
           type: string
-          enum: [active, revoked, lost, retired]
+          enum:
+            - active
+            - revoked
+            - lost
+            - retired
         last_seen_at:
           type: string
           format: date-time
@@ -1085,7 +1546,11 @@ components:
     AppMeResponse:
       type: object
       additionalProperties: false
-      required: [actor_id, operator_profile, grants, trace_id]
+      required:
+        - actor_id
+        - operator_profile
+        - grants
+        - trace_id
       properties:
         actor_id:
           type: string
@@ -1105,7 +1570,9 @@ components:
     RegisterDeviceRequest:
       type: object
       additionalProperties: false
-      required: [app_install_id, app_version]
+      required:
+        - app_install_id
+        - app_version
       properties:
         app_install_id:
           type: string
@@ -1152,7 +1619,9 @@ components:
     DeviceResponse:
       type: object
       additionalProperties: false
-      required: [device, trace_id]
+      required:
+        - device
+        - trace_id
       properties:
         device:
           $ref: "#/components/schemas/DeviceSummary"
@@ -1163,7 +1632,24 @@ components:
     BootstrapResponse:
       type: object
       additionalProperties: false
-      required: [actor, operator_profile, roles_and_scopes, capabilities, device_state, app_min_supported_version, feature_flags, visible_navigation, task_queue_descriptors, pinned_sop_versions, supported_field_types, supported_rule_operators, supported_proof_actions, option_source_descriptors, sync_policy, server_time, trace_id]
+      required:
+        - actor
+        - operator_profile
+        - roles_and_scopes
+        - capabilities
+        - device_state
+        - app_min_supported_version
+        - feature_flags
+        - visible_navigation
+        - task_queue_descriptors
+        - pinned_sop_versions
+        - supported_field_types
+        - supported_rule_operators
+        - supported_proof_actions
+        - option_source_descriptors
+        - sync_policy
+        - server_time
+        - trace_id
       properties:
         actor:
           $ref: "#/components/schemas/BootstrapActor"
@@ -1227,7 +1713,9 @@ components:
     BootstrapActor:
       type: object
       additionalProperties: false
-      required: [actor_id, tenant_id]
+      required:
+        - actor_id
+        - tenant_id
       properties:
         actor_id:
           type: string
@@ -1238,7 +1726,11 @@ components:
     BootstrapDeviceState:
       type: object
       additionalProperties: false
-      required: [required, device, status, reason]
+      required:
+        - required
+        - device
+        - status
+        - reason
       properties:
         required:
           type: boolean
@@ -1258,7 +1750,10 @@ components:
     BootstrapNavigationItem:
       type: object
       additionalProperties: false
-      required: [key, label, href]
+      required:
+        - key
+        - label
+        - href
       properties:
         key:
           type: string
@@ -1275,7 +1770,10 @@ components:
     BootstrapTaskQueue:
       type: object
       additionalProperties: false
-      required: [key, label, required_capabilities]
+      required:
+        - key
+        - label
+        - required_capabilities
       properties:
         key:
           type: string
@@ -1294,7 +1792,12 @@ components:
     BootstrapSOPVersion:
       type: object
       additionalProperties: false
-      required: [sop_code, sop_version_id, status, compatible, reason]
+      required:
+        - sop_code
+        - sop_version_id
+        - status
+        - compatible
+        - reason
       properties:
         sop_code:
           type: string
@@ -1319,7 +1822,11 @@ components:
     BootstrapOptionSource:
       type: object
       additionalProperties: false
-      required: [key, scope_type, scope_id, ttl_seconds]
+      required:
+        - key
+        - scope_type
+        - scope_id
+        - ttl_seconds
       properties:
         key:
           type: string
@@ -1327,7 +1834,13 @@ components:
           maxLength: 120
         scope_type:
           type: string
-          enum: [tenant, custodian_party, farm, park, shed, cohort]
+          enum:
+            - tenant
+            - custodian_party
+            - farm
+            - park
+            - shed
+            - cohort
         scope_id:
           type: string
           format: uuid
@@ -1337,7 +1850,10 @@ components:
     BootstrapSyncPolicy:
       type: object
       additionalProperties: false
-      required: [offline_draft_ttl_hours, heartbeat_interval_seconds, max_retry_backoff_seconds]
+      required:
+        - offline_draft_ttl_hours
+        - heartbeat_interval_seconds
+        - max_retry_backoff_seconds
       properties:
         offline_draft_ttl_hours:
           type: integer
@@ -1495,7 +2011,7 @@ components:
           format: uuid
         display_id:
           type: string
-          pattern: "^G-[0-9]{6,}$"
+          pattern: ^G-[0-9]{6,}$
         primary_old_tag:
           type:
             - string
@@ -1624,7 +2140,7 @@ components:
           format: uuid
         display_id:
           type: string
-          pattern: "^G-[0-9]{6,}$"
+          pattern: ^G-[0-9]{6,}$
         species:
           type: string
           const: goat
@@ -1798,139 +2314,6 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-    LocationScope:
-      type: object
-      additionalProperties: false
-      properties:
-        farm_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        park_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        shed_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        cohort_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-    CorrectionRequestType:
-      type: string
-      enum:
-        - missing_tag
-        - tag_reused
-        - rfid_conflict
-        - possible_duplicate
-        - wrong_location
-        - wrong_status
-        - field_verification_result
-        - identifier_seen_but_not_attached
-    CreateCorrectionRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - request_type
-        - location_scope
-        - description
-        - evidence_refs
-      properties:
-        request_type:
-          $ref: "#/components/schemas/CorrectionRequestType"
-        goat_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        identifier_type:
-          oneOf:
-            - $ref: "#/components/schemas/IdentifierType"
-            - type: "null"
-        identifier_value:
-          type:
-            - string
-            - "null"
-          minLength: 1
-          maxLength: 200
-        location_scope:
-          $ref: "#/components/schemas/LocationScope"
-        description:
-          type: string
-          minLength: 1
-          maxLength: 2000
-        evidence_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/EvidenceRef"
-    CorrectionRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - correction_request_id
-        - request_type
-        - state
-        - location_scope
-        - description
-        - evidence_refs
-        - row_version
-        - created_at
-      properties:
-        correction_request_id:
-          type: string
-          format: uuid
-        request_type:
-          $ref: "#/components/schemas/CorrectionRequestType"
-        state:
-          type: string
-          enum:
-            - open
-            - assigned
-            - needs_field_check
-            - approved
-            - rejected
-            - closed
-        goat_id:
-          type:
-            - string
-            - "null"
-          format: uuid
-        identifier_type:
-          oneOf:
-            - $ref: "#/components/schemas/IdentifierType"
-            - type: "null"
-        identifier_value:
-          type:
-            - string
-            - "null"
-          maxLength: 200
-        location_scope:
-          $ref: "#/components/schemas/LocationScope"
-        description:
-          type: string
-          minLength: 1
-          maxLength: 2000
-        evidence_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/EvidenceRef"
-        row_version:
-          type: integer
-          minimum: 1
-        created_at:
-          type: string
-          format: date-time
-        resolved_at:
-          type:
-            - string
-            - "null"
-          format: date-time
     IdempotencyMeta:
       type: object
       additionalProperties: false
@@ -1949,40 +2332,443 @@ components:
             - string
             - "null"
           format: uuid
-    CorrectionRequestResponse:
+    WorkState:
+      type: string
+      enum:
+        - due
+        - overdue
+        - blocked
+        - proof_pending
+        - verification_pending
+        - rejected
+        - deferred
+        - owner_missing
+        - scheduled
+        - in_progress
+        - missed
+        - completed
+    ActionCenterObligation:
       type: object
       additionalProperties: false
       required:
-        - correction_request
-        - idempotency
-        - trace_id
+        - obligation_id
+        - protocol_version_id
+        - rule_id
+        - target_type
+        - target_id
+        - scope_type
+        - scope_id
+        - due_at
+        - status
+        - work_state
       properties:
-        correction_request:
-          $ref: "#/components/schemas/CorrectionRequest"
-        idempotency:
-          $ref: "#/components/schemas/IdempotencyMeta"
-        trace_id:
+        obligation_id:
           type: string
-          minLength: 1
-          maxLength: 200
-    CorrectionRequestListResponse:
+        protocol_version_id:
+          type: string
+        rule_id:
+          type: string
+        target_type:
+          type: string
+        target_id:
+          type: string
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+        due_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+        work_state:
+          $ref: "#/components/schemas/WorkState"
+        owner_id:
+          type: string
+          nullable: true
+        blocker:
+          type: string
+          nullable: true
+    ActionCenterResponse:
       type: object
       additionalProperties: false
       required:
         - items
-        - next_cursor
-        - trace_id
       properties:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/CorrectionRequest"
-        next_cursor:
-          type:
-            - string
-            - "null"
-          maxLength: 500
-        trace_id:
+            $ref: "#/components/schemas/ActionCenterObligation"
+    VaccinationQueueItem:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - obligation_id
+        - goat_id
+        - administered_at
+        - doses
+        - work_state
+      properties:
+        completion_id:
           type: string
-          minLength: 1
-          maxLength: 200
+        obligation_id:
+          type: string
+        goat_id:
+          type: string
+        batch_id:
+          type: string
+        administered_at:
+          type: string
+          format: date-time
+        doses:
+          type: integer
+        route_site:
+          type: string
+        work_state:
+          $ref: "#/components/schemas/WorkState"
+    VaccinationQueueResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationQueueItem"
+    ImpactPreviewInput:
+      type: object
+      additionalProperties: false
+      properties:
+        stage:
+          type: string
+        sex:
+          type: string
+        breed:
+          type: string
+        park_id:
+          type: string
+        vaccine_item_id:
+          type: string
+        location_id:
+          type: string
+        doses_per_goat:
+          type: integer
+          minimum: 0
+        dose_rows:
+          type: integer
+          minimum: 0
+        horizon_days:
+          type: integer
+          minimum: 0
+    ImpactPreviewResult:
+      type: object
+      additionalProperties: false
+      required:
+        - eligible_goats
+        - catchup_goats
+        - obligations
+        - batches
+        - doses_required
+        - doses_available
+        - warnings
+      properties:
+        eligible_goats:
+          type: integer
+        catchup_goats:
+          type: integer
+        obligations:
+          type: integer
+        batches:
+          type: integer
+        doses_required:
+          type: integer
+        doses_available:
+          type: string
+        earliest_expiry:
+          type: string
+          format: date-time
+        warnings:
+          type: array
+          items:
+            type: string
+    CreateProtocolDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - name
+        - category
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+    CreateProtocolDefinitionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_id
+      properties:
+        protocol_id:
+          type: string
+    CreateProtocolVersionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - scope_type
+        - version
+        - effective_from
+        - rule_dsl
+      properties:
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+          nullable: true
+        version:
+          type: integer
+        version_label:
+          type: string
+        effective_from:
+          type: string
+          format: date-time
+        effective_to:
+          type: string
+          format: date-time
+          nullable: true
+        rule_dsl:
+          type: object
+          additionalProperties: true
+          description: Protocol rule DSL.
+        proof_policy:
+          type: object
+          additionalProperties: true
+          description: Proof policy DSL.
+        sop_version_id:
+          type: string
+          nullable: true
+    CreateProtocolVersionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version_id
+      properties:
+        protocol_version_id:
+          type: string
+    AddProtocolRuleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        dose_code:
+          type: string
+        sequence:
+          type: integer
+        trigger_type:
+          type: string
+        offset_days:
+          type: integer
+        due_window_days:
+          type: integer
+        min_gap_days:
+          type: integer
+        repeat:
+          type: string
+        repeat_until_after_age:
+          type: string
+        catch_up:
+          type: string
+        eligibility_json:
+          type: object
+          additionalProperties: true
+          description: Eligibility predicate JSON.
+        proof_policy:
+          type: object
+          additionalProperties: true
+          description: Proof policy JSON.
+        withdrawal_days:
+          type: integer
+          nullable: true
+        sort_order:
+          type: integer
+    AddProtocolRuleResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - rule_id
+      properties:
+        rule_id:
+          type: string
+    ProtocolVersionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version_id
+        - protocol_id
+        - scope_type
+        - scope_id
+        - version
+        - status
+        - rule_dsl
+        - proof_policy
+        - row_version
+      properties:
+        protocol_version_id:
+          type: string
+        protocol_id:
+          type: string
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+        version:
+          type: integer
+        status:
+          type: string
+        effective_from:
+          type: string
+          format: date-time
+          nullable: true
+        effective_to:
+          type: string
+          format: date-time
+          nullable: true
+        rule_dsl:
+          type: object
+          additionalProperties: true
+          description: Protocol rule DSL.
+        proof_policy:
+          type: object
+          additionalProperties: true
+          description: Proof policy DSL.
+        sop_version_id:
+          type: string
+        row_version:
+          type: integer
+    RejectVaccinationCompletionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+    AcceptVaccinationCompletionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - applied
+        - completed
+      properties:
+        applied:
+          type: boolean
+        completed:
+          type: boolean
+    RejectVaccinationCompletionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - applied
+      properties:
+        applied:
+          type: boolean
+    VaccinationPassportDue:
+      type: object
+      additionalProperties: false
+      required:
+        - obligation_id
+        - protocol_version_id
+        - rule_id
+        - status
+        - due_at
+        - sequence
+      properties:
+        obligation_id:
+          type: string
+        protocol_version_id:
+          type: string
+        rule_id:
+          type: string
+        status:
+          type: string
+        due_at:
+          type: string
+          format: date-time
+        sequence:
+          type: integer
+    VaccinationPassportHistoryItem:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - obligation_id
+        - status
+        - administered_at
+        - doses
+        - adverse_reaction
+      properties:
+        completion_id:
+          type: string
+        obligation_id:
+          type: string
+        batch_id:
+          type: string
+        status:
+          type: string
+        route_site:
+          type: string
+        administered_at:
+          type: string
+          format: date-time
+        doses:
+          type: integer
+        adverse_reaction:
+          type: boolean
+        withdrawal_until:
+          type: string
+          format: date-time
+          nullable: true
+    LastAcceptedVaccinationDose:
+      type: object
+      additionalProperties: false
+      required:
+        - completion_id
+        - obligation_id
+        - administered_at
+      properties:
+        completion_id:
+          type: string
+        obligation_id:
+          type: string
+        administered_at:
+          type: string
+          format: date-time
+    VaccinationPassport:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - next_due
+        - open_obligations
+        - last_accepted
+        - vaccination_history
+      properties:
+        goat_id:
+          type: string
+        next_due:
+          anyOf:
+            - $ref: "#/components/schemas/VaccinationPassportDue"
+            - type: "null"
+        open_obligations:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationPassportDue"
+        last_accepted:
+          anyOf:
+            - $ref: "#/components/schemas/LastAcceptedVaccinationDose"
+            - type: "null"
+        vaccination_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationPassportHistoryItem"

@@ -208,18 +208,187 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/identity/correction-requests": {
+    "/protocols": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List correction requests visible to the caller. */
-        get: operations["listCorrectionRequests"];
+        get?: never;
         put?: never;
-        /** Submit an operator or park-head identity correction request. */
-        post: operations["createCorrectionRequest"];
+        /** Create a protocol definition. */
+        post: operations["createProtocolDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/protocols/{protocol_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a draft protocol version. */
+        post: operations["createProtocolVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/protocols/versions/{version_id}/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a dose/phase rule to a draft protocol version. */
+        post: operations["addProtocolRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/protocols/versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a protocol version. */
+        get: operations["getProtocolVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/protocols/versions/{version_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a source-backed protocol version. */
+        post: operations["publishProtocolVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/protocols/vaccination/impact-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview vaccination impact for eligible goats, drive batches, and stock. */
+        post: operations["vaccinationImpactPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/action-center/obligations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List bounded vaccination obligations for the operating work table. */
+        get: operations["listActionCenterObligations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/verification-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List recorded vaccination completions awaiting proof verification. */
+        get: operations["vaccinationVerificationQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/completions/{completion_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept a recorded vaccination completion. */
+        post: operations["acceptVaccinationCompletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/completions/{completion_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject or request rework for a recorded vaccination completion. */
+        post: operations["rejectVaccinationCompletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/goats/{goat_id}/passport": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a goat vaccination passport: open obligations, next due, last accepted dose, and history. */
+        get: operations["getGoatVaccinationPassport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -706,62 +875,188 @@ export interface components {
             redirect_goat_id?: string | null;
             trace_id: string;
         };
-        LocationScope: {
-            /** Format: uuid */
-            farm_id?: string | null;
-            /** Format: uuid */
-            park_id?: string | null;
-            /** Format: uuid */
-            shed_id?: string | null;
-            /** Format: uuid */
-            cohort_id?: string | null;
-        };
-        /** @enum {string} */
-        CorrectionRequestType: "missing_tag" | "tag_reused" | "rfid_conflict" | "possible_duplicate" | "wrong_location" | "wrong_status" | "field_verification_result" | "identifier_seen_but_not_attached";
-        CreateCorrectionRequest: {
-            request_type: components["schemas"]["CorrectionRequestType"];
-            /** Format: uuid */
-            goat_id?: string | null;
-            identifier_type?: components["schemas"]["IdentifierType"] | null;
-            identifier_value?: string | null;
-            location_scope: components["schemas"]["LocationScope"];
-            description: string;
-            evidence_refs: components["schemas"]["EvidenceRef"][];
-        };
-        CorrectionRequest: {
-            /** Format: uuid */
-            correction_request_id: string;
-            request_type: components["schemas"]["CorrectionRequestType"];
-            /** @enum {string} */
-            state: "open" | "assigned" | "needs_field_check" | "approved" | "rejected" | "closed";
-            /** Format: uuid */
-            goat_id?: string | null;
-            identifier_type?: components["schemas"]["IdentifierType"] | null;
-            identifier_value?: string | null;
-            location_scope: components["schemas"]["LocationScope"];
-            description: string;
-            evidence_refs: components["schemas"]["EvidenceRef"][];
-            row_version: number;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            resolved_at?: string | null;
-        };
         IdempotencyMeta: {
             idempotency_key: string;
             replayed: boolean;
             /** Format: uuid */
             first_result_id?: string | null;
         };
-        CorrectionRequestResponse: {
-            correction_request: components["schemas"]["CorrectionRequest"];
-            idempotency: components["schemas"]["IdempotencyMeta"];
-            trace_id: string;
+        /** @enum {string} */
+        WorkState: "due" | "overdue" | "blocked" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "owner_missing" | "scheduled" | "in_progress" | "missed" | "completed";
+        ActionCenterObligation: {
+            obligation_id: string;
+            protocol_version_id: string;
+            rule_id: string;
+            target_type: string;
+            target_id: string;
+            scope_type: string;
+            scope_id: string;
+            /** Format: date-time */
+            due_at: string;
+            status: string;
+            work_state: components["schemas"]["WorkState"];
+            owner_id?: string | null;
+            blocker?: string | null;
         };
-        CorrectionRequestListResponse: {
-            items: components["schemas"]["CorrectionRequest"][];
-            next_cursor: string | null;
-            trace_id: string;
+        ActionCenterResponse: {
+            items: components["schemas"]["ActionCenterObligation"][];
+        };
+        VaccinationQueueItem: {
+            completion_id: string;
+            obligation_id: string;
+            goat_id: string;
+            batch_id?: string;
+            /** Format: date-time */
+            administered_at: string;
+            doses: number;
+            route_site?: string;
+            work_state: components["schemas"]["WorkState"];
+        };
+        VaccinationQueueResponse: {
+            items: components["schemas"]["VaccinationQueueItem"][];
+        };
+        ImpactPreviewInput: {
+            stage?: string;
+            sex?: string;
+            breed?: string;
+            park_id?: string;
+            vaccine_item_id?: string;
+            location_id?: string;
+            doses_per_goat?: number;
+            dose_rows?: number;
+            horizon_days?: number;
+        };
+        ImpactPreviewResult: {
+            eligible_goats: number;
+            catchup_goats: number;
+            obligations: number;
+            batches: number;
+            doses_required: number;
+            doses_available: string;
+            /** Format: date-time */
+            earliest_expiry?: string;
+            warnings: string[];
+        };
+        CreateProtocolDefinitionRequest: {
+            code: string;
+            name: string;
+            category: string;
+        };
+        CreateProtocolDefinitionResponse: {
+            protocol_id: string;
+        };
+        CreateProtocolVersionRequest: {
+            scope_type: string;
+            scope_id?: string | null;
+            version: number;
+            version_label?: string;
+            /** Format: date-time */
+            effective_from: string;
+            /** Format: date-time */
+            effective_to?: string | null;
+            /** @description Protocol rule DSL. */
+            rule_dsl: {
+                [key: string]: unknown;
+            };
+            /** @description Proof policy DSL. */
+            proof_policy?: {
+                [key: string]: unknown;
+            };
+            sop_version_id?: string | null;
+        };
+        CreateProtocolVersionResponse: {
+            protocol_version_id: string;
+        };
+        AddProtocolRuleRequest: {
+            dose_code?: string;
+            sequence?: number;
+            trigger_type?: string;
+            offset_days?: number;
+            due_window_days?: number;
+            min_gap_days?: number;
+            repeat?: string;
+            repeat_until_after_age?: string;
+            catch_up?: string;
+            /** @description Eligibility predicate JSON. */
+            eligibility_json?: {
+                [key: string]: unknown;
+            };
+            /** @description Proof policy JSON. */
+            proof_policy?: {
+                [key: string]: unknown;
+            };
+            withdrawal_days?: number | null;
+            sort_order?: number;
+        };
+        AddProtocolRuleResponse: {
+            rule_id: string;
+        };
+        ProtocolVersionResponse: {
+            protocol_version_id: string;
+            protocol_id: string;
+            scope_type: string;
+            scope_id: string;
+            version: number;
+            status: string;
+            /** Format: date-time */
+            effective_from?: string | null;
+            /** Format: date-time */
+            effective_to?: string | null;
+            /** @description Protocol rule DSL. */
+            rule_dsl: {
+                [key: string]: unknown;
+            };
+            /** @description Proof policy DSL. */
+            proof_policy: {
+                [key: string]: unknown;
+            };
+            sop_version_id?: string;
+            row_version: number;
+        };
+        RejectVaccinationCompletionRequest: {
+            reason?: string;
+        };
+        AcceptVaccinationCompletionResponse: {
+            applied: boolean;
+            completed: boolean;
+        };
+        RejectVaccinationCompletionResponse: {
+            applied: boolean;
+        };
+        VaccinationPassportDue: {
+            obligation_id: string;
+            protocol_version_id: string;
+            rule_id: string;
+            status: string;
+            /** Format: date-time */
+            due_at: string;
+            sequence: number;
+        };
+        VaccinationPassportHistoryItem: {
+            completion_id: string;
+            obligation_id: string;
+            batch_id?: string;
+            status: string;
+            route_site?: string;
+            /** Format: date-time */
+            administered_at: string;
+            doses: number;
+            adverse_reaction: boolean;
+            /** Format: date-time */
+            withdrawal_until?: string | null;
+        };
+        LastAcceptedVaccinationDose: {
+            completion_id: string;
+            obligation_id: string;
+            /** Format: date-time */
+            administered_at: string;
+        };
+        VaccinationPassport: {
+            goat_id: string;
+            next_due: components["schemas"]["VaccinationPassportDue"] | null;
+            open_obligations: components["schemas"]["VaccinationPassportDue"][];
+            last_accepted: components["schemas"]["LastAcceptedVaccinationDose"] | null;
+            vaccination_history: components["schemas"]["VaccinationPassportHistoryItem"][];
         };
     };
     responses: {
@@ -810,6 +1105,33 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Request is syntactically valid but cannot pass the current source-backed gate. */
+        UnprocessableEntity: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Unexpected server error. */
+        ServerError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Dependency or feature wiring is unavailable. */
+        ServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
     };
     parameters: {
         GoatId: string;
@@ -819,6 +1141,9 @@ export interface components {
         Limit: number;
         Cursor: string;
         IdempotencyKey: string;
+        ProtocolId: string;
+        ProtocolVersionId: string;
+        CompletionId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1144,11 +1469,181 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
-    listCorrectionRequests: {
+    createProtocolDefinition: {
         parameters: {
-            query: {
-                limit: components["parameters"]["Limit"];
-                cursor?: components["parameters"]["Cursor"];
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProtocolDefinitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Protocol definition created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateProtocolDefinitionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createProtocolVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                protocol_id: components["parameters"]["ProtocolId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProtocolVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Protocol version created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateProtocolVersionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    addProtocolRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: components["parameters"]["ProtocolVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddProtocolRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Protocol rule created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddProtocolRuleResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getProtocolVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: components["parameters"]["ProtocolVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Protocol version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProtocolVersionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    publishProtocolVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: components["parameters"]["ProtocolVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Protocol version published. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    vaccinationImpactPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ImpactPreviewInput"];
+            };
+        };
+        responses: {
+            /** @description Vaccination impact preview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImpactPreviewResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listActionCenterObligations: {
+        parameters: {
+            query?: {
+                /** @description Current compatibility alias for work_state. */
+                status?: components["schemas"]["WorkState"];
+                work_state?: components["schemas"]["WorkState"];
+                due_before?: string;
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1156,54 +1651,128 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Scope-filtered correction request list. */
+            /** @description Action Center rows. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CorrectionRequestListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    createCorrectionRequest: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateCorrectionRequest"];
-            };
-        };
-        responses: {
-            /** @description Idempotent replay of an already accepted correction request. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CorrectionRequestResponse"];
-                };
-            };
-            /** @description Correction request accepted for review. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CorrectionRequestResponse"];
+                    "application/json": components["schemas"]["ActionCenterResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    vaccinationVerificationQueue: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination verification queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationQueueResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    acceptVaccinationCompletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                completion_id: components["parameters"]["CompletionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completion accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptVaccinationCompletionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    rejectVaccinationCompletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                completion_id: components["parameters"]["CompletionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RejectVaccinationCompletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Completion rejected or marked for rework. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RejectVaccinationCompletionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getGoatVaccinationPassport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination passport. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationPassport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
         };
     };
 }

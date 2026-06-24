@@ -86,7 +86,7 @@ VALUES
 	if err != nil {
 		t.Fatalf("ActiveTenantRoles(union): %v", err)
 	}
-	if len(roles) != 2 || !permissions.RolesAuthorize(roles, []string{permissions.GoatReviewIdentity}, false) {
+	if len(roles) != 2 || !permissions.RolesAuthorize(roles, []string{permissions.TaskVerify}, false) {
 		t.Fatalf("operator+verifier union did not authorize verifier-only permission: %#v", roles)
 	}
 

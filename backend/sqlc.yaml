@@ -15,34 +15,6 @@ sql:
         emit_prepared_queries: false
         emit_interface: false
   - engine: postgresql
-    schema: internal/legacy_import/adapters/postgres/sqlc/schema.sql
-    queries:
-      - internal/legacy_import/adapters/postgres/sqlc/query.sql
-      - internal/legacy_import/adapters/postgres/sqlc/commands.sql
-    gen:
-      go:
-        package: legacyimportdb
-        out: internal/legacy_import/adapters/postgres/sqlc
-        sql_package: pgx/v5
-        emit_json_tags: false
-        emit_db_tags: false
-        emit_prepared_queries: false
-        emit_interface: false
-  - engine: postgresql
-    schema: internal/reporting/adapters/postgres/sqlc/schema.sql
-    queries:
-      - internal/reporting/adapters/postgres/sqlc/query.sql
-      - internal/reporting/adapters/postgres/sqlc/commands.sql
-    gen:
-      go:
-        package: reportingdb
-        out: internal/reporting/adapters/postgres/sqlc
-        sql_package: pgx/v5
-        emit_json_tags: false
-        emit_db_tags: false
-        emit_prepared_queries: false
-        emit_interface: false
-  - engine: postgresql
     schema: internal/protocol/adapters/postgres/sqlc/schema.sql
     queries:
       - internal/protocol/adapters/postgres/sqlc/query.sql

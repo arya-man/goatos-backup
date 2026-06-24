@@ -8,17 +8,8 @@ func TestRolePermissionMatrix(t *testing.T) {
 		permission string
 		want       bool
 	}{
-		{RoleAdmin, ImportRunManage, true},
-		{RoleVerifier, ImportRunView, true},
-		{RoleVerifier, ImportRunManage, false},
-		{RoleParkHead, CorrectionCreate, true},
-		{RoleParkHead, GoatReviewIdentity, false},
 		{RoleOperator, GoatRead, true},
-		{RoleOperator, AnalyticsIdentityRead, false},
-		{RoleCEOInternal, GoatViewDirtyData, true},
 		{RoleCEOInternal, GoatWriteIdentity, true},
-		{RoleCEOInternal, ImportRunManage, true},
-		{RoleCEOInternal, ImportRunView, true},
 		{RoleAdmin, OperatorsManageCapability, true},
 		{RoleParkHead, OperatorsManageRoster, true},
 		{RoleOperator, AppBootstrap, true},
@@ -48,31 +39,8 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/goats/10000000-0000-4000-8000-000000000001"},
 		{"GET", "/goats/10000000-0000-4000-8000-000000000001/timeline"},
 		{"GET", "/identifiers/rfid/RFID-SYNTHETIC-001/resolve"},
-		{"GET", "/identity/correction-requests"},
-		{"POST", "/identity/correction-requests"},
-		{"GET", "/admin/identity/conflicts"},
-		{"GET", "/admin/identity/conflicts/20000000-0000-4000-8000-000000000001"},
-		{"POST", "/admin/identity/conflicts/20000000-0000-4000-8000-000000000001/resolve"},
-		{"GET", "/admin/import-runs"},
-		{"GET", "/admin/import-runs/70000000-0000-4000-8000-000000000001"},
-		{"GET", "/admin/import-runs/70000000-0000-4000-8000-000000000001/rows"},
-		{"POST", "/admin/import-runs"},
-		{"GET", "/admin/legacy-sync/sources"},
-		{"GET", "/admin/legacy-sync/status"},
-		{"GET", "/admin/legacy-sync/runs"},
-		{"POST", "/admin/legacy-sync/runs"},
-		{"GET", "/admin/legacy-sync/runs/70000000-0000-4000-8000-000000000001"},
-		{"POST", "/admin/legacy-sync/runs/70000000-0000-4000-8000-000000000001/cancel"},
-		{"GET", "/admin/identity/candidates"},
-		{"POST", "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve"},
-		{"POST", "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/reject"},
-		{"POST", "/admin/goats"},
-		{"PATCH", "/admin/goats/10000000-0000-4000-8000-000000000001"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers/30000000-0000-4000-8000-000000000001/retire"},
-		{"GET", "/admin/identity/correction-requests"},
-		{"POST", "/admin/identity/correction-requests/40000000-0000-4000-8000-000000000001/resolve"},
-		{"GET", "/analytics/identity/counts"},
 		{"GET", "/admin/locations"},
 		{"POST", "/admin/locations"},
 		{"GET", "/admin/locations/54000000-0000-4000-8000-000000000001"},
@@ -105,9 +73,6 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"DELETE", "/admin/operators/90000000-0000-4000-8000-000000000001/capabilities/91000000-0000-4000-8000-000000000001"},
 		{"GET", "/admin/operators/90000000-0000-4000-8000-000000000001/devices"},
 		{"POST", "/admin/operators/90000000-0000-4000-8000-000000000001/devices/92000000-0000-4000-8000-000000000001/revoke"},
-		{"GET", "/admin/operator-source-candidates"},
-		{"POST", "/admin/operator-source-candidates/93000000-0000-4000-8000-000000000001/map"},
-		{"POST", "/admin/operator-source-candidates/93000000-0000-4000-8000-000000000001/reject"},
 		{"GET", "/app/me"},
 		{"GET", "/app/bootstrap"},
 		{"POST", "/app/devices/register"},
@@ -155,43 +120,11 @@ func TestRouteRegistryFailsClosedForUnknownRoute(t *testing.T) {
 	}
 }
 
-func TestCreateImportRunIsProductAdminOnly(t *testing.T) {
-	route, ok := Match("POST", "/admin/import-runs")
-	if !ok {
-		t.Fatal("create import run route missing")
-	}
-	if !route.AdminOnly || !RolesAuthorize([]string{RoleAdmin}, route.Permissions, route.AdminOnly) {
-		t.Fatalf("admin route not admin-authorized: %#v", route)
-	}
-	if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
-		t.Fatal("ceo_internal should be authorized as Goat OS product admin")
-	}
-	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
-		t.Fatal("verifier authorized for product-admin-only import management")
-	}
-}
-
-func TestCreateLegacySyncRunIsProductAdminOnly(t *testing.T) {
-	route, ok := Match("POST", "/admin/legacy-sync/runs")
-	if !ok {
-		t.Fatal("create legacy sync run route missing")
-	}
-	if !route.AdminOnly || !RolesAuthorize([]string{RoleAdmin}, route.Permissions, route.AdminOnly) {
-		t.Fatalf("admin route not admin-authorized: %#v", route)
-	}
-	if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
-		t.Fatal("ceo_internal should be authorized as Goat OS product admin")
-	}
-	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
-		t.Fatal("verifier authorized for product-admin-only legacy sync management")
-	}
-}
-
 func TestMultipleActiveGrantRolesUnionPermissions(t *testing.T) {
-	if RolesAuthorize([]string{RoleOperator}, []string{GoatReviewIdentity}, false) {
-		t.Fatal("operator alone should not review identity")
+	if RolesAuthorize([]string{RoleOperator}, []string{TaskVerify}, false) {
+		t.Fatal("operator alone should not verify tasks")
 	}
-	if !RolesAuthorize([]string{RoleOperator, RoleVerifier}, []string{GoatReviewIdentity}, false) {
-		t.Fatal("operator+verifier should authorize verifier-only identity review")
+	if !RolesAuthorize([]string{RoleOperator, RoleVerifier}, []string{TaskVerify}, false) {
+		t.Fatal("operator+verifier should authorize verifier-only task verification")
 	}
 }

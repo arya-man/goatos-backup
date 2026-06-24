@@ -45,7 +45,20 @@ const (
 	maxDueLimit     = 500
 )
 
-var allowedDueStatuses = map[string]bool{"scheduled": true, "due": true, "in_progress": true}
+var allowedWorkStates = map[string]bool{
+	"scheduled":            true,
+	"due":                  true,
+	"overdue":              true,
+	"in_progress":          true,
+	"proof_pending":        true,
+	"verification_pending": true,
+	"rejected":             true,
+	"deferred":             true,
+	"owner_missing":        true,
+	"blocked":              true,
+	"missed":               true,
+	"completed":            true,
+}
 
 type errorEnvelope struct {
 	Code    string `json:"code"`
@@ -63,6 +76,7 @@ type dueItem struct {
 	ScopeID           string    `json:"scope_id"`
 	DueAt             time.Time `json:"due_at"`
 	Status            string    `json:"status"`
+	WorkState         string    `json:"work_state"`
 }
 
 type dueResponse struct {
@@ -74,13 +88,16 @@ type dueResponse struct {
 func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	status := q.Get("status")
-	if status == "" {
-		status = "due"
+	workState := q.Get("work_state")
+	if workState == "" {
+		workState = q.Get("status")
 	}
-	if !allowedDueStatuses[status] {
+	if workState == "" {
+		workState = "due"
+	}
+	if !allowedWorkStates[workState] {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
-			errorEnvelope{Code: "invalid_status", Message: "status must be scheduled, due, or in_progress", TraceID: traceID(r)}, nil)
+			errorEnvelope{Code: "invalid_status", Message: "status must be one of the Action Center work states", TraceID: traceID(r)}, nil)
 		return
 	}
 
@@ -109,7 +126,14 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 		limit = int32(n)
 	}
 
-	rows, err := h.due.ListDue(r.Context(), tenantID(r), status, dueBefore, limit)
+	repoStatus, postFilter := repoStatusForWorkState(workState)
+	if repoStatus == "" {
+		httpresponse.WriteJSON(w, http.StatusOK, dueResponse{Items: []dueItem{}})
+		return
+	}
+
+	asOf := time.Now()
+	rows, err := h.due.ListDue(r.Context(), tenantID(r), repoStatus, dueBefore, limit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
@@ -117,6 +141,10 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]dueItem, 0, len(rows))
 	for _, o := range rows {
+		rowWorkState := workStateForObligation(o.Status, o.DueAt, asOf)
+		if postFilter != "" && rowWorkState != postFilter {
+			continue
+		}
 		items = append(items, dueItem{
 			ObligationID:      o.ObligationID,
 			ProtocolVersionID: o.ProtocolVersionID,
@@ -127,9 +155,45 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 			ScopeID:           o.ScopeID,
 			DueAt:             o.DueAt,
 			Status:            o.Status,
+			WorkState:         rowWorkState,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dueResponse{Items: items})
+}
+
+func repoStatusForWorkState(workState string) (string, string) {
+	switch workState {
+	case "overdue":
+		return "due", "overdue"
+	case "proof_pending":
+		return "in_progress", "proof_pending"
+	case "deferred":
+		return "waived", "deferred"
+	case "missed":
+		return "missed", "missed"
+	case "scheduled", "due", "in_progress":
+		return workState, ""
+	default:
+		return "", ""
+	}
+}
+
+func workStateForObligation(status string, dueAt, asOf time.Time) string {
+	switch status {
+	case "scheduled", "due":
+		if dueAt.Before(asOf) {
+			return "overdue"
+		}
+		return "due"
+	case "in_progress":
+		return "proof_pending"
+	case "waived":
+		return "deferred"
+	case "missed":
+		return "missed"
+	default:
+		return status
+	}
 }
 
 func tenantID(r *http.Request) string {

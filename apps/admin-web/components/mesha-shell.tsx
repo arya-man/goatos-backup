@@ -3,46 +3,53 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Bell, ChevronRight, LayoutGrid, Menu, MapPin, Moon, Search, Sun, Syringe, TowerControl } from "lucide-react";
+import {
+  Bell,
+  CalendarDays,
+  Check,
+  ChevronRight,
+  Database,
+  HeartPulse,
+  Menu,
+  MapPin,
+  Moon,
+  Sun,
+  TowerControl,
+} from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 
 type Leaf = { label: string; href: string };
 type Group = { id: string; label: string; icon: React.ElementType; defaultOpen?: boolean; leaves: Leaf[] };
+type RoleLens = { id: string; name: string; scope: string; description: string; superadmin?: boolean };
 
-// Primary global nav — cross-vertical entry points. Goat Passport is a search/utility route, not a
-// PHC-flow step.
-const primary: Leaf[] = [
-  { label: "Control Tower", href: "/" },
-  { label: "Goat Passport", href: "/herd" },
+const roleLenses: RoleLens[] = [
+  { id: "coo", name: "Superadmin / COO", scope: "all · deep", description: "R. Teja · Central Command · all parks", superadmin: true },
+  { id: "park-head", name: "Park Head · CBE", scope: "all verticals · 1 park", description: "CBE park leadership view" },
+  { id: "health-director", name: "Health Director", scope: "vertical · all parks", description: "PHC / health governance view" },
+  { id: "health-manager", name: "Health Mgr · CBE", scope: "vertical · 1 park", description: "CBE PHC manager view" },
+  { id: "ground", name: "Asst / Ground · CBE", scope: "tasks · 1 park", description: "field execution queue" },
+  { id: "investor", name: "Investor", scope: "read-only summary", description: "summary-only lens" },
 ];
-const primaryIcons: Record<string, React.ElementType> = { "/": TowerControl, "/herd": Search };
 
-// Verticals + operations as collapsible groups. PHC is the modeled vertical; Vaccination nests under
-// it (its Action Center / Config / Adherence / Verification screens are in-page subtabs). Legacy
-// operational routes are grouped under Operations so they don't dominate the shell.
+const primary: Leaf[] = [{ label: "Control Tower", href: "/" }];
+const primaryIcons: Record<string, React.ElementType> = { "/": TowerControl };
+
 const groups: Group[] = [
   {
+    // PHC vertical -> Vaccination module. Protocol Rules lives under Admin / Data Ops; Vaccination
+    // links to it with category=vaccination only when it needs contextual rule authoring.
     id: "phc",
     label: "PHC",
-    icon: Syringe,
+    icon: HeartPulse,
     defaultOpen: true,
     leaves: [{ label: "Vaccination", href: "/vaccination" }],
   },
   {
-    id: "ops",
-    label: "Operations",
-    icon: LayoutGrid,
-    leaves: [
-      { label: "Counts", href: "/counts" },
-      { label: "Locations", href: "/locations" },
-      { label: "Operators", href: "/operators" },
-      { label: "SOP Library", href: "/sops" },
-      { label: "Tasks", href: "/tasks" },
-      { label: "Import Review", href: "/import-review" },
-      { label: "Data Quality", href: "/data-quality" },
-      { label: "Legacy Sync", href: "/legacy-sync" },
-      { label: "Mortality", href: "/dashboard/mortality" },
-    ],
+    id: "admin-data",
+    label: "Admin / Data Ops",
+    icon: Database,
+    defaultOpen: true,
+    leaves: [{ label: "Config", href: "/config" }],
   },
 ];
 
@@ -68,6 +75,10 @@ export function MeshaShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/";
   const active = activeHref(pathname);
   const [navOpen, setNavOpen] = useState(false);
+  const [rail, setRail] = useState(false);
+  const [isLight, setIsLight] = useState(false);
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
+  const [roleLens, setRoleLens] = useState<RoleLens>(roleLenses[0]);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of groups) {
@@ -78,18 +89,34 @@ export function MeshaShell({ children }: { children: React.ReactNode }) {
   const today = todayIso();
 
   function toggleTheme() {
-    document.documentElement.classList.toggle("light");
+    const next = !document.documentElement.classList.contains("light");
+    document.documentElement.classList.toggle("light", next);
+    setIsLight(next);
   }
   function toggleGroup(id: string) {
     setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+  function toggleNav() {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 880px)").matches) {
+      setNavOpen((o) => !o);
+      return;
+    }
+    setRail((o) => !o);
   }
 
   return (
     <>
       <div className="top">
-        <div className="iconbtn hamb" onClick={() => setNavOpen((o) => !o)} title="Menu" role="button" tabIndex={0}>
+        <button
+          type="button"
+          className="iconbtn hamb"
+          onClick={toggleNav}
+          title={rail ? "Expand navigation" : "Collapse navigation"}
+          aria-label={rail ? "Expand navigation" : "Collapse navigation"}
+          aria-expanded={!rail}
+        >
           <Menu className="ic" />
-        </div>
+        </button>
         <div className="brand">
           <span className="logo">मे</span>
           <b style={{ fontSize: 16, letterSpacing: "-.3px" }}>Mesha</b>
@@ -101,32 +128,70 @@ export function MeshaShell({ children }: { children: React.ReactNode }) {
         </div>
         {today ? (
           <div className="pscope" title="Reporting date">
+            <CalendarDays className="ic" style={{ width: 14 }} />
             <span className="muted small">as of</span>
             <b>{today}</b>
           </div>
         ) : null}
-        <div
+        <button
+          type="button"
           className="iconbtn"
           onClick={toggleTheme}
-          title="Switch light / dark theme"
-          aria-label="Switch light / dark theme"
-          role="button"
-          tabIndex={0}
+          title={isLight ? "Switch to dark theme" : "Switch to light theme"}
+          aria-label={isLight ? "Switch to dark theme" : "Switch to light theme"}
         >
-          <Sun className="ic theme-sun" />
-          <Moon className="ic theme-moon" />
-        </div>
-        <div className="iconbtn" title="Notifications" aria-label="Notifications" role="button" tabIndex={0}>
+          {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
+        </button>
+        <button type="button" className="iconbtn" title="Notifications" aria-label="Notifications">
           <Bell className="ic" />
+        </button>
+        <div className="userpick">
+          <button
+            type="button"
+            className="me"
+            aria-label="Open admin role preview"
+            aria-expanded={roleMenuOpen}
+            onClick={() => setRoleMenuOpen((open) => !open)}
+          >
+            <span className="av">RT</span>
+            <span>
+              <span className="nm">R. Teja</span>
+              <span className="rl">{roleLens.superadmin ? "COO · Command" : roleLens.name}</span>
+            </span>
+            <ChevronRight className="ic" style={{ width: 14 }} />
+          </button>
+          <div id="userMenu" className={`parkmenu ${roleMenuOpen ? "on" : ""}`}>
+            <div className="role-menu-title">
+              <b>R. Teja</b>
+              <span>COO · Central Command · all parks</span>
+            </div>
+            <div className="role-divider" />
+            {roleLenses.map((role) => (
+              <button
+                key={role.id}
+                type="button"
+                className={`pm-item ${roleLens.id === role.id ? "on" : ""}`}
+                onClick={() => {
+                  setRoleLens(role);
+                  setRoleMenuOpen(false);
+                }}
+              >
+                <span className="pn">{role.name}</span>
+                <span className="pr">{role.scope}</span>
+                {roleLens.id === role.id ? <Check className="ic tick" /> : null}
+              </button>
+            ))}
+            <div className="role-divider" />
+            <SignOutButton />
+          </div>
         </div>
-        <SignOutButton />
       </div>
 
       <div className={`navscrim ${navOpen ? "on" : ""}`} onClick={() => setNavOpen(false)} />
-      <div className="layout">
+      <div className={`layout ${rail ? "rail" : ""}`}>
         <aside className={`side ${navOpen ? "open" : ""}`} id="side">
           {primary.map((n) => {
-            const Icon = primaryIcons[n.href] ?? Search;
+            const Icon = primaryIcons[n.href] ?? TowerControl;
             return (
               <Link
                 key={n.href}

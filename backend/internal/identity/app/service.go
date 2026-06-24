@@ -217,79 +217,6 @@ func (s *Service) GetGoatTimeline(ctx context.Context, params ports.GetGoatTimel
 	return &domain.GoatTimelineResponse{Items: items, NextCursor: next, TraceID: traceID}, nil
 }
 
-func (s *Service) ListCorrectionRequests(ctx context.Context, params ports.ListCorrectionRequestsParams, traceID string) (*domain.CorrectionRequestListResponse, error) {
-	if err := requireTenant(params.TenantID); err != nil {
-		return nil, err
-	}
-	if params.Limit < 1 || params.Limit > 100 {
-		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
-	}
-	if params.CreatedBy != nil {
-		createdBy := strings.TrimSpace(*params.CreatedBy)
-		if !uuidPattern.MatchString(createdBy) {
-			return nil, BadRequest("invalid_actor_id", "authenticated actor must be a valid UUID")
-		}
-		params.CreatedBy = &createdBy
-	}
-	if params.State != nil {
-		state := strings.TrimSpace(*params.State)
-		if !validCorrectionRequestState(state) {
-			return nil, BadRequest("invalid_state", "state is not supported")
-		}
-		params.State = &state
-	}
-	items, next, err := s.repo.ListCorrectionRequests(ctx, params)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	if items == nil {
-		items = []domain.CorrectionRequest{}
-	}
-	return &domain.CorrectionRequestListResponse{Items: items, NextCursor: next, TraceID: traceID}, nil
-}
-
-func (s *Service) ListConflicts(ctx context.Context, params ports.ListConflictsParams, traceID string) (*domain.ConflictListResult, error) {
-	if err := requireTenant(params.TenantID); err != nil {
-		return nil, err
-	}
-	if params.Limit < 1 || params.Limit > 100 {
-		return nil, BadRequest("invalid_limit", "limit must be between 1 and 100")
-	}
-	items, next, err := s.repo.ListConflicts(ctx, params)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	return &domain.ConflictListResult{Items: items, NextCursor: next, TraceID: traceID}, nil
-}
-
-// ReviewSummary returns the open-conflict and actionable-candidate totals that
-// power the dashboard cards (true counts, not first-page previews).
-func (s *Service) ReviewSummary(ctx context.Context, tenantID, traceID string) (*domain.ReviewSummaryResult, error) {
-	if err := requireTenant(tenantID); err != nil {
-		return nil, err
-	}
-	openConflicts, openCandidates, err := s.repo.CountReviewQueues(ctx, tenantID)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	return &domain.ReviewSummaryResult{OpenConflicts: openConflicts, OpenCandidates: openCandidates, TraceID: traceID}, nil
-}
-
-func (s *Service) GetConflict(ctx context.Context, tenantID, conflictID, traceID string) (*domain.ConflictDetailResult, error) {
-	if err := requireTenant(tenantID); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(conflictID) == "" {
-		return nil, BadRequest("invalid_conflict_id", "conflict_id is required")
-	}
-	result, err := s.repo.GetConflict(ctx, tenantID, conflictID)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	result.TraceID = traceID
-	return result, nil
-}
-
 func requireTenant(tenantID string) error {
 	if strings.TrimSpace(tenantID) == "" {
 		return Unauthorized("missing_tenant_scope", "tenant scope is required")
@@ -337,15 +264,6 @@ func sameScopeKey(matches []domain.IdentifierMatch) (string, bool) {
 	return scope, true
 }
 
-func validCorrectionRequestState(state string) bool {
-	switch state {
-	case "open", "assigned", "needs_field_check", "approved", "rejected", "closed":
-		return true
-	default:
-		return false
-	}
-}
-
 func ensureWarnings(in []domain.Warning) []domain.Warning {
 	if in == nil {
 		return []domain.Warning{}
@@ -383,17 +301,8 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrWriteConflict) {
 		return Conflict("write_conflict", "identity write cannot be applied with the supplied state or row_version")
 	}
-	if errors.Is(err, ports.ErrBulkDecisionNotApplicable) {
-		return BadRequest("bulk_decision_not_applicable", "the chosen decision is not valid for at least one selected conflict")
-	}
-	if errors.Is(err, ports.ErrBulkBreedNotCanonical) {
-		return BadRequest("legacy_breed_not_canonical", "a legacy breed value is not an approved canonical breed; resolve the breed catalog first")
-	}
 	if errors.Is(err, ports.ErrInvalidCursor) {
 		return BadRequest("invalid_cursor", "cursor is not valid for this list endpoint")
-	}
-	if errors.Is(err, ports.ErrCannotExtractIdentifier) {
-		return BadRequest("cannot_extract_identifier", "the linked legacy row has no deterministic RFID to extract; supply an explicit identifier_action instead")
 	}
 	var appErr *Error
 	if errors.As(err, &appErr) {

@@ -12,7 +12,7 @@
   "producer": {
     "service": "goat-ops-core",
     "module": "identity",
-    "version": "phase-01-contract"
+    "version": "goatos-contract-v1"
   },
   "idempotency_key": "synthetic-import-rfid-db-row-0001-v1",
   "actor": {

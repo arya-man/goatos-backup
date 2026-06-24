@@ -38,58 +38,13 @@ func (r errRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifierP
 func (r errRepo) FindOpenConflictForIdentifier(context.Context, string, string, string, string) (*string, error) {
 	return nil, r.err
 }
-func (r errRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]domain.ConflictSummary, *string, error) {
-	return nil, nil, r.err
-}
-func (r errRepo) CountReviewQueues(context.Context, string) (int, int, error) {
-	return 0, 0, r.err
-}
-func (r errRepo) BulkResolveConflicts(context.Context, ports.BulkResolveConflictsCommand) (*domain.BulkResolveConflictsResult, error) {
-	return nil, r.err
-}
-func (r errRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
-	return nil, r.err
-}
-func (r errRepo) ListCandidates(context.Context, ports.ListCandidatesParams) ([]domain.CandidateSummary, *string, error) {
-	return nil, nil, r.err
-}
-func (r errRepo) GetImportRun(context.Context, string, string) (*domain.ImportRun, error) {
-	return nil, r.err
-}
-func (r errRepo) ListImportRuns(context.Context, ports.ListImportRunsParams) ([]domain.ImportRun, error) {
-	return nil, r.err
-}
-func (r errRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
-	return nil, nil, r.err
-}
 func (r errRepo) GetGoatTimeline(context.Context, ports.GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error) {
 	return nil, nil, r.err
-}
-func (r errRepo) ListCorrectionRequests(context.Context, ports.ListCorrectionRequestsParams) ([]domain.CorrectionRequest, *string, error) {
-	return nil, nil, r.err
-}
-func (r errRepo) CreateCorrectionRequest(context.Context, ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
-	return nil, r.err
-}
-func (r errRepo) ResolveCorrectionRequest(context.Context, ports.ResolveCorrectionRequestCommand) (*ports.ResolveCorrectionRequestResult, error) {
-	return nil, r.err
 }
 func (r errRepo) AddGoatIdentifier(context.Context, ports.AddGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
 	return nil, r.err
 }
 func (r errRepo) RetireGoatIdentifier(context.Context, ports.RetireGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
-	return nil, r.err
-}
-func (r errRepo) ResolveConflict(context.Context, ports.ResolveConflictCommand) (*ports.ResolveConflictResult, error) {
-	return nil, r.err
-}
-func (r errRepo) RejectCandidate(context.Context, ports.RejectCandidateCommand) (*ports.RejectCandidateResult, error) {
-	return nil, r.err
-}
-func (r errRepo) ApproveCandidate(context.Context, ports.ApproveCandidateCommand) (*ports.ApproveCandidateResult, error) {
-	return nil, r.err
-}
-func (r errRepo) ReviewImportRow(context.Context, ports.ReviewImportRowCommand) (*ports.ReviewImportRowResult, error) {
 	return nil, r.err
 }
 func (r errRepo) Ping(context.Context) error { return r.err }

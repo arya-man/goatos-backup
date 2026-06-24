@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Pause, Syringe, Video } from "lucide-react";
 import {
   getVaccinationActionCenter,
   getVaccinationVerificationQueue,
@@ -47,7 +48,7 @@ function ModuleCard({
   rows,
   emptyNote,
 }: {
-  icon: string;
+  icon: React.ReactNode;
   title: string;
   badge: string;
   badgeTone: Tone;
@@ -58,34 +59,32 @@ function ModuleCard({
   return (
     <section className="card">
       <div className="hd">
-        <span aria-hidden>{icon}</span>
+        {icon}
         <h3>{title}</h3>
         <Tag tone={badgeTone}>{badge}</Tag>
         <div className="sp" />
         {rightBadge ?? null}
       </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={`${title} adherence table`}>
-        <table>
-          <thead>
-            <tr>
-              {cols.map((c) => (
-                <th key={c}>{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length > 0 ? (
-              rows
-            ) : (
+      {rows.length > 0 ? (
+        // Populated: the 7-column table scrolls horizontally inside the card when needed.
+        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={`${title} adherence table`}>
+          <table>
+            <thead>
               <tr>
-                <td colSpan={cols.length} className="muted" style={{ textAlign: "center", padding: "18px 12px" }}>
-                  {emptyNote}
-                </td>
+                {cols.map((c) => (
+                  <th key={c}>{c}</th>
+                ))}
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+      ) : (
+        // Empty: a wrapping note — never a wide single-row table (which overflowed/clipped the card).
+        <p className="muted small" style={{ margin: 0, padding: "16px 4px", lineHeight: 1.6 }}>
+          {emptyNote}
+        </p>
+      )}
     </section>
   );
 }
@@ -146,16 +145,16 @@ export async function ProtocolAdherencePage() {
 
       <div className="note" style={{ marginBottom: 14 }}>
         Adherence is computed from <b>published</b> rules. No vaccination protocol is published yet (source-backed gate),
-        so there are no expected-vs-actual gaps to compute. Publish a source-backed schedule in the{" "}
-        <Link href="/vaccination/config" className="lk">
-          Config — Schedule Builder
+        so there are no expected-vs-actual gaps to compute. Publish a source-backed schedule in{" "}
+        <Link href="/config?category=vaccination" className="lk">
+          Config — Protocol Rules
         </Link>
         ; gaps, deferred/explained obligations, and verification/rework then populate the cards below.
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <ModuleCard
-          icon="💉"
+          icon={<Syringe className="ic" />}
           title="Vaccination"
           badge="adherence: pending"
           badgeTone="warn"
@@ -164,7 +163,7 @@ export async function ProtocolAdherencePage() {
           emptyNote="No computed gaps — publish a source-backed vaccination schedule to generate obligations, then expected-vs-actual gaps appear here (skipped, missing-proof, overdue, deferred)."
         />
         <ModuleCard
-          icon="🎥"
+          icon={<Video className="ic" />}
           title="Verification / SOP proof"
           badge={`${queueItems.length} awaiting`}
           badgeTone={queueItems.length ? "warn" : "mut"}
@@ -172,7 +171,7 @@ export async function ProtocolAdherencePage() {
           emptyNote="Recorded doses awaiting review + rework requests surface here once drives run. Act on them in the Action Center verification queue."
         />
         <ModuleCard
-          icon="⏸"
+          icon={<Pause className="ic" />}
           title="Deferred / explained"
           badge="SM-1 defer"
           badgeTone="mut"

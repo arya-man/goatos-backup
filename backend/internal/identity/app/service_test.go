@@ -169,280 +169,44 @@ func TestGetGoatPassportDetectsMergeRedirectCycle(t *testing.T) {
 }
 
 func TestCanonicalRequestHashIsStableAndScoped(t *testing.T) {
-	bodyA := []byte(`{"description":"field note","request_type":"missing_tag","location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`)
-	bodyB := []byte(`{"evidence_refs":[{"evidence_id":"synthetic-row-1","evidence_type":"source_record"}],"location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"request_type":"missing_tag","description":"field note"}`)
-	hashA, err := CanonicalRequestHash(testTenant, correctionCreateCommand, correctionCreateRoute, bodyA)
+	bodyA := []byte(`{"identifier_type":"rfid","identifier_value":"RFID-SYNTHETIC-001","scope_key":"global:rfid","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"row_version":1}`)
+	bodyB := []byte(`{"row_version":1,"evidence_refs":[{"evidence_id":"synthetic-row-1","evidence_type":"source_record"}],"scope_key":"global:rfid","identifier_value":"RFID-SYNTHETIC-001","identifier_type":"rfid"}`)
+	route := "/admin/goats/" + goatA + "/identifiers"
+	hashA, err := CanonicalRequestHashWithSubject(testTenant, addGoatIdentifierCommand, route, goatA, bodyA)
 	if err != nil {
 		t.Fatalf("hash A: %v", err)
 	}
-	hashB, err := CanonicalRequestHash(testTenant, correctionCreateCommand, correctionCreateRoute, bodyB)
+	hashB, err := CanonicalRequestHashWithSubject(testTenant, addGoatIdentifierCommand, route, goatA, bodyB)
 	if err != nil {
 		t.Fatalf("hash B: %v", err)
 	}
 	if hashA != hashB {
 		t.Fatalf("hash should be stable across JSON key order: %s != %s", hashA, hashB)
 	}
-	otherTenantHash, err := CanonicalRequestHash("00000000-0000-4000-8000-000000000002", correctionCreateCommand, correctionCreateRoute, bodyA)
+	otherTenantHash, err := CanonicalRequestHashWithSubject("00000000-0000-4000-8000-000000000002", addGoatIdentifierCommand, route, goatA, bodyA)
 	if err != nil {
 		t.Fatalf("hash other tenant: %v", err)
 	}
 	if otherTenantHash == hashA {
 		t.Fatal("hash must include tenant scope")
 	}
-	otherRouteHash, err := CanonicalRequestHash(testTenant, correctionCreateCommand, "/other", bodyA)
+	otherRouteHash, err := CanonicalRequestHashWithSubject(testTenant, addGoatIdentifierCommand, "/other", goatA, bodyA)
 	if err != nil {
 		t.Fatalf("hash other route: %v", err)
 	}
 	if otherRouteHash == hashA {
 		t.Fatal("hash must include route identity")
 	}
-	subjectHash, err := CanonicalRequestHashWithSubject(testTenant, correctionResolveCommand, "/admin/identity/correction-requests/40000000-0000-4000-8000-000000000001/resolve", "40000000-0000-4000-8000-000000000001", bodyA)
+	subjectHash, err := CanonicalRequestHashWithSubject(testTenant, addGoatIdentifierCommand, route, goatA, bodyA)
 	if err != nil {
 		t.Fatalf("hash with subject: %v", err)
 	}
-	otherSubjectHash, err := CanonicalRequestHashWithSubject(testTenant, correctionResolveCommand, "/admin/identity/correction-requests/40000000-0000-4000-8000-000000000002/resolve", "40000000-0000-4000-8000-000000000002", bodyA)
+	otherSubjectHash, err := CanonicalRequestHashWithSubject(testTenant, addGoatIdentifierCommand, route, goatB, bodyA)
 	if err != nil {
 		t.Fatalf("hash with other subject: %v", err)
 	}
 	if subjectHash == otherSubjectHash {
-		t.Fatal("hash must include correction request id")
-	}
-}
-
-func TestCreateCorrectionRequestIdempotencyReplay(t *testing.T) {
-	resultID := "40000000-0000-4000-8000-000000000001"
-	repo := &fakeRepo{
-		correctionResult: &ports.CreateCorrectionRequestResult{
-			CorrectionRequest: domain.CorrectionRequest{
-				CorrectionRequestID: resultID,
-				RequestType:         "missing_tag",
-				State:               "open",
-				LocationScope:       domain.LocationScope{ParkID: strPtr("00000000-0000-4000-8000-000000003001")},
-				Description:         "synthetic field note",
-				EvidenceRefs:        []domain.EvidenceRef{{EvidenceType: "source_record", EvidenceID: "synthetic-row-1"}},
-				CreatedAt:           time.Now().UTC(),
-			},
-			Replayed:      true,
-			FirstResultID: &resultID,
-		},
-	}
-	svc := NewService(repo)
-	response, err := svc.CreateCorrectionRequest(context.Background(), validCorrectionInput())
-	if err != nil {
-		t.Fatalf("CreateCorrectionRequest: %v", err)
-	}
-	if !response.Idempotency.Replayed || response.Idempotency.FirstResultID == nil || *response.Idempotency.FirstResultID != resultID {
-		t.Fatalf("unexpected idempotency response: %#v", response.Idempotency)
-	}
-	if repo.lastCorrectionCmd.StoredIdempotencyKey != testTenant+":"+correctionCreateCommand+":idem-unit-0001" {
-		t.Fatalf("stored idempotency key was not namespaced: %q", repo.lastCorrectionCmd.StoredIdempotencyKey)
-	}
-	if repo.lastCorrectionCmd.RequestHash == "" {
-		t.Fatal("request hash was not populated")
-	}
-}
-
-func TestCreateCorrectionRequestIdempotencyConflict(t *testing.T) {
-	repo := &fakeRepo{correctionErr: ports.ErrIdempotencyConflict}
-	svc := NewService(repo)
-	_, err := svc.CreateCorrectionRequest(context.Background(), validCorrectionInput())
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 409 || appErr.Code != "idempotency_conflict" {
-		t.Fatalf("expected idempotency conflict app error, got %v", err)
-	}
-}
-
-func TestResolveCorrectionRequestValidationAndReplay(t *testing.T) {
-	resultID := "40000000-0000-4000-8000-000000000001"
-	repo := &fakeRepo{
-		resolveResult: &ports.ResolveCorrectionRequestResult{
-			CorrectionRequest: domain.CorrectionRequest{
-				CorrectionRequestID: resultID,
-				RequestType:         "missing_tag",
-				State:               "approved",
-				LocationScope:       domain.LocationScope{ParkID: strPtr("00000000-0000-4000-8000-000000003001")},
-				Description:         "synthetic field note",
-				EvidenceRefs:        []domain.EvidenceRef{{EvidenceType: "source_record", EvidenceID: "synthetic-row-1"}},
-				RowVersion:          intPtr(2),
-				CreatedAt:           time.Now().UTC(),
-				ResolvedAt:          timePtr(time.Now().UTC()),
-			},
-			Decision: domain.DecisionRecordSummary{
-				DecisionID:     "50000000-0000-4000-8000-000000000001",
-				DecisionType:   "resolve_correction_request",
-				DecisionResult: "approved",
-				DecisionState:  "approved",
-				PolicyVersion:  "phase1-manual-correction-review-v1",
-				CreatedAt:      time.Now().UTC(),
-			},
-			Replayed:      true,
-			FirstResultID: &resultID,
-		},
-	}
-	svc := NewService(repo)
-	response, err := svc.ResolveCorrectionRequest(context.Background(), validResolveInput())
-	if err != nil {
-		t.Fatalf("ResolveCorrectionRequest: %v", err)
-	}
-	if response.Decision == nil || response.Decision.DecisionType != "resolve_correction_request" {
-		t.Fatalf("decision missing from response: %#v", response.Decision)
-	}
-	if !response.Idempotency.Replayed || response.Idempotency.FirstResultID == nil || *response.Idempotency.FirstResultID != resultID {
-		t.Fatalf("unexpected idempotency response: %#v", response.Idempotency)
-	}
-	if repo.lastResolveCmd.StoredIdempotencyKey != testTenant+":"+correctionResolveCommand+":idem-resolve-0001" {
-		t.Fatalf("stored idempotency key was not namespaced: %q", repo.lastResolveCmd.StoredIdempotencyKey)
-	}
-	if repo.lastResolveCmd.CorrectionRequestID != resultID || repo.lastResolveCmd.RowVersion != 1 {
-		t.Fatalf("resolve command not normalized: %#v", repo.lastResolveCmd)
-	}
-}
-
-func TestResolveCorrectionRequestRejectsBadEvidence(t *testing.T) {
-	input := validResolveInput()
-	input.RawBody = []byte(`{"state":"approved","reason":"synthetic reason","evidence_refs":[],"row_version":1}`)
-	svc := NewService(&fakeRepo{})
-	_, err := svc.ResolveCorrectionRequest(context.Background(), input)
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "missing_evidence_refs" {
-		t.Fatalf("expected missing evidence_refs bad request, got %v", err)
-	}
-
-	input = validResolveInput()
-	input.RawBody = []byte(`{"state":"approved","reason":"synthetic reason","evidence_refs":[{"evidence_type":"made_up","evidence_id":"synthetic"}],"row_version":1}`)
-	_, err = svc.ResolveCorrectionRequest(context.Background(), input)
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_evidence_ref" {
-		t.Fatalf("expected invalid evidence type bad request, got %v", err)
-	}
-}
-
-func TestResolveCorrectionRequestIdempotencyConflict(t *testing.T) {
-	repo := &fakeRepo{resolveErr: ports.ErrIdempotencyConflict}
-	svc := NewService(repo)
-	_, err := svc.ResolveCorrectionRequest(context.Background(), validResolveInput())
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 409 || appErr.Code != "idempotency_conflict" {
-		t.Fatalf("expected idempotency conflict app error, got %v", err)
-	}
-}
-
-func TestResolveConflictMergeValidationAndCommand(t *testing.T) {
-	resultID := conflictID
-	repo := &fakeRepo{
-		resolveConflictResult: &ports.ResolveConflictResult{
-			ConflictID: conflictID,
-			State:      "resolved",
-			Decision: domain.DecisionRecordSummary{
-				DecisionID:     "50000000-0000-4000-8000-000000000201",
-				DecisionType:   "merge_goats",
-				DecisionResult: "same_goat_merge",
-				DecisionState:  "approved",
-				PolicyVersion:  "phase1-manual-correction-review-v1",
-				CreatedAt:      time.Now().UTC(),
-			},
-			Merge: &domain.MergeResult{
-				SurvivorGoatID: survivorGoat,
-				MergedGoatIDs:  []string{mergedGoat},
-			},
-			Events:        []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.identity.merge_approved"}},
-			Replayed:      true,
-			FirstResultID: &resultID,
-		},
-	}
-	svc := NewService(repo)
-	response, err := svc.ResolveConflict(context.Background(), validResolveConflictInput())
-	if err != nil {
-		t.Fatalf("ResolveConflict: %v", err)
-	}
-	if response.Decision.DecisionType != "merge_goats" || response.Merge == nil || response.Merge.SurvivorGoatID != survivorGoat {
-		t.Fatalf("unexpected response: %#v", response)
-	}
-	wantKey := testTenant + ":" + resolveConflictCommand + ":" + conflictID + ":idem-conflict-0001"
-	if repo.lastResolveConflictCmd.StoredIdempotencyKey != wantKey {
-		t.Fatalf("stored idempotency key = %q, want %q", repo.lastResolveConflictCmd.StoredIdempotencyKey, wantKey)
-	}
-	if repo.lastResolveConflictCmd.RowVersion != 1 || len(repo.lastResolveConflictCmd.EvidenceRefs) != 1 {
-		t.Fatalf("command not normalized: %#v", repo.lastResolveConflictCmd)
-	}
-	if !response.Idempotency.Replayed || response.Idempotency.FirstResultID == nil || *response.Idempotency.FirstResultID != conflictID {
-		t.Fatalf("unexpected idempotency response: %#v", response.Idempotency)
-	}
-}
-
-func TestResolveConflictRejectsOldEvidenceIDs(t *testing.T) {
-	input := validResolveConflictInput()
-	input.RawBody = []byte(`{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000004","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_ids":["synthetic-row-1"],"reason":"synthetic merge reason","row_version":1}`)
-	svc := NewService(&fakeRepo{})
-	_, err := svc.ResolveConflict(context.Background(), input)
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_json" {
-		t.Fatalf("expected invalid_json for old evidence_ids, got %v", err)
-	}
-}
-
-func TestResolveConflictRejectMatchRoutesToRepository(t *testing.T) {
-	repo := &fakeRepo{
-		resolveConflictResult: &ports.ResolveConflictResult{
-			ConflictID: conflictID,
-			State:      "rejected",
-			Decision: domain.DecisionRecordSummary{
-				DecisionID:     "50000000-0000-4000-8000-000000000202",
-				DecisionType:   "reject_match",
-				DecisionResult: "candidate_rejected",
-				DecisionState:  "rejected",
-				PolicyVersion:  "phase1-manual-correction-review-v1",
-				CreatedAt:      time.Now().UTC(),
-			},
-		},
-	}
-	input := validResolveConflictInput()
-	input.RawBody = []byte(`{"decision_type":"reject_match","decision_result":"candidate_rejected","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic candidate rejection reason","row_version":1}`)
-	svc := NewService(repo)
-	response, err := svc.ResolveConflict(context.Background(), input)
-	if err != nil {
-		t.Fatalf("ResolveConflict reject_match: %v", err)
-	}
-	if response.State != "rejected" || response.Merge != nil {
-		t.Fatalf("unexpected reject_match response: %#v", response)
-	}
-	if repo.lastResolveConflictCmd.DecisionType != "reject_match" || repo.lastResolveConflictCmd.SurvivorGoatID != "" {
-		t.Fatalf("unexpected reject_match command: %#v", repo.lastResolveConflictCmd)
-	}
-}
-
-func TestResolveConflictCreateGoatIsNotImplemented(t *testing.T) {
-	input := validResolveConflictInput()
-	input.RawBody = []byte(`{"decision_type":"create_goat","decision_result":"new_goat_required","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic new goat required reason","row_version":1}`)
-	svc := NewService(&fakeRepo{})
-	_, err := svc.ResolveConflict(context.Background(), input)
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 501 || appErr.Code != "unsupported_conflict_decision" {
-		t.Fatalf("expected unsupported_conflict_decision, got %v", err)
-	}
-}
-
-func TestResolveConflictRejectsInvalidDecisionPairAndDisputeActions(t *testing.T) {
-	svc := NewService(&fakeRepo{})
-	input := validResolveConflictInput()
-	input.RawBody = []byte(`{"decision_type":"reject_match","decision_result":"same_goat_merge","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic wrong pair reason","row_version":1}`)
-	_, err := svc.ResolveConflict(context.Background(), input)
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_decision_pair" {
-		t.Fatalf("expected invalid_decision_pair, got %v", err)
-	}
-
-	input = validResolveConflictInput()
-	input.RawBody = []byte(`{"decision_type":"mark_identifier_disputed","decision_result":"different_goats_identifier_disputed","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic missing actions reason","row_version":1}`)
-	_, err = svc.ResolveConflict(context.Background(), input)
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "missing_identifier_actions" {
-		t.Fatalf("expected missing_identifier_actions, got %v", err)
-	}
-
-	input = validResolveConflictInput()
-	input.RawBody = []byte(`{"decision_type":"mark_identifier_disputed","decision_result":"different_goats_identifier_disputed","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[{"action":"dispute"}],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}],"reason":"synthetic missing identifier id reason","row_version":1}`)
-	_, err = svc.ResolveConflict(context.Background(), input)
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "missing_identifier_id" {
-		t.Fatalf("expected missing_identifier_id, got %v", err)
+		t.Fatal("hash must include subject id")
 	}
 }
 
@@ -509,51 +273,6 @@ func TestAddGoatIdentifierRejectsOldEvidenceIDsAndMissingScope(t *testing.T) {
 	}
 }
 
-func TestApproveCandidateAttachRejectsNonRFIDMissingScope(t *testing.T) {
-	svc := NewService(&fakeRepo{})
-	input := ReviewCandidateInput{
-		TenantID:       testTenant,
-		ActorID:        testActor,
-		IdempotencyKey: "idem-approve-unit-0001",
-		TraceID:        testTrace,
-		CandidateID:    "80000000-0000-4000-8000-000000000001",
-		RawBody:        []byte(`{"decision_type":"attach_identifier","target_goat_id":"10000000-0000-4000-8000-000000000001","goat_row_version":1,"identifier_type":"old_tag","identifier_value":"1900","reason":"synthetic approve reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`),
-	}
-	_, err := svc.ApproveCandidate(context.Background(), input)
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_scope_key" {
-		t.Fatalf("expected invalid_scope_key, got %v", err)
-	}
-}
-
-func TestReviewImportRowFixNormalizesAndValidatesSex(t *testing.T) {
-	repo := &fakeRepo{}
-	svc := NewService(repo)
-	input := ReviewImportRowInput{
-		TenantID:       testTenant,
-		ActorID:        testActor,
-		IdempotencyKey: "idem-review-unit-0001",
-		TraceID:        testTrace,
-		ImportRunID:    "30000000-0000-4000-8000-000000000001",
-		ImportRowID:    "70000000-0000-4000-8000-000000000001",
-		RawBody:        []byte(`{"action":"fix","sex":" Female ","reason":"synthetic review reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`),
-	}
-	if _, err := svc.ReviewImportRow(context.Background(), input); err != nil {
-		t.Fatalf("ReviewImportRow fix: %v", err)
-	}
-	if repo.lastReviewImportRowCmd.FixSex == nil || *repo.lastReviewImportRowCmd.FixSex != "female" {
-		t.Fatalf("sex was not normalized before repo command: %#v", repo.lastReviewImportRowCmd.FixSex)
-	}
-
-	input.IdempotencyKey = "idem-review-unit-0002"
-	input.RawBody = []byte(`{"action":"fix","sex":"doe","reason":"synthetic review reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`)
-	_, err := svc.ReviewImportRow(context.Background(), input)
-	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_sex" {
-		t.Fatalf("expected invalid_sex, got %v", err)
-	}
-}
-
 func TestRetireGoatIdentifierValidationAndCommand(t *testing.T) {
 	identifierID := "30000000-0000-4000-8000-000000000001"
 	repo := &fakeRepo{
@@ -600,27 +319,6 @@ func TestRetireGoatIdentifierIdempotencyConflict(t *testing.T) {
 	}
 }
 
-func validCorrectionInput() CreateCorrectionRequestInput {
-	return CreateCorrectionRequestInput{
-		TenantID:       testTenant,
-		ActorID:        testActor,
-		IdempotencyKey: "idem-unit-0001",
-		TraceID:        testTrace,
-		RawBody:        []byte(`{"request_type":"missing_tag","location_scope":{"park_id":"00000000-0000-4000-8000-000000003001"},"description":"synthetic field note","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`),
-	}
-}
-
-func validResolveInput() ResolveCorrectionRequestInput {
-	return ResolveCorrectionRequestInput{
-		TenantID:            testTenant,
-		ActorID:             testActor,
-		IdempotencyKey:      "idem-resolve-0001",
-		TraceID:             testTrace,
-		CorrectionRequestID: "40000000-0000-4000-8000-000000000001",
-		RawBody:             []byte(`{"state":"approved","reason":"synthetic review reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import","description":"Synthetic source row."}],"row_version":1}`),
-	}
-}
-
 func validAddIdentifierInput() AddGoatIdentifierInput {
 	return AddGoatIdentifierInput{
 		TenantID:       testTenant,
@@ -644,45 +342,16 @@ func validRetireIdentifierInput() RetireGoatIdentifierInput {
 	}
 }
 
-func validResolveConflictInput() ResolveConflictInput {
-	return ResolveConflictInput{
-		TenantID:       testTenant,
-		ActorID:        testActor,
-		IdempotencyKey: "idem-conflict-0001",
-		TraceID:        testTrace,
-		ConflictID:     conflictID,
-		RawBody:        []byte(`{"decision_type":"merge_goats","decision_result":"same_goat_merge","survivor_goat_id":"10000000-0000-4000-8000-000000000004","affected_goat_ids":["10000000-0000-4000-8000-000000000003"],"identifier_actions":[],"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"reason":"synthetic merge reason","row_version":1}`),
-	}
-}
-
 type fakeRepo struct {
 	goats                   map[string]*domain.GoatPassport
 	matches                 []domain.IdentifierMatch
 	conflictID              string
-	correctionResult        *ports.CreateCorrectionRequestResult
-	correctionErr           error
-	resolveResult           *ports.ResolveCorrectionRequestResult
-	resolveErr              error
 	addIdentifierResult     *ports.AdminGoatMutationResult
 	addIdentifierErr        error
 	retireIdentifierResult  *ports.AdminGoatMutationResult
 	retireIdentifierErr     error
-	resolveConflictResult   *ports.ResolveConflictResult
-	resolveConflictErr      error
-	rejectCandidateResult   *ports.RejectCandidateResult
-	rejectCandidateErr      error
-	approveCandidateResult  *ports.ApproveCandidateResult
-	approveCandidateErr     error
-	lastApproveCandidateCmd ports.ApproveCandidateCommand
-	lastCorrectionCmd       ports.CreateCorrectionRequestCommand
-	lastResolveCmd          ports.ResolveCorrectionRequestCommand
 	lastAddIdentifierCmd    ports.AddGoatIdentifierCommand
 	lastRetireIdentifierCmd ports.RetireGoatIdentifierCommand
-	lastResolveConflictCmd  ports.ResolveConflictCommand
-	lastRejectCandidateCmd  ports.RejectCandidateCommand
-	lastReviewImportRowCmd  ports.ReviewImportRowCommand
-	bulkErr                 error
-	lastBulkCmd             ports.BulkResolveConflictsCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -717,102 +386,8 @@ func (f *fakeRepo) FindOpenConflictForIdentifier(context.Context, string, string
 	return &f.conflictID, nil
 }
 
-func (f *fakeRepo) ListConflicts(context.Context, ports.ListConflictsParams) ([]domain.ConflictSummary, *string, error) {
-	return nil, nil, nil
-}
-
-func (f *fakeRepo) CountReviewQueues(context.Context, string) (int, int, error) {
-	return 0, 0, nil
-}
-
-func (f *fakeRepo) BulkResolveConflicts(_ context.Context, cmd ports.BulkResolveConflictsCommand) (*domain.BulkResolveConflictsResult, error) {
-	f.lastBulkCmd = cmd
-	if f.bulkErr != nil {
-		return nil, f.bulkErr
-	}
-	return &domain.BulkResolveConflictsResult{BulkRequestID: cmd.BulkRequestID, DecisionType: cmd.DecisionType, ResolvedConflictIDs: cmd.ConflictIDs}, nil
-}
-
-func (f *fakeRepo) GetConflict(context.Context, string, string) (*domain.ConflictDetailResult, error) {
-	return nil, ports.ErrNotFound
-}
-
-func (f *fakeRepo) ListCandidates(context.Context, ports.ListCandidatesParams) ([]domain.CandidateSummary, *string, error) {
-	return []domain.CandidateSummary{candidateSummaryFixture("80000000-0000-4000-8000-000000000001", "proposed", 1)}, nil, nil
-}
-
-func (f *fakeRepo) GetImportRun(context.Context, string, string) (*domain.ImportRun, error) {
-	return nil, ports.ErrNotFound
-}
-
-func (f *fakeRepo) ListImportRuns(context.Context, ports.ListImportRunsParams) ([]domain.ImportRun, error) {
-	return []domain.ImportRun{}, nil
-}
-
-func (f *fakeRepo) ListImportRunRows(context.Context, ports.ListImportRunRowsParams) ([]domain.ImportRunRow, *string, error) {
-	return []domain.ImportRunRow{}, nil, nil
-}
-
 func (f *fakeRepo) GetGoatTimeline(context.Context, ports.GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error) {
 	return []domain.GoatTimelineEvent{}, nil, nil
-}
-
-func (f *fakeRepo) ListCorrectionRequests(context.Context, ports.ListCorrectionRequestsParams) ([]domain.CorrectionRequest, *string, error) {
-	return []domain.CorrectionRequest{}, nil, nil
-}
-
-func (f *fakeRepo) CreateCorrectionRequest(_ context.Context, cmd ports.CreateCorrectionRequestCommand) (*ports.CreateCorrectionRequestResult, error) {
-	f.lastCorrectionCmd = cmd
-	if f.correctionErr != nil {
-		return nil, f.correctionErr
-	}
-	if f.correctionResult != nil {
-		return f.correctionResult, nil
-	}
-	return &ports.CreateCorrectionRequestResult{
-		CorrectionRequest: domain.CorrectionRequest{
-			CorrectionRequestID: "40000000-0000-4000-8000-000000000001",
-			RequestType:         cmd.RequestType,
-			State:               "open",
-			GoatID:              cmd.GoatID,
-			IdentifierType:      cmd.IdentifierType,
-			IdentifierValue:     cmd.IdentifierValue,
-			LocationScope:       cmd.LocationScope,
-			Description:         cmd.Description,
-			EvidenceRefs:        cmd.EvidenceRefs,
-			CreatedAt:           time.Now().UTC(),
-		},
-	}, nil
-}
-
-func (f *fakeRepo) ResolveCorrectionRequest(_ context.Context, cmd ports.ResolveCorrectionRequestCommand) (*ports.ResolveCorrectionRequestResult, error) {
-	f.lastResolveCmd = cmd
-	if f.resolveErr != nil {
-		return nil, f.resolveErr
-	}
-	if f.resolveResult != nil {
-		return f.resolveResult, nil
-	}
-	return &ports.ResolveCorrectionRequestResult{
-		CorrectionRequest: domain.CorrectionRequest{
-			CorrectionRequestID: cmd.CorrectionRequestID,
-			RequestType:         "missing_tag",
-			State:               cmd.TargetState,
-			LocationScope:       domain.LocationScope{ParkID: strPtr("00000000-0000-4000-8000-000000003001")},
-			Description:         "synthetic field note",
-			EvidenceRefs:        cmd.EvidenceRefs,
-			RowVersion:          intPtr(cmd.RowVersion + 1),
-			CreatedAt:           time.Now().UTC(),
-		},
-		Decision: domain.DecisionRecordSummary{
-			DecisionID:     "50000000-0000-4000-8000-000000000001",
-			DecisionType:   "resolve_correction_request",
-			DecisionResult: cmd.TargetState,
-			DecisionState:  "approved",
-			PolicyVersion:  "phase1-manual-correction-review-v1",
-			CreatedAt:      time.Now().UTC(),
-		},
-	}, nil
 }
 
 func (f *fakeRepo) AddGoatIdentifier(_ context.Context, cmd ports.AddGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
@@ -879,95 +454,7 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 	}, nil
 }
 
-func (f *fakeRepo) ResolveConflict(_ context.Context, cmd ports.ResolveConflictCommand) (*ports.ResolveConflictResult, error) {
-	f.lastResolveConflictCmd = cmd
-	if f.resolveConflictErr != nil {
-		return nil, f.resolveConflictErr
-	}
-	if f.resolveConflictResult != nil {
-		return f.resolveConflictResult, nil
-	}
-	return &ports.ResolveConflictResult{
-		ConflictID: cmd.ConflictID,
-		State:      "resolved",
-		Decision: domain.DecisionRecordSummary{
-			DecisionID:     "50000000-0000-4000-8000-000000000201",
-			DecisionType:   "merge_goats",
-			DecisionResult: "same_goat_merge",
-			DecisionState:  "approved",
-			PolicyVersion:  "phase1-manual-correction-review-v1",
-			CreatedAt:      time.Now().UTC(),
-		},
-		Merge: &domain.MergeResult{
-			SurvivorGoatID: cmd.SurvivorGoatID,
-			MergedGoatIDs:  []string{cmd.AffectedGoatIDs[0]},
-		},
-		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.identity.merge_approved"}},
-	}, nil
-}
-
-func (f *fakeRepo) RejectCandidate(_ context.Context, cmd ports.RejectCandidateCommand) (*ports.RejectCandidateResult, error) {
-	f.lastRejectCandidateCmd = cmd
-	if f.rejectCandidateErr != nil {
-		return nil, f.rejectCandidateErr
-	}
-	if f.rejectCandidateResult != nil {
-		return f.rejectCandidateResult, nil
-	}
-	return &ports.RejectCandidateResult{
-		Candidate: candidateSummaryFixture(cmd.CandidateID, "rejected", cmd.RowVersion+1),
-		Decision: domain.DecisionRecordSummary{
-			DecisionID:     "50000000-0000-4000-8000-000000000301",
-			DecisionType:   "reject_match",
-			DecisionResult: "candidate_rejected",
-			DecisionState:  "rejected",
-			PolicyVersion:  "phase1-manual-correction-review-v1",
-			CreatedAt:      time.Now().UTC(),
-		},
-	}, nil
-}
-
-func (f *fakeRepo) ApproveCandidate(_ context.Context, cmd ports.ApproveCandidateCommand) (*ports.ApproveCandidateResult, error) {
-	f.lastApproveCandidateCmd = cmd
-	if f.approveCandidateErr != nil {
-		return nil, f.approveCandidateErr
-	}
-	if f.approveCandidateResult != nil {
-		return f.approveCandidateResult, nil
-	}
-	return &ports.ApproveCandidateResult{
-		Candidate: candidateSummaryFixture(cmd.CandidateID, "approved", cmd.RowVersion+1),
-		Decision: domain.DecisionRecordSummary{
-			DecisionID:     "50000000-0000-4000-8000-000000000401",
-			DecisionType:   cmd.DecisionType,
-			DecisionResult: "identifier_attached",
-			DecisionState:  "approved",
-			PolicyVersion:  "phase1-identifier-v1",
-			CreatedAt:      time.Now().UTC(),
-		},
-	}, nil
-}
-
-func (f *fakeRepo) ReviewImportRow(_ context.Context, cmd ports.ReviewImportRowCommand) (*ports.ReviewImportRowResult, error) {
-	f.lastReviewImportRowCmd = cmd
-	return &ports.ReviewImportRowResult{Row: domain.ImportRunRow{ImportRowID: cmd.ImportRowID, RowState: cmd.Action, RowVersion: cmd.RowVersion + 1}}, nil
-}
-
 func (f *fakeRepo) Ping(context.Context) error { return nil }
-
-func candidateSummaryFixture(id, state string, rowVersion int) domain.CandidateSummary {
-	return domain.CandidateSummary{
-		CandidateID:     id,
-		ProposedGoatID:  strPtr("10000000-0000-4000-8000-000000000001"),
-		CandidateGoatID: strPtr("10000000-0000-4000-8000-000000000002"),
-		MatchScore:      0.93,
-		MatchReasons:    []string{"synthetic match reason"},
-		State:           state,
-		CreatedBy:       "system_rule",
-		RowVersion:      rowVersion,
-		CreatedAt:       time.Now().UTC(),
-	}
-}
 
 func passport(goatID, displayID, identityState string, mergedInto *string) *domain.GoatPassport {
 	s := summary(goatID, displayID, identityState)
@@ -1009,14 +496,6 @@ func identifier(identifierType, value, scope, status string, validFrom time.Time
 }
 
 func strPtr(value string) *string {
-	return &value
-}
-
-func intPtr(value int) *int {
-	return &value
-}
-
-func timePtr(value time.Time) *time.Time {
 	return &value
 }
 

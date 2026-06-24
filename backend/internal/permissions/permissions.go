@@ -10,28 +10,15 @@ const (
 	RoleCEOInternal = "ceo_internal"
 
 	GoatRead                  = "goat.read"
-	CorrectionCreate          = "correction.create"
-	GoatViewDirtyData         = "goat.view_dirty_data"
-	GoatReviewIdentity        = "goat.review_identity"
 	GoatWriteIdentity         = "goat.write_identity"
-	AnalyticsIdentityRead     = "analytics.identity.read"
-	ImportRunManage           = "import.run.manage"
-	ImportRunView             = "import.run.view"
 	LocationsRead             = "locations.read"
 	LocationsWrite            = "locations.write"
 	LocationsReview           = "locations.review"
 	LocationsRetire           = "locations.retire"
-	AnalyticsCountsRead       = "analytics.counts.read"
-	AnalyticsCountsSync       = "analytics.counts.sync"
-	AnalyticsCountsReview     = "analytics.counts.review"
-	AnalyticsMortalityRead    = "analytics.mortality.read"
-	AnalyticsMortalitySync    = "analytics.mortality.sync"
-	AnalyticsMortalityReview  = "analytics.mortality.review"
 	OperatorsRead             = "operators.read"
 	OperatorsWrite            = "operators.write"
 	OperatorsActivate         = "operators.activate"
 	OperatorsDeactivate       = "operators.deactivate"
-	OperatorsMapLegacySource  = "operators.map_legacy_source"
 	OperatorsManageDevice     = "operators.manage_device"
 	OperatorsManageCapability = "operators.manage_capability"
 	OperatorsManageRoster     = "operators.manage_roster"
@@ -54,45 +41,36 @@ const (
 
 var rolePermissions = map[string]map[string]struct{}{
 	RoleAdmin: {
-		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
-		GoatWriteIdentity: {}, AnalyticsIdentityRead: {}, ImportRunManage: {}, ImportRunView: {},
+		GoatRead: {}, GoatWriteIdentity: {},
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
-		AnalyticsCountsRead: {}, AnalyticsCountsSync: {}, AnalyticsCountsReview: {},
-		AnalyticsMortalityRead: {}, AnalyticsMortalitySync: {}, AnalyticsMortalityReview: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
-		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
+		OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 	},
 	RoleVerifier: {
-		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
-		GoatWriteIdentity: {}, AnalyticsIdentityRead: {}, ImportRunView: {},
+		GoatRead: {}, GoatWriteIdentity: {},
 		LocationsRead: {}, LocationsReview: {},
-		AnalyticsCountsRead: {}, AnalyticsCountsReview: {},
-		AnalyticsMortalityRead: {}, AnalyticsMortalityReview: {},
 		OperatorsRead: {},
 		TaskRead:      {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 	},
 	RoleParkHead: {
-		GoatRead: {}, CorrectionCreate: {}, AnalyticsIdentityRead: {},
-		LocationsRead: {}, AnalyticsCountsRead: {}, AnalyticsMortalityRead: {},
+		GoatRead:      {},
+		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {},
 	},
 	RoleOperator: {
-		GoatRead: {}, CorrectionCreate: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {},
+		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {},
 	},
 	RoleCEOInternal: {
-		GoatRead: {}, CorrectionCreate: {}, GoatViewDirtyData: {}, GoatReviewIdentity: {},
-		GoatWriteIdentity: {}, AnalyticsIdentityRead: {}, ImportRunManage: {}, ImportRunView: {},
+		GoatRead: {}, GoatWriteIdentity: {},
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
-		AnalyticsCountsRead: {}, AnalyticsCountsSync: {}, AnalyticsCountsReview: {},
-		AnalyticsMortalityRead: {}, AnalyticsMortalitySync: {}, AnalyticsMortalityReview: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
-		OperatorsMapLegacySource: {}, OperatorsManageDevice: {}, OperatorsManageCapability: {},
+		OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},

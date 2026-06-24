@@ -8,7 +8,7 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 const appBaseUrl = "http://127.0.0.1:3300";
-const requiredEnv = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID", "GOATOS_IMPORT_RUN_ID"];
+const requiredEnv = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID"];
 const missing = requiredEnv.filter((key) => !process.env[key]);
 const args = parseArgs(process.argv.slice(2));
 
@@ -20,7 +20,6 @@ if (missing.length > 0) {
 const apiBaseUrl = trimTrailingSlash(process.env.GOATOS_API_BASE_URL);
 const bearerToken = process.env.GOATOS_BEARER_TOKEN;
 const tenantId = process.env.GOATOS_TENANT_ID;
-const importRunId = process.env.GOATOS_IMPORT_RUN_ID;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const baselineDir = normalizeRepoPath(args.baselineDir ?? process.env.GOATOS_VISUAL_BASELINE_DIR);
 const updateBaseline = args.updateBaseline || process.env.GOATOS_VISUAL_UPDATE_BASELINE === "1";
@@ -37,27 +36,16 @@ let baselineCompared = 0;
 let baselineUpdated = 0;
 
 await waitForApp(appBaseUrl);
-const goatId = await fetchFirstGoatID(apiBaseUrl, bearerToken, tenantId);
+const goatId = await resolveSmokeGoatID(apiBaseUrl, bearerToken, tenantId);
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
 const routes = [
   { name: "login", path: "/login" },
-  { name: "overview", path: "/" },
+  { name: "control-tower", path: "/" },
   { name: "vaccination", path: "/vaccination" },
-  { name: "vaccination-config", path: "/vaccination/config" },
+  { name: "config", path: "/config?category=vaccination" },
   { name: "vaccination-adherence", path: "/vaccination/adherence" },
-  { name: "counts", path: "/counts" },
-  { name: "counts-core-farms", path: "/counts?view=core-farms" },
-  { name: "locations", path: "/locations" },
-  { name: "operators", path: "/operators" },
-  { name: "sops", path: "/sops" },
-  { name: "tasks", path: "/tasks" },
-  { name: "mortality", path: "/dashboard/mortality" },
-  { name: "herd", path: "/herd" },
-  { name: "import-review", path: `/import-review?import_run_id=${encodeURIComponent(importRunId)}` },
-  { name: "legacy-sync", path: "/legacy-sync" },
-  { name: "data-quality", path: "/data-quality" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];
 
@@ -95,7 +83,6 @@ writeFileSync(
     {
       app_base_url: appBaseUrl,
       goat_id: goatId,
-      import_run_id: importRunId,
       routes: routes.map((route) => appPath(route.path)),
       baseline_dir: baselineDir ? relativeToRepo(baselineDir) : null,
       baseline_compared: baselineCompared,
@@ -136,18 +123,21 @@ function appPath(path) {
   return path;
 }
 
-async function fetchFirstGoatID(baseUrl, token, tenant) {
+async function resolveSmokeGoatID(baseUrl, token, tenant) {
+  if (process.env.GOATOS_SMOKE_GOAT_ID) {
+    return process.env.GOATOS_SMOKE_GOAT_ID;
+  }
   const response = await fetch(`${baseUrl}/goats/search?limit=1`, {
     headers: { Authorization: `Bearer ${token}`, [TENANT_CONTEXT_HEADER]: tenant },
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`backend goat search failed: status ${response.status}`);
+    throw new Error(`backend smoke goat lookup failed: status ${response.status}`);
   }
   const body = await response.json();
   const goatID = body?.items?.[0]?.goat_id;
   if (typeof goatID !== "string" || goatID.length === 0) {
-    throw new Error("backend goat search returned no goat_id for passport smoke");
+    throw new Error("backend smoke goat lookup returned no goat_id for passport smoke");
   }
   return goatID;
 }

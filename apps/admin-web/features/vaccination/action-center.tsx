@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CheckCircle2, Clock3, Info, Pause, RotateCcw, Video } from "lucide-react";
 import {
   getVaccinationActionCenter,
   getVaccinationVerificationQueue,
@@ -100,7 +101,7 @@ function SectionCard({
   children,
 }: {
   title: string;
-  icon: string;
+  icon: React.ReactNode;
   count: number;
   tone: Tone;
   description: string;
@@ -109,7 +110,7 @@ function SectionCard({
   return (
     <section className="card">
       <div className="hd">
-        <span aria-hidden>{icon}</span>
+        {icon}
         <h3>{title}</h3>
         <Tag tone={tone}>{count}</Tag>
         <div className="sp" />
@@ -154,15 +155,18 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
   if (version) obligations = obligations.filter((o) => o.protocol_version_id === version);
   const queueItems: VaccinationQueueItem[] = queue.ok ? queue.data.items : [];
 
-  const overdue = obligations.filter((o) => isOverdue(o.due_at));
+  const overdue = obligations.filter((o) => o.work_state === "overdue" || isOverdue(o.due_at));
+  const deferred = obligations.filter((o) => o.work_state === "deferred");
+  const rework = queueItems.filter((q) => q.work_state === "rejected");
+  const completed = queueItems.filter((q) => q.work_state === "completed");
   const counts: Record<Bucket, number> = {
     all: obligations.length + queueItems.length,
     overdue: overdue.length,
     today: obligations.length - overdue.length,
     verify: queueItems.length,
-    rework: 0,
-    deferred: 0,
-    completed: 0,
+    rework: rework.length,
+    deferred: deferred.length,
+    completed: completed.length,
   };
 
   const today = todayIso();
@@ -295,9 +299,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
       {nothingLive ? (
         <section className="card">
           <div className="bd" style={{ textAlign: "center", padding: 32 }}>
-            <div aria-hidden style={{ fontSize: 24, marginBottom: 10 }}>
-              🛈
-            </div>
+            <Info className="ic" aria-hidden="true" style={{ width: 24, height: 24, marginBottom: 10, color: "var(--brand)" }} />
             <h3 style={{ margin: 0, fontSize: 16 }}>No live obligations yet — the command surface is ready</h3>
             <p className="muted" style={{ maxWidth: 680, margin: "8px auto 0", lineHeight: 1.6, fontSize: 13 }}>
               The vaccination engine deliberately generates <b>nothing</b> until a protocol version is{" "}
@@ -314,7 +316,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
           {showDue ? (
             <SectionCard
               title="Due & overdue"
-              icon="⏰"
+              icon={<Clock3 className="ic" />}
               count={obligations.length}
               tone={overdue.length > 0 ? "dng" : "warn"}
               description="Scheduled directions due for execution"
@@ -345,7 +347,9 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
                             {fmtDate(o.due_at)} {isOverdue(o.due_at) ? <Tag tone="dng">overdue</Tag> : null}
                           </td>
                           <td>
-                            <Tag tone="warn">{o.status}</Tag>
+                            <Tag tone={o.work_state === "overdue" ? "dng" : o.work_state === "deferred" ? "mut" : "warn"}>
+                              {o.work_state}
+                            </Tag>
                           </td>
                           <td className="muted">
                             {o.scope_type}:{shortId(o.scope_id)}
@@ -370,7 +374,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
           {showVerify ? (
             <SectionCard
               title="Awaiting verification"
-              icon="🎥"
+              icon={<Video className="ic" />}
               count={queueItems.length}
               tone={queueItems.length > 0 ? "warn" : "mut"}
               description="Administered doses recorded, awaiting review"
@@ -429,19 +433,43 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
 
           {bucket === "all" ? (
             <div className="grid g3">
-              <SectionCard title="Rework requested" icon="↩︎" count={0} tone="mut" description="Returned for re-do">
+              <SectionCard
+                title="Rework requested"
+                icon={<RotateCcw className="ic" />}
+                count={rework.length}
+                tone={rework.length > 0 ? "warn" : "mut"}
+                description="Returned for re-do"
+              >
                 <div className="bd">
-                  <p className="muted small">None.</p>
+                  <p className="muted small">
+                    {rework.length === 0 ? "None from the current verification source." : "Rows are grouped here when rejected proof is exposed by the verification source."}
+                  </p>
                 </div>
               </SectionCard>
-              <SectionCard title="Deferred / explained" icon="⏸" count={0} tone="mut" description="SM-1 defer (ICU / quarantine)">
+              <SectionCard
+                title="Deferred / explained"
+                icon={<Pause className="ic" />}
+                count={deferred.length}
+                tone={deferred.length > 0 ? "warn" : "mut"}
+                description="SM-1 defer (ICU / quarantine)"
+              >
                 <div className="bd">
-                  <p className="muted small">None — defers are surfaced here, never silently hidden.</p>
+                  <p className="muted small">
+                    {deferred.length === 0 ? "None in the current bounded obligation window." : "Deferred obligations stay visible here instead of silently disappearing."}
+                  </p>
                 </div>
               </SectionCard>
-              <SectionCard title="Completed recently" icon="✓" count={0} tone="ok" description="Closed by accepted proof">
+              <SectionCard
+                title="Completed recently"
+                icon={<CheckCircle2 className="ic" />}
+                count={completed.length}
+                tone="ok"
+                description="Closed by accepted proof"
+              >
                 <div className="bd">
-                  <p className="muted small">None yet.</p>
+                  <p className="muted small">
+                    {completed.length === 0 ? "Recent accepted completions are not in this bounded queue yet." : "Recently accepted completions from the current source."}
+                  </p>
                 </div>
               </SectionCard>
             </div>

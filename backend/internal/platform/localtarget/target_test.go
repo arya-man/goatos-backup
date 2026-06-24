@@ -50,7 +50,7 @@ func TestValidateLocalDatabaseTargetAllowsExplicitDevCloudSQL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := ValidateLocalDatabaseTarget("bq-reconcile --execute", "dev", tc.url); err != nil {
+			if err := ValidateLocalDatabaseTarget("api", "dev", tc.url); err != nil {
 				t.Fatalf("explicit goatos-dev Cloud SQL target rejected: %v", err)
 			}
 		})
@@ -124,11 +124,11 @@ func TestValidateDevCloudSQLDatabaseTargetRejectsLocalAndUnsafeTargets(t *testin
 
 func TestValidateLocalDatabaseTargetRejectsCloudSQLWithoutFullDevOptIn(t *testing.T) {
 	devURL := "user=postgres password=goatos dbname=goatos host=/cloudsql/goatos-dev:asia-south1:goatos-dev-core-db sslmode=disable"
-	if err := ValidateLocalDatabaseTarget("bq-reconcile --execute", "dev", devURL); err == nil {
+	if err := ValidateLocalDatabaseTarget("api", "dev", devURL); err == nil {
 		t.Fatal("goatos-dev Cloud SQL target accepted without opt-in")
 	}
 	t.Setenv("GOATOS_ALLOW_DEV_CLOUDSQL_TARGET", "true")
-	if err := ValidateLocalDatabaseTarget("bq-reconcile --execute", "dev", devURL); err == nil {
+	if err := ValidateLocalDatabaseTarget("api", "dev", devURL); err == nil {
 		t.Fatal("goatos-dev Cloud SQL target accepted without expected connection name")
 	}
 	t.Setenv("GOATOS_DEV_CLOUDSQL_CONNECTION_NAME", "goatos-dev:asia-south1:goatos-dev-core-db")
@@ -166,7 +166,7 @@ func TestValidateLocalDatabaseTargetRejectsCloudSQLWithoutFullDevOptIn(t *testin
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := ValidateLocalDatabaseTarget("bq-reconcile --execute", tc.env, tc.url); err == nil {
+			if err := ValidateLocalDatabaseTarget("api", tc.env, tc.url); err == nil {
 				t.Fatal("unsafe Cloud SQL target accepted")
 			}
 		})

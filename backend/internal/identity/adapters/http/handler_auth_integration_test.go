@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/identity/app"
-	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -52,9 +51,9 @@ func TestBearerAuthWiredThroughRealMuxAndHandler(t *testing.T) {
 	}
 }
 
-func TestBearerAuthRunsBeforeApproveHandler(t *testing.T) {
+func TestBearerAuthRunsBeforeIdentifierWriteHandler(t *testing.T) {
 	handler := authWrappedIdentityMux(t, grantSourceForRoles(permissions.RoleVerifier))
-	path := "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve"
+	path := "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers"
 
 	unauthReq := httptest.NewRequest(http.MethodPost, path, nil)
 	unauthRec := httptest.NewRecorder()
@@ -72,98 +71,18 @@ func TestBearerAuthRunsBeforeApproveHandler(t *testing.T) {
 		t.Fatalf("forbidden status=%d body=%s", forbiddenRec.Code, forbiddenRec.Body.String())
 	}
 
-	// Authorized request with no body passes auth and reaches the approve
-	// handler, which then rejects the empty body. This proves auth runs before
-	// the handler executes (approve is now implemented, not a 501 stub).
-	authorizedReq := httptest.NewRequest(http.MethodPost, path, nil)
+	authorizedReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(validAddIdentifierBody()))
 	authorizedReq.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
+	authorizedReq.Header.Set("Content-Type", "application/json")
+	authorizedReq.Header.Set("Idempotency-Key", "idem-auth-chain-add-identifier")
 	authorizedRec := httptest.NewRecorder()
 	handler.ServeHTTP(authorizedRec, authorizedReq)
-	if authorizedRec.Code != http.StatusBadRequest {
+	if authorizedRec.Code != http.StatusOK {
 		t.Fatalf("authorized status=%d body=%s", authorizedRec.Code, authorizedRec.Body.String())
-	}
-	var envelope domain.ErrorEnvelope
-	if err := json.Unmarshal(authorizedRec.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("invalid json: %v", err)
-	}
-	// The handler ran (past auth) and rejected the request at write-header
-	// validation. The exact first failure for an empty authorized request is the
-	// missing Idempotency-Key; the point is it is a handler 400, not a 401/403.
-	if envelope.Code != "missing_idempotency_key" {
-		t.Fatalf("unexpected envelope: %#v", envelope)
-	}
-}
-
-func TestImportReviewRoutesRequireImportRunView(t *testing.T) {
-	paths := []string{
-		"/admin/import-runs?limit=10",
-		"/admin/import-runs/30000000-0000-4000-8000-000000000001",
-		"/admin/import-runs/30000000-0000-4000-8000-000000000001/rows?limit=10",
-		"/admin/import-runs/30000000-0000-4000-8000-000000000001/rows.csv?scope=messy",
-	}
-	allowedRoles := []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier}
-	deniedRoles := []string{permissions.RoleOperator, permissions.RoleParkHead}
-
-	for _, role := range allowedRoles {
-		handler := authWrappedIdentityMux(t, grantSourceForRoles(role))
-		for _, path := range paths {
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("role %s path %s status=%d body=%s", role, path, rec.Code, rec.Body.String())
-			}
-		}
-	}
-
-	for _, role := range deniedRoles {
-		handler := authWrappedIdentityMux(t, grantSourceForRoles(role))
-		for _, path := range paths {
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("role %s path %s status=%d body=%s", role, path, rec.Code, rec.Body.String())
-			}
-		}
-	}
-}
-
-func TestCorrectionReadRoutesUseExpectedPermissions(t *testing.T) {
-	adminPath := "/admin/identity/correction-requests?limit=10&state=open"
-	appPath := "/identity/correction-requests?limit=10"
-	timelinePath := "/goats/10000000-0000-4000-8000-000000000001/timeline?limit=10"
-
-	for _, role := range []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier} {
-		handler := authWrappedIdentityMux(t, grantSourceForRoles(role))
-		for _, path := range []string{adminPath, appPath, timelinePath} {
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("role %s path %s status=%d body=%s", role, path, rec.Code, rec.Body.String())
-			}
-		}
-	}
-
-	for _, role := range []string{permissions.RoleOperator, permissions.RoleParkHead} {
-		handler := authWrappedIdentityMux(t, grantSourceForRoles(role))
-		req := httptest.NewRequest(http.MethodGet, adminPath, nil)
-		req.Header.Set("Authorization", "Bearer "+authChainToken(t, authChainUser, authChainTenant))
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("role %s admin path status=%d body=%s", role, rec.Code, rec.Body.String())
-		}
 	}
 }
 
 func TestPhase1BWriteRoutesUseExpectedPermissions(t *testing.T) {
-	reviewAllowed := []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier}
-	reviewDenied := []string{permissions.RoleOperator, permissions.RoleParkHead}
 	productWriteAllowed := []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier}
 	productWriteDenied := []string{permissions.RoleOperator, permissions.RoleParkHead}
 
@@ -175,37 +94,6 @@ func TestPhase1BWriteRoutesUseExpectedPermissions(t *testing.T) {
 		allowedRoles []string
 		deniedRoles  []string
 	}{
-		{
-			name:         "create correction request",
-			path:         "/identity/correction-requests",
-			body:         validCorrectionBody(),
-			wantStatus:   http.StatusCreated,
-			allowedRoles: []string{permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RoleVerifier, permissions.RoleOperator, permissions.RoleParkHead},
-		},
-		{
-			name:         "resolve correction request",
-			path:         "/admin/identity/correction-requests/40000000-0000-4000-8000-000000000001/resolve",
-			body:         validResolveBody(),
-			wantStatus:   http.StatusOK,
-			allowedRoles: reviewAllowed,
-			deniedRoles:  reviewDenied,
-		},
-		{
-			name:         "reject candidate",
-			path:         "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/reject",
-			body:         validRejectCandidateBody(),
-			wantStatus:   http.StatusOK,
-			allowedRoles: reviewAllowed,
-			deniedRoles:  reviewDenied,
-		},
-		{
-			name:         "resolve conflict",
-			path:         "/admin/identity/conflicts/20000000-0000-4000-8000-000000000001/resolve",
-			body:         validRejectConflictBody(),
-			wantStatus:   http.StatusOK,
-			allowedRoles: reviewAllowed,
-			deniedRoles:  reviewDenied,
-		},
 		{
 			name:         "add goat identifier",
 			path:         "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers",

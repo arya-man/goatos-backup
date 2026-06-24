@@ -1,12 +1,12 @@
-import { redirect } from "next/navigation";
+import { ConfigProtocolRulesPage } from "@/features/config";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
 
-// Compatibility/contextual route only. Protocol Rules is Admin / Data Ops primary, with
-// Vaccination linking into it via category=vaccination.
+// Admin / Data Ops / Config — the primary generic protocol-rule authority screen.
+// PHC/Vaccination links here with category=vaccination, but Config is not owned by Vaccination.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const params = await searchParams;
   const category = one(params, "category") ?? "vaccination";
-  redirect(`/config?category=${encodeURIComponent(category)}`);
+  return <ConfigProtocolRulesPage category={category} />;
 }

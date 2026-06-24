@@ -282,7 +282,7 @@ func TestBearerAuthIgnoresForgedRoleClaim(t *testing.T) {
 	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	req := httptest.NewRequest(http.MethodPost, "/admin/import-runs", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers", nil)
 	req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, map[string]any{"role": "admin"}))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -314,14 +314,16 @@ func TestAuthRunsBeforeNotImplementedStubs(t *testing.T) {
 	})
 	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(next))
 
-	unauth := httptest.NewRequest(http.MethodPost, "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve", nil)
+	path := "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers"
+
+	unauth := httptest.NewRequest(http.MethodPost, path, nil)
 	unauthRec := httptest.NewRecorder()
 	handler.ServeHTTP(unauthRec, unauth)
 	if unauthRec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauth status=%d body=%s", unauthRec.Code, unauthRec.Body.String())
 	}
 
-	forbidden := httptest.NewRequest(http.MethodPost, "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve", nil)
+	forbidden := httptest.NewRequest(http.MethodPost, path, nil)
 	forbidden.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
 	mwNoGrant := testBearerMiddleware(t, fakeGrantSource{})
 	forbiddenRec := httptest.NewRecorder()
@@ -330,7 +332,7 @@ func TestAuthRunsBeforeNotImplementedStubs(t *testing.T) {
 		t.Fatalf("forbidden status=%d body=%s", forbiddenRec.Code, forbiddenRec.Body.String())
 	}
 
-	authorized := httptest.NewRequest(http.MethodPost, "/admin/identity/candidates/80000000-0000-4000-8000-000000000001/approve", nil)
+	authorized := httptest.NewRequest(http.MethodPost, path, nil)
 	authorized.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
 	authorizedRec := httptest.NewRecorder()
 	handler.ServeHTTP(authorizedRec, authorized)

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { GoogleLogin } from "@/components/auth/google-login";
 import { getAdminRuntimeStatus, searchGoats } from "@/lib/api/server";
 
@@ -52,9 +53,7 @@ export default async function LoginPage() {
 
             {showLocalAuthRepair ? (
               <div className="alert warn" style={{ marginTop: 18 }}>
-                <span aria-hidden className="ic">
-                  ⚠
-                </span>
+                <AlertTriangle className="ic" aria-hidden="true" />
                 <div>
                   <b style={{ display: "block" }}>Local dashboard is not ready</b>
                   <span className="muted small" style={{ display: "block", marginTop: 4, lineHeight: 1.6 }}>

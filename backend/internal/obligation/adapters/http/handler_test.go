@@ -25,7 +25,7 @@ func (f *fakeDue) ListDue(_ context.Context, _, status string, dueBefore time.Ti
 
 func TestListDueDefaultsAndShape(t *testing.T) {
 	fake := &fakeDue{rows: []domain.DueObligation{
-		{ObligationID: "o1", Status: "due", DueAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+		{ObligationID: "o1", Status: "due", DueAt: time.Now().Add(24 * time.Hour)},
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(fake))
@@ -39,7 +39,7 @@ func TestListDueDefaultsAndShape(t *testing.T) {
 		t.Fatalf("defaults: status=%s limit=%d", fake.gotStatus, fake.gotLimit)
 	}
 	var resp dueResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Items) != 1 || resp.Items[0].ObligationID != "o1" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Items) != 1 || resp.Items[0].ObligationID != "o1" || resp.Items[0].WorkState != "due" {
 		t.Fatalf("response: %+v err=%v", resp, err)
 	}
 }
@@ -55,9 +55,9 @@ func TestListDueClampsLimitAndValidates(t *testing.T) {
 	if rec.Code != http.StatusOK || fake.gotLimit != 500 {
 		t.Fatalf("limit clamp: code=%d limit=%d", rec.Code, fake.gotLimit)
 	}
-	// bad status → 400
+	// unknown status → 400
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/action-center/obligations?status=completed", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/action-center/obligations?status=not-a-state", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad status: want 400, got %d", rec.Code)
 	}

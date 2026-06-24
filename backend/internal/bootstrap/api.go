@@ -10,23 +10,14 @@ import (
 	"strings"
 	"time"
 
-	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
-	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
-	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
-	legacysynchttp "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/http"
-	legacysyncpg "github.com/vgoats/goatos/backend/internal/legacy_sync/adapters/postgres"
-	legacysyncapp "github.com/vgoats/goatos/backend/internal/legacy_sync/app"
 	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
-	mortalityhttp "github.com/vgoats/goatos/backend/internal/mortality/adapters/http"
-	mortalitypg "github.com/vgoats/goatos/backend/internal/mortality/adapters/postgres"
-	mortalityapp "github.com/vgoats/goatos/backend/internal/mortality/app"
 	obligationhttp "github.com/vgoats/goatos/backend/internal/obligation/adapters/http"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
@@ -43,9 +34,6 @@ import (
 	protocolhttp "github.com/vgoats/goatos/backend/internal/protocol/adapters/http"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
-	reportinghttp "github.com/vgoats/goatos/backend/internal/reporting/adapters/http"
-	reportingpg "github.com/vgoats/goatos/backend/internal/reporting/adapters/postgres"
-	reportingapp "github.com/vgoats/goatos/backend/internal/reporting/app"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
@@ -141,21 +129,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	identityService := identityapp.NewService(identityRepo)
 	identityHandler := identityhttp.NewHandler(identityService, log)
-	reportingRepo := reportingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	reportingService := reportingapp.NewService(reportingRepo)
-	reportingHandler := reportinghttp.NewHandler(reportingService, log)
 	locationsRepo := locationspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	locationsService := locationsapp.NewService(locationsRepo)
 	locationsHandler := locationshttp.NewHandler(locationsService, log)
-	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	countsService := countsapp.NewServiceWithResolver(countsRepo, locationsService)
-	countsHandler := countshttp.NewHandler(countsService, log)
-	mortalityRepo := mortalitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	mortalityService := mortalityapp.NewServiceWithResolver(mortalityRepo, locationsService)
-	mortalityHandler := mortalityhttp.NewHandler(mortalityService, log)
-	legacySyncRepo := legacysyncpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	legacySyncService := legacysyncapp.NewService(legacySyncRepo, cfg.Auth.Environment)
-	legacySyncHandler := legacysynchttp.NewHandler(legacySyncService, log)
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	workforceService := workforceapp.NewService(workforceRepo)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
@@ -203,11 +179,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	identityhttp.Register(protectedMux, identityHandler)
-	reportinghttp.Register(protectedMux, reportingHandler)
-	countshttp.Register(protectedMux, countsHandler)
-	mortalityhttp.Register(protectedMux, mortalityHandler)
 	locationshttp.Register(protectedMux, locationsHandler)
-	legacysynchttp.Register(protectedMux, legacySyncHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)

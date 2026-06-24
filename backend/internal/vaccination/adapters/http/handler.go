@@ -148,6 +148,7 @@ type queueItem struct {
 	AdministeredAt time.Time `json:"administered_at"`
 	Doses          int32     `json:"doses"`
 	RouteSite      string    `json:"route_site,omitempty"`
+	WorkState      string    `json:"work_state"`
 }
 
 type queueResponse struct {
@@ -185,6 +186,7 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 			AdministeredAt: c.AdministeredAt,
 			Doses:          c.Doses,
 			RouteSite:      c.RouteSite,
+			WorkState:      "verification_pending",
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, queueResponse{Items: items})
