@@ -101,6 +101,31 @@ reopened.
 - Emit durable domain events through outbox where downstream status/projection
   consumers will need them.
 
+## Idempotent Write Path Checklist
+
+Before merging or reviewing any mutating route, importer, worker, webhook,
+consumer, server action, or state transition, document and prove:
+
+- The source of the idempotency key or deterministic operation identity.
+- The storage table/index for the key plus semantic request fingerprint.
+- The transaction boundary that owns key insert/lookup, domain state changes,
+  and outbox/event writes.
+- Exact replay behavior: return the original result without calling downstream
+  effects, emitting duplicate events, or advancing state again.
+- Conflict behavior: the same key with a different semantic payload must be
+  rejected or return the original result with no new side effects.
+- Postgres adapters branch before side effects when an existing key is found.
+  Do not rely on `ON CONFLICT DO UPDATE` with only `idempotency_key =
+  EXCLUDED.idempotency_key` if later code still updates state from the replay
+  body.
+- Add/attach paths that create canonical identity rows persist idempotency before
+  creating or mutating those rows.
+- Outbox producers, consumers, import replays, webhook handlers, and background
+  workers carry an operation id and dedupe before doing work.
+- Tests cover first write, exact replay, same-key different-payload replay,
+  downstream event/outbox dedupe, and concurrent retry behavior when the path can
+  be retried in parallel.
+
 ## Removed From Runtime
 
 These modules/commands were old dashboard/import/review surfaces and are no

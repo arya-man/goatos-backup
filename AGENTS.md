@@ -213,6 +213,17 @@ Do:
   path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
   chunked or paginated, bounded in memory/goroutines, idempotent for retries,
   and covered by query-plan validation when it touches large tables.
+- Treat idempotency as a mandatory write-path contract for every mutating API,
+  worker, importer, webhook, state transition, outbox producer/consumer, server
+  action, and UI-triggered write. Each write path must accept or derive a stable
+  idempotency key or operation identity, persist that key and a semantic request
+  fingerprint in the same transaction as the side effects, return the original
+  result for an exact replay without rerunning side effects or outbox work, and
+  reject a same-key different-payload replay or return the original result with
+  no new side effects. The SQL pattern `ON CONFLICT DO UPDATE` with only
+  `idempotency_key = EXCLUDED.idempotency_key` is not sufficient when later code
+  can still mutate state. Tests must cover first call, exact replay, same-key
+  different-payload replay, and downstream duplicate prevention.
 - For dashboards or reports that slice data by month, date, breed, farm, shed,
   load, category, status, gender, operator, source, or similar dimensions, use
   the canonical rule in `docs/decisions/high-scale-dashboard-projections.md`

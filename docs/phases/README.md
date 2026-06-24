@@ -42,6 +42,12 @@ Browser and React Native clients must not use direct gRPC unless a new ADR
 replaces the current protocol decision.
 Every phase keeps idempotency, audit, outbox, RBAC scope, observability, and
 load-test expectations explicit.
+Every phase declares an Idempotency & Replay section for all mutating routes,
+imports, workers, webhooks, mobile submissions, server actions, outbox
+producers/consumers, and state transitions. It must list key source, semantic
+request fingerprint, storage table/index, transaction boundary, replay response,
+same-key different-payload behavior, downstream event dedupe, and required
+tests.
 Every phase declares its analytics slice: which events/projections/API metrics
 it emits now, and how those flow into BigQuery/Tinybird/Cube/Metabase without
 letting product code query those tools directly.
