@@ -2365,6 +2365,8 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Reconstruct process state as of this instant (top-bar date scope). Defaults to now. */
+                as_of?: string;
                 shed_id?: string;
                 /** @description Current compatibility alias for work_state. */
                 status?: components["schemas"]["WorkState"];
@@ -2402,6 +2404,8 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Reconstruct process state as of this instant (top-bar date scope). Defaults to now. */
+                as_of?: string;
                 shed_id?: string;
                 work_state?: components["schemas"]["WorkState"];
                 severity?: components["schemas"]["ProcessIntegritySeverity"];
@@ -2437,6 +2441,8 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Reconstruct process state as of this instant (top-bar date scope). Defaults to now. */
+                as_of?: string;
                 shed_id?: string;
                 work_state?: components["schemas"]["WorkState"];
                 severity?: components["schemas"]["ProcessIntegritySeverity"];
@@ -2472,6 +2478,8 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Reconstruct process state as of this instant (top-bar date scope). Defaults to now. */
+                as_of?: string;
                 shed_id?: string;
                 due_before?: string;
                 limit?: number;
@@ -2559,6 +2567,8 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Reconstruct execution state as of this instant (top-bar date scope). Defaults to now. */
+                as_of?: string;
                 work_state?: components["schemas"]["VaccinationExecutionWorkState"];
                 due_before?: string;
                 limit?: number;
@@ -2587,6 +2597,8 @@ export interface operations {
     getVaccinationExecutionShedDrilldown: {
         parameters: {
             query?: {
+                /** @description Reconstruct execution state as of this instant (top-bar date scope). Defaults to now. */
+                as_of?: string;
                 due_before?: string;
                 limit?: number;
             };

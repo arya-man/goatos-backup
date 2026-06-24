@@ -49,7 +49,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
   const view = one(sp, "bucket") === "verify" ? "verify" : "board";
   const stateFilter = (WORK_STATE_ORDER.find((s) => s === one(sp, "state")) ?? "all") as WorkState | "all";
   const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as ProcessIntegritySeverity | "all";
-  const { parkId } = backendScope(parseScope(sp));
+  const { parkId, asOf } = backendScope(parseScope(sp));
   const scope = parseScope(sp);
   const actionStatus = one(sp, "action_status");
   const actionMessage = one(sp, "action_message");
@@ -60,6 +60,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
   const [actionCenter, queue] = await Promise.all([
     getVaccinationActionCenter({
       parkId,
+      asOf,
       workState: stateFilter === "all" ? undefined : stateFilter,
       severity: severityFilter === "all" ? undefined : severityFilter,
       limit: 200,
@@ -119,7 +120,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
         <Link href={hrefWith({ bucket: undefined })} className={view === "board" ? "on" : ""}>
           Status board
         </Link>
-        <Link href="/action-center?bucket=verify" className={view === "verify" ? "on" : ""}>
+        <Link href={hrefWith({ bucket: "verify" })} className={view === "verify" ? "on" : ""}>
           SOP queues <span className="cbq">{queueItems.length}</span>
         </Link>
       </div>

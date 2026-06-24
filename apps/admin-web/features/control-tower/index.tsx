@@ -53,8 +53,8 @@ function ownerOf(alert: ControlTowerAlert): string {
 export async function ControlTowerPage({ searchParams }: { searchParams?: RouteSearchParams }) {
   const sp = searchParams ?? {};
   // Control Tower honors the top-bar scope via the shared contract (park is the backend-safe UUID).
-  const { parkId } = backendScope(parseScope(sp));
-  const result = await getVaccinationControlTower({ parkId, limit: 200 });
+  const { parkId, asOf } = backendScope(parseScope(sp));
+  const result = await getVaccinationControlTower({ parkId, asOf, limit: 200 });
   const authError = firstAuthRequiredError(result);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 

@@ -167,10 +167,11 @@ export async function VaccinationExecutionBoard({
   const stateFilter = (WORK_STATE_ORDER.find((s) => s === one(sp, "state")) ?? "all") as VaccinationExecutionWorkState | "all";
   const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as VaccinationExecutionSeverity | "all";
   const scope = parseScope(sp);
-  const { parkId } = backendScope(scope);
+  const { parkId, asOf } = backendScope(scope);
 
   const result = await getVaccinationExecution({
     parkId,
+    asOf,
     workState: stateFilter === "all" ? undefined : stateFilter,
     limit: 500,
   });

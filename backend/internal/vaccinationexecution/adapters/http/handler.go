@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // Reader is the vaccination execution read slice required by this handler.
@@ -174,6 +174,16 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		Limit:     defaultLimit,
 	}
 
+	if asOfRaw := query.Get("as_of"); asOfRaw != "" {
+		parsed, err := time.Parse(time.RFC3339, asOfRaw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_as_of", "as_of must be RFC3339")
+			return domain.ExecutionQuery{}, false
+		}
+		q.AsOf = parsed.UTC()
+		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
+		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+	}
 	if parkID := query.Get("park_id"); parkID != "" {
 		if !uuidutil.IsUUIDString(parkID) {
 			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")

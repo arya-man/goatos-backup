@@ -239,6 +239,7 @@ export async function getVaccinationActionCenter(
     shedId?: string;
     workState?: WorkState;
     severity?: ProcessIntegritySeverity;
+    asOf?: string;
     dueBefore?: string;
     cursor?: string;
     limit?: number;
@@ -255,6 +256,7 @@ export async function getVaccinationActionCenter(
         shed_id: params.shedId,
         work_state: params.workState,
         severity: params.severity,
+        as_of: params.asOf,
         due_before: params.dueBefore,
         cursor: params.cursor,
         limit: params.limit ?? 200,
@@ -270,6 +272,7 @@ export async function getVaccinationAdherence(
     shedId?: string;
     workState?: WorkState;
     severity?: ProcessIntegritySeverity;
+    asOf?: string;
     cursor?: string;
     limit?: number;
   } = {},
@@ -285,6 +288,7 @@ export async function getVaccinationAdherence(
         shed_id: params.shedId,
         work_state: params.workState,
         severity: params.severity,
+        as_of: params.asOf,
         cursor: params.cursor,
         limit: params.limit ?? 200,
       }),
@@ -294,7 +298,7 @@ export async function getVaccinationAdherence(
 
 // Control Tower — exception-only leadership summary + alerts (real /control-tower/vaccination).
 export async function getVaccinationControlTower(
-  params: { parkId?: string; shedId?: string; dueBefore?: string; limit?: number } = {},
+  params: { parkId?: string; shedId?: string; asOf?: string; dueBefore?: string; limit?: number } = {},
 ): Promise<ApiResult<ControlTowerResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -302,7 +306,7 @@ export async function getVaccinationControlTower(
   return request(() =>
     client.request<ControlTowerResponse>("/control-tower/vaccination", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, shed_id: params.shedId, due_before: params.dueBefore, limit: params.limit }),
+      query: compactQuery({ park_id: params.parkId, shed_id: params.shedId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit }),
     }),
   );
 }
@@ -334,7 +338,7 @@ export async function getVaccinationVerificationQueue(
 }
 
 export async function getVaccinationExecution(
-  params: { parkId?: string; workState?: VaccinationExecutionWorkState; limit?: number } = {},
+  params: { parkId?: string; workState?: VaccinationExecutionWorkState; asOf?: string; limit?: number } = {},
 ): Promise<ApiResult<VaccinationExecutionResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -342,7 +346,7 @@ export async function getVaccinationExecution(
   return request(() =>
     client.request<VaccinationExecutionResponse>("/vaccination/execution", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, work_state: params.workState, limit: params.limit }),
+      query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit }),
     }),
   );
 }
@@ -365,12 +369,18 @@ export async function getVaccinationOperations(
 
 export async function getVaccinationExecutionShedDrilldown(
   shedId: string,
+  params: { asOf?: string } = {},
 ): Promise<ApiResult<VaccinationExecutionShedDrilldown>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}` as keyof AppApiPaths & string;
-  return request(() => client.request<VaccinationExecutionShedDrilldown>(path, { cache: "no-store" }));
+  return request(() =>
+    client.request<VaccinationExecutionShedDrilldown>(path, {
+      cache: "no-store",
+      query: compactQuery({ as_of: params.asOf }),
+    }),
+  );
 }
 
 export async function previewVaccinationImpact(body: ImpactPreviewInput): Promise<ApiResult<ImpactPreviewResult>> {

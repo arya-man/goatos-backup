@@ -1,8 +1,18 @@
 import { ShedExecutionDetailPage } from "@/features/vaccination-execution";
+import type { RouteSearchParams } from "@/lib/search-params";
+import { backendScope, parseScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: Promise<{ shedId: string }> }) {
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ shedId: string }>;
+  searchParams?: Promise<RouteSearchParams>;
+}) {
   const { shedId } = await params;
-  return <ShedExecutionDetailPage shedId={shedId} />;
+  const sp = (await searchParams) ?? {};
+  const { asOf } = backendScope(parseScope(sp));
+  return <ShedExecutionDetailPage shedId={shedId} asOf={asOf} />;
 }

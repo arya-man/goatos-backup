@@ -51,10 +51,11 @@ export async function ProtocolAdherencePage({ searchParams }: { searchParams?: R
   const sp = searchParams ?? {};
   const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as ProcessIntegritySeverity | "all";
   const scope = parseScope(sp);
-  const { parkId } = backendScope(scope);
+  const { parkId, asOf } = backendScope(scope);
 
   const result = await getVaccinationAdherence({
     parkId,
+    asOf,
     severity: severityFilter === "all" ? undefined : severityFilter,
     limit: 200,
   });

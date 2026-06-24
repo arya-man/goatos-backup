@@ -59,8 +59,8 @@ function NotFoundOrError({ shedId, message }: { shedId: string; message: string 
   );
 }
 
-export async function ShedExecutionDetailPage({ shedId }: { shedId: string }) {
-  const result = await getVaccinationExecutionShedDrilldown(shedId);
+export async function ShedExecutionDetailPage({ shedId, asOf }: { shedId: string; asOf?: string }) {
+  const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf });
   if (!result.ok) {
     return <NotFoundOrError shedId={shedId} message={result.error.message} />;
   }

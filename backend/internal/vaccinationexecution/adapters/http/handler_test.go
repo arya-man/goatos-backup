@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
-	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 type fakeReader struct {
@@ -89,6 +90,32 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?due_before=not-time", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid due_before status = %d want 400", rec.Code)
+	}
+}
+
+func TestExecutionParsesAsOf(t *testing.T) {
+	reader := &fakeReader{rows: []domain.ExecutionRow{sampleRow()}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+
+	// Valid as_of flows into the query (so the top-bar date actually scopes execution/shed reads).
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-06-24T12:00:00Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	want := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if !reader.last.AsOf.Equal(want) {
+		t.Fatalf("as_of not parsed into query: got %v want %v", reader.last.AsOf, want)
+	}
+
+	// Malformed as_of is a 400.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-06-24", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed as_of status = %d want 400", rec.Code)
 	}
 }
 

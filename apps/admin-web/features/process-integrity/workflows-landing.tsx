@@ -49,9 +49,9 @@ const BLOCKED_STATES: WorkState[] = ["blocked", "proof_pending", "owner_missing"
 
 export async function VaccinationWorkflowsPage({ searchParams }: { searchParams?: RouteSearchParams }) {
   const sp = searchParams ?? {};
-  const { parkId } = backendScope(parseScope(sp));
+  const { parkId, asOf } = backendScope(parseScope(sp));
 
-  const result = await getVaccinationActionCenter({ parkId, limit: 200 });
+  const result = await getVaccinationActionCenter({ parkId, asOf, limit: 200 });
   const rows: ActionCenterObligation[] = result.ok ? result.data.items : [];
   const nextCursor = result.ok ? result.data.next_cursor : undefined;
 
