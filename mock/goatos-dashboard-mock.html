@@ -335,6 +335,22 @@
   .subtabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:18px;width:max-content;max-width:100%;overflow:auto}
   .subtabs button{border:0;background:transparent;font:inherit;font-weight:650;color:var(--muted);padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
   .subtabs button.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
+  /* ---------- operation filter (audit) ---------- */
+  .opf{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .opf button{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--panel);border-radius:11px;padding:6px 11px 6px 7px;font:inherit;font-weight:650;font-size:12.5px;color:var(--muted);cursor:pointer;transition:border-color .12s,color .12s}
+  .opf button:hover{border-color:color-mix(in srgb,var(--brand) 42%,var(--line))}
+  .opf button.on{color:var(--ink);border-color:color-mix(in srgb,var(--brand) 60%,var(--line));box-shadow:var(--shadow)}
+  .opf button .oc{display:grid;place-items:center;width:23px;height:23px;border-radius:7px;flex:none}
+  .opf button .oc .ic{width:13px;height:13px}
+  .opf .cbq{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:16px;padding:0 5px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800}
+  .opf button.on .cbq{background:var(--brand-soft);color:var(--brand-d)}
+  .opf .andot{width:7px;height:7px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 18%,transparent)}
+  .opf .opdiv{width:1px;align-self:stretch;background:var(--line);margin:3px 3px}
+  .opcell{display:inline-flex;align-items:center;gap:8px;font-weight:650;font-size:12px;white-space:nowrap}
+  .opcell .oc{display:grid;place-items:center;width:21px;height:21px;border-radius:6px;flex:none}
+  .opcell .oc .ic{width:12px;height:12px}
+  .auditops .fitem.on{background:var(--brand-soft);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:8px;border-bottom-color:transparent}
+  .pcell{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:650}
   .chain{display:flex;align-items:stretch;gap:0;overflow:auto;padding:2px}
   .cstep{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative;margin-right:22px}
   .cstep:last-child{margin-right:0}
@@ -1129,8 +1145,14 @@
           <div class="cstep"><span class="s">Route</span><b>→ shed owner</b><div class="d">one batched notification per shed → its Manager, delegated to Asst</div></div>
           <div class="cstep"><span class="s">Execute</span><b>video per shed</b><div class="d">FEFO consume posted on verify</div></div>
         </div></div></div>
-        <div class="card" style="margin-bottom:16px"><div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-syringe"/></svg><h3>Vaccination status matrix</h3><div class="sp"></div><span class="legend"><span><i class="sw" style="background:var(--ok)"></i>up to date</span><span><i class="sw" style="background:var(--amber)"></i>due soon</span><span><i class="sw" style="background:var(--danger)"></i>overdue</span></span></div><div class="bd" style="padding:0"><table id="vaccMatrix" data-noact style="cursor:pointer" title="Click to record / verify a vaccination" onclick="vaccRecordModal()"><thead><tr><th>Cohort</th><th>PPR</th><th>FMD</th><th>Enterotox</th><th>Deworm</th><th>CCPP</th></tr></thead><tbody><tr><td>K3 · Castro 1</td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 5d</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-dng">overdue</span></td><td><span class="tag t-ok">done</span></td></tr><tr><td>F2 · Fatten A</td><td><span class="tag t-warn">video pending</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 12d</span></td></tr><tr><td>K2 · Gandhi 2</td><td><span class="tag t-warn">scheduled</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-dng">overdue</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td></tr><tr><td>Mother Yashoda 4</td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 3d</span></td><td><span class="tag t-ok">done</span></td></tr><tr><td>Breeding pen</td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 8d</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-dng">overdue</span></td></tr><tr><td>Quarantine Q-1</td><td><span class="tag t-warn">on intake</span></td><td><span class="tag t-warn">on intake</span></td><td><span class="tag t-mut">—</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-mut">—</span></td></tr></tbody></table><div class="note" style="margin:12px 14px">Boosters auto-schedule by interval (age / calendar / post-arrival). Overdue cells escalate to the Health Director; a shifting animal whose destination drive is already done gets a pre-shift individual dose.</div></div></div>
-        <div class="card" style="margin-bottom:16px"><div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-syringe"/></svg><h3>Per-cohort vaccination detail</h3><div class="sp"></div><span class="small muted">last dose · animals · next due</span></div><div class="bd" style="padding:0"><table id="vaccDetailTbl"><thead><tr><th>Cohort</th><th>Animals</th><th>Age band</th><th>Last dose</th><th>Next due</th><th>Status</th></tr></thead><tbody><tr><td>K3 · Castro 1</td><td>140</td><td>4–6 mo</td><td>02 Jun 2026</td><td>02 Sep 2026</td><td><span class="tag t-ok">on schedule</span></td></tr><tr><td>F2 · Fatten A</td><td>300</td><td>6–9 mo</td><td>28 May 2026</td><td>18 Jun 2026</td><td><span class="tag t-warn">video pending</span></td></tr><tr><td>K2 · Gandhi 2</td><td>120</td><td>2–4 mo</td><td>—</td><td>21 Jun 2026</td><td><span class="tag t-warn">scheduled</span></td></tr><tr><td>Mother Yashoda 4</td><td>60</td><td>adult</td><td>10 Jun 2026</td><td>10 Sep 2026</td><td><span class="tag t-ok">on schedule</span></td></tr><tr><td>Quarantine Q-1</td><td>110</td><td>intake</td><td>on arrival</td><td>+21d</td><td><span class="tag t-warn">on intake</span></td></tr></tbody></table><div class="note" style="margin:12px 14px">Matrix status is keyed on <b>last-dose date</b> + interval per cohort. Animal counts + age band drive dose quantities; FEFO stock reserved on verify.</div></div></div><div class="card"><div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-syringe"/></svg><h3>PPR drive — shed events</h3><span class="tag t-info" style="margin-left:auto">1 drive → 4 shed events</span></div><div class="bd" style="padding:0">
+        <div class="card" style="margin-bottom:16px;border-color:color-mix(in srgb,var(--info) 26%,var(--line))"><div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-truck"/></svg><h3>Supplier warmup — Holding Farm <span class="muted small" style="font-weight:600">(pre-arrival)</span></h3><div class="sp"></div><span class="tag t-info">journey starts at purchase</span></div><div class="bd" style="padding:0"><div class="note" style="margin:12px 14px 6px">A purchased goat’s journey starts at the <b>place of purchase</b>, not on arrival. It is tagged + vaccinated at the supplier’s <b>Holding Farm</b> through a <b>2–8 week warmup</b> — ownership <b>shared / pending</b> (advance paid, balance on dispatch). HF doses are captured as <b>imported completion evidence</b> so post-arrival obligations never double-dose. A goat can be <b>rejected before it is loaded on the truck</b>: rejects never ship, never enter the park count, and raise a supplier credit.</div><table id="vaccWarmupTbl" data-domain="warmup"><thead><tr><th>Load</th><th>Holding farm · supplier</th><th>Animals</th><th>Warmup wk</th><th>Tagging</th><th>Vaccination · at HF</th><th>Health / selection</th><th>Status</th></tr></thead><tbody>
+        <tr style="cursor:pointer" onclick="warmupLoadModal('CPT-LD-44','Gokul Agronomics',60)"><td>CPT-LD-44</td><td>Gokul Agronomics</td><td>60</td><td>wk 5 <span class="muted small">/ 2–8</span></td><td>60/60</td><td><span class="tag t-ok">PPR · Enterotox</span> <span class="tag t-warn">FMD due</span></td><td><span class="tag t-ok">selection ok</span></td><td><span class="tag t-info">warming</span></td></tr>
+        <tr style="cursor:pointer" onclick="warmupLoadModal('RJ-LD-09','Rajasthan Farms',110)"><td>RJ-LD-09</td><td>Rajasthan Farms</td><td>110</td><td>wk 8 <span class="muted small">/ 2–8</span></td><td>110/110</td><td><span class="tag t-ok">complete · evidence</span></td><td><span class="tag t-ok">selection ok</span></td><td><span class="tag t-ok">cleared to ship</span></td></tr>
+        <tr style="cursor:pointer" onclick="warmupLoadModal('GW-LD-03','Goat World',24)"><td>GW-LD-03</td><td>Goat World</td><td>24</td><td>wk 2 <span class="muted small">/ 2–8</span></td><td>18/24</td><td><span class="tag t-warn">PPR due</span></td><td><span class="tag t-warn">3 flagged</span></td><td><span class="tag t-warn">review</span></td></tr>
+        <tr style="cursor:pointer" onclick="warmupLoadModal('BHP-LD-07','Bhopal Agro',40)"><td>BHP-LD-07</td><td>Bhopal Agro</td><td>40</td><td>wk 7 <span class="muted small">/ 2–8</span></td><td>40/40</td><td><span class="tag t-ok">complete · evidence</span></td><td><span class="tag t-dng">2 rejected · disease</span></td><td><span class="tag t-dng">partial reject</span></td></tr>
+        </tbody></table><div class="note" style="margin:8px 14px 12px">Lifecycle: <b>purchase → supplier warmup (tag + vaccinate · rejectable) → load → arrival → 21-day park quarantine → active</b>. Tap a load to record an HF dose, import vaccination evidence, or reject animals before load. Park-side <b>Quarantine</b> (21d) and on-arrival doses are separate — see below.</div></div></div>
+        <div class="card" style="margin-bottom:16px"><div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-syringe"/></svg><h3>Vaccination status matrix</h3><div class="sp"></div><span class="legend"><span><i class="sw" style="background:var(--ok)"></i>up to date</span><span><i class="sw" style="background:var(--amber)"></i>due soon</span><span><i class="sw" style="background:var(--danger)"></i>overdue</span></span></div><div class="bd" style="padding:0"><table id="vaccMatrix" data-noact style="cursor:pointer" title="Click to record / verify a vaccination" onclick="vaccRecordModal()"><thead><tr><th>Cohort</th><th>PPR</th><th>FMD</th><th>Enterotox</th><th>Deworm</th><th>CCPP</th></tr></thead><tbody><tr style="background:color-mix(in srgb,var(--info) 8%,transparent)"><td>Warmup · Holding Farm <span class="muted small">supplier</span></td><td><span class="tag t-ok">at HF</span></td><td><span class="tag t-warn">on arrival</span></td><td><span class="tag t-ok">at HF</span></td><td><span class="tag t-ok">at HF</span></td><td><span class="tag t-mut">—</span></td></tr><tr><td>K3 · Castro 1</td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 5d</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-dng">overdue</span></td><td><span class="tag t-ok">done</span></td></tr><tr><td>F2 · Fatten A</td><td><span class="tag t-warn">video pending</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 12d</span></td></tr><tr><td>K2 · Gandhi 2</td><td><span class="tag t-warn">scheduled</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-dng">overdue</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td></tr><tr><td>Mother Yashoda 4</td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 3d</span></td><td><span class="tag t-ok">done</span></td></tr><tr><td>Breeding pen</td><td><span class="tag t-ok">done</span></td><td><span class="tag t-warn">due 8d</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-dng">overdue</span></td></tr><tr><td>Quarantine Q-1</td><td><span class="tag t-warn">on intake</span></td><td><span class="tag t-warn">on intake</span></td><td><span class="tag t-mut">—</span></td><td><span class="tag t-ok">done</span></td><td><span class="tag t-mut">—</span></td></tr></tbody></table><div class="note" style="margin:12px 14px">Boosters auto-schedule by interval (age / calendar / post-arrival). Overdue cells escalate to the Health Director; a shifting animal whose destination drive is already done gets a pre-shift individual dose.</div></div></div>
+        <div class="card" style="margin-bottom:16px"><div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-syringe"/></svg><h3>Per-cohort vaccination detail</h3><div class="sp"></div><span class="small muted">last dose · animals · next due</span></div><div class="bd" style="padding:0"><table id="vaccDetailTbl"><thead><tr><th>Cohort</th><th>Animals</th><th>Age band</th><th>Last dose</th><th>Next due</th><th>Status</th></tr></thead><tbody><tr style="background:color-mix(in srgb,var(--info) 8%,transparent)"><td>Warmup · Holding Farm <span class="muted small">supplier</span></td><td>234</td><td>intake</td><td>at HF (imported)</td><td>post-arrival</td><td><span class="tag t-info">evidence imported</span></td></tr><tr><td>K3 · Castro 1</td><td>140</td><td>4–6 mo</td><td>02 Jun 2026</td><td>02 Sep 2026</td><td><span class="tag t-ok">on schedule</span></td></tr><tr><td>F2 · Fatten A</td><td>300</td><td>6–9 mo</td><td>28 May 2026</td><td>18 Jun 2026</td><td><span class="tag t-warn">video pending</span></td></tr><tr><td>K2 · Gandhi 2</td><td>120</td><td>2–4 mo</td><td>—</td><td>21 Jun 2026</td><td><span class="tag t-warn">scheduled</span></td></tr><tr><td>Mother Yashoda 4</td><td>60</td><td>adult</td><td>10 Jun 2026</td><td>10 Sep 2026</td><td><span class="tag t-ok">on schedule</span></td></tr><tr><td>Quarantine Q-1</td><td>110</td><td>intake</td><td>on arrival</td><td>+21d</td><td><span class="tag t-warn">on intake</span></td></tr></tbody></table><div class="note" style="margin:12px 14px">Matrix status is keyed on <b>last-dose date</b> + interval per cohort. Animal counts + age band drive dose quantities; FEFO stock reserved on verify.</div></div></div><div class="card"><div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-syringe"/></svg><h3>PPR drive — shed events</h3><span class="tag t-info" style="margin-left:auto">1 drive → 4 shed events</span></div><div class="bd" style="padding:0">
           <table id="vaccTbl" data-domain="vaccination"><thead><tr><th>Shed event</th><th>Shed</th><th>Goats</th><th>Owner → Asst</th><th>Stock (FEFO)</th><th>Status</th></tr></thead><tbody>
             <tr><td>VAC-PPR-K3</td><td>K3 · Castro 1</td><td>140</td><td>Growth Mgr → S. Raj</td><td>lot A · exp 2026-09</td><td><span class="tag t-ok">done ✓</span></td></tr>
             <tr><td>VAC-PPR-F2</td><td>F2 · Fatten A</td><td>300</td><td>Feed Mgr → packer</td><td>lot A</td><td><span class="tag t-warn">video pending</span></td></tr>
@@ -1665,18 +1687,19 @@
       </div>
 
       <div class="subpanel" data-sub="audit">
-        <div class="phead"><div><div class="crumb">Team / <b>Audit log</b></div><h1>Audit Log <i class="ihelp" onclick="openHelp('audit')">i</i></h1><div class="sub">Every action every operator takes. <b>Scoped to your hierarchy</b> — a manager sees only the people who report up to them (and their sheds); COO/Founders see everything. Append-only, tamper-proof.</div></div><div class="sp"></div><button class="btn" onclick="exportModal('audit log')"><svg class="ic"><use href="#i-arrow"/></svg>Export</button></div>
+        <div class="phead"><div><div class="crumb">Admin · Data-Ops / <b>Audit log</b></div><h1>Audit Log <i class="ihelp" onclick="openHelp('audit')">i</i></h1><div class="sub">Every action by every operator <b>and admin</b> — organised by <b>operation</b>, not by area. <b>Scoped to your hierarchy</b>: a manager sees only who reports up to them; COO/Founders see all. Use the top-bar <b>Company-wide / Park-wise</b>, park &amp; date-range controls to scope the log. Append-only · tamper-proof.</div></div><div class="sp"></div><button class="btn" onclick="exportModal('audit log')"><svg class="ic"><use href="#i-arrow"/></svg>Export</button></div>
         <div class="grid g4" style="margin-bottom:14px">
-          <div class="kpi"><div class="lab">Actions today</div><div class="val">1,284</div></div>
-          <div class="kpi"><div class="lab">Video proofs</div><div class="val">312</div></div>
-          <div class="kpi"><div class="lab">Rejected / re-work</div><div class="val">18</div></div>
-          <div class="kpi" style="cursor:pointer" onclick="auditAnom=true;renderAudit()"><span class="acc" style="background:var(--danger)"></span><div class="lab">Flagged anomalies</div><div class="val" id="auditAnomN">3</div><div class="dl down">stock + edits</div></div>
+          <div class="kpi" style="cursor:pointer" onclick="auditResetFilters()"><span class="acc" style="background:var(--brand)"></span><div class="lab"><svg class="ic"><use href="#i-bolt"/></svg>Actions in view</div><div class="val" id="auditKpiActs">0</div><div class="dl"><span class="muted">tap to clear filters</span></div></div>
+          <div class="kpi" style="cursor:pointer" onclick="auditSetStatus('awaiting')"><span class="acc" style="background:var(--amber)"></span><div class="lab">Awaiting verification</div><div class="val" id="auditKpiAwait">0</div><div class="dl down">proof + sign-off</div></div>
+          <div class="kpi" style="cursor:pointer" onclick="auditSetStatus('noproof')"><span class="acc" style="background:var(--info)"></span><div class="lab">Proof coverage</div><div class="val" id="auditKpiProof">0<small>%</small></div><div class="dl"><span class="muted">tap → proof gaps</span></div></div>
+          <div class="kpi" style="cursor:pointer" onclick="auditAnom=!auditAnom;renderAudit()"><span class="acc" style="background:var(--danger)"></span><div class="lab">Flagged anomalies</div><div class="val" id="auditAnomN">0</div><div class="dl down">stock · deletes · skips</div></div>
         </div>
-        <div class="subtabs" id="auditViewers" style="margin-bottom:10px"></div>
+        <div class="subtabs" id="auditViewers" style="margin-bottom:12px"></div>
+        <div class="opf" id="auditOps"></div>
         <div class="wftoolbar" id="auditTools" style="margin-bottom:14px"></div>
-        <div class="grid g2" style="grid-template-columns:1fr 1.5fr">
-          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Your span of control</h3><div class="sp"></div><span class="pill" id="auditScope"></span></div><div class="bd feed" id="auditSpan"></div></div>
-          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail — scoped to your hierarchy</h3></div><div class="bd" style="padding:0"><table data-enh="1"><thead><tr><th>Time</th><th>Operator</th><th>Action</th><th>Target</th><th>Shed</th><th>Result</th><th>Entity · history</th></tr></thead><tbody id="auditRows"></tbody></table><div class="note" style="margin:12px 14px"><b>Append-only.</b> A manager sees only their own span; COO/Founders see all. Stock-draw mismatches &amp; record deletions auto-raise anomalies into Penalties. Tap a goat ID for its full history; tap a person for their profile.</div></div></div>
+        <div class="grid g2" style="grid-template-columns:288px 1fr">
+          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Span of control</h3><div class="sp"></div><span class="pill" id="auditScope"></span></div><div class="bd feed auditops" id="auditSpan"></div></div>
+          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; tap an operator (left) to filter the trail to their actions.</div></div></div>
         </div>
       </div>
       <div class="subpanel" data-sub="penalties">
@@ -1796,13 +1819,14 @@
     <div class="pm-item" onclick="closeUserMenu();go('action')"><span class="pn">My tasks</span></div>
     <div class="pm-item" onclick="closeUserMenu();go('people','roles')"><span class="pn">Roles &amp; access</span></div>
     <div class="pm-hint" style="border-top:1px solid var(--line2);margin-top:4px;padding:7px 11px 3px;font-weight:700;color:var(--muted);font-size:10.5px">VIEW AS ROLE</div>
-    <div class="pm-item" onclick="setRole('coo')"><span class="pn">Superadmin / COO</span><span class="pr">all · deep</span></div>
+    <div class="pm-item" onclick="setRole('coo')"><span class="pn">COO — everything unlocked</span><span class="pr">all parks · all verticals · deep</span></div>
+    <div class="pm-item" onclick="setRole('healthdir')"><span class="pn">Health Director</span><span class="pr">Health vertical · all parks</span></div>
+    <div class="pm-item" onclick="setRole('procdir')"><span class="pn">Procurement Director</span><span class="pr">Procurement vertical · all parks</span></div>
+    <div class="pm-item" onclick="setRole('hrdir')"><span class="pn">HR Director</span><span class="pr">People · all parks</span></div>
     <div class="pm-item" onclick="setRole('parkhead')"><span class="pn">Park Head · CBE</span><span class="pr">all verticals · 1 park</span></div>
-    <div class="pm-item" onclick="setRole('director')"><span class="pn">Health Director</span><span class="pr">vertical · all parks</span></div>
-    <div class="pm-item" onclick="setRole('manager')"><span class="pn">Health Mgr · CBE</span><span class="pr">vertical · 1 park</span></div>
-    <div class="pm-item" onclick="setRole('ground')"><span class="pn">Asst / Ground · CBE</span><span class="pr">tasks · 1 park</span></div>
-    <div class="pm-item" onclick="setRole('investor')"><span class="pn">Investor</span><span class="pr">read-only summary</span></div>
-    
+    <div class="pm-item" onclick="setRole('healthmgr')"><span class="pn">Health Mgr · CBE</span><span class="pr">1 vertical · 1 park</span></div>
+    <div class="pm-item" onclick="setRole('investor')"><span class="pn">Investor (read-only)</span><span class="pr">read-only summary</span></div>
+
   </div>
   <div class="pm-item" style="border-top:1px solid var(--line2);margin-top:4px" onclick="closeUserMenu();toast('Signed out — session ended')"><span class="pn" style="color:var(--danger);font-weight:700">Sign out</span></div>
 </div>
@@ -2408,7 +2432,7 @@ var CUR_OP='R. Teja';
 function fLabel(lbl){var fb=document.getElementById('formBody');if(!fb)return '';var L=fb.querySelectorAll('label');lbl=lbl.toLowerCase();for(var i=0;i<L.length;i++){var t=(L[i].textContent||'').trim().toLowerCase();if(t===lbl||t.indexOf(lbl)===0){var f=L[i].parentNode.querySelector('input,select,textarea');if(f)return (f.value||'').trim();}}return '';}
 function fChip(lbl){var fb=document.getElementById('formBody');if(!fb)return '';var L=fb.querySelectorAll('label');lbl=lbl.toLowerCase();for(var i=0;i<L.length;i++){var t=(L[i].textContent||'').trim().toLowerCase();if(t===lbl||t.indexOf(lbl)===0){var c=L[i].parentNode.querySelector('.chip.on');if(c)return (c.textContent||'').trim();}}return '';}
 function inferType(x){x=''+(x||'');if(/^CBE|^CPT/.test(x))return 'goat';if(/^ET-|^t-/.test(x))return 'task';if(/^SO-/.test(x))return 'sale';if(/shed|Yashoda 2|Yashoda|ICU|K0|K1|K2|K3|F2|Mother|Milking|Breeding|Quarantine/i.test(x))return 'shed';return '';}
-function logEvent(o){var d=new Date();var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);var e={t:hh+':'+mm,op:o.op||CUR_OP,act:o.act,tgt:o.tgt||o.id||'—',shed:o.shed||'—',res:o.res||'done',rc:o.rc||'t-ok',an:o.an||0,type:o.type||inferType(o.tgt||o.id||''),id:(o.id||o.tgt||''),pillar:o.pillar||''};AUDIT.unshift(e);if(typeof renderAudit==='function')renderAudit();return e;}
+function logEvent(o){var d=new Date();var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);var res=o.res||'done';var st=o.st||(o.an?'anomaly':(/await/i.test(res)?'awaiting':(/reject/i.test(res)?'rejected':'logged')));var e={t:hh+':'+mm,op:o.op||CUR_OP,ro:o.ro||'',act:o.act,tgt:o.tgt||o.id||'—',shed:o.shed||'—',res:res,rc:o.rc||'t-ok',an:o.an||0,type:o.type||inferType(o.tgt||o.id||''),id:(o.id||o.tgt||''),pillar:o.pillar||'',proof:o.proof||'',st:st,pk:o.pk||((typeof scopeSel!=='undefined'&&scopeSel.size)?[...scopeSel][0]:'CBE')};e.oper=o.oper||(typeof auditOperOf==='function'?auditOperOf(e):'admin');AUDIT.unshift(e);if(typeof renderAudit==='function')renderAudit();return e;}
 function auditAdd(act,tgt,res,rc){return logEvent({act:act,tgt:tgt,res:res,rc:rc});}
 var HISTGEN={
  goat:function(id){return [{t:'today 06:38',act:'Birth report — registered',res:'2 IDs assigned · lineage linked',rc:'t-ok',op:'A. Kumar'},{t:'2d ago',act:'Shifted K0 → K1',res:'destination video verified',rc:'t-ok',op:'R. Anand'},{t:'5d ago',act:'Weight recorded',res:'ADG recomputed',rc:'t-ok',op:'Growth Asst'},{t:'8d ago',act:'PPR vaccination',res:'−1 dose · FEFO · verified',rc:'t-ok',op:'S. Raj'},{t:'2wk ago',act:'Dual-ID tagging',res:'RFID + ear-tag',rc:'t-ok',op:'Health Asst'}];},
@@ -2795,6 +2819,24 @@ function damFilter(f,btn){var tb=document.getElementById('damTbl');if(!tb)return
 function feedLoadModal(){actModal({kind:'FEEDLOAD',title:'Receive feed load',sub:'Logs a purchased feed load: cost, advance/payment, expected delivery. Stock + payment ledger update; days-left recomputes from daily consumption.',fields:[{label:'Feed type',type:'select',options:['Concentrate','Masoor bhusa','Mesha concentrate','UHT milk','Maize']},{label:'Vendor',ph:'e.g. Sri Agro'},{label:'Quantity (kg/L)',value:'6000'},{label:'Purchase cost (\u20b9)',value:'5.2L'},{label:'Advance paid (\u20b9)',value:'0'},{label:'Expected delivery',value:'today'}],confirm:'Receive load',onMsg:'Feed load received \u00b7 stock + payment ledger updated \u00b7 audit logged',audit:{act:'Received feed load',tgt:'feed load',res:'stock + payment updated',rc:'t-ok',type:'item',pillar:'farms'}});}
 function ultrasoundModal(){actModal({kind:'ULTRASOUND',title:'Pregnancy ultrasound — 45-day confirmation',sub:'Gate before a doe can be set Pregnant. Confirm → stage transition + colostrum / K0 capacity planning.',fields:[{label:'Doe ID',ph:'scan RFID / tag'},{label:'Days since breeding',value:'46'},{label:'Result',type:'chips',options:['Pregnant','Not pregnant','Inconclusive']},{label:'Foetus count',value:'2'},{label:'Capture proof',type:'video',hint:'ultrasound image'}],confirm:'Confirm result',onMsg:'Ultrasound recorded · status gated · audit logged',audit:{act:'Ultrasound confirmation',tgt:'doe',res:'45-day gate',rc:'t-info',type:'goat',pillar:'goats'}});}
 function vaccRecordModal(){actModal({kind:'VACCINE',title:'Record / verify vaccination',sub:'Pick vaccine + batch (FEFO), confirm cold-chain, capture proof. Verify posts a consume movement and advances the cohort; overdue escalates to the Health Director.',fields:[{label:'Cohort / shed',ph:'e.g. K3 · Gandhi 2'},{label:'Vaccine',type:'select',options:['PPR','FMD','Enterotoxaemia','Dewormer','CCPP']},{label:'Batch (FEFO)',ph:'lot…'},{label:'Cold-chain intact?',type:'chips',options:['Yes','No']},{label:'Capture proof',type:'video',hint:'administration video'}],confirm:'Record + verify',onMsg:'Vaccination recorded · FEFO consume posted · cohort advanced',audit:{act:'Recorded vaccination',tgt:'cohort',res:'FEFO consume posted · advanced',rc:'t-ok',type:'goat',pillar:'goats'}});}
+function imFieldVal(lbl){var L=document.querySelectorAll('#infoBody .fld label');for(var i=0;i<L.length;i++){if((L[i].textContent||'').trim().toLowerCase().indexOf((''+lbl).toLowerCase())===0){var w=L[i].parentNode;var c=w.querySelector('.chip.on');if(c)return (c.textContent||'').trim();var s=w.querySelector('select');if(s)return s.value;var inp=w.querySelector('input');if(inp)return inp.value;}}return '';}
+function warmupLoadModal(load,farm,n){actModal({kind:'WARMUP',title:'Holding-farm load — '+load+(farm?' · '+farm:''),
+ sub:'Supplier warmup (pre-arrival). A purchased goat’s journey starts here at the place of purchase — tagged + vaccinated through the 2–8 week warmup. Ownership is shared / pending (advance paid, balance on dispatch). Animals can be rejected before they are loaded on the truck; HF doses import as completion evidence so arrival never double-doses.',
+ fields:[
+  {label:'Animals in load',value:(n||'')+''},
+  {label:'Action',type:'chips',options:['Record HF dose','Import vaccination evidence','Reject before load','Clear to ship']},
+  {label:'Vaccine (dose / evidence)',type:'select',options:['PPR','FMD','Enterotoxaemia','Dewormer','CCPP']},
+  {label:'Reject count (if rejecting)',ph:'e.g. 3'},
+  {label:'Reject reason',type:'chips',options:['Disease','Underweight','Failed quarantine','Failed vaccination']},
+  {label:'Proof (HF dose / cold-chain video)',type:'video',hint:'goat IDs legible · vial · cold-chain'}
+ ],
+ confirm:'Apply',onMsg:'Warmup-load updated · audit logged',
+ after:function(){var act=imFieldVal('Action')||'Record HF dose';var vac=imFieldVal('Vaccine')||'PPR';
+  if(/Reject/.test(act)){var rc=imFieldVal('Reject count');var reason=imFieldVal('Reject reason')||'health';logEvent({act:'Rejected '+(rc?rc+' ':'')+'before truck-load — '+load,ro:'Procurement',tgt:load,shed:farm||'Holding farm',res:(rc?rc+' ':'')+'not shipped · supplier credit · '+reason,rc:'t-dng',an:1,pillar:'procurement',st:'anomaly',pk:'CPT'});}
+  else if(/Import/.test(act)){logEvent({act:'Imported HF vaccination evidence — '+vac,ro:'Procurement',tgt:load,shed:farm||'Holding farm',res:vac+' evidence credited · no double-dose',rc:'t-ok',pillar:'vaccination',proof:'photo',st:'verified',pk:'CPT'});}
+  else if(/Clear/.test(act)){logEvent({act:'Cleared load to ship — '+load,ro:'Procurement',tgt:load,shed:farm||'Holding farm',res:'warmup complete · dispatched to park',rc:'t-ok',pillar:'procurement',proof:'video',st:'logged',pk:'CPT'});}
+  else{logEvent({act:'Recorded HF '+vac+' dose — '+load,ro:'Health worker',tgt:load,shed:farm||'Holding farm',res:vac+' administered at supplier',rc:'t-ok',pillar:'vaccination',proof:'video',st:'verified',pk:'CPT'});}
+ }});}
 
 function drillHerd(kind){go('counts','herd');var tb=document.getElementById('herdTbl');if(!tb)return;var k=(''+kind).trim();var lk=k.toLowerCase();var test;
  if(lk==='all'){test=null;}
@@ -2834,15 +2876,17 @@ function chartMapModal(){var R=[['Counts / Census','counts/overall','Control Tow
 
 
 var ROLES={
- coo:{label:'Superadmin / COO',person:'R. Teja',av:'RT',nav:'all',screens:'all',parks:'all',mode:'any',canEdit:true,canVerify:true},
- parkhead:{label:'Park Head · CBE',person:'R. Babu',av:'RB',nav:'all',screens:'all',parks:['CBE'],mode:'park',canEdit:true,canVerify:false},
- director:{label:'Health Director',person:'A. Kumar',av:'AK',nav:['command','insights','calendar','health'],screens:['command','insights','calendar','health'],parks:'all',mode:'any',canEdit:true,canVerify:true},
- manager:{label:'Health Mgr · CBE',person:'K. Murthy',av:'KM',nav:['command','action','calendar','counts','health'],screens:['command','action','calendar','counts','health'],parks:['CBE'],mode:'park',canEdit:true,canVerify:false},
- ground:{label:'Asst / Ground · CBE',person:'S. Raj',av:'SR',nav:['action','calendar'],screens:['action','calendar'],parks:['CBE'],mode:'park',canEdit:'own',canVerify:false},
- investor:{label:'Investor (read-only)',person:'Guest',av:'IN',nav:['command','insights'],screens:['command','insights'],parks:'all',mode:'company',canEdit:false,canVerify:false}
+ coo:{label:'COO · Command',auditShort:'COO',person:'R. Teja',av:'RT',nav:'all',screens:'all',parks:'all',mode:'any',canEdit:true,canVerify:true,auditSpan:'*'},
+ healthdir:{label:'Health Director',auditShort:'Health Dir',person:'Dr. Rao',av:'DR',nav:['command','insights','calendar','action','health'],screens:['command','insights','calendar','action','health'],parks:'all',mode:'any',canEdit:true,canVerify:true,auditSpan:['A. Kumar','K. Murthy','S. Raj','R. Babu','VVT-3','Dr. Rao']},
+ procdir:{label:'Procurement Director',auditShort:'Procurement Dir',person:'CPO',av:'CP',nav:['command','insights','calendar','action','procurement'],screens:['command','insights','calendar','action','procurement'],parks:'all',mode:'any',canEdit:true,canVerify:true,auditSpan:['CPO desk','Sales desk']},
+ hrdir:{label:'HR Director',auditShort:'HR Dir',person:'HR Lead',av:'HR',nav:['command','insights','calendar','action','people'],screens:['command','insights','calendar','action','people'],parks:'all',mode:'any',canEdit:true,canVerify:true,auditSpan:'*'},
+ parkhead:{label:'Park Head · CBE',auditShort:'Park Head · CBE',person:'R. Babu',av:'RB',nav:'all',screens:'all',parks:['CBE'],mode:'park',canEdit:true,canVerify:false,auditSpan:['A. Kumar','K. Murthy','S. Devi','R. Anand','S. Raj','R. Babu','P. Latha','Breeding Asst']},
+ healthmgr:{label:'Health Mgr · CBE',auditShort:'Health Mgr · CBE',person:'A. Kumar',av:'AK',nav:['command','action','calendar','counts','health'],screens:['command','action','calendar','counts','health'],parks:['CBE'],mode:'park',canEdit:true,canVerify:false,auditSpan:['A. Kumar','K. Murthy','R. Babu','S. Raj']},
+ investor:{label:'Investor (read-only)',auditShort:'Investor',person:'Guest',av:'IN',nav:['command','insights'],screens:['command','insights'],parks:'all',mode:'company',canEdit:false,canVerify:false,auditSpan:'*'}
 };
+var AUDIT_ROLES=['coo','healthdir','procdir','hrdir','parkhead','healthmgr','investor'];
 var CUR_ROLE='coo';
-function setRole(r){var R=ROLES[r];if(!R)return;CUR_ROLE=r;
+function setRole(r){var R=ROLES[r];if(!R)return;CUR_ROLE=r;if(typeof auditViewer!=='undefined')auditViewer=r;
  document.querySelectorAll('.nav[data-go],.ggrp[data-grp]').forEach(function(n){var key=n.dataset.go||n.dataset.grp;var show=(R.nav==='all')||R.nav.indexOf(key)>=0||key==='passport';n.style.display=show?'':'none';if(n.dataset.grp){var sn=document.querySelector('.subnav[data-grp="'+n.dataset.grp+'"]');if(sn)sn.style.display=show?'':'none';}});
  document.querySelectorAll('#userMenu .pm-item').forEach(function(it){var oc=it.getAttribute('onclick')||'';it.classList.toggle('on',oc.indexOf("setRole('"+r+"')")>=0);});
  var _cfg=document.querySelector('.leaf[data-go="config"]');if(_cfg)_cfg.style.display=(r==='coo')?'':'none'; /* Config = CEO/COO/superadmin only */
@@ -2867,6 +2911,7 @@ function rerenderActiveScreen(){if(_inScopeRender)return;_inScopeRender=true;try
  if(nm==='calendar'&&typeof renderCal==='function'){renderCal();if(typeof calView!=='undefined'&&calView==='month'&&typeof renderMonth==='function')renderMonth();}
  if(nm==='insights'&&typeof renderInsights==='function')renderInsights();
  if(nm==='counts'&&typeof renderCountsOverall==='function')renderCountsOverall();
+ if(nm==='people'&&typeof renderAudit==='function')renderAudit();
  if(typeof rescopeTables==='function')rescopeTables();
  if(nm==='parks'&&typeof renderShiftAging==='function')renderShiftAging();
 }catch(e){}finally{_inScopeRender=false;}}
@@ -3103,7 +3148,9 @@ function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
 function mountLens(screen){
   if(!LENS_DOMS.has(screen))return;
   const scr=document.querySelector('.screen[data-screen="'+screen+'"]');if(!scr)return;
-  const ph=scr.querySelector('.subpanel.on .phead')||scr.querySelector('.phead');if(!ph||ph.querySelector('.lensbar'))return;
+  const sub=scr.querySelector('.subpanel.on');
+  if(sub&&sub.getAttribute('data-sub')==='audit'){var _ex=sub.querySelector('.lensbar');if(_ex)_ex.remove();return;} // audit log is operation-scoped, not an area lens
+  const ph=(sub&&sub.querySelector('.phead'))||scr.querySelector('.subpanel.on .phead')||scr.querySelector('.phead');if(!ph||ph.querySelector('.lensbar'))return;
   const bar=document.createElement('div');bar.className='lensbar';
   bar.innerHTML='<span class="muted small">'+(AREA_LABEL[screen]||cap(screen))+' at a glance:</span>'+
     '<span class="lenslink" onclick="lensWorkflows(\''+screen+'\')">⚙ Workflows</span>'+
@@ -3421,49 +3468,113 @@ function renderCharts(){CHART_RF=(typeof rangeFactor==='function'?rangeFactor():
  CHART_RF=1;
 }
 
+// Operation families — the PRIMARY axis the audit log is organised by (not pillars).
+const OPS={
+ vacc :{label:'Vaccination',         ic:'i-syringe',c:'var(--info)',  bg:'var(--infox)'},
+ health:{label:'Treatment & Health', ic:'i-heart',  c:'var(--danger)',bg:'var(--dangerx)'},
+ feed :{label:'Feeding',             ic:'i-leaf',   c:'var(--amber)', bg:'var(--warnx)'},
+ breed:{label:'Breeding',            ic:'i-dna',    c:'var(--teal)',  bg:'var(--tealx)'},
+ move :{label:'Movement & Counts',   ic:'i-map',    c:'var(--brand-d)',bg:'var(--brand-soft)'},
+ proc :{label:'Procurement & Sales', ic:'i-truck',  c:'var(--brand)', bg:'var(--brand-soft)'},
+ stock:{label:'Inventory & Stock',   ic:'i-box',    c:'var(--purple)',bg:'var(--purplex)'},
+ admin:{label:'Admin · Data-Ops',    ic:'i-edit',   c:'var(--muted)', bg:'var(--line2)'},
+ hr   :{label:'People · HR',         ic:'i-people', c:'var(--muted)', bg:'var(--line2)'}
+};
+const OP_ORDER=['vacc','health','feed','breed','move','proc','stock','admin','hr'];
+const PROOF_OPS=['vacc','health','feed','breed','move','proc']; // operations that require photo/video proof
+function auditOperOf(o){var s=((o.act||'')+' '+(o.tgt||'')+' '+(o.res||'')).toLowerCase();
+ if(/vaccin|booster|\bppr\b|enterotox|\bdose\b|vial/.test(s))return 'vacc';
+ if(/diagnos|treat|enroflox|antibiot|deworm|post-?mortem|mortal|\bdrug\b|medicine|icu/.test(s))return 'health';
+ if(/feed|ration|\bfcr\b|fatten/.test(s))return 'feed';
+ if(/\bai\b|semen|straw|breed|colostrum|birth|\bkid|pregnan|weaning|ultrasound/.test(s))return 'breed';
+ if(/shift|transfer|census|count|sanitat|quarantine|biosecur/.test(s))return 'move';
+ if(/intake|dispatch|\bsale|procure|purchase|\bcull|\bload\b|\border/.test(s))return 'proc';
+ if(/stock|\bdrew\b|\bdraw\b|reserve|consume|floor|reorder|inventory/.test(s))return 'stock';
+ if(/\bsop\b|\brule\b|config|\brole\b|grant|revoke|delet|edited record|edit record|protocol|publish|identity|access/.test(s))return 'admin';
+ if(/penalt|\beod\b|onboard|absence|\bleave\b|payroll|grievance|insurance|claim|discipline|strike/.test(s))return 'hr';
+ var pm={goats:'health',health:'health',parks:'move',inventory:'stock',people:'hr',farms:'proc',breeding:'breed',feed:'feed',procurement:'proc',sales:'proc',vaccination:'vacc',phc:'vacc'};
+ return pm[o.pillar]||'admin';}
+// fields: t time · oper operation family · op operator · ro role · act action · tgt target · shed scope · res result · rc tag · an anomaly · proof video|photo · st status bucket · type entity (history) · pk park
 const AUDIT=[
- {t:'07:52',op:'A. Kumar',act:'Raised diagnosis report',tgt:'CBE-2218',shed:'ICU-2',res:'awaiting verify',rc:'t-warn',an:0},
- {t:'07:20',op:'VVT-3',act:'Verified treatment → complete',tgt:'CBE-1990',shed:'ICU-1',res:'closed · −1 vial',rc:'t-ok',an:0},
- {t:'07:14',op:'R. Anand',act:'Colostrum session 1 — 9 kids',tgt:'K0 batch',shed:'K0',res:'verified',rc:'t-ok',an:0},
- {t:'06:55',op:'Breeding Asst',act:'AI logged',tgt:'CBE-1140',shed:'Breeding',res:'−1 straw',rc:'t-ok',an:0},
- {t:'06:40',op:'K. Murthy',act:'Drew Enrofloxacin (22ml vs 14)',tgt:'CBE-0512',shed:'ICU-1',res:'anomaly → penalty',rc:'t-dng',an:1},
- {t:'06:38',op:'A. Kumar',act:'Submitted birth report — 3 kids',tgt:'CBE-1043',shed:'K0',res:'3 temp records',rc:'t-ok',an:0},
- {t:'06:10',op:'R. Anand',act:'Raised shifting — 12 kids K0→K1',tgt:'K0→K1',shed:'K1',res:'authorised',rc:'t-info',an:0},
- {t:'05:48',op:'S. Devi',act:'Edited feed direction (180→165kg)',tgt:'F2 Fatten A',shed:'F2',res:'edit logged',rc:'t-warn',an:0},
- {t:'05:30',op:'P. Latha',act:'Deleted goat record (wrong report)',tgt:'CBE-1771',shed:'ICU-1',res:'anomaly · admin notified',rc:'t-dng',an:1},
- {t:'05:02',op:'S. Raj',act:'PPR dose administered',tgt:'K3 · Castro 1',shed:'K3',res:'140 done · −140',rc:'t-ok',an:0},
- {t:'03:00',op:'System cron',act:'Treatment plan generated',tgt:'All open problems',shed:'—',res:'37 tasks created',rc:'t-ok',an:0}
+ {t:'07:58',oper:'vacc', op:'VVT-3',       ro:'Central verifier',     act:'Verified vaccination proof',        tgt:'CBE-2218',  shed:'ICU-2',    res:'approved · proof ✓',        rc:'t-ok',  proof:'video',st:'verified',type:'goat'},
+ {t:'07:52',oper:'health',op:'A. Kumar',    ro:'Health Mgr · CBE',     act:'Raised diagnosis report',           tgt:'CBE-2218',  shed:'ICU-2',    res:'awaiting verify',           rc:'t-warn',proof:'photo',st:'awaiting'},
+ {t:'07:40',oper:'vacc', op:'S. Raj',       ro:'Health worker',        act:'Enterotox dose — 88 goats',         tgt:'Gandhi 2',  shed:'K3',       res:'88 done · −88 vials',       rc:'t-ok',  proof:'video',st:'verified',type:'shed'},
+ {t:'07:20',oper:'health',op:'VVT-3',       ro:'Central verifier',     act:'Verified treatment → complete',     tgt:'CBE-1990',  shed:'ICU-1',    res:'closed · −1 vial',          rc:'t-ok',  proof:'video',st:'verified'},
+ {t:'07:14',oper:'breed', op:'R. Anand',     ro:'Growth Mgr · K0–K3',   act:'Colostrum session 1 — 9 kids',      tgt:'K0 batch',  shed:'K0',       res:'verified',                  rc:'t-ok',  proof:'video',st:'verified',type:'shed'},
+ {t:'06:55',oper:'breed', op:'Breeding Asst',ro:'Breeding operator',    act:'AI logged — semen lot AI-774',      tgt:'CBE-1140',  shed:'Breeding', res:'−1 straw',                  rc:'t-ok',  proof:'photo',st:'logged'},
+ {t:'06:40',oper:'stock', op:'K. Murthy',    ro:'Health Asst Mgr · ICU',act:'Drew Enrofloxacin (22 ml vs 14)',   tgt:'CBE-0512',  shed:'ICU-1',    res:'anomaly → penalty',         rc:'t-dng', proof:'',     st:'anomaly',an:1},
+ {t:'06:38',oper:'breed', op:'A. Kumar',     ro:'Health Mgr · CBE',     act:'Submitted birth report — 3 kids',   tgt:'CBE-1043',  shed:'K0',       res:'3 temp records',            rc:'t-ok',  proof:'photo',st:'logged'},
+ {t:'06:20',oper:'feed',  op:'S. Devi',      ro:'Feed Asst Mgr',        act:'Logged feed delivery — Fatten A',   tgt:'F2 batch',  shed:'F2',       res:'180 kg · matches direction',rc:'t-ok',  proof:'photo',st:'logged',type:'shed'},
+ {t:'06:10',oper:'move',  op:'R. Anand',     ro:'Growth Mgr · K0–K3',   act:'Raised shifting — 12 kids K0→K1',   tgt:'K0→K1',     shed:'K1',       res:'authorised',                rc:'t-info',proof:'',     st:'info',type:'shed'},
+ {t:'05:48',oper:'feed',  op:'S. Devi',      ro:'Feed Asst Mgr',        act:'Edited feed direction (180→165 kg)',tgt:'F2 Fatten A',shed:'F2',      res:'edit logged',               rc:'t-warn',proof:'',     st:'logged',type:'shed'},
+ {t:'05:30',oper:'admin', op:'P. Latha',     ro:'Data-Ops clerk',       act:'Deleted goat record (wrong report)',tgt:'CBE-1771',  shed:'ICU-1',    res:'anomaly · admin notified',  rc:'t-dng', proof:'',     st:'anomaly',an:1,type:'goat'},
+ {t:'05:18',oper:'admin', op:'Dr. Rao',      ro:'Health Director',      act:'Published protocol rule — PPR booster',tgt:'Rule PR-118',shed:'—',     res:'v3 · source-backed',        rc:'t-ok',  proof:'',     st:'verified',type:'sop'},
+ {t:'05:02',oper:'vacc',  op:'S. Raj',       ro:'Health worker',        act:'PPR dose administered — 140',       tgt:'Castro 1',  shed:'K3',       res:'140 done · −140',           rc:'t-ok',  proof:'video',st:'verified',type:'shed'},
+ {t:'04:50',oper:'move',  op:'R. Babu',      ro:'PHC operator',         act:'Sanitation + footwear wash — Q-1',  tgt:'Quarantine',shed:'Q-1',      res:'logged · entry gated',      rc:'t-ok',  proof:'photo',st:'logged',type:'shed'},
+ {t:'04:30',oper:'move',  op:'K. Murthy',    ro:'Health Asst Mgr · ICU',act:'Census count — Yashoda 10',         tgt:'Yashoda 10',shed:'K2',       res:'210 vs 212 · −2 review',    rc:'t-warn',proof:'photo',st:'anomaly',an:1,type:'shed'},
+ {t:'04:05',oper:'proc',  op:'CPO desk',     ro:'Procurement Mgr · CPT',act:'Goat intake — load CPT-LD-44',      tgt:'CPT-LD-44', shed:'Breeding', res:'60 received · tagged',      rc:'t-ok',  proof:'video',st:'logged',type:'sale',pk:'CPT'},
+ {t:'03:40',oper:'proc',  op:'Sales desk',   ro:'Sales',                act:'Dispatch order SO-2291',            tgt:'SO-2291',   shed:'—',        res:'48 goats · ₹9.6L',          rc:'t-info',proof:'photo',st:'info',type:'sale'},
+ {t:'03:20',oper:'admin', op:'R. Teja',      ro:'COO · Command',        act:'Granted role — Park Head CPT',      tgt:'n.kiran',   shed:'—',        res:'scope CPT · capabilities set',rc:'t-info',proof:'',   st:'info',type:'operator'},
+ {t:'03:00',oper:'health',op:'System cron',  ro:'System',               act:'Treatment plan generated',          tgt:'All open problems',shed:'—', res:'37 tasks created',           rc:'t-ok',  proof:'',     st:'info'},
+ {t:'02:30',oper:'hr',    op:'HR Lead',      ro:'HR',                   act:'Issued penalty — Strike 2 · PIP',   tgt:'K. Murthy', shed:'—',        res:'logged with HR',            rc:'t-warn',proof:'',     st:'logged',type:'operator'},
+ {t:'02:10',oper:'hr',    op:'A. Kumar',     ro:'Health Mgr · CBE',     act:'Submitted EOD report',              tgt:'Health vertical',shed:'—',   res:'on time',                   rc:'t-ok',  proof:'',     st:'verified'}
 ];
-['goat','task','shed','sale','filter','scope','sop','event','workflow','item','operator'];AUDIT.forEach(function(r){if(!r.type)r.type=inferType(r.tgt);if(r.id==null)r.id=r.tgt;});
-const VIEWERS=[
- {id:'coo',label:'COO · all parks',sees:'*'},
- {id:'phead',label:'Park Head · CBE',sees:['A. Kumar','K. Murthy','S. Devi','R. Anand','S. Raj','R. Babu','P. Latha','Breeding Asst']},
- {id:'health',label:'Health Mgr · A. Kumar',sees:['A. Kumar','K. Murthy','R. Babu']},
- {id:'growth',label:'Growth Mgr · R. Anand',sees:['R. Anand','S. Raj']}
-];
+AUDIT.forEach(function(r){if(!r.type)r.type=inferType(r.tgt);if(r.id==null)r.id=r.tgt;if(r.proof==null)r.proof='';if(!r.oper)r.oper=auditOperOf(r);if(!r.st)r.st=(r.an?'anomaly':'logged');if(!r.pk)r.pk='CBE';if(!r.ro)r.ro='';});
+// "Viewing as" mirrors the real app roles (ROLES) — span-of-control preview, can't drift from the role switcher.
 let auditViewer='coo';
-var auditQ='',auditType='all',auditAnom=false;
-function auditTypeList(){var m={};AUDIT.forEach(function(r){if(r.type)m[r.type]=1;});return Object.keys(m);}
-function curViewer(){return VIEWERS.filter(function(x){return x.id===auditViewer;})[0]||VIEWERS[0];}
+var auditQ='',auditOper='all',auditAnom=false,auditStatus='all',auditOp='';
+function curViewer(){var r=(typeof ROLES!=='undefined'&&ROLES[auditViewer])?ROLES[auditViewer]:(ROLES&&ROLES.coo);return {id:auditViewer,label:(r&&(r.auditShort||r.label))||'COO',sees:(r&&r.auditSpan)||'*'};}
 function auditInScope(op){var v=curViewer();return v.sees==='*'||v.sees.indexOf(op)>=0||op==='System cron';}
+function auditParkOk(r){if(typeof SCOPE_MODE==='undefined'||SCOPE_MODE==='company')return true;var ps=(typeof scopeParks==='function')?scopeParks():null;if(!ps||!ps.length)return true;return ps.indexOf(r.pk||'CBE')>=0;}
+function auditBase(){return AUDIT.filter(function(r){return auditInScope(r.op)&&auditParkOk(r);});}
+function auditMatch(r){
+ if(auditOper!=='all'&&r.oper!==auditOper)return false;
+ if(auditOp&&r.op!==auditOp)return false;
+ if(auditAnom&&!r.an)return false;
+ if(auditStatus==='awaiting'&&r.st!=='awaiting')return false;
+ if(auditStatus==='rejected'&&r.st!=='rejected')return false;
+ if(auditStatus==='noproof'&&!(PROOF_OPS.indexOf(r.oper)>=0&&!r.proof))return false;
+ if(auditQ){var hay=(r.op+' '+(r.ro||'')+' '+r.act+' '+r.tgt+' '+r.res+' '+(OPS[r.oper]?OPS[r.oper].label:'')).toLowerCase();if(hay.indexOf(auditQ.toLowerCase())<0)return false;}
+ return true;}
+function auditToggleOp(op){auditOp=(auditOp===op)?'':op;renderAudit();}
+function auditResetFilters(){auditOper='all';auditStatus='all';auditAnom=false;auditOp='';auditQ='';renderAudit();}
+function auditSetStatus(s){auditStatus=(auditStatus===s)?'all':s;auditAnom=false;renderAudit();}
+function auditOpChip(k){var o=OPS[k]||OPS.admin;return '<span class="opcell"><span class="oc" style="background:'+o.bg+';color:'+o.c+'"><svg class="ic"><use href="#'+o.ic+'"/></svg></span>'+o.label.replace(/ & /g,' &amp; ')+'</span>';}
 function auditRefreshRows(){
- var rows=AUDIT.filter(function(r){if(!auditInScope(r.op))return false;if(auditType!=='all'&&r.type!==auditType)return false;if(auditAnom&&!r.an)return false;if(auditQ){var hay=(r.op+' '+r.act+' '+r.tgt+' '+r.res+' '+(r.type||'')).toLowerCase();if(hay.indexOf(auditQ.toLowerCase())<0)return false;}return true;});
- var v=curViewer();var counts={};AUDIT.forEach(function(r){counts[r.op]=(counts[r.op]||0)+1;});
+ var base=auditBase();var rows=base.filter(auditMatch);var v=curViewer();
+ var counts={},acnt={};base.forEach(function(r){counts[r.op]=(counts[r.op]||0)+1;if(r.an)acnt[r.op]=(acnt[r.op]||0)+1;});
  var team=(v.sees==='*')?Object.keys(counts).filter(function(o){return o!=='System cron';}):v.sees;
- var sp=document.getElementById('auditSpan');if(sp)sp.innerHTML=team.map(function(op){var p=(typeof PERSON!=='undefined'&&PERSON[op]);var an=AUDIT.filter(function(r){return r.op===op&&r.an;}).length;
-   return '<div class="fitem" style="cursor:pointer" onclick="'+(p?'openPerson(\''+op+'\')':'openHistory(\'operator\',\''+op+'\',\''+op+'\')')+'"><span class="av xs">'+op.split(' ').map(function(w){return w[0];}).join('').slice(0,2)+'</span><div class="tx"><b>'+op+'</b><div class="mt">'+(p?p.scope:'on-ground')+'</div></div>'+(an?'<span class="tag t-dng">'+an+' flag</span>':'<span class="tag t-mut">'+(counts[op]||0)+' acts</span>')+'</div>';}).join('')||'<div class="note">No reports under this role.</div>';
- var tb=document.getElementById('auditRows');if(tb)tb.innerHTML=rows.map(function(r){var goat=/^CBE|^CPT/.test(r.tgt);var eid=(r.id||r.tgt||'');var ent=r.type?('<span class="tag t-mut" style="cursor:pointer" onclick="event.stopPropagation();openHistory(\''+r.type+'\',\''+eid+'\',\''+eid+'\')">'+r.type+' ›</span>'):'<span class="muted small">—</span>';
-   return '<tr style="cursor:pointer'+(r.an?';background:var(--dangerx)':'')+'" onclick="openHistory(\''+(r.type||'')+'\',\''+eid+'\',\''+eid+'\')"><td>'+r.t+'</td><td>'+r.op+'</td><td>'+r.act+'</td><td>'+(goat?'<span class="gid">'+r.tgt+'</span>':r.tgt)+'</td><td>'+r.shed+'</td><td><span class="tag '+r.rc+'">'+r.res+'</span></td><td>'+ent+'</td></tr>';}).join('')||'<tr><td colspan="7"><div class="note" style="margin:8px">No matching events.</div></td></tr>';
- var sc=document.getElementById('auditScope');if(sc)sc.textContent=(v.sees==='*')?(rows.length+' of '+AUDIT.length+' events'):team.length+' in your span';
- var an=document.getElementById('auditAnomN');if(an)an.textContent=AUDIT.filter(function(r){return r.an;}).length;
+ var sp=document.getElementById('auditSpan');
+ if(sp)sp.innerHTML=team.map(function(op){var p=(typeof PERSON!=='undefined'&&PERSON[op]);var an=acnt[op]||0;var on=(auditOp===op);var oe=op.replace(/'/g,"\\'");
+   return '<div class="fitem'+(on?' on':'')+'" style="cursor:pointer" onclick="auditToggleOp(\''+oe+'\')"><span class="av xs">'+op.split(' ').map(function(w){return w[0];}).join('').slice(0,2)+'</span><div class="tx"><b>'+op+'</b><div class="mt">'+(p?p.scope:(r0_role(op)||(an?'has flags':'on-ground')))+'</div></div>'+(an?'<span class="tag t-dng">'+an+' flag</span>':'<span class="tag t-mut">'+(counts[op]||0)+'</span>')+'</div>';}).join('')||'<div class="note">No reports under this role.</div>';
+ var tb=document.getElementById('auditRows');
+ if(tb)tb.innerHTML=rows.map(function(r){var goat=/^CBE|^CPT/.test(r.tgt);var eid=(r.id||r.tgt||'');
+   var tgtc=(goat?'<span class="gid">'+r.tgt+'</span>':r.tgt)+((r.shed&&r.shed!=='—')?'<div class="mt" style="color:var(--faint);font-size:11px;margin-top:2px">'+r.shed+'</div>':'');
+   var prc=r.proof?('<span class="pcell" style="color:var(--brand-d)"><svg class="ic" style="width:13px"><use href="#i-video"/></svg>'+r.proof+'</span>'):((PROOF_OPS.indexOf(r.oper)>=0)?'<span class="pcell" style="color:var(--danger)"><svg class="ic" style="width:13px"><use href="#i-warn"/></svg>missing</span>':'<span class="muted small">—</span>');
+   return '<tr style="cursor:pointer'+(r.an?';background:var(--dangerx)':'')+'" onclick="openHistory(\''+(r.type||'')+'\',\''+eid+'\',\''+eid+'\')"><td style="white-space:nowrap">'+r.t+'</td><td>'+auditOpChip(r.oper)+'</td><td><b style="font-weight:650">'+r.op+'</b><div class="mt" style="color:var(--faint);font-size:11px;margin-top:2px">'+(r.ro||'')+'</div></td><td>'+r.act+'</td><td>'+tgtc+'</td><td><span class="tag '+r.rc+'">'+r.res+'</span></td><td>'+prc+'</td></tr>';}).join('')||'<tr><td colspan="7"><div class="note" style="margin:8px">No matching events. <a href="#" onclick="auditResetFilters();return false" style="color:var(--brand-d);font-weight:700">Clear filters</a></div></td></tr>';
+ setTxt('auditKpiActs',rows.length);
+ setTxt('auditKpiAwait',base.filter(function(r){return r.st==='awaiting';}).length);
+ var pf=base.filter(function(r){return PROOF_OPS.indexOf(r.oper)>=0;});var pfok=pf.filter(function(r){return r.proof;}).length;
+ setTxt('auditKpiProof',(pf.length?Math.round(pfok/pf.length*100):100));
+ setTxt('auditAnomN',base.filter(function(r){return r.an;}).length);
+ var sc=document.getElementById('auditScope');if(sc)sc.textContent=(v.sees==='*')?(team.length+' operators'):(team.length+' in your span');
+ var tm=document.getElementById('auditTrailMeta');if(tm)tm.textContent=rows.length+' of '+base.length+' events'+(auditOper!=='all'&&OPS[auditOper]?' · '+OPS[auditOper].label:'')+(auditOp?' · '+auditOp:'');
 }
+function r0_role(op){for(var i=0;i<AUDIT.length;i++){if(AUDIT[i].op===op&&AUDIT[i].ro)return AUDIT[i].ro;}return '';}
 function renderAudit(){
  var vt=document.getElementById('auditViewers');if(!vt)return;
- vt.innerHTML='<span class="muted small" style="padding:7px 6px 7px 2px">viewing as:</span>'+VIEWERS.map(function(x){return '<button class="'+(x.id===auditViewer?'on':'')+'" onclick="auditViewer=\''+x.id+'\';renderAudit()">'+x.label+'</button>';}).join('');
+ vt.innerHTML='<span class="muted small" style="padding:7px 8px 7px 4px">Viewing as</span>'+AUDIT_ROLES.map(function(k){var R=ROLES[k];if(!R)return '';return '<button class="'+(k===auditViewer?'on':'')+'" onclick="auditViewer=\''+k+'\';auditOp=\'\';renderAudit()" title="'+R.label+'">'+(R.auditShort||R.label)+'</button>';}).join('');
+ var base=auditBase();var oc={},oa={};base.forEach(function(r){oc[r.oper]=(oc[r.oper]||0)+1;if(r.an)oa[r.oper]=1;});
+ var ops=document.getElementById('auditOps');
+ if(ops){var html='<button class="'+(auditOper==='all'?'on':'')+'" onclick="auditOper=\'all\';renderAudit()"><span class="oc" style="background:var(--brand-soft);color:var(--brand-d)"><svg class="ic"><use href="#i-grid"/></svg></span>All operations<span class="cbq">'+base.length+'</span></button>';
+   OP_ORDER.forEach(function(k){if(k==='admin')html+='<span class="opdiv"></span>';var o=OPS[k];var n=oc[k]||0;
+     html+='<button class="'+(auditOper===k?'on':'')+'" onclick="auditOper=\''+k+'\';renderAudit()" title="'+o.label+'"><span class="oc" style="background:'+o.bg+';color:'+o.c+'"><svg class="ic"><use href="#'+o.ic+'"/></svg></span>'+o.label.replace(/ & /g,' &amp; ')+(oa[k]?'<span class="andot" title="has anomalies"></span>':'')+'<span class="cbq">'+n+'</span></button>';});
+   ops.innerHTML=html;}
  var tools=document.getElementById('auditTools');
- if(tools){var types=auditTypeList();
-   tools.innerHTML='<div class="tsearch" style="max-width:280px"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="auditSearch" placeholder="Search action, operator, ID…" value="'+auditQ.replace(/"/g,'&quot;')+'" oninput="auditQ=this.value;auditRefreshRows()"></div>'+
-   '<div class="subtabs" style="margin:0"><button class="'+(auditType==='all'?'on':'')+'" onclick="auditType=\'all\';renderAudit()">All entities</button>'+types.map(function(t){return '<button class="'+(auditType===t?'on':'')+'" onclick="auditType=\''+t+'\';renderAudit()">'+t+'</button>';}).join('')+'</div>'+
+ if(tools){tools.innerHTML='<div class="tsearch" style="max-width:300px"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="auditSearch" placeholder="Search action, operator, ID…" value="'+auditQ.replace(/"/g,'&quot;')+'" oninput="auditQ=this.value;auditRefreshRows()"></div>'+
+   '<div class="subtabs" style="margin:0"><button class="'+(auditStatus==='all'?'on':'')+'" onclick="auditStatus=\'all\';renderAudit()">All results</button><button class="'+(auditStatus==='awaiting'?'on':'')+'" onclick="auditStatus=\'awaiting\';renderAudit()">Awaiting</button><button class="'+(auditStatus==='rejected'?'on':'')+'" onclick="auditStatus=\'rejected\';renderAudit()">Rejected</button><button class="'+(auditStatus==='noproof'?'on':'')+'" onclick="auditStatus=\'noproof\';renderAudit()">Proof gaps</button></div>'+
+   (auditOp?'<button class="btn sm p" type="button" onclick="auditOp=\'\';renderAudit()"><svg class="ic" style="width:13px"><use href="#i-x"/></svg>'+auditOp+'</button>':'')+
+   '<span class="sp" style="flex:1"></span>'+
    '<button class="btn sm'+(auditAnom?' p':'')+'" type="button" onclick="auditAnom=!auditAnom;renderAudit()"><svg class="ic" style="width:13px"><use href="#i-warn"/></svg>Anomalies only</button>';}
  auditRefreshRows();
 }
