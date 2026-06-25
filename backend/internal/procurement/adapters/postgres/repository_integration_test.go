@@ -690,6 +690,35 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 			t.Fatalf("conflict created a goat: count %d -> %d", goatsAfterFirst, n)
 		}
 	})
+
+	t.Run("server-defaulted timestamp jitter does not break exact replay", func(t *testing.T) {
+		// The service fills an omitted CheckedAt/DecidedAt/etc. with now() (service.go), so a retry of the
+		// same logical request arrives with a LATER timestamp. Those fields are excluded from the fingerprint,
+		// so the replay must return the original result rather than falsely conflicting.
+		load := createProcurementLoad(t, ctx, repo, "idem-ts-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-TS"),
+			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-ts-goat",
+		})
+		base := ports.SourceHealth{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID,
+			HealthState: domain.HealthPassed, CheckedAt: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC),
+			IdempotencyKey: "idem-ts-health",
+		}
+		first, err := repo.RecordSourceHealth(ctx, base)
+		if err != nil {
+			t.Fatalf("first RecordSourceHealth: %v", err)
+		}
+		jittered := base
+		jittered.CheckedAt = base.CheckedAt.Add(97 * time.Minute) // same logical request, server-defaulted later
+		replay, err := repo.RecordSourceHealth(ctx, jittered)
+		if err != nil {
+			t.Fatalf("replay with server-jittered timestamp must not conflict: %v", err)
+		}
+		if replay.HealthCheckID != first.HealthCheckID {
+			t.Fatalf("replay returned different result: first=%s replay=%s", first.HealthCheckID, replay.HealthCheckID)
+		}
+	})
 }
 
 func seedProcurementCommon(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
