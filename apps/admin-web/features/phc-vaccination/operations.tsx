@@ -22,11 +22,15 @@ async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
     return { view: null, error: { code: listed.error.code, message: listed.error.message } };
   }
   const defs = listed.data.items.filter((d) => isVaccinationSop(d.code, d.name));
-  if (defs.length === 0) return { view: null };
+  if (defs.length === 0) return { view: null }; // no vaccination SOP authored yet (distinct from a load failure)
   const primary = defs.find((d) => d.status === "active") ?? defs[0];
   const detail = await getSop(primary.sop_id);
-  const version = detail.ok ? (detail.data.latest_version ?? null) : null;
-  return { view: toSopView(primary, version) };
+  if (!detail.ok) {
+    // A detail-fetch failure must surface, not silently degrade to a version-less view that reads as success.
+    if (isAuthRequiredError(detail.error)) return { view: null, authRequired: true };
+    return { view: null, error: { code: detail.error.code, message: detail.error.message } };
+  }
+  return { view: toSopView(primary, detail.data.latest_version ?? null) };
 }
 
 // PHC · Vaccination — the operations floor, ported to the mock's single stacked screen:

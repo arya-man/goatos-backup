@@ -25,7 +25,7 @@ const DRIVE_SOP_STEPS: Array<{ title: string; detail: string; done?: boolean; cu
 // PHC · Vaccination header "SOP" CTA. Opens a compact, mock-faithful Vaccination Drive SOP quick-view in a
 // modal WITHOUT leaving /vaccination (local state, no navigation). The full library / versioning / authoring
 // lives at /sops, reached via the secondary "Open in SOP Library" link — this is the in-context preview.
-export function VaccinationSopButton({ error, authRequired }: VaccinationSopQuickViewProps) {
+export function VaccinationSopButton({ view, error, authRequired }: VaccinationSopQuickViewProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -53,16 +53,20 @@ export function VaccinationSopButton({ error, authRequired }: VaccinationSopQuic
       >
         <BookOpen className="ic" aria-hidden="true" /> SOP
       </button>
-      {open ? <VaccinationSopModal error={error} authRequired={authRequired} onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <VaccinationSopModal view={view} error={error} authRequired={authRequired} onClose={() => setOpen(false)} />
+      ) : null}
     </>
   );
 }
 
 function VaccinationSopModal({
+  view,
   error,
   authRequired,
   onClose,
 }: {
+  view: SopCardView | null;
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
   onClose: () => void;
@@ -137,6 +141,12 @@ function VaccinationSopModal({
             </div>
           ) : (
             <>
+              {view === null ? (
+                <div className="note" style={{ marginBottom: 14 }}>
+                  No vaccination SOP is authored yet — the steps below are the standard drive flow. Author one in the
+                  SOP Library to attach proof gates and versioning.
+                </div>
+              ) : null}
               <div className="note" style={{ marginBottom: 14 }}>
                 <Clock className="ic" style={{ width: 14, verticalAlign: -2 }} aria-hidden="true" /> Per protocol window ·
                 booster intervals tracked
