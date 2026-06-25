@@ -519,6 +519,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, e
 			errorEnvelope{Code: appErr.Code, Message: appErr.Message, TraceID: traceID(r)}, err)
 		return
 	}
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_conflict", Message: "Idempotency-Key was reused with a different request payload", TraceID: traceID(r)}, err)
+		return
+	}
 	if errors.Is(err, ports.ErrNotFound) {
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
 			errorEnvelope{Code: "not_found_or_not_allowed", Message: "procurement record was not found", TraceID: traceID(r)}, err)

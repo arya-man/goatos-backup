@@ -248,9 +248,15 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
             <label>Goat ids (comma separated)</label>
             <input name="goat_ids" placeholder="only accepted-for-truck goats" />
           </div>
-          <div className="fld" style={{ maxWidth: 260 }}>
-            <label>Dispatched at</label>
-            <input name="dispatched_at" type="datetime-local" />
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div className="fld" style={{ maxWidth: 260 }}>
+              <label>Dispatched at</label>
+              <input name="dispatched_at" type="datetime-local" />
+            </div>
+            <div className="fld" style={{ flex: 1, minWidth: 220 }}>
+              <label>Dispatch proof ref id (required for real transit)</label>
+              <input name="proof_ref_id" placeholder="proof artifact uuid" />
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button type="submit" className="btn p">Record dispatch</button>
@@ -291,6 +297,18 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
                 <option key={o} value={o}>{o}</option>
               ))}
             </select>
+          </div>
+          <div className="fld">
+            <label>Per-goat arrival rows (one per line: goat_id, arrival_state)</label>
+            <textarea
+              name="goats"
+              rows={4}
+              placeholder={"goat_id, accepted\ngoat_id, rejected"}
+              style={{ fontFamily: "var(--mono, monospace)" }}
+            />
+            <span className="muted small">
+              Only goats listed as <code>accepted</code> advance to arrival-accepted and become eligible for intake.
+            </span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button type="submit" className="btn p">Record arrival review</button>

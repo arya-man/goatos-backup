@@ -436,6 +436,108 @@ func TestProcessIntegrityBoundsVerificationByVerifiedAt(t *testing.T) {
 	}
 }
 
+// TestProcessIntegrityAsOfTerminalEventReconstruction proves item-1 point-in-time correctness for the
+// missed/waived terminal reconstruction. It pins the four cases the bounded-but-not-naive fix must handle:
+//   - a missed event AT OR BEFORE as_of reads as missed (blocked);
+//   - a missed event ONLY AFTER as_of (future-only) re-buckets to its open state (overdue) — it was not yet
+//     terminal at as_of;
+//   - NO terminal history at all falls back to the current stored status (still missed/blocked) — the
+//     explicit no-event fallback that the naive `MAX() FILTER (occurred_at <= as_of)` would have collapsed
+//     into the future-only case;
+//   - a churn (missed at/before as_of AND another missed after as_of) reads as missed, NOT open: the latest
+//     terminal event AT OR BEFORE as_of wins, instead of the old unbounded MAX() picking the future event.
+func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	const (
+		// missed event proven at/before as_of -> missed
+		piTeBatchBefore = "71000000-0000-4000-8000-000000000050"
+		piTeOblBefore   = "71000000-0000-4000-8000-000000000051"
+		piTeEvtBefore   = "71000000-0000-4000-8000-000000000052"
+		// missed event only after as_of (future-only) -> open (overdue)
+		piTeBatchFuture = "71000000-0000-4000-8000-000000000053"
+		piTeOblFuture   = "71000000-0000-4000-8000-000000000054"
+		piTeEvtFuture   = "71000000-0000-4000-8000-000000000055"
+		// no terminal history at all -> trust stored status (missed)
+		piTeBatchNoEvt = "71000000-0000-4000-8000-000000000056"
+		piTeOblNoEvt   = "71000000-0000-4000-8000-000000000057"
+		// churn: missed at/before AND missed after as_of -> missed (latest at/before wins)
+		piTeBatchChurn  = "71000000-0000-4000-8000-000000000058"
+		piTeOblChurn    = "71000000-0000-4000-8000-000000000059"
+		piTeEvtChurnOld = "71000000-0000-4000-8000-000000000060"
+		piTeEvtChurnNew = "71000000-0000-4000-8000-000000000061"
+	)
+
+	// All four obligations: due in early June (well before as_of, so an open re-bucket reads overdue), current
+	// stored status 'missed', no completion. due_at varies per obligation to satisfy the dup guard
+	// UNIQUE(tenant, protocol_version, rule, target_type, target, due_at).
+	seedMissed := func(batch, obl, key, due string, seq int) {
+		execPI(t, ctx, pool, "te missed batch "+key,
+			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+			 VALUES ($1, $2, $3, 'shed', $4, 'planned', $5::date, $6)`,
+			batch, piTenant, piVersion, piShed, due, piOperator)
+		execPI(t, ctx, pool, "te missed obligation "+key,
+			`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+			   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+			 VALUES ($1, $2, $3, $4, $5, 'goat', $6, 'shed', $7, ($8::date)::timestamptz, 'missed', $9, $10)`,
+			obl, piTenant, piVersion, piRule, batch, piGoat, piShed, due, "pi-te-"+key, seq)
+	}
+	seedEvent := func(eventID, obl string, occurred string, key string) {
+		execPI(t, ctx, pool, "te status event "+key,
+			`INSERT INTO obligation_status_events (obligation_event_id, tenant_id, obligation_id, event_type, occurred_at, recorded_at, idempotency_key)
+			 VALUES ($1, $2, $3, 'missed', $4::timestamptz, $4::timestamptz, $5)`,
+			eventID, piTenant, obl, occurred, "pi-te-evt-"+key)
+	}
+
+	seedMissed(piTeBatchBefore, piTeOblBefore, "before", "2026-06-10", 6)
+	seedEvent(piTeEvtBefore, piTeOblBefore, "2026-06-20 09:00:00+00", "before") // <= as_of
+
+	seedMissed(piTeBatchFuture, piTeOblFuture, "future", "2026-06-11", 7)
+	seedEvent(piTeEvtFuture, piTeOblFuture, "2026-06-30 09:00:00+00", "future") // > as_of
+
+	seedMissed(piTeBatchNoEvt, piTeOblNoEvt, "noevt", "2026-06-12", 8) // no event row at all
+
+	seedMissed(piTeBatchChurn, piTeOblChurn, "churn", "2026-06-13", 9)
+	seedEvent(piTeEvtChurnOld, piTeOblChurn, "2026-06-20 09:00:00+00", "churn-old") // <= as_of
+	seedEvent(piTeEvtChurnNew, piTeOblChurn, "2026-06-30 09:00:00+00", "churn-new") // > as_of
+
+	repo := NewRepository(pool, 5*time.Second)
+	res, err := repo.ListRows(ctx, domain.Query{
+		TenantID: piTenant,
+		AsOf:     time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC),
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+
+	mustState := func(batch string, want domain.WorkState) {
+		t.Helper()
+		row := rowByBatchSubstr(res.Rows, batch)
+		if row == nil {
+			t.Fatalf("row for batch %s missing: %#v", batch, res.Rows)
+		}
+		if row.WorkState != want {
+			t.Fatalf("batch %s: want work_state %s, got %s (gap=%s)", batch, want, row.WorkState, row.GapType)
+		}
+	}
+
+	// missed proven at/before as_of -> missed (surfaces as blocked w/ gap missed).
+	mustState(piTeBatchBefore, domain.WorkStateBlocked)
+	// future-only terminal event -> still open at as_of -> overdue.
+	mustState(piTeBatchFuture, domain.WorkStateOverdue)
+	// no terminal history -> trust stored status -> missed/blocked.
+	mustState(piTeBatchNoEvt, domain.WorkStateBlocked)
+	// churn: latest terminal at/before as_of wins -> missed/blocked (NOT overdue).
+	mustState(piTeBatchChurn, domain.WorkStateBlocked)
+}
+
 func rowByBatchSubstr(rows []domain.Row, batchID string) *domain.Row {
 	for i := range rows {
 		if strings.Contains(rows[i].RowID, batchID) {

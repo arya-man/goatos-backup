@@ -13,6 +13,7 @@ export type RecordProcurementSourceHealthRequest = AdminApiComponents["schemas"]
 export type RecordProcurementDecisionRequest = AdminApiComponents["schemas"]["RecordProcurementDecisionRequest"];
 export type DispatchProcurementLoadRequest = AdminApiComponents["schemas"]["DispatchProcurementLoadRequest"];
 export type RecordProcurementArrivalReviewRequest = AdminApiComponents["schemas"]["RecordProcurementArrivalReviewRequest"];
+export type ProcurementArrivalGoatRequest = AdminApiComponents["schemas"]["ProcurementArrivalGoatRequest"];
 export type AcceptProcurementIntakeRequest = AdminApiComponents["schemas"]["AcceptProcurementIntakeRequest"];
 
 // Loads + load detail.

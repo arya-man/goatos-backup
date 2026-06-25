@@ -213,13 +213,19 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 // read off the current obligation_instances.status. Documented residual (no event history to reconstruct):
 // sop_tasks.state / obligation_batches.status stay current-state.
 const vaccinationExecutionSQL = `
-WITH terminal_events AS (
-  -- Transition time INTO missed/waived (no timestamp column on obligation_instances). Tenant + event_type
-  -- indexed; missed/waived are exceptions, so the subset stays small at herd scale.
+WITH asof_terminal AS (
+  -- Latest TERMINAL transition (missed/waived; no timestamp column on obligation_instances) AT OR BEFORE
+  -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
+  -- (latest of missed/waived <= as_of); NULL means the obligation's only terminal events are after as_of
+  -- (open at as_of), and has_terminal_event then separates that "future-only" case from "no terminal history
+  -- at all" (row absent -> trust the current stored status). Restricted to missed/waived, which are
+  -- exceptions at herd scale, so the subset stays small and index-bound. Residual: missed->reschedule->missed
+  -- churn is not reopen-aware (last terminal event at/before as_of wins).
   SELECT
     obligation_id,
-    MAX(occurred_at) FILTER (WHERE event_type = 'missed') AS missed_at,
-    MAX(occurred_at) FILTER (WHERE event_type = 'waived') AS waived_at
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $7::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
   FROM obligation_status_events
   WHERE tenant_id = $1::uuid
     AND event_type IN ('missed', 'waived')
@@ -235,8 +241,8 @@ raw AS (
     oi.window_end,
     oi.completed_at,
     oi.status AS obligation_status,
-    te.missed_at,
-    te.waived_at,
+    te.asof_terminal_type,
+    te.has_terminal_event,
     pr.dose_code,
     pd.name AS protocol_name,
     ob.status AS batch_status,
@@ -291,7 +297,7 @@ raw AS (
    AND vc.obligation_id = oi.obligation_id
    -- as_of correctness: a completion recorded/administered AFTER as_of must not count.
    AND COALESCE(vc.administered_at, vc.created_at) <= $7::timestamptz
-  LEFT JOIN terminal_events te
+  LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'completed', 'missed', 'waived')
@@ -315,10 +321,12 @@ located AS (
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
           ELSE (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
-      WHEN raw.obligation_status = 'missed' THEN
-        CASE WHEN raw.missed_at IS NOT NULL AND raw.missed_at > $7::timestamptz THEN (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END) ELSE 'missed' END
-      WHEN raw.obligation_status = 'waived' THEN
-        CASE WHEN raw.waived_at IS NOT NULL AND raw.waived_at > $7::timestamptz THEN (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END) ELSE 'waived' END
+      WHEN raw.obligation_status IN ('missed', 'waived') THEN
+        CASE
+          WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
+          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE raw.obligation_status
+        END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
       ELSE (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
@@ -585,18 +593,21 @@ WITH completions AS (
   ) c
   GROUP BY obligation_id
 ),
-terminal_events AS (
-  -- Point-in-time transition time INTO a terminal status that has NO timestamp column on
-  -- obligation_instances (missed/waived). The append-only status-event log is the only source for when
-  -- those transitions happened, so we can decide whether they were already true at as_of. completed has its
-  -- own completed_at column and is handled below. When neither a column nor an event timestamp exists we
-  -- cannot prove the transition was after as_of, so the stored status is trusted (documented). Tenant +
-  -- event_type indexed (obligation_status_events_tenant_type_recorded_idx); missed/waived are exceptions,
-  -- so this subset stays small at herd scale.
+asof_terminal AS (
+  -- Latest TERMINAL transition INTO a status with NO timestamp column on obligation_instances (missed/waived)
+  -- AT OR BEFORE as_of. The append-only status-event log is the only source for when those transitions
+  -- happened. asof_terminal_type is the terminal status in effect at as_of (latest of missed/waived <=
+  -- as_of); completed has its own completed_at column and is handled below. asof_terminal_type IS NULL with
+  -- has_terminal_event TRUE means the only terminal events are after as_of (open at as_of); the row is absent
+  -- when there is no terminal history at all (cannot prove transition time -> trust the stored status,
+  -- documented). Tenant + event_type indexed (obligation_status_events_tenant_type_recorded_idx);
+  -- missed/waived are exceptions, so this subset stays small at herd scale. Residual: missed->reschedule->
+  -- missed churn is not reopen-aware.
   SELECT
     obligation_id,
-    MAX(occurred_at) FILTER (WHERE event_type = 'missed') AS missed_at,
-    MAX(occurred_at) FILTER (WHERE event_type = 'waived') AS waived_at
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $2::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
   FROM obligation_status_events
   WHERE tenant_id = $1::uuid
     AND event_type IN ('missed', 'waived')
@@ -610,8 +621,8 @@ raw AS (
     oi.window_end,
     oi.completed_at,
     oi.status AS stored_status,
-    te.missed_at,
-    te.waived_at,
+    te.asof_terminal_type,
+    te.has_terminal_event,
     pd.protocol_id,
     pd.name AS protocol_name,
     g.age_band,
@@ -636,7 +647,7 @@ raw AS (
    AND g.identity_state <> 'merged'
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
-  LEFT JOIN terminal_events te
+  LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
@@ -671,10 +682,12 @@ effective AS (
           WHEN located.completed_at IS NULL AND located.completion_status IS NOT NULL THEN 'completed'
           ELSE located.open_bucket
         END
-      WHEN located.stored_status = 'missed' THEN
-        CASE WHEN located.missed_at IS NOT NULL AND located.missed_at > $2::timestamptz THEN located.open_bucket ELSE 'missed' END
-      WHEN located.stored_status = 'waived' THEN
-        CASE WHEN located.waived_at IS NOT NULL AND located.waived_at > $2::timestamptz THEN located.open_bucket ELSE 'waived' END
+      WHEN located.stored_status IN ('missed', 'waived') THEN
+        CASE
+          WHEN located.asof_terminal_type IS NOT NULL THEN located.asof_terminal_type
+          WHEN located.has_terminal_event THEN located.open_bucket
+          ELSE located.stored_status
+        END
       WHEN located.stored_status = 'in_progress' THEN 'in_progress'
       ELSE located.open_bucket
     END AS eff_status

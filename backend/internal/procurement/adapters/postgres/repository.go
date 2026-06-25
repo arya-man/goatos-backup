@@ -98,7 +98,31 @@ LIMIT $3`, q.TenantID, q.Status, fetchLimit, cursorUpdated, cursorLoadID)
 func (r *Repository) CreateLoad(ctx context.Context, in ports.CreateLoad) (domain.Load, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	row := r.pool.QueryRow(ctx, `
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.Load{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.load"
+	fingerprint := requestFingerprint(
+		in.TenantID, in.SourcePartyID, stringPtrValue(in.SourceLocationID),
+		fmt.Sprintf("%d", in.ExpectedCount), fpTime(in.PurchaseDate), fpTime(in.PlannedDispatch),
+		in.Notes, string(in.Context),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.Load{}, rerr
+		}
+		if !res.proceed {
+			// Replay of an already-created load: return the original result, run NO side effects.
+			_ = tx.Rollback(ctx)
+			return r.getLoadByID(ctx, in.TenantID, res.resultID)
+		}
+	}
+
+	load, err := scanLoad(tx.QueryRow(ctx, `
 INSERT INTO procurement_loads (
   tenant_id, source_party_id, source_location_id, expected_count, purchase_date,
   planned_dispatch_at, notes, context, idempotency_key, created_by
@@ -113,10 +137,17 @@ RETURNING load_id::text, tenant_id::text, source_party_id::text, source_location
           created_at, updated_at, row_version`,
 		in.TenantID, in.SourcePartyID, stringPtrValue(in.SourceLocationID), in.ExpectedCount,
 		dateArg(in.PurchaseDate), timeArg(in.PlannedDispatch), in.Notes, jsonObjectArg(in.Context),
-		in.IdempotencyKey, stringPtrValue(in.ActorID))
-	load, err := scanLoad(row)
+		in.IdempotencyKey, stringPtrValue(in.ActorID)))
 	if err != nil {
 		return domain.Load{}, fmt.Errorf("procurement: create load: %w", err)
+	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, scope, key, "procurement_load", load.LoadID); err != nil {
+			return domain.Load{}, fmt.Errorf("procurement: complete create load idempotency: %w", err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Load{}, err
 	}
 	return load, nil
 }
@@ -171,6 +202,27 @@ func (r *Repository) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) 
 		return domain.LoadGoat{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.load_goat"
+	// Fingerprint the ORIGINAL request before any in-flight mutation of in.* below (rfid-conflict path).
+	fingerprint := requestFingerprint(
+		in.TenantID, in.LoadID, stringPtrValue(in.GoatID), stringPtrValue(in.SourceTag),
+		stringPtrValue(in.SourceRFID), stringPtrValue(in.TemporaryID), in.SelectionState,
+		in.CurrentState, in.IdentityState, in.OwnershipState, in.HealthState,
+		stringPtrValue(in.HoldingLocationID), fpTime(in.WarmupStartedAt), fpTime(in.WarmupEndedAt),
+		string(in.ProofRefs), string(in.Metadata),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.LoadGoat{}, rerr
+		}
+		if !res.proceed {
+			// Replay of an already-added goat: return the original row, run NO side effects (no new goat).
+			_ = tx.Rollback(ctx)
+			return r.getLoadGoatByID(ctx, in.TenantID, res.resultID)
+		}
+	}
 
 	var sourcePartyID string
 	var sourceLocation pgtype.Text
@@ -313,6 +365,11 @@ SET ended_at = COALESCE(EXCLUDED.ended_at, source_holding_stays.ended_at),
 	if sourceLocation.Valid && in.HoldingLocationID == nil {
 		_ = sourceLocation
 	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, scope, key, "procurement_load_goat", loadGoat.LoadGoatID); err != nil {
+			return domain.LoadGoat{}, fmt.Errorf("procurement: complete add goat idempotency: %w", err)
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.LoadGoat{}, err
 	}
@@ -327,6 +384,24 @@ func (r *Repository) RecordSourceHealth(ctx context.Context, in ports.SourceHeal
 		return domain.SourceHealthCheck{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.source_health"
+	fingerprint := requestFingerprint(
+		in.TenantID, in.LoadID, in.GoatID, in.HealthState, in.Reason,
+		stringPtrValue(in.CheckedBy), in.CheckedAt.UTC().Format(time.RFC3339Nano),
+		stringPtrValue(in.ProofRefID), stringPtrValue(in.SOPTaskID),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.SourceHealthCheck{}, rerr
+		}
+		if !res.proceed {
+			// Replay of an already-recorded request: return the original result, run NO side effects.
+			_ = tx.Rollback(ctx)
+			return r.getSourceHealthByID(ctx, in.TenantID, res.resultID)
+		}
+	}
 
 	check, err := scanHealthCheck(tx.QueryRow(ctx, `
 INSERT INTO procurement_source_health_checks (
@@ -372,6 +447,11 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		in.TenantID, in.LoadID, loadStatus); err != nil {
 		return domain.SourceHealthCheck{}, fmt.Errorf("procurement: update load health status: %w", err)
 	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, scope, key, "procurement_source_health_check", check.HealthCheckID); err != nil {
+			return domain.SourceHealthCheck{}, fmt.Errorf("procurement: complete source health idempotency: %w", err)
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.SourceHealthCheck{}, err
 	}
@@ -386,6 +466,24 @@ func (r *Repository) RecordDecision(ctx context.Context, in ports.Decision) (dom
 		return domain.Decision{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.decision"
+	fingerprint := requestFingerprint(
+		in.TenantID, in.GoatID, in.LoadID, in.DecisionStage, in.DecisionType, in.Reason,
+		stringPtrValue(in.DecidedBy), in.DecidedAt.UTC().Format(time.RFC3339Nano),
+		stringPtrValue(in.ProofRefID), stringPtrValue(in.SOPTaskID), stringPtrValue(in.OwnerID),
+		stringPtrValue(in.ResumeCondition), string(in.Metadata),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.Decision{}, rerr
+		}
+		if !res.proceed {
+			_ = tx.Rollback(ctx)
+			return r.getDecisionByID(ctx, in.TenantID, res.resultID)
+		}
+	}
 
 	decision, err := scanDecision(tx.QueryRow(ctx, `
 INSERT INTO source_entry_decisions (
@@ -481,6 +579,11 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 			return domain.Decision{}, fmt.Errorf("procurement: update goat exit lifecycle: %w", err)
 		}
 	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, scope, key, "source_entry_decision", decision.DecisionID); err != nil {
+			return domain.Decision{}, fmt.Errorf("procurement: complete decision idempotency: %w", err)
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.Decision{}, err
 	}
@@ -542,8 +645,10 @@ WHERE tenant_id = $1::uuid
 			}
 			loadedCount = int(tag.RowsAffected())
 		} else {
-			for _, goatID := range in.GoatIDs {
-				tag, execErr := tx.Exec(ctx, `
+			// Set-based load of the explicit goat list: one round trip via ANY(), then verify every requested
+			// goat was eligible by diffing the RETURNING set against the request.
+			loaded := make(map[string]bool, len(in.GoatIDs))
+			rows, execErr := tx.Query(ctx, `
 UPDATE procurement_load_goats
 SET current_state = 'in_transit',
     selection_state = 'loaded',
@@ -552,20 +657,33 @@ SET current_state = 'in_transit',
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND load_id = $2::uuid
-  AND goat_id = $3::uuid
+  AND goat_id = ANY($3::uuid[])
   AND current_state = 'pre_dispatch_accepted'
   AND health_state = 'passed'
   AND identity_review_state = 'clean'
-  AND ownership_state IN ('mesha_owned', 'settled')`,
-					in.TenantID, in.LoadID, goatID, in.DispatchedAt)
-				if execErr != nil {
-					return domain.TransitHandoff{}, fmt.Errorf("procurement: load goat %s: %w", goatID, execErr)
+  AND ownership_state IN ('mesha_owned', 'settled')
+RETURNING goat_id::text`,
+				in.TenantID, in.LoadID, in.GoatIDs, in.DispatchedAt)
+			if execErr != nil {
+				return domain.TransitHandoff{}, fmt.Errorf("procurement: load goats: %w", execErr)
+			}
+			for rows.Next() {
+				var goatID string
+				if scanErr := rows.Scan(&goatID); scanErr != nil {
+					rows.Close()
+					return domain.TransitHandoff{}, scanErr
 				}
-				if tag.RowsAffected() == 0 {
+				loaded[goatID] = true
+			}
+			if rowsErr := rows.Err(); rowsErr != nil {
+				return domain.TransitHandoff{}, rowsErr
+			}
+			for _, goatID := range in.GoatIDs {
+				if !loaded[goatID] {
 					return domain.TransitHandoff{}, fmt.Errorf("%w: goat %s is not eligible for dispatch", ports.ErrInvalidTransition, goatID)
 				}
-				loadedCount += int(tag.RowsAffected())
 			}
+			loadedCount = len(loaded)
 		}
 		if loadedCount < acceptedCount {
 			discrepancy = "partial_load"
@@ -613,6 +731,35 @@ func (r *Repository) RecordArrivalReview(ctx context.Context, in ports.ArrivalRe
 		return domain.ArrivalReview{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.arrival_review"
+	itemParts := make([]string, 0, len(in.Goats))
+	for _, item := range in.Goats {
+		itemParts = append(itemParts, strings.Join([]string{
+			arrivalItemKey(item), stringPtrValue(item.GoatID), item.ArrivalState,
+			stringPtrValue(item.HealthFlag), stringPtrValue(item.WeightFlag),
+			stringPtrValue(item.ProofRefID), item.Notes,
+		}, "\x1e"))
+	}
+	sort.Strings(itemParts)
+	fingerprint := requestFingerprint(
+		in.TenantID, in.LoadID, in.ParkLocationID,
+		fmt.Sprintf("%d/%d/%d/%d/%d/%d/%d", in.ExpectedCount, in.LoadedCount, in.ArrivedCount,
+			in.MatchedCount, in.MissingCount, in.ExtraCount, in.RejectedCount),
+		string(in.HealthFlags), string(in.WeightFlags), stringPtrValue(in.MediaProofID),
+		in.Status, stringPtrValue(in.ReviewedBy), in.ReviewedAt.UTC().Format(time.RFC3339Nano),
+		strings.Join(itemParts, "\x1d"),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.ArrivalReview{}, rerr
+		}
+		if !res.proceed {
+			_ = tx.Rollback(ctx)
+			return r.getArrivalReviewByID(ctx, in.TenantID, res.resultID)
+		}
+	}
 
 	review, err := scanArrivalReview(tx.QueryRow(ctx, `
 INSERT INTO arrival_intake_reviews (
@@ -729,6 +876,11 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		in.TenantID, in.LoadID, loadStatus); err != nil {
 		return domain.ArrivalReview{}, fmt.Errorf("procurement: update arrival load status: %w", err)
 	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, scope, key, "arrival_intake_review", review.ReviewID); err != nil {
+			return domain.ArrivalReview{}, fmt.Errorf("procurement: complete arrival review idempotency: %w", err)
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.ArrivalReview{}, err
 	}
@@ -744,6 +896,27 @@ func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.accept_intake"
+	fpGoats := append([]string(nil), in.GoatIDs...)
+	sort.Strings(fpGoats)
+	fingerprint := requestFingerprint(
+		in.TenantID, in.LoadID, in.ParkLocationID, in.ShedLocationID,
+		in.EntryDate.UTC().Format("2006-01-02"), in.AcceptedAt.UTC().Format(time.RFC3339Nano),
+		stringPtrValue(in.IntakeHealthSignal), string(in.TrustedVaccinationHistory),
+		strings.Join(fpGoats, ","),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if !res.proceed {
+			// Replay: the PHC handoffs for this load were already produced; return them, run NO side effects.
+			_ = tx.Rollback(ctx)
+			return r.listPHCHandoffs(ctx, in.TenantID, in.LoadID)
+		}
+	}
 
 	goatIDs := append([]string(nil), in.GoatIDs...)
 	if len(goatIDs) == 0 {
@@ -879,6 +1052,11 @@ SET status = 'accepted_intake', updated_at = now(), row_version = row_version + 
 WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		in.TenantID, in.LoadID); err != nil {
 		return nil, fmt.Errorf("procurement: update accepted intake load: %w", err)
+	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, scope, key, "procurement_phc_handoffs_load", in.LoadID); err != nil {
+			return nil, fmt.Errorf("procurement: complete accept intake idempotency: %w", err)
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
@@ -1576,6 +1754,70 @@ ORDER BY dispatched_at ASC, handoff_id ASC`, tenantID, loadID)
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+// getSourceHealthByID re-reads a previously recorded source-health check for an idempotent replay.
+// getLoadByID re-reads a previously created load for an idempotent CreateLoad replay.
+func (r *Repository) getLoadByID(ctx context.Context, tenantID, loadID string) (domain.Load, error) {
+	return scanLoad(r.pool.QueryRow(ctx, `
+SELECT load_id::text, tenant_id::text, source_party_id::text, source_location_id::text,
+       expected_count, purchase_date, planned_dispatch_at, status, notes, context,
+       created_at, updated_at, row_version
+FROM procurement_loads
+WHERE tenant_id = $1::uuid AND load_id = nullif($2::text, '')::uuid`, tenantID, loadID))
+}
+
+// getLoadGoatByID re-reads a previously added load goat for an idempotent AddGoatToLoad replay.
+func (r *Repository) getLoadGoatByID(ctx context.Context, tenantID, loadGoatID string) (domain.LoadGoat, error) {
+	return scanLoadGoat(r.pool.QueryRow(ctx, `
+SELECT load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
+       source_tag, source_rfid, temporary_id, selection_state, selection_reason,
+       current_state, identity_review_state, identity_review_ref, ownership_state,
+       health_state, warmup_started_at, warmup_ended_at, warmup_days,
+       holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
+       exit_reason, proof_refs, metadata, created_at, updated_at, row_version
+FROM procurement_load_goats
+WHERE tenant_id = $1::uuid AND load_goat_id = nullif($2::text, '')::uuid`, tenantID, loadGoatID))
+}
+
+func (r *Repository) getSourceHealthByID(ctx context.Context, tenantID, healthCheckID string) (domain.SourceHealthCheck, error) {
+	return scanHealthCheck(r.pool.QueryRow(ctx, `
+SELECT health_check_id::text, tenant_id::text, goat_id::text, load_id::text,
+       health_state, reason, checked_by::text, checked_at, proof_ref_id::text,
+       sop_task_id::text, created_at
+FROM procurement_source_health_checks
+WHERE tenant_id = $1::uuid AND health_check_id = nullif($2::text, '')::uuid`, tenantID, healthCheckID))
+}
+
+// getDecisionByID re-reads a previously recorded source-entry decision for an idempotent replay.
+func (r *Repository) getDecisionByID(ctx context.Context, tenantID, decisionID string) (domain.Decision, error) {
+	return scanDecision(r.pool.QueryRow(ctx, `
+SELECT decision_id::text, tenant_id::text, goat_id::text, load_id::text,
+       decision_stage, decision_type, reason, decided_by::text, decided_at,
+       proof_ref_id::text, sop_task_id::text, owner_id::text, resume_condition,
+       metadata, created_at
+FROM source_entry_decisions
+WHERE tenant_id = $1::uuid AND decision_id = nullif($2::text, '')::uuid`, tenantID, decisionID))
+}
+
+// getArrivalReviewByID re-reads a previously recorded arrival review (with its goats) for an idempotent replay.
+func (r *Repository) getArrivalReviewByID(ctx context.Context, tenantID, reviewID string) (domain.ArrivalReview, error) {
+	review, err := scanArrivalReview(r.pool.QueryRow(ctx, `
+SELECT review_id::text, tenant_id::text, load_id::text, park_location_id::text,
+       expected_count, loaded_count, arrived_count, matched_count, missing_count,
+       extra_count, rejected_count, health_flags, weight_flags, media_proof_id::text,
+       status, reviewed_by::text, reviewed_at, created_at, updated_at, row_version
+FROM arrival_intake_reviews
+WHERE tenant_id = $1::uuid AND review_id = nullif($2::text, '')::uuid`, tenantID, reviewID))
+	if err != nil {
+		return domain.ArrivalReview{}, err
+	}
+	items, err := r.listArrivalGoats(ctx, tenantID, review.ReviewID)
+	if err != nil {
+		return domain.ArrivalReview{}, err
+	}
+	review.Goats = items
+	return review, nil
 }
 
 func (r *Repository) listArrivalReviews(ctx context.Context, tenantID, loadID string) ([]domain.ArrivalReview, error) {

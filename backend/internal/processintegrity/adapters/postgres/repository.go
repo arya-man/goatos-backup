@@ -335,11 +335,15 @@ func splitCSV(v string) []string {
 
 // processIntegrityBaseSQL is point-in-time correct as of $10 (as_of) for the dose/evidence state it can
 // reconstruct: completions and SOP-submission evidence are bounded by as_of, and obligation status is
-// reconstructed AT as_of (completed via completed_at/as_of-bounded completion; missed/waived via the
-// obligation_status_events log; scheduled/due/overdue from due_at/window) instead of being read off the
-// current obligation_instances.status. Documented residual (no event history to reconstruct exactly):
-// sop_tasks.state and obligation_batches.status remain current-state, so a task/batch transition recorded
-// after as_of is trusted as-is; SOP task-state history is a later pass.
+// reconstructed AT as_of (completed via completed_at/as_of-bounded completion; missed/waived via the latest
+// terminal event AT OR BEFORE as_of in the obligation_status_events log; scheduled/due/overdue from
+// due_at/window) instead of being read off the current obligation_instances.status. A missed/waived row is
+// only treated as terminal when a terminal event is proven at/before as_of; an obligation whose terminal
+// events are all after as_of re-buckets to open, while one with no terminal history at all falls back to its
+// current stored status (explicit, see asof_terminal). Documented residuals (no event history to reconstruct
+// exactly): (a) sop_tasks.state and obligation_batches.status remain current-state, so a task/batch
+// transition recorded after as_of is trusted as-is; (b) a missed->reschedule->missed churn is not reopen-
+// aware. Full task/batch + reopen event-history replay is a later pass.
 const processIntegrityBaseSQL = `
 WITH completions AS (
   -- One effective completion per obligation, as_of-bounded. Migration 000082 keeps rejected/reversed
@@ -376,14 +380,22 @@ WITH completions AS (
     administered_at DESC NULLS LAST,
     created_at DESC
 ),
-terminal_events AS (
-  -- Transition time INTO missed/waived (statuses with no timestamp column). The append-only status-event
-  -- log is the only way to know whether the transition was already true at as_of. Tenant + event_type is
-  -- indexed; missed/waived are exceptions, so this subset stays small at herd scale.
+asof_terminal AS (
+  -- Latest TERMINAL transition (missed/waived: statuses with no timestamp column on obligation_instances)
+  -- AT OR BEFORE as_of, from the append-only event log. asof_terminal_type is the terminal status in effect
+  -- at as_of (latest of missed/waived <= as_of, so a missed->waived sequence resolves to whichever was last
+  -- at as_of). It is NULL when the obligation's only terminal events are AFTER as_of (it was still open at
+  -- as_of); has_terminal_event then distinguishes that "future-only" case from "no terminal history at all"
+  -- (row absent -> cannot reconstruct -> trust the current stored status, documented residual). Restricted
+  -- to missed/waived, which are exceptions at herd scale, so this stays small and index-bound; open buckets
+  -- need no log (derived from due_at/window). Residual: a missed->reschedule->missed churn is not reopen-
+  -- aware (no reopen event type yet), so the last terminal event at/before as_of wins; full multi-transition
+  -- replay (incl. sop_tasks/obligation_batches history) is the deeper task/batch pass.
   SELECT
     obligation_id,
-    MAX(occurred_at) FILTER (WHERE event_type = 'missed') AS missed_at,
-    MAX(occurred_at) FILTER (WHERE event_type = 'waived') AS waived_at
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $10::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
   FROM obligation_status_events
   WHERE tenant_id = $1::uuid
     AND event_type IN ('missed', 'waived')
@@ -430,8 +442,8 @@ raw AS (
     g.management_stage AS goat_stage,
     g.cohort_id AS goat_cohort_id,
     oi.completed_at,
-    te.missed_at,
-    te.waived_at,
+    te.asof_terminal_type,
+    te.has_terminal_event,
     c.completion_id,
     c.completion_status,
     c.verified_by,
@@ -484,7 +496,7 @@ raw AS (
   ) ss ON true
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
-  LEFT JOIN terminal_events te
+  LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'completed', 'missed', 'waived')
@@ -513,10 +525,15 @@ located AS (
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
           ELSE (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
-      WHEN raw.obligation_status = 'missed' THEN
-        CASE WHEN raw.missed_at IS NOT NULL AND raw.missed_at > $10::timestamptz THEN (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END) ELSE 'missed' END
-      WHEN raw.obligation_status = 'waived' THEN
-        CASE WHEN raw.waived_at IS NOT NULL AND raw.waived_at > $10::timestamptz THEN (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END) ELSE 'waived' END
+      WHEN raw.obligation_status IN ('missed', 'waived') THEN
+        CASE
+          -- The latest terminal transition at/before as_of was in effect at as_of.
+          WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
+          -- Terminal events exist but only AFTER as_of: the obligation was still open at as_of.
+          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
+          -- No terminal history at all: cannot reconstruct, trust the current stored status (documented residual).
+          ELSE raw.obligation_status
+        END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
       ELSE (CASE WHEN raw.due_at < $10::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $10::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status

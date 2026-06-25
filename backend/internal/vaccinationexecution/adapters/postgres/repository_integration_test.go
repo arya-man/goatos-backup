@@ -791,6 +791,10 @@ func TestVaccinationExecutionReconstructsObligationStatusAsOf(t *testing.T) {
 		execBatch = "70000000-0000-4000-8000-0000000000a1"
 		execObl   = "70000000-0000-4000-8000-0000000000a2"
 		execComp  = "70000000-0000-4000-8000-0000000000a3"
+		// churn: missed AT/BEFORE as_of and missed AFTER as_of.
+		churnGoat  = "70000000-0000-4000-8000-0000000000a4"
+		churnBatch = "70000000-0000-4000-8000-0000000000a5"
+		churnObl   = "70000000-0000-4000-8000-0000000000a6"
 	)
 	insertProjectionGoat(t, ctx, pool, execGoat, testShed, testPark)
 	insertProjectionBatch(t, ctx, pool, execBatch, "completed")
@@ -802,6 +806,15 @@ func TestVaccinationExecutionReconstructsObligationStatusAsOf(t *testing.T) {
 		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
 		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-30 10:00:00+00', 'accepted', 'vaccexec-exec-asof-comp', $6)`,
 		execComp, testTenant, execObl, execBatch, execGoat, testOperator)
+
+	// Churn drive: stored 'missed', due 2026-06-21, with a missed event at/before as_of (06-22) and another
+	// after as_of (06-30). At asOfBefore (06-24) the latest terminal event at/before wins -> blocked (missed),
+	// NOT overdue (which the old unbounded MAX() would wrongly produce by picking the 06-30 event).
+	insertProjectionGoat(t, ctx, pool, churnGoat, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, churnBatch, "planned")
+	insertProjectionObligation(t, ctx, pool, churnObl, churnBatch, churnGoat, "missed", "2026-06-21 00:00:00+00", "vaccexec-exec-churn")
+	insertObligationStatusEvent(t, ctx, pool, churnObl, "missed", "2026-06-22 10:00:00+00", "vaccexec-exec-churn-old")
+	insertObligationStatusEvent(t, ctx, pool, churnObl, "missed", "2026-06-30 10:00:00+00", "vaccexec-exec-churn-new")
 
 	repo := NewRepository(pool, 5*time.Second)
 	svc := vaccexecapp.NewService(repo)
@@ -816,6 +829,10 @@ func TestVaccinationExecutionReconstructsObligationStatusAsOf(t *testing.T) {
 	}
 	if row := execRowByDrive(beforeRows, execBatch); row == nil || row.WorkState != domain.WorkStateOverdue {
 		t.Fatalf("before: execBatch drive want overdue, got %#v", row)
+	}
+	// Churn drive at as_of-before: blocked (missed), not overdue — latest terminal event at/before as_of wins.
+	if row := execRowByDrive(beforeRows, churnBatch); row == nil || row.WorkState != domain.WorkStateBlocked {
+		t.Fatalf("before: churnBatch drive want blocked (missed), got %#v", row)
 	}
 
 	// Board, as_of after completion: the same drive reads completed.
@@ -975,6 +992,8 @@ func insertObligationStatusEvent(t *testing.T, ctx context.Context, pool *pgxpoo
 //   - missed AFTER as_of  -> re-bucket to the open state at as_of (overdue), NOT deferred.
 //   - missed AT/BEFORE as_of -> deferred (the real point-in-time state).
 //   - missed with NO event -> trusted as deferred (documented fallback; we never fake an earlier time).
+//   - churn (missed AT/BEFORE as_of AND missed AFTER as_of) -> deferred: the latest terminal event AT OR
+//     BEFORE as_of wins, instead of an unbounded MAX() picking the future event and wrongly re-bucketing open.
 func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -990,6 +1009,8 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 		missedBeforeObl  = "70000000-0000-4000-8000-000000000093"
 		missedNoEvtGoat  = "70000000-0000-4000-8000-000000000094"
 		missedNoEvtObl   = "70000000-0000-4000-8000-000000000095"
+		missedChurnGoat  = "70000000-0000-4000-8000-000000000096"
+		missedChurnObl   = "70000000-0000-4000-8000-000000000097"
 	)
 
 	// MA: currently 'missed', but the missed transition happened 2026-06-26 — AFTER as_of.
@@ -1005,6 +1026,13 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	// MN: 'missed' with NO status event — transition time unknown, so trust the stored status.
 	insertOpsStageGoat(t, ctx, pool, missedNoEvtGoat, "MN")
 	insertProjectionObligation(t, ctx, pool, missedNoEvtObl, testBatch, missedNoEvtGoat, "missed", "2026-06-20 00:00:00+00", "vaccexec-missed-noevt")
+
+	// MC: churn — missed AT/BEFORE as_of (2026-06-22) AND missed AFTER as_of (2026-06-26). The latest terminal
+	// event at/before as_of (06-22) was in effect at as_of, so it must read deferred, not overdue.
+	insertOpsStageGoat(t, ctx, pool, missedChurnGoat, "MC")
+	insertProjectionObligation(t, ctx, pool, missedChurnObl, testBatch, missedChurnGoat, "missed", "2026-06-20 00:00:00+00", "vaccexec-missed-churn")
+	insertObligationStatusEvent(t, ctx, pool, missedChurnObl, "missed", "2026-06-22 10:00:00+00", "vaccexec-missed-churn-old")
+	insertObligationStatusEvent(t, ctx, pool, missedChurnObl, "missed", "2026-06-26 10:00:00+00", "vaccexec-missed-churn-new")
 
 	repo := NewRepository(pool, 5*time.Second)
 	svc := vaccexecapp.NewService(repo)
@@ -1023,8 +1051,9 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	ma := opsRowByStage(rows, "MA")
 	mb := opsRowByStage(rows, "MB")
 	mn := opsRowByStage(rows, "MN")
-	if ma == nil || mb == nil || mn == nil {
-		t.Fatalf("want MA/MB/MN cohorts, got MA=%v MB=%v MN=%v", ma != nil, mb != nil, mn != nil)
+	mc := opsRowByStage(rows, "MC")
+	if ma == nil || mb == nil || mn == nil || mc == nil {
+		t.Fatalf("want MA/MB/MN/MC cohorts, got MA=%v MB=%v MN=%v MC=%v", ma != nil, mb != nil, mn != nil, mc != nil)
 	}
 
 	// MA: missed-after-as_of must re-bucket open (overdue), not deferred.
@@ -1049,5 +1078,14 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	}
 	if c := opsCohortByStage(t, svc, ctx, q, "MN"); c.WorkState != domain.WorkStateDeferred {
 		t.Errorf("MN cohort workState want deferred, got %q", c.WorkState)
+	}
+
+	// MC: churn — latest terminal event at/before as_of wins -> deferred, NOT overdue (regression guard for
+	// the old unbounded MAX() that would pick the after-as_of event).
+	if mc.DeferredCount != 1 || mc.OverdueCount != 0 {
+		t.Errorf("MC (missed churn): want deferred=1 overdue=0, got deferred=%d overdue=%d", mc.DeferredCount, mc.OverdueCount)
+	}
+	if c := opsCohortByStage(t, svc, ctx, q, "MC"); c.WorkState != domain.WorkStateDeferred {
+		t.Errorf("MC cohort workState want deferred, got %q", c.WorkState)
 	}
 }

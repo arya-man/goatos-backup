@@ -21,6 +21,8 @@ import type {
   AddProcurementLoadGoatRequest,
   CreateProcurementLoadRequest,
   DispatchProcurementLoadRequest,
+  ProcurementArrivalGoatRequest,
+  ProcurementArrivalState,
   ProcurementHealthState,
   ProcurementOwnershipState,
   ProcurementSelectionState,
@@ -32,6 +34,9 @@ import type {
 const DECISION_TYPES = ["accepted", "rejected", "deferred", "blocked"] as const;
 const HEALTH_STATES = ["passed", "failed", "deferred"] as const;
 const ARRIVAL_STATUSES = ["pending", "mismatch", "accepted", "rejected", "deferred", "blocked"] as const;
+const ARRIVAL_STATES: readonly ProcurementArrivalState[] = [
+  "matched", "missing", "extra_unresolved", "health_flag", "weight_flag", "accepted", "rejected", "deferred", "blocked",
+];
 const INTAKE_SIGNALS = ["clear", "defer", "quarantine", "review"] as const;
 const SELECTION_STATES: ProcurementSelectionState[] = [
   "source_only", "candidate", "purchased", "accepted", "rejected", "deferred", "blocked",
@@ -60,6 +65,27 @@ function csvIds(formData: FormData, key: string): string[] {
   const raw = optionalString(formData, key);
   if (!raw) return [];
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+// Per-goat arrival rows, one per line: "<goat_id>[, <arrival_state>]" (state defaults to "accepted"). The
+// backend only advances goats to arrival_accepted from these rows, so AcceptIntake stays blocked without them.
+function arrivalGoatRows(formData: FormData, key: string): ProcurementArrivalGoatRequest[] {
+  const raw = optionalString(formData, key);
+  if (!raw) return [];
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [goatId, state] = line.split(",").map((s) => s.trim());
+      if (!goatId) {
+        throw new Error("Each arrival goat row needs a goat id.");
+      }
+      return {
+        goat_id: goatId,
+        arrival_state: inEnum<ProcurementArrivalState>(state || "accepted", ARRIVAL_STATES, "arrival_state"),
+      };
+    });
 }
 
 function inEnum<T extends string>(value: string | undefined, allowed: readonly T[], field: string): T {
@@ -205,6 +231,7 @@ export async function dispatchLoadAction(formData: FormData): Promise<void> {
       from_location_id: optionalString(formData, "from_location_id") ?? null,
       goat_ids: csvIds(formData, "goat_ids"),
       dispatched_at: optRfc3339(formData, "dispatched_at"),
+      proof_ref_id: optionalString(formData, "proof_ref_id") ?? null,
     };
     const result = await dispatchProcurementLoad(loadId, body, randomUUID());
     if (!result.ok) {
@@ -238,6 +265,7 @@ export async function arrivalReviewAction(formData: FormData): Promise<void> {
       status: optionalString(formData, "status")
         ? inEnum(optionalString(formData, "status"), ARRIVAL_STATUSES, "status")
         : undefined,
+      goats: arrivalGoatRows(formData, "goats"),
     };
     const result = await recordProcurementArrivalReview(loadId, body, randomUUID());
     if (!result.ok) {

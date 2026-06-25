@@ -398,6 +398,300 @@ WHERE tenant_id=$1 AND load_id=$2`, testTenant, load.LoadID, time.Date(2026, 6, 
 	})
 }
 
+// TestProcurementIdempotentReplay proves item-3: every flagged write path honors the AGENTS.md write-path
+// idempotency contract — an exact replay (same key + same payload) returns the original result and runs NO
+// further side effects (row_version stays put), and a same-key/different-payload replay is rejected with
+// ErrIdempotencyConflict without mutating state.
+func TestProcurementIdempotentReplay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProcurementCommon(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	loadGoatVersion := func(loadID, goatID string) int64 {
+		t.Helper()
+		var v int64
+		if err := pool.QueryRow(ctx, `SELECT row_version FROM procurement_load_goats
+			WHERE tenant_id = $1 AND load_id = $2 AND goat_id = $3`, testTenant, loadID, goatID).Scan(&v); err != nil {
+			t.Fatalf("read load_goat row_version: %v", err)
+		}
+		return v
+	}
+
+	t.Run("RecordSourceHealth", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "idem-health-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-HEALTH"),
+			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-health-goat",
+		})
+		in := ports.SourceHealth{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID,
+			HealthState: domain.HealthPassed, CheckedAt: time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC),
+			IdempotencyKey: "idem-health",
+		}
+		first, err := repo.RecordSourceHealth(ctx, in)
+		if err != nil {
+			t.Fatalf("first RecordSourceHealth: %v", err)
+		}
+		v1 := loadGoatVersion(load.LoadID, goat.GoatID)
+
+		replay, err := repo.RecordSourceHealth(ctx, in)
+		if err != nil {
+			t.Fatalf("replay RecordSourceHealth: %v", err)
+		}
+		if replay.HealthCheckID != first.HealthCheckID {
+			t.Fatalf("replay returned different result: first=%s replay=%s", first.HealthCheckID, replay.HealthCheckID)
+		}
+		if v2 := loadGoatVersion(load.LoadID, goat.GoatID); v2 != v1 {
+			t.Fatalf("replay mutated state: row_version %d -> %d", v1, v2)
+		}
+
+		bad := in
+		bad.HealthState = domain.HealthFailed
+		bad.Reason = "different payload"
+		if _, err := repo.RecordSourceHealth(ctx, bad); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
+		}
+		if v3 := loadGoatVersion(load.LoadID, goat.GoatID); v3 != v1 {
+			t.Fatalf("conflict mutated state: row_version %d -> %d", v1, v3)
+		}
+	})
+
+	t.Run("RecordDecision", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "idem-decision-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-DECISION"),
+			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-decision-goat",
+		})
+		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
+			CheckedAt: time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC), IdempotencyKey: "idem-decision-health",
+		}); err != nil {
+			t.Fatalf("health pass: %v", err)
+		}
+		in := ports.Decision{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID,
+			DecisionStage: "pre_dispatch", DecisionType: domain.DecisionAccepted,
+			DecidedAt: time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC), IdempotencyKey: "idem-decision",
+		}
+		first, err := repo.RecordDecision(ctx, in)
+		if err != nil {
+			t.Fatalf("first RecordDecision: %v", err)
+		}
+		v1 := loadGoatVersion(load.LoadID, goat.GoatID)
+
+		// Without branch-first idempotency this replay would re-run the eligibility-guarded UPDATE, find the
+		// goat already pre_dispatch_accepted, and wrongly fail with ErrInvalidTransition.
+		replay, err := repo.RecordDecision(ctx, in)
+		if err != nil {
+			t.Fatalf("replay RecordDecision: %v", err)
+		}
+		if replay.DecisionID != first.DecisionID {
+			t.Fatalf("replay returned different result: first=%s replay=%s", first.DecisionID, replay.DecisionID)
+		}
+		if v2 := loadGoatVersion(load.LoadID, goat.GoatID); v2 != v1 {
+			t.Fatalf("replay mutated state: row_version %d -> %d", v1, v2)
+		}
+
+		bad := in
+		bad.DecisionType = domain.DecisionRejected
+		bad.Reason = "different payload"
+		if _, err := repo.RecordDecision(ctx, bad); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
+		}
+		if v3 := loadGoatVersion(load.LoadID, goat.GoatID); v3 != v1 {
+			t.Fatalf("conflict mutated state: row_version %d -> %d", v1, v3)
+		}
+	})
+
+	t.Run("RecordArrivalReview and AcceptIntake", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "idem-arrival-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-ARRIVAL"),
+			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-arrival-goat",
+		})
+		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
+			CheckedAt: time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC), IdempotencyKey: "idem-arrival-health",
+		}); err != nil {
+			t.Fatalf("health pass: %v", err)
+		}
+		if _, err := repo.RecordDecision(ctx, ports.Decision{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, DecisionStage: "pre_dispatch",
+			DecisionType: domain.DecisionAccepted, DecidedAt: time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC),
+			IdempotencyKey: "idem-arrival-decision",
+		}); err != nil {
+			t.Fatalf("decision accept: %v", err)
+		}
+		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000301", "idem-arrival-dispatch-proof")
+		if _, err := repo.DispatchLoad(ctx, ports.DispatchLoad{
+			TenantID: testTenant, LoadID: load.LoadID, ToLocationID: testPark, ProofRefID: &proofID,
+			DispatchedAt: time.Date(2026, 5, 2, 11, 0, 0, 0, time.UTC), IdempotencyKey: "idem-arrival-dispatch",
+		}); err != nil {
+			t.Fatalf("dispatch: %v", err)
+		}
+
+		arrival := ports.ArrivalReview{
+			TenantID: testTenant, LoadID: load.LoadID, ParkLocationID: testPark,
+			ExpectedCount: 1, LoadedCount: 1, ArrivedCount: 1, MatchedCount: 1,
+			Status: domain.DecisionAccepted, ReviewedAt: time.Date(2026, 5, 2, 16, 0, 0, 0, time.UTC),
+			IdempotencyKey: "idem-arrival", Goats: []ports.ArrivalGoat{{GoatID: &goat.GoatID, ArrivalState: "accepted"}},
+		}
+		firstReview, err := repo.RecordArrivalReview(ctx, arrival)
+		if err != nil {
+			t.Fatalf("first RecordArrivalReview: %v", err)
+		}
+		v1 := loadGoatVersion(load.LoadID, goat.GoatID)
+		replayReview, err := repo.RecordArrivalReview(ctx, arrival)
+		if err != nil {
+			t.Fatalf("replay RecordArrivalReview: %v", err)
+		}
+		if replayReview.ReviewID != firstReview.ReviewID || len(replayReview.Goats) != len(firstReview.Goats) {
+			t.Fatalf("replay arrival mismatch: first=%s/%d replay=%s/%d", firstReview.ReviewID, len(firstReview.Goats), replayReview.ReviewID, len(replayReview.Goats))
+		}
+		if v2 := loadGoatVersion(load.LoadID, goat.GoatID); v2 != v1 {
+			t.Fatalf("replay arrival mutated state: row_version %d -> %d", v1, v2)
+		}
+		badArrival := arrival
+		badArrival.Status = domain.DecisionRejected
+		badArrival.Goats = []ports.ArrivalGoat{{GoatID: &goat.GoatID, ArrivalState: "rejected"}}
+		if _, err := repo.RecordArrivalReview(ctx, badArrival); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("arrival same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
+		}
+
+		intake := ports.AcceptIntake{
+			TenantID: testTenant, LoadID: load.LoadID, GoatIDs: []string{goat.GoatID},
+			ParkLocationID: testPark, ShedLocationID: testShed,
+			AcceptedAt: time.Date(2026, 5, 2, 17, 0, 0, 0, time.UTC),
+			EntryDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC), IdempotencyKey: "idem-intake",
+		}
+		firstHandoffs, err := repo.AcceptIntake(ctx, intake)
+		if err != nil {
+			t.Fatalf("first AcceptIntake: %v", err)
+		}
+		v3 := loadGoatVersion(load.LoadID, goat.GoatID)
+		// Without branch-first idempotency this replay would re-run the eligibility-guarded UPDATE, find the
+		// goat already accepted_herd_intake, and wrongly fail with ErrInvalidTransition.
+		replayHandoffs, err := repo.AcceptIntake(ctx, intake)
+		if err != nil {
+			t.Fatalf("replay AcceptIntake: %v", err)
+		}
+		if len(replayHandoffs) != len(firstHandoffs) || len(firstHandoffs) != 1 || replayHandoffs[0].HandoffID != firstHandoffs[0].HandoffID {
+			t.Fatalf("replay intake mismatch: first=%#v replay=%#v", firstHandoffs, replayHandoffs)
+		}
+		if v4 := loadGoatVersion(load.LoadID, goat.GoatID); v4 != v3 {
+			t.Fatalf("replay intake mutated state: row_version %d -> %d", v3, v4)
+		}
+		badIntake := intake
+		badIntake.EntryDate = time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC)
+		if _, err := repo.AcceptIntake(ctx, badIntake); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("intake same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
+		}
+	})
+
+	countGoats := func() int64 {
+		t.Helper()
+		var n int64
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM goats WHERE tenant_id = $1`, testTenant).Scan(&n); err != nil {
+			t.Fatalf("count goats: %v", err)
+		}
+		return n
+	}
+	countLoads := func() int64 {
+		t.Helper()
+		var n int64
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM procurement_loads WHERE tenant_id = $1`, testTenant).Scan(&n); err != nil {
+			t.Fatalf("count loads: %v", err)
+		}
+		return n
+	}
+
+	t.Run("CreateLoad", func(t *testing.T) {
+		in := ports.CreateLoad{
+			TenantID: testTenant, SourcePartyID: testSourceParty,
+			SourceLocationID: strPtr(testSourceLocation), ExpectedCount: 5,
+			IdempotencyKey: "idem-createload",
+		}
+		first, err := repo.CreateLoad(ctx, in)
+		if err != nil {
+			t.Fatalf("first CreateLoad: %v", err)
+		}
+		loadsAfterFirst := countLoads()
+
+		replay, err := repo.CreateLoad(ctx, in)
+		if err != nil {
+			t.Fatalf("replay CreateLoad: %v", err)
+		}
+		if replay.LoadID != first.LoadID {
+			t.Fatalf("replay returned different load: first=%s replay=%s", first.LoadID, replay.LoadID)
+		}
+		if replay.RowVersion != first.RowVersion {
+			t.Fatalf("replay mutated load: row_version %d -> %d", first.RowVersion, replay.RowVersion)
+		}
+		if n := countLoads(); n != loadsAfterFirst {
+			t.Fatalf("replay created a duplicate load: count %d -> %d", loadsAfterFirst, n)
+		}
+
+		bad := in
+		bad.ExpectedCount = 9
+		if _, err := repo.CreateLoad(ctx, bad); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
+		}
+		if n := countLoads(); n != loadsAfterFirst {
+			t.Fatalf("conflict created a load: count %d -> %d", loadsAfterFirst, n)
+		}
+	})
+
+	t.Run("AddGoatToLoad does not duplicate goats on retry", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "idem-addgoat-load", 1)
+		in := ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: load.LoadID,
+			SourceTag: strPtr("IDEM-ADDGOAT"), TemporaryID: strPtr("TMP-ADDGOAT"),
+			SelectionState: "candidate", CurrentState: domain.GoatStateSourceCandidate,
+			IdentityState: "pending", OwnershipState: "pending", HealthState: "pending",
+			ProofRefs: []byte("[]"), Metadata: []byte("{}"), IdempotencyKey: "idem-addgoat",
+		}
+		goatsBefore := countGoats()
+		first, err := repo.AddGoatToLoad(ctx, in)
+		if err != nil {
+			t.Fatalf("first AddGoatToLoad: %v", err)
+		}
+		goatsAfterFirst := countGoats()
+		if goatsAfterFirst != goatsBefore+1 {
+			t.Fatalf("first add did not create exactly one goat: %d -> %d", goatsBefore, goatsAfterFirst)
+		}
+		v1 := loadGoatVersion(load.LoadID, first.GoatID)
+
+		// The dup-goat bug: without a reserve guard this retry inserts a brand-new goats row (the ON CONFLICT
+		// on procurement_load_goats is keyed by goat_id, so a fresh goat never conflicts) -> duplicate goat.
+		replay, err := repo.AddGoatToLoad(ctx, in)
+		if err != nil {
+			t.Fatalf("replay AddGoatToLoad: %v", err)
+		}
+		if replay.LoadGoatID != first.LoadGoatID || replay.GoatID != first.GoatID {
+			t.Fatalf("replay returned different row: first=%s/%s replay=%s/%s",
+				first.LoadGoatID, first.GoatID, replay.LoadGoatID, replay.GoatID)
+		}
+		if n := countGoats(); n != goatsAfterFirst {
+			t.Fatalf("replay created a duplicate goat: count %d -> %d", goatsAfterFirst, n)
+		}
+		if v2 := loadGoatVersion(load.LoadID, first.GoatID); v2 != v1 {
+			t.Fatalf("replay mutated state: row_version %d -> %d", v1, v2)
+		}
+
+		bad := in
+		bad.SourceTag = strPtr("IDEM-ADDGOAT-DIFFERENT")
+		if _, err := repo.AddGoatToLoad(ctx, bad); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
+		}
+		if n := countGoats(); n != goatsAfterFirst {
+			t.Fatalf("conflict created a goat: count %d -> %d", goatsAfterFirst, n)
+		}
+	})
+}
+
 func seedProcurementCommon(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
