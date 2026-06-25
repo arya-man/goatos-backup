@@ -349,10 +349,10 @@
   .opcell{display:inline-flex;align-items:center;gap:8px;font-weight:650;font-size:12px;white-space:nowrap}
   .opcell .oc{display:grid;place-items:center;width:21px;height:21px;border-radius:6px;flex:none}
   .opcell .oc .ic{width:12px;height:12px}
-  .auditops .fitem.on{background:var(--brand-soft);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:8px;border-bottom-color:transparent}
+  .auditops .fitem.on{background:var(--brand-soft);border-radius:8px;border-bottom-color:transparent;box-shadow:inset 2px 0 0 var(--brand)}
   .pcell{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:650}
   .auditops{max-height:560px;overflow:auto}
-  .auditops .fitem{padding-left:2px;padding-right:2px}
+  .auditops .fitem{padding-left:8px;padding-right:8px}
   .auditops .fitem .tx{min-width:0}
   .auditops .fitem .tx b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .auditops .fitem .mt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -371,7 +371,10 @@
   .spanmore button:hover{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
   .oppop{border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));border-radius:var(--r);background:var(--panel);box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden}
   .oppop[hidden]{display:none}
-  .oppop .auditops{max-height:380px}
+  .oppop-hd{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line2)}
+  .oppop-hd b{font-weight:700;font-size:14px}
+  .oppop-hd .clr{color:var(--brand-d);font-weight:700;cursor:pointer}
+  .oppop .auditops{max-height:340px;padding:4px 6px 8px}
   .chain{display:flex;align-items:stretch;gap:0;overflow:auto;padding:2px}
   .cstep{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative;margin-right:22px}
   .cstep:last-child{margin-right:0}
@@ -1719,7 +1722,7 @@
         <div class="opf" id="auditOps"></div>
         <div class="wftoolbar" id="auditTools" style="margin-bottom:14px"></div>
         <div id="auditOpPop" class="oppop" hidden>
-          <div class="hd" style="padding:11px 14px"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Span of control <span class="muted small" style="font-weight:600">— scoped to your hierarchy · tap to filter</span></h3><div class="sp"></div><span class="pill" id="auditScope"></span><button class="btn sm" style="margin-left:8px" onclick="auditToggleOpPop()"><svg class="ic" style="width:13px"><use href="#i-x"/></svg>Done</button></div>
+          <div class="oppop-hd"><svg class="ic" style="color:var(--brand);width:15px"><use href="#i-people"/></svg><b>Span of control</b><span class="muted small">scoped to your hierarchy · tap to filter</span><span class="sp" style="flex:1"></span><span class="small" id="auditScope"></span><button class="btn sm" onclick="auditToggleOpPop()"><svg class="ic" style="width:13px"><use href="#i-check"/></svg>Done</button></div>
           <div class="spansearch"><input id="auditSpanSearch" placeholder="Filter operators…" oninput="auditSpanQ=this.value;auditSpanShow=SPAN_PAGE;auditRefreshRows()"></div>
           <div class="bd feed auditops" id="auditSpan"></div>
         </div>
@@ -3650,7 +3653,7 @@ function auditRefreshRows(){
  var pf=base.filter(function(r){return PROOF_OPS.indexOf(r.oper)>=0;});var pfok=pf.filter(function(r){return r.proof;}).length;
  setTxt('auditKpiProof',(pf.length?Math.round(pfok/pf.length*100):100));
  setTxt('auditAnomN',nfmt(base.filter(function(r){return r.an;}).length));
- var sc=document.getElementById('auditScope');if(sc){var basePart=(auditSpanQ&&team.length!==teamTotal)?(nfmt(team.length)+' of '+nfmt(teamTotal)):((v.sees==='*')?(nfmt(teamTotal)+' operators'):(nfmt(teamTotal)+' in span'));sc.innerHTML=(auditSel.size?'<b style="color:var(--brand-d)">'+nfmt(auditSel.size)+' selected</b> <a href="#" onclick="auditClearOps();return false" style="color:var(--brand-d);font-weight:700">clear</a> · ':'')+basePart;}
+ var sc=document.getElementById('auditScope');if(sc){var basePart=(auditSpanQ&&team.length!==teamTotal)?(nfmt(team.length)+' of '+nfmt(teamTotal)):((v.sees==='*')?(nfmt(teamTotal)+' operators'):(nfmt(teamTotal)+' in span'));sc.innerHTML=(auditSel.size?'<b style="color:var(--brand-d)">'+nfmt(auditSel.size)+' selected</b> · <span class="clr" onclick="auditClearOps()">clear</span> &nbsp; ':'')+'<span class="muted">'+basePart+'</span>';}
  var obN=document.getElementById('auditOpBtnN');if(obN){obN.textContent=nfmt(auditSel.size);obN.style.display=auditSel.size?'':'none';}var obB=document.getElementById('auditOpBtn');if(obB)obB.classList.toggle('p',auditSel.size>0);
  var tm=document.getElementById('auditTrailMeta');if(tm)tm.textContent=nfmt(total)+' event'+(total===1?'':'s')+(auditOper!=='all'&&OPS[auditOper]?' · '+OPS[auditOper].label:'')+(auditSel.size?' · '+nfmt(auditSel.size)+' operator'+(auditSel.size>1?'s':''):'')+(auditStatus!=='all'?' · '+auditStatus:'');
 }
