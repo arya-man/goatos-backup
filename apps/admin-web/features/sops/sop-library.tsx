@@ -59,14 +59,17 @@ export interface SopLibraryProps {
   sops: SopCardView[];
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
+  // When true (e.g. arriving from /sops?new=1, the "Create SOP" action on the vaccination SOP quick-view),
+  // the New SOP builder opens immediately so the create path lands ready, not on a cold library.
+  initialCreating?: boolean;
 }
 
 // SOP Library client console. Ported from the mock SOP Library screen (header, search, domain chips,
 // card grid, detail modal) + New SOP builder modal. Cards render ONLY real `/admin/sops` data; facets
 // are derived from real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
-export function SopLibrary({ sops, error, authRequired }: SopLibraryProps) {
+export function SopLibrary({ sops, error, authRequired, initialCreating = false }: SopLibraryProps) {
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(initialCreating);
   const [detail, setDetail] = useState<SopCardView | null>(null);
 
   // Counts are computed from the vaccination-visible slice only (sops already filtered to vaccination

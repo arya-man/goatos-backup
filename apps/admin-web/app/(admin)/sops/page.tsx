@@ -1,12 +1,16 @@
 import { SopLibrary, isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops } from "@/lib/api/server";
+import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
 
 // Admin / Data Ops / SOP Library (route reopened as the new SOP Library — not the old SOP/tasks UI).
 // Lists real `/admin/sops` definitions, then fetches each SOP's latest version to derive the card
 // facets (domain / trigger / steps / gates) from real form_dsl + proof_policy. No mock rows.
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const sp = await searchParams;
+  // `?new=1` (the vaccination SOP quick-view "Create SOP" action) opens the builder on arrival.
+  const startCreating = sp.new === "1";
   const listed = await listSops({ limit: 200 });
 
   if (!listed.ok) {
@@ -30,5 +34,5 @@ export default async function Page() {
     return toSopView(def, version);
   });
 
-  return <SopLibrary sops={sops} />;
+  return <SopLibrary sops={sops} initialCreating={startCreating} />;
 }

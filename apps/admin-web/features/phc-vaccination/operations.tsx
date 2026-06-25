@@ -1,12 +1,33 @@
 import Link from "next/link";
-import { BookOpen, Plus, Upload } from "lucide-react";
-import { getVaccinationOperations } from "@/lib/api/server";
+import { Plus, Upload } from "lucide-react";
+import { getSop, getVaccinationOperations, isAuthRequiredError, listSops } from "@/lib/api/server";
 import type { VaccinationOperationsResponse } from "@/lib/api/server";
+import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
 import { type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope } from "@/lib/scope";
 import { VaccinationExecutionSection } from "./execution-section";
 import { VaccinationStatusMatrix } from "./status-matrix";
 import { VaccinationCohortDetail } from "./cohort-detail";
+import { VaccinationSopButton } from "./sop-quick-view";
+
+// Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
+// /sops), filtered to the vaccination slice and reduced to the primary (active preferred) SOP + its latest
+// version. Errors/auth are surfaced in the modal rather than swallowed into a fake "no SOP" state.
+type LinkedSop = { view: SopCardView | null; error?: { code?: string; message: string } | null; authRequired?: boolean };
+
+async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
+  const listed = await listSops({ limit: 200 });
+  if (!listed.ok) {
+    if (isAuthRequiredError(listed.error)) return { view: null, authRequired: true };
+    return { view: null, error: { code: listed.error.code, message: listed.error.message } };
+  }
+  const defs = listed.data.items.filter((d) => isVaccinationSop(d.code, d.name));
+  if (defs.length === 0) return { view: null };
+  const primary = defs.find((d) => d.status === "active") ?? defs[0];
+  const detail = await getSop(primary.sop_id);
+  const version = detail.ok ? (detail.data.latest_version ?? null) : null;
+  return { view: toSopView(primary, version) };
+}
 
 // PHC · Vaccination — the operations floor, ported to the mock's single stacked screen:
 //   header (SOP · Import sheet · New drive) → drive-mechanic band (Target → Group → Route → Execute)
@@ -28,7 +49,10 @@ export async function VaccinationOperationsPage({ searchParams }: { searchParams
   // Top-bar scope contract: park (backend-safe UUID) + as_of are honored by /vaccination/operations.
   const { parkId, asOf } = backendScope(parseScope(sp));
 
-  const operations = await getVaccinationOperations({ parkId, asOf });
+  const [operations, linkedSop] = await Promise.all([
+    getVaccinationOperations({ parkId, asOf }),
+    loadLinkedVaccinationSop(),
+  ]);
   const ops: VaccinationOperationsResponse | null = operations.ok ? operations.data : null;
 
   return (
@@ -45,9 +69,7 @@ export async function VaccinationOperationsPage({ searchParams }: { searchParams
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <Link href="/sops" className="btn" title="Vaccination SOP policy">
-          <BookOpen className="ic" aria-hidden="true" /> SOP
-        </Link>
+        <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} />
         <span
           className="btn"
           aria-disabled
