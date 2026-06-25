@@ -247,11 +247,15 @@ Do:
 
 Do not:
 
-- Do not break a running local dev server. Never `rm -rf .next` (or delete/move
-  `.next`/`.next/dev`/`.next/cache`), never `kill`/restart/re-port a dev server
-  or port the user started, and never run a production `next build` into an app
-  dir while its `next dev` is live. Stale `.next` type validators after a route
-  delete do not require nuking `.next`. See
+- Local dev servers (`:3300` admin-web, `:8080` backend): the workspace owner has
+  granted agents (Codex and Claude) STANDING authority to stop, restart, re-port,
+  or `next build` over them WITHOUT asking — just do it when the work needs it
+  (clean build, or an expired local token making routes redirect to `/login`;
+  restart with `npm --prefix apps/admin-web run dev:local` to re-mint a fresh
+  token). Do not pause to ask permission for a restart/rebuild. The only
+  discipline: restore the server on the SAME port, never silently change ports,
+  don't run `next build` concurrently with a live `next dev` on the same `.next`
+  (stop it first), and if you break it, restore it. See
   `apps/admin-web/AGENTS.md` → "Local Dev Server Safety" for the full rule. This
   applies to every agent (Codex and Claude).
 - Do not reintroduce old staging labels as architecture.
