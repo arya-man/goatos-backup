@@ -365,6 +365,10 @@
   .pager2 select{border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:4px 6px;font:inherit;font-size:12px;color:var(--ink)}
   .pager2 button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:5px 11px;font:inherit;font-weight:650;font-size:12px;color:var(--ink);cursor:pointer}
   .pager2 button:disabled{opacity:.4;cursor:default}
+  .auditops .fitem .spk{width:13px;flex:none;display:inline-flex;align-items:center;justify-content:center}
+  .spanmore{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:9px 2px 2px}
+  .spanmore button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:5px 11px;font:inherit;font-weight:650;font-size:12px;color:var(--ink);cursor:pointer}
+  .spanmore button:hover{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
   .chain{display:flex;align-items:stretch;gap:0;overflow:auto;padding:2px}
   .cstep{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative;margin-right:22px}
   .cstep:last-child{margin-right:0}
@@ -1713,7 +1717,7 @@
         <div class="wftoolbar" id="auditTools" style="margin-bottom:14px"></div>
         <div class="grid g2" style="grid-template-columns:288px 1fr">
           <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Span of control</h3><div class="sp"></div><span class="pill" id="auditScope"></span></div><div class="spansearch"><input id="auditSpanSearch" placeholder="Filter operators…" oninput="auditSpanQ=this.value;auditRefreshRows()"></div><div class="bd feed auditops" id="auditSpan"></div></div>
-          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div id="auditPager" class="pager2"></div><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; tap an operator (left) to filter the trail to their actions.</div></div></div>
+          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><div id="auditPagerTop" class="pager2" style="border-top:0;border-bottom:1px solid var(--line2)"></div><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div id="auditPager" class="pager2"></div><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; tap an operator (left) to filter the trail to their actions.</div></div></div>
         </div>
       </div>
       <div class="subpanel" data-sub="penalties">
@@ -3572,7 +3576,7 @@ AUDIT.push.apply(AUDIT,genAuditScale());
 AUDIT.forEach(function(r,idx){if(!r.type)r.type=inferType(r.tgt);if(r.id==null)r.id=r.tgt;if(r.proof==null)r.proof='';if(!r.oper)r.oper=auditOperOf(r);if(!r.st)r.st=(r.an?'anomaly':'logged');if(!r.pk)r.pk='CBE';if(!r.ro)r.ro='';if(r.ts==null)r.ts=1e9-idx;if(r.dl==null)r.dl='';});
 // "Viewing as" mirrors the real app roles (ROLES) — span-of-control preview, can't drift from the role switcher.
 let auditViewer='coo';
-var auditQ='',auditOper='all',auditAnom=false,auditStatus='all',auditOp='',auditSpanQ='',auditPage=0,AUDIT_PAGE=25;
+var auditQ='',auditOper='all',auditAnom=false,auditStatus='all',auditSpanQ='',auditPage=0,AUDIT_PAGE=25,auditSpanShow=30,SPAN_PAGE=30,auditSel=new Set();
 function nfmt(n){return (n||0).toLocaleString('en-IN');}
 function auditGo(p){auditPage=p;auditRefreshRows();}
 function auditPageSize(n){AUDIT_PAGE=+n||25;auditPage=0;auditRefreshRows();}
@@ -3582,35 +3586,43 @@ function auditParkOk(r){if(typeof SCOPE_MODE==='undefined'||SCOPE_MODE==='compan
 function auditBase(){return AUDIT.filter(function(r){return auditInScope(r.op)&&auditParkOk(r);});}
 function auditMatch(r){
  if(auditOper!=='all'&&r.oper!==auditOper)return false;
- if(auditOp&&r.op!==auditOp)return false;
+ if(auditSel.size&&!auditSel.has(r.op))return false;
  if(auditAnom&&!r.an)return false;
  if(auditStatus==='awaiting'&&r.st!=='awaiting')return false;
  if(auditStatus==='rejected'&&r.st!=='rejected')return false;
  if(auditStatus==='noproof'&&!(PROOF_OPS.indexOf(r.oper)>=0&&!r.proof))return false;
  if(auditQ){var hay=(r.op+' '+(r.ro||'')+' '+r.act+' '+r.tgt+' '+r.res+' '+(OPS[r.oper]?OPS[r.oper].label:'')).toLowerCase();if(hay.indexOf(auditQ.toLowerCase())<0)return false;}
  return true;}
-function auditToggleOp(op){auditOp=(auditOp===op)?'':op;renderAudit();}
-function auditResetFilters(){auditOper='all';auditStatus='all';auditAnom=false;auditOp='';auditQ='';renderAudit();}
+function auditToggleOp(op){if(auditSel.has(op))auditSel.delete(op);else auditSel.add(op);auditPage=0;auditRefreshRows();}
+function auditClearOps(){auditSel.clear();auditPage=0;auditRefreshRows();}
+function auditResetFilters(){auditOper='all';auditStatus='all';auditAnom=false;auditSel.clear();auditQ='';auditSpanQ='';auditSpanShow=SPAN_PAGE;renderAudit();}
 function auditSetStatus(s){auditStatus=(auditStatus===s)?'all':s;auditAnom=false;renderAudit();}
 function auditOpChip(k){var o=OPS[k]||OPS.admin;return '<span class="opcell"><span class="oc" style="background:'+o.bg+';color:'+o.c+'"><svg class="ic"><use href="#'+o.ic+'"/></svg></span>'+o.label.replace(/ & /g,' &amp; ')+'</span>';}
-var SPAN_CAP=80;
 function esc1(s){return (''+s).replace(/'/g,"\\'");}
 function escA(s){return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function auditPagerHTML(total,start,pages){var a=total?start+1:0,b=Math.min(start+AUDIT_PAGE,total);
+ return '<span class="pgmeta">'+nfmt(a)+'–'+nfmt(b)+' of '+nfmt(total)+'</span>'+
+  '<label class="pgmeta" style="margin-right:0;font-weight:600">Rows <select onchange="auditPageSize(this.value)">'+[25,50,100].map(function(n){return '<option'+(n===AUDIT_PAGE?' selected':'')+'>'+n+'</option>';}).join('')+'</select></label>'+
+  '<div class="pg"><button onclick="auditGo(0)" '+(auditPage<=0?'disabled':'')+'>« First</button><button onclick="auditGo('+(auditPage-1)+')" '+(auditPage<=0?'disabled':'')+'>‹ Prev</button><span class="pgmeta" style="margin:0 4px">Page '+(auditPage+1)+' / '+pages+'</span><button onclick="auditGo('+(auditPage+1)+')" '+(auditPage>=pages-1?'disabled':'')+'>Next ›</button><button onclick="auditGo('+(pages-1)+')" '+(auditPage>=pages-1?'disabled':'')+'>Last »</button></div>';}
 function auditRefreshRows(){
- var base=auditBase();var rows=base.filter(auditMatch);var v=curViewer();
- rows.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+ var base=auditBase();var v=curViewer();
+ // drop any selected operators no longer in scope (viewer / park changed)
+ if(auditSel.size){var present={};base.forEach(function(r){present[r.op]=1;});auditSel.forEach(function(op){if(!present[op])auditSel.delete(op);});}
+ var rows=base.filter(auditMatch);rows.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
  var counts={},acnt={};base.forEach(function(r){counts[r.op]=(counts[r.op]||0)+1;if(r.an)acnt[r.op]=(acnt[r.op]||0)+1;});
- // ----- span of control (scaled: search · sort flagged→active · cap+scroll · truncate) -----
+ // ----- span of control: multi-select · selected-first · search · incremental load (never dump-all) -----
  var team=(v.sees==='*')?Object.keys(counts).filter(function(o){return o!=='System cron';}):v.sees.slice();
  var teamTotal=team.length;
  if(auditSpanQ){var sq=auditSpanQ.toLowerCase();team=team.filter(function(op){return (op+' '+(r0_role(op)||'')).toLowerCase().indexOf(sq)>=0;});}
- team.sort(function(a,b){return (acnt[b]||0)-(acnt[a]||0)||(counts[b]||0)-(counts[a]||0)||a.localeCompare(b);});
- var shown=team.slice(0,SPAN_CAP);
+ team.sort(function(a,b){var sa=auditSel.has(a)?1:0,sb=auditSel.has(b)?1:0;return sb-sa||(acnt[b]||0)-(acnt[a]||0)||(counts[b]||0)-(counts[a]||0)||a.localeCompare(b);});
+ if(auditSpanShow<SPAN_PAGE)auditSpanShow=SPAN_PAGE;
+ var shown=team.slice(0,auditSpanShow);
  var sp=document.getElementById('auditSpan');
- if(sp){var sh=shown.map(function(op){var p=(typeof PERSON!=='undefined'&&PERSON[op]);var an=acnt[op]||0;var on=(auditOp===op);
-   var sub=p?p.scope:(r0_role(op)||(an?'has flags':'on-ground'));
-   return '<div class="fitem'+(on?' on':'')+'" style="cursor:pointer" onclick="auditToggleOp(\''+esc1(op)+'\')"><span class="av xs">'+escA(op.split(' ').map(function(w){return w[0];}).join('').slice(0,2))+'</span><div class="tx"><b title="'+escA(op)+'">'+escA(op)+'</b><div class="mt" title="'+escA(sub)+'">'+escA(sub)+'</div></div>'+(an?'<span class="tag t-dng">'+an+' flag</span>':'<span class="tag t-mut">'+nfmt(counts[op]||0)+'</span>')+'</div>';}).join('');
-   if(team.length>SPAN_CAP)sh+='<div class="note" style="margin:8px 2px">+'+nfmt(team.length-SPAN_CAP)+' more — refine the filter above.</div>';
+ if(sp){var sh=shown.map(function(op){var an=acnt[op]||0;var on=auditSel.has(op);
+   var sub=(typeof PERSON!=='undefined'&&PERSON[op])?PERSON[op].scope:(r0_role(op)||(an?'has flags':'on-ground'));
+   var ini=escA(op.split(' ').map(function(w){return w[0];}).join('').slice(0,2));
+   return '<div class="fitem'+(on?' on':'')+'" style="cursor:pointer" title="tap to '+(on?'remove from':'add to')+' filter" onclick="auditToggleOp(\''+esc1(op)+'\')"><span class="spk">'+(on?'<svg class="ic" style="width:12px;color:var(--brand-d)"><use href="#i-check"/></svg>':'')+'</span><span class="av xs">'+ini+'</span><div class="tx"><b title="'+escA(op)+'">'+escA(op)+'</b><div class="mt" title="'+escA(sub)+'">'+escA(sub)+'</div></div>'+(an?'<span class="tag t-dng">'+an+' flag</span>':'<span class="tag t-mut">'+nfmt(counts[op]||0)+'</span>')+'</div>';}).join('');
+   if(team.length>auditSpanShow)sh+='<div class="spanmore"><button onclick="auditSpanShow+='+SPAN_PAGE+';auditRefreshRows()">Show '+nfmt(Math.min(SPAN_PAGE,team.length-auditSpanShow))+' more</button><span class="muted small">showing '+nfmt(auditSpanShow)+' of '+nfmt(team.length)+' · server-paginated at scale</span></div>';
    if(!team.length)sh=auditSpanQ?'<div class="note">No operator matches “'+escA(auditSpanQ)+'”.</div>':'<div class="note">No reports under this role.</div>';
    sp.innerHTML=sh;}
  // ----- activity trail (paginated) -----
@@ -3623,26 +3635,23 @@ function auditRefreshRows(){
    var tgtc=(goat?'<span class="gid">'+escA(r.tgt)+'</span>':'<span class="trc tgt" title="'+escA(r.tgt)+'">'+escA(r.tgt)+'</span>')+((r.shed&&r.shed!=='—'&&r.shed!==r.tgt)?'<div class="mt trc tgt" style="color:var(--faint);font-size:11px;margin-top:2px" title="'+escA(r.shed)+'">'+escA(r.shed)+'</div>':'');
    var prc=r.proof?('<span class="pcell" style="color:var(--brand-d)"><svg class="ic" style="width:13px"><use href="#i-video"/></svg>'+escA(r.proof)+'</span>'):((PROOF_OPS.indexOf(r.oper)>=0)?'<span class="pcell" style="color:var(--danger)"><svg class="ic" style="width:13px"><use href="#i-warn"/></svg>missing</span>':'<span class="muted small">—</span>');
    return '<tr style="cursor:pointer'+(r.an?';background:var(--dangerx)':'')+'" onclick="openHistory(\''+(r.type||'')+'\',\''+esc1(eid)+'\',\''+esc1(eid)+'\')"><td style="white-space:nowrap;vertical-align:top">'+tcell+'</td><td style="vertical-align:top">'+auditOpChip(r.oper)+'</td><td style="vertical-align:top"><b class="trc opn" style="font-weight:650" title="'+escA(r.op)+'">'+escA(r.op)+'</b><div class="mt trc opn" style="color:var(--faint);font-size:11px;margin-top:2px" title="'+escA(r.ro||'')+'">'+escA(r.ro||'')+'</div></td><td style="vertical-align:top"><span class="trc act" title="'+escA(r.act)+'">'+escA(r.act)+'</span></td><td style="vertical-align:top">'+tgtc+'</td><td style="vertical-align:top"><span class="tag '+r.rc+'">'+escA(r.res)+'</span></td><td style="vertical-align:top">'+prc+'</td></tr>';}).join('')||'<tr><td colspan="7"><div class="note" style="margin:8px">No matching events. <a href="#" onclick="auditResetFilters();return false" style="color:var(--brand-d);font-weight:700">Clear filters</a></div></td></tr>';
- // ----- pager -----
- var pg=document.getElementById('auditPager');
- if(pg){if(total<=AUDIT_PAGE&&AUDIT_PAGE<=25){pg.style.display='none';}else{pg.style.display='';var a=total?start+1:0,b=Math.min(start+AUDIT_PAGE,total);
-   pg.innerHTML='<span class="pgmeta">'+nfmt(a)+'–'+nfmt(b)+' of '+nfmt(total)+'</span>'+
-     '<label class="pgmeta" style="margin-right:0;font-weight:600">Rows <select onchange="auditPageSize(this.value)">'+[25,50,100].map(function(n){return '<option'+(n===AUDIT_PAGE?' selected':'')+'>'+n+'</option>';}).join('')+'</select></label>'+
-     '<div class="pg"><button onclick="auditGo(0)" '+(auditPage<=0?'disabled':'')+'>« First</button><button onclick="auditGo('+(auditPage-1)+')" '+(auditPage<=0?'disabled':'')+'>‹ Prev</button><span class="pgmeta" style="margin:0 4px">Page '+(auditPage+1)+' / '+pages+'</span><button onclick="auditGo('+(auditPage+1)+')" '+(auditPage>=pages-1?'disabled':'')+'>Next ›</button><button onclick="auditGo('+(pages-1)+')" '+(auditPage>=pages-1?'disabled':'')+'>Last »</button></div>';}}
+ // ----- pagers (top + bottom) -----
+ var showPager=!(total<=AUDIT_PAGE&&AUDIT_PAGE<=25);var ph=showPager?auditPagerHTML(total,start,pages):'';
+ ['auditPagerTop','auditPager'].forEach(function(id){var pg=document.getElementById(id);if(pg){pg.style.display=showPager?'':'none';pg.innerHTML=ph;}});
  // ----- kpis (formatted) -----
  setTxt('auditKpiActs',nfmt(total));
  setTxt('auditKpiAwait',nfmt(base.filter(function(r){return r.st==='awaiting';}).length));
  var pf=base.filter(function(r){return PROOF_OPS.indexOf(r.oper)>=0;});var pfok=pf.filter(function(r){return r.proof;}).length;
  setTxt('auditKpiProof',(pf.length?Math.round(pfok/pf.length*100):100));
  setTxt('auditAnomN',nfmt(base.filter(function(r){return r.an;}).length));
- var sc=document.getElementById('auditScope');if(sc)sc.textContent=(auditSpanQ&&team.length!==teamTotal)?(nfmt(team.length)+' of '+nfmt(teamTotal)):((v.sees==='*')?(nfmt(teamTotal)+' operators'):(nfmt(teamTotal)+' in your span'));
- var tm=document.getElementById('auditTrailMeta');if(tm)tm.textContent=nfmt(total)+' event'+(total===1?'':'s')+(auditOper!=='all'&&OPS[auditOper]?' · '+OPS[auditOper].label:'')+(auditOp?' · '+auditOp:'')+(auditStatus!=='all'?' · '+auditStatus:'');
+ var sc=document.getElementById('auditScope');if(sc){var basePart=(auditSpanQ&&team.length!==teamTotal)?(nfmt(team.length)+' of '+nfmt(teamTotal)):((v.sees==='*')?(nfmt(teamTotal)+' operators'):(nfmt(teamTotal)+' in span'));sc.innerHTML=(auditSel.size?'<b style="color:var(--brand-d)">'+nfmt(auditSel.size)+' selected</b> <a href="#" onclick="auditClearOps();return false" style="color:var(--brand-d);font-weight:700">clear</a> · ':'')+basePart;}
+ var tm=document.getElementById('auditTrailMeta');if(tm)tm.textContent=nfmt(total)+' event'+(total===1?'':'s')+(auditOper!=='all'&&OPS[auditOper]?' · '+OPS[auditOper].label:'')+(auditSel.size?' · '+nfmt(auditSel.size)+' operator'+(auditSel.size>1?'s':''):'')+(auditStatus!=='all'?' · '+auditStatus:'');
 }
 function r0_role(op){for(var i=0;i<AUDIT.length;i++){if(AUDIT[i].op===op&&AUDIT[i].ro)return AUDIT[i].ro;}return '';}
 function renderAudit(){
  var vt=document.getElementById('auditViewers');if(!vt)return;
- auditPage=0; // any filter/viewer change returns to the first page
- vt.innerHTML='<span class="muted small" style="padding:7px 8px 7px 4px">Viewing as</span>'+AUDIT_ROLES.map(function(k){var R=ROLES[k];if(!R)return '';return '<button class="'+(k===auditViewer?'on':'')+'" onclick="auditViewer=\''+k+'\';auditOp=\'\';renderAudit()" title="'+R.label+'">'+(R.auditShort||R.label)+'</button>';}).join('');
+ auditPage=0;auditSpanShow=SPAN_PAGE; // any filter/viewer change returns to first page + first span batch
+ vt.innerHTML='<span class="muted small" style="padding:7px 8px 7px 4px">Viewing as</span>'+AUDIT_ROLES.map(function(k){var R=ROLES[k];if(!R)return '';return '<button class="'+(k===auditViewer?'on':'')+'" onclick="auditViewer=\''+k+'\';auditSel.clear();renderAudit()" title="'+R.label+'">'+(R.auditShort||R.label)+'</button>';}).join('');
  var base=auditBase();var oc={},oa={};base.forEach(function(r){oc[r.oper]=(oc[r.oper]||0)+1;if(r.an)oa[r.oper]=1;});
  var ops=document.getElementById('auditOps');
  if(ops){var html='<button class="'+(auditOper==='all'?'on':'')+'" onclick="auditOper=\'all\';renderAudit()"><span class="oc" style="background:var(--brand-soft);color:var(--brand-d)"><svg class="ic"><use href="#i-grid"/></svg></span>All operations<span class="cbq">'+nfmt(base.length)+'</span></button>';
@@ -3652,7 +3661,6 @@ function renderAudit(){
  var tools=document.getElementById('auditTools');
  if(tools){tools.innerHTML='<div class="tsearch" style="max-width:300px"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="auditSearch" placeholder="Search action, operator, ID…" value="'+auditQ.replace(/"/g,'&quot;')+'" oninput="auditQ=this.value;auditPage=0;auditRefreshRows()"></div>'+
    '<div class="subtabs" style="margin:0"><button class="'+(auditStatus==='all'?'on':'')+'" onclick="auditStatus=\'all\';renderAudit()">All results</button><button class="'+(auditStatus==='awaiting'?'on':'')+'" onclick="auditStatus=\'awaiting\';renderAudit()">Awaiting</button><button class="'+(auditStatus==='rejected'?'on':'')+'" onclick="auditStatus=\'rejected\';renderAudit()">Rejected</button><button class="'+(auditStatus==='noproof'?'on':'')+'" onclick="auditStatus=\'noproof\';renderAudit()">Proof gaps</button></div>'+
-   (auditOp?'<button class="btn sm p" type="button" onclick="auditOp=\'\';renderAudit()"><svg class="ic" style="width:13px"><use href="#i-x"/></svg>'+auditOp+'</button>':'')+
    '<span class="sp" style="flex:1"></span>'+
    '<button class="btn sm'+(auditAnom?' p':'')+'" type="button" onclick="auditAnom=!auditAnom;renderAudit()"><svg class="ic" style="width:13px"><use href="#i-warn"/></svg>Anomalies only</button>';}
  auditRefreshRows();
