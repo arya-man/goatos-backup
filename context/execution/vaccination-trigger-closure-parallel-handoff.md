@@ -1546,220 +1546,76 @@ Only after this gate is green should the visual/Playwright E2E plan run.
 ## Backend Prompt
 
 ```text
-Read /Users/ravi/mesha/goatos/AGENTS.md, SKILLS.md, context/README.md,
-docs/phases/README.md, then
-context/execution/vaccination-trigger-closure-parallel-handoff.md and
-context/execution/vaccination-pre-e2e-readiness-audit.md.
+Work in /Users/ravi/mesha/goatos. Read AGENTS.md, SKILLS.md,
+context/README.md, docs/phases/README.md, then these handoff docs:
+context/execution/vaccination-trigger-closure-parallel-handoff.md,
+context/execution/vaccination-pre-e2e-readiness-audit.md, and
+context/frontend/supplier-warmup-vaccination-gaps.md.
 
-Backend only. Do not edit admin-web UI except generated client artifacts.
+Backend only; frontend edits are limited to generated client artifacts. Do not
+rebuild existing createAdminGoat, bulk goat import, operations audit, eventbus
+outbox relay mode, procurement accepted-intake enqueue, or obligation-sweeper
+from scratch. Audit the current implementation and finish the documented
+pre-E2E gaps: Herd Register dependency contracts, source-entry supplier
+warmup/HF evidence/no-double-dose, accepted-intake/generation proof,
+SOP/proof/verification chain, operations audit/list-action semantics,
+config/SOP lookup gaps, backend interaction ledger, and local-to-Google
+component equivalence.
 
-Use the current working tree as the starting point: createAdminGoat, bulk
-preview/commit, operations audit, local eventbus outbox relay mode, procurement
-accepted-intake goat.created enqueue, and obligation-sweeper already exist. Do
-not rebuild them from scratch; audit and finish the missing trigger proof.
+Every visible frontend control in the approved slice must have a backend
+contract or an explicit disabled/future reason: cursor pagination, sort,
+filters, Clear all, page-size caps, idempotent action endpoints, audit writes,
+RBAC/scope checks, deterministic errors, replay behavior, and hot-path
+query-plan review. Preserve and run
+TestProcurementIdempotencyReserveSerializesConcurrentSameKey normally and under
+-race; add the remaining procurement replay/fingerprint tests called out in the
+doc.
 
-Primary goal: make a repeatable local command/API sequence prove the vaccination
-cascade from a newly created goat and from accepted-intake procurement, using
-Postgres as source of truth.
+Verification: go test ./..., focused -race for touched identity/procurement/
+obligation packages, generated-client check, migration/sqlc/query-plan checks
+where changed, local trigger runbook/script proof through Postgres -> relay/
+dispatcher -> generation -> sweeper -> proof/SOP -> verification -> read-model
+assertions, backend interaction ledger, and git diff hygiene.
 
-Tasks:
-
-1. Produce the backend half of the full interaction ledger for every backend-
-   backed control in the approved slice: route/control, OpenAPI operation,
-   query/action semantics, pagination/sort/filter contract, idempotency key,
-   audit event, RBAC/scope rule, and edge-case behavior. Cover nav/top-bar data
-   sources, table controls, done/toggle/status actions, clear/filter behavior,
-   exports disabled state, and all drawer/modal submits used by the frontend.
-2. Build the backend dependency closure for Herd Register, not only the create
-   endpoint: allowed park/shed/location lookup, breed/sex/stage/origin enums or
-   lookup contracts, identifier normalization/conflict responses, active/review/
-   inactive lifecycle filtering, bounded count summaries if used, row-to-Passport
-   data, audit links, and bulk preview/commit row errors. Use canonical GoatOS
-   tables and generated OpenAPI clients, not legacy Counting DB or old dashboard
-   shapes.
-3. Add or update an executable local trigger runbook/script:
-   migrations/seed -> API -> createAdminGoat or accepted-intake -> outbox relay
-   with `GOATOS_OUTBOX_PUBLISHER=eventbus` -> obligation-sweeper -> proof/SOP
-   submission path -> verification accept -> read-model assertions.
-4. Finish the seed pack so it contains everything the chain needs: tenant/grants
-   if needed, CBE park/shed or selected canonical shed, source-backed published
-   vaccination protocol, published vaccination SOP version, proof policy,
-   vaccine stock, sweeper actor, and any worker/env values. The existing
-   `seed-vaccination-trigger` is a start, not proof by itself.
-5. Add backend integration/smoke assertions that a clean admin-created goat
-   produces obligations, batches/SOP task, audit rows, and visible CT/AC/PA/WF/
-   Vaccination/Passport data after relay+sweeper. Rejected/unresolved
-   procurement goats must remain excluded.
-6. Add or verify server-side list/query behavior for every UI table in scope:
-   cursor pagination, page-size cap, stable ordering, whitelisted sort keys,
-   search/filter params, active/clear filter semantics, empty page after
-   mutation, invalid cursor/sort errors, and query plans for hot paths.
-7. Add or verify explicit state-transition endpoints for every `done`, `verify`,
-   `reject`, `request rework`, `accept`, `defer`, `block`, `publish`, `submit`,
-   `upload proof`, and `commit` action in the built slice. No generic ambiguous
-   PATCH endpoint should be the only documented behavior for these controls.
-8. Finish the procurement idempotency counter-review items that remain real:
-   include `selection_reason` and explicit `warmup_days` in the
-   `AddGoatToLoad` request fingerprint; keep server-defaulted values excluded
-   only when that is intentionally documented; add replay tests for same-key
-   different-payload cases. Do not chase the false empty-result race as a P1,
-   but keep the concurrent same-key reserve regression test and document any
-   remaining lock-timeout expectation for same-key in-flight writes.
-9. Clarify aggregate replay for `AcceptIntake`: either use the stored
-   idempotency `result_id` deliberately, or document/test that
-   `result_id = load_id` and replay returns the complete handoff set for that
-   load. Add rollback/commit replay coverage proving no partial handoff set can
-   be returned after accepted-intake retries.
-10. Add a backend-supported vaccination SOP lookup/list contract for the header
-   quick-view if `/vaccination` needs to find its linked SOP before E2E. Avoid a
-   hard `limit=200` + client-only filter contract for a million-goat tenant with
-   many SOPs.
-11. Document local-to-Google component equivalence before E2E: local Postgres vs
-   Cloud SQL, local eventbus/Pub/Sub emulator vs Pub/Sub topic/subscription/DLQ,
-   local relay vs worker/job, local sweeper vs Scheduler/job, local proof/media
-   adapter vs storage path, audit, secrets/IAM, observability, and load/query
-   checks. Verify and state VGoats account/org/project before any Google change.
-12. Clarify or change `procurement_phc_handoffs.event_status`: if it remains
-   "emitted", document it as outbox-enqueued only; add a separate success/failure
-   signal or audit/reconciliation assertion for downstream generation.
-13. If `/config` must show existing rules before E2E, add tenant/category protocol
-   list/read OpenAPI, backend, generated client, and tests.
-14. Add the supplier Holding Farm backend contract: source-goat purpose/
-   classification, purpose-specific warmup policy, HF vaccination dose import/
-   review/completion, trusted/untrusted/conflicting states, and imported
-   completion/history reconciliation so trusted HF doses do not double-dose.
-15. Regenerate clients and keep OpenAPI/generated diffs intentional.
-
-Verification:
-
-- `go test ./...`
-- `go test -race ./internal/procurement/adapters/postgres -run TestProcurementIdempotencyReserveSerializesConcurrentSameKey -count=1`
-- focused `-race` coverage for touched identity/obligation/procurement packages
-- focused integration proof for identity create, procurement accepted-intake,
-  relay eventbus delivery, sweeper, proof/SOP/verification, operations audit,
-  and process-integrity read models
-- backend interaction ledger proving every frontend-visible table/action/menu
-  data dependency has an API contract or an explicit disabled/export-future
-  reason
-- migration/query-plan checks for hot paths if changed
-- local-to-Google component equivalence table completed, with Google dev rows
-  verified or marked as exact VGoats approval blockers
-- `git diff --check`; for new untracked docs, use
-  `git diff --no-index --check /dev/null <path>`
-
-Stop before visual/Playwright E2E. Do not add WebSocket or MQTT for admin-web
-audit/activity updates; HTTP reads/refetch/bounded polling are enough for this
-slice.
+Stop before claiming visual or business E2E.
 ```
 
 ## Frontend Prompt
 
 ```text
-Read /Users/ravi/mesha/goatos/AGENTS.md, SKILLS.md,
-context/frontend/current-admin-web-scope.md, and
-context/execution/vaccination-trigger-closure-parallel-handoff.md.
+Work in /Users/ravi/mesha/goatos. Read apps/admin-web/AGENTS.md,
+context/frontend/current-admin-web-scope.md,
+context/execution/vaccination-trigger-closure-parallel-handoff.md,
+context/execution/vaccination-pre-e2e-readiness-audit.md,
+context/frontend/supplier-warmup-vaccination-gaps.md, and the latest
+mock/goatos-dashboard-mock.html.
 
-Frontend only. Do not edit backend contracts by hand; use generated clients. If
-a required contract is missing, leave the control disabled/empty with a blocker
-instead of inventing DTOs or local route handlers.
+Frontend only. Use generated clients only; do not invent DTOs, local route
+handlers, fixture arrays, fake totals, or client-only business mutations. Build
+only the approved vaccination-trigger slice: /counts/herd, /operations/audit,
+/procurement/source-entry and load detail, plus the existing vaccination,
+config, SOP, workflow, action/adherence, and passport controls needed to prove
+the cascade. Counts sidebar must expose only Herd Register.
 
-Use the latest mock at `/Users/ravi/mesha/goatos/mock/goatos-dashboard-mock.html`
-as the UI/UX source of truth. Build only what is needed for the vaccination
-trigger flow; keep all other mock surfaces hidden/removed unless an approved
-in-slice control needs an honest disabled state. Do not show unrelated Counts
-sidebar leaves as disabled placeholders.
+Before wiring, inventory every visible nav/top-bar/page/table/drawer/modal/
+history control and classify it as real-action, real-navigation, real-filter,
+disabled, or removed. Then wire only what the generated clients support:
+Herd Register create/bulk drawers and dependency setup, Operations Audit
+operation-axis filters/table/pagination/entity history, supplier warmup/HF
+evidence panel after backend contracts land, purpose-specific warmup copy, and
+read-only PHC evidence context. If a contract is missing, keep the control
+honestly disabled or empty with a blocker.
 
-Current starting point:
+Every table/control must cover filters, active chips, Clear all, sort, cursor
+pagination, page-size/first/last/empty/error states, row clicks, Escape/outside
+close, mobile drawer/footer reachability, loading/retry, double-click
+protection, and disabled future actions. Write the UI fidelity ledger with
+route, element, user action, classification, backend client/data, disabled
+reason, edge cases tested, and screenshot path.
 
-- `/counts/herd` reads real `/goats/search`, but `Register goat` and
-  `Import sheet` are disabled.
-- `/operations/audit` reads real list/summary endpoints and passes build gates,
-  but should be visually audited against the latest operation-axis audit mock.
-- `/procurement/source-entry` has a general skeleton, but not the mock's
-  supplier warmup/Holding Farm vaccination-evidence panel.
+Verification: check:mock-fidelity, typecheck, lint, build, live visual smoke
+when backend is running, manual/automated click ledger for the approved slice,
+and git diff hygiene.
 
-Tasks:
-
-1. Do a full control inventory before wiring: sidebar groups/leaves, mobile
-   drawer, top-bar scope/date/theme/notifications/profile menus, every page
-   header button, tab/subtab, search, filter, clear, active chip, sort header,
-   pagination control, row click, drawer/modal field, close/cancel/submit footer,
-   KPI/card click, history link, and disabled future control in `/`,
-   `/action-center`, `/protocol-adherence`, `/workflows`, `/vaccination`,
-   `/counts/herd`, `/operations/audit`, `/procurement/source-entry`, `/config`,
-   `/sops`, and `/goats/{goat_id}` where those routes are visible. Classify each
-   as `real-action`, `real-navigation`, `real-filter`, `disabled`, or `removed`.
-2. Wire table controls to backend semantics only: server search/filter/sort,
-   cursor pagination, page-size caps, `Clear all`, active filter chips, invalid
-   cursor recovery, empty page after mutation, first/last/one-page disabled
-   states, and URL/back/refresh preservation where expected. If the generated
-   client cannot express a table behavior, disable that control and record the
-   backend blocker.
-3. Build the basic dependency closure for `/counts/herd`: real park/shed/
-   location selectors, breed/sex/stage/origin choices, identifier conflict and
-   needs-review states, active/review/inactive row states, limited backend-backed
-   count cards if used, row-to-Passport links, and audit/history links. Keep
-   this inside Herd Register; do not create unrelated Counts modules, old
-   `/herd`, old import-review surfaces, or disabled sidebar leaves such as
-   Tagging & Identity / Weights & ADG.
-4. Wire `/counts/herd` Register goat drawer to generated `createAdminGoat` with
-   the mock field shape where possible: RFID, old tag, park/shed, breed, sex,
-   DOB, weight, dam, sire/lot, origin, evidence/photo URL. On success refresh
-   Herd, Audit, and vaccination process screens and show `generation_status`.
-5. Wire Bulk register goats drawer to generated preview/commit endpoints:
-   template/download copy, CSV paste/upload, preview rows, row errors, commit
-   valid rows, disabled `Create 0 records`, and partial success display.
-6. Finish `/operations/audit` against the latest mock: operation chips, KPI
-   cards, span/operator filtering, search/filter form, cursor paging, proof
-   coverage/anomaly states, entity-history links to `/operations/audit?...`, and
-   export disabled until a backend export exists. Use Operations-facing
-   breadcrumb/navigation copy and valid disabled semantics such as
-   `aria-disabled="true"` for non-button disabled affordances.
-7. Wire the `/vaccination` SOP quick-view to a backend-supported vaccination SOP
-   lookup/list contract when available. Do not rely on `listSops({ limit: 200 })`
-   plus client-side vaccination filtering as the final behavior; if the backend
-   contract is missing, show the current honest disabled/error state and record
-   the blocker.
-8. Once backend generates contracts, build the Procurement supplier warmup panel
-   and Load Detail actions from generated clients only. Match the mock columns:
-   Load, Holding farm/supplier, Purpose, Animals, Warmup, Tagging, Vaccination at
-   HF, Health/selection, Status. Actions stay under Procurement -> Source Entry;
-   PHC/Vaccination may show only read-only imported evidence after accepted
-   intake.
-9. Remove universal 45-70 copy once backend exposes purpose/classification:
-   breeding 45-70, fattening/non-breeding 0 days or around 2 weeks, same-day
-   possible when classified that way.
-10. Make all menus and local UI state reliable: outside click and Escape close
-   menus/drawers, mobile scrim closes nav, footer actions stay reachable on
-   narrow screens, disabled controls have title/aria reason, loading/error/retry
-   states are visible, and double-clicking submit/toggle/done actions cannot
-   create duplicate work.
-11. Re-check route governance after wiring: `apps/admin-web/AGENTS.md` and
-   `context/frontend/current-admin-web-scope.md` must still list `/counts/herd`,
-   `/operations/audit`, `/procurement/source-entry`, and
-   `/procurement/source-entry/loads/{load_id}` as scoped active surfaces, and
-   must still keep unrelated Counts modules, old `/herd`, old Operations, and
-   old dashboard surfaces removed.
-12. Classify every visible click/control as `real-action`, `real-navigation`,
-   `real-filter`, `disabled`, or `removed`; write the UI fidelity ledger with
-   route, element, user action, backend data/client, state model, disabled
-   reason, edge cases tested, and screenshot path.
-
-Verification:
-
-- `npm --prefix apps/admin-web run check:mock-fidelity`
-- `npm --prefix apps/admin-web run typecheck`
-- `npm --prefix apps/admin-web run lint`
-- `npm --prefix apps/admin-web run build`
-- when backend is running, `npm --prefix apps/admin-web run smoke:visual:live`
-  and manually inspect desktop/narrow/mobile screenshots
-- manual or automated click ledger for every visible menu/control/table/action
-  in the approved slice, including pagination, sort, clear, done/toggle/status
-  actions, disabled future buttons, drawer close/cancel/submit, and entity links
-- `git diff --check`; for new untracked docs, use
-  `git diff --no-index --check /dev/null <path>`
-
-Stop before claiming E2E. Do not add browser WebSocket or MQTT; use generated
-client reads, refetch after mutations, manual refresh, or bounded visible-page
-polling only if product needs near-live updates.
+Stop before claiming E2E.
 ```

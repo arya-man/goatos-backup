@@ -54,6 +54,7 @@ Screenshots/
 # local agent/render scratch
 .codex-goatos-render/
 .codex-visual/
+.codex-exports/
 **/.claude/launch.json
 .code-review-graph/
 
