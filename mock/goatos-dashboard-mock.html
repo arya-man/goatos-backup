@@ -369,6 +369,9 @@
   .spanmore{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:9px 2px 2px}
   .spanmore button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:5px 11px;font:inherit;font-weight:650;font-size:12px;color:var(--ink);cursor:pointer}
   .spanmore button:hover{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
+  .oppop{border:1px solid color-mix(in srgb,var(--brand) 30%,var(--line));border-radius:var(--r);background:var(--panel);box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden}
+  .oppop[hidden]{display:none}
+  .oppop .auditops{max-height:380px}
   .chain{display:flex;align-items:stretch;gap:0;overflow:auto;padding:2px}
   .cstep{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative;margin-right:22px}
   .cstep:last-child{margin-right:0}
@@ -1715,10 +1718,12 @@
         <div class="subtabs" id="auditViewers" style="margin-bottom:12px"></div>
         <div class="opf" id="auditOps"></div>
         <div class="wftoolbar" id="auditTools" style="margin-bottom:14px"></div>
-        <div class="grid g2" style="grid-template-columns:288px 1fr">
-          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Span of control</h3><div class="sp"></div><span class="pill" id="auditScope"></span></div><div class="spansearch"><input id="auditSpanSearch" placeholder="Filter operators…" oninput="auditSpanQ=this.value;auditRefreshRows()"></div><div class="bd feed auditops" id="auditSpan"></div></div>
-          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><div id="auditPagerTop" class="pager2" style="border-top:0;border-bottom:1px solid var(--line2)"></div><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div id="auditPager" class="pager2"></div><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; tap an operator (left) to filter the trail to their actions.</div></div></div>
+        <div id="auditOpPop" class="oppop" hidden>
+          <div class="hd" style="padding:11px 14px"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Span of control <span class="muted small" style="font-weight:600">— scoped to your hierarchy · tap to filter</span></h3><div class="sp"></div><span class="pill" id="auditScope"></span><button class="btn sm" style="margin-left:8px" onclick="auditToggleOpPop()"><svg class="ic" style="width:13px"><use href="#i-x"/></svg>Done</button></div>
+          <div class="spansearch"><input id="auditSpanSearch" placeholder="Filter operators…" oninput="auditSpanQ=this.value;auditSpanShow=SPAN_PAGE;auditRefreshRows()"></div>
+          <div class="bd feed auditops" id="auditSpan"></div>
         </div>
+        <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><div id="auditPagerTop" class="pager2" style="border-top:0;border-bottom:1px solid var(--line2)"></div><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div id="auditPager" class="pager2"></div><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; use the <b>Operators</b> filter to scope the trail to specific people.</div></div></div>
       </div>
       <div class="subpanel" data-sub="penalties">
         <div class="phead"><div><div class="crumb">Team / <b>Penalties</b></div><h1>Discipline · 3-strike</h1></div><div class="sp"></div><span class="tag t-mut">Warning → PIP → Termination</span><button class="btn p" onclick="openForm('penalty')"><svg class="ic"><use href="#i-plus"/></svg>Issue penalty</button></div>
@@ -3595,6 +3600,7 @@ function auditMatch(r){
  return true;}
 function auditToggleOp(op){if(auditSel.has(op))auditSel.delete(op);else auditSel.add(op);auditPage=0;auditRefreshRows();}
 function auditClearOps(){auditSel.clear();auditPage=0;auditRefreshRows();}
+function auditToggleOpPop(){var p=document.getElementById('auditOpPop');if(!p)return;var open=p.hasAttribute('hidden');if(open)p.removeAttribute('hidden');else p.setAttribute('hidden','');var b=document.getElementById('auditOpBtn');if(b)b.classList.toggle('on',open);if(open){var s=document.getElementById('auditSpanSearch');if(s)s.focus();}}
 function auditResetFilters(){auditOper='all';auditStatus='all';auditAnom=false;auditSel.clear();auditQ='';auditSpanQ='';auditSpanShow=SPAN_PAGE;renderAudit();}
 function auditSetStatus(s){auditStatus=(auditStatus===s)?'all':s;auditAnom=false;renderAudit();}
 function auditOpChip(k){var o=OPS[k]||OPS.admin;return '<span class="opcell"><span class="oc" style="background:'+o.bg+';color:'+o.c+'"><svg class="ic"><use href="#'+o.ic+'"/></svg></span>'+o.label.replace(/ & /g,' &amp; ')+'</span>';}
@@ -3645,6 +3651,7 @@ function auditRefreshRows(){
  setTxt('auditKpiProof',(pf.length?Math.round(pfok/pf.length*100):100));
  setTxt('auditAnomN',nfmt(base.filter(function(r){return r.an;}).length));
  var sc=document.getElementById('auditScope');if(sc){var basePart=(auditSpanQ&&team.length!==teamTotal)?(nfmt(team.length)+' of '+nfmt(teamTotal)):((v.sees==='*')?(nfmt(teamTotal)+' operators'):(nfmt(teamTotal)+' in span'));sc.innerHTML=(auditSel.size?'<b style="color:var(--brand-d)">'+nfmt(auditSel.size)+' selected</b> <a href="#" onclick="auditClearOps();return false" style="color:var(--brand-d);font-weight:700">clear</a> · ':'')+basePart;}
+ var obN=document.getElementById('auditOpBtnN');if(obN){obN.textContent=nfmt(auditSel.size);obN.style.display=auditSel.size?'':'none';}var obB=document.getElementById('auditOpBtn');if(obB)obB.classList.toggle('p',auditSel.size>0);
  var tm=document.getElementById('auditTrailMeta');if(tm)tm.textContent=nfmt(total)+' event'+(total===1?'':'s')+(auditOper!=='all'&&OPS[auditOper]?' · '+OPS[auditOper].label:'')+(auditSel.size?' · '+nfmt(auditSel.size)+' operator'+(auditSel.size>1?'s':''):'')+(auditStatus!=='all'?' · '+auditStatus:'');
 }
 function r0_role(op){for(var i=0;i<AUDIT.length;i++){if(AUDIT[i].op===op&&AUDIT[i].ro)return AUDIT[i].ro;}return '';}
@@ -3661,6 +3668,7 @@ function renderAudit(){
  var tools=document.getElementById('auditTools');
  if(tools){tools.innerHTML='<div class="tsearch" style="max-width:300px"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="auditSearch" placeholder="Search action, operator, ID…" value="'+auditQ.replace(/"/g,'&quot;')+'" oninput="auditQ=this.value;auditPage=0;auditRefreshRows()"></div>'+
    '<div class="subtabs" style="margin:0"><button class="'+(auditStatus==='all'?'on':'')+'" onclick="auditStatus=\'all\';renderAudit()">All results</button><button class="'+(auditStatus==='awaiting'?'on':'')+'" onclick="auditStatus=\'awaiting\';renderAudit()">Awaiting</button><button class="'+(auditStatus==='rejected'?'on':'')+'" onclick="auditStatus=\'rejected\';renderAudit()">Rejected</button><button class="'+(auditStatus==='noproof'?'on':'')+'" onclick="auditStatus=\'noproof\';renderAudit()">Proof gaps</button></div>'+
+   '<button id="auditOpBtn" class="btn sm" type="button" title="filter the trail by operator (span of control)" onclick="auditToggleOpPop()"><svg class="ic" style="width:13px"><use href="#i-people"/></svg>Operators<span class="cbq" id="auditOpBtnN" style="display:none"></span></button>'+
    '<span class="sp" style="flex:1"></span>'+
    '<button class="btn sm'+(auditAnom?' p':'')+'" type="button" onclick="auditAnom=!auditAnom;renderAudit()"><svg class="ic" style="width:13px"><use href="#i-warn"/></svg>Anomalies only</button>';}
  auditRefreshRows();
