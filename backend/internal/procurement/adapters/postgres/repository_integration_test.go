@@ -719,6 +719,62 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 			t.Fatalf("replay returned different result: first=%s replay=%s", first.HealthCheckID, replay.HealthCheckID)
 		}
 	})
+
+	t.Run("DispatchLoad", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "idem-dispatch-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-DISPATCH"),
+			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-dispatch-goat",
+		})
+		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
+			CheckedAt: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC), IdempotencyKey: "idem-dispatch-health",
+		}); err != nil {
+			t.Fatalf("health pass: %v", err)
+		}
+		if _, err := repo.RecordDecision(ctx, ports.Decision{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, DecisionStage: "pre_dispatch",
+			DecisionType: domain.DecisionAccepted, DecidedAt: time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC),
+			IdempotencyKey: "idem-dispatch-decision",
+		}); err != nil {
+			t.Fatalf("decision accept: %v", err)
+		}
+		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000401", "idem-dispatch-proof")
+		in := ports.DispatchLoad{
+			TenantID: testTenant, LoadID: load.LoadID, ToLocationID: testPark, ProofRefID: &proofID,
+			DispatchedAt: time.Date(2026, 6, 3, 11, 0, 0, 0, time.UTC), IdempotencyKey: "idem-dispatch",
+		}
+		first, err := repo.DispatchLoad(ctx, in)
+		if err != nil {
+			t.Fatalf("first DispatchLoad: %v", err)
+		}
+		v1 := loadGoatVersion(load.LoadID, goat.GoatID)
+
+		// Exact replay (even with a server-jittered dispatched_at) returns the original handoff, no side effects.
+		replayIn := in
+		replayIn.DispatchedAt = in.DispatchedAt.Add(40 * time.Minute)
+		replay, err := repo.DispatchLoad(ctx, replayIn)
+		if err != nil {
+			t.Fatalf("replay DispatchLoad: %v", err)
+		}
+		if replay.HandoffID != first.HandoffID {
+			t.Fatalf("replay returned different handoff: first=%s replay=%s", first.HandoffID, replay.HandoffID)
+		}
+		if v2 := loadGoatVersion(load.LoadID, goat.GoatID); v2 != v1 {
+			t.Fatalf("replay mutated state: row_version %d -> %d", v1, v2)
+		}
+
+		// Same key, different payload (different proof) must be rejected without mutating state.
+		proof2 := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000402", "idem-dispatch-proof-2")
+		bad := in
+		bad.ProofRefID = &proof2
+		if _, err := repo.DispatchLoad(ctx, bad); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
+		}
+		if v3 := loadGoatVersion(load.LoadID, goat.GoatID); v3 != v1 {
+			t.Fatalf("conflict mutated state: row_version %d -> %d", v1, v3)
+		}
+	})
 }
 
 func seedProcurementCommon(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

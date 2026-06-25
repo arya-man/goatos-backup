@@ -601,13 +601,24 @@ func (r *Repository) DispatchLoad(ctx context.Context, in ports.DispatchLoad) (d
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if strings.TrimSpace(in.IdempotencyKey) != "" {
-		handoff, found, lookupErr := findTransitHandoffByIdempotency(ctx, tx, in.TenantID, in.IdempotencyKey)
-		if lookupErr != nil {
-			return domain.TransitHandoff{}, lookupErr
+	const scope = "procurement.dispatch"
+	// DispatchedAt is server-defaulted to now() when omitted (service.go) and is excluded; the goat list is
+	// order-normalized so the same set in any order is the same request.
+	dispatchGoats := append([]string(nil), in.GoatIDs...)
+	sort.Strings(dispatchGoats)
+	fingerprint := requestFingerprint(
+		in.TenantID, in.LoadID, stringPtrValue(in.FromLocationID), in.ToLocationID,
+		stringPtrValue(in.ProofRefID), fpTime(in.ArrivedAt), strings.Join(dispatchGoats, ","),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.TransitHandoff{}, rerr
 		}
-		if found {
-			return handoff, nil
+		if !res.proceed {
+			// Replay of an already-recorded dispatch: return the original handoff, run NO side effects.
+			_ = tx.Rollback(ctx)
+			return r.getTransitHandoffByID(ctx, in.TenantID, res.resultID)
 		}
 	}
 
@@ -718,6 +729,11 @@ SET status = $3, updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		in.TenantID, in.LoadID, loadStatus); err != nil {
 		return domain.TransitHandoff{}, fmt.Errorf("procurement: update dispatch status: %w", err)
+	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, scope, key, "procurement_transit_handoff", handoff.HandoffID); err != nil {
+			return domain.TransitHandoff{}, fmt.Errorf("procurement: complete dispatch idempotency: %w", err)
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.TransitHandoff{}, err
@@ -1381,20 +1397,14 @@ func scanTransit(row scanner) (domain.TransitHandoff, error) {
 	return out, nil
 }
 
-func findTransitHandoffByIdempotency(ctx context.Context, tx pgx.Tx, tenantID, idempotencyKey string) (domain.TransitHandoff, bool, error) {
-	handoff, err := scanTransit(tx.QueryRow(ctx, `
+// getTransitHandoffByID re-reads a previously created transit handoff for an idempotent DispatchLoad replay.
+func (r *Repository) getTransitHandoffByID(ctx context.Context, tenantID, handoffID string) (domain.TransitHandoff, error) {
+	return scanTransit(r.pool.QueryRow(ctx, `
 SELECT handoff_id::text, tenant_id::text, load_id::text, from_location_id::text,
        to_location_id::text, loaded_count, dispatched_at, arrived_at, proof_ref_id::text,
        discrepancy_state, status, created_at, updated_at, row_version
 FROM transit_handoffs
-WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, idempotencyKey))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.TransitHandoff{}, false, nil
-	}
-	if err != nil {
-		return domain.TransitHandoff{}, false, fmt.Errorf("procurement: lookup transit handoff idempotency: %w", err)
-	}
-	return handoff, true, nil
+WHERE tenant_id = $1::uuid AND handoff_id = nullif($2::text, '')::uuid`, tenantID, handoffID))
 }
 
 func scanArrivalReview(row scanner) (domain.ArrivalReview, error) {
