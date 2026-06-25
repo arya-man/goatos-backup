@@ -10,11 +10,13 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   Database,
   HeartPulse,
   Menu,
   MapPin,
   Moon,
+  ScrollText,
   Sun,
   TowerControl,
   Truck,
@@ -24,7 +26,10 @@ import {
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 
-type Leaf = { label: string; href: string };
+// A nav leaf. `disabled` leaves are mock-fidelity placeholders for sidebar leaves that exist in the mock's
+// long-term map but are NOT in the current vaccination-trigger build slice — rendered as non-clickable
+// labels with an honest reason, never as dead links.
+type Leaf = { label: string; href: string; disabled?: boolean; reason?: string };
 type Group = { id: string; label: string; icon: React.ElementType; defaultOpen?: boolean; leaves: Leaf[] };
 type RoleLens = { id: string; name: string; scope: string; description: string; superadmin?: boolean };
 
@@ -81,6 +86,21 @@ const groups: Group[] = [
     leaves: [{ label: "Source Entry", href: "/procurement/source-entry" }],
   },
   {
+    // Counts = its OWN vertical. Goat identity creation/import lives here (Herd Register), NOT under
+    // PHC / Vaccination. Herd Register emits goat.created, which is the real business entry point for the
+    // vaccination cascade. Tagging & identity / Weights & ADG are mock-map placeholders, disabled until
+    // their own slice is approved (vaccination-trigger closure scope is Herd Register only).
+    id: "counts",
+    label: "Counts",
+    icon: ClipboardList,
+    defaultOpen: false,
+    leaves: [
+      { label: "Herd Register", href: "/counts/herd" },
+      { label: "Tagging & identity", href: "/counts/tagging", disabled: true, reason: "Not in the current vaccination-trigger slice. Herd Register is the only active Counts surface." },
+      { label: "Weights & ADG", href: "/counts/weights", disabled: true, reason: "Not in the current vaccination-trigger slice. Herd Register is the only active Counts surface." },
+    ],
+  },
+  {
     id: "admin-data",
     label: "Admin / Data Ops",
     icon: Database,
@@ -90,9 +110,19 @@ const groups: Group[] = [
       { label: "SOP Library", href: "/sops" },
     ],
   },
+  {
+    // Operations = cross-cutting operator/admin/system audit. Audit is no longer a per-pillar mini screen;
+    // it is one Operations audit surface for every action that produced vaccination (and other) state.
+    id: "operations",
+    label: "Operations",
+    icon: ScrollText,
+    defaultOpen: false,
+    leaves: [{ label: "Audit Log", href: "/operations/audit" }],
+  },
 ];
 
-const allHrefs: string[] = [...primary, ...groups.flatMap((g) => g.leaves)].map((l) => l.href);
+// Disabled placeholder leaves are not navigable, so they never count toward active-route matching.
+const allHrefs: string[] = [...primary, ...groups.flatMap((g) => g.leaves.filter((l) => !l.disabled))].map((l) => l.href);
 
 // Business date for the top bar. MUST be the operating-tenant timezone (IST, Asia/Kolkata) — using UTC
 // (`toISOString`) shows yesterday after midnight IST (e.g. 00:12 IST = previous UTC day). en-CA gives a
@@ -282,7 +312,14 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
         >
           {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
         </button>
-        <button type="button" className="iconbtn" title="Notifications" aria-label="Notifications">
+        <button
+          type="button"
+          className="iconbtn"
+          title="Notifications are not wired in this admin-web slice yet."
+          aria-label="Notifications are not wired in this admin-web slice yet"
+          disabled
+          style={{ opacity: 0.45, cursor: "not-allowed" }}
+        >
           <Bell className="ic" />
         </button>
         <div className="userpick" data-menu-root>
@@ -366,16 +403,28 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
                   <ChevronRight className="ic chev" />
                 </div>
                 <div className={`subnav ${open ? "open" : ""}`}>
-                  {g.leaves.map((l) => (
-                    <Link
-                      key={l.href}
-                      href={l.href}
-                      className={`leaf ${active === l.href ? "on" : ""}`}
-                      onClick={() => setNavOpen(false)}
-                    >
-                      {l.label}
-                    </Link>
-                  ))}
+                  {g.leaves.map((l) =>
+                    l.disabled ? (
+                      <span
+                        key={l.href}
+                        className="leaf"
+                        aria-disabled="true"
+                        title={l.reason}
+                        style={{ opacity: 0.4, cursor: "not-allowed" }}
+                      >
+                        {l.label}
+                      </span>
+                    ) : (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        className={`leaf ${active === l.href ? "on" : ""}`}
+                        onClick={() => setNavOpen(false)}
+                      >
+                        {l.label}
+                      </Link>
+                    ),
+                  )}
                 </div>
               </div>
             );

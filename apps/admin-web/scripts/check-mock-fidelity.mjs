@@ -20,6 +20,8 @@ const SCAN_PATHS = [
   "features/config",
   "features/goat-passport",
   "features/sops",
+  "features/counts",
+  "features/operations-audit",
   "app/(admin)/page.tsx",
   "app/(admin)/layout.tsx",
   "app/(admin)/action-center",
@@ -30,6 +32,8 @@ const SCAN_PATHS = [
   "app/(admin)/procurement",
   "app/(admin)/config",
   "app/(admin)/sops",
+  "app/(admin)/counts",
+  "app/(admin)/operations",
   "app/(admin)/goats",
   "app/login",
 ];

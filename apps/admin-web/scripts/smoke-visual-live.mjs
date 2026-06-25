@@ -50,6 +50,8 @@ const routes = [
   { name: "vaccination-execution", path: "/vaccination#execution" },
   { name: "config", path: "/config?category=vaccination" },
   { name: "sops", path: "/sops" },
+  { name: "counts-herd", path: "/counts/herd" },
+  { name: "operations-audit", path: "/operations/audit" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];
 
