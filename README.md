@@ -194,6 +194,41 @@ starts Mesha admin-web on `127.0.0.1:3300`. If the browser shows
 `401 invalid_bearer_token`, restart through this command instead of reusing an
 old shell token.
 
+## Pushing To The Repo (Git Auth)
+
+This repo lives at `github.com/vgoats/goatos` under the Mesha/VGoats org. Push
+with a personal access token in an env var, not whatever `gh` account happens to
+be logged in (a machine may also carry unrelated org accounts).
+
+1. Create your own GitHub PAT with write access to `vgoats/goatos`
+   (fine-grained: repo contents read/write on `vgoats/goatos`; or a classic
+   token with `repo` scope). Each dev uses their own token — never share one.
+2. Export it from your shell profile (`~/.zshrc` / `~/.bashrc`) so it is present
+   in interactive shells. Never commit or echo the token value.
+
+   ```bash
+   export MESHA_GITHUB_PAT="<your-token>"
+   ```
+
+3. Add the `mesha-push` git alias once (injects the token at push time and
+   updates the `origin/main` tracking ref):
+
+   ```bash
+   git config --global alias.mesha-push '!f() { \
+     url="https://x-access-token:${MESHA_GITHUB_PAT}@github.com/vgoats/goatos.git"; \
+     git push "$url" "${1:-main}" && \
+     git fetch "$url" "${1:-main}:refs/remotes/origin/${1:-main}"; }; f'
+   ```
+
+4. Push:
+
+   ```bash
+   git mesha-push main
+   ```
+
+If `MESHA_GITHUB_PAT` is unset the alias fails fast. The plain `origin` URL will
+404/401 without the token — that is expected; use `git mesha-push`.
+
 ## Local Development Storage
 
 Daily Goat OS development runs locally with Docker Postgres, tests, and small

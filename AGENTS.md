@@ -259,6 +259,11 @@ Do not:
   `apps/admin-web/AGENTS.md` → "Local Dev Server Safety" for the full rule. This
   applies to every agent (Codex and Claude).
 - Do not reintroduce old staging labels as architecture.
+- Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
+  `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the
+  `.code-review-graph/` DB are gitignored and machine-regenerated locally. Commit
+  ONLY the generation skills/scripts (`tools/agent-hooks/*.sh`, the graphify
+  skill) — never the graph artifacts themselves.
 - Do not let frontend/mobile read BigQuery, Sheets, Firestore, GCS, or operational databases directly.
 - Do not spread vendor SDK calls through product code.
 - Do not modify current live dashboard repos while building Goat OS copies.
