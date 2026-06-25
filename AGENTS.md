@@ -293,3 +293,16 @@ Workflow documentation expectation:
   same change.
 - The runbook must explain what each workflow does, when it runs, what temporary
   services it starts, and what common failures mean.
+
+Mock auto-push expectation (Codex AND Claude):
+
+- Standing order from Ravi (2026-06-25): whenever you edit the ops-console mock
+  `mock/goatos-dashboard-mock.html`, commit and push it IMMEDIATELY — do not wait
+  for confirmation. Ravi reviews the pushed/Netlify build and repeatedly hit
+  stale builds when changes sat unpushed.
+- Run `tools/agent-hooks/push-mock.sh` after editing the mock (Claude also wires
+  it to a Stop hook). The script commits ONLY the mock file and pushes `main` via
+  `git mesha-push` — it never `git add -A`, so unrelated in-flight work is left
+  untouched. It no-ops when the mock is clean.
+- This applies only to the mock. Other code/doc changes follow the normal
+  review-and-push flow.
