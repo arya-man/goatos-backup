@@ -305,10 +305,9 @@ Workflow documentation expectation:
 
 Mock auto-push expectation (Codex AND Claude):
 
-- Standing order from Ravi (2026-06-25): whenever you edit the ops-console mock
+- Standing order (2026-06-25): whenever you edit the ops-console mock
   `mock/goatos-dashboard-mock.html`, commit and push it IMMEDIATELY — do not wait
-  for confirmation. Ravi reviews the pushed/Netlify build and repeatedly hit
-  stale builds when changes sat unpushed.
+  for confirmation, so the pushed copy is never behind local edits.
 - Run `tools/agent-hooks/push-mock.sh` after editing the mock (Claude also wires
   it to a Stop hook). The script commits ONLY the mock file and pushes `main` via
   `git mesha-push` — it never `git add -A`, so unrelated in-flight work is left
