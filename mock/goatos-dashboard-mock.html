@@ -351,6 +351,20 @@
   .opcell .oc .ic{width:12px;height:12px}
   .auditops .fitem.on{background:var(--brand-soft);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:8px;border-bottom-color:transparent}
   .pcell{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:650}
+  .auditops{max-height:560px;overflow:auto}
+  .auditops .fitem{padding-left:2px;padding-right:2px}
+  .auditops .fitem .tx{min-width:0}
+  .auditops .fitem .tx b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .auditops .fitem .mt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #auditRows .trc{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #auditRows .trc.act{max-width:300px}#auditRows .trc.opn{max-width:140px}#auditRows .trc.tgt{max-width:150px}
+  .spansearch{margin:8px 14px 2px}
+  .spansearch input{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 10px;font:inherit;color:var(--ink);outline:0}
+  .pager2{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--line2);flex-wrap:wrap}
+  .pager2 .pgmeta{margin-right:auto;color:var(--muted);font-size:12px;font-weight:600}
+  .pager2 select{border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:4px 6px;font:inherit;font-size:12px;color:var(--ink)}
+  .pager2 button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:5px 11px;font:inherit;font-weight:650;font-size:12px;color:var(--ink);cursor:pointer}
+  .pager2 button:disabled{opacity:.4;cursor:default}
   .chain{display:flex;align-items:stretch;gap:0;overflow:auto;padding:2px}
   .cstep{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:12px;position:relative;margin-right:22px}
   .cstep:last-child{margin-right:0}
@@ -1698,8 +1712,8 @@
         <div class="opf" id="auditOps"></div>
         <div class="wftoolbar" id="auditTools" style="margin-bottom:14px"></div>
         <div class="grid g2" style="grid-template-columns:288px 1fr">
-          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Span of control</h3><div class="sp"></div><span class="pill" id="auditScope"></span></div><div class="bd feed auditops" id="auditSpan"></div></div>
-          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; tap an operator (left) to filter the trail to their actions.</div></div></div>
+          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-people"/></svg><h3>Span of control</h3><div class="sp"></div><span class="pill" id="auditScope"></span></div><div class="spansearch"><input id="auditSpanSearch" placeholder="Filter operators…" oninput="auditSpanQ=this.value;auditRefreshRows()"></div><div class="bd feed auditops" id="auditSpan"></div></div>
+          <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div id="auditPager" class="pager2"></div><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; tap an operator (left) to filter the trail to their actions.</div></div></div>
         </div>
       </div>
       <div class="subpanel" data-sub="penalties">
@@ -2432,7 +2446,7 @@ var CUR_OP='R. Teja';
 function fLabel(lbl){var fb=document.getElementById('formBody');if(!fb)return '';var L=fb.querySelectorAll('label');lbl=lbl.toLowerCase();for(var i=0;i<L.length;i++){var t=(L[i].textContent||'').trim().toLowerCase();if(t===lbl||t.indexOf(lbl)===0){var f=L[i].parentNode.querySelector('input,select,textarea');if(f)return (f.value||'').trim();}}return '';}
 function fChip(lbl){var fb=document.getElementById('formBody');if(!fb)return '';var L=fb.querySelectorAll('label');lbl=lbl.toLowerCase();for(var i=0;i<L.length;i++){var t=(L[i].textContent||'').trim().toLowerCase();if(t===lbl||t.indexOf(lbl)===0){var c=L[i].parentNode.querySelector('.chip.on');if(c)return (c.textContent||'').trim();}}return '';}
 function inferType(x){x=''+(x||'');if(/^CBE|^CPT/.test(x))return 'goat';if(/^ET-|^t-/.test(x))return 'task';if(/^SO-/.test(x))return 'sale';if(/shed|Yashoda 2|Yashoda|ICU|K0|K1|K2|K3|F2|Mother|Milking|Breeding|Quarantine/i.test(x))return 'shed';return '';}
-function logEvent(o){var d=new Date();var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);var res=o.res||'done';var st=o.st||(o.an?'anomaly':(/await/i.test(res)?'awaiting':(/reject/i.test(res)?'rejected':'logged')));var e={t:hh+':'+mm,op:o.op||CUR_OP,ro:o.ro||'',act:o.act,tgt:o.tgt||o.id||'—',shed:o.shed||'—',res:res,rc:o.rc||'t-ok',an:o.an||0,type:o.type||inferType(o.tgt||o.id||''),id:(o.id||o.tgt||''),pillar:o.pillar||'',proof:o.proof||'',st:st,pk:o.pk||((typeof scopeSel!=='undefined'&&scopeSel.size)?[...scopeSel][0]:'CBE')};e.oper=o.oper||(typeof auditOperOf==='function'?auditOperOf(e):'admin');AUDIT.unshift(e);if(typeof renderAudit==='function')renderAudit();return e;}
+function logEvent(o){var d=new Date();var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);var res=o.res||'done';var st=o.st||(o.an?'anomaly':(/await/i.test(res)?'awaiting':(/reject/i.test(res)?'rejected':'logged')));var e={t:hh+':'+mm,op:o.op||CUR_OP,ro:o.ro||'',act:o.act,tgt:o.tgt||o.id||'—',shed:o.shed||'—',res:res,rc:o.rc||'t-ok',an:o.an||0,type:o.type||inferType(o.tgt||o.id||''),id:(o.id||o.tgt||''),pillar:o.pillar||'',proof:o.proof||'',st:st,pk:o.pk||((typeof scopeSel!=='undefined'&&scopeSel.size)?[...scopeSel][0]:'CBE')};e.oper=o.oper||(typeof auditOperOf==='function'?auditOperOf(e):'admin');window.AUD_SEQ=(window.AUD_SEQ||0)+1;e.ts=2e9+window.AUD_SEQ;e.dl='';AUDIT.unshift(e);if(AUDIT.length>3000)AUDIT.pop();if(typeof auditPage!=='undefined')auditPage=0;if(typeof renderAudit==='function')renderAudit();return e;}
 function auditAdd(act,tgt,res,rc){return logEvent({act:act,tgt:tgt,res:res,rc:rc});}
 var HISTGEN={
  goat:function(id){return [{t:'today 06:38',act:'Birth report — registered',res:'2 IDs assigned · lineage linked',rc:'t-ok',op:'A. Kumar'},{t:'2d ago',act:'Shifted K0 → K1',res:'destination video verified',rc:'t-ok',op:'R. Anand'},{t:'5d ago',act:'Weight recorded',res:'ADG recomputed',rc:'t-ok',op:'Growth Asst'},{t:'8d ago',act:'PPR vaccination',res:'−1 dose · FEFO · verified',rc:'t-ok',op:'S. Raj'},{t:'2wk ago',act:'Dual-ID tagging',res:'RFID + ear-tag',rc:'t-ok',op:'Health Asst'}];},
@@ -3519,10 +3533,40 @@ const AUDIT=[
  {t:'02:30',oper:'hr',    op:'HR Lead',      ro:'HR',                   act:'Issued penalty — Strike 2 · PIP',   tgt:'K. Murthy', shed:'—',        res:'logged with HR',            rc:'t-warn',proof:'',     st:'logged',type:'operator'},
  {t:'02:10',oper:'hr',    op:'A. Kumar',     ro:'Health Mgr · CBE',     act:'Submitted EOD report',              tgt:'Health vertical',shed:'—',   res:'on time',                   rc:'t-ok',  proof:'',     st:'verified'}
 ];
-AUDIT.forEach(function(r){if(!r.type)r.type=inferType(r.tgt);if(r.id==null)r.id=r.tgt;if(r.proof==null)r.proof='';if(!r.oper)r.oper=auditOperOf(r);if(!r.st)r.st=(r.an?'anomaly':'logged');if(!r.pk)r.pk='CBE';if(!r.ro)r.ro='';});
+// Synthetic scale: a real-world farm logs thousands of actions across 100+ operators & 5 parks.
+// Generate deterministically so pagination + span-rail scaling are demonstrable (no Math.random/Date).
+function genAuditScale(){
+ var SUR=['Kumar','Reddy','Naidu','Rao','Devi','Raj','Babu','Latha','Anand','Murthy','Nair','Pillai','Das','Singh','Gowda','Shetty','Patil','Bhat','Menon','Iyer','Khan','Banu','Prasad','Varma','Kiran','Suresh','Ramesh','Mahesh','Lakshmi','Gita'];
+ var INI='ABCDEFGHJKLMNPRSTVY';
+ var ROLE=[['Health worker','health'],['Para-vet','health'],['Feed Asst','feed'],['Breeding op','breed'],['PHC op','move'],['Data-Ops clerk','admin'],['Procurement Asst','proc'],['Stores Asst','stock'],['HR Asst','hr'],['Vaccinator','vacc']];
+ var PKS=['CBE','CPT','GKL','RJ','BHP'];
+ var pool=[];for(var i=0;i<120;i++){var rr=ROLE[i%ROLE.length];pool.push({op:INI[i%INI.length]+'. '+SUR[(i*7+3)%SUR.length]+(i>=INI.length*1?(' '+(1+(i%4))):''),ro:rr[0],fam:rr[1],pk:PKS[i%PKS.length]});}
+ var ACT={vacc:['PPR dose administered','Enterotox dose administered','FMD booster administered','Recorded vaccination'],health:['Raised diagnosis report','Drew medicine from stock','Verified treatment → complete','Deworming dose administered','Post-mortem recorded'],feed:['Logged feed delivery','Edited feed direction','Recorded consumption','Flagged feed quality'],breed:['AI logged — semen lot','Colostrum session','Submitted birth report','Pregnancy scan logged','Weaning recorded'],move:['Census count','Raised shifting','Sanitation + footwear wash','Quarantine entry logged'],proc:['Goat intake — load','Dispatch order','Warmup-load cleared','Rejected before truck-load'],stock:['Stock audit','Reserved stock','Drew from stock','Reorder raised'],admin:['Edited record','Published protocol rule','Granted role','Deleted record'],hr:['Submitted EOD report','Issued penalty','Recorded absence','Marked attendance']};
+ var SHED=['K0','K1','K2','K3','F2','ICU-1','ICU-2','Gandhi 2','Castro 1','Yashoda 10','Quarantine','Breeding'];
+ var out=[],N=600;
+ for(var k=0;k<N;k++){
+  var p=pool[(k*13+5)%pool.length];var fam=(k%5===0)?OP_ORDER[k%OP_ORDER.length]:p.fam;
+  var acts=ACT[fam]||ACT.admin;var act=acts[k%acts.length];
+  var isGoat=(fam==='vacc'||fam==='health'||fam==='breed')&&(k%3!==0);
+  var tgt=isGoat?('CBE-'+(1000+((k*37)%1900))):SHED[k%SHED.length];
+  var an=(k%23===0)?1:0;var st=an?'anomaly':((k%9===0)?'awaiting':((k%11===0)?'verified':'logged'));
+  var rc=an?'t-dng':(st==='awaiting'?'t-warn':'t-ok');
+  var needsProof=(['vacc','health','breed','feed','move','proc'].indexOf(fam)>=0);
+  var proof=(needsProof&&k%4!==0)?((k%2)?'video':'photo'):'';
+  var day=Math.floor(k/70);var dl=(day===0)?'':((day===1)?'−1d':(day+'d ago'));
+  var hh=('0'+(23-(k%24))).slice(-2),mm=('0'+((k*17)%60)).slice(-2);
+  out.push({t:hh+':'+mm,dl:dl,oper:fam,op:p.op,ro:p.ro+' · '+p.pk,act:act,tgt:tgt,shed:isGoat?SHED[k%6]:tgt,res:an?'anomaly → review':(st==='awaiting'?'awaiting verify':'done'),rc:rc,an:an,proof:proof,st:st,pk:p.pk,type:isGoat?'goat':'shed',ts:900000-k});
+ }
+ return out;
+}
+AUDIT.push.apply(AUDIT,genAuditScale());
+AUDIT.forEach(function(r,idx){if(!r.type)r.type=inferType(r.tgt);if(r.id==null)r.id=r.tgt;if(r.proof==null)r.proof='';if(!r.oper)r.oper=auditOperOf(r);if(!r.st)r.st=(r.an?'anomaly':'logged');if(!r.pk)r.pk='CBE';if(!r.ro)r.ro='';if(r.ts==null)r.ts=1e9-idx;if(r.dl==null)r.dl='';});
 // "Viewing as" mirrors the real app roles (ROLES) — span-of-control preview, can't drift from the role switcher.
 let auditViewer='coo';
-var auditQ='',auditOper='all',auditAnom=false,auditStatus='all',auditOp='';
+var auditQ='',auditOper='all',auditAnom=false,auditStatus='all',auditOp='',auditSpanQ='',auditPage=0,AUDIT_PAGE=25;
+function nfmt(n){return (n||0).toLocaleString('en-IN');}
+function auditGo(p){auditPage=p;auditRefreshRows();}
+function auditPageSize(n){AUDIT_PAGE=+n||25;auditPage=0;auditRefreshRows();}
 function curViewer(){var r=(typeof ROLES!=='undefined'&&ROLES[auditViewer])?ROLES[auditViewer]:(ROLES&&ROLES.coo);return {id:auditViewer,label:(r&&(r.auditShort||r.label))||'COO',sees:(r&&r.auditSpan)||'*'};}
 function auditInScope(op){var v=curViewer();return v.sees==='*'||v.sees.indexOf(op)>=0||op==='System cron';}
 function auditParkOk(r){if(typeof SCOPE_MODE==='undefined'||SCOPE_MODE==='company')return true;var ps=(typeof scopeParks==='function')?scopeParks():null;if(!ps||!ps.length)return true;return ps.indexOf(r.pk||'CBE')>=0;}
@@ -3540,38 +3584,64 @@ function auditToggleOp(op){auditOp=(auditOp===op)?'':op;renderAudit();}
 function auditResetFilters(){auditOper='all';auditStatus='all';auditAnom=false;auditOp='';auditQ='';renderAudit();}
 function auditSetStatus(s){auditStatus=(auditStatus===s)?'all':s;auditAnom=false;renderAudit();}
 function auditOpChip(k){var o=OPS[k]||OPS.admin;return '<span class="opcell"><span class="oc" style="background:'+o.bg+';color:'+o.c+'"><svg class="ic"><use href="#'+o.ic+'"/></svg></span>'+o.label.replace(/ & /g,' &amp; ')+'</span>';}
+var SPAN_CAP=80;
+function esc1(s){return (''+s).replace(/'/g,"\\'");}
+function escA(s){return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function auditRefreshRows(){
  var base=auditBase();var rows=base.filter(auditMatch);var v=curViewer();
+ rows.sort(function(a,b){return (b.ts||0)-(a.ts||0);});
  var counts={},acnt={};base.forEach(function(r){counts[r.op]=(counts[r.op]||0)+1;if(r.an)acnt[r.op]=(acnt[r.op]||0)+1;});
- var team=(v.sees==='*')?Object.keys(counts).filter(function(o){return o!=='System cron';}):v.sees;
+ // ----- span of control (scaled: search · sort flagged→active · cap+scroll · truncate) -----
+ var team=(v.sees==='*')?Object.keys(counts).filter(function(o){return o!=='System cron';}):v.sees.slice();
+ var teamTotal=team.length;
+ if(auditSpanQ){var sq=auditSpanQ.toLowerCase();team=team.filter(function(op){return (op+' '+(r0_role(op)||'')).toLowerCase().indexOf(sq)>=0;});}
+ team.sort(function(a,b){return (acnt[b]||0)-(acnt[a]||0)||(counts[b]||0)-(counts[a]||0)||a.localeCompare(b);});
+ var shown=team.slice(0,SPAN_CAP);
  var sp=document.getElementById('auditSpan');
- if(sp)sp.innerHTML=team.map(function(op){var p=(typeof PERSON!=='undefined'&&PERSON[op]);var an=acnt[op]||0;var on=(auditOp===op);var oe=op.replace(/'/g,"\\'");
-   return '<div class="fitem'+(on?' on':'')+'" style="cursor:pointer" onclick="auditToggleOp(\''+oe+'\')"><span class="av xs">'+op.split(' ').map(function(w){return w[0];}).join('').slice(0,2)+'</span><div class="tx"><b>'+op+'</b><div class="mt">'+(p?p.scope:(r0_role(op)||(an?'has flags':'on-ground')))+'</div></div>'+(an?'<span class="tag t-dng">'+an+' flag</span>':'<span class="tag t-mut">'+(counts[op]||0)+'</span>')+'</div>';}).join('')||'<div class="note">No reports under this role.</div>';
+ if(sp){var sh=shown.map(function(op){var p=(typeof PERSON!=='undefined'&&PERSON[op]);var an=acnt[op]||0;var on=(auditOp===op);
+   var sub=p?p.scope:(r0_role(op)||(an?'has flags':'on-ground'));
+   return '<div class="fitem'+(on?' on':'')+'" style="cursor:pointer" onclick="auditToggleOp(\''+esc1(op)+'\')"><span class="av xs">'+escA(op.split(' ').map(function(w){return w[0];}).join('').slice(0,2))+'</span><div class="tx"><b title="'+escA(op)+'">'+escA(op)+'</b><div class="mt" title="'+escA(sub)+'">'+escA(sub)+'</div></div>'+(an?'<span class="tag t-dng">'+an+' flag</span>':'<span class="tag t-mut">'+nfmt(counts[op]||0)+'</span>')+'</div>';}).join('');
+   if(team.length>SPAN_CAP)sh+='<div class="note" style="margin:8px 2px">+'+nfmt(team.length-SPAN_CAP)+' more — refine the filter above.</div>';
+   if(!team.length)sh=auditSpanQ?'<div class="note">No operator matches “'+escA(auditSpanQ)+'”.</div>':'<div class="note">No reports under this role.</div>';
+   sp.innerHTML=sh;}
+ // ----- activity trail (paginated) -----
+ var total=rows.length;var pages=Math.max(1,Math.ceil(total/AUDIT_PAGE));
+ if(auditPage>=pages)auditPage=pages-1;if(auditPage<0)auditPage=0;
+ var start=auditPage*AUDIT_PAGE,pageRows=rows.slice(start,start+AUDIT_PAGE);
  var tb=document.getElementById('auditRows');
- if(tb)tb.innerHTML=rows.map(function(r){var goat=/^CBE|^CPT/.test(r.tgt);var eid=(r.id||r.tgt||'');
-   var tgtc=(goat?'<span class="gid">'+r.tgt+'</span>':r.tgt)+((r.shed&&r.shed!=='—')?'<div class="mt" style="color:var(--faint);font-size:11px;margin-top:2px">'+r.shed+'</div>':'');
-   var prc=r.proof?('<span class="pcell" style="color:var(--brand-d)"><svg class="ic" style="width:13px"><use href="#i-video"/></svg>'+r.proof+'</span>'):((PROOF_OPS.indexOf(r.oper)>=0)?'<span class="pcell" style="color:var(--danger)"><svg class="ic" style="width:13px"><use href="#i-warn"/></svg>missing</span>':'<span class="muted small">—</span>');
-   return '<tr style="cursor:pointer'+(r.an?';background:var(--dangerx)':'')+'" onclick="openHistory(\''+(r.type||'')+'\',\''+eid+'\',\''+eid+'\')"><td style="white-space:nowrap">'+r.t+'</td><td>'+auditOpChip(r.oper)+'</td><td><b style="font-weight:650">'+r.op+'</b><div class="mt" style="color:var(--faint);font-size:11px;margin-top:2px">'+(r.ro||'')+'</div></td><td>'+r.act+'</td><td>'+tgtc+'</td><td><span class="tag '+r.rc+'">'+r.res+'</span></td><td>'+prc+'</td></tr>';}).join('')||'<tr><td colspan="7"><div class="note" style="margin:8px">No matching events. <a href="#" onclick="auditResetFilters();return false" style="color:var(--brand-d);font-weight:700">Clear filters</a></div></td></tr>';
- setTxt('auditKpiActs',rows.length);
- setTxt('auditKpiAwait',base.filter(function(r){return r.st==='awaiting';}).length);
+ if(tb)tb.innerHTML=pageRows.map(function(r){var goat=/^CBE|^CPT/.test(r.tgt);var eid=(r.id||r.tgt||'');
+   var tcell=escA(r.t)+(r.dl?'<div class="mt" style="color:var(--faint);font-size:10.5px;margin-top:2px">'+escA(r.dl)+'</div>':'');
+   var tgtc=(goat?'<span class="gid">'+escA(r.tgt)+'</span>':'<span class="trc tgt" title="'+escA(r.tgt)+'">'+escA(r.tgt)+'</span>')+((r.shed&&r.shed!=='—'&&r.shed!==r.tgt)?'<div class="mt trc tgt" style="color:var(--faint);font-size:11px;margin-top:2px" title="'+escA(r.shed)+'">'+escA(r.shed)+'</div>':'');
+   var prc=r.proof?('<span class="pcell" style="color:var(--brand-d)"><svg class="ic" style="width:13px"><use href="#i-video"/></svg>'+escA(r.proof)+'</span>'):((PROOF_OPS.indexOf(r.oper)>=0)?'<span class="pcell" style="color:var(--danger)"><svg class="ic" style="width:13px"><use href="#i-warn"/></svg>missing</span>':'<span class="muted small">—</span>');
+   return '<tr style="cursor:pointer'+(r.an?';background:var(--dangerx)':'')+'" onclick="openHistory(\''+(r.type||'')+'\',\''+esc1(eid)+'\',\''+esc1(eid)+'\')"><td style="white-space:nowrap;vertical-align:top">'+tcell+'</td><td style="vertical-align:top">'+auditOpChip(r.oper)+'</td><td style="vertical-align:top"><b class="trc opn" style="font-weight:650" title="'+escA(r.op)+'">'+escA(r.op)+'</b><div class="mt trc opn" style="color:var(--faint);font-size:11px;margin-top:2px" title="'+escA(r.ro||'')+'">'+escA(r.ro||'')+'</div></td><td style="vertical-align:top"><span class="trc act" title="'+escA(r.act)+'">'+escA(r.act)+'</span></td><td style="vertical-align:top">'+tgtc+'</td><td style="vertical-align:top"><span class="tag '+r.rc+'">'+escA(r.res)+'</span></td><td style="vertical-align:top">'+prc+'</td></tr>';}).join('')||'<tr><td colspan="7"><div class="note" style="margin:8px">No matching events. <a href="#" onclick="auditResetFilters();return false" style="color:var(--brand-d);font-weight:700">Clear filters</a></div></td></tr>';
+ // ----- pager -----
+ var pg=document.getElementById('auditPager');
+ if(pg){if(total<=AUDIT_PAGE&&AUDIT_PAGE<=25){pg.style.display='none';}else{pg.style.display='';var a=total?start+1:0,b=Math.min(start+AUDIT_PAGE,total);
+   pg.innerHTML='<span class="pgmeta">'+nfmt(a)+'–'+nfmt(b)+' of '+nfmt(total)+'</span>'+
+     '<label class="pgmeta" style="margin-right:0;font-weight:600">Rows <select onchange="auditPageSize(this.value)">'+[25,50,100].map(function(n){return '<option'+(n===AUDIT_PAGE?' selected':'')+'>'+n+'</option>';}).join('')+'</select></label>'+
+     '<div class="pg"><button onclick="auditGo(0)" '+(auditPage<=0?'disabled':'')+'>« First</button><button onclick="auditGo('+(auditPage-1)+')" '+(auditPage<=0?'disabled':'')+'>‹ Prev</button><span class="pgmeta" style="margin:0 4px">Page '+(auditPage+1)+' / '+pages+'</span><button onclick="auditGo('+(auditPage+1)+')" '+(auditPage>=pages-1?'disabled':'')+'>Next ›</button><button onclick="auditGo('+(pages-1)+')" '+(auditPage>=pages-1?'disabled':'')+'>Last »</button></div>';}}
+ // ----- kpis (formatted) -----
+ setTxt('auditKpiActs',nfmt(total));
+ setTxt('auditKpiAwait',nfmt(base.filter(function(r){return r.st==='awaiting';}).length));
  var pf=base.filter(function(r){return PROOF_OPS.indexOf(r.oper)>=0;});var pfok=pf.filter(function(r){return r.proof;}).length;
  setTxt('auditKpiProof',(pf.length?Math.round(pfok/pf.length*100):100));
- setTxt('auditAnomN',base.filter(function(r){return r.an;}).length);
- var sc=document.getElementById('auditScope');if(sc)sc.textContent=(v.sees==='*')?(team.length+' operators'):(team.length+' in your span');
- var tm=document.getElementById('auditTrailMeta');if(tm)tm.textContent=rows.length+' of '+base.length+' events'+(auditOper!=='all'&&OPS[auditOper]?' · '+OPS[auditOper].label:'')+(auditOp?' · '+auditOp:'');
+ setTxt('auditAnomN',nfmt(base.filter(function(r){return r.an;}).length));
+ var sc=document.getElementById('auditScope');if(sc)sc.textContent=(auditSpanQ&&team.length!==teamTotal)?(nfmt(team.length)+' of '+nfmt(teamTotal)):((v.sees==='*')?(nfmt(teamTotal)+' operators'):(nfmt(teamTotal)+' in your span'));
+ var tm=document.getElementById('auditTrailMeta');if(tm)tm.textContent=nfmt(total)+' event'+(total===1?'':'s')+(auditOper!=='all'&&OPS[auditOper]?' · '+OPS[auditOper].label:'')+(auditOp?' · '+auditOp:'')+(auditStatus!=='all'?' · '+auditStatus:'');
 }
 function r0_role(op){for(var i=0;i<AUDIT.length;i++){if(AUDIT[i].op===op&&AUDIT[i].ro)return AUDIT[i].ro;}return '';}
 function renderAudit(){
  var vt=document.getElementById('auditViewers');if(!vt)return;
+ auditPage=0; // any filter/viewer change returns to the first page
  vt.innerHTML='<span class="muted small" style="padding:7px 8px 7px 4px">Viewing as</span>'+AUDIT_ROLES.map(function(k){var R=ROLES[k];if(!R)return '';return '<button class="'+(k===auditViewer?'on':'')+'" onclick="auditViewer=\''+k+'\';auditOp=\'\';renderAudit()" title="'+R.label+'">'+(R.auditShort||R.label)+'</button>';}).join('');
  var base=auditBase();var oc={},oa={};base.forEach(function(r){oc[r.oper]=(oc[r.oper]||0)+1;if(r.an)oa[r.oper]=1;});
  var ops=document.getElementById('auditOps');
- if(ops){var html='<button class="'+(auditOper==='all'?'on':'')+'" onclick="auditOper=\'all\';renderAudit()"><span class="oc" style="background:var(--brand-soft);color:var(--brand-d)"><svg class="ic"><use href="#i-grid"/></svg></span>All operations<span class="cbq">'+base.length+'</span></button>';
+ if(ops){var html='<button class="'+(auditOper==='all'?'on':'')+'" onclick="auditOper=\'all\';renderAudit()"><span class="oc" style="background:var(--brand-soft);color:var(--brand-d)"><svg class="ic"><use href="#i-grid"/></svg></span>All operations<span class="cbq">'+nfmt(base.length)+'</span></button>';
    OP_ORDER.forEach(function(k){if(k==='admin')html+='<span class="opdiv"></span>';var o=OPS[k];var n=oc[k]||0;
-     html+='<button class="'+(auditOper===k?'on':'')+'" onclick="auditOper=\''+k+'\';renderAudit()" title="'+o.label+'"><span class="oc" style="background:'+o.bg+';color:'+o.c+'"><svg class="ic"><use href="#'+o.ic+'"/></svg></span>'+o.label.replace(/ & /g,' &amp; ')+(oa[k]?'<span class="andot" title="has anomalies"></span>':'')+'<span class="cbq">'+n+'</span></button>';});
+     html+='<button class="'+(auditOper===k?'on':'')+'" onclick="auditOper=\''+k+'\';renderAudit()" title="'+o.label+'"><span class="oc" style="background:'+o.bg+';color:'+o.c+'"><svg class="ic"><use href="#'+o.ic+'"/></svg></span>'+o.label.replace(/ & /g,' &amp; ')+(oa[k]?'<span class="andot" title="has anomalies"></span>':'')+'<span class="cbq">'+nfmt(n)+'</span></button>';});
    ops.innerHTML=html;}
  var tools=document.getElementById('auditTools');
- if(tools){tools.innerHTML='<div class="tsearch" style="max-width:300px"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="auditSearch" placeholder="Search action, operator, ID…" value="'+auditQ.replace(/"/g,'&quot;')+'" oninput="auditQ=this.value;auditRefreshRows()"></div>'+
+ if(tools){tools.innerHTML='<div class="tsearch" style="max-width:300px"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="auditSearch" placeholder="Search action, operator, ID…" value="'+auditQ.replace(/"/g,'&quot;')+'" oninput="auditQ=this.value;auditPage=0;auditRefreshRows()"></div>'+
    '<div class="subtabs" style="margin:0"><button class="'+(auditStatus==='all'?'on':'')+'" onclick="auditStatus=\'all\';renderAudit()">All results</button><button class="'+(auditStatus==='awaiting'?'on':'')+'" onclick="auditStatus=\'awaiting\';renderAudit()">Awaiting</button><button class="'+(auditStatus==='rejected'?'on':'')+'" onclick="auditStatus=\'rejected\';renderAudit()">Rejected</button><button class="'+(auditStatus==='noproof'?'on':'')+'" onclick="auditStatus=\'noproof\';renderAudit()">Proof gaps</button></div>'+
    (auditOp?'<button class="btn sm p" type="button" onclick="auditOp=\'\';renderAudit()"><svg class="ic" style="width:13px"><use href="#i-x"/></svg>'+auditOp+'</button>':'')+
    '<span class="sp" style="flex:1"></span>'+
