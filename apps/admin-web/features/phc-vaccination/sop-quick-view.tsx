@@ -2,13 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BookOpen, Check, Clock, Video, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, Clock, Video, X } from "lucide-react";
 import type { SopCardView } from "@/features/sops";
 
 export interface VaccinationSopQuickViewProps {
-  // The linked vaccination SOP, derived on the server from the real /admin/sops data. Used here only for the
-  // title/version chip; the quick-view shows the vaccination drive lifecycle regardless of DB authoring state
-  // (a published form_dsl is the authoring detail, surfaced in full via the SOP Library link).
+  // The linked vaccination SOP, derived on the server from the real /admin/sops data. error/authRequired
+  // carry a failed lookup so the modal surfaces it instead of rendering the preview as if all loaded.
   view: SopCardView | null;
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
@@ -26,7 +25,7 @@ const DRIVE_SOP_STEPS: Array<{ title: string; detail: string; done?: boolean; cu
 // PHC · Vaccination header "SOP" CTA. Opens a compact, mock-faithful Vaccination Drive SOP quick-view in a
 // modal WITHOUT leaving /vaccination (local state, no navigation). The full library / versioning / authoring
 // lives at /sops, reached via the secondary "Open in SOP Library" link — this is the in-context preview.
-export function VaccinationSopButton({ view }: VaccinationSopQuickViewProps) {
+export function VaccinationSopButton({ error, authRequired }: VaccinationSopQuickViewProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -54,12 +53,22 @@ export function VaccinationSopButton({ view }: VaccinationSopQuickViewProps) {
       >
         <BookOpen className="ic" aria-hidden="true" /> SOP
       </button>
-      {open ? <VaccinationSopModal view={view} onClose={() => setOpen(false)} /> : null}
+      {open ? <VaccinationSopModal error={error} authRequired={authRequired} onClose={() => setOpen(false)} /> : null}
     </>
   );
 }
 
-function VaccinationSopModal({ onClose }: { view: SopCardView | null; onClose: () => void }) {
+function VaccinationSopModal({
+  error,
+  authRequired,
+  onClose,
+}: {
+  error?: { code?: string; message: string } | null;
+  authRequired?: boolean;
+  onClose: () => void;
+}) {
+  // .cmh / .cmb flex+grid are scoped to .cfgmodal in the theme, so this compact .modal lays out its own
+  // header/body explicitly — otherwise the close button stacks under the title.
   return (
     <>
       <div className="scrim on" onClick={onClose} />
@@ -70,52 +79,92 @@ function VaccinationSopModal({ onClose }: { view: SopCardView | null; onClose: (
         aria-modal="true"
         aria-label="Vaccination Drive SOP"
       >
-        <div className="cmh">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "14px 18px",
+            borderBottom: "1px solid var(--line2)",
+          }}
+        >
           <span
             className="fic"
             style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}
           >
             <BookOpen className="ic" />
           </span>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div className="mono muted" style={{ fontSize: 11 }}>
               PHC · VACCINATION
             </div>
             <div className="b700">Vaccination Drive SOP</div>
           </div>
           <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="x" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              cursor: "pointer",
+              color: "var(--muted)",
+              width: 32,
+              height: 32,
+              display: "grid",
+              placeItems: "center",
+              borderRadius: 8,
+              background: "transparent",
+              border: "none",
+              flex: "none",
+            }}
+          >
             <X className="ic" />
           </button>
         </div>
 
-        <div className="cmb" style={{ display: "block" }}>
-          <div className="note" style={{ marginBottom: 14 }}>
-            <Clock className="ic" style={{ width: 14, verticalAlign: -2 }} aria-hidden="true" /> Per protocol window ·
-            booster intervals tracked
-          </div>
-
-          <div className="stepper">
-            {DRIVE_SOP_STEPS.map((s, i) => (
-              <div className={`step${s.done ? " done" : ""}${s.current ? " cur" : ""}`} key={s.title}>
-                <div className="ln" />
-                <div className="no">
-                  {s.done ? <Check className="ic" style={{ width: 14, strokeWidth: 2.4 }} aria-hidden="true" /> : i + 1}
-                </div>
-                <div className="ct">
-                  <b>{s.title}</b>
-                  <div className="d">{s.detail}</div>
-                  {s.videoProof ? (
-                    <div className="vp">
-                      <span className="tag t-pur">
-                        <Video className="ic" style={{ width: 12 }} aria-hidden="true" /> video proof required
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
+        <div style={{ padding: "16px 18px" }}>
+          {authRequired ? (
+            <div className="alert" style={{ margin: 0 }}>
+              <AlertTriangle className="ic" aria-hidden="true" />
+              <div>Couldn’t load the vaccination SOP — sign in with Google to load it (the SOP engine is tenant-scoped).</div>
+            </div>
+          ) : error ? (
+            <div className="alert" style={{ margin: 0 }}>
+              <AlertTriangle className="ic" aria-hidden="true" />
+              <div>
+                Couldn’t load the vaccination SOP.{error.code ? <> <b>{error.code}</b></> : null} {error.message}
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="note" style={{ marginBottom: 14 }}>
+                <Clock className="ic" style={{ width: 14, verticalAlign: -2 }} aria-hidden="true" /> Per protocol window ·
+                booster intervals tracked
+              </div>
+
+              <div className="stepper">
+                {DRIVE_SOP_STEPS.map((s, i) => (
+                  <div className={`step${s.done ? " done" : ""}${s.current ? " cur" : ""}`} key={s.title}>
+                    <div className="ln" />
+                    <div className="no">
+                      {s.done ? <Check className="ic" style={{ width: 14, strokeWidth: 2.4 }} aria-hidden="true" /> : i + 1}
+                    </div>
+                    <div className="ct">
+                      <b>{s.title}</b>
+                      <div className="d">{s.detail}</div>
+                      {s.videoProof ? (
+                        <div className="vp">
+                          <span className="tag t-pur">
+                            <Video className="ic" style={{ width: 12 }} aria-hidden="true" /> video proof required
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="cfgmf">
