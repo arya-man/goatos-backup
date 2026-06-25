@@ -142,6 +142,10 @@ type SourceHealthCheck struct {
 	ProofRefID    *string   `json:"proof_ref_id,omitempty"`
 	SOPTaskID     *string   `json:"sop_task_id,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
+	// Replayed is a transient response flag (never persisted/scanned/serialized): true when this result was
+	// returned by an idempotent replay rather than a fresh write, so the service can skip replay-unsafe side
+	// effects (e.g. re-cancelling vaccination obligations).
+	Replayed bool `json:"-"`
 }
 
 type Decision struct {
@@ -160,6 +164,8 @@ type Decision struct {
 	ResumeCondition *string         `json:"resume_condition,omitempty"`
 	Metadata        json.RawMessage `json:"metadata"`
 	CreatedAt       time.Time       `json:"created_at"`
+	// Replayed is a transient response flag (never persisted/scanned/serialized) — see SourceHealthCheck.
+	Replayed bool `json:"-"`
 }
 
 type TransitHandoff struct {
@@ -201,6 +207,8 @@ type ArrivalReview struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 	RowVersion     int             `json:"row_version"`
 	Goats          []ArrivalGoat   `json:"goats,omitempty"`
+	// Replayed is a transient response flag (never persisted/scanned/serialized) — see SourceHealthCheck.
+	Replayed bool `json:"-"`
 }
 
 type ArrivalGoat struct {

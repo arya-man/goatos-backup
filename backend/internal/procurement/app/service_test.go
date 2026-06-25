@@ -88,6 +88,37 @@ func TestRejectAndFailedSourceHealthCancelOpenVaccination(t *testing.T) {
 	}
 }
 
+func TestIdempotentReplayDoesNotReCancelVaccination(t *testing.T) {
+	// On a replay the repo runs no procurement mutation; the cancel hooks must NOT fire again, or a later
+	// replay could cancel vaccination obligations opened after the original write.
+	repo := &fakeRepo{replay: true}
+	cancel := &fakeCanceler{}
+	svc := NewService(repo).WithVaccinationCanceler(cancel)
+
+	if _, err := svc.RecordSourceHealth(context.Background(), ports.SourceHealth{
+		TenantID: testTenant, LoadID: testLoad, GoatID: testGoat,
+		HealthState: domain.HealthFailed, IdempotencyKey: "health-failed-replay",
+	}); err != nil {
+		t.Fatalf("RecordSourceHealth() error = %v", err)
+	}
+	if _, err := svc.PreDispatchDecision(context.Background(), ports.Decision{
+		TenantID: testTenant, LoadID: testLoad, GoatID: testGoat,
+		DecisionType: domain.DecisionRejected, IdempotencyKey: "reject-replay",
+	}); err != nil {
+		t.Fatalf("PreDispatchDecision() error = %v", err)
+	}
+	if _, err := svc.RecordArrivalReview(context.Background(), ports.ArrivalReview{
+		TenantID: testTenant, LoadID: testLoad, ParkLocationID: testPark,
+		Status: domain.DecisionRejected, IdempotencyKey: "arrival-reject-replay",
+		Goats: []ports.ArrivalGoat{{GoatID: strPtr(testGoat), ArrivalState: "rejected"}},
+	}); err != nil {
+		t.Fatalf("RecordArrivalReview() error = %v", err)
+	}
+	if len(cancel.reasons) != 0 {
+		t.Fatalf("replay must not re-cancel vaccination obligations, got %v", cancel.reasons)
+	}
+}
+
 func TestArrivalRejectedAndUnknownExtraStayOutOfVaccination(t *testing.T) {
 	repo := &fakeRepo{}
 	cancel := &fakeCanceler{}
@@ -242,6 +273,7 @@ type fakeRepo struct {
 	lastWorkQuery domain.WorkQuery
 	workRows      []domain.WorkRow
 	acceptErr     error
+	replay        bool // when true, the write methods report an idempotent replay (Replayed=true)
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return nil }
@@ -259,16 +291,16 @@ func (f *fakeRepo) AddGoatToLoad(_ context.Context, in ports.AddGoatToLoad) (dom
 	return domain.LoadGoat{LoadID: in.LoadID, GoatID: testGoat, CurrentState: in.CurrentState, WarmupDays: in.WarmupDays}, nil
 }
 func (f *fakeRepo) RecordSourceHealth(_ context.Context, in ports.SourceHealth) (domain.SourceHealthCheck, error) {
-	return domain.SourceHealthCheck{LoadID: in.LoadID, GoatID: in.GoatID, HealthState: in.HealthState}, nil
+	return domain.SourceHealthCheck{LoadID: in.LoadID, GoatID: in.GoatID, HealthState: in.HealthState, Replayed: f.replay}, nil
 }
 func (f *fakeRepo) RecordDecision(_ context.Context, in ports.Decision) (domain.Decision, error) {
-	return domain.Decision{LoadID: in.LoadID, GoatID: in.GoatID, DecisionType: in.DecisionType}, nil
+	return domain.Decision{LoadID: in.LoadID, GoatID: in.GoatID, DecisionType: in.DecisionType, Replayed: f.replay}, nil
 }
 func (f *fakeRepo) DispatchLoad(_ context.Context, in ports.DispatchLoad) (domain.TransitHandoff, error) {
 	return domain.TransitHandoff{LoadID: in.LoadID, LoadedCount: len(in.GoatIDs)}, nil
 }
 func (f *fakeRepo) RecordArrivalReview(_ context.Context, in ports.ArrivalReview) (domain.ArrivalReview, error) {
-	return domain.ArrivalReview{LoadID: in.LoadID, Status: in.Status}, nil
+	return domain.ArrivalReview{LoadID: in.LoadID, Status: in.Status, Replayed: f.replay}, nil
 }
 func (f *fakeRepo) AcceptIntake(_ context.Context, in ports.AcceptIntake) ([]domain.PHCHandoff, error) {
 	if f.acceptErr != nil {

@@ -398,9 +398,12 @@ func (r *Repository) RecordSourceHealth(ctx context.Context, in ports.SourceHeal
 			return domain.SourceHealthCheck{}, rerr
 		}
 		if !res.proceed {
-			// Replay of an already-recorded request: return the original result, run NO side effects.
+			// Replay of an already-recorded request: return the original result, run NO side effects. Flag it
+			// so the service skips replay-unsafe side effects (re-cancelling vaccination obligations).
 			_ = tx.Rollback(ctx)
-			return r.getSourceHealthByID(ctx, in.TenantID, res.resultID)
+			out, rerr := r.getSourceHealthByID(ctx, in.TenantID, res.resultID)
+			out.Replayed = true
+			return out, rerr
 		}
 	}
 
@@ -483,7 +486,9 @@ func (r *Repository) RecordDecision(ctx context.Context, in ports.Decision) (dom
 		}
 		if !res.proceed {
 			_ = tx.Rollback(ctx)
-			return r.getDecisionByID(ctx, in.TenantID, res.resultID)
+			out, rerr := r.getDecisionByID(ctx, in.TenantID, res.resultID)
+			out.Replayed = true
+			return out, rerr
 		}
 	}
 
@@ -777,7 +782,9 @@ func (r *Repository) RecordArrivalReview(ctx context.Context, in ports.ArrivalRe
 		}
 		if !res.proceed {
 			_ = tx.Rollback(ctx)
-			return r.getArrivalReviewByID(ctx, in.TenantID, res.resultID)
+			out, rerr := r.getArrivalReviewByID(ctx, in.TenantID, res.resultID)
+			out.Replayed = true
+			return out, rerr
 		}
 	}
 

@@ -382,7 +382,9 @@ func (s *Service) RecordSourceHealth(ctx context.Context, in ports.SourceHealth)
 	if err != nil {
 		return domain.SourceHealthCheck{}, err
 	}
-	if in.HealthState != domain.HealthPassed {
+	// Skip the cancel hook on an idempotent replay — the repo ran no procurement mutation, and re-firing it
+	// could cancel vaccination obligations opened after the original write.
+	if !check.Replayed && in.HealthState != domain.HealthPassed {
 		_ = s.cancelOpenVaccination(ctx, in.TenantID, in.GoatID, "procurement_source_health_"+in.HealthState)
 	}
 	return check, nil
@@ -397,7 +399,7 @@ func (s *Service) PreDispatchDecision(ctx context.Context, in ports.Decision) (d
 		}
 		return domain.Decision{}, err
 	}
-	if in.DecisionType != domain.DecisionAccepted {
+	if !decision.Replayed && in.DecisionType != domain.DecisionAccepted {
 		_ = s.cancelOpenVaccination(ctx, in.TenantID, in.GoatID, "procurement_pre_dispatch_"+in.DecisionType)
 	}
 	return decision, nil
@@ -485,15 +487,19 @@ func (s *Service) RecordArrivalReview(ctx context.Context, in ports.ArrivalRevie
 		}
 		return domain.ArrivalReview{}, err
 	}
-	for _, item := range in.Goats {
-		if item.GoatID == nil {
-			continue
+	// Skip the cancel hooks on an idempotent replay — no procurement mutation ran, and re-firing them could
+	// cancel vaccination obligations opened after the original review.
+	if !review.Replayed {
+		for _, item := range in.Goats {
+			if item.GoatID == nil {
+				continue
+			}
+			if oneOf(item.ArrivalState, "rejected", "blocked", "extra_unresolved") || in.Status == domain.DecisionRejected {
+				_ = s.cancelOpenVaccination(ctx, in.TenantID, *item.GoatID, "procurement_arrival_"+item.ArrivalState)
+			}
 		}
-		if oneOf(item.ArrivalState, "rejected", "blocked", "extra_unresolved") || in.Status == domain.DecisionRejected {
-			_ = s.cancelOpenVaccination(ctx, in.TenantID, *item.GoatID, "procurement_arrival_"+item.ArrivalState)
-		}
+		_ = s.cancelIneligibleFromDetail(ctx, in.TenantID, in.LoadID)
 	}
-	_ = s.cancelIneligibleFromDetail(ctx, in.TenantID, in.LoadID)
 	return review, nil
 }
 
