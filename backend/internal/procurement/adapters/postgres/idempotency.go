@@ -57,6 +57,16 @@ func fpTime(t *time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
+// fpTimeIf renders a timestamp for the fingerprint only when the caller actually supplied it (present).
+// Server-defaulted timestamps pass present=false and contribute nothing, so an exact replay minted later is
+// not seen as a different payload — while a genuinely different CLIENT-supplied timestamp still conflicts.
+func fpTimeIf(present bool, t time.Time) string {
+	if !present {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
 // canonicalJSON normalizes a JSON value for fingerprinting: object keys are sorted and insignificant
 // whitespace is dropped, so the same payload with reordered keys hashes identically. Array order is
 // preserved (it is semantic). UseNumber keeps numeric literals exact (no float rounding). Empty or invalid
