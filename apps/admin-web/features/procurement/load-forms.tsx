@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { ChevronDown, Flag, HeartPulse, PackageCheck, Plus, Truck } from "lucide-react";
 import type { ProcurementLoadGoat } from "@/lib/api/procurement";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
@@ -57,10 +58,19 @@ function DisabledMediaProof() {
   );
 }
 
+// A stable idempotency key, minted once when the form is server-rendered and submitted as a hidden field.
+// A double-submit/retry of the same rendered form replays the same key, so the backend returns the original
+// result instead of writing twice (e.g. no duplicate source goat); a fresh render = a new key = a new
+// logical request. The server action reads this via formIdempotencyKey rather than minting per call.
+function IdempotencyKeyField() {
+  return <input type="hidden" name="idempotency_key" value={randomUUID()} />;
+}
+
 export function NewLoadForm({ returnTo }: { returnTo: string }) {
   return (
     <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title="New load">
       <form action={createLoadAction} style={{ maxWidth: 620 }}>
+        <IdempotencyKeyField />
         <input type="hidden" name="return_to" value={returnTo} />
         <div className="fld">
           <label>Source party id (required)</label>
@@ -107,6 +117,7 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
     <>
       <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title="Add source goat">
         <form action={addSourceGoatAction} style={{ maxWidth: 620 }}>
+          <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -184,6 +195,7 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                   {/* Source health */}
                   <form action={recordSourceHealthAction} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <IdempotencyKeyField />
                     <input type="hidden" name="return_to" value={returnTo} />
                     <input type="hidden" name="load_id" value={loadId} />
                     <input type="hidden" name="goat_id" value={goat.goat_id} />
@@ -203,6 +215,7 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
                   </form>
                   {/* Pre-dispatch decision */}
                   <form action={preDispatchDecisionAction} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <IdempotencyKeyField />
                     <input type="hidden" name="return_to" value={returnTo} />
                     <input type="hidden" name="load_id" value={loadId} />
                     <input type="hidden" name="goat_id" value={goat.goat_id} />
@@ -232,6 +245,7 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
       {/* Dispatch / transit */}
       <Disclosure icon={<Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />} title="Record dispatch / transit">
         <form action={dispatchLoadAction} style={{ maxWidth: 620 }}>
+          <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -268,6 +282,7 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
       {/* Arrival gate review */}
       <Disclosure icon={<Flag className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />} title="Record arrival review">
         <form action={arrivalReviewAction} style={{ maxWidth: 720 }}>
+          <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div className="fld">
@@ -320,6 +335,7 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
       {/* Accept intake (load-level) */}
       <Disclosure icon={<PackageCheck className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />} title="Accept intake">
         <form action={acceptIntakeAction} style={{ maxWidth: 620 }}>
+          <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div className="fld">

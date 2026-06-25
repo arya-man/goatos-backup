@@ -45,6 +45,15 @@ const SELECTION_STATES: ProcurementSelectionState[] = [
 const HEALTH_FULL: ProcurementHealthState[] = ["pending", "passed", "failed", "deferred"];
 const OWNERSHIP_STATES: ProcurementOwnershipState[] = ["pending", "shared_pending", "mesha_owned", "blocked", "not_owned", "settled"];
 
+// The idempotency key MUST be stable across a retry/double-submit, so it is minted once at form render and
+// carried as a hidden field (IdempotencyKeyField). Reading it here — instead of calling randomUUID() per
+// action invocation — is what makes AddGoatToLoad et al. actually idempotent: a double-submit replays the
+// same key and the backend returns the original result instead of creating a second goat. The randomUUID()
+// fallback only covers a programmatic caller that posted no key; real forms always send one.
+function formIdempotencyKey(formData: FormData): string {
+  return optionalString(formData, "idempotency_key") ?? randomUUID();
+}
+
 function optInt(formData: FormData, key: string): number | undefined {
   const raw = optionalString(formData, key);
   if (raw === undefined) return undefined;
@@ -114,7 +123,7 @@ export async function createLoadAction(formData: FormData): Promise<void> {
       planned_dispatch_at: optRfc3339(formData, "planned_dispatch_at"),
       notes: optionalString(formData, "notes"),
     };
-    const result = await createProcurementLoad(body, randomUUID());
+    const result = await createProcurementLoad(body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
       message = actionErrorMessage(result.error);
@@ -154,7 +163,7 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
     if (!body.source_tag && !body.source_rfid && !body.temporary_id) {
       throw new Error("Provide at least one source identifier (source tag, RFID, or temporary id).");
     }
-    const result = await addProcurementLoadGoat(loadId, body, randomUUID());
+    const result = await addProcurementLoadGoat(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
       message = actionErrorMessage(result.error);
@@ -179,7 +188,7 @@ export async function recordSourceHealthAction(formData: FormData): Promise<void
       health_state: inEnum(optionalString(formData, "health_state"), HEALTH_STATES, "health_state"),
       reason: optionalString(formData, "reason"),
     };
-    const result = await recordProcurementSourceHealth(requiredString(formData, "goat_id"), body, randomUUID());
+    const result = await recordProcurementSourceHealth(requiredString(formData, "goat_id"), body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
       message = actionErrorMessage(result.error);
@@ -206,7 +215,7 @@ export async function preDispatchDecisionAction(formData: FormData): Promise<voi
       owner_id: optionalString(formData, "owner_id") ?? null,
       resume_condition: optionalString(formData, "resume_condition") ?? null,
     };
-    const result = await recordProcurementPreDispatchDecision(requiredString(formData, "goat_id"), body, randomUUID());
+    const result = await recordProcurementPreDispatchDecision(requiredString(formData, "goat_id"), body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
       message = actionErrorMessage(result.error);
@@ -233,7 +242,7 @@ export async function dispatchLoadAction(formData: FormData): Promise<void> {
       dispatched_at: optRfc3339(formData, "dispatched_at"),
       proof_ref_id: optionalString(formData, "proof_ref_id") ?? null,
     };
-    const result = await dispatchProcurementLoad(loadId, body, randomUUID());
+    const result = await dispatchProcurementLoad(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
       message = actionErrorMessage(result.error);
@@ -267,7 +276,7 @@ export async function arrivalReviewAction(formData: FormData): Promise<void> {
         : undefined,
       goats: arrivalGoatRows(formData, "goats"),
     };
-    const result = await recordProcurementArrivalReview(loadId, body, randomUUID());
+    const result = await recordProcurementArrivalReview(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
       message = actionErrorMessage(result.error);
@@ -296,7 +305,7 @@ export async function acceptIntakeAction(formData: FormData): Promise<void> {
         ? inEnum(optionalString(formData, "intake_health_signal"), INTAKE_SIGNALS, "intake_health_signal")
         : null,
     };
-    const result = await acceptProcurementIntake(loadId, body, randomUUID());
+    const result = await acceptProcurementIntake(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
       message = actionErrorMessage(result.error);
