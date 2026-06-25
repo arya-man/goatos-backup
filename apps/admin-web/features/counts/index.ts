@@ -2,6 +2,6 @@
 // paths) per the import-boundary convention.
 //
 // Current visible slice = Herd Register only (the goat.created entry point for the vaccination cascade).
-// Tagging & identity / Weights & ADG are mock-map placeholders shown as disabled sidebar leaves, not built
-// surfaces.
+// Tagging, identity repair, weights, and ADG are not sidebar leaves for this slice. If a required
+// vaccination-trigger path needs an identifier field/status, implement it inside /counts/herd.
 export { HerdRegisterPage } from "./herd-register";

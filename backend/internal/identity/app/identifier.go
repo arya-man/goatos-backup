@@ -238,6 +238,10 @@ func validateRetireGoatIdentifier(body *retireGoatIdentifierBody) error {
 }
 
 func adminGoatResponse(result *ports.AdminGoatMutationResult, clientKey string, traceID string) *domain.AdminGoatResponse {
+	generationStatus := result.GenerationStatus
+	if generationStatus == "" {
+		generationStatus = "not_applicable"
+	}
 	return &domain.AdminGoatResponse{
 		Goat:        result.Goat,
 		Identifiers: result.Identifiers,
@@ -248,6 +252,7 @@ func adminGoatResponse(result *ports.AdminGoatMutationResult, clientKey string, 
 			Replayed:       result.Replayed,
 			FirstResultID:  result.FirstResultID,
 		},
-		TraceID: traceID,
+		GenerationStatus: generationStatus,
+		TraceID:          traceID,
 	}
 }

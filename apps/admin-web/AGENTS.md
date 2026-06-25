@@ -143,6 +143,22 @@ Admin-web is built around the vaccination process-integrity slice:
   routes, redirects, API contracts, feature folders, or navigation. Do not build
   generic Parks.
 - **Goat Passport**: contextual drilldown at `/goats/{goat_id}` only.
+- **Vaccination trigger-closure active surfaces**: Counts -> Herd Register at
+  `/counts/herd` and Operations -> Audit Log at `/operations/audit` are active
+  for proving the real vaccination cascade from a business trigger and
+  inspecting the resulting audit chain. This active slice includes the dependency
+  closure required for those surfaces to actually work: location/park/shed
+  selectors, lookup choices, identifier validation/conflict states, bulk preview
+  row errors, limited backend-backed count cards, entity-history links, audit
+  filters, and generated-client plumbing. It does not authorize unrelated Counts
+  modules, old Operations, old `/herd`, or old import/review surfaces. The
+  Counts sidebar shows only `Herd Register` in this slice; do not show disabled
+  `Tagging & identity`, `Weights & ADG`, `Counts overall`, or `Count
+  reconciliation` leaves for mock fidelity.
+- **Procurement / Source Entry**: `/procurement/source-entry` and
+  `/procurement/source-entry/loads/{load_id}` are active for the supplier
+  Holding Farm warmup -> accepted-intake branch and the dependencies that branch
+  requires. Do not add nested procurement command-room routes.
 
 The status model underneath every screen is the same: due, overdue, blocked,
 proof-pending, verification-pending, rejected, deferred, and owner-missing.
@@ -213,6 +229,10 @@ Only these routes are current product routes:
 /vaccination               PHC Vaccination module surface (NOT Action Center);
                            includes status matrix, cohort detail, and execution
 /vaccination/execution/sheds/{shed_id}
+/procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
+/procurement/source-entry/loads/{load_id}
+/counts/herd                 Herd Register for vaccination trigger closure
+/operations/audit            Operations Audit Log
 /config
 /sops
 /goats/{goat_id}
@@ -255,6 +275,10 @@ allowed product route or redirect.
   do not add a global million-goat search as the main workflow.
 - Backend/API/RBAC/session wiring may be reused; old frontend routes and old
   visual shell must not be reused.
+- Reopened active surfaces may build their basic setup dependencies, but only
+  against current GoatOS contracts and the mock. Do not reuse deleted old
+  dashboard/admin code, old admin primitives, legacy Counting DB runtime shapes,
+  or old import-review screens.
 - Do not add direct BigQuery, Sheets, GCS, Firestore, or database access from
   frontend code.
 
@@ -263,7 +287,6 @@ allowed product route or redirect.
 Do not rebuild these unless the product scope is explicitly reopened:
 
 ```text
-/counts
 /locations
 /operators
 /tasks
@@ -276,7 +299,11 @@ Do not rebuild these unless the product scope is explicitly reopened:
 ```
 
 `/sops` was reopened as the Admin / Data Ops SOP Library (vaccination-only review
-surface); it is an active route, not a removed one. Old `/tasks`, old Operations,
-old generic SOP/task pages, and old admin primitives stay removed.
+surface); it is an active route, not a removed one. `/counts/herd` and
+`/operations/audit` are active as vaccination trigger-closure surfaces.
+Old `/herd`, unrelated Counts modules, old `/tasks`, old Operations, old generic
+SOP/task pages, and old admin primitives stay removed. For Counts, removed also
+means not visible as disabled sidebar placeholders unless a future approved slice
+explicitly reopens them.
 
 The live `../../dashboard/` repo remains untouched reference material only.

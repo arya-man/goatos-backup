@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -19,6 +20,8 @@ const (
 	mergedGoat   = "10000000-0000-4000-8000-000000000003"
 	survivorGoat = "10000000-0000-4000-8000-000000000004"
 	conflictID   = "20000000-0000-4000-8000-000000000001"
+	testPark     = "00000000-0000-4000-8000-000000003001"
+	testShed     = "00000000-0000-4000-8000-000000004001"
 )
 
 func TestResolveIdentifierStateMachine(t *testing.T) {
@@ -319,6 +322,82 @@ func TestRetireGoatIdentifierIdempotencyConflict(t *testing.T) {
 	}
 }
 
+func TestCreateAdminGoatPassesIdempotencyIntoValidation(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-0001",
+		TraceID:        testTrace,
+		RawBody:        validAdminGoatCreateRaw("RFID-CREATE-001"),
+	})
+	if err != nil {
+		t.Fatalf("CreateAdminGoat: %v", err)
+	}
+	if len(repo.validateAdminGoatCreateCmds) != 1 {
+		t.Fatalf("validate calls = %d, want 1", len(repo.validateAdminGoatCreateCmds))
+	}
+	got := repo.validateAdminGoatCreateCmds[0]
+	wantKey := testTenant + ":" + createAdminGoatCommand + ":idem-create-0001"
+	if got.StoredIdempotencyKey != wantKey {
+		t.Fatalf("validation idempotency key = %q, want %q", got.StoredIdempotencyKey, wantKey)
+	}
+	if got.RequestHash == "" {
+		t.Fatal("validation request hash must be set before business conflict checks")
+	}
+	if len(repo.createAdminGoatCmds) != 1 {
+		t.Fatalf("create calls = %d, want 1", len(repo.createAdminGoatCmds))
+	}
+}
+
+func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
+	seenHashByKey := map[string]string{}
+	repo := &fakeRepo{
+		validateAdminGoatCreateFunc: func(cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+			if previous, ok := seenHashByKey[cmd.StoredIdempotencyKey]; ok && previous != cmd.RequestHash {
+				return ports.AdminGoatCreateValidation{}, ports.ErrIdempotencyConflict
+			}
+			seenHashByKey[cmd.StoredIdempotencyKey] = cmd.RequestHash
+			return defaultAdminGoatCreateValidation(cmd), nil
+		},
+	}
+	svc := NewService(repo)
+	input := CommitAdminGoatBulkInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "bulk-idem-0001",
+		TraceID:        testTrace,
+		RawBody:        validAdminGoatBulkCommitRaw("RFID-BULK-001"),
+	}
+	first, err := svc.CommitAdminGoatBulkImport(context.Background(), input)
+	if err != nil {
+		t.Fatalf("first commit: %v", err)
+	}
+	if first.Summary.Created != 1 || len(repo.createAdminGoatCmds) != 1 {
+		t.Fatalf("first commit summary=%#v createCalls=%d", first.Summary, len(repo.createAdminGoatCmds))
+	}
+	wantRowKey := "bulk-idem-0001:row:1"
+	if repo.createAdminGoatCmds[0].ClientIdempotencyKey != wantRowKey {
+		t.Fatalf("row key = %q, want %q", repo.createAdminGoatCmds[0].ClientIdempotencyKey, wantRowKey)
+	}
+
+	input.RawBody = validAdminGoatBulkCommitRaw("RFID-BULK-CHANGED")
+	second, err := svc.CommitAdminGoatBulkImport(context.Background(), input)
+	if err != nil {
+		t.Fatalf("second commit: %v", err)
+	}
+	if second.Summary.Failed != 1 || second.Summary.Created != 0 {
+		t.Fatalf("second summary = %#v, want one failed row", second.Summary)
+	}
+	if len(repo.createAdminGoatCmds) != 1 {
+		t.Fatalf("changed replay should not create another goat, createCalls=%d", len(repo.createAdminGoatCmds))
+	}
+	if len(second.Rows) != 1 || len(second.Rows[0].Errors) != 1 || second.Rows[0].Errors[0].Code != "commit_failed" {
+		t.Fatalf("second row errors = %#v", second.Rows)
+	}
+}
+
 func validAddIdentifierInput() AddGoatIdentifierInput {
 	return AddGoatIdentifierInput{
 		TenantID:       testTenant,
@@ -342,16 +421,29 @@ func validRetireIdentifierInput() RetireGoatIdentifierInput {
 	}
 }
 
+func validAdminGoatCreateRaw(rfid string) []byte {
+	return []byte(fmt.Sprintf(`{"rfid":%q,"park_id":%q,"shed_id":%q,"sex":"female","origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`, rfid, testPark, testShed))
+}
+
+func validAdminGoatBulkCommitRaw(rfid string) []byte {
+	return []byte(fmt.Sprintf(`{"rows":[%s]}`, validAdminGoatCreateRaw(rfid)))
+}
+
 type fakeRepo struct {
-	goats                   map[string]*domain.GoatPassport
-	matches                 []domain.IdentifierMatch
-	conflictID              string
-	addIdentifierResult     *ports.AdminGoatMutationResult
-	addIdentifierErr        error
-	retireIdentifierResult  *ports.AdminGoatMutationResult
-	retireIdentifierErr     error
-	lastAddIdentifierCmd    ports.AddGoatIdentifierCommand
-	lastRetireIdentifierCmd ports.RetireGoatIdentifierCommand
+	goats                       map[string]*domain.GoatPassport
+	matches                     []domain.IdentifierMatch
+	conflictID                  string
+	addIdentifierResult         *ports.AdminGoatMutationResult
+	addIdentifierErr            error
+	retireIdentifierResult      *ports.AdminGoatMutationResult
+	retireIdentifierErr         error
+	lastAddIdentifierCmd        ports.AddGoatIdentifierCommand
+	lastRetireIdentifierCmd     ports.RetireGoatIdentifierCommand
+	validateAdminGoatCreateFunc func(ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error)
+	validateAdminGoatCreateCmds []ports.ValidateAdminGoatCreateCommand
+	createAdminGoatResult       *ports.AdminGoatMutationResult
+	createAdminGoatErr          error
+	createAdminGoatCmds         []ports.CreateAdminGoatCommand
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -452,6 +544,55 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
 	}, nil
+}
+
+func (f *fakeRepo) ValidateAdminGoatCreate(_ context.Context, cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+	f.validateAdminGoatCreateCmds = append(f.validateAdminGoatCreateCmds, cmd)
+	if f.validateAdminGoatCreateFunc != nil {
+		return f.validateAdminGoatCreateFunc(cmd)
+	}
+	return defaultAdminGoatCreateValidation(cmd), nil
+}
+
+func (f *fakeRepo) CreateAdminGoat(_ context.Context, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	f.createAdminGoatCmds = append(f.createAdminGoatCmds, cmd)
+	if f.createAdminGoatErr != nil {
+		return nil, f.createAdminGoatErr
+	}
+	if f.createAdminGoatResult != nil {
+		return f.createAdminGoatResult, nil
+	}
+	return &ports.AdminGoatMutationResult{
+		Goat:        summary("10000000-0000-4000-8000-000000000099", "G-000099", "clean"),
+		Identifiers: []domain.GoatIdentifier{identifier(cmd.Identifiers[0].IdentifierType, cmd.Identifiers[0].IdentifierValue, cmd.Identifiers[0].ScopeKey, "active", time.Now().UTC())},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000199",
+			DecisionType:   "create_goat",
+			DecisionResult: "goat_created",
+			DecisionState:  "approved",
+			PolicyVersion:  "admin-goat-create-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events:           []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000199", EventType: "goat.created"}},
+		GenerationStatus: "queued",
+	}, nil
+}
+
+func defaultAdminGoatCreateValidation(cmd ports.ValidateAdminGoatCreateCommand) ports.AdminGoatCreateValidation {
+	parkID := testPark
+	if cmd.ParkID != nil {
+		parkID = *cmd.ParkID
+	}
+	shedID := testShed
+	if cmd.ShedID != nil {
+		shedID = *cmd.ShedID
+	}
+	return ports.AdminGoatCreateValidation{
+		CustodianPartyID: "70000000-0000-4000-8000-000000000001",
+		FarmID:           cmd.FarmID,
+		ParkID:           parkID,
+		ShedID:           shedID,
+	}
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return nil }

@@ -1445,6 +1445,161 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats:
+    post:
+      tags:
+        - Admin Goats
+      operationId: createAdminGoat
+      summary: Create a canonical goat and queue goat.created generation.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAdminGoatRequest"
+      responses:
+        "200":
+          description: Goat created or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/goats/bulk-preview:
+    post:
+      tags:
+        - Admin Goats
+      operationId: previewAdminGoatBulkImport
+      summary: Preview a CSV goat import without writing rows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminGoatBulkPreviewRequest"
+      responses:
+        "200":
+          description: Row-level import decisions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatBulkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/goats/bulk-commit:
+    post:
+      tags:
+        - Admin Goats
+      operationId: commitAdminGoatBulkImport
+      summary: Commit previewed goat import rows through the goat.created trigger gate.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminGoatBulkCommitRequest"
+      responses:
+        "200":
+          description: Row-level import commit result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatBulkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /operations/audit:
+    get:
+      tags:
+        - Operations Audit
+      operationId: listOperationsAudit
+      summary: List operational audit events.
+      parameters:
+        - $ref: "#/components/parameters/OperationsAuditLimit"
+        - $ref: "#/components/parameters/OperationsAuditCursor"
+        - $ref: "#/components/parameters/OperationsAuditFrom"
+        - $ref: "#/components/parameters/OperationsAuditTo"
+        - $ref: "#/components/parameters/OperationsAuditActorType"
+        - $ref: "#/components/parameters/OperationsAuditActorId"
+        - $ref: "#/components/parameters/OperationsAuditAction"
+        - $ref: "#/components/parameters/OperationsAuditResourceType"
+        - $ref: "#/components/parameters/OperationsAuditResourceId"
+        - $ref: "#/components/parameters/OperationsAuditScopeType"
+        - $ref: "#/components/parameters/OperationsAuditScopeId"
+        - $ref: "#/components/parameters/OperationsAuditDomain"
+        - $ref: "#/components/parameters/OperationsAuditModule"
+        - $ref: "#/components/parameters/OperationsAuditCategory"
+        - $ref: "#/components/parameters/OperationsAuditResult"
+        - $ref: "#/components/parameters/OperationsAuditStatus"
+        - $ref: "#/components/parameters/OperationsAuditAnomaliesOnly"
+      responses:
+        "200":
+          description: Operational audit rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationsAuditListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /operations/audit/summary:
+    get:
+      tags:
+        - Operations Audit
+      operationId: getOperationsAuditSummary
+      summary: Summarize operational audit events.
+      parameters:
+        - $ref: "#/components/parameters/OperationsAuditFrom"
+        - $ref: "#/components/parameters/OperationsAuditTo"
+        - $ref: "#/components/parameters/OperationsAuditActorType"
+        - $ref: "#/components/parameters/OperationsAuditActorId"
+        - $ref: "#/components/parameters/OperationsAuditAction"
+        - $ref: "#/components/parameters/OperationsAuditResourceType"
+        - $ref: "#/components/parameters/OperationsAuditResourceId"
+        - $ref: "#/components/parameters/OperationsAuditScopeType"
+        - $ref: "#/components/parameters/OperationsAuditScopeId"
+        - $ref: "#/components/parameters/OperationsAuditDomain"
+        - $ref: "#/components/parameters/OperationsAuditModule"
+        - $ref: "#/components/parameters/OperationsAuditCategory"
+        - $ref: "#/components/parameters/OperationsAuditResult"
+        - $ref: "#/components/parameters/OperationsAuditStatus"
+        - $ref: "#/components/parameters/OperationsAuditAnomaliesOnly"
+      responses:
+        "200":
+          description: Operations audit summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationsAuditSummaryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /admin/goats/{goat_id}/identifiers:
     post:
       tags:
@@ -1884,6 +2039,130 @@ components:
         type: string
         minLength: 8
         maxLength: 200
+    OperationsAuditLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+    OperationsAuditCursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 512
+    OperationsAuditFrom:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    OperationsAuditTo:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    OperationsAuditActorId:
+      name: actor_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    OperationsAuditActorType:
+      name: actor_type
+      in: query
+      required: false
+      schema:
+        type: string
+        enum:
+          - human
+          - system
+          - worker
+          - service
+          - user
+    OperationsAuditAction:
+      name: action
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 160
+    OperationsAuditResourceType:
+      name: resource_type
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 120
+    OperationsAuditResourceId:
+      name: resource_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    OperationsAuditScopeType:
+      name: scope_type
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 80
+    OperationsAuditScopeId:
+      name: scope_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    OperationsAuditDomain:
+      name: domain
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 80
+    OperationsAuditModule:
+      name: module
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 120
+    OperationsAuditCategory:
+      name: category
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 120
+    OperationsAuditResult:
+      name: result
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 80
+    OperationsAuditStatus:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 80
+    OperationsAuditAnomaliesOnly:
+      name: anomalies_only
+      in: query
+      required: false
+      schema:
+        type: boolean
   responses:
     BadRequest:
       description: Validation error.
@@ -3611,6 +3890,354 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+    GenerationStatus:
+      type: string
+      enum:
+        - queued
+        - skipped_needs_review
+        - skipped_ineligible
+        - not_applicable
+    CreateAdminGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - sex
+        - origin_type
+        - entry_date
+        - evidence_refs
+      properties:
+        rfid:
+          type: string
+          minLength: 1
+          maxLength: 200
+        old_tag:
+          type: string
+          minLength: 1
+          maxLength: 120
+        temp_field_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+        farm_id:
+          type: string
+          format: uuid
+        farm_code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        park_id:
+          type: string
+          format: uuid
+        park_code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        shed_id:
+          type: string
+          format: uuid
+        shed_code:
+          type: string
+          minLength: 1
+          maxLength: 120
+        breed:
+          type: string
+          maxLength: 120
+        sex:
+          type: string
+          enum:
+            - female
+            - male
+            - unknown
+        dob:
+          type: string
+          format: date
+        dob_estimated:
+          type: boolean
+        origin_type:
+          type: string
+          enum:
+            - birth
+            - procured
+            - imported
+            - unknown
+        entry_date:
+          type: string
+          format: date
+        management_stage:
+          type: string
+          maxLength: 80
+        health_status:
+          type: string
+          maxLength: 80
+        weight_kg:
+          type: number
+          minimum: 0
+        dam_id:
+          type: string
+          maxLength: 120
+        sire_or_lot:
+          type: string
+          maxLength: 120
+        photo_url:
+          type: string
+          maxLength: 500
+        source_record_id:
+          type: string
+          maxLength: 200
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        vaccination_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+    AdminGoatBulkPreviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - csv
+      properties:
+        csv:
+          type: string
+          minLength: 1
+        file_hash:
+          type: string
+          maxLength: 128
+    AdminGoatBulkCommitRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - rows
+      properties:
+        rows:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/CreateAdminGoatRequest"
+        file_hash:
+          type: string
+          maxLength: 128
+    AdminGoatBulkSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - total
+        - create_ready
+        - requires_review
+        - skipped
+        - created
+        - failed
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        create_ready:
+          type: integer
+          minimum: 0
+        requires_review:
+          type: integer
+          minimum: 0
+        skipped:
+          type: integer
+          minimum: 0
+        created:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+    AdminGoatBulkRowResult:
+      type: object
+      additionalProperties: false
+      required:
+        - row_number
+        - decision
+        - errors
+        - warnings
+      properties:
+        row_number:
+          type: integer
+          minimum: 1
+        decision:
+          type: string
+          enum:
+            - create
+            - requires_review
+            - skip
+            - conflict
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+        warnings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+            properties:
+              code:
+                type: string
+                minLength: 1
+                maxLength: 120
+              message:
+                type: string
+                minLength: 1
+                maxLength: 500
+              original_goat_id:
+                type: string
+                format: uuid
+              redirect_goat_id:
+                type: string
+                format: uuid
+        normalized:
+          $ref: "#/components/schemas/CreateAdminGoatRequest"
+        result:
+          $ref: "#/components/schemas/AdminGoatResponse"
+        generation_status:
+          $ref: "#/components/schemas/GenerationStatus"
+    AdminGoatBulkResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - summary
+        - rows
+        - trace_id
+      properties:
+        summary:
+          $ref: "#/components/schemas/AdminGoatBulkSummary"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminGoatBulkRowResult"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OperationsAuditRow:
+      type: object
+      additionalProperties: false
+      required:
+        - audit_id
+        - recorded_at
+        - actor_type
+        - action
+        - resource_type
+        - anomaly
+        - metadata
+      properties:
+        audit_id:
+          type: string
+          format: uuid
+        recorded_at:
+          type: string
+          format: date-time
+        actor_type:
+          type: string
+          minLength: 1
+          maxLength: 80
+        actor_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          minLength: 1
+          maxLength: 160
+        resource_type:
+          type: string
+          minLength: 1
+          maxLength: 120
+        resource_id:
+          type: string
+          format: uuid
+        scope_type:
+          type: string
+          maxLength: 80
+        scope_id:
+          type: string
+          format: uuid
+        anomaly:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+        trace_id:
+          type: string
+          maxLength: 200
+    OperationsAuditListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationsAuditRow"
+        next_cursor:
+          type: string
+          maxLength: 512
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OperationsAuditSummaryResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - actions
+        - awaiting_verification
+        - proof_events
+        - proof_coverage_percent
+        - rejected
+        - rework
+        - anomalies
+        - from
+        - to
+        - as_of
+        - trace_id
+      properties:
+        actions:
+          type: integer
+          minimum: 0
+        awaiting_verification:
+          type: integer
+          minimum: 0
+        proof_events:
+          type: integer
+          minimum: 0
+        proof_coverage_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        rejected:
+          type: integer
+          minimum: 0
+        rework:
+          type: integer
+          minimum: 0
+        anomalies:
+          type: integer
+          minimum: 0
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        as_of:
+          type: string
+          format: date-time
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
     AddIdentifierRequest:
       type: object
       additionalProperties: false
@@ -3671,6 +4298,7 @@ components:
         - decision
         - events
         - idempotency
+        - generation_status
         - trace_id
       properties:
         goat:
@@ -3687,6 +4315,8 @@ components:
             $ref: "#/components/schemas/EventSummary"
         idempotency:
           $ref: "#/components/schemas/IdempotencyMeta"
+        generation_status:
+          $ref: "#/components/schemas/GenerationStatus"
         trace_id:
           type: string
           minLength: 1

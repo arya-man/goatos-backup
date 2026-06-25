@@ -5,15 +5,27 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	outboxpublisher "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher"
+	eventbuspublisher "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher/eventbus"
+	pubsubpublisher "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher/pubsub"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
+	outboxports "github.com/vgoats/goatos/backend/internal/outbox/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
+	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 type cliConfig struct {
@@ -58,13 +70,13 @@ func run(args []string) error {
 	logger := observability.New(observability.Config{Service: "outbox-relay"})
 	repo := outboxpg.NewRepository(pool, pgCfg.QueryTimeout)
 	publisherKind := os.Getenv("GOATOS_OUTBOX_PUBLISHER")
-	if outboxpublisher.WantsPubSub(publisherKind) {
-		// The Pub/Sub broker client (a cloud.google.com/go/pubsub/v2 wrapper, honouring
-		// PUBSUB_EMULATOR_HOST locally) is injected at deploy wiring time. Until then the relay
-		// safely falls back to the logging publisher rather than failing closed.
-		logger.Warn("pubsub_publisher_requested_without_client_falling_back_to_logging")
+	publisher, closePublisher, err := buildPublisher(ctx, publisherKind, pool, pgCfg, logger)
+	if err != nil {
+		return err
 	}
-	publisher := outboxpublisher.Select(publisherKind, logger, nil)
+	if closePublisher != nil {
+		defer closePublisher()
+	}
 	service := outboxapp.NewService(repo, publisher, validator, outboxapp.Config{
 		Limit:        cfg.Limit,
 		MaxAttempts:  cfg.MaxAttempts,
@@ -84,6 +96,39 @@ func run(args []string) error {
 		"dead_letter", result.DeadLetterCount,
 	)
 	return nil
+}
+
+func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Logger) (outboxports.Publisher, func() error, error) {
+	normalized := strings.ToLower(strings.TrimSpace(kind))
+	switch normalized {
+	case "", "logging", "log":
+		return outboxpublisher.Select(kind, logger, nil), nil, nil
+	case "eventbus", "local", "inprocess":
+		bus := eventbus.NewInProcessBus()
+		protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
+		vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
+		obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
+		generation := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
+		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
+		logger.Info("outbox_relay_eventbus_dispatcher_ready")
+		return eventbuspublisher.New(bus), nil, nil
+	case outboxpublisher.KindPubSub:
+		projectID := strings.TrimSpace(os.Getenv("GOATOS_PUBSUB_PROJECT_ID"))
+		if projectID == "" {
+			projectID = strings.TrimSpace(os.Getenv("GOOGLE_CLOUD_PROJECT"))
+		}
+		if projectID == "" {
+			return nil, nil, fmt.Errorf("GOATOS_OUTBOX_PUBLISHER=pubsub requires GOATOS_PUBSUB_PROJECT_ID or GOOGLE_CLOUD_PROJECT")
+		}
+		client, err := pubsubpublisher.NewGCPMessagePublisher(ctx, projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+		logger.Info("outbox_relay_pubsub_publisher_ready", "project_id", projectID)
+		return pubsubpublisher.NewPublisher(client), client.Close, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported GOATOS_OUTBOX_PUBLISHER %q", kind)
+	}
 }
 
 func parseFlags(args []string) (cliConfig, error) {

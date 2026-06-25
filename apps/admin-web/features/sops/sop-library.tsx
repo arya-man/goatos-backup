@@ -120,7 +120,9 @@ export function SopLibrary({ sops, error, authRequired, initialCreating = false 
                 key={c.id}
                 type="button"
                 className="on"
+                disabled
                 title="Current visible SOP slice is PHC / Vaccination"
+                style={{ cursor: "not-allowed" }}
               >
                 {c.label}
                 <span className="cbq">{sops.length}</span>

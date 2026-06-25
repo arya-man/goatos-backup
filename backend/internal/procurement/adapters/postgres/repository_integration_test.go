@@ -398,6 +398,90 @@ WHERE tenant_id=$1 AND load_id=$2`, testTenant, load.LoadID, time.Date(2026, 6, 
 	})
 }
 
+func TestProcurementIdempotencyReserveSerializesConcurrentSameKey(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProcurementCommon(t, ctx, pool)
+
+	scope := "procurement.concurrent_reserve"
+	key := "idem-concurrent-reserve"
+	fingerprint := requestFingerprint("same-payload")
+	resultID := "71000000-0000-4000-8000-000000000777"
+
+	tx1, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin first tx: %v", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx1.Rollback(context.Background())
+		}
+	}()
+	first, err := reserveIdempotency(ctx, tx1, testTenant, scope, key, fingerprint)
+	if err != nil {
+		t.Fatalf("first reserve: %v", err)
+	}
+	if !first.proceed {
+		t.Fatalf("first reserve proceed = false, want true")
+	}
+
+	type reserveResult struct {
+		res idemReservation
+		err error
+	}
+	started := make(chan struct{})
+	done := make(chan reserveResult, 1)
+	go func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tx2, err := pool.Begin(ctx2)
+		if err != nil {
+			done <- reserveResult{err: err}
+			return
+		}
+		defer func() { _ = tx2.Rollback(context.Background()) }()
+		close(started)
+		res, err := reserveIdempotency(ctx2, tx2, testTenant, scope, key, fingerprint)
+		if err == nil {
+			err = tx2.Commit(ctx2)
+		}
+		done <- reserveResult{res: res, err: err}
+	}()
+	<-started
+
+	select {
+	case got := <-done:
+		t.Fatalf("second reserve returned before first commit: res=%#v err=%v", got.res, got.err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := completeIdempotency(ctx, tx1, testTenant, scope, key, "procurement_concurrency_probe", resultID); err != nil {
+		t.Fatalf("complete first idempotency: %v", err)
+	}
+	if err := tx1.Commit(ctx); err != nil {
+		t.Fatalf("commit first tx: %v", err)
+	}
+	committed = true
+
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("second reserve after first commit: %v", got.err)
+		}
+		if got.res.proceed {
+			t.Fatalf("second reserve proceed = true, want replay result")
+		}
+		if got.res.resultType != "procurement_concurrency_probe" || got.res.resultID != resultID {
+			t.Fatalf("second reserve result = %q/%q, want procurement_concurrency_probe/%s", got.res.resultType, got.res.resultID, resultID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("second reserve did not unblock after first commit")
+	}
+}
+
 // TestProcurementIdempotentReplay proves item-3: every flagged write path honors the AGENTS.md write-path
 // idempotency contract — an exact replay (same key + same payload) returns the original result and runs NO
 // further side effects (row_version stays put), and a same-key/different-payload replay is rejected with

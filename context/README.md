@@ -83,6 +83,12 @@ Procurement/source-entry frontend handoff
 Procurement source-entry -> vaccination E2E plan
   context/execution/procurement-vaccination-e2e-plan.md
 
+Vaccination pre-E2E readiness audit
+  context/execution/vaccination-pre-e2e-readiness-audit.md
+
+Vaccination trigger closure parallel handoff
+  context/execution/vaccination-trigger-closure-parallel-handoff.md
+
 Two-developer build plan
   context/execution/two-dev-build-plan.md
 

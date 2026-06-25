@@ -76,39 +76,38 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
-			var sopTaskID *string
-			if s.tasks != nil && cfg.SOPVersionID != "" {
-				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
-				if err != nil {
-					return res, err
-				}
-				sopTaskID = &taskID
-			}
-			batchID, err := s.repo.CreateBatch(ctx, domain.NewBatch{
+			batchID, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
 				TenantID:          tenantID,
 				ProtocolVersionID: versionID,
 				ScopeType:         g.scopeType,
 				ScopeID:           g.scopeID,
 				Status:            "planned",
 				EstimatedTargets:  int32(len(g.ids)),
-				SopTaskID:         sopTaskID,
-			})
+			}, g.ids)
 			if err != nil {
 				return res, err
+			}
+			if n == 0 {
+				continue
+			}
+			if s.tasks != nil && cfg.SOPVersionID != "" {
+				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
+				if err != nil {
+					return res, err
+				}
+				if err := s.repo.SetBatchSOPTask(ctx, tenantID, batchID, taskID); err != nil {
+					return res, err
+				}
 			}
 			if s.reserver != nil && cfg.VaccineItemID != "" {
 				dosesPer := cfg.DosesPerGoat
 				if dosesPer < 1 {
 					dosesPer = 1
 				}
-				qty := int64(len(g.ids)) * int64(dosesPer)
+				qty := n * int64(dosesPer)
 				if err := s.reserver.ReserveForBatch(ctx, tenantID, batchID, g.scopeID, cfg.VaccineItemID, qty); err != nil {
 					return res, err
 				}
-			}
-			n, err := s.repo.AttachObligationsToBatch(ctx, tenantID, batchID, g.ids)
-			if err != nil {
-				return res, err
 			}
 			res.Batches++
 			res.Obligations += int(n)

@@ -54,7 +54,10 @@ Known meaning:
 - Legacy label found as `Holding Farm` and `HF - <name>` in current source data.
 - Holding farms are facilities at the source where goats are kept after
   procurement and before dispatch to main parks.
-- Confirmed holding period is roughly 2 to 8 weeks post procurement.
+- Source documents said the intended/optimistic holding period is roughly 2 to 8
+  weeks post procurement, but the 2026-06-25 operator clarification supersedes
+  using that as a hard cap: breeding source warmup is realistically 45-70 days
+  today, while fattening/non-breeding cases may be 0 days or around 2 weeks.
 - They are used for initial selection, tagging, health SOP, and source-side
   holding before a long journey.
 - Examples such as `HF - Rajasthan Farms`, `HF - Gokul Agronomics`,
@@ -69,6 +72,9 @@ Build rule:
 
 - Treat HF as procurement/source/holding context by default.
 - Do not treat HF/Holding Farm as final goat ownership truth automatically.
+- Store actual source warmup start/end/days per load/goat/purpose. Do not hard
+  code one universal warmup duration into validation, vaccination eligibility, or
+  UI copy.
 - When Mesha has paid an advance but not the full amount, ownership is
   business-wise shared/pending and should stay reviewable until source evidence
   confirms the owner ledger row.
@@ -249,8 +255,10 @@ Ops mentioned a target around 200g+ daily gain for strong fattening performance.
 
 Adaptation period before the goat enters normal farm flow.
 
-- Source warm-up: goats are held at the source/holding farm after purchase,
-  usually as part of the 2 to 8 week holding period before travel.
+- Source warm-up: goats are held at the source/holding farm after purchase. The
+  actual duration is purpose-dependent: breeding is currently expected around
+  45-70 days; fattening/non-breeding may be immediate/0 days or around 2 weeks;
+  2 to 8 weeks remains an optimistic/target planning range, not a validation cap.
 - Destination warm-up: goats adapt again after arriving at CBE/CPT or another
   destination farm, especially to local climate and feed. Park warmup is
   typically about 14 days.

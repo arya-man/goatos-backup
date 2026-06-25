@@ -54,7 +54,9 @@ edge case explicit:
 
 ```text
 goat journey starts at purchase/source
-  -> supplier / holding farm warmup can last 45-70 days
+  -> supplier / holding farm warmup is purpose-specific
+     breeding: 45-70 days is realistic today
+     fattening / non-breeding: can be 0 days or around 2 weeks
   -> source-side tagging/warmup may happen before final accepted intake
   -> goat may be rejected before being loaded onto truck
   -> only accepted goats continue to transit/main parks
@@ -66,10 +68,12 @@ Existing documented basis:
 context/product/glossary.md
   HF / Holding Farm:
     source-side facility after procurement and before dispatch to main parks.
-    holding period documented as roughly 2 to 8 weeks.
+    holding period originally documented as roughly 2 to 8 weeks, but treat this
+    as optimistic/future planning, not a hard cap.
     used for initial selection, tagging, health SOP, and source-side holding.
   Warmup:
-    source warm-up is separate from destination/park warmup.
+    source warm-up is separate from destination/park warmup and must store actual
+    start/end/days by load/goat/purpose.
 
 context/source-findings/drive-docs-findings.md
   procurement load -> holding farm/source context -> transit/handoff proof
@@ -178,7 +182,8 @@ source of truth for seed shape, assertions, and UI button placement.
 purchase/load created
   or candidate/source-only goat tagged at supplier
   -> source/vendor/holding-farm stay opened
-  -> source warmup runs (supports 45-70 days; do not hard-cap to 8 weeks)
+  -> source warmup runs (purpose-specific; breeding supports 45-70 days today,
+     fattening/non-breeding may be 0 days or around 2 weeks)
   -> tagging + source health SOP tasks
   -> pre-dispatch decision
        accepted: eligible for truck/transit
@@ -201,7 +206,7 @@ generic notes or free-text status.
 | Purchased goat enters supplier/holding farm | Load, source, holding stay, temporary/source identity, ownership state | Not yet clean park herd truth |
 | Candidate/source goat tagged before final acceptance | Source-only identity, source tag/RFID, holding stay, selection/ownership state | Visible in procurement only; not a PHC/Parks goat yet |
 | Candidate/source goat rejected before purchase/load/truck | Durable source rejection decision, reason, actor, time, proof | Procurement history only; no active park work, no active PHC vaccination obligation |
-| Source warmup lasts 45-70 days | Warmup start/end/days, state, reason if outside normal window | Visible but not invalid just because it exceeds 8 weeks |
+| Source warmup duration varies by purpose | Warmup start/end/days, purpose/classification, state, reason if outside purpose-specific window | Breeding 45-70 days is valid today; fattening/non-breeding can be 0 days or around 2 weeks; do not hard-cap from the old 2-8 week note |
 | Tagging done at supplier | Identifier evidence and source tag/RFID mapping | Goes through identity module/review, not blind duplicate goat creation |
 | Source health SOP passes | SOP task/submission/proof/reviewer state | Goat can move to pre-dispatch decision |
 | Source health SOP fails | Failed/rejected/deferred health state, reason, proof | Blocks truck loading; may become rejected/deferred |
@@ -393,7 +398,9 @@ Minimum backend tests before exposing the contracts:
 
 ```text
 source warmup:
-  45-70 day warmup remains valid and visible.
+  purpose-specific warmup remains valid and visible:
+    breeding 45-70 days
+    fattening/non-breeding 0 days or around 2 weeks
 
 pre-dispatch:
   accept, reject-before-truck, defer, block-missing-proof, and identity-conflict
@@ -447,7 +454,7 @@ truth.
 Do not call this backend slice done until:
 
 ```text
-source warmup supports 45-70 days without data loss
+source warmup supports purpose-specific durations without data loss
 pre-dispatch rejection is durable and auditable
 rejected-before-truck goats do not appear as active park/vaccination work
 accepted-intake goats can trigger post-arrival vaccination obligations

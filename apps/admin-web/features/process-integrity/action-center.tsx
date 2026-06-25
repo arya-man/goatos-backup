@@ -23,12 +23,14 @@ function shortId(id: string): string {
 function ActionForm({
   action,
   completionId,
+  returnTo,
   reason,
   primary,
   children,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   completionId: string;
+  returnTo: string;
   reason?: string;
   primary?: boolean;
   children: React.ReactNode;
@@ -36,6 +38,7 @@ function ActionForm({
   return (
     <form action={action} style={{ display: "inline" }}>
       <input type="hidden" name="completion_id" value={completionId} />
+      <input type="hidden" name="return_to" value={returnTo} />
       {reason ? <input type="hidden" name="reason" value={reason} /> : null}
       <button type="submit" className={`btn sm${primary ? " p" : ""}`}>
         {children}
@@ -89,6 +92,7 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
       ...overrides,
     });
   }
+  const verifyReturnTo = hrefWith({ bucket: "verify" });
 
   return (
     <div className="screen on">
@@ -174,13 +178,13 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
                       <td>{q.doses}</td>
                       <td>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          <ActionForm action={verifyCompletionAction} completionId={q.completion_id} primary>
+                          <ActionForm action={verifyCompletionAction} completionId={q.completion_id} returnTo={verifyReturnTo} primary>
                             Verify
                           </ActionForm>
-                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} reason="rejected">
+                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} returnTo={verifyReturnTo} reason="rejected">
                             Reject
                           </ActionForm>
-                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} reason="rework_requested">
+                          <ActionForm action={rejectCompletionAction} completionId={q.completion_id} returnTo={verifyReturnTo} reason="rework_requested">
                             Request rework
                           </ActionForm>
                           <Link href={`/goats/${q.goat_id}`} className="btn sm">
@@ -230,7 +234,12 @@ export async function VaccinationActionCenterPage({ searchParams }: { searchPara
             >
               <Users className="ic" style={{ width: 13 }} aria-hidden="true" /> My tasks
             </span>
-            <span className="btn sm" title="Severity filter below. Park scope is set in the top bar.">
+            <span
+              className="btn sm"
+              aria-disabled
+              title="Advanced filter drawer is not built yet - use severity chips and top-bar park scope."
+              style={{ opacity: 0.45, cursor: "not-allowed" }}
+            >
               <Search className="ic" style={{ width: 13 }} aria-hidden="true" /> Filters
             </span>
           </div>

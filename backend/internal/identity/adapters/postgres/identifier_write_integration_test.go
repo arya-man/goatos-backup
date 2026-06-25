@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -18,6 +19,11 @@ import (
 const (
 	addIdentifierCommandName    = "addGoatIdentifier"
 	retireIdentifierCommandName = "retireGoatIdentifier"
+	createAdminGoatCommandName  = "createAdminGoat"
+	adminCreateFarmLocation     = "00000000-0000-4000-8000-000000003901"
+	adminCreateShedLocation     = "00000000-0000-4000-8000-000000003902"
+	adminCreateOrphanShed       = "00000000-0000-4000-8000-000000003903"
+	adminCreateWrongParkShed    = "00000000-0000-4000-8000-000000003904"
 )
 
 func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
@@ -28,6 +34,115 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	ctx := context.Background()
 	pool, repo := startCorrectionWriteDB(t, ctx)
 	defer pool.Close()
+	seedAdminCreateLocations(t, pool)
+
+	t.Run("admin goat create writes goat identifiers decision event audit outbox and schema-valid payloads", func(t *testing.T) {
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-0001", "rfid-admin-create-0001", "admin-create-oldtag-0001")
+		result, err := repo.CreateAdminGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat: %v", err)
+		}
+		if result.Replayed || result.Goat.GoatID == "" || result.Decision.DecisionType != "create_goat" || result.GenerationStatus != "queued" {
+			t.Fatalf("unexpected create result: %#v", result)
+		}
+		if result.Goat.LocationPath.ParkID == nil || *result.Goat.LocationPath.ParkID != cbeLocation {
+			t.Fatalf("unexpected goat park scope: %#v", result.Goat.LocationPath)
+		}
+		if len(result.Identifiers) != 2 {
+			t.Fatalf("expected rfid and old_tag identifiers, got %#v", result.Identifiers)
+		}
+		assertAdminGoatCreateRows(t, pool, cmd, result)
+	})
+
+	t.Run("admin goat create validation rejects orphan and wrong-parent sheds", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			shedID string
+		}{
+			{name: "orphan shed", shedID: adminCreateOrphanShed},
+			{name: "wrong park shed", shedID: adminCreateWrongParkShed},
+		}
+		for i, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cmd := adminGoatCreateCommand(t, "idem-create-goat-parent-"+string(rune('a'+i)), "rfid-admin-create-parent-"+string(rune('a'+i)), "admin-create-oldtag-parent-"+string(rune('a'+i)))
+				validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
+					TenantID:             cmd.TenantID,
+					StoredIdempotencyKey: cmd.StoredIdempotencyKey,
+					RequestHash:          cmd.RequestHash,
+					Identifiers:          cmd.Identifiers,
+					FarmID:               cmd.FarmID,
+					ParkID:               &cmd.ParkID,
+					ShedID:               &tc.shedID,
+				})
+				if err != nil {
+					t.Fatalf("ValidateAdminGoatCreate: %v", err)
+				}
+				if !hasFieldError(validation.Conflicts, "shed_id", "wrong_parent") {
+					t.Fatalf("expected shed_id wrong_parent conflict, got %#v", validation.Conflicts)
+				}
+			})
+		}
+	})
+
+	t.Run("admin goat create exact replay rebuilds response and changed body conflicts", func(t *testing.T) {
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-0002", "rfid-admin-create-0002", "admin-create-oldtag-0002")
+		first, err := repo.CreateAdminGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("first create: %v", err)
+		}
+		replay, err := repo.CreateAdminGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("replay create: %v", err)
+		}
+		if !replay.Replayed || replay.FirstResultID == nil || *replay.FirstResultID != first.Goat.GoatID {
+			t.Fatalf("unexpected replay metadata: %#v", replay)
+		}
+		if replay.Decision.DecisionID != first.Decision.DecisionID || replay.Events[0].EventID != first.Events[0].EventID {
+			t.Fatalf("replay did not refetch original decision/event: first=%#v replay=%#v", first, replay)
+		}
+		changed := adminGoatCreateCommand(t, "idem-create-goat-0002", "rfid-admin-create-0002", "admin-create-oldtag-0002")
+		changed.RequestHash = "changed-admin-goat-create-request-hash"
+		if _, err := repo.CreateAdminGoat(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("expected idempotency conflict, got %v", err)
+		}
+	})
+
+	t.Run("admin goat create duplicate rfid rolls back goat idempotency audit and outbox", func(t *testing.T) {
+		first := adminGoatCreateCommand(t, "idem-create-goat-dupe-0001", "rfid-admin-create-dupe", "admin-create-oldtag-dupe-0001")
+		if _, err := repo.CreateAdminGoat(ctx, first); err != nil {
+			t.Fatalf("first create: %v", err)
+		}
+		dupe := adminGoatCreateCommand(t, "idem-create-goat-dupe-0002", " RFID-ADMIN-CREATE-DUPE ", "admin-create-oldtag-dupe-0002")
+		if _, err := repo.CreateAdminGoat(ctx, dupe); !errors.Is(err, ports.ErrWriteConflict) {
+			t.Fatalf("expected duplicate RFID write conflict, got %v", err)
+		}
+		assertNoRows(t, pool, "idempotency after duplicate create RFID", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
+		assertNoRows(t, pool, "old_tag identifier after duplicate create RFID", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2 AND scope_key = $3", meshaTenant, "admin-create-oldtag-dupe-0002", "park:"+cbeLocation)
+		assertNoRows(t, pool, "location history after duplicate create RFID", "SELECT count(*) FROM goat_location_history WHERE tenant_id = $1 AND source_record_id = $2", meshaTenant, *dupe.SourceRecordID)
+		assertNoRows(t, pool, "decision after duplicate create RFID", "SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1", dupe.TraceID)
+		assertNoRows(t, pool, "event after duplicate create RFID", "SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1", dupe.StoredIdempotencyKey)
+		assertNoRows(t, pool, "audit after duplicate create RFID", "SELECT count(*) FROM audit_log WHERE trace_id = $1", dupe.TraceID)
+		assertNoRows(t, pool, "outbox after duplicate create RFID", "SELECT count(*) FROM outbox_messages WHERE trace_id = $1", dupe.TraceID)
+	})
+
+	t.Run("admin goat create forced failure rolls back goat identifiers decision event audit outbox and idempotency", func(t *testing.T) {
+		cmd := adminGoatCreateCommand(t, "idem-create-goat-rollback-0001", "rfid-admin-create-rollback", "admin-create-oldtag-rollback")
+		cmd.TraceID = "trace-admin-create-forced-rollback"
+		repo.afterAuditHook = func(context.Context) error { return errors.New("forced admin create rollback") }
+		_, err := repo.CreateAdminGoat(ctx, cmd)
+		repo.afterAuditHook = nil
+		if err == nil {
+			t.Fatal("expected forced admin create rollback error")
+		}
+		assertNoRows(t, pool, "idempotency after admin create rollback", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "rfid identifier after admin create rollback", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2", meshaTenant, "RFID-ADMIN-CREATE-ROLLBACK")
+		assertNoRows(t, pool, "old_tag identifier after admin create rollback", "SELECT count(*) FROM goat_identifiers WHERE tenant_id = $1 AND normalized_value = $2 AND scope_key = $3", meshaTenant, "admin-create-oldtag-rollback", "park:"+cbeLocation)
+		assertNoRows(t, pool, "location history after admin create rollback", "SELECT count(*) FROM goat_location_history WHERE tenant_id = $1 AND source_record_id = $2", meshaTenant, *cmd.SourceRecordID)
+		assertNoRows(t, pool, "decision after admin create rollback", "SELECT count(*) FROM identity_decisions WHERE evidence->'decision_record'->>'trace_id' = $1", cmd.TraceID)
+		assertNoRows(t, pool, "event after admin create rollback", "SELECT count(*) FROM goat_identity_events WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "audit after admin create rollback", "SELECT count(*) FROM audit_log WHERE trace_id = $1", cmd.TraceID)
+		assertNoRows(t, pool, "outbox after admin create rollback", "SELECT count(*) FROM outbox_messages WHERE trace_id = $1", cmd.TraceID)
+	})
 
 	t.Run("add success writes identifier decision event audit outbox and schema-valid payloads", func(t *testing.T) {
 		goatID := insertSyntheticGoat(t, pool, meshaTenant, cbeLocation)
@@ -447,6 +562,118 @@ func retireIdentifierCommand(t *testing.T, tenantID, key, goatID, identifierID s
 	}
 }
 
+func seedAdminCreateLocations(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO locations (
+  location_id, tenant_id, location_type, location_code, name,
+  parent_location_id, country, timezone, status
+	) VALUES
+	($1::uuid, $2::uuid, 'farm', 'ADMIN_CREATE_FARM', 'Synthetic admin create farm',
+	 NULL, 'IN', 'Asia/Kolkata', 'active'),
+	($3::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_SHED', 'Synthetic admin create shed',
+	 $4::uuid, 'IN', 'Asia/Kolkata', 'active'),
+	($5::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_ORPHAN_SHED', 'Synthetic admin create orphan shed',
+	 NULL, 'IN', 'Asia/Kolkata', 'active'),
+	($6::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_WRONG_PARK_SHED', 'Synthetic admin create wrong-park shed',
+	 $7::uuid, 'IN', 'Asia/Kolkata', 'active')
+ON CONFLICT (tenant_id, location_code) DO NOTHING`,
+		adminCreateFarmLocation, meshaTenant, adminCreateShedLocation, cbeLocation, adminCreateOrphanShed, adminCreateWrongParkShed, cptLocation); err != nil {
+		t.Fatal(err)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)
+FROM locations
+WHERE tenant_id = $1
+  AND location_id IN ($2, $3, $4, $5)
+  AND status = 'active'`, meshaTenant, adminCreateFarmLocation, adminCreateShedLocation, adminCreateOrphanShed, adminCreateWrongParkShed); got != 4 {
+		t.Fatalf("admin create fixture locations = %d, want 4", got)
+	}
+}
+
+func adminGoatCreateCommand(t *testing.T, key, rfid, oldTag string) ports.CreateAdminGoatCommand {
+	t.Helper()
+	entryDate := time.Date(2026, time.June, 25, 0, 0, 0, 0, time.UTC)
+	dob := time.Date(2025, time.December, 15, 0, 0, 0, 0, time.UTC)
+	breed := "Synthetic Boer"
+	managementStage := "adult"
+	healthStatus := "healthy"
+	sourceRecordID := "synthetic-admin-goat-create-" + key
+	description := "Synthetic source row for admin goat create."
+	sourceSystem := "synthetic_admin_register"
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   sourceRecordID,
+		SourceSystem: &sourceSystem,
+		Description:  &description,
+	}}
+	farmID := adminCreateFarmLocation
+	body := map[string]any{
+		"rfid":             strings.TrimSpace(rfid),
+		"old_tag":          strings.TrimSpace(oldTag),
+		"farm_id":          farmID,
+		"park_id":          cbeLocation,
+		"shed_id":          adminCreateShedLocation,
+		"breed":            breed,
+		"sex":              "female",
+		"dob":              "2025-12-15",
+		"dob_estimated":    true,
+		"origin_type":      "procured",
+		"entry_date":       "2026-06-25",
+		"management_stage": managementStage,
+		"health_status":    healthStatus,
+		"source_record_id": sourceRecordID,
+		"evidence_refs":    evidenceRefs,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := app.CanonicalRequestHashWithSubject(meshaTenant, createAdminGoatCommandName, "/admin/goats", "", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.CreateAdminGoatCommand{
+		TenantID:             meshaTenant,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: meshaTenant + ":" + createAdminGoatCommandName + ":" + key,
+		IdempotencyScope:     createAdminGoatCommandName,
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		Identifiers: []ports.AdminGoatCreateIdentifier{
+			{
+				IdentifierType:  "rfid",
+				IdentifierValue: strings.TrimSpace(rfid),
+				NormalizedValue: strings.ToUpper(strings.TrimSpace(rfid)),
+				ScopeKey:        "global",
+				IsPrimary:       true,
+			},
+			{
+				IdentifierType:  "old_tag",
+				IdentifierValue: strings.TrimSpace(oldTag),
+				NormalizedValue: strings.TrimSpace(oldTag),
+				ScopeKey:        "park:" + cbeLocation,
+				IsPrimary:       true,
+			},
+		},
+		CustodianPartyID: meshaParty,
+		FarmID:           &farmID,
+		ParkID:           cbeLocation,
+		ShedID:           adminCreateShedLocation,
+		Breed:            &breed,
+		Sex:              "female",
+		DOB:              &dob,
+		DOBEstimated:     true,
+		OriginType:       "procured",
+		EntryDate:        entryDate,
+		ManagementStage:  &managementStage,
+		HealthStatus:     &healthStatus,
+		SourceRecordID:   &sourceRecordID,
+		EvidenceRefs:     evidenceRefs,
+	}
+}
+
 func identifierEvidenceRef() domain.EvidenceRef {
 	description := "Synthetic source row for identifier mutation."
 	sourceSystem := "synthetic_import"
@@ -464,6 +691,107 @@ func normalizeIdentifierForTest(identifierType, value string) string {
 		return strings.ToUpper(value)
 	}
 	return value
+}
+
+func assertAdminGoatCreateRows(t *testing.T, pool *pgxpool.Pool, cmd ports.CreateAdminGoatCommand, result *ports.AdminGoatMutationResult) {
+	t.Helper()
+	ctx := context.Background()
+	assertIdempotencyCompleted(t, pool, cmd.StoredIdempotencyKey, result.Goat.GoatID)
+	if got := countRows(t, pool, `
+SELECT count(*)
+FROM goat_location_history
+WHERE tenant_id = $1
+  AND goat_id = $2
+  AND to_location_id = $3
+  AND reason = 'admin_goat_create'
+  AND source_record_id = $4`, cmd.TenantID, result.Goat.GoatID, cmd.ShedID, stringValue(cmd.SourceRecordID)); got != 1 {
+		t.Fatalf("goat location history rows = %d", got)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)
+FROM identity_decision_goats
+WHERE decision_id = $1
+  AND goat_id = $2
+  AND role = 'created'`, result.Decision.DecisionID, result.Goat.GoatID); got != 1 {
+		t.Fatalf("decision goat rows = %d", got)
+	}
+
+	var eventID string
+	var recordedAt string
+	var linkedDecisionID string
+	if err := pool.QueryRow(ctx, `
+SELECT identity_event_id::text, recorded_at::text, decision_id::text
+FROM goat_identity_events
+WHERE idempotency_key = $1`, cmd.StoredIdempotencyKey).Scan(&eventID, &recordedAt, &linkedDecisionID); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != eventID || result.Events[0].EventType != "goat.created" {
+		t.Fatalf("unexpected create events: %#v", result.Events)
+	}
+	if linkedDecisionID != result.Decision.DecisionID {
+		t.Fatalf("event decision_id = %s, want %s", linkedDecisionID, result.Decision.DecisionID)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)
+FROM identity_decision_events
+WHERE decision_id = $1
+  AND event_id = $2
+  AND event_recorded_at::text = $3`, result.Decision.DecisionID, eventID, recordedAt); got != 1 {
+		t.Fatalf("decision-event linkage rows = %d", got)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)
+FROM outbox_messages
+WHERE idempotency_key = $1
+  AND event_id = $2
+  AND event_type = 'goat.created'
+  AND aggregate_type = 'goat'
+  AND aggregate_id = $3
+  AND topic = 'identity.events'`, cmd.StoredIdempotencyKey, eventID, result.Goat.GoatID); got != 1 {
+		t.Fatalf("outbox rows = %d", got)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)
+FROM audit_log
+WHERE trace_id = $1
+  AND resource_type = 'goat'
+  AND resource_id = $2
+  AND action = 'goat.created'`, cmd.TraceID, result.Goat.GoatID); got != 1 {
+		t.Fatalf("audit rows = %d", got)
+	}
+
+	decisionPayload := queryBytes(t, pool, "SELECT evidence->'decision_record' FROM identity_decisions WHERE decision_id = $1", result.Decision.DecisionID)
+	validateDecisionRecord(t, decisionPayload)
+	var decisionRecord map[string]any
+	if err := json.Unmarshal(decisionPayload, &decisionRecord); err != nil {
+		t.Fatal(err)
+	}
+	if decisionRecord["policy_version"] != adminGoatPolicyVersion {
+		t.Fatalf("unexpected decision record policy: %#v", decisionRecord)
+	}
+	affectedGoats := decisionRecord["affected_goats"].([]any)
+	affectedGoat := affectedGoats[0].(map[string]any)
+	if affectedGoat["goat_id"] != result.Goat.GoatID || affectedGoat["role"] != "affected" {
+		t.Fatalf("unexpected affected goat: %#v", affectedGoat)
+	}
+
+	payload := queryBytes(t, pool, "SELECT payload FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+	validateDomainEventEnvelope(t, payload)
+	var envelope map[string]any
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope["event_id"] != eventID || envelope["event_type"] != "goat.created" || envelope["aggregate_id"] != result.Goat.GoatID || envelope["subject_id"] != result.Goat.GoatID {
+		t.Fatalf("unexpected outbox envelope: %#v", envelope)
+	}
+	visibility := envelope["visibility_scope"].(map[string]any)
+	if visibility["tenant_id"] != meshaTenant || visibility["park_id"] != cbeLocation || visibility["shed_id"] != adminCreateShedLocation {
+		t.Fatalf("visibility scope missing location: %#v", visibility)
+	}
+	eventPayload := envelope["payload"].(map[string]any)
+	if eventPayload["generation_status"] != "queued" {
+		t.Fatalf("unexpected generation status in payload: %#v", eventPayload)
+	}
 }
 
 func assertIdentifierMutationRows(t *testing.T, pool *pgxpool.Pool, idempotencyKey, goatID, identifierID, decisionID, action, eventType string) {
@@ -543,4 +871,13 @@ func assertNoRows(t *testing.T, pool *pgxpool.Pool, label, query string, args ..
 	if got := countRows(t, pool, query, args...); got != 0 {
 		t.Fatalf("%s rows = %d", label, got)
 	}
+}
+
+func hasFieldError(errors []domain.FieldError, field, code string) bool {
+	for _, err := range errors {
+		if err.Field == field && err.Code == code {
+			return true
+		}
+	}
+	return false
 }

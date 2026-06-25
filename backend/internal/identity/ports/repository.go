@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 )
@@ -82,13 +83,73 @@ type RetireGoatIdentifierCommand struct {
 	RowVersion           int
 }
 
+type AdminGoatCreateIdentifier struct {
+	IdentifierType  string
+	IdentifierValue string
+	NormalizedValue string
+	ScopeKey        string
+	IsPrimary       bool
+}
+
+type ValidateAdminGoatCreateCommand struct {
+	TenantID             string
+	StoredIdempotencyKey string
+	RequestHash          string
+	Identifiers          []AdminGoatCreateIdentifier
+	FarmID               *string
+	FarmCode             *string
+	ParkID               *string
+	ParkCode             *string
+	ShedID               *string
+	ShedCode             *string
+}
+
+type AdminGoatCreateValidation struct {
+	CustodianPartyID string
+	FarmID           *string
+	ParkID           string
+	ShedID           string
+	Conflicts        []domain.FieldError
+	Warnings         []domain.Warning
+}
+
+type CreateAdminGoatCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	Identifiers          []AdminGoatCreateIdentifier
+	CustodianPartyID     string
+	FarmID               *string
+	ParkID               string
+	ShedID               string
+	Breed                *string
+	Sex                  string
+	DOB                  *time.Time
+	DOBEstimated         bool
+	OriginType           string
+	EntryDate            time.Time
+	ManagementStage      *string
+	HealthStatus         *string
+	WeightKg             *float64
+	DamID                *string
+	SireOrLot            *string
+	PhotoURL             *string
+	SourceRecordID       *string
+	EvidenceRefs         []domain.EvidenceRef
+}
+
 type AdminGoatMutationResult struct {
-	Goat          domain.GoatSummary
-	Identifiers   []domain.GoatIdentifier
-	Decision      domain.DecisionRecordSummary
-	Events        []domain.EventSummary
-	Replayed      bool
-	FirstResultID *string
+	Goat             domain.GoatSummary
+	Identifiers      []domain.GoatIdentifier
+	Decision         domain.DecisionRecordSummary
+	Events           []domain.EventSummary
+	GenerationStatus string
+	Replayed         bool
+	FirstResultID    *string
 }
 
 type Repository interface {

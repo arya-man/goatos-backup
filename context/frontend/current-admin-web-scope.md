@@ -243,11 +243,46 @@ Admin / Data Ops SOP Library for vaccination SOP policy
 Vaccination execution context scoped by park/shed
 ```
 
+Current vaccination-closure active slice:
+
+```text
+Counts / Herd Register
+Operations / Audit Log
+```
+
+These two surfaces are active because they are required to test the real
+vaccination cascade from a business trigger: create/import a goat, emit
+`goat.created`, generate vaccination obligations, and inspect the resulting
+operator/admin/system audit chain. This active slice is defined in
+`context/execution/vaccination-trigger-closure-parallel-handoff.md`. Follow that
+doc's golden rule for this slice: mock-faithful for every implemented element,
+scope-minimal for every unimplemented mock surface, and no fake clicks/rows/
+actions.
+
+The active slice includes dependency closure inside the active surfaces. Counts ->
+Herd Register may build the setup it needs to register/import/list goats
+honestly: location/park/shed selectors, lookup choices, identifier validation,
+duplicate/conflict/needs-review states, active/review/inactive lifecycle display,
+bulk preview row errors, limited backend-backed count cards, row-to-Passport
+links, and audit/history links. Operations -> Audit Log may build operation/
+actor/resource taxonomy, filters, entity links, and cursor pagination needed to
+inspect the chain. These dependencies must use current GoatOS contracts,
+canonical Postgres truth, generated clients, and the mock. They must not revive
+old dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
+import-review, or old Operations. The Counts sidebar shows only `Herd Register`
+in this slice; do not show disabled `Tagging & identity`, `Weights & ADG`,
+`Counts overall`, or `Count reconciliation` leaves for mock fidelity.
+
+It does not approve unrelated Counts modules, old Operations, global Goat
+Passport search, Calendar, Insights, HR, generic Parks, generic Inventory, or
+generic dashboard rebuilds.
+
 For backend/frontend handoff details, read:
 
 ```text
 context/execution/vaccination-process-integrity-backend-handoff.md
 context/frontend/vaccination-process-integrity-frontend-handoff.md
+context/execution/vaccination-trigger-closure-parallel-handoff.md
 ```
 
 For `/sops`, the backend SOP engine may stay generic, but the visible admin-web
@@ -282,6 +317,10 @@ These are the only current admin-web product routes:
 /workflows/{row_id}        Workflow drilldown
 /vaccination               PHC Vaccination module surface
 /vaccination/execution/sheds/{shed_id}
+/procurement/source-entry  Source Entry Board for supplier warmup / accepted intake
+/procurement/source-entry/loads/{load_id}
+/counts/herd               Herd Register for vaccination trigger closure
+/operations/audit          Operations Audit Log
 /config
 /sops
 /goats/{goat_id}
@@ -340,10 +379,18 @@ backend action or be honestly disabled with a reason.
 
 Boundary rules: procurement data is separate from the default vaccination
 command-screen content; rejected/source-only/unresolved goats stay procurement
-history and must not appear as PHC vaccination or vaccination execution work; only accepted-intake
-goats flow to PHC. Until a backend built from current source is running
-(procurement in the permission registry + migration `000083` + seed), these
-routes render honest `route_not_registered` / empty states — never fake rows.
+history and must not appear as PHC vaccination or vaccination execution work;
+only accepted-intake goats flow to PHC. The supplier Holding Farm warmup use
+case lives here under Procurement -> Source Entry: purchase/source,
+purpose-specific source warmup (breeding 45-70 days today; fattening/
+non-breeding can be 0 days or around 2 weeks), source tagging, HF vaccination
+evidence, pre-dispatch reject/accept/defer/block, dispatch, arrival review, and
+accepted intake. It must not be re-created as a Counts route or PHC/Vaccination
+action surface. PHC may show read-only accepted-intake origin/source and trusted
+imported vaccination evidence used for due-basis decisions. Until a backend
+built from current source is running (procurement in the permission registry +
+migration `000083` + seed), these routes render honest `route_not_registered` /
+empty states — never fake rows.
 
 Navigation should be (command screens top-level, verticals below):
 
@@ -407,7 +454,6 @@ These routes/features were old dashboard or old Phase 1 review surfaces and are
 removed from active admin-web:
 
 ```text
-/counts
 /locations
 /operators
 /tasks
@@ -421,9 +467,13 @@ removed from active admin-web:
 
 `/sops` was explicitly reopened on 2026-06-24 as the new Admin / Data Ops SOP
 Library / form-builder surface. The engine can be generic, but the current
-visible review surface is vaccination-only. This does not reopen old `/tasks`,
-old Operations, old generic SOP/task pages, old admin primitives, all-domain SOP
-inventory, or old dashboard UI.
+visible review surface is vaccination-only. `/counts/herd` and
+`/operations/audit` are active as vaccination trigger-closure surfaces,
+including their required dependency closure described above. This does not
+authorize unrelated Counts modules, old `/herd`, old `/tasks`, old Operations,
+old generic SOP/task pages, old admin primitives, all-domain SOP inventory, or
+old dashboard UI. For Counts, removed also means not visible as disabled sidebar
+placeholders unless a future approved slice explicitly reopens them.
 
 Do not rebuild removed routes unless the product scope is explicitly reopened
 and the screen is rebuilt from the mock, not from old admin-web code.

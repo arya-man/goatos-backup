@@ -222,13 +222,9 @@ func (r *Repository) AttachObligationsToBatch(ctx context.Context, tenantID, bat
 	if err != nil {
 		return 0, fmt.Errorf("obligation: batch id: %w", err)
 	}
-	ids := make([]pgtype.UUID, 0, len(obligationIDs))
-	for _, id := range obligationIDs {
-		u, err := pgconv.UUID(id)
-		if err != nil {
-			return 0, fmt.Errorf("obligation: obligation id: %w", err)
-		}
-		ids = append(ids, u)
+	ids, err := obligationUUIDs(obligationIDs)
+	if err != nil {
+		return 0, err
 	}
 	n, err := r.queries.AttachObligationsToBatch(ctx, obligationdb.AttachObligationsToBatchParams{
 		BatchID:       batch,
@@ -282,6 +278,137 @@ func (r *Repository) CreateBatch(ctx context.Context, in domain.NewBatch) (strin
 		return "", fmt.Errorf("obligation: create batch: %w", err)
 	}
 	return id, nil
+}
+
+func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.NewBatch, obligationIDs []string) (string, int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(obligationIDs) == 0 {
+		return "", 0, nil
+	}
+	tenant, err := pgconv.UUID(in.TenantID)
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(in.ProtocolVersionID)
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: version id: %w", err)
+	}
+	scope, err := pgconv.UUID(in.ScopeID)
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: scope id: %w", err)
+	}
+	plannedQty, err := pgconv.Numeric(in.PlannedQuantity)
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: planned_quantity: %w", err)
+	}
+	ids, err := obligationUUIDs(obligationIDs)
+	if err != nil {
+		return "", 0, err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: begin batch attach tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+
+	batchID, err := qtx.CreateObligationBatch(ctx, obligationdb.CreateObligationBatchParams{
+		TenantID:              tenant,
+		ProtocolVersionID:     version,
+		ScopeType:             in.ScopeType,
+		ScopeID:               scope,
+		Session:               pgconv.Text(in.Session),
+		PlannedDate:           pgconv.Date(in.PlannedDate),
+		WindowStart:           pgconv.NullableTimestamptz(in.WindowStart),
+		WindowEnd:             pgconv.NullableTimestamptz(in.WindowEnd),
+		Status:                in.Status,
+		EstimatedTargets:      in.EstimatedTargets,
+		PlannedQuantity:       plannedQty,
+		QuantityUnit:          pgconv.Text(in.QuantityUnit),
+		PrimaryInventoryLotID: pgconv.NullableUUID(in.PrimaryInventoryLotID),
+		SopTaskID:             pgconv.NullableUUID(in.SopTaskID),
+		ConductedBy:           pgconv.NullableUUID(in.ConductedBy),
+	})
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: create batch: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: batch id: %w", err)
+	}
+	attached, err := qtx.AttachObligationsToBatch(ctx, obligationdb.AttachObligationsToBatchParams{
+		BatchID:       batch,
+		TenantID:      tenant,
+		ObligationIds: ids,
+	})
+	if err != nil {
+		return "", 0, fmt.Errorf("obligation: attach to batch: %w", err)
+	}
+	if attached == 0 {
+		return "", 0, nil
+	}
+	if attached != int64(in.EstimatedTargets) {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET estimated_targets = $1, updated_at = now()
+WHERE tenant_id = $2 AND batch_id = $3`, int32(attached), tenant, batch); err != nil {
+			return "", 0, fmt.Errorf("obligation: update batch target count: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", 0, fmt.Errorf("obligation: commit batch attach: %w", err)
+	}
+	committed = true
+	return batchID, attached, nil
+}
+
+func (r *Repository) SetBatchSOPTask(ctx context.Context, tenantID, batchID, taskID string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return fmt.Errorf("obligation: batch id: %w", err)
+	}
+	task, err := pgconv.UUID(taskID)
+	if err != nil {
+		return fmt.Errorf("obligation: sop task id: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+UPDATE obligation_batches
+SET sop_task_id = $1, updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $2
+  AND batch_id = $3
+  AND (sop_task_id IS NULL OR sop_task_id = $1)`, task, tenant, batch)
+	if err != nil {
+		return fmt.Errorf("obligation: set batch sop task: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
+	ids := make([]pgtype.UUID, 0, len(values))
+	for _, id := range values {
+		u, err := pgconv.UUID(id)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: obligation id: %w", err)
+		}
+		ids = append(ids, u)
+	}
+	return ids, nil
 }
 
 // CancelOpenForGoat cancels a goat's scheduled/due obligations (SM-3 death/sale) and writes a

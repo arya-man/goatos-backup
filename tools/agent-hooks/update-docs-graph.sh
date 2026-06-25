@@ -26,10 +26,19 @@ def normalize(path):
     return path.removeprefix("./")
 
 
+_PRUNE = {"node_modules", ".git", ".next", "dist", "build", "vendor",
+          "graphify-out", ".codex-goatos-render"}
+
+
 def add_path(paths, path):
+    # Any goatos .md counts, except generated/vendored/build noise. Mirrors
+    # tools/agent-hooks/goatos-docs-corpus.sh (the rebuild's corpus definition).
     path = normalize(path)
-    if re.match(r"^(docs|context|\.agents/skills)/.*\.md$", path):
-        paths.add(path)
+    if not path.endswith(".md"):
+        return
+    if _PRUNE & set(path.split("/")):
+        return
+    paths.add(path)
 
 
 paths = set()
@@ -69,23 +78,48 @@ if [ -z "$CHANGED_MD_PATHS" ]; then
     exit 0
 fi
 
-# Debounce: skip if last update ran within 60 seconds
+REPO="/Users/ravi/mesha/goatos"
+LOG="/tmp/graphify-goatos-update.log"
+MARKER="$REPO/graphify-out/.needs_docs_graph_update"
+TS="$(date '+%Y-%m-%d %H:%M:%S')"
+
+# Always record that doc-graph-relevant files changed. Observable (so a missed
+# update is never silent) and durable (the marker survives until a successful
+# rebuild clears it).
+{
+  echo "[$TS] doc graph stale - changed:"
+  echo "$CHANGED_MD_PATHS" | sed 's/^/    /'
+} >> "$LOG" 2>&1
+
+mkdir -p "$REPO/graphify-out"
+{ [ -f "$MARKER" ] && cat "$MARKER"; echo "$CHANGED_MD_PATHS"; } 2>/dev/null \
+  | sort -u > "$MARKER.tmp" && mv "$MARKER.tmp" "$MARKER"
+
+# Auto-rebuild is ON by default (set GOATOS_DOCS_GRAPH_AUTOREBUILD=0 to disable
+# and stay flag-only). Unlike CRG's deterministic AST `update`, doc extraction
+# needs an LLM, so the rebuild runs rebuild-docs-graph.sh: it re-extracts ONLY
+# the changed files, merges, re-clusters, and SELF-VERIFIES - on any failure or
+# regression it restores the previous graph and keeps this marker, so a flaky
+# headless run can never silently corrupt the graph (the old failure mode).
+if [ "${GOATOS_DOCS_GRAPH_AUTOREBUILD:-1}" = "0" ]; then
+    echo "[$TS] flag-only (auto-rebuild disabled). Run rebuild-docs-graph.sh or the interactive /graphify update to clear $MARKER" >> "$LOG"
+    exit 0
+fi
+
+# Debounce: at most one background rebuild per 90s (a wave of edits coalesces
+# into one rebuild that picks up every changed file via the manifest hash diff).
 STAMP="/tmp/graphify-goatos-last-update"
 NOW=$(date +%s)
 if [ -f "$STAMP" ]; then
     LAST=$(cat "$STAMP" 2>/dev/null || echo 0)
-    DIFF=$((NOW - LAST))
-    if [ "$DIFF" -lt 60 ]; then
+    if [ "$((NOW - LAST))" -lt 90 ]; then
+        echo "[$TS] debounced (<90s); marker holds changed files for the next rebuild" >> "$LOG"
         exit 0
     fi
 fi
 echo "$NOW" > "$STAMP"
 
-# Run graphify skill update in a new background Claude session
-nohup bash -c "
-  cd /Users/ravi/mesha/goatos
-  claude -p '/graphify docs context .agents/skills/goatos-build/references --update' \
-    >> /tmp/graphify-goatos-update.log 2>&1
-" &
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+nohup bash "$HOOK_DIR/rebuild-docs-graph.sh" >/dev/null 2>&1 &
 
 exit 0

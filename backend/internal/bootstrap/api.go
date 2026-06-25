@@ -20,9 +20,9 @@ import (
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
-	vaccexechttp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/http"
-	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
-	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
+	operationsaudithttp "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/http"
+	operationsauditpg "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/postgres"
+	operationsauditapp "github.com/vgoats/goatos/backend/internal/operationsaudit/app"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -56,6 +56,9 @@ import (
 	vaccinationhttp "github.com/vgoats/goatos/backend/internal/vaccination/adapters/http"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	vaccexechttp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/http"
+	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -220,17 +223,22 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	protocolService := protocolapp.NewService(protocolRepo)
 	protocolHandler := protocolhttp.NewHandler(protocolService, log)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	operationsAuditService := operationsauditapp.NewService(operationsauditpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	operationsAuditHandler := operationsaudithttp.NewHandler(operationsAuditService, log)
 	processIntegrityService := processintegrityapp.NewService(processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
-	vaccinationService := vaccinationapp.NewService(vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService).
 		WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
+	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	bus := eventbus.NewInProcessBus()
+	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
@@ -271,6 +279,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
+	operationsaudithttp.Register(protectedMux, operationsAuditHandler)
 	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
 	procurementhttp.Register(protectedMux, procurementHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)

@@ -1078,6 +1078,10 @@ RETURNING handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
 		if handoffErr != nil {
 			return nil, fmt.Errorf("procurement: create PHC handoff: %w", handoffErr)
 		}
+		if err := r.emitAcceptedIntakeGoatCreated(ctx, tx, in, handoff); err != nil {
+			return nil, err
+		}
+		handoff.EventStatus = "emitted"
 		out = append(out, handoff)
 	}
 	if _, err = tx.Exec(ctx, `

@@ -26,9 +26,8 @@ import {
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 
-// A nav leaf. `disabled` leaves are mock-fidelity placeholders for sidebar leaves that exist in the mock's
-// long-term map but are NOT in the current vaccination-trigger build slice — rendered as non-clickable
-// labels with an honest reason, never as dead links.
+// A nav leaf. `disabled` leaves are allowed only for controls/routes in the approved slice that have a
+// clear backend blocker; they are not a license to surface unrelated future modules in the sidebar.
 type Leaf = { label: string; href: string; disabled?: boolean; reason?: string };
 type Group = { id: string; label: string; icon: React.ElementType; defaultOpen?: boolean; leaves: Leaf[] };
 type RoleLens = { id: string; name: string; scope: string; description: string; superadmin?: boolean };
@@ -88,17 +87,13 @@ const groups: Group[] = [
   {
     // Counts = its OWN vertical. Goat identity creation/import lives here (Herd Register), NOT under
     // PHC / Vaccination. Herd Register emits goat.created, which is the real business entry point for the
-    // vaccination cascade. Tagging & identity / Weights & ADG are mock-map placeholders, disabled until
-    // their own slice is approved (vaccination-trigger closure scope is Herd Register only).
+    // vaccination cascade. Vaccination-trigger closure scope exposes Herd Register only; any identifier
+    // setup needed for the trigger belongs inside /counts/herd, not as extra Counts nav leaves.
     id: "counts",
     label: "Counts",
     icon: ClipboardList,
     defaultOpen: false,
-    leaves: [
-      { label: "Herd Register", href: "/counts/herd" },
-      { label: "Tagging & identity", href: "/counts/tagging", disabled: true, reason: "Not in the current vaccination-trigger slice. Herd Register is the only active Counts surface." },
-      { label: "Weights & ADG", href: "/counts/weights", disabled: true, reason: "Not in the current vaccination-trigger slice. Herd Register is the only active Counts surface." },
-    ],
+    leaves: [{ label: "Herd Register", href: "/counts/herd" }],
   },
   {
     id: "admin-data",

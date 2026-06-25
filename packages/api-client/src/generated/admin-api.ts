@@ -658,6 +658,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a canonical goat and queue goat.created generation. */
+        post: operations["createAdminGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/bulk-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview a CSV goat import without writing rows. */
+        post: operations["previewAdminGoatBulkImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/bulk-commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Commit previewed goat import rows through the goat.created trigger gate. */
+        post: operations["commitAdminGoatBulkImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List operational audit events. */
+        get: operations["listOperationsAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/audit/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Summarize operational audit events. */
+        get: operations["getOperationsAuditSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/{goat_id}/identifiers": {
         parameters: {
             query?: never;
@@ -1402,6 +1487,121 @@ export interface components {
             event_id: string;
             event_type: string;
         };
+        /** @enum {string} */
+        GenerationStatus: "queued" | "skipped_needs_review" | "skipped_ineligible" | "not_applicable";
+        CreateAdminGoatRequest: {
+            rfid?: string;
+            old_tag?: string;
+            temp_field_id?: string;
+            /** Format: uuid */
+            farm_id?: string;
+            farm_code?: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_code?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_code?: string;
+            breed?: string;
+            /** @enum {string} */
+            sex: "female" | "male" | "unknown";
+            /** Format: date */
+            dob?: string;
+            dob_estimated?: boolean;
+            /** @enum {string} */
+            origin_type: "birth" | "procured" | "imported" | "unknown";
+            /** Format: date */
+            entry_date: string;
+            management_stage?: string;
+            health_status?: string;
+            weight_kg?: number;
+            dam_id?: string;
+            sire_or_lot?: string;
+            photo_url?: string;
+            source_record_id?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            vaccination_history?: components["schemas"]["EvidenceRef"][];
+        };
+        AdminGoatBulkPreviewRequest: {
+            csv: string;
+            file_hash?: string;
+        };
+        AdminGoatBulkCommitRequest: {
+            rows: components["schemas"]["CreateAdminGoatRequest"][];
+            file_hash?: string;
+        };
+        AdminGoatBulkSummary: {
+            total: number;
+            create_ready: number;
+            requires_review: number;
+            skipped: number;
+            created: number;
+            failed: number;
+        };
+        AdminGoatBulkRowResult: {
+            row_number: number;
+            /** @enum {string} */
+            decision: "create" | "requires_review" | "skip" | "conflict";
+            errors: components["schemas"]["FieldError"][];
+            warnings: {
+                code: string;
+                message: string;
+                /** Format: uuid */
+                original_goat_id?: string;
+                /** Format: uuid */
+                redirect_goat_id?: string;
+            }[];
+            normalized?: components["schemas"]["CreateAdminGoatRequest"];
+            result?: components["schemas"]["AdminGoatResponse"];
+            generation_status?: components["schemas"]["GenerationStatus"];
+        };
+        AdminGoatBulkResponse: {
+            summary: components["schemas"]["AdminGoatBulkSummary"];
+            rows: components["schemas"]["AdminGoatBulkRowResult"][];
+            trace_id: string;
+        };
+        OperationsAuditRow: {
+            /** Format: uuid */
+            audit_id: string;
+            /** Format: date-time */
+            recorded_at: string;
+            actor_type: string;
+            /** Format: uuid */
+            actor_id?: string;
+            action: string;
+            resource_type: string;
+            /** Format: uuid */
+            resource_id?: string;
+            scope_type?: string;
+            /** Format: uuid */
+            scope_id?: string;
+            anomaly: boolean;
+            metadata: {
+                [key: string]: unknown;
+            };
+            trace_id?: string;
+        };
+        OperationsAuditListResponse: {
+            items: components["schemas"]["OperationsAuditRow"][];
+            next_cursor?: string;
+            trace_id: string;
+        };
+        OperationsAuditSummaryResponse: {
+            actions: number;
+            awaiting_verification: number;
+            proof_events: number;
+            proof_coverage_percent: number;
+            rejected: number;
+            rework: number;
+            anomalies: number;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** Format: date-time */
+            as_of: string;
+            trace_id: string;
+        };
         AddIdentifierRequest: {
             identifier_type: components["schemas"]["IdentifierType"];
             identifier_value: string;
@@ -1422,6 +1622,7 @@ export interface components {
             decision: components["schemas"]["DecisionRecordSummary"];
             events: components["schemas"]["EventSummary"][];
             idempotency: components["schemas"]["IdempotencyMeta"];
+            generation_status: components["schemas"]["GenerationStatus"];
             trace_id: string;
         };
         LocationOperationalAttributes: {
@@ -2290,6 +2491,23 @@ export interface components {
         Limit: number;
         Cursor: string;
         IdempotencyKey: string;
+        OperationsAuditLimit: number;
+        OperationsAuditCursor: string;
+        OperationsAuditFrom: string;
+        OperationsAuditTo: string;
+        OperationsAuditActorId: string;
+        OperationsAuditActorType: "human" | "system" | "worker" | "service" | "user";
+        OperationsAuditAction: string;
+        OperationsAuditResourceType: string;
+        OperationsAuditResourceId: string;
+        OperationsAuditScopeType: string;
+        OperationsAuditScopeId: string;
+        OperationsAuditDomain: string;
+        OperationsAuditModule: string;
+        OperationsAuditCategory: string;
+        OperationsAuditResult: string;
+        OperationsAuditStatus: string;
+        OperationsAuditAnomaliesOnly: boolean;
     };
     requestBodies: never;
     headers: never;
@@ -3713,6 +3931,173 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    createAdminGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAdminGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat created or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    previewAdminGoatBulkImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminGoatBulkPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Row-level import decisions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatBulkResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    commitAdminGoatBulkImport: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminGoatBulkCommitRequest"];
+            };
+        };
+        responses: {
+            /** @description Row-level import commit result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatBulkResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    listOperationsAudit: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["OperationsAuditLimit"];
+                cursor?: components["parameters"]["OperationsAuditCursor"];
+                from?: components["parameters"]["OperationsAuditFrom"];
+                to?: components["parameters"]["OperationsAuditTo"];
+                actor_type?: components["parameters"]["OperationsAuditActorType"];
+                actor_id?: components["parameters"]["OperationsAuditActorId"];
+                action?: components["parameters"]["OperationsAuditAction"];
+                resource_type?: components["parameters"]["OperationsAuditResourceType"];
+                resource_id?: components["parameters"]["OperationsAuditResourceId"];
+                scope_type?: components["parameters"]["OperationsAuditScopeType"];
+                scope_id?: components["parameters"]["OperationsAuditScopeId"];
+                domain?: components["parameters"]["OperationsAuditDomain"];
+                module?: components["parameters"]["OperationsAuditModule"];
+                category?: components["parameters"]["OperationsAuditCategory"];
+                result?: components["parameters"]["OperationsAuditResult"];
+                status?: components["parameters"]["OperationsAuditStatus"];
+                anomalies_only?: components["parameters"]["OperationsAuditAnomaliesOnly"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operational audit rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsAuditListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getOperationsAuditSummary: {
+        parameters: {
+            query?: {
+                from?: components["parameters"]["OperationsAuditFrom"];
+                to?: components["parameters"]["OperationsAuditTo"];
+                actor_type?: components["parameters"]["OperationsAuditActorType"];
+                actor_id?: components["parameters"]["OperationsAuditActorId"];
+                action?: components["parameters"]["OperationsAuditAction"];
+                resource_type?: components["parameters"]["OperationsAuditResourceType"];
+                resource_id?: components["parameters"]["OperationsAuditResourceId"];
+                scope_type?: components["parameters"]["OperationsAuditScopeType"];
+                scope_id?: components["parameters"]["OperationsAuditScopeId"];
+                domain?: components["parameters"]["OperationsAuditDomain"];
+                module?: components["parameters"]["OperationsAuditModule"];
+                category?: components["parameters"]["OperationsAuditCategory"];
+                result?: components["parameters"]["OperationsAuditResult"];
+                status?: components["parameters"]["OperationsAuditStatus"];
+                anomalies_only?: components["parameters"]["OperationsAuditAnomaliesOnly"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operations audit summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsAuditSummaryResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     addGoatIdentifier: {

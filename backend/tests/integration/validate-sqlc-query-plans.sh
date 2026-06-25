@@ -758,10 +758,30 @@ SELECT 'load_goat:' || plg.load_goat_id::text AS row_id, pl.load_id, plg.current
 FROM procurement_load_goats plg
 JOIN procurement_loads pl
   ON pl.tenant_id = plg.tenant_id
- AND pl.load_id = plg.load_id
+  AND pl.load_id = plg.load_id
 WHERE plg.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY plg.updated_at DESC, plg.load_goat_id DESC
 LIMIT 101;"
+}
+
+validate_operations_audit_plans() {
+  explain_must_use_index "OperationsAuditList" 'Seq Scan on audit_log' "EXPLAIN (COSTS OFF)
+SELECT audit_id, recorded_at
+FROM audit_log
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND recorded_at >= TIMESTAMPTZ '2026-06-24 00:00:00+00'
+  AND recorded_at <= TIMESTAMPTZ '2026-06-25 00:00:00+00'
+ORDER BY recorded_at DESC, audit_id DESC
+LIMIT 101;"
+
+  explain_must_use_index "OperationsAuditResourceDrilldown" 'Seq Scan on audit_log' "EXPLAIN (COSTS OFF)
+SELECT audit_id, recorded_at
+FROM audit_log
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND resource_type = 'goat'
+  AND resource_id = '10000000-0000-4000-8000-000000000001'::uuid
+ORDER BY recorded_at DESC, audit_id DESC
+LIMIT 50;"
 }
 
 docker run --rm --name "$container_name" \
@@ -792,5 +812,6 @@ validate_vaccination_process_integrity_base_join_plan
 validate_feed_review_queue_plan
 validate_feed_shed_history_plan
 validate_procurement_source_entry_plans
+validate_operations_audit_plans
 
 echo "Validated current hot-path query plans"

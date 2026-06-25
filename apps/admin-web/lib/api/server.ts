@@ -57,6 +57,10 @@ export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
 export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentifierRequest"];
 export type RetireIdentifierRequestBody = AdminApiComponents["schemas"]["RetireIdentifierRequest"];
+export type OperationsAuditRow = AdminApiComponents["schemas"]["OperationsAuditRow"];
+export type OperationsAuditListResponse = AdminApiComponents["schemas"]["OperationsAuditListResponse"];
+export type OperationsAuditSummaryResponse = AdminApiComponents["schemas"]["OperationsAuditSummaryResponse"];
+export type OperationsAuditActorType = AdminApiComponents["parameters"]["OperationsAuditActorType"];
 
 // SOP Library (Admin / Data Ops) — real generated admin-api types, no hand-rolled shapes.
 export type SOPDefinition = AdminApiComponents["schemas"]["SOPDefinition"];
@@ -118,6 +122,26 @@ export type GoatTimelineParams = {
   goatId: string;
   limit: number;
   cursor?: string;
+};
+
+export type OperationsAuditListParams = {
+  limit?: number;
+  cursor?: string;
+  from?: string;
+  to?: string;
+  actorType?: OperationsAuditActorType;
+  actorId?: string;
+  action?: string;
+  resourceType?: string;
+  resourceId?: string;
+  scopeType?: string;
+  scopeId?: string;
+  domain?: string;
+  module?: string;
+  category?: string;
+  result?: string;
+  status?: string;
+  anomaliesOnly?: boolean;
 };
 
 export async function getServerConfig(requireTenant = false): Promise<ApiResult<ServerConfig>> {
@@ -578,6 +602,68 @@ export async function retireGoatIdentifier(
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
       body,
+    }),
+  );
+}
+
+export async function listOperationsAudit(
+  params: OperationsAuditListParams = {},
+): Promise<ApiResult<OperationsAuditListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<OperationsAuditListResponse>("/operations/audit", {
+      cache: "no-store",
+      query: compactQuery({
+        limit: params.limit ?? 100,
+        cursor: params.cursor,
+        from: params.from,
+        to: params.to,
+        actor_type: params.actorType,
+        actor_id: params.actorId,
+        action: params.action,
+        resource_type: params.resourceType,
+        resource_id: params.resourceId,
+        scope_type: params.scopeType,
+        scope_id: params.scopeId,
+        domain: params.domain,
+        module: params.module,
+        category: params.category,
+        result: params.result,
+        status: params.status,
+        anomalies_only: params.anomaliesOnly,
+      }),
+    }),
+  );
+}
+
+export async function getOperationsAuditSummary(
+  params: Omit<OperationsAuditListParams, "limit" | "cursor"> = {},
+): Promise<ApiResult<OperationsAuditSummaryResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<OperationsAuditSummaryResponse>("/operations/audit/summary", {
+      cache: "no-store",
+      query: compactQuery({
+        from: params.from,
+        to: params.to,
+        actor_type: params.actorType,
+        actor_id: params.actorId,
+        action: params.action,
+        resource_type: params.resourceType,
+        resource_id: params.resourceId,
+        scope_type: params.scopeType,
+        scope_id: params.scopeId,
+        domain: params.domain,
+        module: params.module,
+        category: params.category,
+        result: params.result,
+        status: params.status,
+        anomalies_only: params.anomaliesOnly,
+      }),
     }),
   );
 }

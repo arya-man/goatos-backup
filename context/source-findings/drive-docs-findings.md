@@ -122,7 +122,7 @@ workflows, using RFID where available for matching.
 ### Holding Farms
 
 `HF` means Holding Farm. A holding farm is a facility at the source where goats
-are kept after procurement and before dispatch to core parks. Current answer:
+are kept after procurement and before dispatch to core parks. Source-doc answer:
 
 ```text
 holding period: 2 to 8 weeks post procurement before dispatch
@@ -130,6 +130,15 @@ purpose: initial selection, tagging, and health SOP
 current HF values: Rajasthan Farms, Gokul Agronomics, Goat World, Bhopal Agro
 current classification: vendor/source whose farms serve as holding farms
 future: Mesha may have owned holding parks
+```
+
+Operator clarification from 2026-06-25:
+
+```text
+The 2 to 8 week number is optimistic/future planning, not a hard validation cap.
+Breeding source warmup is realistically 45-70 days today.
+Fattening/non-breeding cases can be 0 days or around 2 weeks.
+Model actual warmup start/end/days per load/goat/purpose.
 ```
 
 During partner holding, ownership is shared/pending in business terms because

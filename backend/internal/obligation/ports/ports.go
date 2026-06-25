@@ -27,6 +27,8 @@ type Repository interface {
 	CountByScope(ctx context.Context, tenantID, scopeType, scopeID, status string) (int64, error)
 
 	CreateBatch(ctx context.Context, in domain.NewBatch) (batchID string, err error)
+	CreateBatchWithObligations(ctx context.Context, in domain.NewBatch, obligationIDs []string) (batchID string, attached int64, err error)
+	SetBatchSOPTask(ctx context.Context, tenantID, batchID, taskID string) error
 
 	// SM-4 sweeper: list unbatched due obligations for a version (idempotent input) + attach a set
 	// to a batch (only still-unbatched rows; returns count attached).

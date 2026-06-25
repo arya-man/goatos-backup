@@ -150,6 +150,68 @@ type IdempotencyMeta struct {
 	FirstResultID  *string `json:"first_result_id"`
 }
 
+type AdminGoatCreateRequest struct {
+	RFID               *string       `json:"rfid,omitempty"`
+	OldTag             *string       `json:"old_tag,omitempty"`
+	TempFieldID        *string       `json:"temp_field_id,omitempty"`
+	FarmID             *string       `json:"farm_id,omitempty"`
+	FarmCode           *string       `json:"farm_code,omitempty"`
+	ParkID             *string       `json:"park_id,omitempty"`
+	ParkCode           *string       `json:"park_code,omitempty"`
+	ShedID             *string       `json:"shed_id,omitempty"`
+	ShedCode           *string       `json:"shed_code,omitempty"`
+	Breed              *string       `json:"breed,omitempty"`
+	Sex                string        `json:"sex"`
+	DOB                *string       `json:"dob,omitempty"`
+	DOBEstimated       *bool         `json:"dob_estimated,omitempty"`
+	OriginType         string        `json:"origin_type"`
+	EntryDate          string        `json:"entry_date"`
+	ManagementStage    *string       `json:"management_stage,omitempty"`
+	HealthStatus       *string       `json:"health_status,omitempty"`
+	WeightKg           *float64      `json:"weight_kg,omitempty"`
+	DamID              *string       `json:"dam_id,omitempty"`
+	SireOrLot          *string       `json:"sire_or_lot,omitempty"`
+	PhotoURL           *string       `json:"photo_url,omitempty"`
+	SourceRecordID     *string       `json:"source_record_id,omitempty"`
+	EvidenceRefs       []EvidenceRef `json:"evidence_refs"`
+	VaccinationHistory []EvidenceRef `json:"vaccination_history,omitempty"`
+}
+
+type AdminGoatBulkPreviewRequest struct {
+	CSV      string `json:"csv"`
+	FileHash string `json:"file_hash,omitempty"`
+}
+
+type AdminGoatBulkCommitRequest struct {
+	Rows     []AdminGoatCreateRequest `json:"rows"`
+	FileHash string                   `json:"file_hash,omitempty"`
+}
+
+type AdminGoatBulkRowResult struct {
+	RowNumber        int                     `json:"row_number"`
+	Decision         string                  `json:"decision"`
+	Errors           []FieldError            `json:"errors"`
+	Warnings         []Warning               `json:"warnings"`
+	Normalized       *AdminGoatCreateRequest `json:"normalized,omitempty"`
+	Result           *AdminGoatResponse      `json:"result,omitempty"`
+	GenerationStatus string                  `json:"generation_status,omitempty"`
+}
+
+type AdminGoatBulkSummary struct {
+	Total          int `json:"total"`
+	CreateReady    int `json:"create_ready"`
+	RequiresReview int `json:"requires_review"`
+	Skipped        int `json:"skipped"`
+	Created        int `json:"created"`
+	Failed         int `json:"failed"`
+}
+
+type AdminGoatBulkResponse struct {
+	Summary AdminGoatBulkSummary     `json:"summary"`
+	Rows    []AdminGoatBulkRowResult `json:"rows"`
+	TraceID string                   `json:"trace_id"`
+}
+
 type GoatTimelineEvent struct {
 	EventID      string        `json:"event_id"`
 	EventType    string        `json:"event_type"`
@@ -167,10 +229,11 @@ type GoatTimelineResponse struct {
 }
 
 type AdminGoatResponse struct {
-	Goat        GoatSummary           `json:"goat"`
-	Identifiers []GoatIdentifier      `json:"identifiers"`
-	Decision    DecisionRecordSummary `json:"decision"`
-	Events      []EventSummary        `json:"events"`
-	Idempotency IdempotencyMeta       `json:"idempotency"`
-	TraceID     string                `json:"trace_id"`
+	Goat             GoatSummary           `json:"goat"`
+	Identifiers      []GoatIdentifier      `json:"identifiers"`
+	Decision         DecisionRecordSummary `json:"decision"`
+	Events           []EventSummary        `json:"events"`
+	Idempotency      IdempotencyMeta       `json:"idempotency"`
+	GenerationStatus string                `json:"generation_status"`
+	TraceID          string                `json:"trace_id"`
 }

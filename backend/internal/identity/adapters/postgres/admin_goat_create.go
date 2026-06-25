@@ -1,0 +1,791 @@
+package postgres
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
+	"github.com/vgoats/goatos/backend/internal/identity/domain"
+	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
+)
+
+const (
+	adminGoatResultType     = "goat"
+	adminGoatPolicyVersion  = "admin-goat-create-v1"
+	adminGoatDecisionType   = "create_goat"
+	adminGoatDecisionResult = "goat_created"
+	adminGoatEventType      = "goat.created"
+	adminGoatAggregate      = "goat"
+	adminGoatSubject        = "goat"
+	adminGoatTopic          = "identity.events"
+)
+
+func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	var out ports.AdminGoatCreateValidation
+	if _, replay, err := r.completedAdminGoatCreateReplayTarget(ctx, cmd.StoredIdempotencyKey, cmd.RequestHash); err != nil {
+		return out, err
+	} else if replay {
+		return out, nil
+	}
+
+	custodian, err := r.resolveMeshaCustodian(ctx, cmd.TenantID)
+	if err != nil {
+		return out, err
+	}
+	out.CustodianPartyID = custodian
+
+	if cmd.FarmID != nil || cmd.FarmCode != nil {
+		farmID, err := r.resolveLocation(ctx, cmd.TenantID, "farm", cmd.FarmID, cmd.FarmCode)
+		if err != nil {
+			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "farm_id", Code: "not_found", Message: "farm_id or farm_code does not resolve to an active farm"})
+		} else {
+			out.FarmID = &farmID
+		}
+	}
+	parkID, err := r.resolveLocation(ctx, cmd.TenantID, "park", cmd.ParkID, cmd.ParkCode)
+	if err != nil {
+		out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "park_id", Code: "not_found", Message: "park_id or park_code does not resolve to an active park"})
+	} else {
+		out.ParkID = parkID
+	}
+	shedID, err := r.resolveLocation(ctx, cmd.TenantID, "shed", cmd.ShedID, cmd.ShedCode)
+	if err != nil {
+		out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "shed_id", Code: "not_found", Message: "shed_id or shed_code does not resolve to an active shed"})
+	} else {
+		out.ShedID = shedID
+	}
+	if out.ParkID != "" && out.ShedID != "" {
+		if err := r.ensureShedUnderPark(ctx, cmd.TenantID, out.ShedID, out.ParkID); err != nil {
+			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "shed_id", Code: "wrong_parent", Message: "shed does not belong to the selected park"})
+		}
+	}
+	if len(out.Conflicts) > 0 {
+		return out, nil
+	}
+	for _, identifier := range cmd.Identifiers {
+		scopeKey := identifier.ScopeKey
+		if identifier.IdentifierType == "old_tag" {
+			scopeKey = "park:" + out.ParkID
+		}
+		conflictGoatID, err := r.activeIdentifierConflict(ctx, cmd.TenantID, identifier.IdentifierType, identifier.NormalizedValue, scopeKey)
+		if err != nil {
+			return out, err
+		}
+		if conflictGoatID != "" {
+			out.Conflicts = append(out.Conflicts, domain.FieldError{
+				Field:   identifier.IdentifierType,
+				Code:    "active_identifier_conflict",
+				Message: fmt.Sprintf("%s is already active on goat %s", identifier.IdentifierType, conflictGoatID),
+			})
+		}
+	}
+	return out, nil
+}
+
+func (r *Repository) completedAdminGoatCreateReplayTarget(ctx context.Context, key, requestHash string) (string, bool, error) {
+	key = strings.TrimSpace(key)
+	requestHash = strings.TrimSpace(requestHash)
+	if key == "" || requestHash == "" {
+		return "", false, nil
+	}
+	idempotency, err := r.queries.GetIdempotencyKey(ctx, key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if idempotency.RequestHash != requestHash {
+		return "", false, ports.ErrIdempotencyConflict
+	}
+	if idempotency.Status != "completed" || idempotency.ResultType != adminGoatResultType || strings.TrimSpace(idempotency.ResultID) == "" {
+		return "", false, ports.ErrIdempotencyPending
+	}
+	return idempotency.ResultID, true, nil
+}
+
+func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := uuidParam(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	farmUUID := nullableUUID(cmd.FarmID)
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+
+	_, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+		TenantID:       tenantUUID,
+		Scope:          cmd.IdempotencyScope,
+		RequestHash:    cmd.RequestHash,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r.replayAdminGoatCreate(ctx, tx, qtx, tenantUUID, cmd.StoredIdempotencyKey, cmd.RequestHash)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	goatID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	goatUUID, err := uuidParam(goatID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO goats (
+  goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
+  management_stage, health_status, identity_state, custodian_party_id,
+  current_location_id, farm_id, park_id, shed_id, source_confidence,
+  created_by, dob, dob_estimated, origin_type, entry_date
+) VALUES (
+  $1::uuid, $2::uuid, 'goat', nullif($3::text, ''), $4::text, $5::date, 'alive',
+  nullif($6::text, ''), nullif($7::text, ''), 'clean', $8::uuid,
+  $9::uuid, $10::uuid, $11::uuid, $9::uuid, 1,
+  $12::uuid, $5::date, $13::boolean, $14::text, $15::date
+)`,
+		goatID,
+		cmd.TenantID,
+		stringValue(cmd.Breed),
+		cmd.Sex,
+		dateValue(cmd.DOB),
+		stringValue(cmd.ManagementStage),
+		stringValue(cmd.HealthStatus),
+		cmd.CustodianPartyID,
+		cmd.ShedID,
+		uuidArg(farmUUID),
+		cmd.ParkID,
+		cmd.ActorID,
+		cmd.DOBEstimated,
+		cmd.OriginType,
+		cmd.EntryDate,
+	); err != nil {
+		return nil, err
+	}
+
+	identifiers := make([]domain.GoatIdentifier, 0, len(cmd.Identifiers))
+	for _, identifier := range cmd.Identifiers {
+		policy, err := qtx.GetIdentifierPolicy(ctx, identitydb.GetIdentifierPolicyParams{
+			PolicyVersion:  identifierPolicyVersion,
+			IdentifierType: identifier.IdentifierType,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ports.ErrWriteConflict
+		}
+		if err != nil {
+			return nil, err
+		}
+		if identifier.IsPrimary && !policy.PrimaryAllowed {
+			return nil, ports.ErrWriteConflict
+		}
+		inserted, err := insertAdminGoatIdentifier(ctx, tx, tenantUUID, goatUUID, actorUUID, identifier, policy.NormalizerVersion, cmd.SourceRecordID, now)
+		if isUniqueViolation(err) {
+			return nil, ports.ErrWriteConflict
+		}
+		if err != nil {
+			return nil, err
+		}
+		identifiers = append(identifiers, inserted)
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO goat_location_history (
+  tenant_id, goat_id, to_location_id, reason, occurred_at, actor_id, source_record_id
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'admin_goat_create', $4::timestamptz, $5::uuid, nullif($6::text, '')
+)`,
+		cmd.TenantID, goatID, cmd.ShedID, now, cmd.ActorID, stringValue(cmd.SourceRecordID)); err != nil {
+		return nil, err
+	}
+
+	decisionID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	decisionUUID, err := uuidParam(decisionID)
+	if err != nil {
+		return nil, err
+	}
+	decisionRecord, err := adminGoatDecisionRecordPayload(cmd, goatID, decisionID, now)
+	if err != nil {
+		return nil, err
+	}
+	decisionEvidence, err := json.Marshal(map[string]any{
+		"evidence_refs":   cmd.EvidenceRefs,
+		"decision_record": json.RawMessage(decisionRecord),
+	})
+	if err != nil {
+		return nil, err
+	}
+	decisionRow, err := qtx.InsertIdentityDecision(ctx, identitydb.InsertIdentityDecisionParams{
+		DecisionID:     decisionUUID,
+		TenantID:       tenantUUID,
+		DecisionType:   adminGoatDecisionType,
+		DecisionResult: adminGoatDecisionResult,
+		DecisionState:  "approved",
+		DecidedBy:      actorUUID,
+		PolicyVersion:  adminGoatPolicyVersion,
+		ReviewerID:     actorUUID,
+		Evidence:       decisionEvidence,
+		CreatedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+		ApprovedAt:     pgtype.Timestamptz{Time: now, Valid: true},
+		DecidedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	decision := decisionSummaryFromInsertRow(decisionRow)
+	if _, err := tx.Exec(ctx, `
+INSERT INTO identity_decision_goats (decision_id, tenant_id, goat_id, role)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'created')`,
+		decisionID, cmd.TenantID, goatID); err != nil {
+		return nil, err
+	}
+
+	eventID, err := qtx.NewUUID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	eventUUID, err := uuidParam(eventID)
+	if err != nil {
+		return nil, err
+	}
+	eventPayload, err := adminGoatEventPayload(cmd, goatID, decision.DecisionID, "queued")
+	if err != nil {
+		return nil, err
+	}
+	eventRow, err := qtx.InsertGoatIdentityEvent(ctx, identitydb.InsertGoatIdentityEventParams{
+		IdentityEventID: eventUUID,
+		TenantID:        tenantUUID,
+		GoatID:          goatUUID,
+		EventType:       adminGoatEventType,
+		OccurredAt:      pgtype.Timestamptz{Time: now, Valid: true},
+		RecordedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+		ActorID:         actorUUID,
+		Payload:         eventPayload,
+		DecisionID:      decisionUUID,
+		IdempotencyKey:  cmd.StoredIdempotencyKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := qtx.InsertIdentityDecisionEvent(ctx, identitydb.InsertIdentityDecisionEventParams{
+		DecisionID:      decisionUUID,
+		TenantID:        tenantUUID,
+		EventID:         eventUUID,
+		EventRecordedAt: eventRow.RecordedAt,
+	}); err != nil {
+		return nil, err
+	}
+
+	response, err := adminGoatMutationResult(ctx, qtx, tenantUUID, cmd.TenantID, goatUUID, decision, []domain.EventSummary{{EventID: eventRow.EventID, EventType: adminGoatEventType}}, false, nil)
+	if err != nil {
+		return nil, err
+	}
+	response.GenerationStatus = "queued"
+	if len(response.Identifiers) == 0 {
+		response.Identifiers = identifiers
+	}
+	afterState, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+	scope := locationScopeFromSummary(response.Goat)
+	scopeIDValue := scopeID(scope)
+	metadata := map[string]any{
+		"domain":                 "counts",
+		"module":                 "herd_register",
+		"category":               "goat_identity",
+		"result":                 "queued",
+		"status":                 "queued",
+		"actor_id":               cmd.ActorID,
+		"idempotency_key":        cmd.StoredIdempotencyKey,
+		"operation_id":           cmd.StoredIdempotencyKey,
+		"client_idempotency_key": cmd.ClientIdempotencyKey,
+		"idempotency_scope":      cmd.IdempotencyScope,
+		"trace_id":               cmd.TraceID,
+		"decision_id":            decision.DecisionID,
+		"identity_event_id":      eventRow.EventID,
+		"outbox_event_id":        eventRow.EventID,
+		"generation_status":      "queued",
+		"source_record_id":       stringValue(cmd.SourceRecordID),
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     cmd.TenantID,
+		ActorID:      cmd.ActorID,
+		ActorType:    "human",
+		Action:       adminGoatEventType,
+		ResourceType: adminGoatSubject,
+		ResourceID:   goatID,
+		ScopeType:    scopeType(scope),
+		ScopeID:      stringValue(scopeIDValue),
+		DecisionID:   decision.DecisionID,
+		AfterState:   json.RawMessage(afterState),
+		Metadata:     metadata,
+		TraceID:      cmd.TraceID,
+	}); err != nil {
+		return nil, err
+	}
+	if r.afterAuditHook != nil {
+		if err := r.afterAuditHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	envelope, err := adminGoatDomainEventEnvelope(cmd, response.Goat, decision, eventRow.EventID, now, "queued")
+	if err != nil {
+		return nil, err
+	}
+	headers, err := json.Marshal(map[string]any{
+		"actor_id":               cmd.ActorID,
+		"client_idempotency_key": cmd.ClientIdempotencyKey,
+		"trace_id":               cmd.TraceID,
+		"decision_id":            decision.DecisionID,
+		"generation_status":      "queued",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := qtx.InsertOutboxMessage(ctx, identitydb.InsertOutboxMessageParams{
+		TenantID:       tenantUUID,
+		EventID:        eventUUID,
+		EventType:      adminGoatEventType,
+		SchemaVersion:  eventSchemaVersion,
+		AggregateType:  adminGoatAggregate,
+		AggregateID:    goatUUID,
+		Topic:          adminGoatTopic,
+		Payload:        envelope,
+		Headers:        headers,
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+		TraceID:        nullableText(nonEmptyStringPtr(cmd.TraceID)),
+	}); err != nil {
+		return nil, err
+	}
+	if err := qtx.CompleteIdempotencyKey(ctx, identitydb.CompleteIdempotencyKeyParams{
+		ResultType:     textParam(adminGoatResultType),
+		ResultID:       goatUUID,
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	committed = true
+	return response, nil
+}
+
+func (r *Repository) replayAdminGoatCreate(ctx context.Context, tx pgx.Tx, qtx *identitydb.Queries, tenantUUID pgtype.UUID, key string, requestHash string) (*ports.AdminGoatMutationResult, error) {
+	idempotency, err := qtx.GetIdempotencyKey(ctx, key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrIdempotencyPending
+	}
+	if err != nil {
+		return nil, err
+	}
+	if idempotency.RequestHash != requestHash {
+		return nil, ports.ErrIdempotencyConflict
+	}
+	if idempotency.Status != "completed" || idempotency.ResultType != adminGoatResultType || strings.TrimSpace(idempotency.ResultID) == "" {
+		return nil, ports.ErrIdempotencyPending
+	}
+	goatUUID, err := uuidParam(idempotency.ResultID)
+	if err != nil {
+		return nil, err
+	}
+	var row struct {
+		DecisionID       string
+		DecisionType     string
+		DecisionResult   string
+		DecisionState    string
+		PolicyVersion    string
+		CreatedAt        time.Time
+		EventID          string
+		EventType        string
+		GenerationStatus string
+	}
+	err = tx.QueryRow(ctx, `
+SELECT
+  d.decision_id::text,
+  d.decision_type,
+  d.decision_result,
+  d.decision_state,
+  d.policy_version,
+  d.created_at,
+  gie.identity_event_id::text,
+  gie.event_type,
+  COALESCE(gie.payload->>'generation_status', 'queued')
+FROM identity_decision_goats idg
+JOIN identity_decisions d
+  ON d.tenant_id = idg.tenant_id
+ AND d.decision_id = idg.decision_id
+JOIN identity_decision_events ide
+  ON ide.tenant_id = idg.tenant_id
+ AND ide.decision_id = idg.decision_id
+JOIN goat_identity_events gie
+  ON gie.tenant_id = idg.tenant_id
+ AND gie.identity_event_id = ide.event_id
+ AND gie.recorded_at = ide.event_recorded_at
+WHERE idg.tenant_id = $1
+  AND idg.goat_id = $2
+  AND idg.role = 'created'
+  AND d.decision_type = 'create_goat'
+  AND d.evidence->'decision_record'->>'idempotency_key' = $3
+ORDER BY d.created_at DESC
+LIMIT 1`, tenantUUID, goatUUID, key).Scan(
+		&row.DecisionID,
+		&row.DecisionType,
+		&row.DecisionResult,
+		&row.DecisionState,
+		&row.PolicyVersion,
+		&row.CreatedAt,
+		&row.EventID,
+		&row.EventType,
+		&row.GenerationStatus,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrIdempotencyPending
+	}
+	if err != nil {
+		return nil, err
+	}
+	firstResultID := idempotency.ResultID
+	result, err := adminGoatMutationResult(
+		ctx,
+		qtx,
+		tenantUUID,
+		uuidText(tenantUUID),
+		goatUUID,
+		domain.DecisionRecordSummary{
+			DecisionID:     row.DecisionID,
+			DecisionType:   row.DecisionType,
+			DecisionResult: row.DecisionResult,
+			DecisionState:  row.DecisionState,
+			PolicyVersion:  row.PolicyVersion,
+			CreatedAt:      row.CreatedAt,
+		},
+		[]domain.EventSummary{{EventID: row.EventID, EventType: row.EventType}},
+		true,
+		&firstResultID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	result.GenerationStatus = row.GenerationStatus
+	return result, nil
+}
+
+func insertAdminGoatIdentifier(ctx context.Context, tx pgx.Tx, tenantUUID, goatUUID, actorUUID pgtype.UUID, identifier ports.AdminGoatCreateIdentifier, normalizerVersion string, sourceRecordID *string, now time.Time) (domain.GoatIdentifier, error) {
+	scopeKey := identifier.ScopeKey
+	if strings.TrimSpace(scopeKey) == "" {
+		scopeKey = "global"
+	}
+	var row struct {
+		IdentifierID     string
+		IdentifierType   string
+		IdentifierValue  string
+		ScopeKey         string
+		Status           string
+		IsPrimaryForGoat bool
+		ValidFrom        time.Time
+		ValidTo          *time.Time
+		SourceSystem     *string
+		SourceRecordID   *string
+		Confidence       *float64
+	}
+	confidence := 1.0
+	err := tx.QueryRow(ctx, `
+INSERT INTO goat_identifiers (
+  tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key,
+  is_primary_for_goat, status, valid_from, source_system, source_record_id,
+  normalizer_version, confidence, approved_by
+) VALUES (
+  $1, $2, $3, $4, $5, $6,
+  $7, 'active', $8::timestamptz, 'admin_herd_register', nullif($9::text, ''),
+  $10, $11::numeric, $12
+)
+RETURNING identifier_id::text, identifier_type, identifier_value, scope_key, status,
+          is_primary_for_goat, valid_from, valid_to, source_system, source_record_id,
+          confidence::float8`,
+		tenantUUID,
+		goatUUID,
+		identifier.IdentifierType,
+		identifier.IdentifierValue,
+		identifier.NormalizedValue,
+		scopeKey,
+		identifier.IsPrimary,
+		now,
+		stringValue(sourceRecordID),
+		normalizerVersion,
+		confidence,
+		actorUUID,
+	).Scan(
+		&row.IdentifierID,
+		&row.IdentifierType,
+		&row.IdentifierValue,
+		&row.ScopeKey,
+		&row.Status,
+		&row.IsPrimaryForGoat,
+		&row.ValidFrom,
+		&row.ValidTo,
+		&row.SourceSystem,
+		&row.SourceRecordID,
+		&row.Confidence,
+	)
+	if err != nil {
+		return domain.GoatIdentifier{}, err
+	}
+	return domain.GoatIdentifier{
+		IdentifierID:     row.IdentifierID,
+		IdentifierType:   row.IdentifierType,
+		IdentifierValue:  row.IdentifierValue,
+		ScopeKey:         row.ScopeKey,
+		Status:           row.Status,
+		IsPrimaryForGoat: row.IsPrimaryForGoat,
+		ValidFrom:        row.ValidFrom,
+		ValidTo:          row.ValidTo,
+		SourceSystem:     row.SourceSystem,
+		SourceRecordID:   row.SourceRecordID,
+		Confidence:       row.Confidence,
+	}, nil
+}
+
+func adminGoatDecisionRecordPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID string, at time.Time) ([]byte, error) {
+	sourceRecordIDs := []string{}
+	if sourceRecordID := stringValue(cmd.SourceRecordID); sourceRecordID != "" {
+		sourceRecordIDs = append(sourceRecordIDs, sourceRecordID)
+	}
+	identifierActions := make([]map[string]any, 0, len(cmd.Identifiers))
+	for _, identifier := range cmd.Identifiers {
+		identifierActions = append(identifierActions, map[string]any{
+			"identifier_type":  identifier.IdentifierType,
+			"identifier_value": identifier.IdentifierValue,
+			"action":           "attach",
+		})
+	}
+	return json.Marshal(map[string]any{
+		"decision_id":        decisionID,
+		"decision_type":      adminGoatDecisionType,
+		"decision_result":    adminGoatDecisionResult,
+		"decision_state":     "approved",
+		"decided_by_type":    "human",
+		"decided_by":         cmd.ActorID,
+		"reviewer_id":        cmd.ActorID,
+		"policy_version":     adminGoatPolicyVersion,
+		"reason":             "Admin created canonical goat from herd register evidence.",
+		"source_record_ids":  sourceRecordIDs,
+		"affected_goats":     []map[string]any{{"goat_id": goatID, "role": "affected"}},
+		"identifier_actions": identifierActions,
+		"evidence": map[string]any{
+			"evidence_refs": cmd.EvidenceRefs,
+		},
+		"idempotency_key": cmd.StoredIdempotencyKey,
+		"trace_id":        cmd.TraceID,
+		"created_at":      at.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		"approved_at":     at.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		"decided_at":      at.UTC().Format("2006-01-02T15:04:05.000000Z"),
+	})
+}
+
+func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID, generationStatus string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"goat_id":           goatID,
+		"decision_id":       decisionID,
+		"identifiers":       cmd.Identifiers,
+		"origin_type":       cmd.OriginType,
+		"entry_date":        cmd.EntryDate.UTC().Format("2006-01-02"),
+		"farm_id":           stringValue(cmd.FarmID),
+		"park_id":           cmd.ParkID,
+		"shed_id":           cmd.ShedID,
+		"source_record_id":  stringValue(cmd.SourceRecordID),
+		"generation_status": generationStatus,
+	})
+}
+
+func adminGoatDomainEventEnvelope(cmd ports.CreateAdminGoatCommand, goat domain.GoatSummary, decision domain.DecisionRecordSummary, eventID string, at time.Time, generationStatus string) ([]byte, error) {
+	envelope := eventEnvelope{
+		EventID:         eventID,
+		EventType:       adminGoatEventType,
+		SchemaVersion:   eventSchemaVersion,
+		SchemaRef:       eventSchemaRef,
+		AggregateType:   adminGoatAggregate,
+		AggregateID:     goat.GoatID,
+		OccurredAt:      at.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		RecordedAt:      at.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		Producer:        eventProducer{Service: "goatos-api", Module: "identity"},
+		IdempotencyKey:  cmd.StoredIdempotencyKey,
+		Actor:           eventActor{ActorType: "human", ActorID: &cmd.ActorID},
+		SubjectType:     adminGoatSubject,
+		SubjectID:       goat.GoatID,
+		VisibilityScope: locationScopeFromSummary(goat),
+		EvidenceRefs:    cmd.EvidenceRefs,
+		Payload: map[string]any{
+			"goat_id":           goat.GoatID,
+			"decision_id":       decision.DecisionID,
+			"identifiers":       cmd.Identifiers,
+			"origin_type":       cmd.OriginType,
+			"entry_date":        cmd.EntryDate.UTC().Format("2006-01-02"),
+			"farm_id":           stringValue(cmd.FarmID),
+			"park_id":           cmd.ParkID,
+			"shed_id":           cmd.ShedID,
+			"source_record_id":  stringValue(cmd.SourceRecordID),
+			"generation_status": generationStatus,
+		},
+		TraceID: cmd.TraceID,
+	}
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, err
+	}
+	var withTenant map[string]any
+	if err := json.Unmarshal(payload, &withTenant); err != nil {
+		return nil, err
+	}
+	visibilityScope, ok := withTenant["visibility_scope"].(map[string]any)
+	if !ok {
+		visibilityScope = map[string]any{}
+	}
+	visibilityScope["tenant_id"] = cmd.TenantID
+	withTenant["visibility_scope"] = visibilityScope
+	return json.Marshal(withTenant)
+}
+
+func (r *Repository) resolveMeshaCustodian(ctx context.Context, tenantID string) (string, error) {
+	var partyID string
+	err := r.pool.QueryRow(ctx, `
+SELECT p.party_id::text
+FROM parties p
+JOIN orgs o ON o.party_id = p.party_id
+WHERE p.party_type = 'org'
+  AND p.status = 'active'
+  AND o.org_type = 'mesha'
+  AND o.status = 'active'
+ORDER BY p.created_at ASC
+LIMIT 1`).Scan(&partyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrWriteConflict
+	}
+	_ = tenantID
+	return partyID, err
+}
+
+func (r *Repository) resolveLocation(ctx context.Context, tenantID, locationType string, id *string, code *string) (string, error) {
+	var locationID string
+	idValue := stringValue(id)
+	codeValue := stringValue(code)
+	err := r.pool.QueryRow(ctx, `
+SELECT l.location_id::text
+FROM locations l
+WHERE l.tenant_id = $1::uuid
+  AND l.location_type = $2
+  AND l.status = 'active'
+  AND (
+    (nullif($3::text, '') IS NOT NULL AND l.location_id = nullif($3::text, '')::uuid)
+    OR (nullif($4::text, '') IS NOT NULL AND (l.location_code = $4 OR EXISTS (
+      SELECT 1
+      FROM location_aliases la
+      WHERE la.tenant_id = l.tenant_id
+        AND la.canonical_location_id = l.location_id
+        AND la.alias_code = $4
+    )))
+  )
+ORDER BY l.created_at ASC
+LIMIT 1`, tenantID, locationType, idValue, codeValue).Scan(&locationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrNotFound
+	}
+	return locationID, err
+}
+
+func (r *Repository) ensureShedUnderPark(ctx context.Context, tenantID, shedID, parkID string) error {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM locations shed
+  WHERE shed.tenant_id = $1::uuid
+    AND shed.location_id = $2::uuid
+    AND shed.location_type = 'shed'
+    AND shed.status = 'active'
+    AND shed.parent_location_id = $3::uuid
+)`, tenantID, shedID, parkID).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ports.ErrWriteConflict
+	}
+	return nil
+}
+
+func (r *Repository) activeIdentifierConflict(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (string, error) {
+	var goatID string
+	err := r.pool.QueryRow(ctx, `
+SELECT goat_id::text
+FROM goat_identifiers
+WHERE tenant_id = $1::uuid
+  AND identifier_type = $2
+  AND normalized_value = $3
+  AND status = 'active'
+  AND (
+    $2 = 'rfid'
+    OR scope_key = $4
+  )
+LIMIT 1`, tenantID, identifierType, normalizedValue, scopeKey).Scan(&goatID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return goatID, err
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func dateValue(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.UTC()
+}
+
+func uuidArg(value pgtype.UUID) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.String()
+}

@@ -17,6 +17,11 @@ var protectedRoutes = []Route{
 	{OperationID: "resolveIdentifier", Method: "GET", Pattern: "/identifiers/{type}/{value}/resolve", Permissions: []string{GoatRead}},
 	{OperationID: "addGoatIdentifier", Method: "POST", Pattern: "/admin/goats/{goat_id}/identifiers", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "retireGoatIdentifier", Method: "POST", Pattern: "/admin/goats/{goat_id}/identifiers/{identifier_id}/retire", Permissions: []string{GoatWriteIdentity}},
+	{OperationID: "createAdminGoat", Method: "POST", Pattern: "/admin/goats", Permissions: []string{GoatWriteIdentity}},
+	{OperationID: "previewAdminGoatBulkImport", Method: "POST", Pattern: "/admin/goats/bulk-preview", Permissions: []string{GoatWriteIdentity}},
+	{OperationID: "commitAdminGoatBulkImport", Method: "POST", Pattern: "/admin/goats/bulk-commit", Permissions: []string{GoatWriteIdentity}},
+	{OperationID: "listOperationsAudit", Method: "GET", Pattern: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
+	{OperationID: "getOperationsAuditSummary", Method: "GET", Pattern: "/operations/audit/summary", Permissions: []string{OperatorsViewAudit}},
 
 	{OperationID: "listLocations", Method: "GET", Pattern: "/admin/locations", Permissions: []string{LocationsRead}},
 	{OperationID: "createLocation", Method: "POST", Pattern: "/admin/locations", Permissions: []string{LocationsWrite}},

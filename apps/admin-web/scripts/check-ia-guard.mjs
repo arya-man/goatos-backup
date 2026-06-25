@@ -82,6 +82,32 @@ const pageFiles = [];
 walk(APP_ROOT, pageFiles, (file) => file.endsWith("page.tsx"));
 
 const findings = [];
+
+// Vaccination trigger-closure scope guard: Counts is reopened only for Herd Register. The broad mock still
+// contains future Counts leaves, but the admin shell must not surface them as active or disabled sidebar
+// placeholders unless a future approved slice explicitly reopens them.
+const shellFile = "components/mesha-shell.tsx";
+if (existsSync(shellFile)) {
+  const shellText = stripComments(readFileSync(shellFile, "utf8"));
+  const countsGroup = shellText.match(/id:\s*["'`]counts["'`][\s\S]*?leaves:\s*\[([\s\S]*?)\]\s*,?\s*\}/);
+  if (!countsGroup) {
+    findings.push(
+      `${shellFile} must define the Counts sidebar group explicitly. ` +
+        "Current vaccination trigger scope exposes only Counts -> Herd Register.",
+    );
+  } else {
+    const labels = [...countsGroup[1].matchAll(/label:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+    if (labels.length !== 1 || labels[0] !== "Herd Register") {
+      findings.push(
+        `${shellFile} exposes Counts sidebar leaves [${labels.join(", ") || "none"}]. ` +
+          "Current vaccination trigger scope allows exactly one Counts leaf: Herd Register. " +
+          "Do not show Counts overall, Count reconciliation, Tagging & identity, or Weights & ADG " +
+          "as active or disabled placeholders.",
+      );
+    }
+  }
+}
+
 for (const file of pageFiles) {
   const route = normalizeRouteFromPage(file);
   if (!route || !hasCommandSegment(route)) continue;

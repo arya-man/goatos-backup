@@ -22,19 +22,16 @@ import {
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
 //
-// Generated-client status (parallel build contract): the goat READ path (searchGoats / GET /goats/search)
-// exists, so the herd table + filters are real. The WRITE paths (createAdminGoat,
-// previewAdminGoatBulkImport, commitAdminGoatBulkImport) are NOT in the generated client yet, so Register
-// goat / Import sheet stay honestly disabled with a backend-missing reason — no hand-rolled DTOs, no fake
-// rows. New report has no API either. When the backend publishes those operation IDs + regenerates the
-// client, the disabled controls become real drawers (tracked in the handoff ledger).
+// Generated-client status (parallel build contract): goat READ and WRITE operation IDs are now present.
+// The herd table + filters are real. Register/import remain disabled only until this page wires the
+// drawer/form mutations to the generated client; no hand-rolled DTOs, no fake rows. New report has no API.
 
 const PAGE_SIZE = 50;
 
 type GoatRow = GoatSearchResponse["items"][number];
 
 const WRITE_PENDING =
-  "Backend not available yet — the createAdminGoat / bulk-import generated client is not published. This control activates once the goat write API ships.";
+  "Generated write client exists; register/import drawer wiring is still pending for this page.";
 const REPORT_PENDING = "No herd report API exists in this slice. New report stays disabled.";
 
 const COLS = ["Goat ID", "Location", "Breed", "Sex", "Lifecycle", "Health", "Breeding"];
@@ -112,9 +109,8 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
           <Upload className="ic" style={{ width: 13 }} aria-hidden="true" />
           Import sheet
         </button>
-        {/* Mock shows Register goat as the primary green CTA; it is NOT wired yet (createAdminGoat client
-            missing), so render it unmistakably disabled (neutral, not bright primary) with a reason. Restore
-            `btn p` when the write client is published. */}
+        {/* Mock shows Register goat as the primary green CTA; it is not wired to a drawer/mutation yet, so
+            render it unmistakably disabled with a reason. Restore `btn p` once the interaction is live. */}
         <button
           type="button"
           className="btn"

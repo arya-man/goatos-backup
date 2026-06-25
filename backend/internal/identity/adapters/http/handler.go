@@ -37,6 +37,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /goats/{goat_id}/timeline", h.GetGoatTimeline)
 	mux.HandleFunc("GET /identifiers/{type}/{value}/resolve", h.ResolveIdentifier)
 
+	mux.HandleFunc("POST /admin/goats", h.CreateAdminGoat)
+	mux.HandleFunc("POST /admin/goats/bulk-preview", h.PreviewAdminGoatBulkImport)
+	mux.HandleFunc("POST /admin/goats/bulk-commit", h.CommitAdminGoatBulkImport)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
 }
@@ -101,16 +104,52 @@ func (h *Handler) GetGoatTimeline(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, r, result, err)
 }
 
+func (h *Handler) CreateAdminGoat(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.CreateAdminGoat(r.Context(), app.CreateAdminGoatInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) PreviewAdminGoatBulkImport(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 5<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.PreviewAdminGoatBulkImport(r.Context(), app.PreviewAdminGoatBulkInput{
+		TenantID: tenantID(r),
+		TraceID:  traceID(r),
+		RawBody:  body,
+	})
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) CommitAdminGoatBulkImport(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 5<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.CommitAdminGoatBulkImport(r.Context(), app.CommitAdminGoatBulkInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
+}
+
 func (h *Handler) AddGoatIdentifier(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
-			Code:        "invalid_json",
-			Message:     "request body is too large or unreadable",
-			FieldErrors: []domain.FieldError{},
-			TraceID:     traceID(r),
-			Retryable:   false,
-		})
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
 		return
 	}
 	result, err := h.service.AddGoatIdentifier(r.Context(), app.AddGoatIdentifierInput{
@@ -125,15 +164,8 @@ func (h *Handler) AddGoatIdentifier(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) RetireGoatIdentifier(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
-			Code:        "invalid_json",
-			Message:     "request body is too large or unreadable",
-			FieldErrors: []domain.FieldError{},
-			TraceID:     traceID(r),
-			Retryable:   false,
-		})
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
 		return
 	}
 	result, err := h.service.RetireGoatIdentifier(r.Context(), app.RetireGoatIdentifierInput{
@@ -146,6 +178,21 @@ func (h *Handler) RetireGoatIdentifier(w http.ResponseWriter, r *http.Request) {
 		RawBody:        body,
 	})
 	h.respond(w, r, result, err)
+}
+
+func readBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, bool) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBytes))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, domain.ErrorEnvelope{
+			Code:        "invalid_json",
+			Message:     "request body is too large or unreadable",
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		})
+		return nil, false
+	}
+	return body, true
 }
 
 func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
