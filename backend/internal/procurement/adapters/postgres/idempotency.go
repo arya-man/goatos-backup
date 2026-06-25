@@ -33,10 +33,11 @@ type idemReservation struct {
 	resultID   string
 }
 
-// idemScopedKey namespaces a client idempotency key by operation so the global idempotency_keys primary key
-// cannot collide across different procurement operations that happen to receive the same client key.
-func idemScopedKey(scope, key string) string {
-	return scope + ":" + strings.TrimSpace(key)
+// idemScopedKey namespaces a client idempotency key by tenant + operation so the global idempotency_keys
+// primary key cannot collide across tenants, nor across different procurement operations that happen to
+// receive the same client key.
+func idemScopedKey(tenantID, scope, key string) string {
+	return tenantID + ":" + scope + ":" + strings.TrimSpace(key)
 }
 
 // requestFingerprint is the semantic request hash used to detect same-key/different-payload replays. Build
@@ -59,7 +60,7 @@ func fpTime(t *time.Time) string {
 // the caller can re-read and return the original result. On replay with a DIFFERENT fingerprint it returns
 // ports.ErrIdempotencyConflict so the caller rejects the request without mutating state.
 func reserveIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, fingerprint string) (idemReservation, error) {
-	scoped := idemScopedKey(scope, key)
+	scoped := idemScopedKey(tenantID, scope, key)
 	var claimed string
 	err := tx.QueryRow(ctx, `
 INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
@@ -87,8 +88,8 @@ WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &status, &resultType, &
 }
 
 // completeIdempotency marks the key completed with the produced result so future replays return it.
-func completeIdempotency(ctx context.Context, tx pgx.Tx, scope, key, resultType, resultID string) error {
-	scoped := idemScopedKey(scope, key)
+func completeIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, resultType, resultID string) error {
+	scoped := idemScopedKey(tenantID, scope, key)
 	_, err := tx.Exec(ctx, `
 UPDATE idempotency_keys
 SET status = 'completed', result_type = $2, result_id = nullif($3::text, '')::uuid, completed_at = now()

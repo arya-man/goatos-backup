@@ -142,7 +142,7 @@ RETURNING load_id::text, tenant_id::text, source_party_id::text, source_location
 		return domain.Load{}, fmt.Errorf("procurement: create load: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, scope, key, "procurement_load", load.LoadID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_load", load.LoadID); err != nil {
 			return domain.Load{}, fmt.Errorf("procurement: complete create load idempotency: %w", err)
 		}
 	}
@@ -366,7 +366,7 @@ SET ended_at = COALESCE(EXCLUDED.ended_at, source_holding_stays.ended_at),
 		_ = sourceLocation
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, scope, key, "procurement_load_goat", loadGoat.LoadGoatID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_load_goat", loadGoat.LoadGoatID); err != nil {
 			return domain.LoadGoat{}, fmt.Errorf("procurement: complete add goat idempotency: %w", err)
 		}
 	}
@@ -449,7 +449,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		return domain.SourceHealthCheck{}, fmt.Errorf("procurement: update load health status: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, scope, key, "procurement_source_health_check", check.HealthCheckID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_source_health_check", check.HealthCheckID); err != nil {
 			return domain.SourceHealthCheck{}, fmt.Errorf("procurement: complete source health idempotency: %w", err)
 		}
 	}
@@ -582,7 +582,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		}
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, scope, key, "source_entry_decision", decision.DecisionID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "source_entry_decision", decision.DecisionID); err != nil {
 			return domain.Decision{}, fmt.Errorf("procurement: complete decision idempotency: %w", err)
 		}
 	}
@@ -731,7 +731,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		return domain.TransitHandoff{}, fmt.Errorf("procurement: update dispatch status: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, scope, key, "procurement_transit_handoff", handoff.HandoffID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_transit_handoff", handoff.HandoffID); err != nil {
 			return domain.TransitHandoff{}, fmt.Errorf("procurement: complete dispatch idempotency: %w", err)
 		}
 	}
@@ -897,7 +897,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		return domain.ArrivalReview{}, fmt.Errorf("procurement: update arrival load status: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, scope, key, "arrival_intake_review", review.ReviewID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "arrival_intake_review", review.ReviewID); err != nil {
 			return domain.ArrivalReview{}, fmt.Errorf("procurement: complete arrival review idempotency: %w", err)
 		}
 	}
@@ -1077,7 +1077,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		return nil, fmt.Errorf("procurement: update accepted intake load: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
-		if err = completeIdempotency(ctx, tx, scope, key, "procurement_phc_handoffs_load", in.LoadID); err != nil {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_phc_handoffs_load", in.LoadID); err != nil {
 			return nil, fmt.Errorf("procurement: complete accept intake idempotency: %w", err)
 		}
 	}
