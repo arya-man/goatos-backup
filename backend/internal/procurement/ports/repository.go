@@ -78,6 +78,7 @@ type SourceHealth struct {
 	Reason         string
 	CheckedBy      *string
 	CheckedAt      time.Time
+	CheckedAtSet   bool // true when the client supplied checked_at (so it participates in the fingerprint)
 	ProofRefID     *string
 	SOPTaskID      *string
 	IdempotencyKey string
@@ -92,6 +93,7 @@ type Decision struct {
 	Reason          string
 	DecidedBy       *string
 	DecidedAt       time.Time
+	DecidedAtSet    bool // true when the client supplied decided_at (participates in the fingerprint)
 	ProofRefID      *string
 	SOPTaskID       *string
 	OwnerID         *string
@@ -101,16 +103,17 @@ type Decision struct {
 }
 
 type DispatchLoad struct {
-	TenantID       string
-	LoadID         string
-	FromLocationID *string
-	ToLocationID   string
-	GoatIDs        []string
-	DispatchedAt   time.Time
-	ArrivedAt      *time.Time
-	ProofRefID     *string
-	IdempotencyKey string
-	ActorID        *string
+	TenantID        string
+	LoadID          string
+	FromLocationID  *string
+	ToLocationID    string
+	GoatIDs         []string
+	DispatchedAt    time.Time
+	DispatchedAtSet bool // true when the client supplied dispatched_at (participates in the fingerprint)
+	ArrivedAt       *time.Time
+	ProofRefID      *string
+	IdempotencyKey  string
+	ActorID         *string
 }
 
 type ArrivalReview struct {
@@ -130,6 +133,7 @@ type ArrivalReview struct {
 	Status         string
 	ReviewedBy     *string
 	ReviewedAt     time.Time
+	ReviewedAtSet  bool // true when the client supplied reviewed_at (participates in the fingerprint)
 	IdempotencyKey string
 	Goats          []ArrivalGoat
 }
@@ -152,6 +156,7 @@ type AcceptIntake struct {
 	ParkLocationID            string
 	ShedLocationID            string
 	AcceptedAt                time.Time
+	AcceptedAtSet             bool // true when the client supplied accepted_at (participates in the fingerprint)
 	EntryDate                 time.Time
 	TrustedVaccinationHistory json.RawMessage
 	IntakeHealthSignal        *string

@@ -775,6 +775,37 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 			t.Fatalf("conflict mutated state: row_version %d -> %d", v1, v3)
 		}
 	})
+
+	t.Run("explicit caller timestamp participates in the fingerprint", func(t *testing.T) {
+		// Counterpart to the server-jitter test: when the client SUPPLIES checked_at (CheckedAtSet), it is part
+		// of the payload — same value replays, a different value conflicts.
+		load := createProcurementLoad(t, ctx, repo, "idem-explicit-ts-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: load.LoadID, SourceTag: strPtr("IDEM-EXPLICIT-TS"),
+			IdentityState: "clean", OwnershipState: "mesha_owned", IdempotencyKey: "idem-explicit-ts-goat",
+		})
+		base := ports.SourceHealth{
+			TenantID: testTenant, LoadID: load.LoadID, GoatID: goat.GoatID, HealthState: domain.HealthPassed,
+			CheckedAt: time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC), CheckedAtSet: true,
+			IdempotencyKey: "idem-explicit-ts",
+		}
+		first, err := repo.RecordSourceHealth(ctx, base)
+		if err != nil {
+			t.Fatalf("first RecordSourceHealth: %v", err)
+		}
+		replay, err := repo.RecordSourceHealth(ctx, base)
+		if err != nil {
+			t.Fatalf("replay with same explicit checked_at must not conflict: %v", err)
+		}
+		if replay.HealthCheckID != first.HealthCheckID {
+			t.Fatalf("replay returned different result: first=%s replay=%s", first.HealthCheckID, replay.HealthCheckID)
+		}
+		diff := base
+		diff.CheckedAt = base.CheckedAt.Add(48 * time.Hour) // client supplied a DIFFERENT checked_at
+		if _, err := repo.RecordSourceHealth(ctx, diff); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("different explicit checked_at with same key must conflict: err = %v", err)
+		}
+	})
 }
 
 func seedProcurementCommon(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

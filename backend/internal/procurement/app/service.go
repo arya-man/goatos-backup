@@ -143,14 +143,14 @@ func (s *Service) ControlTower(ctx context.Context, q domain.WorkQuery) (domain.
 			summary.IdentityConflictCount++
 		}
 		alerts = append(alerts, domain.ControlTowerAlert{
-			RowID:        row.RowID,
-			LoadID:       row.LoadID,
-			GoatID:       row.GoatID,
-			Severity:     row.Severity,
-			WorkState:    row.WorkState,
-			Title:        row.Title,
-			Detail:       row.Detail,
-			NextAction:   row.NextAction,
+			RowID:      row.RowID,
+			LoadID:     row.LoadID,
+			GoatID:     row.GoatID,
+			Severity:   row.Severity,
+			WorkState:  row.WorkState,
+			Title:      row.Title,
+			Detail:     row.Detail,
+			NextAction: row.NextAction,
 			// Command lenses are top-level: evidence links resolve to the top-level Workflows screen scoped
 			// by ?domain=procurement, never a nested per-module command route.
 			EvidenceLink: "/workflows/" + row.RowID + "?domain=procurement",
@@ -375,7 +375,7 @@ func (s *Service) RecordSourceHealth(ctx context.Context, in ports.SourceHealth)
 	if err := requireIdempotency(in.IdempotencyKey); err != nil {
 		return domain.SourceHealthCheck{}, err
 	}
-	if in.CheckedAt.IsZero() {
+	if !in.CheckedAtSet {
 		in.CheckedAt = s.now().UTC()
 	}
 	check, err := s.repo.RecordSourceHealth(ctx, in)
@@ -429,7 +429,7 @@ func (s *Service) DispatchLoad(ctx context.Context, in ports.DispatchLoad) (doma
 	if err := requireIdempotency(in.IdempotencyKey); err != nil {
 		return domain.TransitHandoff{}, err
 	}
-	if in.DispatchedAt.IsZero() {
+	if !in.DispatchedAtSet {
 		in.DispatchedAt = s.now().UTC()
 	}
 	handoff, err := s.repo.DispatchLoad(ctx, in)
@@ -455,7 +455,7 @@ func (s *Service) RecordArrivalReview(ctx context.Context, in ports.ArrivalRevie
 	if err := requireIdempotency(in.IdempotencyKey); err != nil {
 		return domain.ArrivalReview{}, err
 	}
-	if in.ReviewedAt.IsZero() {
+	if !in.ReviewedAtSet {
 		in.ReviewedAt = s.now().UTC()
 	}
 	if in.Status == "" {
@@ -524,7 +524,7 @@ func (s *Service) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]do
 	if err := requireIdempotency(in.IdempotencyKey); err != nil {
 		return nil, err
 	}
-	if in.AcceptedAt.IsZero() {
+	if !in.AcceptedAtSet {
 		in.AcceptedAt = s.now().UTC()
 	}
 	if in.EntryDate.IsZero() {
@@ -563,7 +563,7 @@ func (s *Service) recordDecision(ctx context.Context, in ports.Decision) (domain
 	if err := requireIdempotency(in.IdempotencyKey); err != nil {
 		return domain.Decision{}, err
 	}
-	if in.DecidedAt.IsZero() {
+	if !in.DecidedAtSet {
 		in.DecidedAt = s.now().UTC()
 	}
 	in.Metadata = jsonObject(in.Metadata)

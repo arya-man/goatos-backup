@@ -386,11 +386,13 @@ func (r *Repository) RecordSourceHealth(ctx context.Context, in ports.SourceHeal
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const scope = "procurement.source_health"
-	// CheckedAt is server-defaulted to now() when the client omits it (service.go), so it is excluded from
-	// the fingerprint — otherwise an exact replay minted at a later instant reads as a different payload.
+	// CheckedAt enters the fingerprint only when the client supplied it; an omitted value is server-defaulted
+	// to now() (service.go) and excluded, so a later exact replay is not misread as a different payload — while
+	// a genuinely different client-supplied checked_at still conflicts.
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, in.GoatID, in.HealthState, in.Reason,
-		stringPtrValue(in.CheckedBy), stringPtrValue(in.ProofRefID), stringPtrValue(in.SOPTaskID),
+		stringPtrValue(in.CheckedBy), fpTimeIf(in.CheckedAtSet, in.CheckedAt),
+		stringPtrValue(in.ProofRefID), stringPtrValue(in.SOPTaskID),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
@@ -472,11 +474,12 @@ func (r *Repository) RecordDecision(ctx context.Context, in ports.Decision) (dom
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const scope = "procurement.decision"
-	// DecidedAt is server-defaulted to now() when omitted (service.go) — excluded so a later exact replay is
-	// not misread as a different payload.
+	// DecidedAt enters the fingerprint only when client-supplied (omitted = server-defaulted to now(),
+	// excluded), so a later exact replay is not misread as a different payload.
 	fingerprint := requestFingerprint(
 		in.TenantID, in.GoatID, in.LoadID, in.DecisionStage, in.DecisionType, in.Reason,
-		stringPtrValue(in.DecidedBy), stringPtrValue(in.ProofRefID), stringPtrValue(in.SOPTaskID),
+		stringPtrValue(in.DecidedBy), fpTimeIf(in.DecidedAtSet, in.DecidedAt),
+		stringPtrValue(in.ProofRefID), stringPtrValue(in.SOPTaskID),
 		stringPtrValue(in.OwnerID), stringPtrValue(in.ResumeCondition), canonicalJSON(in.Metadata),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
@@ -607,13 +610,14 @@ func (r *Repository) DispatchLoad(ctx context.Context, in ports.DispatchLoad) (d
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const scope = "procurement.dispatch"
-	// DispatchedAt is server-defaulted to now() when omitted (service.go) and is excluded; the goat list is
-	// order-normalized so the same set in any order is the same request.
+	// DispatchedAt enters the fingerprint only when client-supplied (omitted = server-defaulted to now(),
+	// excluded); the goat list is order-normalized so the same set in any order is the same request.
 	dispatchGoats := append([]string(nil), in.GoatIDs...)
 	sort.Strings(dispatchGoats)
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, stringPtrValue(in.FromLocationID), in.ToLocationID,
-		stringPtrValue(in.ProofRefID), fpTime(in.ArrivedAt), strings.Join(dispatchGoats, ","),
+		stringPtrValue(in.ProofRefID), fpTimeIf(in.DispatchedAtSet, in.DispatchedAt), fpTime(in.ArrivedAt),
+		strings.Join(dispatchGoats, ","),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
@@ -765,14 +769,14 @@ func (r *Repository) RecordArrivalReview(ctx context.Context, in ports.ArrivalRe
 		}, "\x1e"))
 	}
 	sort.Strings(itemParts)
-	// ReviewedAt is server-defaulted to now() when omitted (service.go) — excluded so a later exact replay is
-	// not misread as a different payload.
+	// ReviewedAt enters the fingerprint only when client-supplied (omitted = server-defaulted to now(),
+	// excluded), so a later exact replay is not misread as a different payload.
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, in.ParkLocationID,
 		fmt.Sprintf("%d/%d/%d/%d/%d/%d/%d", in.ExpectedCount, in.LoadedCount, in.ArrivedCount,
 			in.MatchedCount, in.MissingCount, in.ExtraCount, in.RejectedCount),
 		canonicalJSON(in.HealthFlags), canonicalJSON(in.WeightFlags), stringPtrValue(in.MediaProofID),
-		in.Status, stringPtrValue(in.ReviewedBy),
+		in.Status, stringPtrValue(in.ReviewedBy), fpTimeIf(in.ReviewedAtSet, in.ReviewedAt),
 		strings.Join(itemParts, "\x1d"),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
@@ -927,12 +931,12 @@ func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([
 	const scope = "procurement.accept_intake"
 	fpGoats := append([]string(nil), in.GoatIDs...)
 	sort.Strings(fpGoats)
-	// AcceptedAt is server-defaulted to now() when omitted (service.go) — excluded so a later exact replay is
-	// not misread as a different payload. EntryDate stays: it is a client-meaningful date (and only date-
-	// granular), so it remains part of the semantic identity.
+	// AcceptedAt enters the fingerprint only when client-supplied (omitted = server-defaulted to now(),
+	// excluded). EntryDate always stays: it is a client-meaningful date (and only date-granular), part of the
+	// semantic identity.
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, in.ParkLocationID, in.ShedLocationID,
-		in.EntryDate.UTC().Format("2006-01-02"),
+		in.EntryDate.UTC().Format("2006-01-02"), fpTimeIf(in.AcceptedAtSet, in.AcceptedAt),
 		stringPtrValue(in.IntakeHealthSignal), canonicalJSON(in.TrustedVaccinationHistory),
 		strings.Join(fpGoats, ","),
 	)

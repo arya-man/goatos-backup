@@ -301,6 +301,7 @@ func (h *Handler) RecordSourceHealth(w http.ResponseWriter, r *http.Request) {
 		Reason:         req.Reason,
 		CheckedBy:      actorPtr(r),
 		CheckedAt:      checkedAt,
+		CheckedAtSet:   req.CheckedAt != nil,
 		ProofRefID:     req.ProofRefID,
 		SOPTaskID:      req.SOPTaskID,
 		IdempotencyKey: idempotencyKey(r),
@@ -337,6 +338,7 @@ func (h *Handler) PreDispatchDecision(w http.ResponseWriter, r *http.Request) {
 		Reason:          req.Reason,
 		DecidedBy:       actorPtr(r),
 		DecidedAt:       decidedAt,
+		DecidedAtSet:    req.DecidedAt != nil,
 		ProofRefID:      req.ProofRefID,
 		SOPTaskID:       req.SOPTaskID,
 		OwnerID:         req.OwnerID,
@@ -366,16 +368,17 @@ func (h *Handler) DispatchLoad(w http.ResponseWriter, r *http.Request) {
 		dispatchedAt = *req.DispatchedAt
 	}
 	handoff, err := h.service.DispatchLoad(r.Context(), ports.DispatchLoad{
-		TenantID:       tenantID(r),
-		LoadID:         r.PathValue("load_id"),
-		FromLocationID: req.FromLocationID,
-		ToLocationID:   req.ToLocationID,
-		GoatIDs:        req.GoatIDs,
-		DispatchedAt:   dispatchedAt,
-		ArrivedAt:      req.ArrivedAt,
-		ProofRefID:     req.ProofRefID,
-		IdempotencyKey: idempotencyKey(r),
-		ActorID:        actorPtr(r),
+		TenantID:        tenantID(r),
+		LoadID:          r.PathValue("load_id"),
+		FromLocationID:  req.FromLocationID,
+		ToLocationID:    req.ToLocationID,
+		GoatIDs:         req.GoatIDs,
+		DispatchedAt:    dispatchedAt,
+		DispatchedAtSet: req.DispatchedAt != nil,
+		ArrivedAt:       req.ArrivedAt,
+		ProofRefID:      req.ProofRefID,
+		IdempotencyKey:  idempotencyKey(r),
+		ActorID:         actorPtr(r),
 	})
 	h.respond(w, r, dispatchResponse{Handoff: handoff, TraceID: traceID(r)}, err)
 }
@@ -447,6 +450,7 @@ func (h *Handler) ArrivalReview(w http.ResponseWriter, r *http.Request) {
 		Status:         req.Status,
 		ReviewedBy:     actorPtr(r),
 		ReviewedAt:     reviewedAt,
+		ReviewedAtSet:  req.ReviewedAt != nil,
 		IdempotencyKey: idempotencyKey(r),
 		Goats:          items,
 	})
@@ -483,6 +487,7 @@ func (h *Handler) AcceptIntake(w http.ResponseWriter, r *http.Request) {
 		ParkLocationID:            req.ParkLocationID,
 		ShedLocationID:            req.ShedLocationID,
 		AcceptedAt:                acceptedAt,
+		AcceptedAtSet:             req.AcceptedAt != nil,
 		EntryDate:                 derefTime(entryDate),
 		TrustedVaccinationHistory: req.TrustedVaccinationHistory,
 		IntakeHealthSignal:        req.IntakeHealthSignal,
