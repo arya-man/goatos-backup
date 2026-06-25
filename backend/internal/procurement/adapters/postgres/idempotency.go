@@ -1,9 +1,11 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -53,6 +55,27 @@ func fpTime(t *time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339Nano)
+}
+
+// canonicalJSON normalizes a JSON value for fingerprinting: object keys are sorted and insignificant
+// whitespace is dropped, so the same payload with reordered keys hashes identically. Array order is
+// preserved (it is semantic). UseNumber keeps numeric literals exact (no float rounding). Empty or invalid
+// JSON falls back to the raw bytes so a non-JSON field still contributes to the fingerprint.
+func canonicalJSON(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v interface{}
+	if err := dec.Decode(&v); err != nil {
+		return string(raw)
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
 }
 
 // reserveIdempotency claims (scope:key) for this write inside tx. On first claim it returns proceed=true.

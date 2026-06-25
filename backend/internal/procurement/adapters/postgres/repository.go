@@ -108,7 +108,7 @@ func (r *Repository) CreateLoad(ctx context.Context, in ports.CreateLoad) (domai
 	fingerprint := requestFingerprint(
 		in.TenantID, in.SourcePartyID, stringPtrValue(in.SourceLocationID),
 		fmt.Sprintf("%d", in.ExpectedCount), fpTime(in.PurchaseDate), fpTime(in.PlannedDispatch),
-		in.Notes, string(in.Context),
+		in.Notes, canonicalJSON(in.Context),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
@@ -210,7 +210,7 @@ func (r *Repository) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) 
 		stringPtrValue(in.SourceRFID), stringPtrValue(in.TemporaryID), in.SelectionState,
 		in.CurrentState, in.IdentityState, in.OwnershipState, in.HealthState,
 		stringPtrValue(in.HoldingLocationID), fpTime(in.WarmupStartedAt), fpTime(in.WarmupEndedAt),
-		string(in.ProofRefs), string(in.Metadata),
+		canonicalJSON(in.ProofRefs), canonicalJSON(in.Metadata),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
@@ -474,7 +474,7 @@ func (r *Repository) RecordDecision(ctx context.Context, in ports.Decision) (dom
 	fingerprint := requestFingerprint(
 		in.TenantID, in.GoatID, in.LoadID, in.DecisionStage, in.DecisionType, in.Reason,
 		stringPtrValue(in.DecidedBy), stringPtrValue(in.ProofRefID), stringPtrValue(in.SOPTaskID),
-		stringPtrValue(in.OwnerID), stringPtrValue(in.ResumeCondition), string(in.Metadata),
+		stringPtrValue(in.OwnerID), stringPtrValue(in.ResumeCondition), canonicalJSON(in.Metadata),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
@@ -766,7 +766,7 @@ func (r *Repository) RecordArrivalReview(ctx context.Context, in ports.ArrivalRe
 		in.TenantID, in.LoadID, in.ParkLocationID,
 		fmt.Sprintf("%d/%d/%d/%d/%d/%d/%d", in.ExpectedCount, in.LoadedCount, in.ArrivedCount,
 			in.MatchedCount, in.MissingCount, in.ExtraCount, in.RejectedCount),
-		string(in.HealthFlags), string(in.WeightFlags), stringPtrValue(in.MediaProofID),
+		canonicalJSON(in.HealthFlags), canonicalJSON(in.WeightFlags), stringPtrValue(in.MediaProofID),
 		in.Status, stringPtrValue(in.ReviewedBy),
 		strings.Join(itemParts, "\x1d"),
 	)
@@ -926,7 +926,7 @@ func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, in.ParkLocationID, in.ShedLocationID,
 		in.EntryDate.UTC().Format("2006-01-02"),
-		stringPtrValue(in.IntakeHealthSignal), string(in.TrustedVaccinationHistory),
+		stringPtrValue(in.IntakeHealthSignal), canonicalJSON(in.TrustedVaccinationHistory),
 		strings.Join(fpGoats, ","),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
