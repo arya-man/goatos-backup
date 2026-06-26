@@ -1764,6 +1764,71 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: recordProcurementHFVaccinationEvidence
+      summary: Import supplier / Holding-Farm vaccination dose evidence for a source goat.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordProcurementHFVaccinationEvidenceRequest"
+      responses:
+        "200":
+          description: Imported HF vaccination evidence (procurement-owned, starts imported).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementHFVaccinationEvidenceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /procurement/source-entry/hf-vaccination-evidence/{evidence_id}/review:
+    post:
+      tags:
+        - Procurement Source Entry
+      operationId: reviewProcurementHFVaccinationEvidence
+      summary: Trust, reject, conflict, or mark-duplicate imported HF vaccination evidence.
+      parameters:
+        - name: evidence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewProcurementHFVaccinationEvidenceRequest"
+      responses:
+        "200":
+          description: Reviewed HF vaccination evidence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementHFVaccinationEvidenceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /procurement/source-entry/goats/{goat_id}/source-health:
     post:
       tags:
@@ -2178,6 +2243,18 @@ components:
             $ref: "#/components/schemas/ErrorEnvelope"
     Forbidden:
       description: Permission denied.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: Version conflict or idempotency-key payload mismatch.
       content:
         application/json:
           schema:
@@ -5383,6 +5460,8 @@ components:
         selection_reason:
           type: string
           maxLength: 500
+        purpose:
+          $ref: "#/components/schemas/ProcurementPurpose"
         current_state:
           $ref: "#/components/schemas/ProcurementGoatState"
         identity_review_state:
@@ -6157,6 +6236,186 @@ components:
           $ref: "#/components/schemas/ProcurementLoadDetail"
         trace_id:
           type: string
+    ProcurementPurpose:
+      type: string
+      enum:
+        - breeding
+        - fattening
+        - non_breeding
+        - unspecified
+    ProcurementHFVaccinationReviewStatus:
+      type: string
+      enum:
+        - imported
+        - trusted
+        - rejected
+        - conflicting
+        - duplicate
+    ProcurementHFVaccinationEvidence:
+      type: object
+      additionalProperties: true
+      required:
+        - evidence_id
+        - tenant_id
+        - load_id
+        - goat_id
+        - protocol_version_id
+        - rule_id
+        - dose_code
+        - administered_at
+        - vaccine_name
+        - lot_number
+        - source_ref
+        - review_status
+        - review_reason
+        - imported_at
+        - created_at
+        - updated_at
+        - row_version
+      properties:
+        evidence_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        load_id:
+          type: string
+          format: uuid
+        goat_id:
+          type: string
+          format: uuid
+        protocol_version_id:
+          type: string
+          format: uuid
+        rule_id:
+          type: string
+          format: uuid
+        dose_code:
+          type: string
+        administered_at:
+          type: string
+          format: date-time
+        vaccine_name:
+          type: string
+        lot_number:
+          type: string
+        proof_ref_id:
+          type:
+            - string
+            - "null"
+        source_ref:
+          type: string
+        review_status:
+          $ref: "#/components/schemas/ProcurementHFVaccinationReviewStatus"
+        reviewed_by:
+          type:
+            - string
+            - "null"
+        reviewed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        review_reason:
+          type: string
+        imported_by:
+          type:
+            - string
+            - "null"
+        imported_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+    ProcurementHFVaccinationEvidenceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - evidence
+        - trace_id
+      properties:
+        evidence:
+          $ref: "#/components/schemas/ProcurementHFVaccinationEvidence"
+        trace_id:
+          type: string
+    RecordProcurementHFVaccinationEvidenceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - load_id
+        - protocol_version_id
+        - rule_id
+        - dose_code
+        - administered_at
+      properties:
+        load_id:
+          type: string
+          format: uuid
+        protocol_version_id:
+          type: string
+          format: uuid
+        rule_id:
+          type: string
+          format: uuid
+        dose_code:
+          type: string
+          maxLength: 120
+        administered_at:
+          type: string
+          format: date-time
+        vaccine_name:
+          type: string
+          maxLength: 200
+        lot_number:
+          type: string
+          maxLength: 200
+        proof_ref_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        source_ref:
+          type: string
+          maxLength: 300
+        metadata:
+          type: object
+          additionalProperties: true
+    ReviewProcurementHFVaccinationEvidenceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - expected_row_version
+        - review_status
+      properties:
+        expected_row_version:
+          type: integer
+          minimum: 1
+        review_status:
+          type: string
+          enum:
+            - trusted
+            - rejected
+            - conflicting
+            - duplicate
+        review_reason:
+          type: string
+          maxLength: 500
+        reviewed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
     ProcurementLoadDetail:
       type: object
       additionalProperties: false
@@ -6164,6 +6423,7 @@ components:
         - load
         - goats
         - holding_stays
+        - hf_vaccination_evidence
         - source_health_checks
         - decisions
         - transit_handoffs
@@ -6183,6 +6443,11 @@ components:
           maxItems: 1000
           items:
             $ref: "#/components/schemas/ProcurementHoldingStay"
+        hf_vaccination_evidence:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ProcurementHFVaccinationEvidence"
         source_health_checks:
           type: array
           maxItems: 1000
@@ -6235,11 +6500,21 @@ components:
         source_party_id:
           type: string
           format: uuid
+        source_party_name:
+          type: string
         source_location_id:
           type:
             - string
             - "null"
           format: uuid
+        source_location_code:
+          type:
+            - string
+            - "null"
+        source_location_name:
+          type:
+            - string
+            - "null"
         expected_count:
           type: integer
           minimum: 0
@@ -6281,6 +6556,7 @@ components:
         - identity_review_state
         - ownership_state
         - health_state
+        - purpose
       properties:
         load_goat_id:
           type: string
@@ -6317,6 +6593,8 @@ components:
           $ref: "#/components/schemas/ProcurementOwnershipState"
         health_state:
           $ref: "#/components/schemas/ProcurementHealthState"
+        purpose:
+          $ref: "#/components/schemas/ProcurementPurpose"
         warmup_days:
           type:
             - integer
@@ -6352,6 +6630,8 @@ components:
             - in_progress
             - completed
             - outside_normal_window
+        purpose:
+          $ref: "#/components/schemas/ProcurementPurpose"
         warmup_days:
           type:
             - integer

@@ -829,6 +829,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import supplier / Holding-Farm vaccination dose evidence for a source goat. */
+        post: operations["recordProcurementHFVaccinationEvidence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/hf-vaccination-evidence/{evidence_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trust, reject, conflict, or mark-duplicate imported HF vaccination evidence. */
+        post: operations["reviewProcurementHFVaccinationEvidence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/source-entry/goats/{goat_id}/source-health": {
         parameters: {
             query?: never;
@@ -1932,6 +1966,7 @@ export interface components {
             temporary_id?: string | null;
             selection_state?: components["schemas"]["ProcurementSelectionState"];
             selection_reason?: string;
+            purpose?: components["schemas"]["ProcurementPurpose"];
             current_state?: components["schemas"]["ProcurementGoatState"];
             /** @enum {unknown} */
             identity_review_state?: "pending" | "clean" | "conflict" | "unknown_extra";
@@ -2198,10 +2233,85 @@ export interface components {
             detail: components["schemas"]["ProcurementLoadDetail"];
             trace_id: string;
         };
+        /** @enum {string} */
+        ProcurementPurpose: "breeding" | "fattening" | "non_breeding" | "unspecified";
+        /** @enum {string} */
+        ProcurementHFVaccinationReviewStatus: "imported" | "trusted" | "rejected" | "conflicting" | "duplicate";
+        ProcurementHFVaccinationEvidence: {
+            /** Format: uuid */
+            evidence_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            load_id: string;
+            /** Format: uuid */
+            goat_id: string;
+            /** Format: uuid */
+            protocol_version_id: string;
+            /** Format: uuid */
+            rule_id: string;
+            dose_code: string;
+            /** Format: date-time */
+            administered_at: string;
+            vaccine_name: string;
+            lot_number: string;
+            proof_ref_id?: string | null;
+            source_ref: string;
+            review_status: components["schemas"]["ProcurementHFVaccinationReviewStatus"];
+            reviewed_by?: string | null;
+            /** Format: date-time */
+            reviewed_at?: string | null;
+            review_reason: string;
+            imported_by?: string | null;
+            /** Format: date-time */
+            imported_at: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        ProcurementHFVaccinationEvidenceResponse: {
+            evidence: components["schemas"]["ProcurementHFVaccinationEvidence"];
+            trace_id: string;
+        };
+        RecordProcurementHFVaccinationEvidenceRequest: {
+            /** Format: uuid */
+            load_id: string;
+            /** Format: uuid */
+            protocol_version_id: string;
+            /** Format: uuid */
+            rule_id: string;
+            dose_code: string;
+            /** Format: date-time */
+            administered_at: string;
+            vaccine_name?: string;
+            lot_number?: string;
+            /** Format: uuid */
+            proof_ref_id?: string | null;
+            source_ref?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        ReviewProcurementHFVaccinationEvidenceRequest: {
+            expected_row_version: number;
+            /** @enum {string} */
+            review_status: "trusted" | "rejected" | "conflicting" | "duplicate";
+            review_reason?: string;
+            /** Format: date-time */
+            reviewed_at?: string | null;
+        };
         ProcurementLoadDetail: {
             load: components["schemas"]["ProcurementLoad"];
             goats: components["schemas"]["ProcurementLoadGoat"][];
             holding_stays: components["schemas"]["ProcurementHoldingStay"][];
+            hf_vaccination_evidence: components["schemas"]["ProcurementHFVaccinationEvidence"][];
             source_health_checks: components["schemas"]["ProcurementSourceHealthCheck"][];
             decisions: components["schemas"]["ProcurementDecision"][];
             transit_handoffs: components["schemas"]["ProcurementTransitHandoff"][];
@@ -2216,8 +2326,11 @@ export interface components {
             tenant_id: string;
             /** Format: uuid */
             source_party_id: string;
+            source_party_name?: string;
             /** Format: uuid */
             source_location_id?: string | null;
+            source_location_code?: string | null;
+            source_location_name?: string | null;
             expected_count: number;
             /** Format: date */
             purchase_date?: string | null;
@@ -2252,6 +2365,7 @@ export interface components {
             identity_review_state: "pending" | "clean" | "conflict" | "unknown_extra";
             ownership_state: components["schemas"]["ProcurementOwnershipState"];
             health_state: components["schemas"]["ProcurementHealthState"];
+            purpose: components["schemas"]["ProcurementPurpose"];
             warmup_days?: number | null;
         } & {
             [key: string]: unknown;
@@ -2271,6 +2385,7 @@ export interface components {
             ended_at?: string | null;
             /** @enum {unknown} */
             warmup_state?: "not_started" | "in_progress" | "completed" | "outside_normal_window";
+            purpose?: components["schemas"]["ProcurementPurpose"];
             warmup_days?: number | null;
         } & {
             [key: string]: unknown;
@@ -2410,6 +2525,24 @@ export interface components {
         };
         /** @description Permission denied. */
         Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Resource not found. */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Version conflict or idempotency-key payload mismatch. */
+        Conflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -4272,6 +4405,70 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    recordProcurementHFVaccinationEvidence: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordProcurementHFVaccinationEvidenceRequest"];
+            };
+        };
+        responses: {
+            /** @description Imported HF vaccination evidence (procurement-owned, starts imported). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementHFVaccinationEvidenceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    reviewProcurementHFVaccinationEvidence: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                evidence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewProcurementHFVaccinationEvidenceRequest"];
+            };
+        };
+        responses: {
+            /** @description Reviewed HF vaccination evidence. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementHFVaccinationEvidenceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     recordProcurementSourceHealth: {
