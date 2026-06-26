@@ -4,13 +4,13 @@
 #
 # This intentionally does NOT touch programmatic git diff modes such as
 # --quiet/--exit-code/--check/--name-only/--stat/--numstat/--raw.
-# Set MESHA_RTK=0 or MESHA_RTK_GIT_DIFF=0 to disable. Tune the size gate with
-# MESHA_RTK_MIN_BYTES (default: 12000). Set it to 0 to route every safe display
+# Set GOATOS_RTK=0 or GOATOS_RTK_GIT_DIFF=0 to disable. Tune the size gate with
+# GOATOS_RTK_MIN_BYTES (default: 50000). Set it to 0 to route every safe display
 # diff/show command.
 set -u
 
-[ "${MESHA_RTK:-1}" = "0" ] && exit 0
-[ "${MESHA_RTK_GIT_DIFF:-1}" = "0" ] && exit 0
+[ "${GOATOS_RTK:-1}" = "0" ] && exit 0
+[ "${GOATOS_RTK_GIT_DIFF:-1}" = "0" ] && exit 0
 command -v rtk >/dev/null 2>&1 || exit 0
 
 INPUT="$(cat 2>/dev/null || true)"
@@ -19,7 +19,6 @@ HOOK_INPUT="$INPUT" python3 - <<'PY'
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 
@@ -37,6 +36,8 @@ UNSAFE_DIFF_FLAGS = {
     "--summary",
     "--dirstat",
     "--compact-summary",
+    "--ext-diff",
+    "--textconv",
 }
 UNSAFE_SHOW_FLAGS = UNSAFE_DIFF_FLAGS | {
     "--no-patch",
@@ -184,9 +185,9 @@ if not classified:
 raw_argv, rtk_argv = classified
 
 try:
-    min_bytes = int(os.environ.get("MESHA_RTK_MIN_BYTES", "12000"))
+    min_bytes = int(os.environ.get("GOATOS_RTK_MIN_BYTES", "50000"))
 except ValueError:
-    min_bytes = 12000
+    min_bytes = 50000
 
 if not output_exceeds(raw_argv, cwd, min_bytes):
     sys.exit(0)
@@ -196,9 +197,9 @@ env.update({"GIT_PAGER": "cat", "NO_COLOR": "1", "CLICOLOR": "0", "TERM": "dumb"
 result = subprocess.run(rtk_argv, cwd=cwd, text=True, capture_output=True, env=env)
 
 print("RTK-GIT-DIFF AUTO-ROUTE", file=sys.stderr)
-print("Original raw git output exceeded MESHA_RTK_MIN_BYTES and was not run into context.", file=sys.stderr)
+print("Original raw git output exceeded GOATOS_RTK_MIN_BYTES and was not run into context.", file=sys.stderr)
 print("Ran: " + shlex.join(rtk_argv), file=sys.stderr)
-print("Disable with MESHA_RTK=0 or tune with MESHA_RTK_MIN_BYTES.", file=sys.stderr)
+print("Disable with GOATOS_RTK=0 or tune with GOATOS_RTK_MIN_BYTES.", file=sys.stderr)
 print("", file=sys.stderr)
 if result.stdout:
     print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", file=sys.stderr)
