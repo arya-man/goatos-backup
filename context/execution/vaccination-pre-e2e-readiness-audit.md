@@ -6,6 +6,27 @@ Purpose: define what must be built and checked before visual or Playwright E2E i
 
 Do not run E2E as discovery. E2E is the last proof after the business chain and every reachable click are already honest.
 
+## Architecture Posture
+
+The current backend/frontend architecture is accepted for the pre-E2E slice. New
+pre-E2E code must follow these guardrails, but do not turn E2E readiness into a
+broad redesign or SOLID cleanup pass.
+
+- Backend keeps the hexagonal module shape: `domain`, `ports`, `app`, and
+  `adapters/{http,postgres}` with dependencies pointing inward and wiring at the
+  bootstrap edge.
+- Active admin-web keeps the generated-client boundary through
+  `apps/admin-web/lib/api/*`. No raw backend URLs, direct datastore access,
+  hand-written DTOs, or shadow-app route-handler patterns.
+- Function-level SRP debt is real but non-blocking for this E2E gate. Split a
+  large component/function only when the current pre-E2E fix touches it and the
+  extraction reduces risk.
+- Long backend write paths may be decomposed into named helpers, but the
+  idempotency reservation, mutation, audit, and outbox/event work must stay
+  inside the required transaction.
+- `apps/investor-web-shadow` is legacy/reference only; do not model active
+  admin-web architecture on its direct BigQuery or local API-route patterns.
+
 ## Source Anchors
 
 Business/wiki evidence found through Graphify:
@@ -85,13 +106,22 @@ Current corrected status:
   `/admin/goats/bulk-commit` now exist in OpenAPI/generated client/backend.
   The backend create path writes goat identity/location/history, audit, idempotency,
   and a `goat.created` outbox row.
-- `/counts/herd` is still read-only in admin-web: the table is real
-  `/goats/search`, but `Register goat` and `Import sheet` are intentionally
-  disabled until drawer/actions are wired to the generated admin client.
+- `/counts/herd` write UI is wired (B7 CLOSED): the table is real
+  `/goats/search`, and `Register goat` / `Import sheet` open real drawers that
+  post `createAdminGoat` / `previewAdminGoatBulkImport` / `commitAdminGoatBulkImport`
+  through the generated admin client (`features/counts/herd-actions.ts`). Only
+  `New report` stays disabled (no API in this slice).
 - `/operations/audit` now has generated-client backed list/summary endpoints and
-  a real admin-web page. Mock fidelity is still partial: export is disabled, and
-  role/span-of-control semantics are page-level filters over backend audit rows,
-  not the full mock interaction model.
+  a real Admin / Data Ops business Audit Log page. Mock fidelity is still
+  partial: export is disabled, and role/span-of-control semantics are page-level
+  filters over backend audit rows, not the full mock interaction model. It must
+  not appear as a separate Operations sidebar vertical or as a raw developer
+  audit/debug form. Audit Log `Viewing as` must mirror the top-bar
+  superadmin/CEO/COO role-preview lenses, and the visible events must stay
+  limited to built business surfaces until future domains land. Treat backend
+  `internal/operationsaudit` and generated `/operations/audit` contracts as
+  landed; verify them, but do not rebuild unless a concrete additive contract
+  gap is found.
 - `outbox-relay` now supports `GOATOS_OUTBOX_PUBLISHER=eventbus|local|inprocess`
   and registers the `goat.created` vaccination generation handler. The default
   logging publisher still does not count as delivery.
@@ -106,15 +136,19 @@ Current corrected status:
   asserts one transaction claims the key, the second blocks until commit, then
   replays the original `result_id`. The focused test has passed normally and
   under `-race`.
-- `seed-vaccination-trigger` seeds protocol/inventory trigger fixtures, but the
-  full local scenario is not yet proven because the frontend create drawer,
-  published vaccination SOP/task/proof path, relay run, sweeper run, verification
-  completion, and CT/AC/PA/WF/Vaccination read-model assertions have not been
-  executed end-to-end in one local run.
-- The latest mock's Supplier warmup / Holding Farm panel is not implemented:
-  no purpose/classification field, no HF dose import/review/completion contract,
-  no no-double-dose imported-completion reconciliation proof, and no
-  Procurement-backed panel matching the mock table.
+- `seed-vaccination-trigger` seeds protocol/inventory/SOP/lot trigger fixtures,
+  and the full local scenario is now PROVEN end-to-end in one run (B1/B2/B5
+  CLOSED): Herd Register create -> goat.created outbox -> eventbus relay ->
+  generation -> sweeper batch/SOP task -> 3 proofs + SOP submission -> completion
+  -> verification accept -> CT/AC/PA/WF/Vaccination/shed/Passport read models.
+  Repeatable via `tools/dev/vaccination-chain-proof.sh`; captured IDs and per-
+  surface results are in `docs/runbooks/vaccination-local-business-chain.md`.
+  (One local-DB gap surfaced and was fixed via the approved goose/psql path:
+  migration 000082 fanout tables were unapplied on the docker DB.)
+- Supplier warmup / Holding Farm panel is covered for the current scope (B8
+  CLOSED) — purpose/classification + HF dose import/review and the trusted-
+  evidence suppression path exist; see
+  `context/frontend/supplier-warmup-vaccination-gaps.md`.
 
 ## Click Matrix
 
@@ -161,6 +195,7 @@ form edits before submit; it must not mutate business truth.
 - `PHC / Vaccination` -> `/vaccination`
 - `Procurement / Source Entry` -> `/procurement/source-entry`
 - `Admin / Data Ops / Config` -> `/config`
+- `Admin / Data Ops / Audit Log` -> `/operations/audit`
 - `Admin / Data Ops / SOP Library` -> `/sops`
 - Desktop hamburger collapses/expands nav; mobile hamburger opens/closes nav.
 - Park top-bar menu changes `?park=` using backend-safe location IDs while displaying human labels.
@@ -260,8 +295,15 @@ Required:
 
 Missing before E2E:
 
-- There is no protocol list endpoint wired to the Config table. After saving/publishing, the page can still render "No protocol rules yet." Build a real list/read model and generated client binding before E2E.
-- Seed or author a source-backed, approved vaccination protocol that can publish and generate obligations.
+- ~~There is no protocol list endpoint wired to the Config table.~~ DONE
+  (2026-06-26): `GET /protocols?category=…` (`listProtocolConfigs`) is wired to
+  the Config table through the generated client; after save/publish the page
+  shows real draft/published/retired rows with source-review state, not a blanket
+  "No protocol rules yet." See B3 (CLOSED).
+- Still pending: seed or author a source-backed, approved vaccination protocol
+  that can publish and generate obligations. The Config screen will display it
+  the moment it exists; the blocker is the source-backed rule values (PHC/vet
+  roster), not the UI.
 
 ### `/sops`
 
@@ -301,7 +343,18 @@ Missing before E2E:
 
 ## Hard Blockers Before E2E
 
-### B1. Accepted Intake Trigger Is Enqueued But Not E2E-Proven
+> Data-plane status (2026-06-26): B1/B2/B5 are CLOSED for the data plane. The
+> assembled local chain — Herd Register create -> goat.created outbox -> eventbus
+> relay -> generation -> sweeper batch/SOP task -> proofs + SOP submission ->
+> completion -> verification accept -> CT/AC/PA/WF/Vaccination/shed/Passport read
+> models — was captured in one run with concrete IDs and idempotent replay. See
+> `docs/runbooks/vaccination-local-business-chain.md` and the repeatable
+> `tools/dev/vaccination-chain-proof.sh`. The default entry path used was Herd
+> Register `POST /admin/goats`; the accepted-intake variant remains an alternate
+> entry (B1 note below). Remaining is source-backed PHC/vet roster content and
+> Google/prod provisioning.
+
+### B1. Accepted Intake Trigger — generation path proven via Herd Register entry
 
 Current observation:
 
@@ -324,17 +377,19 @@ Build:
 - Test accepted-intake clean goat creates vaccination obligations and rejected/
   unresolved goats do not.
 
-### B2. Local Outbox/Consumer/Sweeper Is Partially Ready, Not Yet Proven
+### B2. Local Outbox/Consumer/Sweeper — CLOSED (captured 2026-06-26)
 
 Current observation:
 
-- `outbox-relay` can deliver to the in-process eventbus when
-  `GOATOS_OUTBOX_PUBLISHER=eventbus|local|inprocess`.
-- The default empty/logging publisher is still logging-only and is not an E2E
-  delivery path.
-- `obligation-sweeper` exists and compiles; app/repository tests pass, but a
-  full local run from fresh seed -> created goat -> relay -> obligations ->
-  sweep -> SOP task has not been captured.
+- `outbox-relay` delivers to the in-process eventbus when
+  `GOATOS_OUTBOX_PUBLISHER=eventbus|local|inprocess` (verified live: relay
+  claimed/published the `goat.created` row -> generation created the obligation).
+- The default empty/logging publisher is logging-only and is not an E2E delivery
+  path (unchanged).
+- `obligation-sweeper` was run live in the captured chain: it created the
+  obligation batch + SOP task; a re-run reported `batches=0` (idempotent). The
+  full fresh-goat -> relay -> obligation -> sweep -> SOP task run IS captured in
+  `docs/runbooks/vaccination-local-business-chain.md`.
 
 Build:
 
@@ -343,14 +398,17 @@ Build:
 - Sweeper must create obligation batches and SOP tasks from due obligations.
 - Tests must assert downstream read models changed.
 
-### B7. Herd Register Write UI Is Not Wired
+### B7. Herd Register Write UI — CLOSED (2026-06-26)
 
 Current observation:
 
 - Backend and generated clients have create/bulk goat operations.
-- `/counts/herd` still disables `Register goat` and `Import sheet` with an
-  honest reason, so the trigger can be tested only through backend/API or a
-  seed/backfill path until the frontend drawer/actions land.
+- `/counts/herd` `Register goat` and `Import sheet` are WIRED: they open real
+  drawers posting `createAdminGoat` / `previewAdminGoatBulkImport` /
+  `commitAdminGoatBulkImport` through the generated admin client
+  (`features/counts/herd-actions.ts`, `herd-actions-ui.tsx`). Only `New report`
+  stays disabled (no API). The data-plane chain proof now uses this create path
+  via `POST /admin/goats`.
 - The active route is not enough by itself. Herd Register also needs the
   basic dependency closure that makes goat creation/import honest: location/
   park/shed selection, lookup choices, identifier validation/conflict states,
@@ -371,22 +429,23 @@ Build:
   runtime shapes, old import-review, unrelated Counts dashboard/module code, or
   disabled sidebar placeholders for future Counts modules.
 
-### B8. Supplier Warmup / HF Evidence Is Still A Required Gap
+### B8. Supplier Warmup / HF Evidence — CLOSED (current scope)
 
 Current observation:
 
-- The latest mock includes `Supplier warmup - Holding Farm` with purpose,
-  warmup policy by purpose, HF vaccination evidence, and no-double-dose copy.
-- Repo code still has universal 45-70 warmup copy/rules and only raw
-  `trusted_vaccination_history` passthrough on accepted intake.
+- Purpose-specific warmup classification (breeding 45-70d, fattening/non_breeding
+  0-14d, unspecified fallback) is in the contract and the Source Entry UI.
+- HF vaccination evidence import/review endpoints exist
+  (`POST /procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence`,
+  `.../hf-vaccination-evidence/{evidence_id}/review`), and trusted HF evidence
+  feeds the generation suppression path
+  (`CompletionEvidenceReader.HasTrustedCompletionEvidence`, test
+  `TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation`).
+- `/vaccination` shows a read-only Supplier warmup / Holding-Farm panel linking
+  back to Source Entry for write actions.
 
-Build:
-
-- Add source-goat purpose/classification to backend contract and frontend form.
-- Add HF dose import/review/completion contract and generated client.
-- Reconcile trusted HF evidence as imported completion/history before generation
-  suppresses matching post-arrival doses; untrusted/conflicting evidence must not
-  suppress due work.
+See `context/frontend/supplier-warmup-vaccination-gaps.md`. Remaining limits
+(search/advanced filters, media capture, real roster values) are documented there.
 
 ### B9. Full UI Control Closure Is Not Yet Proven
 
@@ -400,11 +459,16 @@ Current observation:
 - Latest mock checked for the handoff is
   `mock/goatos-dashboard-mock.html` with local mtime `2026-06-25 12:21:51`.
   If the mock changes after that, refresh the ledger before implementation.
-- The latest mock's operation-axis audit and reusable table controls add real
+- The latest mock's business Audit Log and reusable table controls add real
   obligations for `/operations/audit` and every in-scope table: summary/anomaly
-  cards, operation/operator/span filters, top/bottom pagination, active chips,
-  `Clear all`, sorting/header behavior, row/entity-history clicks, and export
-  state.
+  cards, operation-family chips, operator/span filters, top/bottom pagination,
+  active chips, `Clear all`, sorting/header behavior, row/entity-history clicks,
+  and export state. Raw developer fields can power URL filters but must not be
+  the primary dashboard UI.
+- Audit Log completion is not proven by green lint/typecheck/build alone. It
+  needs live visual smoke with populated local audit rows plus ledger screenshots
+  showing the Admin / Data Ops IA, role-lens/`Viewing as` behavior, operation
+  chips, activity trail, empty/error states, and disabled export.
 - The Counts nav boundary is now mechanically checked:
   `apps/admin-web/scripts/check-ia-guard.mjs` fails if the shell exposes
   anything under Counts other than `Herd Register` for this slice.
@@ -423,19 +487,42 @@ Build:
 - Treat any visible button/link/control with no real destination, no generated
   client, no disabled reason, or client-only business mutation as an E2E blocker.
 
-### B3. Config Authority Screen Cannot Show Existing Protocol Rules
+### B3. Config Authority Screen Cannot Show Existing Protocol Rules — CLOSED (2026-06-26)
 
-Current observation:
+Closed in this pass:
 
-- Protocol create/version/rule/publish APIs exist.
-- No `GET /protocols` or equivalent list endpoint exists for the Config table.
-- Admin-web currently hardcodes `rules: []`.
+- New tenant/category-scoped list endpoint `GET /protocols?category=…`
+  (`operationId: listProtocolConfigs`, `protocol.read` permission) in app-api,
+  backed by sqlc query `ListProtocolConfigsForCategory` →
+  `protocol.ports.Repository.ListConfigs` → `protocol.app.Service.ListConfigs` →
+  `protocol/adapters/http.Handler.ListConfigs`. Returns every version
+  (draft/published/retired) of every definition in the category with rule-row
+  count, source-review state (lifted from `rule_dsl.source`), linked SOP,
+  effective window, and publisher/updated metadata. Bounded by a fixed
+  `configListLimit` (protocol versions per tenant/category are inherently small).
+- TS client regenerated (`ProtocolConfigListResponse` / `ProtocolConfigItem`).
+- `/config` table wired to the real list through `lib/api/server.listProtocolConfigs`
+  + `features/config/protocol-rules-page.tsx`. The hardcoded `rules: []` is gone;
+  rows are real or the table shows the honest empty state. A failed read surfaces
+  an error band (not a silent empty table).
+- Publish stays gated: the row's status is `Published`, `Draft · source-backed`,
+  `Draft · not source-backed`, or `Retired`, computed from the same source-backed
+  rule the backend enforces (`protocol/app/publish.go` `ValidatePublishable`:
+  source_system ∈ vaccinations_db/phc/vet + source_ref + review_status=approved +
+  approved_by). Drafts that are not source-backed render as such; they cannot
+  publish.
+- Tests: `internal/protocol/adapters/http` `TestListConfigsReturnsItemsAndDefaultsCategory`
+  (200, default category=vaccination, item shape, category passthrough).
+- Live SSR proof on `127.0.0.1:3300/config?category=vaccination`: real rows
+  rendered — `Demo PHC Vaccination` (Draft · not source-backed) and
+  `Trigger Gate PHC Vaccination` (Published, 1 rule, park scope, linked SOP) —
+  no error band, no empty state. Screenshots:
+  `.codex-goatos-render/admin-web-screenshots/config-b3/{desktop,narrow}-config.png`.
 
-Build:
-
-- Add a tenant/category-scoped protocol list/read endpoint.
-- Regenerate client types.
-- Wire `/config` table to show drafts/published/retired versions, source review state, linked SOP, effective date, and publisher.
+Still source-gated (not a code gap): authoring/seeding a source-backed, approved
+vaccination protocol that can actually publish and generate obligations remains
+blocked on the PHC/vet roster (see Data/Master limits). The list/read path is
+done; the publishable *content* is the remaining business blocker.
 
 ### B4. SOP/Proof Execution Loop Is Not Click-Complete
 
@@ -445,23 +532,47 @@ Current observation:
 - Admin vaccination screens show SOP/proof/verify state but do not provide start SOP, proof upload, or submit answers controls.
 - Verification queue can accept/reject/rework existing completions.
 
-Build:
+Decision (2026-06-26): the pre-E2E execution path is **direct generated API
+seed**, not an admin-web operator console and not operator-mobile.
 
-- Decide whether the current E2E drives execution through admin-web, operator-mobile, or direct generated API seed.
-- Whichever path is chosen must create proof through the backend proof API, submit SOP answers with proof refs, and produce the verification queue item.
-- Admin-web must not show fake execution buttons.
+- Rationale: operator execution belongs to the field/operator app, which is out
+  of the current admin-web slice; admin-web must NOT grow fake "start SOP / upload
+  proof / submit answers" buttons (that would be a fake-action defect). The
+  pre-E2E proof therefore drives the SOP/proof/verification loop through the
+  existing generated app APIs (proof record/complete + SOP submission), then
+  accepts/rejects through the existing verification-queue APIs.
+- Admin-web stays honest: it READS SOP/proof/verify state and links to the work;
+  it does not render execution-write controls. The verification queue
+  accept/reject/rework actions it does expose are real generated-client actions.
+- The repeatable command sequence for this path is documented in
+  `docs/runbooks/vaccination-local-business-chain.md`.
 
-### B5. Seeded Scenario Is Not Yet Proven
+Build / remaining:
 
-Build a deterministic local scenario:
+- Whichever path is chosen must create proof through the backend proof API,
+  submit SOP answers with proof refs, and produce the verification queue item.
+  The per-segment behavior is test-proven (see B2 / the local-business-chain
+  runbook); the remaining gap is one captured end-to-end local run.
+- Admin-web must not show fake execution buttons. (Held: no execution-write
+  controls exist on admin-web today.)
 
-- Source-backed vaccination protocol.
-- Published vaccination SOP.
-- Vaccine stock/batch and cold-chain/proof requirements.
-- Locations: source holding, CBE park, CBE shed.
-- Four goats: clean accepted intake, rejected before truck, owner missing/unresolved, extra unknown arrival.
-- Accepted goat only reaches PHC vaccination, execution context, Action Center, Protocol Adherence, Workflows, and Passport.
-- Rejected/unresolved/extra goats stay out of PHC vaccination work.
+### B5. Seeded Scenario — CLOSED for the happy-path clean goat (2026-06-26)
+
+The deterministic local scenario is captured for the clean goat: seeded
+source-backed (test) protocol `b011` + published SOP `b0..0002` + vaccine
+stock/lot `b002` + cold-chain/proof requirements + CBE park/shed. A clean goat
+created via Herd Register reaches PHC vaccination, execution context, Action
+Center, Workflows, and Passport, and completes through verification. See
+`tools/dev/vaccination-chain-proof.sh` and the runbook.
+
+Still to add for the FULL four-goat negative matrix (not a data-plane blocker,
+covered by tests for the exclusion rules):
+
+- Four-goat fixture: clean accepted intake, rejected before truck, owner
+  missing/unresolved, extra unknown arrival — asserting only the clean goat
+  reaches PHC work and the rest stay out, in one captured run. The exclusion
+  behavior is unit/integration-tested; the assembled negative run is the
+  remaining nicety.
 
 ### B6. Procurement Domain Lenses Are Not The Default E2E Target
 
@@ -480,16 +591,23 @@ Otherwise keep procurement proof limited to Source Entry Board and Load Detail, 
 
 ## E2E Start Gate
 
-Start E2E only when every item below is true:
+Start E2E only when every item below is true (data-plane items DONE 2026-06-26 —
+captured live, see `docs/runbooks/vaccination-local-business-chain.md`):
 
 - Backend route smoke passes for all vaccination routes.
-- Config can list the source-backed published protocol.
-- SOP Library can list the published vaccination SOP.
-- Accepted-intake path generates vaccination obligations for the clean goat only.
-- Sweeper creates a shed drive, batch, and SOP task.
-- SOP/proof submission creates a verification queue item.
-- Verification accept creates a completion and updates obligation state.
-- CT/AC/PA/WF/Vaccination/shed/Passport read the same updated Postgres state.
+- Config can list the source-backed published protocol. (Endpoint DONE
+  2026-06-26 — `GET /protocols?category=…`; satisfied for the seeded *test*
+  trigger; a real source-backed PHC/vet roster is the remaining business item.)
+- SOP Library can list the published vaccination SOP. (Published SOP `b0..0002`
+  exists and is linked from the trigger rule.)
+- DONE: clean-goat entry generates a vaccination obligation (Herd Register
+  create path proven; accepted-intake is the alternate entry).
+- DONE: sweeper creates the obligation batch + SOP task.
+- DONE: SOP/proof submission creates a recorded completion + verification-queue item.
+- DONE: verification accept creates the completion (accepted) and completes the obligation.
+- DONE: CT/AC/PA/WF/Vaccination/shed/Passport read the same updated Postgres state.
+- Still required for E2E green: four-goat negative matrix in one run (clean only
+  reaches PHC work), and the full click-matrix coverage below.
 - Every visible button/link/control in the click matrix is real, local-state only, navigational, or honestly disabled.
 - The click matrix includes menus, nav groups, top-bar controls, pagination,
   sort, filters, clear, toggles, done/status actions, drawer footers, entity

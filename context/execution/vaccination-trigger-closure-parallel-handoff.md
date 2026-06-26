@@ -16,8 +16,10 @@ entry point:
 
 - Counts -> Herd Register: create/import a goat, plus the basic setup that makes
   create/import real and safe.
-- Operations -> Audit Log: see every operator/admin/system action that produced
-  the vaccination state, plus the filters and entity links needed to inspect it.
+- Admin / Data Ops -> Audit Log: see every operator/admin/system business action
+  that produced the vaccination state, plus the filters and entity links needed
+  to inspect it. The implementation route can remain `/operations/audit`; the
+  visible IA is not an Operations vertical.
 
 It also depends on the already-reopened Procurement -> Source Entry surface only
 for the supplier Holding Farm warmup -> accepted-intake trigger branch. That
@@ -36,9 +38,10 @@ Dependency closure rule:
   needs-review states, active/inactive lifecycle display, bulk import preview
   and row errors, limited backend-backed count cards, row-to-Passport links, and
   audit/history links.
-- Operations -> Audit Log may build actor/action/resource taxonomy, span/scope
-  filters, cursor pagination, entity-history links, anomaly filters, and
-  disabled export scaffolding when no export backend exists.
+- Admin / Data Ops -> Audit Log may build the business audit presentation from
+  the mock: operation-family chips, operator/span controls, status/proof/anomaly
+  filters, activity trail, cursor pagination, entity-history links, and disabled
+  export scaffolding when no export backend exists.
 - Procurement -> Source Entry may build supplier/holding-farm lookup,
   purpose/classification, HF evidence review state, pre-dispatch/arrival/
   accepted-intake actions, and the exact dependency setup needed for supplier
@@ -241,7 +244,8 @@ Use the mock as the source of truth for:
 
 Scope rule:
 
-- Build only `/counts/herd`, `/operations/audit`, the minimal supplier
+- Build only `/counts/herd`, the Admin / Data Ops business Audit Log at
+  `/operations/audit`, the minimal supplier
   warmup/accepted-intake path inside `/procurement/source-entry`, and the
   already-approved vaccination/config/SOP surfaces needed to prove the
   vaccination cascade.
@@ -285,7 +289,7 @@ UI tracking required from the frontend agent:
 | Bulk goat drawer | template, upload/paste, preview rows, row errors, sort/filter/page preview, commit footer, disabled `Create 0 records` |
 | `/procurement/source-entry` | supplier warmup load rows, filters, sort/pagination, row click, disabled future actions |
 | Procurement load detail | HF evidence, source health, pre-dispatch decision, dispatch, arrival, accepted-intake actions, done/blocked state |
-| `/operations/audit` | summary, span/operator chips, clear, filters, sort/pagination, table, entity/history links, export |
+| `/operations/audit` | Admin / Data Ops business Audit Log: summary, operation-family chips, status/proof/anomaly filters, operator/span control, clear, sort/pagination, table, entity/history links, export |
 | Entity history panels | open/close/full-audit route, data source, empty/error |
 | Responsive | desktop, narrow, mobile drawer screenshots inspected manually |
 
@@ -380,6 +384,10 @@ Frontend obligations for those controls:
   controls.
 - Role preview may remain local preview state only, but must be labeled and
   must not bypass backend RBAC. Real permissions still come from the backend.
+- Superadmin/CEO/COO role preview is an approved top-bar capability. It previews
+  how navigation, permissions, and Audit Log span look for other roles; staff
+  roles do not get an unrestricted switcher. Audit Log `Viewing as` must use the
+  same role-lens source as the top bar, not a separate hard-coded list.
 
 Completion artifact required from both agents:
 
@@ -387,6 +395,34 @@ Completion artifact required from both agents:
 route | element | user action | classification | backend contract/client |
 state model | idempotency/audit | edge cases tested | screenshot/test proof
 ```
+
+For backend work, this artifact is the backend interaction ledger: one row for
+each backend-owned route, action, control contract, state transition, list
+query, generated-client change, or disabled/future reason required by the built
+slice. Backend rows must point to the contract/client shape, state model,
+idempotency and audit behavior, deterministic error behavior, replay behavior,
+and test or query-plan proof.
+
+For frontend work, this artifact is the UI fidelity ledger. Frontend rows must
+include the route, visible element, user action, classification, backend
+client/data source or disabled reason, edge cases tested, and screenshot path.
+
+### Backend Interaction Ledger Rows (2026-06-25 backend pass)
+
+These rows close backend contract surface only. They do not claim visual E2E or
+business E2E.
+
+| route | element | user action | classification | backend contract/client | state model | idempotency/audit | edge cases tested | screenshot/test proof |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `/procurement/source-entry` | Supplier warmup / Holding Farm board source rows | View purpose-aware source warmup work | real-read | `listProcurementSourceEntryLoads`; `ProcurementLoadGoat.purpose`; `ProcurementHoldingStay.purpose`; generated `packages/api-client/src/generated/admin-api.ts` | `purpose`: `breeding`, `fattening`, `non_breeding`, `unspecified`; fattening/non-breeding short warmup uses purpose-specific work-state classification | read-only; no mutation audit | fattening 15-day row becomes `outside_normal_window`; breeding 45-70 day rows remain valid | `go test ./internal/procurement/...`; `make validate-sqlc-plans` |
+| `/procurement/source-entry/loads/{load_id}` | Load detail HF evidence panel data | Open load detail / inspect HF dose evidence | real-read | `getProcurementSourceEntryLoad`; required `hf_vaccination_evidence: ProcurementHFVaccinationEvidence[]`; generated admin client | evidence states: `imported`, `trusted`, `rejected`, `conflicting`, `duplicate`; empty loads serialize an empty evidence array | read-only; no mutation audit | load detail returns imported/reviewed HF evidence with source goat and warmup rows | `go test ./internal/procurement/...` |
+| `/procurement/source-entry/loads/{load_id}/goats` | Source goat purpose/classification | Add or update a source goat with explicit purpose | real-action | `addProcurementSourceEntryLoadGoat`; `AddProcurementLoadGoatRequest.purpose`; generated admin client | purpose stored on `procurement_load_goats` and `source_holding_stays`; idempotency fingerprint includes `purpose`, `selection_reason`, and `warmup_days` | required `Idempotency-Key`; source-goat audit row through `platform/audit`; replay returns original row; same-key/different-payload conflicts | retry does not duplicate goats or audit; different payload conflicts; source RFID conflict still blocks | `go test ./internal/procurement/...`; focused idempotency integration test |
+| `/procurement/source-entry/goats/{goat_id}/source-health` | Source health result | Record passed/failed/deferred source health | real-action | `recordProcurementSourceHealth`; generated admin client | health states update source goat and load status; replay flag suppresses replay-unsafe cancellation hooks | required `Idempotency-Key`; source-health audit row through `platform/audit`; replay returns original check without extra audit | server-defaulted timestamp replay succeeds; explicit changed timestamp conflicts; retry does not duplicate audit | `go test ./internal/procurement/...` |
+| `/procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence` | HF vaccination evidence import | Import supplier/HF dose evidence for review | real-action | `recordProcurementHFVaccinationEvidence`; `RecordProcurementHFVaccinationEvidenceRequest`; `ProcurementHFVaccinationEvidenceResponse`; generated admin client | imported evidence is procurement-owned and starts `imported`; requires load/goat/protocol/rule/dose/proof contract | required `Idempotency-Key`; audit action `procurement.hf_vaccination_evidence.imported`; replay returns original evidence; same-key/different-payload conflicts | goat must belong to load; replay/conflict covered; audit row covered | `go test ./internal/procurement/...` |
+| `/procurement/source-entry/hf-vaccination-evidence/{evidence_id}/review` | HF evidence review gate | Trust/reject/conflict/mark duplicate evidence | real-action | `reviewProcurementHFVaccinationEvidence`; `ReviewProcurementHFVaccinationEvidenceRequest.expected_row_version`; generated admin client | only `trusted` evidence can satisfy due-basis reconciliation; `trusted` is terminal for this endpoint and correction needs a separate reconciliation workflow | required `Idempotency-Key`; required `expected_row_version`; audit action `procurement.hf_vaccination_evidence.reviewed`; replay returns original review; stale row returns 409; missing row returns 404 | trusted review, replay, idempotency conflict, stale row version, trusted-to-rejected block, missing row, and duplicate audit prevention covered | `go test ./internal/procurement/...`; `go test ./...` |
+| goat-created vaccination generation | Trusted HF evidence reconciliation | Generate post-arrival obligations from source-backed protocols | real-backend-trigger | `GenerationService` reads trusted completion evidence from Postgres as of the generation time; result exposes `suppressed_by_trusted_history` internally | trusted evidence suppresses only matching `protocol_version_id` + `rule_id` + `dose_code` with `administered_at <= due_at`, `administered_at <= generation_as_of`, `reviewed_at <= generation_as_of`, and source evidence not after intake/entry; imported-only and future evidence do not suppress | event replay still relies on existing generation idempotency key; read-only evidence check has no audit | past trusted HF evidence generates zero matching obligations; imported-only and future trusted evidence each generate one obligation | `go test ./internal/vaccination/...`; `go test ./...` |
+| `contracts/openapi/admin-api.yaml` / generated client | Contract publication | Frontend wires against generated HF evidence and purpose types | real-contract | OpenAPI paths and schemas for purpose, HF evidence import, HF evidence review with `expected_row_version`, load-detail evidence array; `packages/api-client/src/generated/admin-api.ts` regenerated | client-visible DTOs match backend JSON fields | n/a | `npm --prefix packages/api-client run generate` succeeds; contract validator succeeds; drift checks stop only on expected generated-client diff against `HEAD` | `npm --prefix tools/contract-validation run validate`; `bash tools/agent-hooks/check-contract-drift.sh`; `make api-client-check` |
+| `/protocols?category=…` (B3, 2026-06-26) | Config authority protocol-rules table | List every protocol version (draft/published/retired) for a category | real-read | `listProtocolConfigs` (app-api); `ProtocolConfigListResponse`/`ProtocolConfigItem`; generated `packages/api-client/src/generated/app-api.ts`; wired in `lib/api/server.listProtocolConfigs` + `features/config/protocol-rules-page.tsx` | read-only; returns rule-row count, status (draft/published/retired), scope, effective window, linked SOP, source-review state (`rule_dsl.source`), publisher/updated metadata; `protocol.read` permission; bounded `configListLimit` (no cursor — versions/category are small) | read-only; no mutation audit; publish stays gated by `protocol/app/publish.go ValidatePublishable` (the list only surfaces the source-review state, never bypasses the gate) | default category=vaccination; explicit category passthrough; empty list → honest empty state; failed read → error band not silent empty; status reflects source-backed vs not | `go test ./internal/protocol/... ./internal/permissions/...` (`TestListConfigsReturnsItemsAndDefaultsCategory`); `npm --prefix packages/api-client run generate`; live SSR `/config` render (2 real rows, screenshots under `.codex-goatos-render/admin-web-screenshots/config-b3/`) |
 
 The tie-up pass must diff this ledger against the latest
 `mock/goatos-dashboard-mock.html` and the rendered admin-web, then either close,
@@ -407,7 +443,7 @@ published source-backed vaccination protocol
   -> verifier accepts/rejects/reworks
   -> accepted verification writes vaccination_completions and updates obligation
   -> CT/AC/PA/WF/Vaccination/Shed/Goat Passport read the same Postgres state
-  -> Operations Audit shows the create, generation, task, proof, verification,
+  -> Admin / Data Ops Audit Log shows the create, generation, task, proof, verification,
      stock, completion, and any correction/rework events
 ```
 
@@ -430,7 +466,7 @@ published source-backed vaccination protocol
   -> trusted HF vaccination evidence is used as imported completion/history basis
      so post-arrival obligations do not double-dose
   -> park-side quarantine and on-arrival rules remain separate post-arrival work
-  -> Operations Audit shows source entry, HF evidence import/review, reject or
+  -> Admin / Data Ops Audit Log shows source entry, HF evidence import/review, reject or
      accepted intake, handoff, generation, and any skipped/deferred result
 ```
 
@@ -448,7 +484,8 @@ Active now:
 - Admin / Data Ops -> Config: `/config`.
 - Admin / Data Ops -> SOP Library: `/sops`.
 - Counts -> Herd Register: `/counts/herd`.
-- Operations -> Audit Log: `/operations/audit`.
+- Admin / Data Ops -> Audit Log: `/operations/audit` (route name is an
+  implementation detail; do not create a visible Operations vertical).
 - Goat Passport: contextual row/detail links only, `/goats/{goat_id}`.
 
 Do not add:
@@ -477,10 +514,26 @@ Allowed placeholders:
   Action Center, Protocol Adherence, Workflows, Control Tower, vendor master,
   landing-cost, or broad procurement CRUD under nested procurement routes.
 
-Audit location:
+Audit location and meaning:
 
-- Audit is no longer a per-pillar mini screen. It is an Operations audit surface
-  for every operator/admin/system action.
+- Audit has two meanings and agents must not mix them up.
+- Backend/platform audit is internal infrastructure: append-only `audit_log`
+  rows used for debugging, replay, idempotency proof, investigations, and
+  traceability. It may contain raw action names, UUIDs, trace IDs,
+  domain/module/category metadata, and other bounded technical metadata. This
+  does not require a raw developer UI in the CEO/admin dashboard.
+- CEO/admin Audit Log is the business-facing dashboard surface from the mock. It
+  lives under Admin / Data Ops and answers "who did what, where, with what proof,
+  and what result." It may read from `audit_log`, but the page must map rows into
+  business language and controls. Do not expose raw UUID/domain/module/category
+  debug fields as the main UX.
+- Operation is an axis inside the Audit Log, not an IA vertical. The mock's
+  operation-family chips are filters over business events, not permission to add
+  a separate Operations sidebar group.
+- Role preview is part of this surface: top-bar Superadmin/CEO/COO preview and
+  Audit Log `Viewing as` must stay in sync. Canonical lenses for this slice are
+  Superadmin/CEO/COO, Health Director, Procurement Director, HR Director,
+  Park Head, Health Manager, Assist/Ground, and Investor.
 - Entity history side panels should link to
   `/operations/audit?resource_type=...&resource_id=...`, not a People/HR-only
   audit tab.
@@ -622,6 +675,12 @@ Frontend owns:
 
 Parallel rule:
 
+- Both agents must treat `Current Repo Review Status (2026-06-25)` as the
+  inventory of existing work. Audit existing create-goat, bulk import, operations
+  audit, outbox/eventbus relay, procurement accepted-intake enqueue, and
+  obligation-sweeper behavior before changing them. Do not rebuild or replace
+  those pieces from scratch unless the doc explicitly calls the current
+  implementation insufficient.
 - Backend publishes contract changes first or in a small early slice:
   OpenAPI paths, operation IDs, DTOs, errors, and generated clients.
 - Frontend may build shell/layout immediately, but write actions and data tables
@@ -681,26 +740,36 @@ Closed or materially advanced:
 - `/operations/audit` has backend list/summary routes, generated clients, and a
   real admin-web page.
 
-Still pending before E2E:
+Status before E2E (most data-plane items CLOSED 2026-06-26):
 
-- `/counts/herd` write UI is not wired. The page reads `/goats/search`, but
-  `Register goat` and `Import sheet` remain disabled. Admin-trigger testing is
-  possible through backend/API today, not through admin-web clicks yet.
-- No single local run has proven: seed -> admin goat create -> relay
+- ~~`/counts/herd` write UI is not wired.~~ DONE: `Register goat` and `Import
+  sheet` open real drawers posting `createAdminGoat` / `previewAdminGoatBulkImport`
+  / `commitAdminGoatBulkImport` through the generated admin client
+  (`features/counts/herd-actions.ts`). Only `New report` stays disabled (no API).
+- ~~No single local run has proven seed -> goat create -> relay
   `GOATOS_OUTBOX_PUBLISHER=eventbus` -> generation -> sweeper -> SOP task ->
   proof/SOP submission -> verification accept -> `vaccination_completions` ->
-  CT/AC/PA/WF/Vaccination/Passport reads.
-- `seed-vaccination-trigger` creates protocol/inventory fixtures, but the full
-  trigger pack still needs a published vaccination SOP/task/proof actor path and
-  captured command sequence.
-- `procurement_phc_handoffs.event_status = emitted` currently means outbox
-  enqueued, not downstream obligation/read-model success. Treat downstream
-  assertions as the proof.
-- Config still needs a tenant/category protocol list/read endpoint if `/config`
-  must show existing rules after save/publish.
-- Supplier warmup/Holding Farm vaccination is not covered: purpose-specific
-  warmup, HF dose import/review/completion, and no-double-dose reconciliation
-  remain a required backend-contract plus frontend-panel gap.
+  CT/AC/PA/WF/Vaccination/Passport reads.~~ DONE: captured live in one run with
+  concrete IDs and idempotent replay; repeatable via
+  `tools/dev/vaccination-chain-proof.sh`. Full IDs + per-surface read-model table
+  in `docs/runbooks/vaccination-local-business-chain.md`. (A local-DB gap was
+  fixed via the approved goose/psql path: migration 000082 fanout tables were
+  unapplied on the docker DB — `sop_task_submission_fanouts` missing 500'd the SOP
+  submission until applied.)
+- `seed-vaccination-trigger` creates the protocol/inventory/SOP/lot trigger pack
+  (published version `b011`, rule `b012`, SOP `b0..0002`, FEFO lot `b002`); the
+  captured command sequence now exists (the script above).
+- `procurement_phc_handoffs.event_status = emitted` still means outbox enqueued,
+  not downstream success — treat downstream assertions as the proof (unchanged).
+- ~~Config still needs a tenant/category protocol list/read endpoint.~~ DONE
+  2026-06-26: `GET /protocols?category=…` (`listProtocolConfigs`, `protocol.read`)
+  wired to `/config`. See pre-E2E audit B3 (CLOSED).
+- ~~Supplier warmup/Holding Farm vaccination is not covered.~~ DONE for scope:
+  purpose-specific warmup, HF dose import/review, and trusted-evidence
+  suppression exist (see `context/frontend/supplier-warmup-vaccination-gaps.md`).
+- Remaining: real source-backed PHC/vet roster content (the seeded trigger is a
+  test fixture, not real PPR/Enterotox/CCPP values), the four-goat negative
+  matrix in one run, full click-matrix closure, and Google/prod provisioning.
 
 ## Claude Feedback Counter-Review (2026-06-25)
 
@@ -747,7 +816,7 @@ Accepted as prompt backlog:
   frontend contract should provide a category/code filter or a named
   vaccination-SOP binding so a tenant with more than 200 SOPs cannot show a
   false empty state.
-- `/operations/audit` should use Operations-facing breadcrumb/navigation copy,
+- `/operations/audit` should use Admin / Data Ops breadcrumb/navigation copy,
   and disabled pager/buttons should use valid `aria-disabled="true"` semantics.
 
 ## System Design Readiness Gate
@@ -777,7 +846,7 @@ the same canonical Postgres schema:
 - SOP bridge/proof APIs create submission/proof/verification state.
 - Verification accept writes `vaccination_completions` and obligation status
   events.
-- Operations Audit API reads the same `audit_log`.
+- Audit Log API reads the same `audit_log`.
 - UI reads the same Postgres-backed state through backend APIs.
 
 Local E2E is blocked if any part is still "seeded visual only", "outbox row
@@ -842,7 +911,7 @@ verified in the VGoats context.
 Do not add WebSocket or MQTT for this vaccination closure. The admin-web screens
 in this scope need current operational reads, not sub-second streaming:
 
-- Operations Audit / Activity Trail reads append-only `audit_log` through
+- Admin / Data Ops Audit Log / Activity Trail reads append-only `audit_log` through
   cursor-paginated HTTP APIs.
 - Control Tower, Action Center, Protocol Adherence, Workflows, Vaccination,
   Source Entry, Herd Register, and Goat Passport read Postgres-backed API
@@ -1088,15 +1157,21 @@ resetting the database:
 - sweeper replay creates no duplicate batches/tasks
 - verification replay creates no duplicate completion/stock movement
 
-### 6. Operations audit read model
+### 6. Audit infrastructure and business Audit Log read model
 
 Audit must be a generic backend platform concern, similar in spirit to
-`backend/internal/platform/observability` for logging.
+`backend/internal/platform/observability` for logging, and separately a
+business-facing dashboard surface in Admin / Data Ops.
 
 Important distinction:
 
 - Observability/logging is diagnostic telemetry for engineers and operators.
-- Audit trail is immutable business history for operator/admin/system actions.
+- Backend/platform audit is immutable technical/business history for
+  operator/admin/system actions, stored in `audit_log` for debugging, replay,
+  idempotency proof, investigations, and traceability.
+- CEO/admin Audit Log is a business projection over relevant audit rows. It is a
+  visible dashboard feature under Admin / Data Ops, not a raw developer audit
+  explorer.
 - Logging an action is not audit. Writing audit is not optional for business
   mutations.
 
@@ -1158,11 +1233,17 @@ Robustness rules:
   account JSON.
 - Use `recorded_at` cursor pagination and partition-prunable filters for read
   APIs. No unbounded audit reads or synchronous large exports.
-- Operations Audit is cross-module: it can filter by domain/module/action/scope,
-  but it is not owned by PHC, People, Counts, SOP, or Procurement.
+- The business Audit Log is cross-module: it can be powered by
+  domain/module/action/scope metadata, but it is not owned by PHC, People,
+  Counts, SOP, Procurement, or an Operations vertical.
 
-Build a read-only operations audit API on the existing partitioned `audit_log`.
-Suggested contract:
+Current implementation status: the read-only audit API on the existing
+partitioned `audit_log` already exists at `/operations/audit` and
+`/operations/audit/summary`, with generated admin-client types and backend
+`internal/operationsaudit`. Treat this surface as finish-and-verify, not a
+rebuild. The route and operation IDs may keep `/operations/audit` as backend
+implementation detail; the visible dashboard IA remains Admin / Data Ops ->
+Audit Log.
 
 ```text
 GET /operations/audit?limit=&cursor=&actor_id=&action=&resource_type=&resource_id=&scope_type=&scope_id=&from=&to=&anomalies_only=
@@ -1170,6 +1251,65 @@ GET /operations/audit?limit=&cursor=&actor_id=&action=&resource_type=&resource_i
 GET /operations/audit/summary?as_of=&park_id=
   operationId: getOperationsAuditSummary
 ```
+
+Architecture decision for this slice: keep backend audit generic and append-only,
+then present a business Audit Log view over those rows. The generated API may
+return raw audit fields plus bounded metadata; the frontend can map that
+generated row into a business view-model for the current slice. Add backend
+contract fields only when the UI cannot derive the required business field from
+existing row data, and make those changes additive rather than replacing
+`internal/operationsaudit`.
+
+Solid architecture bar:
+
+- Backend `audit_log` remains the append-only source of truth for debug, proof,
+  replay, and investigation.
+- The CEO/admin Audit Log is a read-only product projection, not a second audit
+  store and not a developer console.
+- Frontend projection/mapping is acceptable for labels, operation-family grouping,
+  proof/result display, and role-lens presentation when it uses generated API
+  rows and bounded metadata.
+- Backend additions are only for missing data, RBAC/scope, query-plan, cursor,
+  or deterministic-error gaps; they must be additive and contract-tested.
+- Role preview is UX scope preview for superadmin/CEO/COO only. Server RBAC and
+  scope checks remain authoritative for every real request.
+- Future operation families plug into the same audit row metadata and
+  operation-family mapping; they do not create a new vertical, route family, or
+  audit table.
+
+Architecture review status:
+
+- The backend module shape is accepted for this slice: `domain`, `ports`, `app`,
+  and `adapters/{http,postgres}` with wiring at the bootstrap/composition edge.
+  Do not redesign the module structure before E2E.
+- The frontend data boundary is accepted for active admin-web: pages and
+  features use generated clients through `apps/admin-web/lib/api/*`; no direct
+  datastore access or hand-written backend DTOs.
+- Current architecture debt is function-level SRP/maintainability, not a
+  blocking structural flaw. Large admin-web components and long Go write paths
+  can be refactored later, but they are not pre-E2E blockers unless the touched
+  code has a concrete bug.
+- When refactoring long Go write paths, keep idempotency reservation, business
+  writes, audit rows, and outbox/event writes inside the required transaction.
+  Extract named steps only; do not split the transactional boundary.
+- Fat repository interfaces are acceptable Go-style debt for now. Split
+  read/write ports only when a current caller or test needs the narrower
+  interface.
+- `apps/investor-web-shadow` is a legacy/reference snapshot. Do not use its
+  direct BigQuery or local route-handler patterns as architecture guidance for
+  active admin-web.
+
+The business view-model must support the dashboard fields from the mock:
+
+- operation family
+- operator display and role/lens
+- business action
+- target type/label/id
+- result/status
+- proof state/reference
+- anomaly flag/reason
+- park/scope and role-span applicability
+- recorded time and cursor
 
 It must support:
 
@@ -1180,6 +1320,13 @@ It must support:
 - Export later, but export can stay disabled if not built.
 - Anomalies flag from audit metadata for stock mismatch, deletion/void,
   rejection/rework, failed proof, and duplicate identifier conflict.
+- Role/span filters that match the top-bar preview lenses for superadmin/CEO/COO
+  preview while preserving backend RBAC for real requests.
+
+Do not rebuild or replace `backend/internal/operationsaudit`, the OpenAPI
+`/operations/audit` contract, generated client artifacts, or
+`apps/admin-web/features/operations-audit` from scratch. Audit them first and
+make the smallest scoped change.
 
 Every mutation in this closure must write audit:
 
@@ -1195,6 +1342,13 @@ Every mutation in this closure must write audit:
 - Verification accept/reject/rework.
 - Stock reserve/consume/release.
 - Sweeper/system generation events and system skips/deferred results.
+
+Visible Audit Log scope for this pre-E2E slice is current built work only:
+Herd Register, vaccination generation/obligation/SOP proof/verification,
+Config/SOP authoring where built, Procurement/Source Entry/HF evidence where
+contracts exist, and system events that explain those chains. Future mock
+operation families must be hidden or explicitly disabled with a reason; do not
+invent rows, totals, or local fixture projections for unbuilt business areas.
 
 ### 7. Contracts and generated clients
 
@@ -1222,6 +1376,11 @@ Before backend handoff, document:
 
 Backend verification before handoff:
 
+Run these commands from `backend/`. The procurement Postgres adapter tests are
+Docker-backed integration tests: `pgtest` starts a throwaway Postgres container
+and applies committed migrations, so Docker must be available and the test
+should not be redirected to a shared dev database.
+
 ```bash
 go test ./internal/identity ./internal/identity/adapters/http ./internal/identity/adapters/postgres
 go test ./internal/platform/audit/...
@@ -1229,6 +1388,8 @@ go test ./internal/vaccination ./internal/vaccination/adapters/postgres ./intern
 go test ./internal/outbox/... ./internal/platform/eventbus/...
 go test ./internal/processintegrity/... ./internal/vaccinationexecution/...
 go test ./internal/procurement/...
+go test ./internal/procurement/adapters/postgres -run TestProcurementIdempotencyReserveSerializesConcurrentSameKey -count=1
+go test -race ./internal/procurement/adapters/postgres -run TestProcurementIdempotencyReserveSerializesConcurrentSameKey -count=1
 make api-client-check
 make sqlc-check
 make validate-migrations
@@ -1246,7 +1407,7 @@ instead. Do not omit the scale review silently.
 Add only these new visible leaves:
 
 - Counts -> Herd Register -> `/counts/herd`
-- Operations -> Audit Log -> `/operations/audit`
+- Admin / Data Ops -> Audit Log -> `/operations/audit`
 
 For Counts, this means the sidebar group has exactly one visible child in this
 slice: `Herd Register`. Do not show disabled `Counts overall`, `Count
@@ -1358,17 +1519,32 @@ UI no-leak checks:
 - Park-side quarantine/on-arrival work is visually separate from source warmup;
   do not merge both into one ambiguous status chip.
 
-### 4. Operations Audit screen
+### 4. Admin / Data Ops Audit Log screen
 
-Create `/operations/audit` as a cross-operations read surface:
+Finish `/operations/audit` as the Admin / Data Ops business Audit Log surface:
 
-- Summary cards: actions today, proof events, rejected/rework, anomalies.
-- Filters: search, actor, action, resource type, resource id, scope, anomalies
-  only.
-- Table columns: time, actor, action, target, scope, result, entity/history.
+- Summary cards: actions in view/today, awaiting verification, proof coverage,
+  flagged anomalies.
+- Business controls from the mock: operation-family chips, `Viewing as` role/span
+  tabs synced to the top-bar role preview, search action/operator or ID,
+  All results/Awaiting/Rejected/Proof gaps tabs, Operators/span control,
+  Anomalies only, Clear only when filters are active.
+- Do not render a large raw debug form for UUID/domain/module/category/status/
+  target fields as the main CEO/admin UX. Exact backend filters may be preserved
+  in URL params and shown as active chips for entity-history links.
+- Table columns: time, operation family, operator, action, target, result, proof.
 - Entity/history buttons link back to the same audit route with filters or to
   `/goats/{goat_id}` where appropriate.
 - Export button stays disabled until backend export exists.
+- Operation chips must cover only real current built families unless a future
+  mock family is shown disabled with a clear future reason. Do not show fake
+  events or fake counts for unbuilt areas.
+- Audit Log is read-only. It may open entity/history/proof context, but it must
+  not expose developer-only raw audit editing, replay, or mutation controls.
+- The concrete remaining gap is mock fidelity and live proof, not initial route
+  creation: sync `Viewing as` to the shared top-bar role-lens model, remove the
+  raw debug filter card from the primary UX, preserve generated-client data, and
+  prove the page with populated local audit rows.
 
 History side panels:
 
@@ -1402,7 +1578,7 @@ npm --prefix apps/admin-web run build
 When backend/admin-web can run, capture desktop and narrow visual smoke. Inspect
 the screenshots, especially sidebar open/collapsed/mobile states, Herd Register
 drawer, bulk import drawer, Source Entry supplier warmup board/load detail, and
-Operations Audit filters/table.
+Admin / Data Ops Audit Log controls/table.
 
 Frontend completion must include the UI fidelity ledger described in the golden
 rule section. Do not mark frontend done from passing lint/typecheck alone.
@@ -1509,7 +1685,7 @@ Do not run E2E until all of this is true:
 - Sweeper creates the drive/batch/SOP task.
 - Proof/SOP submission creates a verification item.
 - Verification accept writes `vaccination_completions`.
-- Operations Audit shows the relevant chain.
+- Admin / Data Ops Audit Log shows the relevant chain.
 - New closure writes use the generic audit recorder path, not module-local
   hand-rolled `insertAudit` helpers.
 - Control Tower, Action Center, Protocol Adherence, Workflows, `/vaccination`,
@@ -1543,79 +1719,108 @@ Do not run E2E until all of this is true:
 
 Only after this gate is green should the visual/Playwright E2E plan run.
 
+## Prompt Hand-Off Rule
+
+The prompts below are launchers, not duplicate specs. Keep detailed scope,
+contracts, edge cases, ledgers, verification gates, and stop conditions in this
+doc and the linked readiness/gap docs. If requirements change, update the docs
+first, then keep the prompts compact enough to paste into two parallel agents.
+
+Architecture guardrails are part of every product finish prompt. "Architecture
+debt later" only means broad SRP/refactor cleanup is separate; it does not allow
+new code to bypass generated clients, backend ports/adapters, transaction
+boundaries, RBAC/scope, audit, or outbox/idempotency rules.
+
 ## Backend Prompt
 
 ```text
-Work in /Users/ravi/mesha/goatos. Read AGENTS.md, SKILLS.md,
-context/README.md, docs/phases/README.md, then these handoff docs:
+Work in /Users/ravi/mesha/goatos.
+
+Read AGENTS.md, SKILLS.md, context/README.md, docs/phases/README.md,
 context/execution/vaccination-trigger-closure-parallel-handoff.md,
 context/execution/vaccination-pre-e2e-readiness-audit.md, and
 context/frontend/supplier-warmup-vaccination-gaps.md.
 
-Backend only; frontend edits are limited to generated client artifacts. Do not
-rebuild existing createAdminGoat, bulk goat import, operations audit, eventbus
-outbox relay mode, procurement accepted-intake enqueue, or obligation-sweeper
-from scratch. Audit the current implementation and finish the documented
-pre-E2E gaps: Herd Register dependency contracts, source-entry supplier
-warmup/HF evidence/no-double-dose, accepted-intake/generation proof,
-SOP/proof/verification chain, operations audit/list-action semantics,
-config/SOP lookup gaps, backend interaction ledger, and local-to-Google
-component equivalence.
+Backend only; frontend edits are limited to generated client artifacts. Audit
+current code, finish the documented backend pre-E2E gaps, and publish contract /
+generated-client changes early so frontend can wire against them.
 
-Every visible frontend control in the approved slice must have a backend
-contract or an explicit disabled/future reason: cursor pagination, sort,
-filters, Clear all, page-size caps, idempotent action endpoints, audit writes,
-RBAC/scope checks, deterministic errors, replay behavior, and hot-path
-query-plan review. Preserve and run
-TestProcurementIdempotencyReserveSerializesConcurrentSameKey normally and under
--race; add the remaining procurement replay/fingerprint tests called out in the
-doc.
-
-Verification: go test ./..., focused -race for touched identity/procurement/
-obligation packages, generated-client check, migration/sqlc/query-plan checks
-where changed, local trigger runbook/script proof through Postgres -> relay/
-dispatcher -> generation -> sweeper -> proof/SOP -> verification -> read-model
-assertions, backend interaction ledger, and git diff hygiene.
-
-Stop before claiming visual or business E2E.
+Run the documented backend verification, update the backend rows of the Full
+Interaction Closure Contract artifact, and stop before claiming visual or
+business E2E.
 ```
 
 ## Frontend Prompt
+
+```text
+Work in /Users/ravi/mesha/goatos.
+
+Read apps/admin-web/AGENTS.md,
+context/frontend/current-admin-web-scope.md,
+context/execution/vaccination-trigger-closure-parallel-handoff.md,
+context/execution/vaccination-pre-e2e-readiness-audit.md,
+context/frontend/supplier-warmup-vaccination-gaps.md, and latest
+mock/goatos-dashboard-mock.html.
+
+Frontend only. Use generated clients only; no invented DTOs, local route
+handlers, fixtures, fake totals, or client-only business mutations. Build the
+approved slice from the docs; if a generated-client contract is missing, leave
+the control honestly disabled/empty and record the blocker.
+
+Run the documented frontend verification, update the UI fidelity ledger with
+screenshot paths, and stop before claiming E2E.
+```
+
+## Single Audit IA + Business Projection Prompt
 
 ```text
 Work in /Users/ravi/mesha/goatos. Read apps/admin-web/AGENTS.md,
 context/frontend/current-admin-web-scope.md,
 context/execution/vaccination-trigger-closure-parallel-handoff.md,
 context/execution/vaccination-pre-e2e-readiness-audit.md,
-context/frontend/supplier-warmup-vaccination-gaps.md, and the latest
+context/frontend/supplier-warmup-vaccination-gaps.md, and latest
 mock/goatos-dashboard-mock.html.
 
-Frontend only. Use generated clients only; do not invent DTOs, local route
-handlers, fixture arrays, fake totals, or client-only business mutations. Build
-only the approved vaccination-trigger slice: /counts/herd, /operations/audit,
-/procurement/source-entry and load detail, plus the existing vaccination,
-config, SOP, workflow, action/adherence, and passport controls needed to prove
-the cascade. Counts sidebar must expose only Herd Register.
+The business Audit Log is already landed: `/operations/audit` list/summary,
+generated client, backend `internal/operationsaudit`, and frontend
+`features/operations-audit`. Do not rebuild them. You are sole owner of those
+Audit Log files for this run; no concurrent agent edits.
 
-Before wiring, inventory every visible nav/top-bar/page/table/drawer/modal/
-history control and classify it as real-action, real-navigation, real-filter,
-disabled, or removed. Then wire only what the generated clients support:
-Herd Register create/bulk drawers and dependency setup, Operations Audit
-operation-axis filters/table/pagination/entity history, supplier warmup/HF
-evidence panel after backend contracts land, purpose-specific warmup copy, and
-read-only PHC evidence context. If a contract is missing, keep the control
-honestly disabled or empty with a blocker.
+Frontend mock-fidelity is primary; backend is verify-only unless you find a
+concrete additive contract gap. Close only these gaps: remove the Operations
+sidebar vertical, keep Audit Log under Admin / Data Ops, sync Audit `Viewing as`
+to the shared top-bar role-lens model, replace raw debug filters as the primary
+UX with the mock business controls, and confirm visible events are limited to
+current built surfaces.
 
-Every table/control must cover filters, active chips, Clear all, sort, cursor
-pagination, page-size/first/last/empty/error states, row clicks, Escape/outside
-close, mobile drawer/footer reachability, loading/retry, double-click
-protection, and disabled future actions. Write the UI fidelity ledger with
-route, element, user action, classification, backend client/data, disabled
-reason, edge cases tested, and screenshot path.
+Follow the accepted architecture while making those changes: generated clients
+only, no raw backend URLs, no fake rows/totals/fixtures/invented DTOs, no
+client-only business mutations, additive backend contracts only, and no
+transaction-boundary changes for idempotency/audit/outbox. This is a
+mock-fidelity finish, not an SRP/refactor pass; do not split large components
+beyond the extraction needed to share the role-lens model. Done means documented
+backend/admin-web gates plus `smoke:visual:live` with populated local audit rows
+and ledger screenshots. Green lint/typecheck/build alone is not proof. Stop
+before E2E.
+```
 
-Verification: check:mock-fidelity, typecheck, lint, build, live visual smoke
-when backend is running, manual/automated click ledger for the approved slice,
-and git diff hygiene.
+## Post-Closure Architecture Debt Prompt
 
-Stop before claiming E2E.
+Use this only after the pre-E2E product closure is green or in a separate cleanup
+lane. It is not part of the Audit/Herd/Register finish run because the finish run
+already has to obey the architecture guardrails above.
+
+```text
+Work in /Users/ravi/mesha/goatos. Read AGENTS.md, apps/admin-web/AGENTS.md,
+context/frontend/current-admin-web-scope.md, and
+context/execution/vaccination-trigger-closure-parallel-handoff.md.
+
+Architecture is structurally accepted; do not redesign modules or routes.
+Identify only high-risk SRP cleanup in touched files. For frontend, split large
+components only where it reduces current maintenance risk. For backend, extract
+named helpers inside long write paths without changing the transaction boundary
+for idempotency, audit, and outbox/event writes.
+
+No product-scope expansion, no shadow-app patterns, no E2E claims. Run focused
+tests/typecheck/lint for touched files and report before/after risk.
 ```
