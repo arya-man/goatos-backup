@@ -13,6 +13,7 @@ import { join } from "node:path";
 const SCAN_PATHS = [
   "components",
   "features/control-tower",
+  "features/calendar",
   "features/process-integrity",
   "features/phc-vaccination",
   "features/vaccination-execution",
@@ -25,6 +26,7 @@ const SCAN_PATHS = [
   "app/(admin)/page.tsx",
   "app/(admin)/layout.tsx",
   "app/(admin)/action-center",
+  "app/(admin)/calendar",
   "app/(admin)/protocol-adherence",
   "app/(admin)/workflows",
   "app/(admin)/vaccination",

@@ -8,6 +8,9 @@ Canonical docs:
 - `context/frontend/current-admin-web-scope.md`
 - `context/frontend/vaccination-process-integrity-frontend-handoff.md`
 - `context/execution/vaccination-process-integrity-backend-handoff.md`
+- `context/execution/calendar-vaccination-slice-parallel-handoff.md`
+- `docs/decisions/calendar-ownership.md`
+- `context/architecture/operational-kernel.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
 - `context/execution/target-repo-structure.md`
 - `docs/phc-vaccination/PRD.md`
@@ -23,40 +26,67 @@ The current admin-web slice is:
 ```text
 Admin / Data Ops config + SOP policy
 PHC Vaccination operations
+Calendar vaccination due-work command lens
 Vaccination execution context scoped by park/shed
 Control Tower process-gap summary
 Goat Passport contextual drilldown
 ```
 
 The current admin-web dashboard is a process-integrity product, not decorative
-KPIs. Keep these four lenses, all vaccination-only:
+KPIs. Keep these command lenses, all vaccination-only:
 
 ```text
 Control Tower      = process intact/not intact summary
 Action Center      = exact work/gaps to act on now
+Calendar           = vaccination due work by time, owner pill, park, shed, date
 Protocol Adherence = expected vs actual, gap, severity, owner, next action, evidence
 Workflow drilldown = config -> obligation -> SOP -> proof -> verification -> completion
 ```
+
+Frontend must present the operational kernel honestly. It is a command surface
+over backend truth, not a scheduler or source of truth. Screens should show what
+process was expected, whether it was followed, where broken, who owns next
+action, what is due by when, what evidence exists, and whether reminder,
+deadline, or escalation state is active.
 
 Use `context/frontend/vaccination-process-integrity-frontend-handoff.md` for the
 mock-shaped frontend split before reshaping `/`, `/action-center`,
 `/protocol-adherence`, `/workflows`, `/vaccination`, or
 `/sops`.
 
-Build these routes/surfaces only unless the user explicitly reopens scope:
+Build these routes/surfaces only unless the user explicitly reopens scope.
+Current implemented admin-web product routes:
 
 ```text
 /login
 /
 /vaccination
+/vaccination/execution/sheds/{shed_id}
 /action-center
 /protocol-adherence
 /workflows
 /workflows/{row_id}
+/procurement/source-entry
+/procurement/source-entry/loads/{load_id}
+/counts/herd
+/operations/audit
 /config
 /sops
 /goats/{goat_id}
 ```
+
+Approved build target, not yet an implemented route:
+
+```text
+/calendar
+```
+
+`/calendar` is reopened only for the PHC Vaccination due-work slice. It must use
+the generic `CalendarEvent` summary contract, vaccination-specific detail drawer,
+generated backend clients, active owner pills `all`, `phc`, `inventory`, and
+`admin_data_ops`, and the mock Calendar/drawer UI treatment. The frontend slice
+that adds `/calendar` must also add primary nav, mock-fidelity scan coverage,
+and `smoke:visual:live` coverage. Do not show live all-domain Calendar content.
 
 Scope lock: do not turn shared engines into visible product breadth. For the
 current `/sops` route, the backend SOP engine can remain generic, but admin-web
@@ -78,7 +108,9 @@ Vaccination operations module only; it must not contain Action Center,
 Protocol Adherence, Workflows, Config, or SOP Library as tabs, nested pages, or
 large shortcut cards. The shared status model must power PHC/Parks/Control
 Tower: due, overdue, blocked, proof-pending, verification-pending, rejected,
-deferred, owner-missing, and completed.
+deferred, owner-missing, and completed. These are read-model/UI statuses; do not
+ask backend to mutate canonical `obligation_instances.status` just to match a
+Calendar or dashboard label.
 
 ## UI Rules
 
@@ -99,6 +131,8 @@ deferred, owner-missing, and completed.
   operational databases directly.
 - Backend RBAC remains authority. Frontend visibility is convenience, not
   security.
+- Frontend timers, localStorage, mock rows, or optimistic UI state must never be
+  the canonical reminder, deadline, escalation, proof, or obligation state.
 - Tokens stay server-side for admin-web. Do not put bearer tokens in
   `NEXT_PUBLIC_*`, localStorage, rendered HTML, query params, or static assets.
 

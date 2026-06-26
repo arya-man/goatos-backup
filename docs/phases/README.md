@@ -42,6 +42,12 @@ Browser and React Native clients must not use direct gRPC unless a new ADR
 replaces the current protocol decision.
 Every phase keeps idempotency, audit, outbox, RBAC scope, observability, and
 load-test expectations explicit.
+Every phase follows the operational kernel golden rule in
+`context/architecture/operational-kernel.md`: business event -> canonical
+transaction -> audit/outbox -> trigger evaluation -> obligation/work item ->
+sweeper/reminder/deadline alert -> notification/escalation -> proof/
+verification -> read model that answers whether the process was followed and
+where it broke.
 Every phase declares an Idempotency & Replay section for all mutating routes,
 imports, workers, webhooks, mobile submissions, server actions, outbox
 producers/consumers, and state transitions. It must list key source, semantic

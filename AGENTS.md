@@ -101,19 +101,20 @@ Purpose:
     Entry, or future Parks-owned modules. Parks is a scope/context dimension for
     vaccination execution, not the owner of a vaccination module.
   - **Command lens** = top-level cross-module screen, not a vertical or module:
-    Control Tower, Action Center, Protocol Adherence, and Workflows.
+    Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows.
   PHC is a vertical and must not use the syringe/injection icon; the syringe/
   injection icon belongs to the Vaccination module. Counts is a separate
   vertical, so Control Tower must not show raw goat census totals as its own
   KPI. Control Tower is for gaps, adherence, exceptions, escalations, and next
   actions.
 - Frontend command-room/authority guardrail: Control Tower, Action Center,
-  Protocol Adherence, and Workflows are top-level screens only. Config and SOP
-  Library are top-level Admin / Data Ops authority screens only. Do not duplicate
-  them under procurement/source-entry, PHC, Parks, or any future vertical as
-  routes, redirects, tabs, or nav items. A vertical can feed those top-level
-  screens through a selected domain/filter/lens such as `?domain=procurement` or
-  `?category=vaccination`, but it must not create nested routes like
+  Calendar, Protocol Adherence, and Workflows are top-level screens only. Config
+  and SOP Library are top-level Admin / Data Ops authority screens only. Do not
+  duplicate them under procurement/source-entry, PHC, Parks, or any future
+  vertical as routes, redirects, tabs, or nav items. A vertical can feed those
+  top-level screens through a selected domain/filter/lens such as
+  `?domain=procurement` or `?category=vaccination`, but it must not create
+  nested routes like
   `/vaccination/adherence`, `/vaccination/config`,
   `/procurement/source-entry/action-center`, `/procurement/source-entry/control-tower`,
   or any `/parks/vaccination` nested command paths. Vaccination execution
@@ -219,6 +220,14 @@ Do:
   path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
   chunked or paginated, bounded in memory/goroutines, idempotent for retries,
   and covered by query-plan validation when it touches large tables.
+- Treat the operational kernel as the golden rule for every feature. Read
+  `context/architecture/operational-kernel.md` before designing or implementing
+  triggers, obligations, reminders, notifications, deadlines, escalations,
+  dashboards, Calendar, Action Center, Protocol Adherence, Workflow, or
+  process-integrity views. Every feature must answer: what process was expected,
+  was it followed, where did it break, who owns next action, what is due by
+  when, what evidence proves it, and what alert/escalation fires when a deadline
+  is crossed.
 - Treat idempotency as a mandatory write-path contract for every mutating API,
   worker, importer, webhook, state transition, outbox producer/consumer, server
   action, and UI-triggered write. Each write path must accept or derive a stable

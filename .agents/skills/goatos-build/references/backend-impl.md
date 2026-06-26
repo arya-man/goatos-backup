@@ -9,9 +9,12 @@ Canonical docs:
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/protocol-engine/obligation-engine.md`
 - `docs/protocol-engine/state-machines.md`
+- `context/architecture/operational-kernel.md`
 - `docs/phc-vaccination/TRD.md`
 - `docs/phc-vaccination/V1-FOUNDATION-SPEC.md`
 - `context/execution/vaccination-process-integrity-backend-handoff.md`
+- `context/execution/calendar-vaccination-slice-parallel-handoff.md`
+- `docs/decisions/calendar-ownership.md`
 - `context/execution/sop-vaccination-backend-handoff.md`
 
 ## Current Backend Shape
@@ -47,6 +50,7 @@ Admin config/SOP policy
   -> vaccination obligations and drives
   -> proof and verification state
   -> vaccination execution context
+  -> Calendar vaccination due-work projection and actions
   -> process-integrity projection
   -> Control Tower / Action Center / Protocol Adherence / Workflow drilldowns
 ```
@@ -56,6 +60,21 @@ must expose process state as source of truth; frontend must not guess it. For th
 current slice, read `context/execution/vaccination-process-integrity-backend-handoff.md`
 before changing vaccination projections, Action Center APIs, Control Tower APIs,
 or SOP/proof/verification completion flow.
+
+Every backend feature must satisfy the operational kernel: canonical transaction
+plus audit/idempotency/outbox, trigger evaluation, obligation/work item or
+process exception, sweeper/reminder/deadline handling, durable notification or
+escalation request, proof/verification where required, and read models that show
+process followed/broken/owner/next action. Do not build feature-local schedulers,
+queues, alert paths, or frontend-owned process truth.
+
+For Calendar work, read
+`context/execution/calendar-vaccination-slice-parallel-handoff.md` and
+`docs/decisions/calendar-ownership.md` before adding routes, projections,
+workers, seed data, or admin-web contracts. Calendar is a time lens over current
+vaccination due work, not a source of truth and not the full vaccination matrix.
+Use a generic `CalendarEvent` contract with vaccination detail blocks; keep
+nudge/snooze durable and idempotent outside the projection.
 
 ## Process-Integrity And Handoff Guardrails
 
@@ -78,6 +97,10 @@ Keep the live surface focused:
 - Goat search/passport/timeline/identifier add-retire.
 - Protocol config and publish/version APIs.
 - Obligation and vaccination APIs.
+- Calendar vaccination list/detail/history/nudge/snooze APIs only after they are
+  registered in `backend/internal/permissions/routes.go`, covered by
+  route-registry tests, bounded by date-window/query-plan tests, and backed by
+  canonical Postgres state.
 - SOP/task foundation APIs that serve the current config/execution slice.
 - Locations/workforce APIs only as foundation data for park/shed/owner context.
 
@@ -93,10 +116,19 @@ reopened.
 - App services own behavior, state transitions, idempotency, and error mapping.
 - Domain/app/ports must not import HTTP or pgx.
 - Postgres adapters satisfy module-owned ports and keep SQL tenant-scoped.
+- Triggers, reminders, deadline alerts, and notifications must use shared
+  kernel ports/adapters and durable Postgres/outbox state. Google SDKs, Redis,
+  Slack, FCM, email, Opsgenie/PagerDuty-style webhooks, or Cloud Tasks clients
+  stay in adapters, not domain/app logic.
 - Do not scan the full herd in API paths. Use indexed lookups, bounded limits,
   keyset pagination, chunked workers, and query-plan coverage for hot paths.
 - Backend auth/RBAC is the security boundary. Frontend visibility is not
   authority.
+- Every new protected route must be registered in
+  `backend/internal/permissions/routes.go` with permission/role tests before the
+  frontend depends on it. Calendar read/history should require calendar/domain
+  read semantics; Calendar actions such as nudge/snooze need explicit action
+  permission and tenant/park/shed scope checks.
 - Construct loggers via `backend/internal/platform/observability`.
 - Emit durable domain events through outbox where downstream status/projection
   consumers will need them.

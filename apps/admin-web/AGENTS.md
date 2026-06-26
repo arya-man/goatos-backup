@@ -80,8 +80,8 @@ These words have fixed meanings in Goat OS:
   park/shed execution context renders ONLY INSIDE `/vaccination`, scoped by the
   top-bar park dropdown.
 - **Command lens** = top-level cross-module screen, not a vertical and not a
-  module. Control Tower, Action Center, Protocol Adherence, and Workflows are
-  command lenses. They summarize/filter work emitted by modules.
+  module. Control Tower, Action Center, Calendar, Protocol Adherence, and
+  Workflows are command lenses. They summarize/filter work emitted by modules.
 - **Authority screen** = top-level Admin/Data Ops authoring surface. Config
   (`/config`) and SOP Library (`/sops`) are authority screens.
 
@@ -108,21 +108,22 @@ into generic layers; do not show unbuilt modules as live.
 
 **Vaccination-only is data scope, not UI hierarchy. Mock hierarchy wins.**
 
-Control Tower, Action Center, Protocol Adherence, and Workflows are **top-level
-command-room screens** (`/`, `/action-center`, `/protocol-adherence`,
-`/workflows`), exactly as the mock places them. Config and SOP Library are also
-top-level Admin / Data Ops authority screens (`/config`, `/sops`). They are NOT
-tabs or redirects nested inside PHC / Vaccination, Procurement/source-entry,
-Parks, or any future vertical. The selected module/domain filters their
-*content*; it does not move them under a vertical. Do not reintroduce an Action
-Center / Adherence / Verification tab strip inside `/vaccination`.
+Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows are
+**top-level command-room screens** (`/`, `/action-center`, `/calendar`,
+`/protocol-adherence`, `/workflows`), exactly as the mock places them. Config
+and SOP Library are also top-level Admin / Data Ops authority screens
+(`/config`, `/sops`). They are NOT tabs or redirects nested inside PHC /
+Vaccination, Procurement/source-entry, Parks, or any future vertical. The
+selected module/domain filters their *content*; it does not move them under a
+vertical. Do not reintroduce an Action Center / Calendar / Adherence /
+Verification tab strip inside `/vaccination`.
 
 This is a global IA rule, not just a PHC rule. Any module under PHC, Parks,
 Procurement, or a future vertical may feed these top-level command/authority
 screens through a selected domain/filter/lens, but must not duplicate them as
 nested routes, redirects, tabs, or nav items. Do not create
-`/vaccination/adherence`, `/vaccination/workflows`, `/vaccination/config`,
-`/procurement/source-entry/action-center`,
+`/vaccination/adherence`, `/vaccination/calendar`, `/vaccination/workflows`,
+`/vaccination/config`, `/procurement/source-entry/action-center`,
 `/procurement/source-entry/protocol-adherence`,
 `/procurement/source-entry/control-tower`, or
 `/procurement/source-entry/workflows`.
@@ -132,10 +133,14 @@ nested routes, redirects, tabs, or nav items. Do not create
 Admin-web is built around the vaccination process-integrity slice:
 
 - **Command-room (top-level)**: Control Tower `/`, Action Center
-  `/action-center`, Protocol Adherence `/protocol-adherence`, and Workflows
-  `/workflows` (+ drilldown `/workflows/{row_id}`). These read the canonical
-  process-integrity contracts (Control Tower / Action Center / Adherence /
-  Workflow), filtered to vaccination data.
+  `/action-center`, Protocol Adherence
+  `/protocol-adherence`, and Workflows `/workflows` (+ drilldown
+  `/workflows/{row_id}`). These read the canonical process-integrity contracts
+  (Control Tower / Action Center / Adherence / Workflow), filtered to
+  vaccination data. Calendar `/calendar` is an approved/reopened build target
+  for the vaccination due-work slice, but it is not a current implemented app
+  route until the Calendar frontend slice adds the page, primary nav, and smoke
+  coverage.
 - **PHC / Vaccination**: the module surface at `/vaccination` only. It must be
   mock-faithful: SOP / Import sheet / New drive actions, Target -> Group -> Route
   -> Execute chain, vaccination status matrix, per-cohort detail, drive/shed-event
@@ -411,9 +416,9 @@ Page bodies may show only page-specific controls:
 If a page needs park filtering, put it behind Filters or update the top-bar
 scope. Do not duplicate park/date scope inline.
 
-## Active Routes
+## Implemented Routes
 
-Only these routes are current product routes:
+Only these routes are current implemented product routes:
 
 ```text
 /login
@@ -433,6 +438,15 @@ Only these routes are current product routes:
 /sops
 /goats/{goat_id}
 ```
+
+Approved build target, not yet an implemented route:
+
+```text
+/calendar                  Calendar           (top-level command, vaccination due-work slice only)
+```
+
+When implementing `/calendar`, add `app/(admin)/calendar/page.tsx`, primary nav,
+mock-fidelity scan coverage, and `smoke:visual:live` coverage together.
 
 No nested compatibility redirects are allowed for command-room, authority, or
 Vaccination execution screens. Use `/protocol-adherence`, `/workflows/{row_id}`,

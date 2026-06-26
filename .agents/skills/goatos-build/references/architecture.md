@@ -6,6 +6,7 @@ ports/adapters, devices, R&D, AI authority, or canonical state.
 Canonical docs:
 
 - `context/architecture/final-architecture.md`
+- `context/architecture/operational-kernel.md`
 - `context/agents/ai-agent-context-and-protocols.md`
 - `context/execution/next-contracts.md`
 - `context/product/glossary.md`
@@ -23,6 +24,11 @@ Rules:
   or protobuf for browser/mobile product clients without a new ADR.
 - Modules own tables and expose defined interfaces.
 - Cross-context propagation uses contracts, outbox, Pub/Sub, and APIs.
+- The operational kernel is the golden rule for every feature: business event
+  -> canonical transaction -> audit/outbox -> trigger evaluation -> obligation
+  or work item -> sweeper/scheduler/reminder -> notification/escalation -> proof
+  and verification -> read model answering whether the process was followed and
+  where it broke.
 - The identity foundation uses tenants for isolation, global parties for
   actors, shared-PK org subtype rows, owner_party/custodian_party separation,
   temporal ownership/custody ledgers, and locations as separate physical
@@ -43,6 +49,11 @@ Rules:
 - Million-goat scale is a hard design rule: chunk by park/shed/cohort/date,
   never full-herd scan in an API, use idempotency, bounded workers/goroutines,
   and indexed/partition-aware tables.
+- Google equivalents stay behind ports/adapters: Pub/Sub for event bus, Cloud
+  Tasks for near-term timers/retries, Cloud Scheduler plus Cloud Run Jobs for
+  sweepers, Cloud SQL/Postgres for canonical truth, GCS for media, Cloud
+  Monitoring/Error Reporting and alert webhooks for incident-style escalation,
+  and Redis/Memorystore only as cache/lease acceleration, never truth.
 - High-volume histories/events/audit tables are partition-aware. Idempotency
   lives in explicit idempotency-key records, not in client hope.
 - Workforce ops is a core Goat OS engine, not payroll HRMS: every task needs

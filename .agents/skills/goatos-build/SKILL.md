@@ -60,13 +60,30 @@ docs/protocol-engine/IMPLEMENTATION-PLAN.md
 docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
 docs/protocol-engine/migration-and-cutover.md
+context/architecture/operational-kernel.md
 docs/phc-vaccination/TRD.md
 docs/feed-direction/TRD.md
+docs/decisions/calendar-ownership.md
+context/execution/calendar-vaccination-slice-parallel-handoff.md
 mock/goatos-dashboard-mock.html
 ```
 
 Use older `docs/phases/*` docs for existing built repo patterns and historical
 status only. They do not override the protocol-engine Phase 0 contract above.
+
+Operational kernel golden rule: every feature must plug into the shared
+trigger -> obligation -> sweeper/reminder -> notification/escalation -> proof ->
+verification -> read-model chain from
+`context/architecture/operational-kernel.md`. The end goal is always process
+integrity: was the expected process followed, where broken, who owns next action,
+what evidence proves it, and what alert/escalation fired when a deadline crossed.
+
+Calendar is currently reopened only as the PHC Vaccination due-work command lens
+at `/calendar`. It must follow the Calendar ownership ADR and vaccination slice
+handoff: generic `CalendarEvent` contract, vaccination-specific detail blocks,
+bounded date windows, protected route registration, durable nudge/snooze writes,
+and seeded Postgres E2E proof. Do not treat the full mock Calendar taxonomy as
+built product.
 
 ## Reference Guide
 

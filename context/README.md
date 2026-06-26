@@ -38,6 +38,9 @@ Customer promise safety source findings
 Final architecture
   context/architecture/final-architecture.md
 
+Operational kernel golden rule
+  context/architecture/operational-kernel.md
+
 Forms and SOP engine
   context/forms/final-forms-sop-engine.md
 
@@ -55,6 +58,9 @@ AI agent context and API protocol decisions
 
 Backend stack ADR
   docs/decisions/go-backend-stack.md
+
+Calendar ownership and vaccination Calendar scope ADR
+  docs/decisions/calendar-ownership.md
 
 High-scale dashboard projection architecture
   docs/decisions/high-scale-dashboard-projections.md
@@ -88,6 +94,9 @@ Vaccination pre-E2E readiness audit
 
 Vaccination trigger closure parallel handoff
   context/execution/vaccination-trigger-closure-parallel-handoff.md
+
+Calendar vaccination slice parallel handoff
+  context/execution/calendar-vaccination-slice-parallel-handoff.md
 
 Vaccination roster expansion follow-up
   context/execution/vaccination-roster-expansion-followup.md

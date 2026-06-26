@@ -7,6 +7,9 @@ Canonical docs:
 
 - `context/agents/ai-agent-context-and-protocols.md`
 - `context/execution/next-contracts.md`
+- `context/execution/calendar-vaccination-slice-parallel-handoff.md`
+- `docs/decisions/calendar-ownership.md`
+- `context/architecture/operational-kernel.md`
 - `context/architecture/final-architecture.md`
 
 Contract families:
@@ -36,3 +39,27 @@ Rules:
 - Replay and DLQ repair are part of the contract, not afterthoughts.
 - Generated-client drift is active for `packages/api-client`: contract changes
   without regenerated OpenAPI TypeScript clients must fail CI.
+
+Operational kernel contracts:
+
+- Any feature that introduces a business trigger must define the domain event,
+  idempotency key, outbox payload, consumer replay behavior, DLQ/repair behavior,
+  and read-model projection contract.
+- Reminder, nudge, deadline, notification, escalation, proof, verification, and
+  completion actions must be durable backend contracts, never frontend-only
+  state.
+- Read-model contracts must expose enough state for command lenses to answer:
+  expected process, followed/broken status, owner, next action, due time,
+  evidence, reminder state, escalation state, and history.
+
+Calendar contract rule:
+
+- The shared Calendar summary contract is generic `CalendarEvent`; do not name
+  the common Calendar base contract after vaccination.
+- `/calendar/vaccination/events/*` may return vaccination-specific detail blocks,
+  but the common contract must stay reusable for future event sources.
+- Calendar list routes must declare bounded `date_from`/`date_to`, cursor
+  pagination, owner pill filters, status filters, and protected action contracts
+  for nudge/snooze/history.
+- Calendar actions are contractually idempotent; same key plus different payload
+  is an idempotency conflict with no side effects.

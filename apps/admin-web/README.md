@@ -6,14 +6,31 @@ console, and not a BigQuery/Sheets runtime UI.
 
 ## Current Product Slice
 
-Build and verify these surfaces only:
+Build and verify these implemented surfaces only:
 
 - `/login`
-- `/`
+- `/` Control Tower
+- `/action-center`
+- `/protocol-adherence`
+- `/workflows`
+- `/workflows/{row_id}`
 - `/vaccination`
-- `/vaccination/adherence`
+- `/vaccination/execution/sheds/{shed_id}`
+- `/procurement/source-entry`
+- `/procurement/source-entry/loads/{load_id}`
+- `/counts/herd`
+- `/operations/audit`
 - `/config`
+- `/sops`
 - `/goats/{goat_id}`
+
+Approved next build target:
+
+- `/calendar` vaccination due-work slice only. This route is approved/reopened
+  by `context/execution/calendar-vaccination-slice-parallel-handoff.md`, but it
+  is not an implemented app route until the frontend slice adds
+  `app/(admin)/calendar/page.tsx`, primary nav, mock-fidelity coverage, and live
+  smoke coverage in the same PR.
 
 The working product model is:
 
@@ -21,11 +38,12 @@ The working product model is:
 - **PHC / Vaccination** owns vaccination operations, proof, and verification.
   Vaccination execution context (park, shed, stage, defer/blocker, owner, SOP/proof
   status) renders INSIDE /vaccination#execution, not as a separate Parks route.
-- **Action Center status logic** exists underneath the slice as due, overdue,
-  blocked, proof-pending, verification-pending, rejected, deferred, and
-  owner-missing state. A standalone Action Center page can come later.
-- **Control Tower** is allowed as the root summary shell, but it must summarize
-  only broken or at-risk process. Do not build generic KPIs there.
+- **Command lenses** are top-level screens over the same backend truth: Control
+  Tower, Action Center, Protocol Adherence, and Workflows today, plus the
+  approved Calendar build target. Calendar is reopened only for
+  vaccination-related due work, not all-domain mock content.
+- **Control Tower** summarizes only broken or at-risk process. Do not build
+  generic KPIs there.
 
 ## UI Source Of Truth
 
@@ -53,6 +71,9 @@ When a local backend and admin-web are running, also run:
 ```bash
 npm run smoke:visual:live
 ```
+
+`smoke:visual:live` covers implemented routes only. Add `/calendar` to that
+script when the Calendar page/nav implementation lands.
 
 Open the generated screenshots under
 `.codex-goatos-render/admin-web-screenshots/` before claiming visual QA.
@@ -113,6 +134,8 @@ make api-client-check
 
 - No direct BigQuery, Sheets, GCS, Firestore, or database reads from frontend.
 - No old Import Review, Data Quality, Legacy Sync, Counts, Mortality, Operators,
-  Tasks, SOP builder, or Herd routes as product screens.
+  Tasks, old generic SOP builder, or old Herd routes as product screens.
+- No nested command-lens routes such as `/vaccination/adherence`,
+  `/vaccination/calendar`, or `/vaccination/workflows`.
 - No old cyan/slate/admin-primitives visual system.
 - No global Goat Passport search as the primary workflow.

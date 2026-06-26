@@ -13,6 +13,7 @@ docs/protocol-engine/IMPLEMENTATION-PLAN.md
 docs/protocol-engine/obligation-engine.md
 docs/protocol-engine/state-machines.md
 docs/protocol-engine/migration-and-cutover.md
+context/architecture/operational-kernel.md
 docs/phc-vaccination/PRD.md
 docs/phc-vaccination/TRD.md
 ```
@@ -40,6 +41,11 @@ Rules:
   ports/adapters, OpenAPI clients, JSON Schema events/forms, gRPC/protobuf only
   for internal high-volume seams, idempotency, audit, outbox, RBAC,
   observability, load tests, and analytics/monitoring slice.
+- Every phase must include the operational kernel checklist from
+  `context/architecture/operational-kernel.md`: trigger, canonical transaction,
+  obligation/work item, sweeper, reminder/deadline alert, notification/
+  escalation, proof/verification, read-model process-integrity view, local/cloud
+  parity, and million-goat scale proof.
 - If the phase adds a permanent module/tool/workflow/rule, update the relevant
   skill reference in `.agents/skills/goatos-build/references/` before coding.
 - Before asking humans to answer business decisions from memory, inspect

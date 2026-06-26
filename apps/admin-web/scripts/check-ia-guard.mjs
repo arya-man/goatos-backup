@@ -10,6 +10,7 @@ const SOURCE_ROOTS = ["app", "components", "features"];
 
 const COMMAND_SEGMENTS = new Set([
   "action-center",
+  "calendar",
   "protocol-adherence",
   "adherence",
   "control-tower",
@@ -22,6 +23,7 @@ const COMMAND_SEGMENTS = new Set([
 const TOP_LEVEL_COMMAND_ROUTES = new Set([
   "/",
   "/action-center",
+  "/calendar",
   "/protocol-adherence",
   "/workflows",
   "/workflows/{param}",
@@ -137,7 +139,7 @@ for (const file of pageFiles) {
   if (!isAllowedRoute(route, file)) {
     findings.push(
       `${file} creates nested command-room/authority route ${route}. ` +
-        "Control Tower, Action Center, Protocol Adherence, Workflows, Config, and SOP Library are top-level lenses only.",
+        "Control Tower, Action Center, Calendar, Protocol Adherence, Workflows, Config, and SOP Library are top-level lenses only.",
     );
   }
 }
@@ -215,7 +217,7 @@ for (const file of sourceFiles) {
   }
 
   // The PHC / Vaccination surface must not render command-lens shortcut chrome (.lensbar / .lenslink bands
-  // for Control Tower / Action Center / Protocol Adherence / Workflows). /vaccination LINKS OUT to those
+  // for Control Tower / Action Center / Calendar / Protocol Adherence / Workflows). /vaccination LINKS OUT to those
   // top-level lenses; it is not a shortcut hub. Applies to the whole features/phc-vaccination feature.
   if (rel.startsWith("features/phc-vaccination/") && /\blensbar\b|\blenslink\b/.test(text)) {
     findings.push(
@@ -235,7 +237,7 @@ for (const file of sourceFiles) {
 }
 
 // ---- features/vaccination must not return as a command-lens home ----
-// Command lenses (Action Center / Protocol Adherence / Workflows / their shared model) live in
+// Command lenses (Action Center / Calendar / Protocol Adherence / Workflows / their shared model) live in
 // features/process-integrity; the PHC operations surface is features/phc-vaccination. A reappearing
 // features/vaccination directory is the exact ownership drift this guard exists to block.
 if (existsSync("features/vaccination")) {
@@ -359,7 +361,7 @@ if (findings.length > 0) {
   for (const finding of findings) console.error(`  ${finding}`);
   console.error(
     "\nAllowed pattern: /action-center?domain=<vertical>, /protocol-adherence?domain=<vertical>, " +
-      "/workflows?domain=<vertical>, /workflows/{row_id}?domain=<vertical>, " +
+      "/calendar?owner_key=<owner>, /workflows?domain=<vertical>, /workflows/{row_id}?domain=<vertical>, " +
       "/config?category=<module>, or /sops?domain=<module>.\n" +
       "Vertical route trees should contain operational screens only.",
   );

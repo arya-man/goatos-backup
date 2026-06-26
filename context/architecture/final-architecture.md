@@ -73,6 +73,28 @@ operator/admin action
 
 No app reads or writes databases directly. Apps call APIs. APIs can compose read-only views, but writes always go to the owning context.
 
+## Operational Kernel
+
+Every feature plugs into the shared operational kernel described in
+`context/architecture/operational-kernel.md`.
+
+```text
+business event
+  -> canonical transaction + audit + outbox
+  -> trigger evaluation
+  -> obligation / work item / batch
+  -> sweeper / reminder / deadline alert
+  -> notification / escalation
+  -> proof / verification / completion
+  -> process read model
+```
+
+The product goal is always process integrity: what process was expected, whether
+it was followed, where it broke, who owns the next action, what is due by when,
+what evidence proves it, and what alert/escalation fired when a deadline crossed.
+Frontend command lenses reveal this backend-owned truth; they do not schedule,
+queue, or own canonical process state.
+
 ## Million-Goat Engineering Hard Rules
 
 Goat OS must be designed for 50k goats now and 1M+ goats later. Scale is a

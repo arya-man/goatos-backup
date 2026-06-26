@@ -56,6 +56,8 @@ const routes = [
   { name: "operations-audit", path: "/operations/audit" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];
+// /calendar is an approved build target, not an implemented route yet. Add it here in the same frontend PR
+// that adds app/(admin)/calendar/page.tsx and the primary-nav entry.
 if (procurementLoadId) {
   routes.push({
     name: "procurement-load-detail",

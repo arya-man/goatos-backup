@@ -20,9 +20,9 @@ These words are not interchangeable:
   does NOT own a vaccination product screen; do not create `/parks/vaccination`
   routes, redirects, API contracts, or feature folders.
 - **Command lens** = top-level cross-module screen, not a vertical and not a
-  module. Control Tower, Action Center, Protocol Adherence, and Workflows are
-  command lenses. They read rows/events/status from modules and answer
-  leadership/work/adherence/workflow questions.
+  module. Control Tower, Action Center, Calendar, Protocol Adherence, and
+  Workflows are command lenses. They read rows/events/status from modules and
+  answer leadership/work/adherence/workflow questions.
 - **Authority screen** = top-level Admin/Data Ops authoring surface. Config
   (`/config`) and SOP Library (`/sops`) are authority screens.
 
@@ -36,9 +36,13 @@ Vertical: PHC
 Top-level command lenses:
   /                       Control Tower
   /action-center          Action Center
+  /calendar               Calendar
   /protocol-adherence     Protocol Adherence
   /workflows              Workflows
 ```
+
+`/calendar` is approved/reopened for the Calendar vaccination slice. It remains
+a build target until the app route, nav, and live smoke coverage land together.
 
 Wrong example:
 
@@ -77,19 +81,19 @@ Platform (generic engine: protocol rules, obligations, SOP tasks, proof/media,
 
 **Vaccination-only is data scope, not UI hierarchy. Mock hierarchy wins.**
 
-Control Tower, Action Center, Protocol Adherence, and Workflows are **top-level
-command-room screens** — exactly where the mock puts them — not tabs inside PHC /
-Vaccination. Config and SOP Library are top-level Admin / Data Ops authority
-screens. The selected module/domain filters their content; it never relocates
-them under a vertical. `/vaccination` is the PHC vaccination operations surface
-only.
+Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows are
+**top-level command-room screens** — exactly where the mock puts them — not tabs
+inside PHC / Vaccination. Config and SOP Library are top-level Admin / Data Ops
+authority screens. The selected module/domain filters their content; it never
+relocates them under a vertical. `/vaccination` is the PHC vaccination operations
+surface only.
 
 This same rule applies to every vertical. Modules under Procurement, PHC, or
 any future vertical may feed these command-room screens via a selected
 domain/filter/lens, but must not duplicate them as nested page routes,
 compatibility redirects, tabs, nav items, or big in-page shortcut panels. Do not
 create routes or tab panels such as `/vaccination/adherence`,
-`/vaccination/workflows`, `/vaccination/config`,
+`/vaccination/calendar`, `/vaccination/workflows`, `/vaccination/config`,
 `/procurement/source-entry/action-center`,
 `/procurement/source-entry/control-tower`, or any `/parks/vaccination/*` product
 paths. Parks is not a vaccination module.
@@ -156,10 +160,10 @@ Keep park/date scope in the top bar. Remove repeated park/date/scope chips from
 page bodies.
 
 The top bar is the single visible owner for the current park and as-of date
-scope across Control Tower, Action Center, Protocol Adherence, Workflows, PHC
-Vaccination, Vaccination execution context, Config, and SOP Library. If a route or
-query selects a park such as CBE, the top bar must show that selected park; it
-must not still say "All parks".
+scope across Control Tower, Action Center, Calendar, Protocol Adherence,
+Workflows, PHC Vaccination, Vaccination execution context, Config, and SOP
+Library. If a route or query selects a park such as CBE, the top bar must show
+that selected park; it must not still say "All parks".
 
 Company-wide vs Park-wise is a presentation lens, not a hidden data-source
 switch. Do not invent a separate "global" or "central" dataset unless a concrete
@@ -191,11 +195,12 @@ Build one connected vaccination process-integrity slice:
 Admin / Data Ops config + SOP policy
   -> PHC Vaccination operations
   -> Vaccination execution context scoped by park/shed
+  -> Calendar vaccination due-work time lens
   -> Control Tower gap summary
 ```
 
 The dashboard purpose is process integrity: config + SOP set the process, and
-the product proves whether that process is being followed. The four visible
+the product proves whether that process is being followed. The visible command
 lenses read the same backend truth:
 
 Architecture boundary:
@@ -216,6 +221,7 @@ built.
 ```text
 Control Tower      = is vaccination process intact / not intact, where, owner, next action
 Action Center      = exact vaccination work/gaps to act on now
+Calendar           = vaccination due work by time, owner pill, park, shed, date
 Protocol Adherence = expected vs actual for vaccination rules + SOP proof
 Workflow drilldown = config -> obligation -> SOP task -> proof -> verification -> completion
 ```
@@ -322,8 +328,22 @@ in this slice; do not show disabled `Tagging & identity`, `Weights & ADG`,
 `Counts overall`, or `Count reconciliation` leaves for mock fidelity.
 
 It does not approve unrelated Counts modules, old Operations, global Goat
-Passport search, Calendar, Insights, HR, generic Parks, generic Inventory, or
-generic dashboard rebuilds.
+Passport search, all-domain Calendar, Insights, HR, generic Parks, generic
+Inventory, or generic dashboard rebuilds.
+
+Calendar is reopened only as a top-level command lens at `/calendar` for the
+PHC Vaccination due-work slice. Use
+`docs/decisions/calendar-ownership.md` and
+`context/execution/calendar-vaccination-slice-parallel-handoff.md` before
+implementation. The current allowed Calendar slice is PHC Vaccination due work
+only: source-backed published vaccination obligations, shed/cohort drives,
+booster/catch-up work, PHC defer or evidence-review actions, dated proof
+verification/rework, and directly supporting dated human actions such as vaccine
+stock readiness, cold-chain, reorder/expiry, PHC anti-misuse review, or
+source-review tasks under their proper `owner_key` values (`phc`, `inventory`,
+or `admin_data_ops`). Label-only vaccines, status-matrix cells, coverage KPIs,
+Goat Passport history, owner-missing gaps, reminder pings, and pure system
+sweepers/replays do not create Calendar events.
 
 For backend/frontend handoff details, read:
 
@@ -331,6 +351,7 @@ For backend/frontend handoff details, read:
 context/execution/vaccination-process-integrity-backend-handoff.md
 context/frontend/vaccination-process-integrity-frontend-handoff.md
 context/execution/vaccination-trigger-closure-parallel-handoff.md
+context/execution/calendar-vaccination-slice-parallel-handoff.md
 ```
 
 For `/sops`, the backend SOP engine may stay generic, but the visible admin-web
@@ -352,9 +373,9 @@ Rules for `/sops` in this slice:
 - Generic builder/helper code can exist internally for future reuse, but the UI,
   screenshots, handoff notes, and tests must communicate the vaccination slice.
 
-## Active Routes
+## Implemented Routes
 
-These are the only current admin-web product routes:
+These are the only current implemented admin-web product routes:
 
 ```text
 /login
@@ -373,6 +394,15 @@ These are the only current admin-web product routes:
 /sops
 /goats/{goat_id}
 ```
+
+Approved build target, not yet an implemented route:
+
+```text
+/calendar                  Calendar           (top-level command, vaccination due-work slice only)
+```
+
+When implementing `/calendar`, add the app route, shell primary nav, mock
+fidelity scan coverage, and live visual smoke coverage together.
 
 Nested compatibility redirects are not allowed for command-room or authority
 screens. Link directly to `/protocol-adherence`, `/workflows/{row_id}`, and
@@ -445,6 +475,7 @@ Navigation should be (command screens top-level, verticals below):
 ```text
 Control Tower
 Action Center
+Calendar
 Protocol Adherence
 Workflows
 PHC
@@ -583,9 +614,13 @@ and the screen is rebuilt from the mock, not from old admin-web code.
 
 Before asking for approval:
 
-- `/login`, `/`, `/action-center`, `/protocol-adherence`, `/workflows`,
-  `/vaccination`, `/config`, `/sops`, and contextual `/goats/{goat_id}` match the
-  mock structure and density.
+- Implemented routes `/login`, `/`, `/action-center`, `/protocol-adherence`,
+  `/workflows`, `/vaccination`, `/config`, `/sops`, and contextual
+  `/goats/{goat_id}` match the mock structure and density.
+- After the Calendar slice lands, `/calendar` matches the mock Calendar/drawer
+  structure and density, is included in primary nav plus live visual smoke, and
+  shows only vaccination due work linked back into the same backend-owned
+  obligation/workflow/proof truth.
 - PHC/Vaccination, Admin Config, and vaccination execution context are connected by
   real backend status/proof/verification data.
 - Control Tower summarizes only broken or at-risk process.
