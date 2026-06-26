@@ -105,6 +105,7 @@ var protectedRoutes = []Route{
 
 	// Phase 1A — protocol config / vaccination obligation engine.
 	{OperationID: "listProtocolConfigs", Method: "GET", Pattern: "/protocols", Permissions: []string{ProtocolRead}},
+	{OperationID: "listAnimalStages", Method: "GET", Pattern: "/protocols/animal-stages", Permissions: []string{ProtocolRead}},
 	{OperationID: "createProtocolDefinition", Method: "POST", Pattern: "/protocols", Permissions: []string{ProtocolWrite}},
 	{OperationID: "createProtocolVersion", Method: "POST", Pattern: "/protocols/{protocol_id}/versions", Permissions: []string{ProtocolWrite}},
 	{OperationID: "addProtocolRule", Method: "POST", Pattern: "/protocols/versions/{version_id}/rules", Permissions: []string{ProtocolWrite}},

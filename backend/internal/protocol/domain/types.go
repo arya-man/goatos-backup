@@ -119,6 +119,19 @@ type ConfigListItem struct {
 	RuleCount         int32
 }
 
+// AnimalStage is one active row of animal_stage_lookup — the tenant's stage reference data
+// (e.g. K1 ≈ milk training, K2 ≈ milk drinking). The Config authoring stage picker is driven by
+// these rows, never by frontend literals (PHC vaccination TRD: stage bands live in the lookup).
+// MinAgeDays/MaxAgeDays are nil when the band is open-ended on that side.
+type AnimalStage struct {
+	AnimalStageID string
+	StageCode     string
+	Name          string
+	MinAgeDays    *int32
+	MaxAgeDays    *int32
+	SortOrder     int32
+}
+
 // NewTrigger is the input to create a protocol trigger.
 type NewTrigger struct {
 	TenantID          string

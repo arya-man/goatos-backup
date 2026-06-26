@@ -34,6 +34,23 @@ FROM protocol_rules
 WHERE tenant_id = @tenant_id AND protocol_version_id = @protocol_version_id
 ORDER BY sort_order ASC, "sequence" ASC;
 
+-- name: ListActiveAnimalStages :many
+-- Active animal-stage reference data for a tenant, ordered for display. Drives the Config authoring
+-- stage picker (e.g. K1/K2) so stage bands live in animal_stage_lookup, NOT in frontend literals
+-- (PHC vaccination TRD: stage bands must not be hardcoded). Tenant-scoped (uses the
+-- (tenant_id, stage_code) unique index) and bounded by @row_limit; the lookup is inherently tiny.
+SELECT
+  animal_stage_id::text AS animal_stage_id,
+  stage_code            AS stage_code,
+  name                  AS name,
+  min_age_days          AS min_age_days,
+  max_age_days          AS max_age_days,
+  sort_order            AS sort_order
+FROM animal_stage_lookup
+WHERE tenant_id = @tenant_id AND status = 'active'
+ORDER BY sort_order ASC, stage_code ASC
+LIMIT @row_limit::int;
+
 -- name: ListProtocolConfigsForCategory :many
 -- Config authority list (B3): every version (draft/published/retired) of every protocol definition
 -- in a category for a tenant, with the rule-row count, source-review state lifted out of rule_dsl,

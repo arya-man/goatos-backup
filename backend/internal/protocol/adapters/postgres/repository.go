@@ -22,6 +22,10 @@ const defaultQueryTimeout = 3 * time.Second
 // inherently small (dozens), so a fixed cap is safe at million-goat scale and needs no cursor.
 const configListLimit = 500
 
+// animalStageListLimit bounds the animal-stage reference read. A tenant has a handful of stage
+// bands (K0/K1/K2/…), so a small fixed cap is safe and needs no cursor.
+const animalStageListLimit = 200
+
 // Repository is the Postgres-backed protocol repository.
 type Repository struct {
 	pool         *pgxpool.Pool
@@ -354,6 +358,43 @@ func (r *Repository) ListConfigs(ctx context.Context, tenantID, category string)
 			item.UpdatedAt = &t
 		}
 		out = append(out, item)
+	}
+	return out, nil
+}
+
+// ListActiveAnimalStages returns the tenant's active animal_stage_lookup rows in display order.
+// Read-only reference data for the Config authoring stage picker; tenant-scoped and bounded.
+func (r *Repository) ListActiveAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	rows, err := r.queries.ListActiveAnimalStages(ctx, protocoldb.ListActiveAnimalStagesParams{
+		TenantID: tenant,
+		RowLimit: animalStageListLimit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("protocol: list animal stages: %w", err)
+	}
+	out := make([]domain.AnimalStage, 0, len(rows))
+	for _, row := range rows {
+		stage := domain.AnimalStage{
+			AnimalStageID: row.AnimalStageID,
+			StageCode:     row.StageCode,
+			Name:          row.Name,
+			SortOrder:     row.SortOrder,
+		}
+		if row.MinAgeDays.Valid {
+			v := row.MinAgeDays.Int32
+			stage.MinAgeDays = &v
+		}
+		if row.MaxAgeDays.Valid {
+			v := row.MaxAgeDays.Int32
+			stage.MaxAgeDays = &v
+		}
+		out = append(out, stage)
 	}
 	return out, nil
 }

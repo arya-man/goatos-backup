@@ -314,6 +314,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/protocols/animal-stages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active animal-stage reference data (Config authoring stage picker).
+         * @description Tenant-scoped active rows of animal_stage_lookup (e.g. K1 ≈ milk training, K2 ≈ milk drinking), in display order. Drives the Config authoring stage picker so stage bands are backend-driven and never hardcoded frontend literals (PHC vaccination TRD). Read-only; an empty list is honest (no stages seeded) — the UI shows a seed-stages state, not fallback codes.
+         */
+        get: operations["listAnimalStages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/protocols/{protocol_id}/versions": {
         parameters: {
             query?: never;
@@ -1638,6 +1658,18 @@ export interface components {
             approved_by: string;
             rule_count: number;
         };
+        AnimalStageListResponse: {
+            items: components["schemas"]["AnimalStageItem"][];
+        };
+        AnimalStageItem: {
+            animal_stage_id: string;
+            /** @description Stable stage code (e.g. K1, K2) authored against in rule_dsl.eligibility.animal_stage. */
+            stage_code: string;
+            name: string;
+            min_age_days?: number | null;
+            max_age_days?: number | null;
+            sort_order: number;
+        };
         RejectVaccinationCompletionRequest: {
             reason?: string;
         };
@@ -2297,6 +2329,29 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAnimalStages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active animal stages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalStageListResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

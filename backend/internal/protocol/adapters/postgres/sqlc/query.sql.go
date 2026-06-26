@@ -94,6 +94,65 @@ func (q *Queries) GetProtocolVersion(ctx context.Context, arg GetProtocolVersion
 	return i, err
 }
 
+const listActiveAnimalStages = `-- name: ListActiveAnimalStages :many
+SELECT
+  animal_stage_id::text AS animal_stage_id,
+  stage_code            AS stage_code,
+  name                  AS name,
+  min_age_days          AS min_age_days,
+  max_age_days          AS max_age_days,
+  sort_order            AS sort_order
+FROM animal_stage_lookup
+WHERE tenant_id = $1 AND status = 'active'
+ORDER BY sort_order ASC, stage_code ASC
+LIMIT $2::int
+`
+
+type ListActiveAnimalStagesParams struct {
+	TenantID pgtype.UUID
+	RowLimit int32
+}
+
+type ListActiveAnimalStagesRow struct {
+	AnimalStageID string
+	StageCode     string
+	Name          string
+	MinAgeDays    pgtype.Int4
+	MaxAgeDays    pgtype.Int4
+	SortOrder     int32
+}
+
+// Active animal-stage reference data for a tenant, ordered for display. Drives the Config authoring
+// stage picker (e.g. K1/K2) so stage bands live in animal_stage_lookup, NOT in frontend literals
+// (PHC vaccination TRD: stage bands must not be hardcoded). Tenant-scoped (uses the
+// (tenant_id, stage_code) unique index) and bounded by @row_limit; the lookup is inherently tiny.
+func (q *Queries) ListActiveAnimalStages(ctx context.Context, arg ListActiveAnimalStagesParams) ([]ListActiveAnimalStagesRow, error) {
+	rows, err := q.db.Query(ctx, listActiveAnimalStages, arg.TenantID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveAnimalStagesRow
+	for rows.Next() {
+		var i ListActiveAnimalStagesRow
+		if err := rows.Scan(
+			&i.AnimalStageID,
+			&i.StageCode,
+			&i.Name,
+			&i.MinAgeDays,
+			&i.MaxAgeDays,
+			&i.SortOrder,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProtocolConfigsForCategory = `-- name: ListProtocolConfigsForCategory :many
 SELECT
   pd.protocol_id::text                                          AS protocol_id,

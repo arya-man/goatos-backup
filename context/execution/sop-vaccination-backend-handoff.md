@@ -405,14 +405,14 @@ protocol_versions.sop_version_id
 protocol_rules.sop_version_id
 protocol_versions.proof_policy
 protocol_rules.proof_policy
-rule_dsl.schedule[].sop_version
+rule_dsl.schedule[].sop_label      (display only — executable SOP binds at protocol_versions.sop_version_id; per-dose executable override is protocol_rules.sop_version_id)
 rule_dsl.schedule[].proof_policy
 ```
 
 Publish/impact preview must flag:
 
 ```text
-missing sop_version
+missing sop_version (the executable protocol_versions.sop_version_id — a free-text sop_label does not count)
 missing proof_policy
 unsupported SOP compatibility
 no assigned operator
@@ -675,7 +675,7 @@ End-to-end acceptance when backend and Claude frontend are both ready:
 
 ```text
 Admin creates/publishes SOP version
-Config links vaccination protocol dose to sop_version/proof_policy
+Config links vaccination protocol version to executable sop_version_id + proof_policy (per-dose sop_label is display only)
 engine creates obligation + shed batch
 batch spawns sop_task
 operator submits proof

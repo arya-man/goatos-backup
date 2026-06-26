@@ -14,12 +14,15 @@ import (
 )
 
 type fakeConfig struct {
-	gotVersion domain.NewVersion
-	getErr     error
-	publishErr error
-	listItems  []domain.ConfigListItem
-	listErr    error
-	gotListCat string
+	gotVersion  domain.NewVersion
+	getErr      error
+	publishErr  error
+	listItems   []domain.ConfigListItem
+	listErr     error
+	gotListCat  string
+	stages      []domain.AnimalStage
+	stagesErr   error
+	gotStagesTn string
 }
 
 func (f *fakeConfig) CreateDefinition(context.Context, domain.NewDefinition) (string, error) {
@@ -39,6 +42,10 @@ func (f *fakeConfig) PublishVersion(context.Context, string, string, *string) er
 func (f *fakeConfig) ListConfigs(_ context.Context, _ string, category string) ([]domain.ConfigListItem, error) {
 	f.gotListCat = category
 	return f.listItems, f.listErr
+}
+func (f *fakeConfig) ListAnimalStages(_ context.Context, tenantID string) ([]domain.AnimalStage, error) {
+	f.gotStagesTn = tenantID
+	return f.stages, f.stagesErr
 }
 
 func serve(h *Handler, method, target, body string) *httptest.ResponseRecorder {
@@ -130,6 +137,49 @@ func TestListConfigsReturnsItemsAndDefaultsCategory(t *testing.T) {
 	rec = serve(NewHandler(fake), http.MethodGet, "/protocols?category=feed_direction", "")
 	if rec.Code != http.StatusOK || fake.gotListCat != "feed_direction" {
 		t.Fatalf("category passthrough: code=%d cat=%q", rec.Code, fake.gotListCat)
+	}
+}
+
+func TestListAnimalStagesReturnsStages(t *testing.T) {
+	minK1 := int32(0)
+	maxK1 := int32(7)
+	fake := &fakeConfig{stages: []domain.AnimalStage{
+		{AnimalStageID: "as-1", StageCode: "K1", Name: "milk training", MinAgeDays: &minK1, MaxAgeDays: &maxK1, SortOrder: 1},
+		{AnimalStageID: "as-2", StageCode: "K2", Name: "milk drinking", SortOrder: 2},
+	}}
+	rec := serve(NewHandler(fake), http.MethodGet, "/protocols/animal-stages", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("animal stages: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp animalStageListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 2 || resp.Items[0].StageCode != "K1" || resp.Items[1].StageCode != "K2" {
+		t.Fatalf("unexpected stages: %+v", resp.Items)
+	}
+	if resp.Items[0].MaxAgeDays == nil || *resp.Items[0].MaxAgeDays != 7 {
+		t.Fatalf("K1 max_age_days not surfaced: %+v", resp.Items[0])
+	}
+	// K2 has open-ended age bands → both nil (omitted), not a fake 0.
+	if resp.Items[1].MinAgeDays != nil || resp.Items[1].MaxAgeDays != nil {
+		t.Fatalf("K2 open-ended bands should be nil: %+v", resp.Items[1])
+	}
+}
+
+// An empty animal_stage_lookup is an honest empty list (the UI shows a seed-stages state); it is a
+// 200 with zero items, never an error and never hardcoded fallback codes.
+func TestListAnimalStagesEmptyIsHonest(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{}), http.MethodGet, "/protocols/animal-stages", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty stages: want 200, got %d", rec.Code)
+	}
+	var resp animalStageListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 0 {
+		t.Fatalf("want zero items, got %+v", resp.Items)
 	}
 }
 

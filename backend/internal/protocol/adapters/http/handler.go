@@ -25,6 +25,7 @@ type ProtocolConfig interface {
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error
 	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
+	ListAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error)
 }
 
 // Handler serves the protocol config endpoints.
@@ -47,6 +48,7 @@ func NewHandler(config ProtocolConfig, log ...*slog.Logger) *Handler {
 // Register mounts the protocol config routes.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /protocols", h.ListConfigs)
+	mux.HandleFunc("GET /protocols/animal-stages", h.ListAnimalStages)
 	mux.HandleFunc("POST /protocols", h.CreateDefinition)
 	mux.HandleFunc("POST /protocols/{protocol_id}/versions", h.CreateVersion)
 	mux.HandleFunc("POST /protocols/versions/{version_id}/rules", h.AddRule)
@@ -210,6 +212,41 @@ func (h *Handler) ListConfigs(w http.ResponseWriter, r *http.Request) {
 			PublishedAt: it.PublishedAt, UpdatedAt: it.UpdatedAt,
 			SourceSystem: it.SourceSystem, SourceRef: it.SourceRef,
 			ReviewStatus: it.ReviewStatus, ApprovedBy: it.ApprovedBy, RuleCount: it.RuleCount,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ---- list animal stages (Config authoring reference data) ----
+
+type animalStageResponse struct {
+	AnimalStageID string `json:"animal_stage_id"`
+	StageCode     string `json:"stage_code"`
+	Name          string `json:"name"`
+	MinAgeDays    *int32 `json:"min_age_days,omitempty"`
+	MaxAgeDays    *int32 `json:"max_age_days,omitempty"`
+	SortOrder     int32  `json:"sort_order"`
+}
+
+type animalStageListResponse struct {
+	Items []animalStageResponse `json:"items"`
+}
+
+// ListAnimalStages serves GET /protocols/animal-stages — the tenant's active animal_stage_lookup
+// rows, so the Config authoring stage picker is backend-driven (PHC vaccination TRD: stage bands
+// live in the lookup, not in frontend literals). Read-only; an empty list is honest (no stages
+// seeded yet) and the UI shows a seed-stages empty state rather than falling back to hardcoded codes.
+func (h *Handler) ListAnimalStages(w http.ResponseWriter, r *http.Request) {
+	stages, err := h.config.ListAnimalStages(r.Context(), tenantID(r))
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	resp := animalStageListResponse{Items: make([]animalStageResponse, 0, len(stages))}
+	for _, s := range stages {
+		resp.Items = append(resp.Items, animalStageResponse{
+			AnimalStageID: s.AnimalStageID, StageCode: s.StageCode, Name: s.Name,
+			MinAgeDays: s.MinAgeDays, MaxAgeDays: s.MaxAgeDays, SortOrder: s.SortOrder,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)

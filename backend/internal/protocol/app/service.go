@@ -43,3 +43,8 @@ func (s *Service) AddRule(ctx context.Context, in domain.NewRule) (string, error
 func (s *Service) ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error) {
 	return s.repo.ListConfigs(ctx, tenantID, category)
 }
+
+// ListAnimalStages returns the tenant's active animal-stage reference data for Config authoring.
+func (s *Service) ListAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error) {
+	return s.repo.ListActiveAnimalStages(ctx, tenantID)
+}

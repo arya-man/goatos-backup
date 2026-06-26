@@ -5,9 +5,11 @@ import { AlertTriangle, CalendarDays, Pencil, Plus, X } from "lucide-react";
 import { publishVersion, runImpactPreview, saveDraft, type ActionResult } from "./config-actions";
 import {
   buildRuleDsl,
+  hasProofRequirement,
   newDose,
   sourceBadge,
   validatePublish,
+  ALL_STAGES_VALUE,
   BREEDS,
   CATCH_UPS,
   CATEGORIES,
@@ -26,8 +28,8 @@ import {
   SEXES,
   SOP_VERSIONS,
   SOURCE_SYSTEMS,
-  STAGES,
   TRIGGER_TYPES,
+  type AnimalStageOption,
   type DoseRow,
   type FeedFields,
   type RuleInput,
@@ -62,14 +64,20 @@ export function RuleEditorModal({
   onClose,
   initialCategory,
   sopVersions = [],
+  animalStages = [],
   canPublish = true,
 }: {
   open: boolean;
   onClose: () => void;
   initialCategory: string;
   sopVersions?: SopVersionOption[];
+  animalStages?: AnimalStageOption[];
   canPublish?: boolean;
 }) {
+  // Stage bands come from the backend (animal_stage_lookup). When none are seeded, the stage picker
+  // is disabled-with-reason rather than silently falling back to hardcoded K1/K2 — Data Ops must seed.
+  const stagesSeeded = animalStages.length > 0;
+  const noStagesReason = "No animal stages configured — Data Ops must seed animal_stage_lookup to target a stage band";
   const [category, setCategory] = useState(initialCategory);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -77,7 +85,9 @@ export function RuleEditorModal({
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [sopVersionId, setSopVersionId] = useState("");
 
-  const [stage, setStage] = useState("K1");
+  // Default to the first backend stage band (lowest sort_order) when seeded, else the ALL_STAGES UI
+  // filter. No hardcoded K1 default — the stage vocabulary is owned by animal_stage_lookup.
+  const [stage, setStage] = useState(() => animalStages[0]?.code ?? ALL_STAGES_VALUE);
   const [sex, setSex] = useState("all");
   const [breed, setBreed] = useState("all");
   const [health, setHealth] = useState("healthy");
@@ -100,6 +110,12 @@ export function RuleEditorModal({
   const [feed, setFeed] = useState<FeedFields>(() => newFeedFields());
 
   const [versionId, setVersionId] = useState("");
+  // savedSig is the input signature persisted by the last successful Save. The saved DRAFT version
+  // carries sop_version_id + proof_policy as they were AT SAVE TIME; Publish acts on that stored
+  // version, not the live form. So editing SOP/proof/source/schedule after saving makes the form
+  // "dirty" — Publish must be re-gated until a fresh Save persists the new values, else the backend
+  // rejects (e.g. missing sop_version_id) on a version that no longer matches the form.
+  const [savedSig, setSavedSig] = useState("");
   const [notice, setNotice] = useState<ActionResult | null>(null);
   const [impact, setImpact] = useState<ImpactPreviewResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -131,6 +147,25 @@ export function RuleEditorModal({
   const dsl = useMemo(() => buildRuleDsl(input), [input]);
   const badge = sourceBadge(input.source);
   const publishGate = validatePublish(input.source);
+  const inputSig = useMemo(() => JSON.stringify(input), [input]);
+  // dirty = saved once, but the form has changed since — the stored version is stale for publish.
+  const dirty = versionId !== "" && inputSig !== savedSig;
+  const proofOk = hasProofRequirement(input);
+  // The Publish gate, in priority order, so the title explains the first blocking reason.
+  const publishBlock = !canPublish
+    ? "Only CEO/COO can publish"
+    : !versionId
+      ? "Save the draft first"
+      : dirty
+        ? "Inputs changed since the last save — save the draft again before publishing"
+        : !sopVersionId
+          ? "Select an executable SOP version before publishing"
+          : !proofOk
+            ? "Add at least one proof token before publishing (an empty proof policy is not publishable)"
+            : !publishGate.ok
+              ? publishGate.message
+              : "";
+  const publishDisabled = pending || publishBlock !== "";
 
   function setDose(i: number, patch: Partial<DoseRow>) {
     setDoses((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -166,7 +201,10 @@ export function RuleEditorModal({
     startTransition(async () => {
       const res = await saveDraft(input);
       setNotice(res);
-      if (res.ok && res.versionId) setVersionId(res.versionId);
+      if (res.ok && res.versionId) {
+        setVersionId(res.versionId);
+        setSavedSig(inputSig); // snapshot what was persisted, so Publish knows the form is clean
+      }
     });
   }
 
@@ -263,9 +301,18 @@ export function RuleEditorModal({
               <>
                 <label>Feed Direction - animal stage / class</label>
                 <div className="rowf">
-                  <select aria-label="Feed animal stage" value={feed.animalStage} onChange={(e) => setFeedField({ animalStage: e.target.value })}>
-                    {STAGES.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select
+                    aria-label="Feed animal stage"
+                    value={feed.animalStage}
+                    onChange={(e) => setFeedField({ animalStage: e.target.value })}
+                    disabled={!stagesSeeded}
+                    title={stagesSeeded ? undefined : noStagesReason}
+                  >
+                    <option value={ALL_STAGES_VALUE}>all (every stage)</option>
+                    {animalStages.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.label}
+                      </option>
                     ))}
                   </select>
                   <select aria-label="Breed or class" value={feed.breedClass} onChange={(e) => setFeedField({ breedClass: e.target.value })}>
@@ -332,9 +379,18 @@ export function RuleEditorModal({
               <>
                 <label>Vaccination eligibility - animal / shed stage + sex</label>
                 <div className="rowf">
-                  <select aria-label="Stage" value={stage} onChange={(e) => setStage(e.target.value)}>
-                    {STAGES.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select
+                    aria-label="Stage"
+                    value={stage}
+                    onChange={(e) => setStage(e.target.value)}
+                    disabled={!stagesSeeded}
+                    title={stagesSeeded ? undefined : noStagesReason}
+                  >
+                    <option value={ALL_STAGES_VALUE}>all (every stage)</option>
+                    {animalStages.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.label}
+                      </option>
                     ))}
                   </select>
                   <select aria-label="Sex" value={sex} onChange={(e) => setSex(e.target.value)}>
@@ -343,6 +399,13 @@ export function RuleEditorModal({
                     ))}
                   </select>
                 </div>
+                {stagesSeeded ? null : (
+                  <div className="muted small" style={{ marginTop: 4, lineHeight: 1.45 }}>
+                    {noStagesReason}. Stage bands (e.g. K1, K2) are backend reference data from{" "}
+                    <span className="mono">animal_stage_lookup</span> — until they are seeded you can only author
+                    an all-stages rule, not target a specific band.
+                  </div>
+                )}
                 <div className="rowf" style={{ marginTop: 6 }}>
                   <select aria-label="Breed" value={breed} onChange={(e) => setBreed(e.target.value)}>
                     {BREEDS.map((s) => (
@@ -519,7 +582,7 @@ export function RuleEditorModal({
                     <th>repeat_until_after_age</th>
                     <th>Min gap (d)</th>
                     <th>Catch-up</th>
-                    <th>SOP</th>
+                    <th title="Display label only — the executable SOP binds at version level (the picker above), not per dose">SOP label</th>
                     <th>proof_policy</th>
                     <th />
                   </tr>
@@ -564,7 +627,12 @@ export function RuleEditorModal({
                         </select>
                       </td>
                       <td style={{ minWidth: 110 }}>
-                        <select aria-label="SOP version" value={d.sopVersion} onChange={(e) => setDose(i, { sopVersion: e.target.value })}>
+                        <select
+                          aria-label="SOP label (cosmetic)"
+                          title="Display label only — the executable SOP binds at version level (the picker above), not per dose"
+                          value={d.sopVersion}
+                          onChange={(e) => setDose(i, { sopVersion: e.target.value })}
+                        >
                           {SOP_VERSIONS.map((t) => (
                             <option key={t}>{t}</option>
                           ))}
@@ -658,19 +726,9 @@ export function RuleEditorModal({
             type="button"
             className="btn p"
             onClick={publish}
-            disabled={pending || !versionId || !canPublish || !publishGate.ok || !sopVersionId}
-            title={
-              !canPublish
-                ? "Only CEO/COO can publish"
-                : !versionId
-                  ? "Save the draft first"
-                  : !sopVersionId
-                    ? "Select an executable SOP version before publishing"
-                    : publishGate.ok
-                      ? ""
-                      : publishGate.message
-            }
-            style={pending || !versionId || !canPublish || !publishGate.ok || !sopVersionId ? { opacity: 0.45 } : undefined}
+            disabled={publishDisabled}
+            title={publishBlock}
+            style={publishDisabled ? { opacity: 0.45 } : undefined}
           >
             {canPublish ? "Publish" : "Publish (CEO/COO)"}
           </button>

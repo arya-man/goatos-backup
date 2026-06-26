@@ -65,7 +65,7 @@ func ValidateExecutionContract(v domain.Version) error {
 	if strings.TrimSpace(v.SopVersionID) == "" {
 		return fmt.Errorf("%w: missing sop_version_id", ErrNotPublishable)
 	}
-	if !nonEmptyJSONObject(v.ProofPolicy) {
+	if !versionProofHasContent(v.ProofPolicy) {
 		return fmt.Errorf("%w: missing proof_policy", ErrNotPublishable)
 	}
 	var env ruleDSLEnvelope
@@ -78,19 +78,82 @@ func ValidateExecutionContract(v domain.Version) error {
 		if strings.TrimSpace(row.SOPVersion) == "" && strings.TrimSpace(v.SopVersionID) == "" {
 			return fmt.Errorf("%w: schedule[%d] missing sop_version", ErrNotPublishable, idx)
 		}
-		if len(row.ProofPolicy) == 0 && !nonEmptyJSONObject(v.ProofPolicy) {
+		// A row that supplies its own proof_policy must carry real row-level content. A row that
+		// omits proof_policy inherits the version-level proof_policy already validated above. The
+		// row's own blank/metadata proof does NOT silently fall back to the version proof.
+		if len(row.ProofPolicy) > 0 && !rowProofHasContent(row.ProofPolicy) {
 			return fmt.Errorf("%w: schedule[%d] missing proof_policy", ErrNotPublishable, idx)
 		}
 	}
 	return nil
 }
 
-func nonEmptyJSONObject(raw []byte) bool {
-	var m map[string]any
-	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
+// recognizedProofKeys are the object keys under which a proof_policy may carry its proof-token
+// array. A token is real only when it is a non-blank string inside one of these arrays.
+var recognizedProofKeys = map[string]bool{"required_proofs": true, "types": true, "required": true}
+
+// versionProofHasContent validates a VERSION-level proof_policy (protocol_versions.proof_policy).
+// It must be a JSON OBJECT carrying at least one non-blank proof token under a recognized array key
+// (required_proofs/types/required). It deliberately rejects everything that is not an object-with-
+// real-tokens:
+//   - {} , {"required_proofs":[]}            — object but zero tokens
+//   - ["video"]                              — array shape is not valid at the version level
+//   - {"required_proofs":[""]} / ["  "]      — blank tokens are not requirements
+//   - {"subject_scope":"batch"}              — metadata, no recognized proof array
+//   - {"required":true}                      — recognized key but scalar, not an array of tokens
+func versionProofHasContent(raw []byte) bool {
+	var v any
+	if len(raw) == 0 || json.Unmarshal(raw, &v) != nil {
 		return false
 	}
-	return len(m) > 0
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	for key, val := range obj {
+		if recognizedProofKeys[key] && arrayHasNonBlankString(val) {
+			return true
+		}
+	}
+	return false
+}
+
+// rowProofHasContent validates a ROW-level schedule[].proof_policy. A row may be either a bare array
+// of non-blank proof tokens (["video"]) or an object carrying a recognized proof-token array (the
+// same object shape as the version level). It rejects blank arrays ([""]), metadata-only objects,
+// and scalar values (a bare string/bool/number is never a row proof).
+func rowProofHasContent(raw []byte) bool {
+	var v any
+	if len(raw) == 0 || json.Unmarshal(raw, &v) != nil {
+		return false
+	}
+	switch t := v.(type) {
+	case []any:
+		return arrayHasNonBlankString(t)
+	case map[string]any:
+		for key, val := range t {
+			if recognizedProofKeys[key] && arrayHasNonBlankString(val) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// arrayHasNonBlankString reports whether v is a JSON array holding at least one non-blank string.
+func arrayHasNonBlankString(v any) bool {
+	arr, ok := v.([]any)
+	if !ok {
+		return false
+	}
+	for _, e := range arr {
+		if s, ok := e.(string); ok && strings.TrimSpace(s) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // PublishVersion publishes a draft version only after the source-backed gate passes. The DB also

@@ -38,6 +38,8 @@ export type ImpactPreviewInput = AppApiComponents["schemas"]["ImpactPreviewInput
 export type ImpactPreviewResult = AppApiComponents["schemas"]["ImpactPreviewResult"];
 export type ProtocolConfigItem = AppApiComponents["schemas"]["ProtocolConfigItem"];
 export type ProtocolConfigListResponse = AppApiComponents["schemas"]["ProtocolConfigListResponse"];
+export type AnimalStageItem = AppApiComponents["schemas"]["AnimalStageItem"];
+export type AnimalStageListResponse = AppApiComponents["schemas"]["AnimalStageListResponse"];
 export type VaccinationPassportDue = AppApiComponents["schemas"]["VaccinationPassportDue"];
 export type VaccinationPassportHistoryItem = AppApiComponents["schemas"]["VaccinationPassportHistoryItem"];
 export type VaccinationPassport = AppApiComponents["schemas"]["VaccinationPassport"];
@@ -448,6 +450,18 @@ export async function listProtocolConfigs(category: string): Promise<ApiResult<P
       cache: "no-store",
       query: compactQuery({ category }),
     }),
+  );
+}
+
+// listAnimalStages reads the tenant's active animal-stage reference data (animal_stage_lookup) so the
+// Config authoring stage picker is backend-driven, not hardcoded K0/K1/K2 literals (PHC vaccination
+// TRD). Read-only; an empty list is honest — the editor shows a seed-stages state, never fallback codes.
+export async function listAnimalStages(): Promise<ApiResult<AnimalStageListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AnimalStageListResponse>("/protocols/animal-stages", { cache: "no-store" }),
   );
 }
 

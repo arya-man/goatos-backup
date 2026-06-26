@@ -71,6 +71,14 @@ export interface SopVersionOption {
   label: string;
 }
 
+// A backend animal-stage option (one active animal_stage_lookup row) for the Config stage picker.
+// `code` is the stable stage_code authored into rule_dsl.eligibility.animal_stage; `label` is for
+// display. These come from the backend — the frontend never hardcodes the stage vocabulary.
+export interface AnimalStageOption {
+  code: string;
+  label: string;
+}
+
 export interface ProtocolRuleDraft {
   doseCode: string;
   trigger: string;
@@ -92,7 +100,11 @@ export interface ProtocolRuleDraft {
 // (context/frontend/current-admin-web-scope.md).
 export const CATEGORIES = ["vaccination", "feed_direction"];
 export const SCOPES = ["tenant", "park:CBE", "park:CPT"];
-export const STAGES = ["K0", "K1", "K2", "K3", "F2", "mother", "pregnant", "all"];
+// Stage bands (K0/K1/K2…) are NOT hardcoded here. They are backend reference data from
+// animal_stage_lookup, loaded via listAnimalStages and passed in as AnimalStageOption[] (PHC
+// vaccination TRD: stage bands live in the lookup). The only stage literal the UI owns is the
+// ALL_STAGES filter below, which is a UI scope ("every stage"), not an animal_stage_lookup row.
+export const ALL_STAGES_VALUE = "all";
 export const SEXES = ["all", "female", "male"];
 export const BREEDS = ["all", "Beetal", "Sirohi", "Boer×"];
 export const HEALTHS = ["healthy", "any"];
@@ -225,7 +237,11 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       repeat: d.repeat,
       repeat_until_after_age: d.repeatUntilAfterAge,
       catch_up: d.catchUp,
-      sop_version: d.sopVersion,
+      // sop_label is a DISPLAY label only. The executable SOP binds at version level
+      // (sop_version_id). It is deliberately NOT emitted as schedule[].sop_version, because the
+      // backend execution contract (publish.go) treats a non-empty row sop_version as a valid
+      // executable fallback — a fake label like "vacc-sop v2" must never satisfy that gate.
+      sop_label: d.sopVersion,
       proof_policy: csvToArr(d.proofCsv),
     })),
     escalation: input.escalation,
@@ -276,15 +292,26 @@ export function buildRuleDsl(input: RuleInput): Record<string, unknown> {
   return vaccinationDsl(input);
 }
 
-// buildProofPolicy derives the version-level proof_policy object from the authored proof tokens. Backend
-// publish requires a NON-EMPTY proof_policy object; this carries the real authored proof requirement
-// (per-dose proof for vaccination, packing+execution for feed) rather than an empty {}.
+// proofTokens collects the authored proof tokens for the active category (per-dose proof for
+// vaccination, packing+execution for feed). Single source for buildProofPolicy + hasProofRequirement.
+function proofTokens(input: RuleInput): string[] {
+  return input.category === "feed_direction"
+    ? [...csvToArr(input.feed.packingProofCsv), ...csvToArr(input.feed.executionProofCsv)]
+    : input.doses.flatMap((d) => csvToArr(d.proofCsv));
+}
+
+// buildProofPolicy derives the version-level proof_policy object from the authored proof tokens.
+// Backend publish requires a proof_policy carrying a REAL requirement (rawProofHasContent), so an
+// empty token set yields { required_proofs: [] } which the backend now rejects — gate publish with
+// hasProofRequirement so the UI fails fast with a clear reason instead of a backend 422.
 export function buildProofPolicy(input: RuleInput): Record<string, unknown> {
-  const tokens =
-    input.category === "feed_direction"
-      ? [...csvToArr(input.feed.packingProofCsv), ...csvToArr(input.feed.executionProofCsv)]
-      : input.doses.flatMap((d) => csvToArr(d.proofCsv));
-  return { required_proofs: Array.from(new Set(tokens)) };
+  return { required_proofs: Array.from(new Set(proofTokens(input))) };
+}
+
+// hasProofRequirement is true when the author supplied at least one real proof token. Mirrors the
+// backend rawProofHasContent gate so Publish can be blocked client-side with an actionable message.
+export function hasProofRequirement(input: RuleInput): boolean {
+  return proofTokens(input).length > 0;
 }
 
 export function buildProtocolRuleRows(input: RuleInput): ProtocolRuleDraft[] {

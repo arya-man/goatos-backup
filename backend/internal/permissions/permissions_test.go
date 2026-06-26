@@ -112,6 +112,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/arrival-review"},
 		{"POST", "/procurement/source-entry/loads/ac000000-0000-4000-8000-000000000001/accept-intake"},
 		{"GET", "/protocols"},
+		{"GET", "/protocols/animal-stages"},
 		{"POST", "/protocols"},
 		{"POST", "/protocols/64000000-0000-4000-8000-000000000001/versions"},
 		{"POST", "/protocols/versions/65000000-0000-4000-8000-000000000001/rules"},

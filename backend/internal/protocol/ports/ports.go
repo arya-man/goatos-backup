@@ -32,5 +32,9 @@ type Repository interface {
 	CreateRule(ctx context.Context, in domain.NewRule) (ruleID string, err error)
 	ListRules(ctx context.Context, tenantID, versionID string) ([]domain.Rule, error)
 
+	// ListActiveAnimalStages returns the tenant's active animal_stage_lookup rows (display order)
+	// so Config authoring picks stage bands from reference data, not hardcoded frontend literals.
+	ListActiveAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error)
+
 	CreateTrigger(ctx context.Context, in domain.NewTrigger) (triggerID string, err error)
 }

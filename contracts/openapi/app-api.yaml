@@ -596,6 +596,30 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /protocols/animal-stages:
+    get:
+      tags:
+        - Protocol Config
+      operationId: listAnimalStages
+      summary: List active animal-stage reference data (Config authoring stage picker).
+      description: >-
+        Tenant-scoped active rows of animal_stage_lookup (e.g. K1 ≈ milk training, K2 ≈ milk
+        drinking), in display order. Drives the Config authoring stage picker so stage bands are
+        backend-driven and never hardcoded frontend literals (PHC vaccination TRD). Read-only; an
+        empty list is honest (no stages seeded) — the UI shows a seed-stages state, not fallback codes.
+      responses:
+        "200":
+          description: Active animal stages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalStageListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /protocols/{protocol_id}/versions:
     post:
       tags:
@@ -4435,6 +4459,40 @@ components:
         approved_by:
           type: string
         rule_count:
+          type: integer
+    AnimalStageListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnimalStageItem"
+    AnimalStageItem:
+      type: object
+      additionalProperties: false
+      required:
+        - animal_stage_id
+        - stage_code
+        - name
+        - sort_order
+      properties:
+        animal_stage_id:
+          type: string
+        stage_code:
+          type: string
+          description: Stable stage code (e.g. K1, K2) authored against in rule_dsl.eligibility.animal_stage.
+        name:
+          type: string
+        min_age_days:
+          type: integer
+          nullable: true
+        max_age_days:
+          type: integer
+          nullable: true
+        sort_order:
           type: integer
     RejectVaccinationCompletionRequest:
       type: object

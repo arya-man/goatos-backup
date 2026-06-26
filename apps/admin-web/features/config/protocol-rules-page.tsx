@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { AlertTriangle, Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
-import { CATEGORIES, type SopVersionOption } from "./rule-dsl";
-import { listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
+import { CATEGORIES, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
+import { listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
@@ -84,6 +84,16 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
         }))
     : [];
 
+  // Backend-driven stage vocabulary (animal_stage_lookup). The Config stage picker uses these rows,
+  // never hardcoded K0/K1/K2. An empty list is honest — the editor shows a seed-stages state.
+  const stagesRes = await listAnimalStages();
+  const animalStages: AnimalStageOption[] = stagesRes.ok
+    ? stagesRes.data.items.map((s) => ({
+        code: s.stage_code,
+        label: s.name ? `${s.stage_code} · ${s.name}` : s.stage_code,
+      }))
+    : [];
+
   return (
     <div className="screen on">
       <div className="phead">
@@ -119,7 +129,7 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
         </div>
       ) : null}
 
-      <ConfigConsole rules={rules} initialCategory={initialCategory} sopVersions={sopVersions} />
+      <ConfigConsole rules={rules} initialCategory={initialCategory} sopVersions={sopVersions} animalStages={animalStages} />
 
       {/* How a published rule maps to live work */}
       <section className="card">

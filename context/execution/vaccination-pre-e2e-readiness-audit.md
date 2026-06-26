@@ -150,6 +150,85 @@ Current corrected status:
   evidence suppression path exist; see
   `context/frontend/supplier-warmup-vaccination-gaps.md`.
 
+## 2026-06-26 Non-E2E Local/Code Closure — Pending-Item Classification
+
+Closing the remaining NON-E2E / NON-Google / NON-prod vaccination items honestly.
+"Local/code closure" = local code, contracts, Config UI, publish gate, SOP
+binding, proof-policy validation, docs, and gates are honest and green.
+"Production-real protocol content" = roster/K1/K2/dose/booster/naming approved by
+a named Mesha human authority — this is OUT of code scope and tracked separately.
+
+Done in this pass:
+
+- **Backend proof-shape hardening (CLOSED).** Version-level `proof_policy` must be
+  an OBJECT carrying a real proof token under a recognized array key
+  (`required_proofs`/`types`/`required`); a bare array (`["video"]`), `{}`,
+  `{"required_proofs":[]}`, blank tokens, scalar (`{"required":true}`), and
+  metadata-only objects (`{"subject_scope":"batch"}`) are all rejected. Row-level
+  `schedule[].proof_policy` may be a bare array of non-blank tokens OR the object
+  shape; a present-but-blank row proof is rejected and does NOT silently fall back
+  to the version proof. Split into `versionProofHasContent` / `rowProofHasContent`
+  in `backend/internal/protocol/app/publish.go`; tests in `publish_test.go` now
+  drive row-level proof through `rule_dsl.schedule[].proof_policy`, not by putting
+  an array in `Version.ProofPolicy`.
+- **Config publish honesty (VERIFIED).** Publish is blocked when: not CEO/COO; no
+  saved draft; inputs changed since last Save (the saved version is stale); no
+  executable SOP version selected; no real proof token; or the source gate fails —
+  in that priority order with an explained title
+  (`apps/admin-web/features/config/rule-editor-modal.tsx`). The executable SOP is
+  the real version-level `sop_version_id` chosen from published SOP Library rows
+  (`features/config/protocol-rules-page.tsx` filters `active_sop_version_id`); the
+  per-dose dropdown emits `sop_label` for display only
+  (`features/config/rule-dsl.ts`), never an executable `schedule[].sop_version`.
+  No `sopVersion:"vacc-sop v2"` literal reaches an executable field; no fake SOP
+  UUIDs.
+- **K1/K2/stage config now backend-driven (CLOSED).** The Config authoring stage
+  picker no longer uses hardcoded `K0/K1/K2` frontend literals. A new tenant-scoped,
+  bounded, indexed read endpoint `GET /protocols/animal-stages`
+  (`backend/internal/protocol/...`; `query.sql` `ListActiveAnimalStages`, ordered by
+  `sort_order`, capped at 200) lists active `animal_stage_lookup` rows; the Config
+  SSR page loads them via `listAnimalStages()` and passes `AnimalStageOption[]` into
+  the editor (`features/config/{protocol-rules-page,config-console,rule-editor-modal}.tsx`).
+  The default stage is the first backend band, never a hardcoded `K1`. The only
+  stage literal the UI owns is the `ALL_STAGES` filter (a UI scope, explicitly NOT an
+  `animal_stage_lookup` row). When the lookup is empty the stage picker is
+  **disabled-with-reason** ("Data Ops must seed animal_stage_lookup") — it does NOT
+  silently fall back to hardcoded bands. Satisfies the PHC vaccination TRD rule that
+  stage bands live in `animal_stage_lookup`, not in code.
+- **Docs reconciled (CLOSED).** `docs/protocol-engine/obligation-engine.md`,
+  `docs/phc-vaccination/TRD.md`, and
+  `context/execution/sop-vaccination-backend-handoff.md` now state that the
+  executable SOP binds at `protocol_versions.sop_version_id`, the per-dose
+  `schedule[].sop_label` is display-only, and a genuine per-dose executable
+  override uses `protocol_rules.sop_version_id` (a real UUID) — the real backend
+  capability is preserved, not erased.
+- **PHC roster + K1/K2 (source proposal CLOSED; content approval still WAITING).**
+  See `context/source-findings/phc-vaccination-roster-stage-proposal.md`. This
+  closes the engineering research/proposal item only.
+- **Test coverage (backend CLOSED; frontend gated out honestly).** The publish
+  execution-contract gate (`publish_test.go`) and the new
+  `GET /protocols/animal-stages` endpoint (`handler_test.go`, incl. the empty-list
+  honest-empty case and nil age bands) are covered by Go tests. The pure frontend
+  gate helpers (`buildProofPolicy`/`hasProofRequirement`/`buildProtocolRuleRows`
+  and the Save→dirty→Publish gating) are NOT unit-tested: `apps/admin-web` ships no
+  JS test runner (no vitest/jest, zero `*.test.ts(x)`), so adding tests would mean
+  standing up a whole test toolchain — out of scope for this closure. They are
+  guarded by `tsc --noEmit` + lint + `next build` only. Standing up a frontend test
+  runner is a separate follow-up.
+
+Remaining pending items classified:
+
+| Item | Classification | Basis / exact paths |
+| --- | --- | --- |
+| Rich SOP DSL semantics (step-type evaluator, conditional/branching form logic) | **Out of current local/code closure.** No DSL evaluator exists and we do NOT fake one. Not on the current Config publish path — publish gates on source + `sop_version_id` + object `proof_policy` only (`backend/internal/protocol/app/publish.go`), never on DSL evaluation. SOP builder emits native step types (`apps/admin-web/features/sops/sop-derive.ts`); no evaluator is claimed. | `backend/internal/protocol/app/publish.go`; `apps/admin-web/features/sops/sop-derive.ts`; `docs/protocol-engine/obligation-engine.md` §5 |
+| `as_of` residuals (point-in-time obligation status reconstruction) | **Out of current local/code closure.** Current code does not overclaim: `as_of`/`asOf` is a point-in-time read param threaded into the projection reads (`features/control-tower`, `workflows-landing`, `protocol-adherence`); the top-bar as-of selector is point-in-time only and range choices are disabled (Click Matrix → Top bar). The deeper effective-status reconstruction work is tracked in memory `goatos-phase1-asof-correctness` and is NOT a publish/proof-gate blocker. | `apps/admin-web/features/control-tower/index.tsx:55`; `features/process-integrity/workflows-landing.tsx:95`; `context/execution/vaccination-pre-e2e-readiness-audit.md` Click Matrix |
+| Source Entry search / media-capture limits | **Out of current local/code closure.** Visible UI does not overclaim — media upload and advanced search are disabled-with-reason, documented in `context/frontend/supplier-warmup-vaccination-gaps.md`. Disabled-with-reason is acceptable for this slice. | `context/frontend/supplier-warmup-vaccination-gaps.md`; readiness audit B8 (CLOSED) |
+| SOP taxonomy / category-filter API gap | **Out of current local/code closure — future scale/API cleanup.** The Config SOP picker shows only real published SOP versions (`active_sop_version_id`); the `/vaccination` and `/sops` quick-views use `listSops({ limit: 200 })` + client-side vaccination filtering (`apps/admin-web/app/(admin)/sops/page.tsx:14`, `features/phc-vaccination/operations.tsx:19`). It cannot fake SOPs, but a tenant with >200 SOPs could under-show. Tracked as a category/code-filter or named-binding follow-up in the trigger-closure handoff backlog; not a publish-path blocker. | `apps/admin-web/app/(admin)/sops/page.tsx:14`; `features/phc-vaccination/operations.tsx:19`; `context/execution/vaccination-trigger-closure-parallel-handoff.md` (SOP quick-view backlog) |
+| PHC/vaccine roster + K1/K2/stage values | **Source proposal CLOSED; production content approval WAITING on named human owner.** Engineering research item closed via `context/source-findings/phc-vaccination-roster-stage-proposal.md`. Final roster/stage-band/dose/booster/naming approval is a PHC Director / vet / COO decision, not code. | `context/source-findings/phc-vaccination-roster-stage-proposal.md`; `docs/phc-vaccination/TRD.md:64,:145` |
+
+No vague "pending" items remain: each is fixed, classified out-of-scope with a
+path, or explicitly waiting on a named human owner.
+
 ## Click Matrix
 
 Every clickable control must do exactly one of these:
