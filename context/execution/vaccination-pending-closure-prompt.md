@@ -158,15 +158,16 @@ protocol rows. The UI must not hardcode PPR/FMD/Enterotox/Deworm/CCPP columns.
 Do not stop just because the current local API returns only one protocol.
 Instead:
 
-- If wiki/handbook/SOP docs contain approved PHC/vet source-backed roster
-  values, use those and cite `source_file`/page in the seed/doc.
-- If approved values are not available, create TEST_ONLY local fixture protocols
-  through the real Config/protocol path for PPR/FMD/Enterotox/Deworm/CCPP,
-  clearly labeled test-only/not production.
+- Use the source-derived local/dev baseline recorded in
+  `context/source-findings/phc-vaccination-roster-stage-proposal.md`: ET/K1/day
+  21 as the schedule-bearing row, K2=42, and PPR/FMD/HS/BQ as SOP/roster labels
+  until schedule evidence exists.
+- Do not create cosmetic UI-only vaccine columns; protocol/config rows must drive
+  whatever the matrix shows.
 - Apply only to the local dev DB at `:55432`.
 - Do not touch Cloud SQL or prod/stg.
-- Do not claim the real PHC/vet roster is closed unless source-backed values
-  exist.
+- Do not re-open a generic "business approval" blocker for the local/dev ET
+  baseline; later production roster expansion is source-backed versioning.
 - The `/vaccination` matrix should show multiple vaccine columns because
   backend/config returns multiple protocols, not because the UI fakes columns.
 
@@ -249,8 +250,8 @@ This must become closed or have an exact blocker.
 
 Use Graphify/wiki/source docs first. Cite `source_file`/page/image.
 
-Assume this may remain a business-source blocker unless approved PHC/vet source
-values are actually found. Do not over-engineer an importer to force closure.
+Use the existing source-derived ET/K1/day-21 baseline and do not over-engineer an
+importer to force broader production roster expansion.
 
 Boundaries:
 
@@ -262,7 +263,7 @@ Boundaries:
 - Do not build a new ingestion/import surface in this session.
 - Do not invent production PPR/Enterotox/CCPP schedules.
 
-If real PHC/vet-approved roster/schedule values exist:
+Use the source-derived ET/K1/day-21 baseline now:
 
 - Cite source evidence.
 - Add/import/seed only through existing approved local source-backed path.
@@ -270,11 +271,11 @@ If real PHC/vet-approved roster/schedule values exist:
   `approved_by`, `approved_at`.
 - Verify Config shows them and publish gate remains honest.
 
-If values do not exist:
+For later PPR/FMD/HS/BQ schedule expansion:
 
-- Update docs to say this is a business-source blocker, not a code blocker.
-- List exactly which sources were checked and what was missing.
-- Leave no vague pending language.
+- Keep source labels visible only where backend/config supplies them.
+- Add schedule-bearing rows only when timing/dose/booster source evidence exists.
+- Leave no vague pending or generic business-approval language.
 
 ## Phase 5 - Verification
 
@@ -329,8 +330,8 @@ Commit body must state actual state per phase:
 - `/vaccination` UI handoff closed or exact blocker.
 - Data-plane chain closed.
 - Four-goat negative matrix closed, not run, or exact blocker.
-- PHC/vet roster added if source-backed values found, local test fixtures added
-  if used, or documented as business-source blocker.
+- Source-derived ET/K1/day-21 baseline and K2=42 recorded, with any later
+  production roster expansion called out separately.
 - Browser/Playwright E2E not run.
 - Google/prod provisioning not touched.
 
@@ -346,7 +347,7 @@ Final report:
 - What non-E2E pending items were closed.
 - `/vaccination` UI result.
 - Four-goat matrix result.
-- PHC/vet roster result with sources checked/cited.
+- Source-derived roster/stage result with sources checked/cited.
 - Verification results.
 - Commit hash.
 - Final git status.

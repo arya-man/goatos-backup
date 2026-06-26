@@ -767,9 +767,9 @@ Status before E2E (most data-plane items CLOSED 2026-06-26):
 - ~~Supplier warmup/Holding Farm vaccination is not covered.~~ DONE for scope:
   purpose-specific warmup, HF dose import/review, and trusted-evidence
   suppression exist (see `context/frontend/supplier-warmup-vaccination-gaps.md`).
-- Remaining: real source-backed PHC/vet roster content (the seeded trigger is a
-  test fixture, not real PPR/Enterotox/CCPP values), the four-goat negative
-  matrix in one run, full click-matrix closure, and Google/prod provisioning.
+- Remaining: optional production roster expansion beyond the source-derived
+  ET/K1/day-21 local/dev baseline, the four-goat negative matrix in one run,
+  full click-matrix closure, and Google/prod provisioning.
 
 ## Claude Feedback Counter-Review (2026-06-25)
 

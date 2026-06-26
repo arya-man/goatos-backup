@@ -16,11 +16,12 @@
 #   - DB migrated to head. `make dev-local` does NOT migrate; in particular migration
 #     000082 (sop_task_review_fanouts / sop_task_submission_fanouts) must be applied or the
 #     SOP submission step 500s with: relation "sop_task_submission_fanouts" does not exist.
-#   - seeded source-backed trigger pack (seed-vaccination-trigger): published version b011,
-#     rule b012 (PHC-INTAKE-0, post_arrival), linked published SOP b0..0002, FEFO vaccine lot b002.
+#   - seeded source-derived ET dev baseline (seed-vaccination-trigger): published version b011,
+#     rule b012 (ET-PRIMARY-1, birth_age day 21), linked published SOP b0..0002, FEFO vaccine lot b002.
 #
-# This is a TEST trigger fixture, NOT a real PHC/vet roster. It proves the data plane; it does
-# not invent real PPR/Enterotox/CCPP schedule values.
+# This uses the source-derived local/dev baseline in
+# context/source-findings/phc-vaccination-roster-stage-proposal.md. Production can replace it
+# with a later source-backed version if PHC/vet data changes.
 set -uo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer
@@ -30,11 +31,11 @@ export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/
 PGURL="$DATABASE_URL"; API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT=00000000-0000-4000-8000-000000000001
 USER=90000000-0000-4000-8000-000000000101
-VERSION=00000000-0000-4000-8000-00000000b011        # published source-backed trigger version
+VERSION=00000000-0000-4000-8000-00000000b011        # published source-derived ET dev baseline
 SOPVER=b0000000-0000-4000-8000-000000000002         # linked published SOP version
 ITEM=00000000-0000-4000-8000-00000000b001           # vaccine inventory item
-LOT=00000000-0000-4000-8000-00000000b002            # inventory_stock.stock_id (FEFO lot TRIG-LOT-001 @ CBE)
-RULE=00000000-0000-4000-8000-00000000b012           # PHC-INTAKE-0 post_arrival rule
+LOT=00000000-0000-4000-8000-00000000b002            # inventory_stock.stock_id (FEFO lot ET-LOT-001 @ CBE)
+RULE=00000000-0000-4000-8000-00000000b012           # ET-PRIMARY-1 birth_age day-21 rule
 BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
 psqlq(){ psql "$PGURL" -tAc "$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
@@ -43,11 +44,17 @@ has(){ grep -q "$1" <<<"$2" && echo HIT || echo MISS; }
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")
 STAMP=$(date +%s); RFID="CHAINPROOF-$STAMP"
+ENTRY_DATE=$(date -u +%F)
+if DOB_DAY21=$(date -u -v-21d +%F 2>/dev/null); then
+  :
+else
+  DOB_DAY21=$(date -u -d "$ENTRY_DATE - 21 days" +%F)
+fi
 echo "## vaccination-chain-proof stamp=$STAMP api=$API"
 
 echo; echo "### 1. Herd Register create  POST /admin/goats"
 CREATE=$(curl -s "${A[@]}" -H "Idempotency-Key: chain-$STAMP" -H "Content-Type: application/json" -X POST "$API/admin/goats" -d @- <<JSON
-{"rfid":"$RFID","park_code":"CBE","shed_code":"CBE_SHED_MANDELA_1_PART_1","sex":"female","dob":"2026-01-15","dob_estimated":true,"origin_type":"procured","entry_date":"2026-06-26","management_stage":"K1","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
+{"rfid":"$RFID","park_code":"CBE","shed_code":"CBE_SHED_MANDELA_1_PART_1","sex":"female","dob":"$DOB_DAY21","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K1","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
 JSON
 )
 GOAT=$(echo "$CREATE" | jqp 'd["goat"]["goat_id"]'); SHED=$(echo "$CREATE" | jqp 'd["goat"]["location_path"]["shed_id"]')
@@ -60,9 +67,9 @@ EVENT=$(psqlq "select event_id from outbox_messages where aggregate_id='$GOAT' l
 
 echo; echo "### 3. outbox-relay eventbus delivery -> generation"
 ( cd "$BACKEND" && GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
-OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' limit 1")
+OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")
 [ -n "$OBL" ] || { echo "FAIL step3 (no obligation generated)"; exit 1; }
-psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT'"
+psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'"
 
 echo; echo "### 4. obligation-sweeper -> batch + SOP task"
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
@@ -86,7 +93,7 @@ echo "PROOFS shed=$P_SHED vial_lot=$P_VIAL administration=$P_ADMIN"
 
 echo; echo "### 6. SOP task submission  POST /app/tasks/{task}/submissions"
 SUB=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/app/tasks/$TASK/submissions" -d @- <<JSON
-{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$P_SHED","vial_lot_video":"$P_VIAL","administration_video":"$P_ADMIN","goat_ids":["$GOAT"],"dose_ml_given":1,"route_site":"subcutaneous","administered_at":"2026-06-26T08:00:00Z","adverse_reaction":false},"proof_refs":[{"proof_id":"$P_SHED","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$P_VIAL","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$P_ADMIN","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"sub-$STAMP","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$P_SHED","vial_lot_video":"$P_VIAL","administration_video":"$P_ADMIN","goat_ids":["$GOAT"],"dose_ml_given":0.5,"route_site":"subcutaneous","administered_at":"${ENTRY_DATE}T08:00:00Z","adverse_reaction":false},"proof_refs":[{"proof_id":"$P_SHED","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$P_VIAL","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$P_ADMIN","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
 JSON
 )
 SUBID=$(echo "$SUB" | jqp 'd.get("submission",{}).get("submission_id","")')
@@ -122,7 +129,7 @@ echo; echo "### 9. replay / idempotency (no duplicates)"
 psql "$PGURL" -tAc "update outbox_messages set status='pending', published_at=null, next_attempt_at=null where aggregate_id='$GOAT'" >/dev/null
 ( cd "$BACKEND" && GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
-echo "obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT'")"
+echo "obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")"
 echo "completions for goat after replay (expect 1): $(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")"
 
 echo; echo "## CLOSED  goat=$GOAT event=$EVENT obligation=$OBL batch=$BATCH task=$TASK submission=$SUBID completion=$COMP rule=$RULE version=$VERSION"

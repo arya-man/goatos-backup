@@ -28,12 +28,20 @@
 - **Migrations `000070–078`** (below). `internal/vaccination` + `internal/feed` = **stubs** (build out); `internal/protocol`, `internal/obligation`, `internal/inventory` = **absent** (create).
 - Handlers per state machines; outbox **Pub/Sub publisher adapter** (today only the logging stub exists).
 
-### 5. Human-input blockers (cannot proceed without)
-- **Vaccination schedule VALUES** — vaccine × age/stage × interval × dose × booster × route × storage-temp. **Absent in every source.** From PHC/vet sign-off or a reviewed extract of the live "Vaccination DB" sheet (Slack `F0AK7S3NR4K`/`F0AKC6EBD9U`).
+### 5. External inputs / source-backed follow-ups
+- **Vaccination schedule values** — local/dev is unblocked by the source-derived
+  ET/K1/day-21 baseline and K2=42 decision recorded in
+  `context/source-findings/phc-vaccination-roster-stage-proposal.md`. Broader
+  production roster expansion (PPR/FMD/HS/BQ or any replacement ET values) still
+  needs timing/dose/booster/route/storage evidence from PHC/vet sign-off or a
+  reviewed extract of the live "Vaccination DB" sheet (Slack `F0AK7S3NR4K`/
+  `F0AKC6EBD9U`).
 - **Feed ration VALUES** + session clock times per park.
 - **CUTOVER_DATE** + vaccination-history-trust decision (migration-and-cutover §6).
 - The **4 superadmin mail IDs** + capability grants (`protocol.publish.<category>`).
-- **K2 age band** 42 vs 45 (make it config).
+- **K2 age band** — closed for local/dev at 42 days / six weeks; any later PHC
+  override must land as source-backed `animal_stage_lookup` data/config, not a
+  frontend hardcode.
 
 ---
 
@@ -85,8 +93,8 @@ Adherence = **computed**: expected (rule) vs actual (completion + proof + timing
 
 ## G. Order of implementation
 **Phase 0 — foundation deltas (no rule values needed):** `000070`–`000074` + outbox→Pub/Sub adapter + create `protocol`/`obligation`/`inventory` Go domains (schema + repos, no rules yet). Engine stands up empty.
-**Phase 1 — PHC Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. **Draft test rules** (`not source-backed`, UI/engine validation only, never published, no obligations) are used **only when no source values exist yet**; the moment Vaccinations DB / PHC / vet **approved** values arrive, `goatos-dev` runs **source-backed real config** that publishes and generates obligations — that is the main path. *(Real obligations gated on blocker §A5.)*
+**Phase 1 — PHC Vaccination slice:** `000075`; build `vaccination` domain; SM-1/3/4/5/7 handlers; SOP form/proof seed; config-screen API + impact-preview; Control Tower + Action Center + Protocol Adherence reads + coverage projection. **Source-derived local/dev rule values now exist** for the ET/K1/day-21 proof path with K2=42; use them as source-backed dev config. Additional PPR/FMD/HS/BQ schedule rows arrive later through the same source-backed versioning path when timing/dose/booster extracts exist.
 **Phase 2 — Feed Direction:** `000076`–`000078`; build `feed` domain; SM-6 (gen + 2 PM recompute + packing reserve); feed screens.
 **Cutover (one-time, after Phase 1 engine ready):** freeze legacy → canonical → backfill generator per migration-and-cutover.md; `CUTOVER_DATE` policy (no historical-overdue flood).
 
-**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now** (no values needed). The system only generates **real** work once the **rule values** (§A5) arrive — until then it runs on **unpublished draft test rules (`not source-backed`, UI/engine validation only)**, replaced by source-backed real config as soon as approved values land.
+**Critical-path gate:** Phase 0 + the *engine* of Phase 1/2 can be built **now**. For PHC vaccination local/dev, the selected source-derived ET baseline can generate work; broader production roster expansion remains source-backed config/versioning work.

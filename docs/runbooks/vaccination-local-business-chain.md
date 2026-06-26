@@ -44,9 +44,9 @@ bash tools/dev/vaccination-chain-proof.sh
 ```
 
 It uses the default local user (`ceo_internal`, which holds every permission the
-chain needs), the seeded source-backed trigger pack (published version `b011`,
-rule `b012` `PHC-INTAKE-0`, linked published SOP `b0..0002`, FEFO vaccine lot
-`b002`), Herd Register `POST /admin/goats` as the entry path, `cmd/outbox-relay`
+chain needs), the seeded source-derived ET dev baseline (published version
+`b011`, rule `b012` `ET-PRIMARY-1`, linked published SOP `b0..0002`, FEFO vaccine
+lot `b002`), Herd Register `POST /admin/goats` as the entry path, `cmd/outbox-relay`
 (`GOATOS_OUTBOX_PUBLISHER=eventbus`) as the delivery path, `cmd/obligation-sweeper`,
 generated app proof/SOP/verification APIs, then the CT/AC/PA/WF/Vaccination/shed/
 Passport read models. It ends in a `## CLOSED …` line with all IDs.
@@ -65,7 +65,7 @@ make dev-local        # local PG (docker :55432), api (:8080), admin-web (:3300)
 awk '/-- \+goose Up/{u=1} /-- \+goose Down/{u=0} u' \
   backend/migrations/postgres/000082_vaccination_rework_and_sop_review_fanout.sql \
   | psql "postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable" -v ON_ERROR_STOP=1
-# Seed (idempotent): actor grant + source-backed trigger pack.
+# Seed (idempotent): actor grant + source-derived ET dev baseline.
 cd backend
 go run ./cmd/seed-dev-grant -tenant-id <tenant> -user-id <user> -role ceo_internal
 go run ./cmd/seed-vaccination-trigger              # protocol/inventory/SOP/lot fixtures
@@ -74,7 +74,7 @@ go run ./cmd/seed-vaccination-trigger              # protocol/inventory/SOP/lot 
 Manual equivalent of the script's steps (when running by hand):
 
 ```text
-1. POST /admin/goats (park CBE + shed, entry_date today)   -> goat + goat.created outbox row
+1. POST /admin/goats (park CBE + shed, K1 day-21 ET goat)  -> goat + goat.created outbox row
 2. GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay   -> generation -> obligation_instances
 3. go run ./cmd/obligation-sweeper -version-id <b011> -sop-version-id <b0..0002> \
      -vaccine-item-id <b001> -actor-id <user>              -> obligation_batch + SOP task
@@ -113,14 +113,14 @@ The assembled single run (B1/B2/B5) is now CAPTURED via
 no Playwright. One representative run produced these concrete IDs:
 
 ```text
-goat            0d8a6eea-7ac1-499e-b1d0-b6fbd69f8e5c  (park CBE / shed Mandela 1 - Part 1)
-goat.created    event ce7ac329-6e33-4c7a-b82b-c79517c7e91c  (outbox topic identity.events)
-obligation      355d9d36-2cca-4697-b5b5-f18c63c915ae  rule b012 (PHC-INTAKE-0), version b011  -> completed
-batch           a3ebc956-363d-4d7c-8ba5-42d22ead4b23
-SOP task        d063131e-d537-4f2f-a811-14296659d87e  (vaccination, scope=park)
-proofs          shed ca92d1f2 / vial_lot 677584be / administration 3c03c5ab  (local storage, completed)
-submission      bae68261-6b72-4e77-bfa4-b0ab83fe2439
-completion      86be6a53-c906-4096-b92f-c17dfabb28d4  -> recorded -> accepted
+goat            d9dcfd30-37c4-4c0d-9d97-27333105642d  (park CBE / shed Mandela 1 - Part 1)
+goat.created    event b942099b-6858-48d9-817c-1b84802c44e8  (outbox topic identity.events)
+obligation      b005bb54-c94c-49ea-82e8-4e56a02a29cc  rule b012 (ET-PRIMARY-1), version b011  -> completed
+batch           0cf0538e-99ab-40a3-b45c-50ea673d4789
+SOP task        5ce5a723-8e5a-40ef-a100-c617f5f92731  (vaccination, scope=park)
+proofs          shed 96c50c32 / vial_lot 7f9d3ada / administration e8d9a5b7  (local storage, completed)
+submission      6deb70fb-1ec6-4f51-84a5-3e5553020fba
+completion      2625595c-3111-4c20-a4e0-feab8cfd41d9  -> recorded -> accepted
 ```
 
 `accept` returned `{"applied":true,"completed":true}`; the obligation moved to
@@ -151,15 +151,13 @@ re-run — obligation count stayed `1`, completion count stayed `1`, sweeper rep
 `TestStatusEventConcurrentDedup`, `TestStatusEventReserveBeforeInsertDedup`,
 `TestSM1GenerationIdempotentAndDeferVisible`.
 
-## Remaining (business / external, NOT a local-code or data-plane blocker)
+## Remaining (external, NOT a local-code or data-plane blocker)
 
-- **Source-backed publishable protocol content** (PHC/vet roster). The Config
-  list/read + publish gate are done, and the data plane is proven against the
-  seeded *test* trigger fixture (`Trigger Gate PHC Vaccination`, `PHC-INTAKE-0`).
-  Real PPR/Enterotox/CCPP schedule values are NOT invented here; a production
-  protocol only becomes publishable when source-backed (`vaccinations_db`/`phc`/
-  `vet` + source_ref + approved review + approved_by). Until the roster lands, the
-  publishable *content* (not the path) is the open business item.
+- **Production roster expansion.** Local/dev no longer waits on a vague PHC
+  roster approval: the source-derived baseline is ET/K1/day-21 with K2=42, backed
+  by `context/source-findings/phc-vaccination-roster-stage-proposal.md`. PPR/FMD/
+  HS/BQ are `label-only closed` until a roster-expansion pass promotes any of
+  them to `schedule-backed`; either state is closed for this local chain.
 - **Google/prod provisioning** — see Infra / Prod Readiness below; external.
 
 ## Infra / Prod Readiness (cloud counterpart, 2026-06-26)

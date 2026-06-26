@@ -61,7 +61,7 @@ Shed/cohort `animal_stage` is the **default** anchor, but eligibility combines *
 
 **Capacity:** do not add a column — `location_capacity_records` (temporal, no-overlap trigger) is the committed home. **Cohort:** reuse `location_type='cohort'` rows + `goats.cohort_id`; a cohort can also carry an `animal_stage_id` for stage-by-cohort.
 
-Age/weight bands that decide stage live on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` (K1=7/K2=45) must be removed and read from here. **Reconcile K2 = 42 vs 45** with PHC. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
+Age/weight bands that decide stage live on `animal_stage_lookup` as **config** — the mock's hardcoded `SHIFT_THRESH` (K1=7/K2=45) must be removed and read from here. For local/dev, **K2 = 42 days / six weeks** is the selected source-derived baseline; the old 45 is treated as legacy mock drift unless a later PHC source-backed config version overrides it. The Config authoring stage picker reads these rows via `GET /protocols/animal-stages` (active rows, `sort_order`), never hardcoded `K0/K1/K2` literals; when the lookup is empty the picker is disabled-with-reason (Data Ops must seed stages) rather than falling back to code-defined bands.
 
 ---
 
@@ -139,7 +139,12 @@ Inventory is **absent** in the repo — build it generic (per [engine §6](../pr
 - **ENHANCE:** goats (provenance/lifecycle cols + CHECKs), locations (+profiles), feature_coverage_registry (+vaccination).
 - **DITCH from runtime (reference/migration-only):** legacy_import_*, legacy_sync_* as read source, BQ reconcile, dashboard-parity-with-BigQuery thinking. Control Tower reads Postgres/projection only.
 
-## 9. Blocked on input (not code)
-- Vaccine schedule **values** to seed `protocol_rules` (PHC vet protocol / legacy Slack `Vaccines.config`).
-- Canonical vaccine roster (resolve naming drift: Enterotox/Enterotoxaemia, Deworm/Dewormer).
-- K2 age band 42 vs 45 — and make it config on `animal_stage_lookup` (the stage bands), referenced by `shed_profiles.animal_stage_id`.
+## 9. Source-derived local/dev baseline and later inputs
+- Local/dev schedule baseline: `Enterotoxaemia` / ET, K1, day 21, 0.5 ml, 7d
+  window, +14d booster clue, sourced from the PRD example and recorded in
+  `context/source-findings/phc-vaccination-roster-stage-proposal.md`.
+- Local/dev stage baseline: K0 max 1d, K1 max 7d, K2 max 42d, K3 from day 43;
+  seed/read this from `animal_stage_lookup`.
+- Later production expansion: add PPR/FMD/HS/BQ schedule-bearing rows only when
+  source extracts provide timing/dose/booster values. These are roster/SOP labels
+  today, not blockers for local/dev or E2E.

@@ -89,7 +89,15 @@ Shift (re-target + re-eval same vaccine), death/sale (cancel pending in same txn
 ## 6. Success metrics
 Coverage % within window (per vaccine/park) · on-time drive rate · stock integrity (zero negative, zero expired-lot use) · **zero ghost-overdue** (dead/sold never overdue) · engine latency (obligation generated promptly after goat CRUD).
 
-## 7. Open questions (need PHC/vet input — not schema)
-1. **Schedule values** — vaccine × age × interval roster to seed `protocol_rules` is **not** in the wiki (structure only). Need PHC protocol (legacy Slack `Vaccines.config`).
-2. **K2 age band** — 45 (mock) vs 42 (SOP). Reconcile; make it config on `shed_profiles`.
-3. **Vaccine naming drift** — canonical roster (Enterotox/Enterotoxaemia, Deworm/Dewormer).
+## 7. Source-derived baseline and remaining production inputs
+1. **Local/dev schedule baseline selected** — use the source-derived ET row from
+   §4.1 (`Enterotoxaemia`, K1, day 21, 0.5 ml, 7d window, +14d booster clue) for
+   local/dev protocol proof; see
+   `context/source-findings/phc-vaccination-roster-stage-proposal.md`.
+2. **K2 age band** — use 42 days / six weeks for local/dev because the wiki,
+   glossary, and legacy identity seed agree; the legacy dashboard's 45 is mock
+   drift. Keep it data-driven on `animal_stage_lookup`.
+3. **Production roster expansion** — PPR/FMD/HS/BQ are valid SOP/roster labels
+   from source artifacts, but only ET has schedule/dose evidence in committed
+   PRD text today. Add more schedule-bearing protocol rows when source extracts
+   provide timing/dose/booster values.

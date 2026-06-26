@@ -61,7 +61,7 @@ the live sidebar until the product scope is explicitly widened.
 | Source Entry data | Mock shows supplier-specific holding farms and vaccine names like PPR / Enterotox | `desktop-procurement-source-entry.png` | Local proof data has four real loads and one trusted HF evidence row. Holding-farm label is whatever local source-location data contains; current local seed has `Trigger Gate Farm` rather than mock supplier-specific HF names. | data gap, not faked | No cosmetic seed labels invented in UI. Needs source-location seed/master data cleanup for final labels. |
 | Load Detail `/procurement/source-entry/loads/:id` | Mock right-side source/load action drawer and evidence actions | `desktop-procurement-load-detail.png` | Detail page no longer crashes on nullable backend arrays. HF evidence import/review forms are real, labeled, and submit to backend actions. | fix now | `apps/admin-web/features/procurement/load-detail.tsx`, `load-forms.tsx`, `actions.ts`, `apps/admin-web/lib/api/procurement*.ts`. |
 | Goat Passport `/goats/:id` | Mock contextual passport side panel | `desktop-goat-passport.png` | Contextual passport drilldown opens from table/goat links and keeps mock drawer styling. No global Goat Passport search was added because current scope forbids it. | fix now + intentional scope limit | Herd table links changed; shell nav keeps Goat Passport out of global nav. |
-| Config `/config?category=vaccination` | Mock Admin/Data Ops support surface | `config-b3/desktop-config.png`, `config-b3/narrow-config.png` (2026-06-26) | Protocol-rules table now lists REAL backend versions via `GET /protocols?category=…` (B3): live render shows `Demo PHC Vaccination` (Draft · not source-backed) and `Trigger Gate PHC Vaccination` (Published, 1 rule, park scope, linked SOP). Header count, status chips, scope tag, effective date, linked SOP, rule count are backend truth; amber left-border on non-published rows. No error band, no empty state. Empty state and a failed-read error band are both wired. | fix now (real-read) | `apps/admin-web/features/config/protocol-rules-page.tsx` (async, maps `ProtocolConfigItem`→`ConfigRuleRow`, error band), `apps/admin-web/lib/api/server.ts` (`listProtocolConfigs`); backend `internal/protocol` list endpoint + app-api contract + regenerated client. Publish stays gated; no fake rows. |
+| Config `/config?category=vaccination` | Mock Admin/Data Ops support surface | `config-b3/desktop-config.png`, `config-b3/narrow-config.png` (2026-06-26) | Protocol-rules table now lists REAL backend versions via `GET /protocols?category=…` (B3): local/dev render shows `Demo PHC Vaccination` (Draft · not source-backed) and `Enterotoxaemia K1 Primary` (Published, 1 rule, park scope, linked SOP) after the source-derived seed is refreshed. Header count, status chips, scope tag, effective date, linked SOP, rule count are backend truth; amber left-border on non-published rows. No error band, no empty state. Empty state and a failed-read error band are both wired. | fix now (real-read) | `apps/admin-web/features/config/protocol-rules-page.tsx` (async, maps `ProtocolConfigItem`→`ConfigRuleRow`, error band), `apps/admin-web/lib/api/server.ts` (`listProtocolConfigs`); backend `internal/protocol` list endpoint + app-api contract + regenerated client. Publish stays gated; no fake rows. |
 | SOP Library `/sops` | Mock SOP support surface | `desktop-sops.png` | Route remains vaccination-scope aligned; not broadened into generic SOP library. | intentional scope limit | Existing route preserved; visible scope stays vaccination-only. |
 | Audit Log `/operations/audit` | Mock Admin/Data Ops audit surface | `desktop-operations-audit.png` | Audit Log appears under Admin/Data Ops, not as a random hidden route; shared shell matches. | fix now | `apps/admin-web/components/mesha-shell.tsx`, `apps/admin-web/features/operations-audit/audit-log.tsx`. |
 
@@ -71,8 +71,8 @@ the live sidebar until the product scope is explicitly widened.
   business totals.
 - Some herd rows still show blank health, breeding, or WT values when the real
   source events do not contain those fields.
-- The local vaccination protocol catalog only has the currently published local
-  rule set; dose-specific mock labels such as PPR/Enterotox/CCPP should come
+- The local vaccination protocol catalog has the source-derived ET/K1/day-21
+  rule set; additional dose-specific labels such as PPR/FMD/HS/BQ should come
   from protocol seed/catalog work, not hardcoded UI text.
 - Vaccination rows that show owner or assignment gaps are exposing real missing
   local assignment data.
@@ -277,9 +277,10 @@ footer route-out Links.
 ## 2026-06-26 (pass 3) — backend-driven matrix columns + id contract + close-out
 
 CLOSED (proven):
-- **6 vaccine columns from backend/config, not hardcoded UI.** Seeded PPR/FMD/
-  Enterotox/Deworm/CCPP (TEST-ONLY) via the real config API (define→version+rules→
-  publish), then generated obligations via the real `GenerationService`
+- **Vaccine columns from backend/config, not hardcoded UI.** Earlier pass seeded
+  multi-protocol test catalog rows via the real config API
+  (define→version+rules→publish), then generated obligations via the real
+  `GenerationService`
   (`backend/cmd/generate-vaccination-obligations` — new CLI mirroring
   obligation-sweeper; there was no committed GenerateForVersion trigger) + swept.
   Proof: `GET /vaccination/operations` → `protocols.length == 6`, 6 cells/cohort,

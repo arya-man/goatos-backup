@@ -51,8 +51,9 @@ not create a second supplier-warmup action surface.
   Source Entry status chips.
 - Media upload/capture is not part of the current admin-web slice. Proof refs
   can be entered; the upload affordance is disabled with an explicit reason.
-- Final vaccine roster/schedule values remain source-gated by PHC/vet approval;
-  they must not be invented in UI seed data.
+- Local/dev vaccine baseline is source-derived, not invented: ET/K1/day-21 with
+  K2=42. PPR/FMD/HS/BQ remain SOP/roster labels until a source extract supplies
+  timing/dose/booster values.
 
 ## Validation
 

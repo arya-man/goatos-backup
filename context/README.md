@@ -89,6 +89,9 @@ Vaccination pre-E2E readiness audit
 Vaccination trigger closure parallel handoff
   context/execution/vaccination-trigger-closure-parallel-handoff.md
 
+Vaccination roster expansion follow-up
+  context/execution/vaccination-roster-expansion-followup.md
+
 Two-developer build plan
   context/execution/two-dev-build-plan.md
 

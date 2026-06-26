@@ -132,8 +132,8 @@ Still pending after the P0 render bug is fixed:
      table anatomy.
    - Do not confuse sample-data density with UI closure. Missing PPR/FMD/
      Enterotox/Deworm/CCPP columns, rich sample cohorts, and historical dose
-     dates are roster/source-data gaps unless backed by approved PHC/vet source
-     config. Toolbar/filter/pager/density/action-label gaps are UI work and must
+     dates are roster/source-data gaps unless backed by the source-derived
+     baseline or later PHC/vet source config. Toolbar/filter/pager/density/action-label gaps are UI work and must
      be fixed.
 
 3. Action labels and drawer context

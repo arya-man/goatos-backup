@@ -155,8 +155,10 @@ Current corrected status:
 Closing the remaining NON-E2E / NON-Google / NON-prod vaccination items honestly.
 "Local/code closure" = local code, contracts, Config UI, publish gate, SOP
 binding, proof-policy validation, docs, and gates are honest and green.
-"Production-real protocol content" = roster/K1/K2/dose/booster/naming approved by
-a named Mesha human authority — this is OUT of code scope and tracked separately.
+"Source-derived dev baseline" = existing wiki/PRD/SOP/legacy evidence has been
+turned into local/dev config choices: ET K1 day-21 as the schedule-bearing row,
+K2=42, and PPR/FMD/HS/BQ as `label-only closed` unless a roster-expansion pass
+promotes one to `schedule-backed`.
 
 Done in this pass:
 
@@ -222,9 +224,11 @@ Done in this pass:
   `schedule[].sop_label` is display-only, and a genuine per-dose executable
   override uses `protocol_rules.sop_version_id` (a real UUID) — the real backend
   capability is preserved, not erased.
-- **PHC roster + K1/K2 (source proposal CLOSED; content approval still WAITING).**
-  See `context/source-findings/phc-vaccination-roster-stage-proposal.md`. This
-  closes the engineering research/proposal item only.
+- **PHC roster + K1/K2 (source-derived dev baseline CLOSED).** See
+  `context/source-findings/phc-vaccination-roster-stage-proposal.md`: K2=42 wins
+  over the legacy mock 45 for local/dev; ET/K1/day-21 is the schedule-bearing
+  row; PPR/FMD/HS/BQ are `label-only closed` unless promoted to
+  `schedule-backed` by the roster-expansion follow-up.
 - **Test coverage (backend CLOSED; frontend gated out honestly).** The publish
   execution-contract gate (`publish_test.go`) and the new
   `GET /protocols/animal-stages` endpoint (`handler_test.go`, incl. the empty-list
@@ -244,10 +248,10 @@ Remaining pending items classified:
 | `as_of` residuals (point-in-time obligation status reconstruction) | **Out of current local/code closure.** Current code does not overclaim: `as_of`/`asOf` is a point-in-time read param threaded into the projection reads (`features/control-tower`, `workflows-landing`, `protocol-adherence`); the top-bar as-of selector is point-in-time only and range choices are disabled (Click Matrix → Top bar). The deeper effective-status reconstruction work is tracked in memory `goatos-phase1-asof-correctness` and is NOT a publish/proof-gate blocker. | `apps/admin-web/features/control-tower/index.tsx:55`; `features/process-integrity/workflows-landing.tsx:95`; `context/execution/vaccination-pre-e2e-readiness-audit.md` Click Matrix |
 | Source Entry search / media-capture limits | **Out of current local/code closure.** Visible UI does not overclaim — media upload and advanced search are disabled-with-reason, documented in `context/frontend/supplier-warmup-vaccination-gaps.md`. Disabled-with-reason is acceptable for this slice. | `context/frontend/supplier-warmup-vaccination-gaps.md`; readiness audit B8 (CLOSED) |
 | SOP taxonomy / category-filter API gap | **Out of current local/code closure — future scale/API cleanup.** The Config SOP picker shows only real published SOP versions (`active_sop_version_id`); the `/vaccination` and `/sops` quick-views use `listSops({ limit: 200 })` + client-side vaccination filtering (`apps/admin-web/app/(admin)/sops/page.tsx:14`, `features/phc-vaccination/operations.tsx:19`). It cannot fake SOPs, but a tenant with >200 SOPs could under-show. Tracked as a category/code-filter or named-binding follow-up in the trigger-closure handoff backlog; not a publish-path blocker. | `apps/admin-web/app/(admin)/sops/page.tsx:14`; `features/phc-vaccination/operations.tsx:19`; `context/execution/vaccination-trigger-closure-parallel-handoff.md` (SOP quick-view backlog) |
-| PHC/vaccine roster + K1/K2/stage values | **Source proposal CLOSED; production content approval WAITING on named human owner.** Engineering research item closed via `context/source-findings/phc-vaccination-roster-stage-proposal.md`. Final roster/stage-band/dose/booster/naming approval is a PHC Director / vet / COO decision, not code. | `context/source-findings/phc-vaccination-roster-stage-proposal.md`; `docs/phc-vaccination/TRD.md:64,:145` |
+| PHC/vaccine roster + K1/K2/stage values | **Source-derived dev baseline CLOSED.** K2=42 is selected from wiki/glossary/legacy seed, ET/K1/day-21 is selected from the PRD, and PPR/FMD/HS/BQ are `label-only closed` unless a roster-expansion pass promotes one to `schedule-backed`. Later production expansion is normal source-backed versioning, not a local/code blocker. | `context/source-findings/phc-vaccination-roster-stage-proposal.md`; `docs/phc-vaccination/TRD.md:64,:145` |
 
 No vague "pending" items remain: each is fixed, classified out-of-scope with a
-path, or explicitly waiting on a named human owner.
+path, or moved to later source-backed versioning/provisioning.
 
 ## Click Matrix
 
@@ -399,10 +403,10 @@ Missing before E2E:
   the Config table through the generated client; after save/publish the page
   shows real draft/published/retired rows with source-review state, not a blanket
   "No protocol rules yet." See B3 (CLOSED).
-- Still pending: seed or author a source-backed, approved vaccination protocol
-  that can publish and generate obligations. The Config screen will display it
-  the moment it exists; the blocker is the source-backed rule values (PHC/vet
-  roster), not the UI.
+- DONE: the local/dev source-derived ET protocol can publish and generate
+  obligations. The Config screen displays it through the real list endpoint; more
+  PPR/FMD/HS/BQ are either `label-only closed` or later source-backed versioning,
+  not a UI blocker.
 
 ### `/sops`
 
@@ -450,8 +454,8 @@ Missing before E2E:
 > `docs/runbooks/vaccination-local-business-chain.md` and the repeatable
 > `tools/dev/vaccination-chain-proof.sh`. The default entry path used was Herd
 > Register `POST /admin/goats`; the accepted-intake variant remains an alternate
-> entry (B1 note below). Remaining is source-backed PHC/vet roster content and
-> Google/prod provisioning.
+> entry (B1 note below). Remaining outside E2E is Google/prod provisioning and
+> optional production roster expansion beyond the local/dev ET baseline.
 
 ### B1. Accepted Intake Trigger — generation path proven via Herd Register entry
 
@@ -614,14 +618,14 @@ Closed in this pass:
   (200, default category=vaccination, item shape, category passthrough).
 - Live SSR proof on `127.0.0.1:3300/config?category=vaccination`: real rows
   rendered — `Demo PHC Vaccination` (Draft · not source-backed) and
-  `Trigger Gate PHC Vaccination` (Published, 1 rule, park scope, linked SOP) —
+  `Enterotoxaemia K1 Primary` (Published, 1 rule, park scope, linked SOP) —
   no error band, no empty state. Screenshots:
   `.codex-goatos-render/admin-web-screenshots/config-b3/{desktop,narrow}-config.png`.
 
-Still source-gated (not a code gap): authoring/seeding a source-backed, approved
-vaccination protocol that can actually publish and generate obligations remains
-blocked on the PHC/vet roster (see Data/Master limits). The list/read path is
-done; the publishable *content* is the remaining business blocker.
+Source-derived local/dev content is no longer a blocker: the seeded
+ET/K1/day-21 protocol is source-backed enough for local/dev and can publish and
+generate obligations. PPR/FMD/HS/BQ are `label-only closed` unless the
+roster-expansion follow-up promotes one to a source-backed schedule version.
 
 ### B4. SOP/Proof Execution Loop Is Not Click-Complete
 
@@ -695,8 +699,8 @@ captured live, see `docs/runbooks/vaccination-local-business-chain.md`):
 
 - Backend route smoke passes for all vaccination routes.
 - Config can list the source-backed published protocol. (Endpoint DONE
-  2026-06-26 — `GET /protocols?category=…`; satisfied for the seeded *test*
-  trigger; a real source-backed PHC/vet roster is the remaining business item.)
+  2026-06-26 — `GET /protocols?category=…`; satisfied for the seeded
+  source-derived ET dev baseline.)
 - SOP Library can list the published vaccination SOP. (Published SOP `b0..0002`
   exists and is linked from the trigger rule.)
 - DONE: clean-goat entry generates a vaccination obligation (Herd Register

@@ -110,58 +110,65 @@ SET usable_for_vaccination = true,
     is_icu = false,
     updated_at = now();
 
-INSERT INTO inventory_items (
-  item_id, tenant_id, item_code, name, category, base_unit, status, context
-) VALUES (
-  '` + localItemID + `', $1::uuid, 'VAC-TRIGGER-PHC', 'Trigger Gate PHC Vaccine', 'vaccine', 'dose', 'active',
-  '{"seed":"vaccination-trigger"}'::jsonb
-)
-ON CONFLICT (tenant_id, item_code) DO UPDATE
-SET name = EXCLUDED.name,
-    status = 'active',
-    updated_at = now();
+	INSERT INTO inventory_items (
+	  item_id, tenant_id, item_code, name, category, base_unit, status, context
+	) VALUES (
+	  '` + localItemID + `', $1::uuid, 'VAC-ET-PHC', 'Enterotoxaemia Vaccine', 'vaccine', 'dose', 'active',
+	  '{"seed":"vaccination-source-derived-dev-baseline","source_ref":"context/source-findings/phc-vaccination-roster-stage-proposal.md"}'::jsonb
+	)
+	ON CONFLICT (item_id) DO UPDATE
+	SET item_code = EXCLUDED.item_code,
+	    name = EXCLUDED.name,
+	    status = 'active',
+	    context = EXCLUDED.context,
+	    updated_at = now();
 
-INSERT INTO vaccines (tenant_id, item_id, disease, manufacturer, doses_per_vial, withdrawal_days, context)
-VALUES ($1::uuid, '` + localItemID + `', 'PHC trigger readiness', 'Mesha local seed', 10, 0, '{"seed":"vaccination-trigger"}'::jsonb)
-ON CONFLICT (tenant_id, item_id) DO UPDATE
-SET disease = EXCLUDED.disease,
-    updated_at = now();
+	INSERT INTO vaccines (tenant_id, item_id, disease, manufacturer, doses_per_vial, withdrawal_days, context)
+	VALUES ($1::uuid, '` + localItemID + `', 'Enterotoxaemia', 'Mesha source-derived dev baseline', 10, 0, '{"seed":"vaccination-source-derived-dev-baseline","source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb)
+	ON CONFLICT (tenant_id, item_id) DO UPDATE
+	SET disease = EXCLUDED.disease,
+	    manufacturer = EXCLUDED.manufacturer,
+	    context = EXCLUDED.context,
+	    updated_at = now();
 
 INSERT INTO inventory_stock (
   stock_id, tenant_id, item_id, location_id, lot_code, expiry_date,
   quantity_in_stock, quantity_reserved, quantity_unit, status
-) VALUES (
-  '` + localStockID + `', $1::uuid, '` + localItemID + `', '` + localParkID + `', 'TRIG-LOT-001',
-  DATE '2027-12-31', 1000, 0, 'dose', 'active'
-)
-ON CONFLICT (stock_id) DO UPDATE
-SET quantity_in_stock = GREATEST(inventory_stock.quantity_in_stock, 1000),
-    status = 'active',
-    updated_at = now();
+	) VALUES (
+	  '` + localStockID + `', $1::uuid, '` + localItemID + `', '` + localParkID + `', 'ET-LOT-001',
+	  DATE '2027-12-31', 1000, 0, 'dose', 'active'
+	)
+	ON CONFLICT (stock_id) DO UPDATE
+	SET lot_code = EXCLUDED.lot_code,
+	    quantity_in_stock = GREATEST(inventory_stock.quantity_in_stock, 1000),
+	    status = 'active',
+	    updated_at = now();
 
 INSERT INTO protocol_definitions (
-  protocol_id, tenant_id, code, name, category, status
-) VALUES (
-  '` + localProtocolID + `', $1::uuid, 'vaccination.trigger_gate_phc', 'Trigger Gate PHC Vaccination', 'vaccination', 'active'
-)
-ON CONFLICT (tenant_id, code) DO UPDATE
-SET name = EXCLUDED.name,
-    status = 'active',
-    updated_at = now();
+	  protocol_id, tenant_id, code, name, category, status
+	) VALUES (
+	  '` + localProtocolID + `', $1::uuid, 'vaccination.enterotoxaemia_k1_primary', 'Enterotoxaemia K1 Primary', 'vaccination', 'active'
+	)
+	ON CONFLICT (protocol_id) DO UPDATE
+	SET code = EXCLUDED.code,
+	    name = EXCLUDED.name,
+	    status = 'active',
+	    updated_at = now();
 
 INSERT INTO protocol_versions (
   protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
   version_label, status, effective_from, effective_to, rule_dsl, proof_policy,
   sop_version_id, published_at
-) VALUES (
-  '` + localVersionID + `', $1::uuid, '` + localProtocolID + `', 'park', '` + localParkID + `', 1,
-  'Local trigger gate', 'published', DATE '2026-01-01', DATE '2028-01-01',
-  '{"eligibility":{"stage":"all","sex":"all","breed":"all","defer_states":["sick","quarantine","icu"]}}'::jsonb,
-  '{"proof_required":true,"seed":"vaccination-trigger"}'::jsonb,
-  '` + localSOPVersionID + `', now()
-)
+	) VALUES (
+	  '` + localVersionID + `', $1::uuid, '` + localProtocolID + `', 'park', '` + localParkID + `', 1,
+	  'Source-derived dev baseline', 'published', DATE '2026-01-01', DATE '2028-01-01',
+	  '{"eligibility":{"stage":"K1","sex":"all","breed":"all","defer_states":["sick","quarantine","icu"]},"schedule":[{"dose_code":"ET-PRIMARY-1","trigger_type":"birth_age","offset_days":21,"due_window_days":7,"min_gap_days":14,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}],"source":{"source_system":"phc","source_ref":"docs/phc-vaccination/PRD.md:60; context/source-findings/phc-vaccination-roster-stage-proposal.md","imported_at":"2026-06-26T00:00:00Z","reviewed_by":"source-findings","review_status":"approved","approved_by":"source-derived-dev-baseline","approved_at":"2026-06-26T00:00:00Z"}}'::jsonb,
+	  '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-source-derived-dev-baseline"}'::jsonb,
+	  '` + localSOPVersionID + `', now()
+	)
 ON CONFLICT (protocol_version_id) DO UPDATE
 SET status = 'published',
+    version_label = EXCLUDED.version_label,
     effective_from = EXCLUDED.effective_from,
     effective_to = EXCLUDED.effective_to,
     rule_dsl = EXCLUDED.rule_dsl,
@@ -174,16 +181,22 @@ INSERT INTO protocol_rules (
   rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
   offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
   sop_version_id, proof_policy, sort_order
-) VALUES (
-  '` + localRuleID + `', $1::uuid, '` + localVersionID + `', 'PHC-INTAKE-0', 1, 'post_arrival',
-  0, 14, 0, 'none', 'immediate', '{}'::jsonb,
-  '` + localSOPVersionID + `', '{"proof_required":true}'::jsonb, 10
-)
-ON CONFLICT (tenant_id, protocol_version_id, dose_code) DO UPDATE
-SET trigger_type = EXCLUDED.trigger_type,
-    offset_days = EXCLUDED.offset_days,
-    due_window_days = EXCLUDED.due_window_days,
-    catch_up = EXCLUDED.catch_up,
-    sop_version_id = EXCLUDED.sop_version_id,
-    proof_policy = EXCLUDED.proof_policy;
-`
+	) VALUES (
+	  '` + localRuleID + `', $1::uuid, '` + localVersionID + `', 'ET-PRIMARY-1', 1, 'birth_age',
+	  21, 7, 14, 'none', 'immediate', '{"stage":"K1","source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb,
+	  '` + localSOPVersionID + `', '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
+	)
+	ON CONFLICT (rule_id) DO UPDATE
+	SET dose_code = EXCLUDED.dose_code,
+	    "sequence" = EXCLUDED."sequence",
+	    trigger_type = EXCLUDED.trigger_type,
+	    offset_days = EXCLUDED.offset_days,
+	    due_window_days = EXCLUDED.due_window_days,
+	    min_gap_days = EXCLUDED.min_gap_days,
+	    repeat = EXCLUDED.repeat,
+	    catch_up = EXCLUDED.catch_up,
+	    eligibility_json = EXCLUDED.eligibility_json,
+	    sop_version_id = EXCLUDED.sop_version_id,
+	    proof_policy = EXCLUDED.proof_policy,
+	    sort_order = EXCLUDED.sort_order;
+	`
