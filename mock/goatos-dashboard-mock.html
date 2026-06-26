@@ -2085,13 +2085,18 @@ function go(screen,sub,_mode){var _R=(typeof ROLES!=='undefined'&&typeof CUR_ROL
   if(_mode!=='back'){
     if(NAV_CUR&&(NAV_CUR.screen!==_tgt.screen||NAV_CUR.sub!==_tgt.sub)){
       NAV_STACK.push(NAV_CUR);if(NAV_STACK.length>24)NAV_STACK.shift();
-      try{history.pushState({nb:NAV_STACK.length},'');}catch(e){}
+      try{history.pushState({nb:1,screen:_tgt.screen,sub:_tgt.sub,d:NAV_STACK.length},'');}catch(e){}
     }
   }
   NAV_CUR=_tgt;renderNavBack();
 }
-/* ===== in-app navigation back-stack + breadcrumb ===== */
-var NAV_CUR=null,NAV_STACK=[];
+/* ===== in-app navigation back-stack + breadcrumb =====
+   Each forward nav pushes the view we're leaving onto NAV_STACK and a browser
+   history state carrying {screen,sub,d=stack-depth-behind}. Back/jump uses
+   history navigation; popstate reconciles the stack to the landed depth so the
+   in-app Back button, the breadcrumb crumbs, and the browser Back button all
+   agree. history.go(-n) fires a SINGLE popstate, so depth must come from state. */
+var NAV_CUR=null,NAV_STACK=[],NAV_HOME=null;
 function navLabelFor(screen,sub){
   var el=null;
   if(sub)el=document.querySelector('.leaf[data-go="'+screen+'"][data-sub="'+sub+'"]');
