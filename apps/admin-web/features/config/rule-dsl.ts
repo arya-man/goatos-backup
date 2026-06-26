@@ -52,6 +52,10 @@ export interface RuleInput {
   name: string;
   scope: string;
   effectiveFrom: string;
+  // sopVersionId is a REAL published SOP version UUID (selected from the SOP Library), bound at the
+  // protocol-version level. Backend publish (publish.go ValidateExecutionContract) requires it; an empty
+  // value keeps the version a draft that cannot publish.
+  sopVersionId: string;
   eligibility: Eligibility;
   vaccineLotPolicy: string;
   missedDosePolicy: string;
@@ -59,6 +63,12 @@ export interface RuleInput {
   source: SourceMeta;
   doses: DoseRow[];
   feed: FeedFields;
+}
+
+// A published SOP version the author can bind to a protocol version (real UUID + display label).
+export interface SopVersionOption {
+  id: string;
+  label: string;
 }
 
 export interface ProtocolRuleDraft {
@@ -76,7 +86,11 @@ export interface ProtocolRuleDraft {
 }
 
 // ---- option vocab (mirrors mock New-draft-rule modal + obligation-engine config contract) ----
-export const CATEGORIES = ["vaccination", "feed_direction", "deworming", "biosecurity", "sanitation", "water_testing"];
+// Only categories with a real DSL builder + backend support are exposed. vaccination is the live slice;
+// feed_direction is authorable (category/schema-driven editor) but not publishable yet (see backend
+// publishableSources). deworming/biosecurity/etc. are unbuilt and must not be shown as live
+// (context/frontend/current-admin-web-scope.md).
+export const CATEGORIES = ["vaccination", "feed_direction"];
 export const SCOPES = ["tenant", "park:CBE", "park:CPT"];
 export const STAGES = ["K0", "K1", "K2", "K3", "F2", "mother", "pregnant", "all"];
 export const SEXES = ["all", "female", "male"];
@@ -117,7 +131,13 @@ export const FEED_INVENTORY_POLICIES = [
 export const NEXT_DUE_BASIS = "last_accepted_completion_else_dob";
 export const STAGE_SOURCE = "shed_profiles.animal_stage_id -> animal_stage_lookup";
 
+// SOURCE_BACKED: sources that count as authored-from-a-real-source (not manual_admin). PUBLISHABLE_SOURCES
+// is the stricter set the BACKEND will actually publish (backend/internal/protocol/app/publish.go
+// publishableSources) — vaccination protocol sources only. Feed/nutrition sources are source-backed for
+// authoring but cannot publish yet; the client gate must mirror the backend so it never claims a draft is
+// publishable when publish would 422.
 const SOURCE_BACKED = ["vaccinations_db", "phc", "vet", "feed_master", "nutritionist", "ops_source"];
+const PUBLISHABLE_SOURCES = ["vaccinations_db", "phc", "vet"];
 
 export function newDose(seq: number): DoseRow {
   return {
@@ -256,6 +276,17 @@ export function buildRuleDsl(input: RuleInput): Record<string, unknown> {
   return vaccinationDsl(input);
 }
 
+// buildProofPolicy derives the version-level proof_policy object from the authored proof tokens. Backend
+// publish requires a NON-EMPTY proof_policy object; this carries the real authored proof requirement
+// (per-dose proof for vaccination, packing+execution for feed) rather than an empty {}.
+export function buildProofPolicy(input: RuleInput): Record<string, unknown> {
+  const tokens =
+    input.category === "feed_direction"
+      ? [...csvToArr(input.feed.packingProofCsv), ...csvToArr(input.feed.executionProofCsv)]
+      : input.doses.flatMap((d) => csvToArr(d.proofCsv));
+  return { required_proofs: Array.from(new Set(tokens)) };
+}
+
 export function buildProtocolRuleRows(input: RuleInput): ProtocolRuleDraft[] {
   if (input.category === "feed_direction") {
     const proofPolicy = [...csvToArr(input.feed.packingProofCsv), ...csvToArr(input.feed.executionProofCsv)];
@@ -305,16 +336,23 @@ export function sourceBadge(source: SourceMeta): SourceBadge {
     manual_admin: "manual admin",
   };
   const sourced = SOURCE_BACKED.includes(source.sourceSystem);
+  const publishable = PUBLISHABLE_SOURCES.includes(source.sourceSystem);
   if (!sourced) return { text: "Draft - not source-backed - cannot publish", tone: "warn" };
+  if (!publishable) {
+    return { text: `Draft - ${labels[source.sourceSystem]} - not a publishable source (vaccinations_db/phc/vet only)`, tone: "warn" };
+  }
   if (source.reviewStatus === "approved" && source.sourceRef && source.approvedBy) {
     return { text: `Approved - publishable - ${labels[source.sourceSystem]}`, tone: "ok" };
   }
   return { text: `Draft - source-backed - pending approval${source.sourceRef ? "" : " - source_ref required"}`, tone: "info" };
 }
 
+// validatePublish mirrors the backend source-backed gate (publish.go ValidatePublishable). The source
+// system must be one the backend will publish (vaccinations_db/phc/vet); feed/nutrition sources are
+// authorable but not publishable, so the client rejects them up front instead of letting publish 422.
 export function validatePublish(source: SourceMeta): { ok: boolean; message?: string } {
-  if (!SOURCE_BACKED.includes(source.sourceSystem)) {
-    return { ok: false, message: "Publish blocked - source_system must be source-backed (manual admin cannot publish)" };
+  if (!PUBLISHABLE_SOURCES.includes(source.sourceSystem)) {
+    return { ok: false, message: "Publish blocked - source_system must be vaccinations_db, phc, or vet" };
   }
   if (!source.sourceRef) return { ok: false, message: "Publish blocked - source_ref required" };
   if (source.reviewStatus !== "approved") return { ok: false, message: "Publish blocked - review_status must be approved" };

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { AlertTriangle, Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
-import { CATEGORIES } from "./rule-dsl";
-import { listProtocolConfigs, type ProtocolConfigItem } from "@/lib/api/server";
+import { CATEGORIES, type SopVersionOption } from "./rule-dsl";
+import { listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
@@ -72,6 +72,18 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
   const rules: ConfigRuleRow[] = res.ok ? res.data.items.map(toRuleRow) : [];
   const loadError = res.ok ? null : (res.error.message ?? "could not load protocol rules");
 
+  // Real published SOP versions the author can bind to a protocol version. An active SOP exposes its
+  // published version via active_sop_version_id; publish requires one (no hardcoded SOP labels).
+  const sopRes = await listSops({ status: "active" });
+  const sopVersions: SopVersionOption[] = sopRes.ok
+    ? sopRes.data.items
+        .filter((s) => s.status === "active" && !!s.active_sop_version_id)
+        .map((s) => ({
+          id: s.active_sop_version_id as string,
+          label: `${s.name || s.code} · ${(s.active_sop_version_id as string).slice(0, 8)}…`,
+        }))
+    : [];
+
   return (
     <div className="screen on">
       <div className="phead">
@@ -107,7 +119,7 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
         </div>
       ) : null}
 
-      <ConfigConsole rules={rules} initialCategory={initialCategory} />
+      <ConfigConsole rules={rules} initialCategory={initialCategory} sopVersions={sopVersions} />
 
       {/* How a published rule maps to live work */}
       <section className="card">

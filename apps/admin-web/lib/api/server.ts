@@ -464,7 +464,15 @@ export async function createProtocolDefinition(body: {
 
 export async function createProtocolVersion(
   protocolId: string,
-  body: { scope_type: string; scope_id?: string; version: number; effective_from: string; rule_dsl: unknown; proof_policy?: unknown },
+  body: {
+    scope_type: string;
+    scope_id?: string;
+    version: number;
+    effective_from: string;
+    rule_dsl: unknown;
+    proof_policy?: unknown;
+    sop_version_id?: string;
+  },
 ): Promise<ApiResult<{ protocol_version_id: string }>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;

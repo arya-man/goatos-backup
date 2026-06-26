@@ -31,6 +31,7 @@ import {
   type DoseRow,
   type FeedFields,
   type RuleInput,
+  type SopVersionOption,
   newFeedFields,
 } from "./rule-dsl";
 import type { ImpactPreviewResult } from "@/lib/api/server";
@@ -60,11 +61,13 @@ export function RuleEditorModal({
   open,
   onClose,
   initialCategory,
+  sopVersions = [],
   canPublish = true,
 }: {
   open: boolean;
   onClose: () => void;
   initialCategory: string;
+  sopVersions?: SopVersionOption[];
   canPublish?: boolean;
 }) {
   const [category, setCategory] = useState(initialCategory);
@@ -72,6 +75,7 @@ export function RuleEditorModal({
   const [name, setName] = useState("");
   const [scope, setScope] = useState("tenant");
   const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [sopVersionId, setSopVersionId] = useState("");
 
   const [stage, setStage] = useState("K1");
   const [sex, setSex] = useState("all");
@@ -108,6 +112,7 @@ export function RuleEditorModal({
       name,
       scope,
       effectiveFrom,
+      sopVersionId,
       eligibility: { stage, sex, breed, lifecycle, health, reproductive, deferStates, individualOverride },
       vaccineLotPolicy,
       missedDosePolicy,
@@ -117,7 +122,7 @@ export function RuleEditorModal({
       feed,
     }),
     [
-      category, code, name, scope, effectiveFrom, stage, sex, breed, lifecycle, health, reproductive,
+      category, code, name, scope, effectiveFrom, sopVersionId, stage, sex, breed, lifecycle, health, reproductive,
       deferStates, individualOverride, vaccineLotPolicy, missedDosePolicy, escalation, sourceSystem, sourceRef,
       reviewStatus, reviewedBy, approvedBy, doses, feed,
     ],
@@ -231,6 +236,27 @@ export function RuleEditorModal({
                 ))}
               </select>
               <input type="date" aria-label="Effective from" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+            </div>
+
+            <label>Executable SOP version (required to publish)</label>
+            <select
+              aria-label="Executable SOP version"
+              value={sopVersionId}
+              onChange={(e) => setSopVersionId(e.target.value)}
+              disabled={sopVersions.length === 0}
+            >
+              <option value="">
+                {sopVersions.length === 0 ? "no published SOP version — publish a SOP in the SOP Library first" : "select a published SOP version…"}
+              </option>
+              {sopVersions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <div className="muted small" style={{ marginTop: 4, lineHeight: 1.45 }}>
+              Binds the obligation/SOP-task execution form. Publish requires a real published SOP version + a
+              non-empty proof policy (derived from the proof tokens below).
             </div>
 
             {isFeedDirection ? (
@@ -632,9 +658,19 @@ export function RuleEditorModal({
             type="button"
             className="btn p"
             onClick={publish}
-            disabled={pending || !versionId || !canPublish || !publishGate.ok}
-            title={!canPublish ? "Only CEO/COO can publish" : !versionId ? "Save the draft first" : publishGate.ok ? "" : publishGate.message}
-            style={pending || !versionId || !canPublish || !publishGate.ok ? { opacity: 0.45 } : undefined}
+            disabled={pending || !versionId || !canPublish || !publishGate.ok || !sopVersionId}
+            title={
+              !canPublish
+                ? "Only CEO/COO can publish"
+                : !versionId
+                  ? "Save the draft first"
+                  : !sopVersionId
+                    ? "Select an executable SOP version before publishing"
+                    : publishGate.ok
+                      ? ""
+                      : publishGate.message
+            }
+            style={pending || !versionId || !canPublish || !publishGate.ok || !sopVersionId ? { opacity: 0.45 } : undefined}
           >
             {canPublish ? "Publish" : "Publish (CEO/COO)"}
           </button>

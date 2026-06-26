@@ -10,7 +10,7 @@ import {
   type ImpactPreviewInput,
   type ImpactPreviewResult,
 } from "@/lib/api/server";
-import { buildProtocolRuleRows, buildRuleDsl, parseScope, validatePublish, type RuleInput } from "./rule-dsl";
+import { buildProtocolRuleRows, buildProofPolicy, buildRuleDsl, parseScope, validatePublish, type RuleInput } from "./rule-dsl";
 
 export interface ActionResult {
   ok: boolean;
@@ -45,17 +45,23 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
 
   const ruleDsl = buildRuleDsl(input);
   const { type: scopeType, id: scopeId } = parseScope(input.scope);
+  // Version-level sop_version_id (real published SOP UUID) + non-empty proof_policy are required by the
+  // backend publish gate (publish.go ValidateExecutionContract). Passing them here lets an
+  // approved, source-backed draft actually publish instead of failing the execution-contract check.
   const version = await createProtocolVersion(def.data.protocol_id, {
     scope_type: scopeType,
     scope_id: scopeId ?? undefined,
     version: 1,
     effective_from: new Date(`${input.effectiveFrom || new Date().toISOString().slice(0, 10)}T00:00:00Z`).toISOString(),
     rule_dsl: ruleDsl,
-    proof_policy: {},
+    proof_policy: buildProofPolicy(input),
+    sop_version_id: input.sopVersionId || undefined,
   });
   if (!version.ok) return { ok: false, message: version.error.message ?? "create version failed", code: version.error.code };
 
   for (const d of protocolRows) {
+    // Note: AddProtocolRuleRequest has no sop_version field — the executable SOP is bound at the version
+    // level (sop_version_id above), not per rule row. The per-dose SOP label lives in rule_dsl only.
     const rule = await addProtocolRule(version.data.protocol_version_id, {
       dose_code: d.doseCode,
       sequence: d.sortOrder,
@@ -66,7 +72,6 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
       repeat: d.repeat,
       repeat_until_after_age: d.repeatUntilAfterAge,
       catch_up: d.catchUp,
-      sop_version: d.sopVersion,
       proof_policy: d.proofPolicy,
       eligibility_json: {},
       sort_order: d.sortOrder,

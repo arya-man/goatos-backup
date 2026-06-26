@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { RuleEditorModal } from "./rule-editor-modal";
+import type { SopVersionOption } from "./rule-dsl";
 
 export interface ConfigRuleRow {
   id: string;
@@ -26,10 +27,12 @@ const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok", mut: "t-mut" } 
 export function ConfigConsole({
   rules,
   initialCategory,
+  sopVersions = [],
   canPublish = true,
 }: {
   rules: ConfigRuleRow[];
   initialCategory: string;
+  sopVersions?: SopVersionOption[];
   canPublish?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -104,6 +107,7 @@ export function ConfigConsole({
         open={open}
         onClose={() => setOpen(false)}
         initialCategory={initialCategory}
+        sopVersions={sopVersions}
         canPublish={canPublish}
       />
     </>
