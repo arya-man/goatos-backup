@@ -2115,6 +2115,7 @@ function renderNavBack(){
 function navBack(){if(NAV_STACK.length)history.back();}
 function navJump(i){if(i<NAV_STACK.length)history.go(-(NAV_STACK.length-i));}
 window.addEventListener('popstate',function(){if(NAV_STACK.length){var t=NAV_STACK.pop();go(t.screen,t.sub,'back');}});
+(function navInit(){var s=document.querySelector('.screen.on');var scr=s?s.dataset.screen:'command';var sp=s?s.querySelector('.subpanel.on'):null;var sub=sp?sp.dataset.sub:null;NAV_CUR={screen:scr,sub:sub,label:navLabelFor(scr,sub)};})();
 function toggleNav(){
   if(window.innerWidth>860){document.querySelector('.layout').classList.toggle('rail');return;}
   const s=document.getElementById('side'),sc=document.getElementById('navscrim'),o=!s.classList.contains('open');s.classList.toggle('open',o);sc.classList.toggle('on',o);
