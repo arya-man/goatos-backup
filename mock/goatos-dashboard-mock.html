@@ -2099,8 +2099,8 @@ function navLabelFor(screen,sub){
   if(!el)el=document.querySelector('.nav[data-go="'+screen+'"]');
   if(!el)return screen;
   var c=el.cloneNode(true);
-  c.querySelectorAll('.cbq,.qc,.pill,.dot,svg').forEach(function(x){x.remove();});
-  var t=c.textContent.replace(/\s+/g,' ').trim();
+  c.querySelectorAll('.cbq,.qc,.lct,.pill,.dot,.tag,svg').forEach(function(x){x.remove();});
+  var t=c.textContent.replace(/\s+/g,' ').trim().replace(/\s*\d+$/,'');
   return t||screen;
 }
 function renderNavBack(){
