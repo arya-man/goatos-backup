@@ -347,6 +347,7 @@ func (r *Repository) ListConfigs(ctx context.Context, tenantID, category string)
 			SourceRef:         row.SourceRef,
 			ReviewStatus:      row.ReviewStatus,
 			ApprovedBy:        row.ApprovedBy,
+			ApprovedAt:        row.ApprovedAt,
 			RuleCount:         row.RuleCount,
 		}
 		if row.PublishedAt.Valid {

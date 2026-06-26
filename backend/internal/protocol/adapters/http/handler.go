@@ -180,6 +180,7 @@ type configItemResponse struct {
 	SourceRef         string     `json:"source_ref"`
 	ReviewStatus      string     `json:"review_status"`
 	ApprovedBy        string     `json:"approved_by"`
+	ApprovedAt        string     `json:"approved_at"`
 	RuleCount         int32      `json:"rule_count"`
 }
 
@@ -211,7 +212,8 @@ func (h *Handler) ListConfigs(w http.ResponseWriter, r *http.Request) {
 			SopVersionID: it.SopVersionID, PublishedBy: it.PublishedBy,
 			PublishedAt: it.PublishedAt, UpdatedAt: it.UpdatedAt,
 			SourceSystem: it.SourceSystem, SourceRef: it.SourceRef,
-			ReviewStatus: it.ReviewStatus, ApprovedBy: it.ApprovedBy, RuleCount: it.RuleCount,
+			ReviewStatus: it.ReviewStatus, ApprovedBy: it.ApprovedBy,
+			ApprovedAt: it.ApprovedAt, RuleCount: it.RuleCount,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)

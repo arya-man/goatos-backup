@@ -15,32 +15,42 @@ func TestValidatePublishable(t *testing.T) {
 	}{
 		{
 			name:    "source-backed approved is publishable",
-			dsl:     `{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja"}}`,
+			dsl:     `{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"}}`,
 			wantErr: false,
 		},
 		{
 			name:    "phc source approved is publishable",
-			dsl:     `{"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`,
+			dsl:     `{"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer","approved_at":"2026-06-26T00:00:00Z"}}`,
 			wantErr: false,
 		},
 		{
 			name:    "manual_admin is not publishable",
-			dsl:     `{"source":{"source_system":"manual_admin","source_ref":"x","review_status":"approved","approved_by":"x"}}`,
+			dsl:     `{"source":{"source_system":"manual_admin","source_ref":"x","review_status":"approved","approved_by":"x","approved_at":"2026-06-26T00:00:00Z"}}`,
 			wantErr: true,
 		},
 		{
 			name:    "missing source_ref is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"","review_status":"approved","approved_by":"x"}}`,
+			dsl:     `{"source":{"source_system":"vet","source_ref":"","review_status":"approved","approved_by":"x","approved_at":"2026-06-26T00:00:00Z"}}`,
 			wantErr: true,
 		},
 		{
 			name:    "not approved is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"reviewed","approved_by":"x"}}`,
+			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"reviewed","approved_by":"x","approved_at":"2026-06-26T00:00:00Z"}}`,
 			wantErr: true,
 		},
 		{
 			name:    "missing approved_by is not publishable",
-			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"approved","approved_by":""}}`,
+			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"approved","approved_by":"","approved_at":"2026-06-26T00:00:00Z"}}`,
+			wantErr: true,
+		},
+		{
+			name:    "missing approved_at is not publishable",
+			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"approved","approved_by":"x","approved_at":""}}`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid approved_at is not publishable",
+			dsl:     `{"source":{"source_system":"vet","source_ref":"ref","review_status":"approved","approved_by":"x","approved_at":"on approve"}}`,
 			wantErr: true,
 		},
 		{

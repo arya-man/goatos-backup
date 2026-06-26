@@ -175,6 +175,7 @@ SELECT
   COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '')::text    AS source_ref,
   COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '')::text AS review_status,
   COALESCE(pv.rule_dsl -> 'source' ->> 'approved_by', '')::text   AS approved_by,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'approved_at', '')::text   AS approved_at,
   (
     SELECT COUNT(*)
     FROM protocol_rules pr
@@ -216,6 +217,7 @@ type ListProtocolConfigsForCategoryRow struct {
 	SourceRef         string
 	ReviewStatus      string
 	ApprovedBy        string
+	ApprovedAt        string
 	RuleCount         int32
 }
 
@@ -253,6 +255,7 @@ func (q *Queries) ListProtocolConfigsForCategory(ctx context.Context, arg ListPr
 			&i.SourceRef,
 			&i.ReviewStatus,
 			&i.ApprovedBy,
+			&i.ApprovedAt,
 			&i.RuleCount,
 		); err != nil {
 			return nil, err

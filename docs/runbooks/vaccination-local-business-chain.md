@@ -157,9 +157,9 @@ re-run — obligation count stayed `1`, completion count stayed `1`, sweeper rep
 
 - **Production roster expansion.** Local/dev no longer waits on a vague PHC
   roster approval: the source-derived baseline is ET/K1/day-21 with K2=42, backed
-  by `context/source-findings/phc-vaccination-roster-stage-proposal.md`. PPR/FMD/
-  HS/BQ are `label-only closed` until a roster-expansion pass promotes any of
-  them to `schedule-backed`; either state is closed for this local chain.
+  by `context/source-findings/phc-vaccination-roster-stage-proposal.md`. The
+  2026-06-26 PPR/FMD/HS/BQ expansion pass found labels only, so all four are
+  `label-only closed`; no additional protocol rows or obligations were added.
 - **Google/prod provisioning** — see Infra / Prod Readiness below; external.
 
 ## Infra / Prod Readiness (cloud counterpart, 2026-06-26)

@@ -116,6 +116,7 @@ type ConfigListItem struct {
 	SourceRef         string
 	ReviewStatus      string
 	ApprovedBy        string
+	ApprovedAt        string
 	RuleCount         int32
 }
 

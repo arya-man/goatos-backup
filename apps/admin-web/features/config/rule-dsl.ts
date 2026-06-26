@@ -44,6 +44,7 @@ export interface SourceMeta {
   reviewStatus: string;
   reviewedBy: string;
   approvedBy: string;
+  approvedAt: string;
 }
 
 export interface RuleInput {
@@ -151,6 +152,30 @@ export const STAGE_SOURCE = "shed_profiles.animal_stage_id -> animal_stage_looku
 const SOURCE_BACKED = ["vaccinations_db", "phc", "vet", "feed_master", "nutritionist", "ops_source"];
 const PUBLISHABLE_SOURCES = ["vaccinations_db", "phc", "vet"];
 
+export function isRfc3339Timestamp(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(trimmed);
+  if (!match) return false;
+
+  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw, offsetRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const second = Number(secondRaw);
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  if (offsetRaw !== "Z") {
+    const offsetHour = Number(offsetRaw.slice(1, 3));
+    const offsetMinute = Number(offsetRaw.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+  }
+
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  return candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day;
+}
+
 export function newDose(seq: number): DoseRow {
   return {
     doseCode: seq === 1 ? "primary" : `dose_${seq}`,
@@ -193,14 +218,20 @@ function csvToArr(csv: string): string[] {
 }
 
 function sourceDsl(source: SourceMeta): Record<string, unknown> {
+  const sourceSystem = source.sourceSystem.trim();
+  const reviewStatus = source.reviewStatus.trim();
+  const sourceRef = source.sourceRef.trim();
+  const reviewedBy = source.reviewedBy.trim();
+  const approvedBy = source.approvedBy.trim();
+  const approvedAt = source.approvedAt.trim();
   return {
-    source_system: source.sourceSystem,
-    source_ref: source.sourceRef,
-    imported_at: source.sourceSystem !== "manual_admin" ? "(on import)" : null,
-    reviewed_by: source.reviewedBy,
-    review_status: source.reviewStatus,
-    approved_by: source.approvedBy,
-    approved_at: source.reviewStatus === "approved" ? "(on approve)" : null,
+    source_system: sourceSystem,
+    source_ref: sourceRef,
+    imported_at: sourceSystem !== "manual_admin" ? "(on import)" : null,
+    reviewed_by: reviewedBy,
+    review_status: reviewStatus,
+    approved_by: approvedBy,
+    approved_at: reviewStatus === "approved" && approvedAt ? approvedAt : null,
   };
 }
 
@@ -353,6 +384,8 @@ export interface SourceBadge {
 }
 
 export function sourceBadge(source: SourceMeta): SourceBadge {
+  const sourceSystem = source.sourceSystem.trim();
+  const reviewStatus = source.reviewStatus.trim();
   const labels: Record<string, string> = {
     vaccinations_db: "Vaccinations DB",
     phc: "PHC",
@@ -362,27 +395,34 @@ export function sourceBadge(source: SourceMeta): SourceBadge {
     ops_source: "operations source",
     manual_admin: "manual admin",
   };
-  const sourced = SOURCE_BACKED.includes(source.sourceSystem);
-  const publishable = PUBLISHABLE_SOURCES.includes(source.sourceSystem);
+  const sourced = SOURCE_BACKED.includes(sourceSystem);
+  const publishable = PUBLISHABLE_SOURCES.includes(sourceSystem);
   if (!sourced) return { text: "Draft - not source-backed - cannot publish", tone: "warn" };
   if (!publishable) {
-    return { text: `Draft - ${labels[source.sourceSystem]} - not a publishable source (vaccinations_db/phc/vet only)`, tone: "warn" };
+    return { text: `Draft - ${labels[sourceSystem]} - not a publishable source (vaccinations_db/phc/vet only)`, tone: "warn" };
   }
-  if (source.reviewStatus === "approved" && source.sourceRef && source.approvedBy) {
-    return { text: `Approved - publishable - ${labels[source.sourceSystem]}`, tone: "ok" };
+  if (
+    reviewStatus === "approved" &&
+    source.sourceRef.trim() &&
+    source.approvedBy.trim() &&
+    isRfc3339Timestamp(source.approvedAt)
+  ) {
+    return { text: `Approved - publishable - ${labels[sourceSystem]}`, tone: "ok" };
   }
-  return { text: `Draft - source-backed - pending approval${source.sourceRef ? "" : " - source_ref required"}`, tone: "info" };
+  return { text: `Draft - source-backed - pending approval${source.sourceRef.trim() ? "" : " - source_ref required"}`, tone: "info" };
 }
 
 // validatePublish mirrors the backend source-backed gate (publish.go ValidatePublishable). The source
 // system must be one the backend will publish (vaccinations_db/phc/vet); feed/nutrition sources are
 // authorable but not publishable, so the client rejects them up front instead of letting publish 422.
 export function validatePublish(source: SourceMeta): { ok: boolean; message?: string } {
-  if (!PUBLISHABLE_SOURCES.includes(source.sourceSystem)) {
+  if (!PUBLISHABLE_SOURCES.includes(source.sourceSystem.trim())) {
     return { ok: false, message: "Publish blocked - source_system must be vaccinations_db, phc, or vet" };
   }
-  if (!source.sourceRef) return { ok: false, message: "Publish blocked - source_ref required" };
-  if (source.reviewStatus !== "approved") return { ok: false, message: "Publish blocked - review_status must be approved" };
-  if (!source.approvedBy) return { ok: false, message: "Publish blocked - approved_by required" };
+  if (!source.sourceRef.trim()) return { ok: false, message: "Publish blocked - source_ref required" };
+  if (source.reviewStatus.trim() !== "approved") return { ok: false, message: "Publish blocked - review_status must be approved" };
+  if (!source.approvedBy.trim()) return { ok: false, message: "Publish blocked - approved_by required" };
+  if (!source.approvedAt.trim()) return { ok: false, message: "Publish blocked - approved_at required" };
+  if (!isRfc3339Timestamp(source.approvedAt)) return { ok: false, message: "Publish blocked - approved_at must be RFC3339" };
   return { ok: true };
 }

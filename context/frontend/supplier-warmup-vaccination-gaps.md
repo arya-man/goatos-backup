@@ -52,8 +52,9 @@ not create a second supplier-warmup action surface.
 - Media upload/capture is not part of the current admin-web slice. Proof refs
   can be entered; the upload affordance is disabled with an explicit reason.
 - Local/dev vaccine baseline is source-derived, not invented: ET/K1/day-21 with
-  K2=42. PPR/FMD/HS/BQ remain SOP/roster labels until a source extract supplies
-  timing/dose/booster values.
+  K2=42. The 2026-06-26 roster expansion pass closed PPR/FMD/HS/BQ as SOP/roster
+  labels only; future promotion requires a new source extract with timing/dose/
+  booster values plus publishable approval metadata.
 
 ## Validation
 

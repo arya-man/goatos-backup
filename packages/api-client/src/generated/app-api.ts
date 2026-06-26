@@ -1651,11 +1651,12 @@ export interface components {
             published_at?: string | null;
             /** Format: date-time */
             updated_at?: string | null;
-            /** @description From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by) for the version to be publishable. */
+            /** @description From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by, approved_at) for the version to be publishable. */
             source_system: string;
             source_ref: string;
             review_status: string;
             approved_by: string;
+            approved_at: string;
             rule_count: number;
         };
         AnimalStageListResponse: {

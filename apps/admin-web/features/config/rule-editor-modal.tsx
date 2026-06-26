@@ -122,6 +122,7 @@ export function RuleEditorModal({
   const [reviewStatus, setReviewStatus] = useState("extracted");
   const [reviewedBy, setReviewedBy] = useState("");
   const [approvedBy, setApprovedBy] = useState("");
+  const [approvedAt, setApprovedAt] = useState("");
 
   const [doses, setDoses] = useState<DoseRow[]>([newDose(1)]);
   const [feed, setFeed] = useState<FeedFields>(() => newFeedFields());
@@ -150,14 +151,14 @@ export function RuleEditorModal({
       vaccineLotPolicy,
       missedDosePolicy,
       escalation,
-      source: { sourceSystem, sourceRef, reviewStatus, reviewedBy, approvedBy },
+      source: { sourceSystem, sourceRef, reviewStatus, reviewedBy, approvedBy, approvedAt },
       doses,
       feed,
     }),
     [
       category, code, name, scope, effectiveFrom, sopVersionId, stage, sex, breed, lifecycle, health, reproductive,
       deferStates, individualOverride, vaccineLotPolicy, missedDosePolicy, escalation, sourceSystem, sourceRef,
-      reviewStatus, reviewedBy, approvedBy, doses, feed,
+      reviewStatus, reviewedBy, approvedBy, approvedAt, doses, feed,
     ],
   );
 
@@ -542,6 +543,13 @@ export function RuleEditorModal({
               value={approvedBy}
               onChange={(e) => setApprovedBy(e.target.value)}
               placeholder="approved_by"
+              style={{ marginTop: 6, width: "100%", border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 13 }}
+            />
+            <input
+              aria-label="Approved at"
+              value={approvedAt}
+              onChange={(e) => setApprovedAt(e.target.value)}
+              placeholder="approved_at RFC3339 from source"
               style={{ marginTop: 6, width: "100%", border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 13 }}
             />
           </div>

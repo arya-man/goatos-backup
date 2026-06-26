@@ -112,7 +112,8 @@ func TestGetVersionNotFound(t *testing.T) {
 func TestListConfigsReturnsItemsAndDefaultsCategory(t *testing.T) {
 	fake := &fakeConfig{listItems: []domain.ConfigListItem{
 		{ProtocolID: "p1", Code: "vaccination.enterotox", Name: "Enterotoxaemia", Category: "vaccination",
-			ProtocolVersionID: "v1", Version: 1, Status: "draft", SourceSystem: "manual_admin", ReviewStatus: "draft", RuleCount: 2},
+			ProtocolVersionID: "v1", Version: 1, Status: "draft", SourceSystem: "manual_admin",
+			ReviewStatus: "draft", ApprovedAt: "2026-06-26T00:00:00Z", RuleCount: 2},
 	}}
 	// No category param → defaults to vaccination.
 	rec := serve(NewHandler(fake), http.MethodGet, "/protocols", "")
@@ -131,6 +132,9 @@ func TestListConfigsReturnsItemsAndDefaultsCategory(t *testing.T) {
 	}
 	if resp.Items[0].Status != "draft" || resp.Items[0].SourceSystem != "manual_admin" {
 		t.Fatalf("source-review state not surfaced: %+v", resp.Items[0])
+	}
+	if resp.Items[0].ApprovedAt != "2026-06-26T00:00:00Z" {
+		t.Fatalf("approved_at not surfaced: %+v", resp.Items[0])
 	}
 
 	// Explicit category param is passed through.

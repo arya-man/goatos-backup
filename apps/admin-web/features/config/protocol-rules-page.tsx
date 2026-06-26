@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
-import { CATEGORIES, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
+import { CATEGORIES, isRfc3339Timestamp, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
 import { listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
@@ -22,7 +22,8 @@ function isPublishableSource(item: ProtocolConfigItem): boolean {
     PUBLISHABLE_SOURCES.has(item.source_system) &&
     item.source_ref.trim() !== "" &&
     item.review_status === "approved" &&
-    item.approved_by.trim() !== ""
+    item.approved_by.trim() !== "" &&
+    isRfc3339Timestamp(item.approved_at)
   );
 }
 

@@ -156,9 +156,10 @@ Closing the remaining NON-E2E / NON-Google / NON-prod vaccination items honestly
 "Local/code closure" = local code, contracts, Config UI, publish gate, SOP
 binding, proof-policy validation, docs, and gates are honest and green.
 "Source-derived dev baseline" = existing wiki/PRD/SOP/legacy evidence has been
-turned into local/dev config choices: ET K1 day-21 as the schedule-bearing row,
-K2=42, and PPR/FMD/HS/BQ as `label-only closed` unless a roster-expansion pass
-promotes one to `schedule-backed`.
+turned into local/dev config choices: ET K1 day-21 as the schedule-bearing row
+and K2=42. The 2026-06-26 roster expansion pass found labels only for
+PPR/FMD/HS/BQ, so all four are `label-only closed` and no new schedule-backed
+rows were added.
 
 Done in this pass:
 
@@ -227,8 +228,8 @@ Done in this pass:
 - **PHC roster + K1/K2 (source-derived dev baseline CLOSED).** See
   `context/source-findings/phc-vaccination-roster-stage-proposal.md`: K2=42 wins
   over the legacy mock 45 for local/dev; ET/K1/day-21 is the schedule-bearing
-  row; PPR/FMD/HS/BQ are `label-only closed` unless promoted to
-  `schedule-backed` by the roster-expansion follow-up.
+  row; the 2026-06-26 roster-expansion follow-up closed PPR/FMD/HS/BQ as
+  `label-only closed`.
 - **Test coverage (backend CLOSED; frontend gated out honestly).** The publish
   execution-contract gate (`publish_test.go`) and the new
   `GET /protocols/animal-stages` endpoint (`handler_test.go`, incl. the empty-list
@@ -248,7 +249,7 @@ Remaining pending items classified:
 | `as_of` residuals (point-in-time obligation status reconstruction) | **Out of current local/code closure.** Current code does not overclaim: `as_of`/`asOf` is a point-in-time read param threaded into the projection reads (`features/control-tower`, `workflows-landing`, `protocol-adherence`); the top-bar as-of selector is point-in-time only and range choices are disabled (Click Matrix → Top bar). The deeper effective-status reconstruction work is tracked in memory `goatos-phase1-asof-correctness` and is NOT a publish/proof-gate blocker. | `apps/admin-web/features/control-tower/index.tsx:55`; `features/process-integrity/workflows-landing.tsx:95`; `context/execution/vaccination-pre-e2e-readiness-audit.md` Click Matrix |
 | Source Entry search / media-capture limits | **Out of current local/code closure.** Visible UI does not overclaim — media upload and advanced search are disabled-with-reason, documented in `context/frontend/supplier-warmup-vaccination-gaps.md`. Disabled-with-reason is acceptable for this slice. | `context/frontend/supplier-warmup-vaccination-gaps.md`; readiness audit B8 (CLOSED) |
 | SOP taxonomy / category-filter API gap | **Out of current local/code closure — future scale/API cleanup.** The Config SOP picker shows only real published SOP versions (`active_sop_version_id`); the `/vaccination` and `/sops` quick-views use `listSops({ limit: 200 })` + client-side vaccination filtering (`apps/admin-web/app/(admin)/sops/page.tsx:14`, `features/phc-vaccination/operations.tsx:19`). It cannot fake SOPs, but a tenant with >200 SOPs could under-show. Tracked as a category/code-filter or named-binding follow-up in the trigger-closure handoff backlog; not a publish-path blocker. | `apps/admin-web/app/(admin)/sops/page.tsx:14`; `features/phc-vaccination/operations.tsx:19`; `context/execution/vaccination-trigger-closure-parallel-handoff.md` (SOP quick-view backlog) |
-| PHC/vaccine roster + K1/K2/stage values | **Source-derived dev baseline CLOSED.** K2=42 is selected from wiki/glossary/legacy seed, ET/K1/day-21 is selected from the PRD, and PPR/FMD/HS/BQ are `label-only closed` unless a roster-expansion pass promotes one to `schedule-backed`. Later production expansion is normal source-backed versioning, not a local/code blocker. | `context/source-findings/phc-vaccination-roster-stage-proposal.md`; `docs/phc-vaccination/TRD.md:64,:145` |
+| PHC/vaccine roster + K1/K2/stage values | **Source-derived dev baseline CLOSED.** K2=42 is selected from wiki/glossary/legacy seed, ET/K1/day-21 is selected from the PRD, and the 2026-06-26 PPR/FMD/HS/BQ expansion pass closed all four as `label-only closed` with no schedule-backed rows added. Later production expansion is normal source-backed versioning, not a local/code blocker. | `context/source-findings/phc-vaccination-roster-stage-proposal.md`; `context/execution/vaccination-roster-expansion-followup.md`; `docs/phc-vaccination/TRD.md:64,:145` |
 
 No vague "pending" items remain: each is fixed, classified out-of-scope with a
 path, or moved to later source-backed versioning/provisioning.
@@ -624,8 +625,9 @@ Closed in this pass:
 
 Source-derived local/dev content is no longer a blocker: the seeded
 ET/K1/day-21 protocol is source-backed enough for local/dev and can publish and
-generate obligations. PPR/FMD/HS/BQ are `label-only closed` unless the
-roster-expansion follow-up promotes one to a source-backed schedule version.
+generate obligations. The 2026-06-26 roster-expansion follow-up closed
+PPR/FMD/HS/BQ as `label-only closed`; none became a source-backed schedule
+version.
 
 ### B4. SOP/Proof Execution Loop Is Not Click-Complete
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
@@ -23,6 +24,7 @@ type sourceMeta struct {
 	SourceRef    string `json:"source_ref"`
 	ReviewStatus string `json:"review_status"`
 	ApprovedBy   string `json:"approved_by"`
+	ApprovedAt   string `json:"approved_at"`
 }
 
 type ruleDSLEnvelope struct {
@@ -38,8 +40,9 @@ type scheduleRow struct {
 
 // ValidatePublishable enforces the source-backed approval gate on a version's rule_dsl: the nested
 // source object must be a real source (vaccinations_db/phc/vet), carry a source_ref, be
-// review_status='approved', and name an approved_by. Pure logic — no DB. Mirrors the config-mock
-// gate; this is the backend source of truth. Never publishes manual/extracted/unsourced values.
+// review_status='approved', and name approved_by + approved_at. Pure logic — no DB. Mirrors the
+// config-mock gate; this is the backend source of truth. Never publishes manual/extracted/unsourced
+// values.
 func ValidatePublishable(ruleDSL []byte) error {
 	var env ruleDSLEnvelope
 	if len(ruleDSL) > 0 {
@@ -49,14 +52,19 @@ func ValidatePublishable(ruleDSL []byte) error {
 	}
 	s := env.Source
 	switch {
-	case !publishableSources[s.SourceSystem]:
+	case !publishableSources[strings.TrimSpace(s.SourceSystem)]:
 		return fmt.Errorf("%w: source_system must be vaccinations_db/phc/vet (got %q)", ErrNotPublishable, s.SourceSystem)
-	case s.SourceRef == "":
+	case strings.TrimSpace(s.SourceRef) == "":
 		return fmt.Errorf("%w: source_ref required", ErrNotPublishable)
-	case s.ReviewStatus != "approved":
+	case strings.TrimSpace(s.ReviewStatus) != "approved":
 		return fmt.Errorf("%w: review_status must be approved (got %q)", ErrNotPublishable, s.ReviewStatus)
-	case s.ApprovedBy == "":
+	case strings.TrimSpace(s.ApprovedBy) == "":
 		return fmt.Errorf("%w: approved_by required", ErrNotPublishable)
+	case strings.TrimSpace(s.ApprovedAt) == "":
+		return fmt.Errorf("%w: approved_at required", ErrNotPublishable)
+	}
+	if _, err := time.Parse(time.RFC3339, strings.TrimSpace(s.ApprovedAt)); err != nil {
+		return fmt.Errorf("%w: approved_at must be RFC3339 (got %q)", ErrNotPublishable, s.ApprovedAt)
 	}
 	return nil
 }

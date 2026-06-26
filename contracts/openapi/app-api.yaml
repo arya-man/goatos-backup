@@ -4406,6 +4406,7 @@ components:
         - source_ref
         - review_status
         - approved_by
+        - approved_at
         - rule_count
       properties:
         protocol_id:
@@ -4451,12 +4452,14 @@ components:
           nullable: true
         source_system:
           type: string
-          description: From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by) for the version to be publishable.
+          description: From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by, approved_at) for the version to be publishable.
         source_ref:
           type: string
         review_status:
           type: string
         approved_by:
+          type: string
+        approved_at:
           type: string
         rule_count:
           type: integer
