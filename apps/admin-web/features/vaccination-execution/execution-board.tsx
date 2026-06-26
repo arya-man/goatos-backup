@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse } from "lucide-react";
+import { Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse, X } from "lucide-react";
 import { getVaccinationExecution } from "@/lib/api/server";
 import type {
   VaccinationExecutionRow,
@@ -20,6 +20,11 @@ import {
 } from "./work-state";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+import { VaccinationFilterButton, VisibleTableSearch } from "@/features/phc-vaccination/vaccination-filter-modal";
+import { VaccinationRecordFormFields } from "@/features/phc-vaccination/record-verify-drawer";
+import { vaccinationDriveDisplayName } from "@/features/phc-vaccination/vaccine-display";
+import { VaccinationTablePager } from "@/features/phc-vaccination/table-pager";
+import { ShedEventActions } from "./shed-event-actions";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
 const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "blocked", "owner_missing", "rejected"]);
@@ -88,24 +93,38 @@ function StatusChips({ row }: { row: VaccinationExecutionRow }) {
   );
 }
 
-function ExecutionRow({ row }: { row: VaccinationExecutionRow }) {
+function executionDriveLabel(row: VaccinationExecutionRow): string {
+  // Canonical vaccine label + dose phase ("FMD · Primary") — strips the TEST-ONLY/seed-code noise and reads
+  // consistently with the status-matrix column headers.
+  return vaccinationDriveDisplayName(row.driveName);
+}
+
+function executionActionTitle(row: VaccinationExecutionRow): string {
+  if (row.workState === "owner_missing") return `Assign owner chain — ${row.shedName}`;
+  if (row.proofStatus === "missing") return `Capture vaccination proof — ${row.shedName}`;
+  if (row.verificationStatus === "pending") return `Verify vaccination proof — ${row.shedName}`;
+  if (row.workState === "overdue") return `${executionDriveLabel(row)} overdue — ${row.shedName}`;
+  return `${executionDriveLabel(row)} — ${row.shedName}`;
+}
+
+function ExecutionRow({ row, drawerHref }: { row: VaccinationExecutionRow; drawerHref: string }) {
   const meta = WORK_STATE_META[row.workState];
-  const href = `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`;
+  const driveLabel = executionDriveLabel(row);
   return (
-    <div className="pexr">
+    <Link href={drawerHref} scroll={false} className="pexr" aria-label={`Open vaccination shed event for ${row.shedName}`}>
       <div className="pexc">
         <div className="pexc-h">Shed · stage</div>
-        <Link href={href} className="lk" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span className="lk small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <Warehouse className="ic" style={{ width: 14 }} aria-hidden="true" />
           {row.shedName}
-        </Link>
+        </span>
         <div className="muted small" style={{ marginTop: 2 }}>{row.animalStage}</div>
       </div>
       <div className="pexc">
         <div className="pexc-h">Drive · due</div>
         <span className="small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <Syringe className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-          {row.driveName ?? "—"}
+          {driveLabel}
         </span>
         <div className="muted small" style={{ marginTop: 2 }}>due {fmtDate(row.dueDate)}</div>
       </div>
@@ -136,16 +155,13 @@ function ExecutionRow({ row }: { row: VaccinationExecutionRow }) {
       </div>
       <div className="pexc">
         <div className="pexc-h">Next action</div>
-        <Link
-          href={href}
-          className="btn sm"
-          style={{ display: "inline-flex", alignItems: "center", gap: 4, maxWidth: 240, whiteSpace: "normal", textAlign: "left" }}
-        >
+        {/* Backend-suggested next step — a HINT, not a wired button. The row itself opens the drawer; owner
+            assignment isn't actionable yet, so this must not masquerade as a CTA button. Plain muted text. */}
+        <span className="small muted" style={{ display: "block", maxWidth: 240, lineHeight: 1.3 }}>
           {row.nextAction}
-          <ArrowRight className="ic" style={{ width: 13, flexShrink: 0 }} aria-hidden="true" />
-        </Link>
+        </span>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -189,6 +205,8 @@ export async function VaccinationExecutionBoard({
   }
 
   const parks = groupByPark(rows);
+  const selectedEventId = one(sp, "shed_event");
+  const selectedEvent = selectedEventId ? rows.find((row) => shedEventId(row) === selectedEventId) : undefined;
 
   // work_state is applied SERVER-SIDE and the result is capped (limit), so per-state counts are only
   // meaningful when no state filter is active. Park scope belongs to the shell top bar / Filters.
@@ -218,15 +236,30 @@ export async function VaccinationExecutionBoard({
           chips would all read 0. It returns the instant any row exists or a filter is active. */}
       {!noWork && (
         <>
+      <div className="tbar" style={{ marginBottom: 10, border: "1px solid var(--line2)", borderRadius: 10 }}>
+        <VisibleTableSearch label="Search vaccination shed events" />
+        <VaccinationFilterButton
+          title="Filter — Vaccination shed events"
+          searchReason="Search shed, owner, proof, status..."
+          filterReason="Use visible-row search, quick facets, severity chips, and work-state chips on this board."
+          rowsLabel={`${rows.length} rows · park, shed, owner, proof, verify`}
+          actionHref={scopeHref("/action-center", scope)}
+          actionLabel="Open Action Center"
+          facets={["Owner", "Proof status", "Verification status", "SOP status", "Due window"]}
+        />
+        <span className="muted small">{rows.length} rows</span>
+        <span className="muted small">click a row → shed execution detail</span>
+      </div>
+
       {/* Severity filter */}
       <div className="chipset" style={{ marginBottom: 10 }}>
-        <Link href={hrefWith({ severity: "all" })} className={`chip${severityFilter === "all" ? " on" : ""}`}>
+        <Link href={hrefWith({ severity: "all" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
           All severity
         </Link>
         {SEVERITY_ORDER.map((s) => {
           const count = sevCounts.get(s) ?? 0;
           return (
-            <Link key={s} href={hrefWith({ severity: s })} className={`chip${severityFilter === s ? " on" : ""}`}>
+            <Link key={s} href={hrefWith({ severity: s })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
               {SEVERITY_META[s].label} <Tag tone={severityFilter === s ? SEVERITY_META[s].tone : "mut"}>{count}</Tag>
             </Link>
           );
@@ -236,11 +269,11 @@ export async function VaccinationExecutionBoard({
       {/* Work-state filter board (most-broken first). Server-side filter: always render every state as
           navigation (so selecting one never collapses the board), count only in the unfiltered view. */}
       <div className="chipset" style={{ marginBottom: 8 }}>
-        <Link href={hrefWith({ state: "all" })} className={`chip${stateFilter === "all" ? " on" : ""}`}>
+        <Link href={hrefWith({ state: "all" })} replace scroll={false} className={`chip${stateFilter === "all" ? " on" : ""}`}>
           All states {showStateCounts ? <Tag tone={stateFilter === "all" ? "ok" : "mut"}>{allRows.length}</Tag> : null}
         </Link>
         {(showStateCounts ? WORK_STATE_ORDER.filter((s) => (stateCounts.get(s) ?? 0) > 0) : WORK_STATE_ORDER).map((s) => (
-          <Link key={s} href={hrefWith({ state: s })} className={`chip${stateFilter === s ? " on" : ""}`}>
+          <Link key={s} href={hrefWith({ state: s })} replace scroll={false} className={`chip${stateFilter === s ? " on" : ""}`}>
             {WORK_STATE_META[s].label}
             {showStateCounts ? <> <Tag tone="mut">{stateCounts.get(s) ?? 0}</Tag></> : null}
           </Link>
@@ -275,7 +308,7 @@ export async function VaccinationExecutionBoard({
               </span>
             </div>
             {result.ok && !noWork ? (
-              <Link href={resetHref} className="btn sm">
+              <Link href={resetHref} replace scroll={false} className="btn sm">
                 Reset filters
               </Link>
             ) : null}
@@ -291,7 +324,15 @@ export async function VaccinationExecutionBoard({
                 <Tag tone={SEVERITY_META[park.severity].tone}>{SEVERITY_META[park.severity].label}</Tag>
                 <div className="sp" style={{ flex: 1 }} />
                 {park.attention > 0 ? (
-                  <Link href={hrefWith({ park: park.parkId, severity: "all", state: "all" })} className="btn gh sm">
+                  // Scope to this park (top-bar scope override, NOT a stray filter param) AND filter to the
+                  // attention rows (severity=broken) so the click actually narrows the board instead of being
+                  // a no-op reset.
+                  <Link
+                    href={scopeHref(basePath, scope, { park: park.parkId, mode: "park" }, { ...baseParams, severity: "broken", state: stateFilter })}
+                    replace
+                    scroll={false}
+                    className="btn gh sm"
+                  >
                     {park.attention} need attention
                   </Link>
                 ) : (
@@ -308,12 +349,17 @@ export async function VaccinationExecutionBoard({
                   <div>Next action</div>
                 </div>
                 {park.rows.map((row, idx) => (
-                  <ExecutionRow key={`${row.shedId}-${row.driveId ?? idx}`} row={row} />
+                  <ExecutionRow
+                    key={`${row.shedId}-${row.driveId ?? idx}`}
+                    row={row}
+                    drawerHref={hrefWith({ shed_event: shedEventId(row) })}
+                  />
                 ))}
               </div>
+              <VaccinationTablePager rows={park.rows.length} noun="shed event" />
               <div className="bd" style={{ paddingTop: 12 }}>
                 <Link
-                  href={`/action-center?park=${encodeURIComponent(park.parkId)}`}
+                  href={scopeHref("/action-center", scope, { park: park.parkId, mode: "park" })}
                   className="lk small"
                   style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                 >
@@ -325,6 +371,83 @@ export async function VaccinationExecutionBoard({
           ))}
         </div>
       )}
+      {selectedEvent ? <ShedEventDrawer row={selectedEvent} scope={scope} closeHref={hrefWith({ shed_event: undefined })} /> : null}
+    </>
+  );
+}
+
+function shedEventId(row: VaccinationExecutionRow): string {
+  return `${row.shedId}|${row.driveId ?? "drive"}|${row.animalStage}`;
+}
+
+function ShedEventDrawer({ row, scope, closeHref }: { row: VaccinationExecutionRow; scope: ReturnType<typeof parseScope>; closeHref: string }) {
+  const meta = WORK_STATE_META[row.workState];
+  const driveLabel = executionDriveLabel(row);
+  const detailHref = `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`;
+  const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
+  return (
+    <>
+      <Link href={closeHref} replace className="veil" aria-label="Close shed event drawer" scroll={false} />
+      <aside className="drawer on" aria-label="Vaccination shed event">
+        <div className="dh">
+          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
+            <Syringe className="ic" aria-hidden="true" />
+          </span>
+          <div>
+            <div className="mt">RECORD</div>
+            <h2>{executionActionTitle(row)}</h2>
+          </div>
+          <span className="sp" style={{ flex: 1 }} />
+          <Link href={closeHref} replace className="iconbtn" aria-label="Close shed event drawer" scroll={false}>
+            <X className="ic" />
+          </Link>
+        </div>
+        <div className="dc">
+          <div className="metagrid">
+            <div>
+              <div className="k">Shed event</div>
+              <div className="v">{driveLabel}</div>
+            </div>
+            <div>
+              <div className="k">Shed</div>
+              <div className="v">{row.shedName}</div>
+            </div>
+            <div>
+              <div className="k">Owner → assist</div>
+              <div className="v">{row.owner?.operatorName ?? "owner chain to assign"}</div>
+            </div>
+            <div>
+              <div className="k">Stock (FEFO)</div>
+              <div className="v">resolved in Action Center</div>
+            </div>
+            <div>
+              <div className="k">Status</div>
+              <div className="v">
+                <Tag tone={meta.tone}>{meta.label}</Tag>
+              </div>
+            </div>
+          </div>
+          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${row.shedName}`} vaccineName={driveLabel} />
+          <div style={{ marginTop: 16 }}>
+            <ShedEventActions
+              obligationId={row.obligationId}
+              sopTaskId={row.sopTaskId}
+              completionId={row.completionId}
+            />
+          </div>
+        </div>
+        <div className="df">
+          <Link href={actionCenterHref} className="btn" scroll={false}>
+            Open Action Center
+          </Link>
+          <Link href={detailHref} className="btn">
+            Shed detail
+          </Link>
+          <Link href={closeHref} replace className="btn" scroll={false}>
+            Close
+          </Link>
+        </div>
+      </aside>
     </>
   );
 }

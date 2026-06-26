@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { Plus, Upload } from "lucide-react";
 import { getSop, getVaccinationOperations, isAuthRequiredError, listSops } from "@/lib/api/server";
 import type { VaccinationOperationsResponse } from "@/lib/api/server";
 import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
@@ -9,6 +7,8 @@ import { VaccinationExecutionSection } from "./execution-section";
 import { VaccinationStatusMatrix } from "./status-matrix";
 import { VaccinationCohortDetail } from "./cohort-detail";
 import { VaccinationSopButton } from "./sop-quick-view";
+import { VaccinationHeaderActions } from "./vaccination-action-dialogs";
+import { SupplierWarmupContext } from "./supplier-warmup-context";
 
 // Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
 // /sops), filtered to the vaccination slice and reduced to the primary (active preferred) SOP + its latest
@@ -51,7 +51,8 @@ const DRIVE_STEPS: Array<{ step: string; title: string; detail: string }> = [
 export async function VaccinationOperationsPage({ searchParams }: { searchParams?: RouteSearchParams }) {
   const sp = searchParams ?? {};
   // Top-bar scope contract: park (backend-safe UUID) + as_of are honored by /vaccination/operations.
-  const { parkId, asOf } = backendScope(parseScope(sp));
+  const scope = parseScope(sp);
+  const { parkId, asOf } = backendScope(scope);
 
   const [operations, linkedSop] = await Promise.all([
     getVaccinationOperations({ parkId, asOf }),
@@ -74,17 +75,7 @@ export async function VaccinationOperationsPage({ searchParams }: { searchParams
         </div>
         <div className="sp" style={{ flex: 1 }} />
         <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} />
-        <span
-          className="btn"
-          aria-disabled
-          title="Bulk drive import isn't built yet — drives generate from a published vaccination protocol"
-          style={{ opacity: 0.45, cursor: "not-allowed" }}
-        >
-          <Upload className="ic" aria-hidden="true" /> Import sheet
-        </span>
-        <Link href="/config?category=vaccination" className="btn p" title="Drives generate from a published vaccination protocol — author/publish it in Config">
-          <Plus className="ic" aria-hidden="true" /> New drive
-        </Link>
+        <VaccinationHeaderActions scope={scope} />
       </div>
 
       {!operations.ok ? (
@@ -108,11 +99,15 @@ export async function VaccinationOperationsPage({ searchParams }: { searchParams
         </div>
       </section>
 
+      {/* Supplier / Holding-Farm warmup — read-only PHC context for trusted pre-arrival vaccination evidence.
+          Source Entry owns the write actions; PHC consumes evidence to avoid double-dosing. */}
+      <SupplierWarmupContext scope={scope} searchParams={sp} />
+
       {/* Vaccination status matrix — cohort × vaccine protocol, from /vaccination/operations. */}
-      <VaccinationStatusMatrix operations={ops} ok={operations.ok} />
+      <VaccinationStatusMatrix operations={ops} ok={operations.ok} scope={scope} searchParams={sp} />
 
       {/* Per-cohort vaccination detail — animals, age band, real last dose, next due, status. */}
-      <VaccinationCohortDetail operations={ops} ok={operations.ok} />
+      <VaccinationCohortDetail operations={ops} ok={operations.ok} scope={scope} searchParams={sp} />
 
       {/* Shed-event execution — the per-shed drive events (park/shed/owner/stock/status/next action).
           A NORMAL stacked section (mock "drive — shed events"), not a tab. Anchor id for deep links. */}

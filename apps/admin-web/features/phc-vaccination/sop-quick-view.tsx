@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, BookOpen, Check, Clock, Video, X } from "lucide-react";
 import type { SopCardView } from "@/features/sops";
+import { VACCINATION_DRIVE_SOP_STEPS } from "@/features/phc-vaccination/vaccination-sop-steps";
 
 export interface VaccinationSopQuickViewProps {
   // The linked vaccination SOP, derived on the server from the real /admin/sops data. error/authRequired
@@ -13,14 +14,11 @@ export interface VaccinationSopQuickViewProps {
   authRequired?: boolean;
 }
 
-// The vaccination drive SOP lifecycle (ported verbatim from the mock SOP quick-view, SOPS.vacc). This is the
-// operator-facing process preview — what a drive does end to end — not the raw form_dsl fields.
-const DRIVE_SOP_STEPS: Array<{ title: string; detail: string; done?: boolean; current?: boolean; videoProof?: boolean }> = [
-  { title: "Drive scheduled", detail: "Cohort + vaccine; FEFO stock reserved.", done: true },
-  { title: "Per-shed administration", detail: "Dose per animal; video proof per shed event.", current: true, videoProof: true },
-  { title: "Consume posted (ledger)", detail: "Verified completion posts a consume movement for doses (FEFO)." },
-  { title: "Coverage + booster", detail: "Coverage % computed; next booster scheduled." },
-];
+// The vaccination drive SOP step flow is the single shared source (also used by the Action Center
+// obligation drawer) — see vaccination-sop-steps.ts. In this in-context preview, the first step is shown
+// done and the second current (a representative running drive); the live obligation drawer derives
+// done/current from the real computed states instead.
+const DRIVE_PREVIEW_DONE = 1;
 
 // PHC · Vaccination header "SOP" CTA. Opens a compact, mock-faithful Vaccination Drive SOP quick-view in a
 // modal WITHOUT leaving /vaccination (local state, no navigation). The full library / versioning / authoring
@@ -153,11 +151,11 @@ function VaccinationSopModal({
               </div>
 
               <div className="stepper">
-                {DRIVE_SOP_STEPS.map((s, i) => (
-                  <div className={`step${s.done ? " done" : ""}${s.current ? " cur" : ""}`} key={s.title}>
+                {VACCINATION_DRIVE_SOP_STEPS.map((s, i) => (
+                  <div className={`step${i < DRIVE_PREVIEW_DONE ? " done" : ""}${i === DRIVE_PREVIEW_DONE ? " cur" : ""}`} key={s.title}>
                     <div className="ln" />
                     <div className="no">
-                      {s.done ? <Check className="ic" style={{ width: 14, strokeWidth: 2.4 }} aria-hidden="true" /> : i + 1}
+                      {i < DRIVE_PREVIEW_DONE ? <Check className="ic" style={{ width: 14, strokeWidth: 2.4 }} aria-hidden="true" /> : i + 1}
                     </div>
                     <div className="ct">
                       <b>{s.title}</b>
