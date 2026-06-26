@@ -191,10 +191,15 @@ Done in this pass:
   the editor (`features/config/{protocol-rules-page,config-console,rule-editor-modal}.tsx`).
   The default stage is the first backend band, never a hardcoded `K1`. The only
   stage literal the UI owns is the `ALL_STAGES` filter (a UI scope, explicitly NOT an
-  `animal_stage_lookup` row). When the lookup is empty the stage picker is
-  **disabled-with-reason** ("Data Ops must seed animal_stage_lookup") — it does NOT
-  silently fall back to hardcoded bands. Satisfies the PHC vaccination TRD rule that
-  stage bands live in `animal_stage_lookup`, not in code.
+  `animal_stage_lookup` row). Three distinct states (no outage hidden as missing
+  config): loaded+non-empty → normal picker; loaded+empty → honest seed-state
+  (**disabled-with-reason** "Data Ops must seed animal_stage_lookup", all-stages
+  draft still allowed); **read FAILED (403/500/down)** → a `stagesError` surfaces as
+  an error band (page + inside the modal), the picker is disabled, and **Save +
+  Publish are blocked** (highest-priority gate reason) since the true stage set is
+  unknown. It never silently falls back to hardcoded bands. Satisfies the PHC
+  vaccination TRD rule that stage bands live in `animal_stage_lookup`, not in code,
+  and the AGENTS rule that API failures surface as an error state, not empty data.
 - **Docs reconciled (CLOSED).** `docs/protocol-engine/obligation-engine.md`,
   `docs/phc-vaccination/TRD.md`, and
   `context/execution/sop-vaccination-backend-handoff.md` now state that the

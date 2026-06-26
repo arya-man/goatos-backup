@@ -29,12 +29,14 @@ export function ConfigConsole({
   initialCategory,
   sopVersions = [],
   animalStages = [],
+  stagesError = null,
   canPublish = true,
 }: {
   rules: ConfigRuleRow[];
   initialCategory: string;
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
+  stagesError?: string | null;
   canPublish?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -111,6 +113,7 @@ export function ConfigConsole({
         initialCategory={initialCategory}
         sopVersions={sopVersions}
         animalStages={animalStages}
+        stagesError={stagesError}
         canPublish={canPublish}
       />
     </>

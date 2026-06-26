@@ -65,6 +65,7 @@ export function RuleEditorModal({
   initialCategory,
   sopVersions = [],
   animalStages = [],
+  stagesError = null,
   canPublish = true,
 }: {
   open: boolean;
@@ -72,12 +73,19 @@ export function RuleEditorModal({
   initialCategory: string;
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
+  stagesError?: string | null;
   canPublish?: boolean;
 }) {
-  // Stage bands come from the backend (animal_stage_lookup). When none are seeded, the stage picker
-  // is disabled-with-reason rather than silently falling back to hardcoded K1/K2 — Data Ops must seed.
+  // Stage bands come from the backend (animal_stage_lookup). Three states, kept distinct so an outage
+  // never reads as "no config": (1) loaded + non-empty → normal picker; (2) loaded + empty → honest
+  // seed-state (disabled-with-reason, all-stages draft still allowed); (3) READ FAILED (stagesError)
+  // → we don't know the true stage set, so the picker is disabled and Save/Publish are blocked.
   const stagesSeeded = animalStages.length > 0;
   const noStagesReason = "No animal stages configured — Data Ops must seed animal_stage_lookup to target a stage band";
+  const stagePickerDisabled = !stagesSeeded || !!stagesError;
+  const stageBlockReason = stagesError
+    ? `Stage reference data failed to load (${stagesError}) — fix the API and reload before authoring`
+    : "";
   const [category, setCategory] = useState(initialCategory);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -151,8 +159,11 @@ export function RuleEditorModal({
   // dirty = saved once, but the form has changed since — the stored version is stale for publish.
   const dirty = versionId !== "" && inputSig !== savedSig;
   const proofOk = hasProofRequirement(input);
-  // The Publish gate, in priority order, so the title explains the first blocking reason.
-  const publishBlock = !canPublish
+  // The Publish gate, in priority order, so the title explains the first blocking reason. A failed
+  // stage-reference read blocks first: we cannot trust eligibility authoring if the stage set is unknown.
+  const publishBlock = stageBlockReason
+    ? stageBlockReason
+    : !canPublish
     ? "Only CEO/COO can publish"
     : !versionId
       ? "Save the draft first"
@@ -198,6 +209,10 @@ export function RuleEditorModal({
   }
 
   function save() {
+    if (stageBlockReason) {
+      setNotice({ ok: false, message: stageBlockReason });
+      return;
+    }
     startTransition(async () => {
       const res = await saveDraft(input);
       setNotice(res);
@@ -236,6 +251,16 @@ export function RuleEditorModal({
 
         <div className="cmb">
           <div className="cfgform">
+            {stagesError ? (
+              <div className="alert warn" role="alert">
+                <AlertTriangle className="ic" />
+                <div>
+                  Animal stages failed to load ({stagesError}). This is a real backend error, not “no
+                  stages seeded” — the stage picker is disabled and Save/Publish are blocked until the
+                  stage reference read succeeds. Fix the API/connection and reopen.
+                </div>
+              </div>
+            ) : null}
             {notice ? (
               notice.ok ? (
                 <div className="note">
@@ -305,8 +330,8 @@ export function RuleEditorModal({
                     aria-label="Feed animal stage"
                     value={feed.animalStage}
                     onChange={(e) => setFeedField({ animalStage: e.target.value })}
-                    disabled={!stagesSeeded}
-                    title={stagesSeeded ? undefined : noStagesReason}
+                    disabled={stagePickerDisabled}
+                    title={stagesError ? stageBlockReason : stagesSeeded ? undefined : noStagesReason}
                   >
                     <option value={ALL_STAGES_VALUE}>all (every stage)</option>
                     {animalStages.map((s) => (
@@ -383,8 +408,8 @@ export function RuleEditorModal({
                     aria-label="Stage"
                     value={stage}
                     onChange={(e) => setStage(e.target.value)}
-                    disabled={!stagesSeeded}
-                    title={stagesSeeded ? undefined : noStagesReason}
+                    disabled={stagePickerDisabled}
+                    title={stagesError ? stageBlockReason : stagesSeeded ? undefined : noStagesReason}
                   >
                     <option value={ALL_STAGES_VALUE}>all (every stage)</option>
                     {animalStages.map((s) => (
@@ -399,13 +424,13 @@ export function RuleEditorModal({
                     ))}
                   </select>
                 </div>
-                {stagesSeeded ? null : (
+                {!stagesSeeded && !stagesError ? (
                   <div className="muted small" style={{ marginTop: 4, lineHeight: 1.45 }}>
                     {noStagesReason}. Stage bands (e.g. K1, K2) are backend reference data from{" "}
                     <span className="mono">animal_stage_lookup</span> — until they are seeded you can only author
                     an all-stages rule, not target a specific band.
                   </div>
-                )}
+                ) : null}
                 <div className="rowf" style={{ marginTop: 6 }}>
                   <select aria-label="Breed" value={breed} onChange={(e) => setBreed(e.target.value)}>
                     {BREEDS.map((s) => (
@@ -719,7 +744,14 @@ export function RuleEditorModal({
           </button>
           <div className="sp" style={{ flex: 1 }} />
           {versionId ? <span className="muted small">draft saved · {versionId.slice(0, 8)}</span> : null}
-          <button type="button" className="btn" onClick={save} disabled={pending}>
+          <button
+            type="button"
+            className="btn"
+            onClick={save}
+            disabled={pending || !!stageBlockReason}
+            title={stageBlockReason || undefined}
+            style={stageBlockReason ? { opacity: 0.45 } : undefined}
+          >
             {pending ? "Saving…" : "Save draft"}
           </button>
           <button

@@ -85,7 +85,9 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
     : [];
 
   // Backend-driven stage vocabulary (animal_stage_lookup). The Config stage picker uses these rows,
-  // never hardcoded K0/K1/K2. An empty list is honest — the editor shows a seed-stages state.
+  // never hardcoded K0/K1/K2. A SUCCESSFUL empty list is honest (no stages seeded → seed-state); a
+  // FAILED read (403/500/backend-down) must NOT masquerade as "no stages" — it surfaces as an error
+  // band and blocks authoring, so an outage is never hidden as missing reference data.
   const stagesRes = await listAnimalStages();
   const animalStages: AnimalStageOption[] = stagesRes.ok
     ? stagesRes.data.items.map((s) => ({
@@ -93,6 +95,7 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
         label: s.name ? `${s.stage_code} · ${s.name}` : s.stage_code,
       }))
     : [];
+  const stagesError = stagesRes.ok ? null : (stagesRes.error.message ?? "could not load animal stages");
 
   return (
     <div className="screen on">
@@ -129,7 +132,24 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
         </div>
       ) : null}
 
-      <ConfigConsole rules={rules} initialCategory={initialCategory} sopVersions={sopVersions} animalStages={animalStages} />
+      {stagesError ? (
+        <div className="alert warn" role="alert" style={{ marginBottom: 14 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>
+            Could not load animal stages from the backend ({stagesError}). This is a real error, not
+            “no stages seeded” — authoring is blocked until the stage reference read succeeds, so an
+            outage is never mistaken for missing config. Fix the API/connection and reload.
+          </div>
+        </div>
+      ) : null}
+
+      <ConfigConsole
+        rules={rules}
+        initialCategory={initialCategory}
+        sopVersions={sopVersions}
+        animalStages={animalStages}
+        stagesError={stagesError}
+      />
 
       {/* How a published rule maps to live work */}
       <section className="card">
