@@ -20,9 +20,11 @@ type Query struct {
 	Category      *string
 	Result        *string
 	Status        *string
+	Search        *string
 	From          *time.Time
 	To            *time.Time
 	AnomaliesOnly bool
+	ProofGapsOnly bool
 	Limit         int
 	Cursor        *Cursor
 }

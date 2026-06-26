@@ -178,12 +178,37 @@ func listArgs(q domain.Query) ([]any, []string) {
 		args = append(args, *q.Status)
 		where = append(where, fmt.Sprintf("metadata->>'status' = $%d", len(args)))
 	}
+	if q.Search != nil {
+		needle := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"
+		if needle != "%%" {
+			args = append(args, needle)
+			where = append(where, fmt.Sprintf(`(
+				lower(action) LIKE $%[1]d
+				OR lower(actor_type) LIKE $%[1]d
+				OR lower(COALESCE(actor_id::text, '')) LIKE $%[1]d
+				OR lower(resource_type) LIKE $%[1]d
+				OR lower(COALESCE(resource_id::text, '')) LIKE $%[1]d
+				OR lower(COALESCE(scope_type, '')) LIKE $%[1]d
+				OR lower(COALESCE(scope_id::text, '')) LIKE $%[1]d
+				OR lower(COALESCE(metadata->>'domain', '')) LIKE $%[1]d
+				OR lower(COALESCE(metadata->>'module', '')) LIKE $%[1]d
+				OR lower(COALESCE(metadata->>'category', '')) LIKE $%[1]d
+				OR lower(COALESCE(metadata->>'result', '')) LIKE $%[1]d
+				OR lower(COALESCE(metadata->>'status', '')) LIKE $%[1]d
+				OR lower(COALESCE(metadata->>'operator_name', '')) LIKE $%[1]d
+				OR lower(COALESCE(metadata->>'target_label', '')) LIKE $%[1]d
+			)`, len(args)))
+		}
+	}
 	if q.Cursor != nil {
 		args = append(args, q.Cursor.RecordedAt, q.Cursor.AuditID)
 		where = append(where, fmt.Sprintf("(recorded_at, audit_id) < ($%d::timestamptz, $%d::uuid)", len(args)-1, len(args)))
 	}
 	if q.AnomaliesOnly {
 		where = append(where, anomalySQL())
+	}
+	if q.ProofGapsOnly {
+		where = append(where, proofGapSQL())
 	}
 	return args, where
 }
@@ -233,4 +258,11 @@ func anomalySQL() string {
 
 func awaitingVerificationSQL() string {
 	return `(action ILIKE '%verification%' AND lower(COALESCE(metadata->>'status', metadata->>'result', '')) IN ('awaiting', 'awaiting_verification', 'pending', 'proof_pending', 'verification_pending') OR lower(COALESCE(metadata->>'status', metadata->>'result', '')) IN ('awaiting_verification', 'verification_pending'))`
+}
+
+func proofGapSQL() string {
+	return `(
+		(resource_type = 'proof' OR action ILIKE '%proof%' OR action ILIKE '%sop%' OR action ILIKE '%vaccination%' OR lower(COALESCE(metadata->>'proof_required', metadata->>'requires_proof', '')) IN ('true', '1', 'yes'))
+		AND COALESCE(metadata->>'proof_id', metadata->>'proof_ref_id', metadata->>'media_proof_id', metadata->>'proof_url', metadata->>'evidence_id', '') = ''
+	)`
 }

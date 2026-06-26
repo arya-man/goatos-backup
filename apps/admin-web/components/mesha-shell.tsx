@@ -1,22 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Bell,
+  BarChart3,
   CalendarDays,
   Check,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
-  ClipboardList,
-  Database,
+  Edit3,
   HeartPulse,
   Menu,
   MapPin,
   Moon,
-  ScrollText,
   Sun,
   TowerControl,
   Truck,
@@ -25,25 +24,27 @@ import {
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
+import { ROLE_LENSES, type RoleLens } from "@/lib/role-lens";
 
-// A nav leaf. `disabled` leaves are allowed only for controls/routes in the approved slice that have a
-// clear backend blocker; they are not a license to surface unrelated future modules in the sidebar.
-type Leaf = { label: string; href: string; disabled?: boolean; reason?: string };
-type Group = { id: string; label: string; icon: React.ElementType; defaultOpen?: boolean; leaves: Leaf[] };
-type RoleLens = { id: string; name: string; scope: string; description: string; superadmin?: boolean };
+// A nav leaf. Keep the visible app locked to the active vaccination process-integrity slice.
+type Leaf = {
+  label: string;
+  href: string;
+  badge?: string;
+  disabled?: boolean;
+  reason?: string;
+  domain?: string;
+  extra?: Record<string, string | undefined>;
+};
+type Group = { id: string; label: string; icon: React.ElementType; defaultOpen?: boolean; badge?: string; leaves: Leaf[] };
+type NavCounts = { actionCenter: number | null; phc: number | null };
 
-const roleLenses: RoleLens[] = [
-  { id: "coo", name: "Superadmin / COO", scope: "all · deep", description: "R. Teja · Central Command · all parks", superadmin: true },
-  { id: "park-head", name: "Park Head · CBE", scope: "all verticals · 1 park", description: "CBE park leadership view" },
-  { id: "health-director", name: "Health Director", scope: "vertical · all parks", description: "PHC / health governance view" },
-  { id: "health-manager", name: "Health Mgr · CBE", scope: "vertical · 1 park", description: "CBE PHC manager view" },
-  { id: "ground", name: "Asst / Ground · CBE", scope: "tasks · 1 park", description: "field execution queue" },
-  { id: "investor", name: "Investor", scope: "read-only summary", description: "summary-only lens" },
-];
+// Role-preview lenses come from the shared model so the top-bar preview and the Audit Log `Viewing as`
+// control can never drift. Preview only — it never bypasses backend RBAC.
+const roleLenses = ROLE_LENSES;
 
-// Top-level command-room screens. The mock makes Control Tower / Action Center / Protocol Adherence /
-// Workflows first-class nav, NOT tabs inside a vertical — vaccination-only is the data scope, not the UI
-// hierarchy. The verticals (PHC, Parks, Admin) sit below as operational/authoring surfaces.
+// Top-level command-room screens. These are first-class command lenses; their live content stays scoped to
+// vaccination process integrity until the product scope is explicitly widened.
 const primary: Leaf[] = [
   { label: "Control Tower", href: "/" },
   { label: "Action Center", href: "/action-center" },
@@ -57,27 +58,19 @@ const primaryIcons: Record<string, React.ElementType> = {
   "/workflows": Workflow,
 };
 
+function visibleBadge(count: number | null | undefined): string | undefined {
+  return typeof count === "number" && count > 0 ? String(count) : undefined;
+}
+
 const groups: Group[] = [
   {
-    // PHC vertical -> Vaccination operations surface (due drives, sessions, proof/verification shortcuts).
-    // Not the Action Center. Protocol Rules lives under Admin / Data Ops; Vaccination links to it with
-    // category=vaccination only when it needs contextual rule authoring.
     id: "phc",
     label: "PHC",
     icon: HeartPulse,
     defaultOpen: true,
     leaves: [{ label: "Vaccination", href: "/vaccination" }],
   },
-  // Parks is NOT a separate visible vaccination module. The park/shed execution surface
-  // (park -> shed -> stage -> drive) renders INSIDE PHC / Vaccination at /vaccination#execution,
-  // scoped by the top-bar park dropdown. Parks can power that data via its read-model endpoints, but it
-  // does not own a sidebar entry. Park/shed execution renders inside /vaccination#execution.
   {
-    // Procurement = its OWN top-level vertical (the goat journey starts at purchase/source, before park
-    // arrival). It is OPERATIONAL source-entry only. Control Tower / Action Center / Protocol Adherence /
-    // Workflows are top-level command screens and must NOT be nested under a vertical; procurement data
-    // surfaces there through the existing top-level routes via ?domain=procurement. Truck (transit/source),
-    // never the syringe icon.
     id: "procurement",
     label: "Procurement",
     icon: Truck,
@@ -85,34 +78,22 @@ const groups: Group[] = [
     leaves: [{ label: "Source Entry", href: "/procurement/source-entry" }],
   },
   {
-    // Counts = its OWN vertical. Goat identity creation/import lives here (Herd Register), NOT under
-    // PHC / Vaccination. Herd Register emits goat.created, which is the real business entry point for the
-    // vaccination cascade. Vaccination-trigger closure scope exposes Herd Register only; any identifier
-    // setup needed for the trigger belongs inside /counts/herd, not as extra Counts nav leaves.
     id: "counts",
     label: "Counts",
-    icon: ClipboardList,
+    icon: BarChart3,
     defaultOpen: false,
     leaves: [{ label: "Herd Register", href: "/counts/herd" }],
   },
   {
     id: "admin-data",
     label: "Admin / Data Ops",
-    icon: Database,
+    icon: Edit3,
     defaultOpen: true,
     leaves: [
-      { label: "Config", href: "/config" },
+      { label: "Config", href: "/config", extra: { category: "vaccination" } },
+      { label: "Audit Log", href: "/operations/audit" },
       { label: "SOP Library", href: "/sops" },
     ],
-  },
-  {
-    // Operations = cross-cutting operator/admin/system audit. Audit is no longer a per-pillar mini screen;
-    // it is one Operations audit surface for every action that produced vaccination (and other) state.
-    id: "operations",
-    label: "Operations",
-    icon: ScrollText,
-    defaultOpen: false,
-    leaves: [{ label: "Audit Log", href: "/operations/audit" }],
   },
 ];
 
@@ -126,6 +107,15 @@ function todayIso(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 }
 
+function dateFreshnessLabel(asOf: string | undefined, today: string): string {
+  if (!asOf || asOf === today) return "fresh";
+  const asOfTime = Date.parse(`${asOf}T00:00:00+05:30`);
+  const todayTime = Date.parse(`${today}T00:00:00+05:30`);
+  if (!Number.isFinite(asOfTime) || !Number.isFinite(todayTime)) return "freshness pending";
+  const days = Math.max(0, Math.round((todayTime - asOfTime) / 86_400_000));
+  return days === 0 ? "fresh" : `${days}d old`;
+}
+
 // A route can prefix-match several nav hrefs; only the longest (most specific) match highlights.
 function activeHref(pathname: string): string {
   let best = "";
@@ -137,6 +127,7 @@ function activeHref(pathname: string): string {
 }
 
 export function MeshaShell({ children, parks = [] }: { children: React.ReactNode; parks?: Park[] }) {
+  const router = useRouter();
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
   const active = activeHref(pathname);
@@ -144,7 +135,11 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
-  const activeParkLabel = parkLabel(parks, scope.parkId);
+  const defaultPark = parks.find((p) => p.code === "CBE") ?? parks[0] ?? null;
+  const explicitScopeMode = Boolean(searchParams?.has("scope_mode"));
+  const activeParkId = scope.parkId ?? (!explicitScopeMode ? defaultPark?.id : undefined);
+  const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
+  const activeParkLabel = parkLabel(parks, activeParkId);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
   const [isLight, setIsLight] = useState(false);
@@ -152,6 +147,7 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
   const [roleLens, setRoleLens] = useState<RoleLens>(roleLenses[0]);
+  const [navCounts, setNavCounts] = useState<NavCounts>({ actionCenter: null, phc: null });
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of groups) {
@@ -160,6 +156,34 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
     return init;
   });
   const today = todayIso();
+  const freshness = dateFreshnessLabel(scope.asOf, today);
+  const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
+  const actionCenterBadge = visibleBadge(navCounts.actionCenter);
+  const phcBadge = visibleBadge(navCounts.phc);
+
+  useEffect(() => {
+    if (explicitScopeMode || scope.parkId || !defaultPark) return;
+    router.replace(scopeHref(pathname, scope, { park: defaultPark.id, mode: "park" }), { scroll: false });
+  }, [defaultPark, explicitScopeMode, pathname, router, scope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(navCountsHref, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: Partial<NavCounts> | null) => {
+        if (cancelled) return;
+        setNavCounts({
+          actionCenter: typeof payload?.actionCenter === "number" ? payload.actionCenter : null,
+          phc: typeof payload?.phc === "number" ? payload.phc : null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setNavCounts({ actionCenter: null, phc: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navCountsHref]);
 
   // All top-bar dropdowns (park scope, reporting range, role/user) close together: clicking outside any
   // menu root or pressing Escape dismisses them, and opening one closes the others (handled per-button).
@@ -201,6 +225,12 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
     }
     setRail((o) => !o);
   }
+  function navHref(leaf: Leaf): string {
+    return scopeHref(leaf.href, renderedScope, leaf.domain ? { domain: leaf.domain } : {}, leaf.extra ?? {});
+  }
+  function navActive(leaf: Leaf): boolean {
+    return active === leaf.href && !leaf.domain && !leaf.extra;
+  }
 
   return (
     <>
@@ -223,12 +253,37 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
         {/* Topbar owns park/date scope only. The active module (PHC › Vaccination) is shown by the sidebar
             nav + the page crumb, so no module badge belongs here. Vaccination is a module under PHC, not
             an app-wide scope. */}
-        {/* Park scope: Company-wide vs a specific park. UI shows the human label; the link writes the
-            backend-safe location UUID (?park=<uuid>) that every screen passes to the API as park_id. */}
-        <div className="parksel" data-menu-root>
+        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). The mock defaults
+            to Park-wise CBE when a tenant park is available; the links write the same backend-safe scope
+            params as the park picker, so the top bar and every scope-aware screen stay in sync. */}
+        <div className="parkpick" style={{ marginRight: 6 }}>
+          <Link
+            href={scopeHref(pathname, scope, { park: null, mode: "company" })}
+            replace
+            scroll={false}
+            className={renderedScope.mode === "company" ? "on" : ""}
+            title="Company-wide rollup across all in-scope parks"
+          >
+            Company-wide
+          </Link>
+          <Link
+            href={defaultPark ? scopeHref(pathname, scope, { park: activeParkId ?? defaultPark.id, mode: "park" }) : scopeHref(pathname, scope, { mode: "park" })}
+            replace
+            scroll={false}
+            className={renderedScope.mode === "park" ? "on" : ""}
+            title={defaultPark ? "Park-wise scope" : "No parks available for park-wise scope"}
+            aria-disabled={!defaultPark}
+          >
+            Park-wise
+          </Link>
+        </div>
+        {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
+            this slice, so the label reads "· all sheds" and the menu disables shed selection with a reason —
+            never a faked shed filter. The UI shows the human label; links write the backend-safe ?park=uuid. */}
+        <div className="parksel" data-menu-root style={{ marginRight: 4 }}>
           <button
             type="button"
-            className="parkbtn"
+            className="pscope"
             onClick={() => {
               setScopeMenuOpen((o) => !o);
               setRangeMenuOpen(false);
@@ -238,27 +293,46 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
             title="Park scope"
           >
             <MapPin className="ic" style={{ width: 14 }} aria-hidden="true" />
-            <span>{activeParkLabel}</span>
+            <b>{activeParkLabel}</b>
+            {activeParkId ? (
+              <span className="muted" style={{ fontWeight: 400 }}>
+                · all sheds
+              </span>
+            ) : null}
             <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
           </button>
           <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="menu" aria-label="Park scope">
             <div className="pm-label">Scope</div>
             <div className="pm-list">
-              <Link href={scopeHref(pathname, scope, { park: null })} className={`pm-item ${!scope.parkId ? "on" : ""}`}>
+              <Link
+                href={scopeHref(pathname, scope, { park: null, mode: "company" })}
+                replace
+                scroll={false}
+                onClick={closeMenus}
+                className={`pm-item ${!activeParkId ? "on" : ""}`}
+              >
                 <span className="pn">
                   All parks <span className="muted" style={{ fontWeight: 400 }}>· company-wide</span>
                 </span>
-                {!scope.parkId ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
+                {!activeParkId ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
               </Link>
               {parks.map((p) => (
-                <Link key={p.id} href={scopeHref(pathname, scope, { park: p.id })} className={`pm-item ${scope.parkId === p.id ? "on" : ""}`}>
+                <Link
+                  key={p.id}
+                  href={scopeHref(pathname, scope, { park: p.id, mode: "park" })}
+                  replace
+                  scroll={false}
+                  onClick={closeMenus}
+                  className={`pm-item ${activeParkId === p.id ? "on" : ""}`}
+                >
                   {p.code ? <span className="pc">{p.code}</span> : null}
                   <span className="pn">{p.name}</span>
-                  {scope.parkId === p.id ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
+                  {activeParkId === p.id ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
                 </Link>
               ))}
               {parks.length === 0 ? <div className="pm-hint">No parks available for this tenant.</div> : null}
             </div>
+            <div className="pm-hint">Shed scope: all sheds — per-shed filtering isn’t wired in this slice yet.</div>
           </div>
         </div>
         {/* As-of date scope. Honored backend params today: park_id + as_of (point-in-time across Control
@@ -267,10 +341,10 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
             consumes range/date_from/date_to, so it must not look like it filters.
             TODO(scope-range): wire real range filtering once the due-window semantics are defined, then
             re-enable these options (and restore range links in scopeHref usage). */}
-        <div className="parksel" data-menu-root>
+        <div className="parksel" data-menu-root style={{ marginRight: 4 }}>
           <button
             type="button"
-            className="parkbtn"
+            className="pscope"
             onClick={() => {
               setRangeMenuOpen((o) => !o);
               setScopeMenuOpen(false);
@@ -280,12 +354,17 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
             title="As-of date scope"
           >
             <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
-            <span>As of {scope.asOf ?? today}</span>
+            <span>Date range:</span>
+            <b>Last 30 days</b>
+            <span className="muted small" style={{ marginLeft: 2 }}>
+              · data {scope.asOf ?? today} · {freshness}
+            </span>
             <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
           </button>
           <div className={`parkmenu ${rangeMenuOpen ? "on" : ""}`} role="menu" aria-label="As-of date scope">
+            <div className="pm-label">Date range</div>
             <div className="pm-list">
-              {/* Shown for context but disabled — no backend filters by range yet, so they must not pretend to. */}
+              {/* Shown for mock parity but DISABLED — no backend filters by range yet, so they must not pretend to. */}
               <span className="pm-item" aria-disabled="true" style={{ opacity: 0.5, cursor: "not-allowed" }}>
                 <span className="pn">Last 7 days</span>
                 <span className="rl">soon</span>
@@ -295,7 +374,10 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
                 <span className="rl">soon</span>
               </span>
             </div>
-            <div className="pm-hint">Results are point-in-time as of the selected date. Range filtering (Last 7 / Last 30 / custom) is not active yet.</div>
+            <div className="pm-hint">
+              Point-in-time as of {scope.asOf ?? today}. Date-range and the data-freshness (“N days old”)
+              indicator aren’t wired to this live-Postgres slice yet.
+            </div>
           </div>
         </div>
         <button
@@ -367,16 +449,18 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
       <div className={`layout ${rail ? "rail" : ""}`}>
         <aside className={`side ${navOpen ? "open" : ""}`} id="side">
           {primary.map((n) => {
-            const Icon = primaryIcons[n.href] ?? TowerControl;
+            const Icon = primaryIcons[n.label] ?? primaryIcons[n.href] ?? TowerControl;
+            const badge = n.href === "/action-center" ? actionCenterBadge : n.badge;
             return (
               <Link
-                key={n.href}
-                href={n.href}
-                className={`nav ${active === n.href ? "on" : ""}`}
+                key={`${n.label}:${n.href}`}
+                href={navHref(n)}
+                className={`nav ${navActive(n) ? "on" : ""}`}
                 onClick={() => setNavOpen(false)}
               >
                 <Icon className="ic" />
                 {n.label}
+                {badge ? <span className="ct">{badge}</span> : null}
               </Link>
             );
           })}
@@ -384,24 +468,31 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
           {groups.map((g) => {
             const GroupIcon = g.icon;
             const open = openGroups[g.id];
+            const badge = g.id === "phc" ? phcBadge : g.badge;
             return (
               <div key={g.id}>
                 <div
                   className={`ggrp ${open ? "open" : ""}`}
                   onClick={() => toggleGroup(g.id)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    toggleGroup(g.id);
+                  }}
                   role="button"
                   tabIndex={0}
                   aria-expanded={open}
                 >
                   <GroupIcon className="ic" />
                   {g.label}
+                  {badge ? <span className="gct">{badge}</span> : null}
                   <ChevronRight className="ic chev" />
                 </div>
                 <div className={`subnav ${open ? "open" : ""}`}>
                   {g.leaves.map((l) =>
                     l.disabled ? (
                       <span
-                        key={l.href}
+                        key={`${g.id}:${l.label}:${l.href}`}
                         className="leaf"
                         aria-disabled="true"
                         title={l.reason}
@@ -411,12 +502,13 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
                       </span>
                     ) : (
                       <Link
-                        key={l.href}
-                        href={l.href}
-                        className={`leaf ${active === l.href ? "on" : ""}`}
+                        key={`${g.id}:${l.label}:${l.href}`}
+                        href={navHref(l)}
+                        className={`leaf ${navActive(l) ? "on" : ""}`}
                         onClick={() => setNavOpen(false)}
                       >
                         {l.label}
+                        {l.badge ? <span className="lct">{l.badge}</span> : null}
                       </Link>
                     ),
                   )}

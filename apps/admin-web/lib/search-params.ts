@@ -105,16 +105,15 @@ function all(params: RouteSearchParams, key: string): string[] {
 export function hrefWithParam(pathname: string, params: RouteSearchParams, key: string, value: string | null) {
   if (!value) return null;
   const next = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (key === "cursor") continue;
-    if (Array.isArray(value)) {
-      for (const item of value) next.append(key, item);
-    } else if (value) {
-      next.set(key, value);
+  for (const [name, currentValue] of Object.entries(params)) {
+    if (name === "cursor" || name === key) continue;
+    if (Array.isArray(currentValue)) {
+      for (const item of currentValue) next.append(name, item);
+    } else if (currentValue) {
+      next.set(name, currentValue);
     }
   }
-  next.delete(key);
-  if (value) next.set(key, value);
+  next.set(key, value);
   const qs = next.toString();
   return qs ? `${pathname}?${qs}` : pathname;
 }

@@ -31,6 +31,54 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
+-- Name: block_active_vaccination_for_procurement_excluded_goat(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.block_active_vaccination_for_procurement_excluded_goat() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  excluded_reason text;
+  is_vaccination boolean;
+BEGIN
+  IF NEW.target_type <> 'goat'
+     OR NEW.status NOT IN ('scheduled', 'due', 'in_progress', 'missed', 'waived') THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM protocol_versions pv
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id
+     AND pd.protocol_id = pv.protocol_id
+    WHERE pv.tenant_id = NEW.tenant_id
+      AND pv.protocol_version_id = NEW.protocol_version_id
+      AND pd.category = 'vaccination'
+  ) INTO is_vaccination;
+
+  IF NOT is_vaccination THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT exclusion_reason
+    INTO excluded_reason
+    FROM vw_procurement_vaccination_excluded_goats ex
+    WHERE ex.tenant_id = NEW.tenant_id
+      AND ex.goat_id = NEW.target_id
+    LIMIT 1;
+
+  IF excluded_reason IS NOT NULL THEN
+    RAISE EXCEPTION 'vaccination_obligation_blocked_for_procurement_excluded_goat: goat %, reason %', NEW.target_id, excluded_reason
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: block_merged_goat_child_write(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -533,6 +581,64 @@ CREATE TABLE public.animal_stage_lookup (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT animal_stage_lookup_age_check CHECK (((min_age_days IS NULL) OR (max_age_days IS NULL) OR (max_age_days >= min_age_days))),
     CONSTRAINT animal_stage_lookup_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: arrival_intake_review_goats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.arrival_intake_review_goats (
+    review_goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    review_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    goat_id uuid,
+    temporary_id text,
+    source_tag text,
+    item_key text NOT NULL,
+    arrival_state text NOT NULL,
+    health_flag text,
+    weight_flag text,
+    proof_ref_id uuid,
+    notes text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT arrival_intake_review_goats_item_key_check CHECK ((btrim(item_key) <> ''::text)),
+    CONSTRAINT arrival_intake_review_goats_state_check CHECK ((arrival_state = ANY (ARRAY['matched'::text, 'missing'::text, 'extra_unresolved'::text, 'health_flag'::text, 'weight_flag'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text])))
+);
+
+
+--
+-- Name: arrival_intake_reviews; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.arrival_intake_reviews (
+    review_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    park_location_id uuid NOT NULL,
+    expected_count integer DEFAULT 0 NOT NULL,
+    loaded_count integer DEFAULT 0 NOT NULL,
+    arrived_count integer DEFAULT 0 NOT NULL,
+    matched_count integer DEFAULT 0 NOT NULL,
+    missing_count integer DEFAULT 0 NOT NULL,
+    extra_count integer DEFAULT 0 NOT NULL,
+    rejected_count integer DEFAULT 0 NOT NULL,
+    health_flags jsonb DEFAULT '[]'::jsonb NOT NULL,
+    weight_flags jsonb DEFAULT '[]'::jsonb NOT NULL,
+    media_proof_id uuid,
+    status text DEFAULT 'pending'::text NOT NULL,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT arrival_intake_reviews_counts_check CHECK (((expected_count >= 0) AND (loaded_count >= 0) AND (arrived_count >= 0) AND (matched_count >= 0) AND (missing_count >= 0) AND (extra_count >= 0) AND (rejected_count >= 0))),
+    CONSTRAINT arrival_intake_reviews_health_flags_array_check CHECK ((jsonb_typeof(health_flags) = 'array'::text)),
+    CONSTRAINT arrival_intake_reviews_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT arrival_intake_reviews_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'mismatch'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text]))),
+    CONSTRAINT arrival_intake_reviews_weight_flags_array_check CHECK ((jsonb_typeof(weight_flags) = 'array'::text))
 );
 
 
@@ -2865,6 +2971,200 @@ CREATE TABLE public.parties (
 
 
 --
+-- Name: procurement_hf_vaccination_evidence; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_hf_vaccination_evidence (
+    evidence_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    rule_id uuid NOT NULL,
+    dose_code text NOT NULL,
+    administered_at timestamp with time zone NOT NULL,
+    vaccine_name text DEFAULT ''::text NOT NULL,
+    lot_number text DEFAULT ''::text NOT NULL,
+    proof_ref_id uuid,
+    source_ref text DEFAULT ''::text NOT NULL,
+    review_status text DEFAULT 'imported'::text NOT NULL,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone,
+    review_reason text DEFAULT ''::text NOT NULL,
+    idempotency_key text NOT NULL,
+    imported_by uuid,
+    imported_at timestamp with time zone DEFAULT now() NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT procurement_hf_vaccination_evidence_dose_code_check CHECK ((btrim(dose_code) <> ''::text)),
+    CONSTRAINT procurement_hf_vaccination_evidence_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT procurement_hf_vaccination_evidence_review_status_check CHECK ((review_status = ANY (ARRAY['imported'::text, 'trusted'::text, 'rejected'::text, 'conflicting'::text, 'duplicate'::text]))),
+    CONSTRAINT procurement_hf_vaccination_evidence_row_version_check CHECK ((row_version >= 1))
+);
+
+
+--
+-- Name: procurement_load_goats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_load_goats (
+    load_goat_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    source_tag text,
+    source_rfid text,
+    temporary_id text,
+    selection_state text DEFAULT 'candidate'::text NOT NULL,
+    selection_reason text DEFAULT ''::text NOT NULL,
+    current_state text DEFAULT 'source_candidate'::text NOT NULL,
+    identity_review_state text DEFAULT 'pending'::text NOT NULL,
+    identity_review_ref text,
+    ownership_state text DEFAULT 'pending'::text NOT NULL,
+    health_state text DEFAULT 'pending'::text NOT NULL,
+    warmup_started_at timestamp with time zone,
+    warmup_ended_at timestamp with time zone,
+    warmup_days integer,
+    holding_location_id uuid,
+    loaded_at timestamp with time zone,
+    arrived_at timestamp with time zone,
+    intake_accepted_at timestamp with time zone,
+    exit_reason text,
+    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    purpose text DEFAULT 'unspecified'::text NOT NULL,
+    CONSTRAINT procurement_load_goats_current_state_check CHECK ((current_state = ANY (ARRAY['source_holding'::text, 'source_warmup'::text, 'source_candidate'::text, 'source_health_pending'::text, 'source_health_passed'::text, 'source_health_failed'::text, 'source_rejected'::text, 'pre_dispatch_pending'::text, 'pre_dispatch_accepted'::text, 'pre_dispatch_rejected'::text, 'pre_dispatch_deferred'::text, 'pre_dispatch_blocked'::text, 'dispatch_ready'::text, 'loading_pending'::text, 'loaded'::text, 'in_transit'::text, 'arrival_review_pending'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text, 'canceled'::text]))),
+    CONSTRAINT procurement_load_goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['died'::text, 'sold'::text, 'lost'::text, 'canceled'::text])))),
+    CONSTRAINT procurement_load_goats_health_state_check CHECK ((health_state = ANY (ARRAY['pending'::text, 'passed'::text, 'failed'::text, 'deferred'::text]))),
+    CONSTRAINT procurement_load_goats_identity_state_check CHECK ((identity_review_state = ANY (ARRAY['pending'::text, 'clean'::text, 'conflict'::text, 'unknown_extra'::text]))),
+    CONSTRAINT procurement_load_goats_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT procurement_load_goats_ownership_state_check CHECK ((ownership_state = ANY (ARRAY['pending'::text, 'shared_pending'::text, 'mesha_owned'::text, 'blocked'::text, 'not_owned'::text, 'settled'::text]))),
+    CONSTRAINT procurement_load_goats_proof_refs_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
+    CONSTRAINT procurement_load_goats_purpose_check CHECK ((purpose = ANY (ARRAY['breeding'::text, 'fattening'::text, 'non_breeding'::text, 'unspecified'::text]))),
+    CONSTRAINT procurement_load_goats_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT procurement_load_goats_selection_state_check CHECK ((selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'purchased'::text, 'accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'loaded'::text, 'arrival_accepted'::text, 'arrival_rejected'::text, 'accepted_herd_intake'::text, 'dead'::text, 'sold'::text, 'lost'::text]))),
+    CONSTRAINT procurement_load_goats_warmup_days_check CHECK (((warmup_days IS NULL) OR (warmup_days >= 0))),
+    CONSTRAINT procurement_load_goats_warmup_window_check CHECK (((warmup_ended_at IS NULL) OR (warmup_started_at IS NULL) OR (warmup_ended_at >= warmup_started_at)))
+);
+
+
+--
+-- Name: procurement_loads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_loads (
+    load_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    source_party_id uuid NOT NULL,
+    source_location_id uuid,
+    expected_count integer DEFAULT 0 NOT NULL,
+    purchase_date date,
+    planned_dispatch_at timestamp with time zone,
+    status text DEFAULT 'source_warmup'::text NOT NULL,
+    notes text DEFAULT ''::text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    idempotency_key text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT procurement_loads_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
+    CONSTRAINT procurement_loads_expected_count_check CHECK ((expected_count >= 0)),
+    CONSTRAINT procurement_loads_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT procurement_loads_status_check CHECK ((status = ANY (ARRAY['source_warmup'::text, 'health_pending'::text, 'pre_dispatch_pending'::text, 'dispatch_ready'::text, 'in_transit'::text, 'arrival_review'::text, 'accepted_intake'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: procurement_phc_handoffs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_phc_handoffs (
+    handoff_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    accepted_at timestamp with time zone NOT NULL,
+    park_location_id uuid NOT NULL,
+    shed_location_id uuid NOT NULL,
+    entry_date date NOT NULL,
+    trusted_vaccination_history jsonb DEFAULT '[]'::jsonb NOT NULL,
+    intake_health_signal text,
+    event_status text DEFAULT 'pending'::text NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT procurement_phc_handoffs_history_array_check CHECK ((jsonb_typeof(trusted_vaccination_history) = 'array'::text)),
+    CONSTRAINT procurement_phc_handoffs_signal_check CHECK (((intake_health_signal IS NULL) OR (intake_health_signal = ANY (ARRAY['clear'::text, 'defer'::text, 'quarantine'::text, 'review'::text])))),
+    CONSTRAINT procurement_phc_handoffs_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'emitted'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: procurement_source_health_checks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_source_health_checks (
+    health_check_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    health_state text NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    checked_by uuid,
+    checked_at timestamp with time zone NOT NULL,
+    proof_ref_id uuid,
+    sop_task_id uuid,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT procurement_source_health_checks_state_check CHECK ((health_state = ANY (ARRAY['passed'::text, 'failed'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: proof_artifacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.proof_artifacts (
+    proof_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    storage_provider text NOT NULL,
+    object_key text NOT NULL,
+    content_hash text DEFAULT ''::text NOT NULL,
+    mime_type text DEFAULT ''::text NOT NULL,
+    size_bytes bigint DEFAULT 0 NOT NULL,
+    duration_ms bigint,
+    upload_state text DEFAULT 'pending'::text NOT NULL,
+    scope_type text NOT NULL,
+    scope_id uuid NOT NULL,
+    subject_type text NOT NULL,
+    subject_id uuid,
+    proof_type text NOT NULL,
+    uploaded_by uuid,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    uploaded_at timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT proof_artifacts_duration_check CHECK (((duration_ms IS NULL) OR (duration_ms >= 0))),
+    CONSTRAINT proof_artifacts_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT proof_artifacts_object_key_check CHECK ((btrim(object_key) <> ''::text)),
+    CONSTRAINT proof_artifacts_proof_type_check CHECK ((proof_type = ANY (ARRAY['photo'::text, 'video'::text, 'attachment'::text]))),
+    CONSTRAINT proof_artifacts_provider_check CHECK ((storage_provider = ANY (ARRAY['local'::text, 'gcs'::text]))),
+    CONSTRAINT proof_artifacts_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT proof_artifacts_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'batch'::text, 'task'::text, 'goat'::text]))),
+    CONSTRAINT proof_artifacts_size_check CHECK ((size_bytes >= 0)),
+    CONSTRAINT proof_artifacts_subject_check CHECK ((subject_type = ANY (ARRAY['batch'::text, 'goat'::text, 'shed'::text, 'task'::text, 'vial_lot'::text, 'administration'::text, 'other'::text]))),
+    CONSTRAINT proof_artifacts_upload_state_check CHECK ((upload_state = ANY (ARRAY['pending'::text, 'uploading'::text, 'completed'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: protocol_definitions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3077,6 +3377,52 @@ CREATE TABLE public.sop_submissions (
 
 
 --
+-- Name: sop_task_review_fanouts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_task_review_fanouts (
+    review_fanout_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    task_row_version integer NOT NULL,
+    outcome text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    requested_by uuid,
+    reason text DEFAULT ''::text NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    last_error text DEFAULT ''::text NOT NULL,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_review_fanouts_attempt_check CHECK ((attempt_count >= 0)),
+    CONSTRAINT sop_task_review_fanouts_outcome_check CHECK ((outcome = ANY (ARRAY['accepted'::text, 'rework_requested'::text]))),
+    CONSTRAINT sop_task_review_fanouts_row_version_check CHECK ((task_row_version >= 1)),
+    CONSTRAINT sop_task_review_fanouts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'failed'::text, 'superseded'::text])))
+);
+
+
+--
+-- Name: sop_task_submission_fanouts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_task_submission_fanouts (
+    submission_fanout_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    submission_id uuid NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    requested_by uuid,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    last_error text DEFAULT ''::text NOT NULL,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_submission_fanouts_attempt_check CHECK ((attempt_count >= 0)),
+    CONSTRAINT sop_task_submission_fanouts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'failed'::text, 'skipped'::text])))
+);
+
+
+--
 -- Name: sop_tasks; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3143,6 +3489,67 @@ CREATE TABLE public.sop_versions (
 
 
 --
+-- Name: source_entry_decisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_entry_decisions (
+    decision_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    decision_stage text NOT NULL,
+    decision_type text NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    decided_by uuid,
+    decided_at timestamp with time zone NOT NULL,
+    proof_ref_id uuid,
+    sop_task_id uuid,
+    owner_id uuid,
+    resume_condition text,
+    idempotency_key text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT source_entry_decisions_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT source_entry_decisions_stage_check CHECK ((decision_stage = ANY (ARRAY['source_selection'::text, 'source_health'::text, 'pre_dispatch'::text, 'arrival_gate'::text, 'accepted_intake'::text, 'exit'::text]))),
+    CONSTRAINT source_entry_decisions_type_check CHECK ((decision_type = ANY (ARRAY['accepted'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text])))
+);
+
+
+--
+-- Name: source_holding_stays; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_holding_stays (
+    stay_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    holding_location_id uuid NOT NULL,
+    started_at timestamp with time zone NOT NULL,
+    ended_at timestamp with time zone,
+    warmup_state text DEFAULT 'in_progress'::text NOT NULL,
+    warmup_days integer,
+    health_state text DEFAULT 'pending'::text NOT NULL,
+    ownership_state text DEFAULT 'pending'::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    proof_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    purpose text DEFAULT 'unspecified'::text NOT NULL,
+    CONSTRAINT source_holding_stays_health_state_check CHECK ((health_state = ANY (ARRAY['pending'::text, 'passed'::text, 'failed'::text, 'deferred'::text]))),
+    CONSTRAINT source_holding_stays_ownership_state_check CHECK ((ownership_state = ANY (ARRAY['pending'::text, 'shared_pending'::text, 'mesha_owned'::text, 'blocked'::text, 'not_owned'::text, 'settled'::text]))),
+    CONSTRAINT source_holding_stays_proof_refs_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
+    CONSTRAINT source_holding_stays_purpose_check CHECK ((purpose = ANY (ARRAY['breeding'::text, 'fattening'::text, 'non_breeding'::text, 'unspecified'::text]))),
+    CONSTRAINT source_holding_stays_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT source_holding_stays_status_check CHECK ((status = ANY (ARRAY['open'::text, 'closed'::text, 'canceled'::text]))),
+    CONSTRAINT source_holding_stays_warmup_days_check CHECK (((warmup_days IS NULL) OR (warmup_days >= 0))),
+    CONSTRAINT source_holding_stays_warmup_state_check CHECK ((warmup_state = ANY (ARRAY['not_started'::text, 'in_progress'::text, 'completed'::text, 'outside_normal_window'::text]))),
+    CONSTRAINT source_holding_stays_window_check CHECK (((ended_at IS NULL) OR (ended_at >= started_at)))
+);
+
+
+--
 -- Name: status_definitions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3174,6 +3581,34 @@ CREATE TABLE public.tenants (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT tenants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+);
+
+
+--
+-- Name: transit_handoffs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.transit_handoffs (
+    handoff_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    from_location_id uuid,
+    to_location_id uuid NOT NULL,
+    loaded_count integer DEFAULT 0 NOT NULL,
+    dispatched_at timestamp with time zone NOT NULL,
+    arrived_at timestamp with time zone,
+    proof_ref_id uuid,
+    discrepancy_state text DEFAULT 'none'::text NOT NULL,
+    status text DEFAULT 'in_transit'::text NOT NULL,
+    idempotency_key text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT transit_handoffs_discrepancy_check CHECK ((discrepancy_state = ANY (ARRAY['none'::text, 'partial_load'::text, 'accepted_not_loaded'::text, 'missing'::text, 'extra'::text, 'mismatch'::text, 'blocked'::text]))),
+    CONSTRAINT transit_handoffs_loaded_count_check CHECK ((loaded_count >= 0)),
+    CONSTRAINT transit_handoffs_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT transit_handoffs_status_check CHECK ((status = ANY (ARRAY['planned'::text, 'in_transit'::text, 'arrived'::text, 'canceled'::text])))
 );
 
 
@@ -3274,6 +3709,27 @@ CREATE VIEW public.vw_goat_tagging AS
     valid_to
    FROM public.goat_identifiers gi
   WHERE (status = 'active'::text);
+
+
+--
+-- Name: vw_procurement_vaccination_excluded_goats; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vw_procurement_vaccination_excluded_goats AS
+ SELECT DISTINCT g.tenant_id,
+    g.goat_id,
+        CASE
+            WHEN (g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) THEN g.lifecycle_status
+            WHEN (g.identity_state = ANY (ARRAY['disputed'::text, 'merged'::text, 'inactive'::text])) THEN 'identity_conflict'::text
+            WHEN (plg.identity_review_state <> 'clean'::text) THEN ('identity_'::text || plg.identity_review_state)
+            WHEN (plg.ownership_state <> ALL (ARRAY['mesha_owned'::text, 'settled'::text])) THEN ('ownership_'::text || plg.ownership_state)
+            WHEN (plg.health_state <> 'passed'::text) THEN ('health_'::text || plg.health_state)
+            WHEN (plg.current_state <> 'accepted_herd_intake'::text) THEN plg.current_state
+            ELSE 'not_excluded'::text
+        END AS exclusion_reason
+   FROM (public.goats g
+     LEFT JOIN public.procurement_load_goats plg ON (((plg.tenant_id = g.tenant_id) AND (plg.goat_id = g.goat_id))))
+  WHERE ((g.lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'lost'::text, 'culled'::text, 'transferred'::text, 'merged'::text, 'inactive'::text])) OR (g.identity_state = ANY (ARRAY['disputed'::text, 'merged'::text, 'inactive'::text])) OR ((plg.goat_id IS NOT NULL) AND ((plg.current_state <> 'accepted_herd_intake'::text) OR (plg.selection_state = ANY (ARRAY['source_only'::text, 'candidate'::text, 'rejected'::text, 'deferred'::text, 'blocked'::text, 'arrival_rejected'::text, 'dead'::text, 'sold'::text, 'lost'::text])) OR (plg.identity_review_state <> 'clean'::text) OR (plg.ownership_state <> ALL (ARRAY['mesha_owned'::text, 'settled'::text])) OR (plg.health_state <> 'passed'::text))));
 
 
 --
@@ -3632,6 +4088,46 @@ ALTER TABLE ONLY public.animal_stage_lookup
 
 ALTER TABLE ONLY public.animal_stage_lookup
     ADD CONSTRAINT animal_stage_lookup_tenant_id_unique UNIQUE (tenant_id, animal_stage_id);
+
+
+--
+-- Name: arrival_intake_review_goats arrival_intake_review_goats_item_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_review_goats
+    ADD CONSTRAINT arrival_intake_review_goats_item_unique UNIQUE (tenant_id, review_id, item_key);
+
+
+--
+-- Name: arrival_intake_review_goats arrival_intake_review_goats_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_review_goats
+    ADD CONSTRAINT arrival_intake_review_goats_pkey PRIMARY KEY (review_goat_id);
+
+
+--
+-- Name: arrival_intake_reviews arrival_intake_reviews_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_reviews
+    ADD CONSTRAINT arrival_intake_reviews_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: arrival_intake_reviews arrival_intake_reviews_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_reviews
+    ADD CONSTRAINT arrival_intake_reviews_pkey PRIMARY KEY (review_id);
+
+
+--
+-- Name: arrival_intake_reviews arrival_intake_reviews_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_reviews
+    ADD CONSTRAINT arrival_intake_reviews_tenant_id_unique UNIQUE (tenant_id, review_id);
 
 
 --
@@ -4603,6 +5099,110 @@ ALTER TABLE ONLY public.parties
 
 
 --
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_pkey PRIMARY KEY (evidence_id);
+
+
+--
+-- Name: procurement_load_goats procurement_load_goats_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_load_goats
+    ADD CONSTRAINT procurement_load_goats_pkey PRIMARY KEY (load_goat_id);
+
+
+--
+-- Name: procurement_load_goats procurement_load_goats_unique_goat_per_load; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_load_goats
+    ADD CONSTRAINT procurement_load_goats_unique_goat_per_load UNIQUE (tenant_id, load_id, goat_id);
+
+
+--
+-- Name: procurement_loads procurement_loads_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_loads
+    ADD CONSTRAINT procurement_loads_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: procurement_loads procurement_loads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_loads
+    ADD CONSTRAINT procurement_loads_pkey PRIMARY KEY (load_id);
+
+
+--
+-- Name: procurement_loads procurement_loads_tenant_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_loads
+    ADD CONSTRAINT procurement_loads_tenant_id_unique UNIQUE (tenant_id, load_id);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_one_per_goat; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_one_per_goat UNIQUE (tenant_id, load_id, goat_id);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_pkey PRIMARY KEY (handoff_id);
+
+
+--
+-- Name: procurement_source_health_checks procurement_source_health_checks_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_source_health_checks
+    ADD CONSTRAINT procurement_source_health_checks_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: procurement_source_health_checks procurement_source_health_checks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_source_health_checks
+    ADD CONSTRAINT procurement_source_health_checks_pkey PRIMARY KEY (health_check_id);
+
+
+--
+-- Name: proof_artifacts proof_artifacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.proof_artifacts
+    ADD CONSTRAINT proof_artifacts_pkey PRIMARY KEY (proof_id);
+
+
+--
 -- Name: protocol_definitions protocol_definitions_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4763,6 +5363,38 @@ ALTER TABLE ONLY public.sop_submissions
 
 
 --
+-- Name: sop_task_review_fanouts sop_task_review_fanouts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_review_fanouts
+    ADD CONSTRAINT sop_task_review_fanouts_pkey PRIMARY KEY (review_fanout_id);
+
+
+--
+-- Name: sop_task_review_fanouts sop_task_review_fanouts_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_review_fanouts
+    ADD CONSTRAINT sop_task_review_fanouts_unique UNIQUE (tenant_id, task_id, task_row_version, outcome);
+
+
+--
+-- Name: sop_task_submission_fanouts sop_task_submission_fanouts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_submission_fanouts
+    ADD CONSTRAINT sop_task_submission_fanouts_pkey PRIMARY KEY (submission_fanout_id);
+
+
+--
+-- Name: sop_task_submission_fanouts sop_task_submission_fanouts_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_submission_fanouts
+    ADD CONSTRAINT sop_task_submission_fanouts_unique UNIQUE (tenant_id, submission_id);
+
+
+--
 -- Name: sop_tasks sop_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4795,6 +5427,38 @@ ALTER TABLE ONLY public.sop_versions
 
 
 --
+-- Name: source_entry_decisions source_entry_decisions_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: source_entry_decisions source_entry_decisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_pkey PRIMARY KEY (decision_id);
+
+
+--
+-- Name: source_holding_stays source_holding_stays_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_holding_stays
+    ADD CONSTRAINT source_holding_stays_pkey PRIMARY KEY (stay_id);
+
+
+--
+-- Name: source_holding_stays source_holding_stays_unique_window; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_holding_stays
+    ADD CONSTRAINT source_holding_stays_unique_window UNIQUE (tenant_id, load_id, goat_id, holding_location_id, started_at);
+
+
+--
 -- Name: status_definitions status_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4811,6 +5475,22 @@ ALTER TABLE ONLY public.tenants
 
 
 --
+-- Name: transit_handoffs transit_handoffs_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transit_handoffs
+    ADD CONSTRAINT transit_handoffs_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: transit_handoffs transit_handoffs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transit_handoffs
+    ADD CONSTRAINT transit_handoffs_pkey PRIMARY KEY (handoff_id);
+
+
+--
 -- Name: user_scope_grants user_scope_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4824,14 +5504,6 @@ ALTER TABLE ONLY public.user_scope_grants
 
 ALTER TABLE ONLY public.vaccination_completions
     ADD CONSTRAINT vaccination_completions_idempotency_unique UNIQUE (tenant_id, idempotency_key);
-
-
---
--- Name: vaccination_completions vaccination_completions_obligation_goat_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vaccination_completions
-    ADD CONSTRAINT vaccination_completions_obligation_goat_unique UNIQUE (tenant_id, obligation_id, goat_id);
 
 
 --
@@ -4923,6 +5595,27 @@ ALTER TABLE ONLY public.workforce_roster_assignments
 
 
 --
+-- Name: arrival_intake_review_goats_load_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX arrival_intake_review_goats_load_idx ON public.arrival_intake_review_goats USING btree (tenant_id, load_id, arrival_state, goat_id);
+
+
+--
+-- Name: arrival_intake_review_goats_review_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX arrival_intake_review_goats_review_idx ON public.arrival_intake_review_goats USING btree (tenant_id, review_id, arrival_state, review_goat_id);
+
+
+--
+-- Name: arrival_intake_reviews_load_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX arrival_intake_reviews_load_idx ON public.arrival_intake_reviews USING btree (tenant_id, load_id, status, reviewed_at DESC);
+
+
+--
 -- Name: audit_log_actor_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4965,6 +5658,118 @@ CREATE INDEX audit_log_2026_06_tenant_id_action_recorded_at_idx ON public.audit_
 
 
 --
+-- Name: audit_log_tenant_actor_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_actor_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, actor_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_06 USING btree (tenant_id, actor_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_tenant_actor_type_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_actor_type_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_06 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_tenant_domain_module_category_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_domain_module_category_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_tenant_status_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_status_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_tenant_result_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_result_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_tenant_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_06 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_tenant_resource_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_resource_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_06 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_tenant_scope_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_scope_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_06 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
+
+
+--
 -- Name: audit_log_2026_07_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4983,6 +5788,62 @@ CREATE INDEX audit_log_2026_07_resource_type_resource_id_created_at_idx ON publi
 --
 
 CREATE INDEX audit_log_2026_07_tenant_id_action_recorded_at_idx ON public.audit_log_2026_07 USING btree (tenant_id, action, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_07 USING btree (tenant_id, actor_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_07 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_07 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_07 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_07 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
 
 
 --
@@ -5007,6 +5868,62 @@ CREATE INDEX audit_log_2026_08_tenant_id_action_recorded_at_idx ON public.audit_
 
 
 --
+-- Name: audit_log_2026_08_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_08 USING btree (tenant_id, actor_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_08 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_08 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_08 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_08 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
+
+
+--
 -- Name: audit_log_2026_09_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5028,6 +5945,62 @@ CREATE INDEX audit_log_2026_09_tenant_id_action_recorded_at_idx ON public.audit_
 
 
 --
+-- Name: audit_log_2026_09_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_actor_id_recorded_at_idx ON public.audit_log_2026_09 USING btree (tenant_id, actor_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_2026_09 USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_recorded_at_audit_id_idx ON public.audit_log_2026_09 USING btree (tenant_id, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_2026_09 USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_2026_09 USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
+
+
+--
 -- Name: audit_log_default_actor_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5046,6 +6019,62 @@ CREATE INDEX audit_log_default_resource_type_resource_id_created_at_idx ON publi
 --
 
 CREATE INDEX audit_log_default_tenant_id_action_recorded_at_idx ON public.audit_log_default USING btree (tenant_id, action, recorded_at DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_actor_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_actor_id_recorded_at_idx ON public.audit_log_default USING btree (tenant_id, actor_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx ON public.audit_log_default USING btree (tenant_id, actor_type, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'domain'::text)), ((metadata ->> 'module'::text)), ((metadata ->> 'category'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_expr_recorded_at_audit_id_idx ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'status'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_recorded_at_audit_id_idx ON public.audit_log_default USING btree (tenant_id, recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_resource_type_resource_id_recor_idx ON public.audit_log_default USING btree (tenant_id, resource_type, resource_id, recorded_at DESC);
+
+
+--
+-- Name: audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx ON public.audit_log_default USING btree (tenant_id, scope_type, scope_id, recorded_at DESC);
 
 
 --
@@ -6526,6 +7555,167 @@ CREATE INDEX outbox_messages_status_next_attempt_idx ON public.outbox_messages U
 
 
 --
+-- Name: outbox_messages_tenant_status_attempt_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX outbox_messages_tenant_status_attempt_idx ON public.outbox_messages USING btree (tenant_id, status, next_attempt_at, created_at, outbox_id);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_hf_vaccination_evidence_goat_idx ON public.procurement_hf_vaccination_evidence USING btree (tenant_id, goat_id, review_status, administered_at DESC, evidence_id DESC);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence_load_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_hf_vaccination_evidence_load_idx ON public.procurement_hf_vaccination_evidence USING btree (tenant_id, load_id, review_status, administered_at DESC, evidence_id DESC);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence_trusted_rule_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_hf_vaccination_evidence_trusted_rule_idx ON public.procurement_hf_vaccination_evidence USING btree (tenant_id, goat_id, protocol_version_id, rule_id, dose_code, administered_at DESC) WHERE (review_status = 'trusted'::text);
+
+
+--
+-- Name: procurement_load_goats_action_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_action_idx ON public.procurement_load_goats USING btree (tenant_id, current_state, ownership_state, identity_review_state, updated_at DESC, goat_id);
+
+
+--
+-- Name: procurement_load_goats_goat_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_goat_state_idx ON public.procurement_load_goats USING btree (tenant_id, goat_id, current_state, updated_at DESC);
+
+
+--
+-- Name: procurement_load_goats_intake_eligibility_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_intake_eligibility_idx ON public.procurement_load_goats USING btree (tenant_id, load_id, current_state, health_state, identity_review_state, ownership_state, goat_id) WHERE ((loaded_at IS NOT NULL) AND (arrived_at IS NOT NULL));
+
+
+--
+-- Name: procurement_load_goats_load_detail_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_load_detail_idx ON public.procurement_load_goats USING btree (tenant_id, load_id, created_at, goat_id);
+
+
+--
+-- Name: procurement_load_goats_load_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_load_state_idx ON public.procurement_load_goats USING btree (tenant_id, load_id, current_state, goat_id);
+
+
+--
+-- Name: procurement_load_goats_purpose_warmup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_purpose_warmup_idx ON public.procurement_load_goats USING btree (tenant_id, purpose, warmup_days, current_state, updated_at DESC);
+
+
+--
+-- Name: procurement_load_goats_source_rfid_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_source_rfid_idx ON public.procurement_load_goats USING btree (tenant_id, source_rfid, load_id) WHERE (source_rfid IS NOT NULL);
+
+
+--
+-- Name: procurement_load_goats_source_tag_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_source_tag_idx ON public.procurement_load_goats USING btree (tenant_id, lower(source_tag), load_id) WHERE (source_tag IS NOT NULL);
+
+
+--
+-- Name: procurement_load_goats_work_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_load_goats_work_idx ON public.procurement_load_goats USING btree (tenant_id, updated_at DESC, load_goat_id DESC);
+
+
+--
+-- Name: procurement_loads_board_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_loads_board_idx ON public.procurement_loads USING btree (tenant_id, status, updated_at DESC, load_id DESC);
+
+
+--
+-- Name: procurement_loads_page_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_loads_page_idx ON public.procurement_loads USING btree (tenant_id, updated_at DESC, load_id DESC);
+
+
+--
+-- Name: procurement_loads_source_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_loads_source_idx ON public.procurement_loads USING btree (tenant_id, source_party_id, purchase_date DESC, load_id DESC);
+
+
+--
+-- Name: procurement_phc_handoffs_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_phc_handoffs_goat_idx ON public.procurement_phc_handoffs USING btree (tenant_id, goat_id, accepted_at DESC);
+
+
+--
+-- Name: procurement_phc_handoffs_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_phc_handoffs_pending_idx ON public.procurement_phc_handoffs USING btree (tenant_id, event_status, accepted_at, handoff_id);
+
+
+--
+-- Name: procurement_source_health_checks_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_source_health_checks_goat_idx ON public.procurement_source_health_checks USING btree (tenant_id, goat_id, checked_at DESC);
+
+
+--
+-- Name: proof_artifacts_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX proof_artifacts_scope_idx ON public.proof_artifacts USING btree (tenant_id, scope_type, scope_id, created_at DESC);
+
+
+--
+-- Name: proof_artifacts_subject_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX proof_artifacts_subject_idx ON public.proof_artifacts USING btree (tenant_id, subject_type, subject_id, created_at DESC) WHERE (subject_id IS NOT NULL);
+
+
+--
+-- Name: proof_artifacts_tenant_object_key_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX proof_artifacts_tenant_object_key_unique_idx ON public.proof_artifacts USING btree (tenant_id, object_key);
+
+
+--
+-- Name: proof_artifacts_tenant_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX proof_artifacts_tenant_state_idx ON public.proof_artifacts USING btree (tenant_id, upload_state, created_at DESC, proof_id DESC);
+
+
+--
 -- Name: protocol_rules_version_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6603,6 +7793,20 @@ CREATE UNIQUE INDEX sop_submissions_tenant_idempotency_unique_idx ON public.sop_
 
 
 --
+-- Name: sop_task_review_fanouts_retry_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_review_fanouts_retry_idx ON public.sop_task_review_fanouts USING btree (tenant_id, status, updated_at, review_fanout_id) WHERE (status = ANY (ARRAY['pending'::text, 'failed'::text]));
+
+
+--
+-- Name: sop_task_submission_fanouts_retry_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_submission_fanouts_retry_idx ON public.sop_task_submission_fanouts USING btree (tenant_id, status, updated_at, submission_fanout_id) WHERE (status = ANY (ARRAY['pending'::text, 'failed'::text]));
+
+
+--
 -- Name: sop_tasks_assignee_queue_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6652,10 +7856,66 @@ CREATE INDEX sop_versions_tenant_status_idx ON public.sop_versions USING btree (
 
 
 --
+-- Name: source_entry_decisions_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_entry_decisions_goat_idx ON public.source_entry_decisions USING btree (tenant_id, goat_id, decided_at DESC);
+
+
+--
+-- Name: source_entry_decisions_load_stage_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_entry_decisions_load_stage_idx ON public.source_entry_decisions USING btree (tenant_id, load_id, decision_stage, decided_at DESC);
+
+
+--
+-- Name: source_holding_stays_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_holding_stays_goat_idx ON public.source_holding_stays USING btree (tenant_id, goat_id, status, started_at DESC);
+
+
+--
+-- Name: source_holding_stays_load_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_holding_stays_load_idx ON public.source_holding_stays USING btree (tenant_id, load_id, status, started_at DESC);
+
+
+--
+-- Name: source_holding_stays_purpose_warmup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_holding_stays_purpose_warmup_idx ON public.source_holding_stays USING btree (tenant_id, purpose, warmup_days, status, started_at DESC);
+
+
+--
+-- Name: source_holding_stays_warmup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_holding_stays_warmup_idx ON public.source_holding_stays USING btree (tenant_id, warmup_state, warmup_days, status);
+
+
+--
 -- Name: status_definitions_axis_active_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX status_definitions_axis_active_idx ON public.status_definitions USING btree (axis, active, sort_order);
+
+
+--
+-- Name: transit_handoffs_load_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX transit_handoffs_load_idx ON public.transit_handoffs USING btree (tenant_id, load_id, status, dispatched_at DESC);
+
+
+--
+-- Name: transit_handoffs_load_proof_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX transit_handoffs_load_proof_idx ON public.transit_handoffs USING btree (tenant_id, load_id, status, proof_ref_id) WHERE (proof_ref_id IS NOT NULL);
 
 
 --
@@ -6684,6 +7944,13 @@ CREATE INDEX vaccination_completions_batch_idx ON public.vaccination_completions
 --
 
 CREATE INDEX vaccination_completions_goat_history_idx ON public.vaccination_completions USING btree (tenant_id, goat_id, administered_at DESC);
+
+
+--
+-- Name: vaccination_completions_obligation_goat_active_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_completions_obligation_goat_active_unique_idx ON public.vaccination_completions USING btree (tenant_id, obligation_id, goat_id) WHERE (status = ANY (ARRAY['recorded'::text, 'accepted'::text]));
 
 
 --
@@ -6890,6 +8157,62 @@ ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log
 
 
 --
+-- Name: audit_log_2026_06_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_actor_id_recorded_at_idx;
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_actor_type_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1;
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_resource_type_resource_id_recor_idx;
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_scope_type_scope_id_recorded_at_idx;
+
+
+--
 -- Name: audit_log_2026_07_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -6915,6 +8238,62 @@ ALTER INDEX public.audit_log_resource_idx ATTACH PARTITION public.audit_log_2026
 --
 
 ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_action_recorded_at_idx;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_actor_id_recorded_at_idx;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_actor_type_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_resource_type_resource_id_recor_idx;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_scope_type_scope_id_recorded_at_idx;
 
 
 --
@@ -6946,6 +8325,62 @@ ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log
 
 
 --
+-- Name: audit_log_2026_08_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_actor_id_recorded_at_idx;
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_actor_type_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1;
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_resource_type_resource_id_recor_idx;
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_scope_type_scope_id_recorded_at_idx;
+
+
+--
 -- Name: audit_log_2026_09_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -6974,6 +8409,62 @@ ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log
 
 
 --
+-- Name: audit_log_2026_09_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_actor_id_recorded_at_idx;
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_actor_type_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1;
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_resource_type_resource_id_recor_idx;
+
+
+--
+-- Name: audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_scope_type_scope_id_recorded_at_idx;
+
+
+--
 -- Name: audit_log_default_actor_id_created_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -6999,6 +8490,62 @@ ALTER INDEX public.audit_log_resource_idx ATTACH PARTITION public.audit_log_defa
 --
 
 ALTER INDEX public.audit_log_tenant_action_idx ATTACH PARTITION public.audit_log_default_tenant_id_action_recorded_at_idx;
+
+
+--
+-- Name: audit_log_default_tenant_id_actor_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_actor_id_recorded_at_idx;
+
+
+--
+-- Name: audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_actor_type_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_actor_type_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_domain_module_category_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_expr1_expr2_recorded_at_au_idx;
+
+
+--
+-- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1;
+
+
+--
+-- Name: audit_log_default_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_recorded_at_audit_id_idx;
+
+
+--
+-- Name: audit_log_default_tenant_id_resource_type_resource_id_recor_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_resource_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_resource_type_resource_id_recor_idx;
+
+
+--
+-- Name: audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_scope_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_scope_type_scope_id_recorded_at_idx;
 
 
 --
@@ -7590,6 +9137,13 @@ CREATE TRIGGER obligation_batches_validate_scope_trg BEFORE INSERT OR UPDATE OF 
 
 
 --
+-- Name: obligation_instances obligation_instances_procurement_vaccination_guard_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER obligation_instances_procurement_vaccination_guard_trg BEFORE INSERT OR UPDATE OF target_type, target_id, status, protocol_version_id ON public.obligation_instances FOR EACH ROW EXECUTE FUNCTION public.block_active_vaccination_for_procurement_excluded_goat();
+
+
+--
 -- Name: obligation_instances obligation_instances_validate_scope_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -7644,6 +9198,78 @@ CREATE TRIGGER user_scope_grants_validate_scope_trg BEFORE INSERT OR UPDATE OF t
 
 ALTER TABLE ONLY public.animal_stage_lookup
     ADD CONSTRAINT animal_stage_lookup_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: arrival_intake_review_goats arrival_intake_review_goats_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_review_goats
+    ADD CONSTRAINT arrival_intake_review_goats_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: arrival_intake_review_goats arrival_intake_review_goats_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_review_goats
+    ADD CONSTRAINT arrival_intake_review_goats_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: arrival_intake_review_goats arrival_intake_review_goats_proof_ref_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_review_goats
+    ADD CONSTRAINT arrival_intake_review_goats_proof_ref_id_fkey FOREIGN KEY (proof_ref_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: arrival_intake_review_goats arrival_intake_review_goats_review_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_review_goats
+    ADD CONSTRAINT arrival_intake_review_goats_review_tenant_fk FOREIGN KEY (tenant_id, review_id) REFERENCES public.arrival_intake_reviews(tenant_id, review_id);
+
+
+--
+-- Name: arrival_intake_review_goats arrival_intake_review_goats_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_review_goats
+    ADD CONSTRAINT arrival_intake_review_goats_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: arrival_intake_reviews arrival_intake_reviews_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_reviews
+    ADD CONSTRAINT arrival_intake_reviews_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: arrival_intake_reviews arrival_intake_reviews_media_proof_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_reviews
+    ADD CONSTRAINT arrival_intake_reviews_media_proof_id_fkey FOREIGN KEY (media_proof_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: arrival_intake_reviews arrival_intake_reviews_park_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_reviews
+    ADD CONSTRAINT arrival_intake_reviews_park_tenant_fk FOREIGN KEY (tenant_id, park_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: arrival_intake_reviews arrival_intake_reviews_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.arrival_intake_reviews
+    ADD CONSTRAINT arrival_intake_reviews_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -9503,6 +11129,206 @@ ALTER TABLE ONLY public.park_profiles
 
 
 --
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_proof_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_proof_fk FOREIGN KEY (proof_ref_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_protocol_version_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_protocol_version_tenant_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_rule_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_rule_tenant_fk FOREIGN KEY (tenant_id, rule_id) REFERENCES public.protocol_rules(tenant_id, rule_id);
+
+
+--
+-- Name: procurement_hf_vaccination_evidence procurement_hf_vaccination_evidence_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_hf_vaccination_evidence
+    ADD CONSTRAINT procurement_hf_vaccination_evidence_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: procurement_load_goats procurement_load_goats_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_load_goats
+    ADD CONSTRAINT procurement_load_goats_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: procurement_load_goats procurement_load_goats_holding_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_load_goats
+    ADD CONSTRAINT procurement_load_goats_holding_location_tenant_fk FOREIGN KEY (tenant_id, holding_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: procurement_load_goats procurement_load_goats_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_load_goats
+    ADD CONSTRAINT procurement_load_goats_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: procurement_load_goats procurement_load_goats_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_load_goats
+    ADD CONSTRAINT procurement_load_goats_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: procurement_loads procurement_loads_source_location_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_loads
+    ADD CONSTRAINT procurement_loads_source_location_id_fkey FOREIGN KEY (source_location_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: procurement_loads procurement_loads_source_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_loads
+    ADD CONSTRAINT procurement_loads_source_location_tenant_fk FOREIGN KEY (tenant_id, source_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: procurement_loads procurement_loads_source_party_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_loads
+    ADD CONSTRAINT procurement_loads_source_party_id_fkey FOREIGN KEY (source_party_id) REFERENCES public.parties(party_id);
+
+
+--
+-- Name: procurement_loads procurement_loads_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_loads
+    ADD CONSTRAINT procurement_loads_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_park_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_park_tenant_fk FOREIGN KEY (tenant_id, park_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_shed_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_shed_tenant_fk FOREIGN KEY (tenant_id, shed_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: procurement_phc_handoffs procurement_phc_handoffs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_phc_handoffs
+    ADD CONSTRAINT procurement_phc_handoffs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: procurement_source_health_checks procurement_source_health_checks_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_source_health_checks
+    ADD CONSTRAINT procurement_source_health_checks_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: procurement_source_health_checks procurement_source_health_checks_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_source_health_checks
+    ADD CONSTRAINT procurement_source_health_checks_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: procurement_source_health_checks procurement_source_health_checks_proof_ref_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_source_health_checks
+    ADD CONSTRAINT procurement_source_health_checks_proof_ref_id_fkey FOREIGN KEY (proof_ref_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: procurement_source_health_checks procurement_source_health_checks_task_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_source_health_checks
+    ADD CONSTRAINT procurement_source_health_checks_task_tenant_fk FOREIGN KEY (tenant_id, sop_task_id) REFERENCES public.sop_tasks(tenant_id, task_id);
+
+
+--
+-- Name: procurement_source_health_checks procurement_source_health_checks_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_source_health_checks
+    ADD CONSTRAINT procurement_source_health_checks_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: proof_artifacts proof_artifacts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.proof_artifacts
+    ADD CONSTRAINT proof_artifacts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: protocol_definitions protocol_definitions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9687,6 +11513,46 @@ ALTER TABLE ONLY public.sop_submissions
 
 
 --
+-- Name: sop_task_review_fanouts sop_task_review_fanouts_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_review_fanouts
+    ADD CONSTRAINT sop_task_review_fanouts_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_task_review_fanouts sop_task_review_fanouts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_review_fanouts
+    ADD CONSTRAINT sop_task_review_fanouts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_task_submission_fanouts sop_task_submission_fanouts_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_submission_fanouts
+    ADD CONSTRAINT sop_task_submission_fanouts_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.sop_submissions(submission_id);
+
+
+--
+-- Name: sop_task_submission_fanouts sop_task_submission_fanouts_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_submission_fanouts
+    ADD CONSTRAINT sop_task_submission_fanouts_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_task_submission_fanouts sop_task_submission_fanouts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_submission_fanouts
+    ADD CONSTRAINT sop_task_submission_fanouts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: sop_tasks sop_tasks_sop_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9724,6 +11590,126 @@ ALTER TABLE ONLY public.sop_versions
 
 ALTER TABLE ONLY public.sop_versions
     ADD CONSTRAINT sop_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: source_entry_decisions source_entry_decisions_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: source_entry_decisions source_entry_decisions_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: source_entry_decisions source_entry_decisions_owner_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_owner_fk FOREIGN KEY (owner_id) REFERENCES public.workforce_members(workforce_member_id);
+
+
+--
+-- Name: source_entry_decisions source_entry_decisions_proof_ref_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_proof_ref_id_fkey FOREIGN KEY (proof_ref_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: source_entry_decisions source_entry_decisions_task_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_task_tenant_fk FOREIGN KEY (tenant_id, sop_task_id) REFERENCES public.sop_tasks(tenant_id, task_id);
+
+
+--
+-- Name: source_entry_decisions source_entry_decisions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_entry_decisions
+    ADD CONSTRAINT source_entry_decisions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: source_holding_stays source_holding_stays_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_holding_stays
+    ADD CONSTRAINT source_holding_stays_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: source_holding_stays source_holding_stays_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_holding_stays
+    ADD CONSTRAINT source_holding_stays_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: source_holding_stays source_holding_stays_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_holding_stays
+    ADD CONSTRAINT source_holding_stays_location_tenant_fk FOREIGN KEY (tenant_id, holding_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: source_holding_stays source_holding_stays_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_holding_stays
+    ADD CONSTRAINT source_holding_stays_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: transit_handoffs transit_handoffs_from_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transit_handoffs
+    ADD CONSTRAINT transit_handoffs_from_location_tenant_fk FOREIGN KEY (tenant_id, from_location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: transit_handoffs transit_handoffs_load_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transit_handoffs
+    ADD CONSTRAINT transit_handoffs_load_tenant_fk FOREIGN KEY (tenant_id, load_id) REFERENCES public.procurement_loads(tenant_id, load_id);
+
+
+--
+-- Name: transit_handoffs transit_handoffs_proof_ref_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transit_handoffs
+    ADD CONSTRAINT transit_handoffs_proof_ref_id_fkey FOREIGN KEY (proof_ref_id) REFERENCES public.proof_artifacts(proof_id);
+
+
+--
+-- Name: transit_handoffs transit_handoffs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transit_handoffs
+    ADD CONSTRAINT transit_handoffs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: transit_handoffs transit_handoffs_to_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.transit_handoffs
+    ADD CONSTRAINT transit_handoffs_to_location_tenant_fk FOREIGN KEY (tenant_id, to_location_id) REFERENCES public.locations(tenant_id, location_id);
 
 
 --

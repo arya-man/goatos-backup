@@ -3,6 +3,7 @@ import "server-only";
 import { createAdminApiClient, createAppApiClient, GoatOSApiError } from "@goatos/api-client";
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents, AppApiPaths } from "@goatos/api-client";
 import { getFirebaseIdTokenCookie } from "@/lib/auth/server-session";
+import { mintLocalDevBearerToken } from "./local-dev-token";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 
@@ -35,11 +36,16 @@ export type WorkflowNode = AppApiComponents["schemas"]["WorkflowNode"];
 export type WorkflowDrilldownResponse = AppApiComponents["schemas"]["WorkflowDrilldownResponse"];
 export type ImpactPreviewInput = AppApiComponents["schemas"]["ImpactPreviewInput"];
 export type ImpactPreviewResult = AppApiComponents["schemas"]["ImpactPreviewResult"];
+export type ProtocolConfigItem = AppApiComponents["schemas"]["ProtocolConfigItem"];
+export type ProtocolConfigListResponse = AppApiComponents["schemas"]["ProtocolConfigListResponse"];
 export type VaccinationPassportDue = AppApiComponents["schemas"]["VaccinationPassportDue"];
 export type VaccinationPassportHistoryItem = AppApiComponents["schemas"]["VaccinationPassportHistoryItem"];
 export type VaccinationPassport = AppApiComponents["schemas"]["VaccinationPassport"];
 export type AcceptVaccinationCompletionResponse = AppApiComponents["schemas"]["AcceptVaccinationCompletionResponse"];
 export type RejectVaccinationCompletionResponse = AppApiComponents["schemas"]["RejectVaccinationCompletionResponse"];
+export type CreateProofUploadResponse = AppApiComponents["schemas"]["CreateProofUploadResponse"];
+export type ProofResponse = AppApiComponents["schemas"]["ProofResponse"];
+export type SubmissionResponse = AppApiComponents["schemas"]["SubmissionResponse"];
 
 export type VaccinationExecutionResponse = AppApiComponents["schemas"]["VaccinationExecutionResponse"];
 export type VaccinationExecutionRow = AppApiComponents["schemas"]["VaccinationExecutionRow"];
@@ -47,6 +53,7 @@ export type VaccinationOperationsResponse = AppApiComponents["schemas"]["Vaccina
 export type VaccinationOperationsCohort = AppApiComponents["schemas"]["VaccinationOperationsCohort"];
 export type VaccinationOperationsProtocol = AppApiComponents["schemas"]["VaccinationOperationsProtocol"];
 export type VaccinationOperationsCell = AppApiComponents["schemas"]["VaccinationOperationsCell"];
+export type VaccinationOperationsCounts = AppApiComponents["schemas"]["VaccinationOperationsCounts"];
 export type VaccinationExecutionShedDrilldown = AppApiComponents["schemas"]["VaccinationExecutionShedDrilldown"];
 export type VaccinationExecutionWorkState = AppApiComponents["schemas"]["VaccinationExecutionWorkState"];
 export type VaccinationExecutionSeverity = AppApiComponents["schemas"]["VaccinationExecutionSeverity"];
@@ -55,6 +62,15 @@ export type VaccinationExecutionProofStatus = AppApiComponents["schemas"]["Vacci
 export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]["VaccinationExecutionVerificationStatus"];
 
 export type AdminGoatResponse = AdminApiComponents["schemas"]["AdminGoatResponse"];
+export type CreateAdminGoatRequest = AdminApiComponents["schemas"]["CreateAdminGoatRequest"];
+export type AdminGoatBulkPreviewRequest = AdminApiComponents["schemas"]["AdminGoatBulkPreviewRequest"];
+export type AdminGoatBulkCommitRequest = AdminApiComponents["schemas"]["AdminGoatBulkCommitRequest"];
+export type AdminGoatBulkResponse = AdminApiComponents["schemas"]["AdminGoatBulkResponse"];
+export type AdminGoatBulkRowResult = AdminApiComponents["schemas"]["AdminGoatBulkRowResult"];
+export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkSummary"];
+export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
+export type LocationSummary = AdminApiComponents["schemas"]["LocationSummary"];
+export type LocationListResponse = AdminApiComponents["schemas"]["LocationListResponse"];
 export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentifierRequest"];
 export type RetireIdentifierRequestBody = AdminApiComponents["schemas"]["RetireIdentifierRequest"];
 export type OperationsAuditRow = AdminApiComponents["schemas"]["OperationsAuditRow"];
@@ -141,15 +157,21 @@ export type OperationsAuditListParams = {
   category?: string;
   result?: string;
   status?: string;
+  q?: string;
   anomaliesOnly?: boolean;
+  proofGaps?: boolean;
 };
 
 export async function getServerConfig(requireTenant = false): Promise<ApiResult<ServerConfig>> {
   const baseUrl = process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080";
   const firebaseIdToken = await getFirebaseIdTokenCookie();
+  // Local bearer mode: self-mint a FRESH token per request (never the stale boot-time token) so the dev
+  // server can't 401 with invalid_bearer_token after its original token's TTL lapses. Falls back to the
+  // static GOATOS_BEARER_TOKEN only if self-minting isn't possible (e.g. dev secret unset). See
+  // lib/api/local-dev-token.ts — strictly local-only.
   const localBearerToken =
     process.env.GOATOS_ENV === "local" && process.env.GOATOS_AUTH_MODE === "bearer"
-      ? process.env.GOATOS_BEARER_TOKEN
+      ? (mintLocalDevBearerToken() ?? process.env.GOATOS_BEARER_TOKEN)
       : undefined;
   const bearerToken = localBearerToken ?? firebaseIdToken;
   const tenantId = process.env.GOATOS_TENANT_ID;
@@ -414,6 +436,21 @@ export async function previewVaccinationImpact(body: ImpactPreviewInput): Promis
   return request(() => client.request<ImpactPreviewResult>("/protocols/vaccination/impact-preview", { method: "POST", cache: "no-store", body }));
 }
 
+// listProtocolConfigs reads the Config authority list (B3): every protocol version (draft/published/
+// retired) in a category with rule count, source-review state, linked SOP, effective window, and
+// publisher metadata. Read-only; rows are never fabricated — an empty list renders the empty state.
+export async function listProtocolConfigs(category: string): Promise<ApiResult<ProtocolConfigListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProtocolConfigListResponse>("/protocols", {
+      cache: "no-store",
+      query: compactQuery({ category }),
+    }),
+  );
+}
+
 export async function createProtocolDefinition(body: {
   code: string;
   name: string;
@@ -479,6 +516,77 @@ export async function rejectVaccinationCompletion(
   const client = createAppApiClient(apiClientOptions(config.data));
   const path = `/vaccination/completions/${encodeURIComponent(completionId)}/reject` as keyof AppApiPaths & string;
   return request(() => client.request<RejectVaccinationCompletionResponse>(path, { method: "POST", cache: "no-store", body: { reason } }));
+}
+
+// ---- Proof upload wrappers for vaccination drawer ----
+// These enable the frontend to initiate proof uploads for vaccination completions and task submissions.
+
+export async function createProofUpload(
+  obligationId: string,
+): Promise<ApiResult<CreateProofUploadResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CreateProofUploadResponse>("/app/proofs/uploads", {
+      method: "POST",
+      cache: "no-store",
+      body: { obligation_id: obligationId },
+    }),
+  );
+}
+
+export async function uploadProofLocal(
+  proofId: string,
+  file: File,
+): Promise<ApiResult<void>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const formData = new FormData();
+  formData.append("file", file);
+  const path = `/app/proofs/${encodeURIComponent(proofId)}/upload` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<void>(path, {
+      method: "PUT",
+      cache: "no-store",
+      body: formData,
+    }),
+  );
+}
+
+export async function completeProofUpload(
+  proofId: string,
+  mediaType: string,
+): Promise<ApiResult<ProofResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/proofs/${encodeURIComponent(proofId)}/complete` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProofResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body: { media_type: mediaType },
+    }),
+  );
+}
+
+export async function submitAppTask(
+  taskId: string,
+  submissionData: Record<string, unknown>,
+): Promise<ApiResult<SubmissionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/tasks/${encodeURIComponent(taskId)}/submissions` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<SubmissionResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body: submissionData,
+    }),
+  );
 }
 
 // ---- SOP Library (Admin / Data Ops) — committed admin SOP engine endpoints ----
@@ -606,6 +714,75 @@ export async function retireGoatIdentifier(
   );
 }
 
+// Counts -> Herd Register write path. Each create/commit carries an Idempotency-Key so a double-submit or
+// retry replays the original result instead of writing a second goat. The backend derives the actor from the
+// auth token; the body carries only operator-entered identity. preview is a pure read (no key, no writes).
+export async function createAdminGoat(
+  body: CreateAdminGoatRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminGoatResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AdminGoatResponse>("/admin/goats", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function previewAdminGoatBulkImport(
+  body: AdminGoatBulkPreviewRequest,
+): Promise<ApiResult<AdminGoatBulkResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AdminGoatBulkResponse>("/admin/goats/bulk-preview", { method: "POST", cache: "no-store", body }),
+  );
+}
+
+export async function commitAdminGoatBulkImport(
+  body: AdminGoatBulkCommitRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminGoatBulkResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AdminGoatBulkResponse>("/admin/goats/bulk-commit", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Location master read — backs the real park/shed/farm selectors in the Herd Register drawers. Physical
+// locations are bounded (parks/sheds/farms, not goats), so a capped list is scale-safe.
+export async function listLocations(
+  params: { type?: string; status?: string; parentLocationId?: string; limit?: number } = {},
+): Promise<ApiResult<LocationListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LocationListResponse>("/admin/locations", {
+      cache: "no-store",
+      query: compactQuery({
+        type: params.type,
+        status: params.status,
+        parent_location_id: params.parentLocationId,
+        limit: params.limit ?? 500,
+      }),
+    }),
+  );
+}
+
 export async function listOperationsAudit(
   params: OperationsAuditListParams = {},
 ): Promise<ApiResult<OperationsAuditListResponse>> {
@@ -632,7 +809,9 @@ export async function listOperationsAudit(
         category: params.category,
         result: params.result,
         status: params.status,
+        q: params.q,
         anomalies_only: params.anomaliesOnly,
+        proof_gaps: params.proofGaps,
       }),
     }),
   );
@@ -662,7 +841,9 @@ export async function getOperationsAuditSummary(
         category: params.category,
         result: params.result,
         status: params.status,
+        q: params.q,
         anomalies_only: params.anomaliesOnly,
+        proof_gaps: params.proofGaps,
       }),
     }),
   );

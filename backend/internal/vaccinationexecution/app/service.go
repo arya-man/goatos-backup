@@ -235,6 +235,10 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		ProofStatus:        proofStatus,
 		VerificationStatus: verificationStatus,
 		NextAction:         nextAction(p, workState),
+		ObligationID:       p.ObligationID,
+		BatchID:            p.BatchID,
+		SOPTaskID:          p.SOPTaskID,
+		CompletionID:       p.CompletionID,
 	}
 }
 
@@ -399,7 +403,7 @@ func blockerReason(p domain.ExecutionProjection, workState domain.WorkState) *st
 	case p.MissedCount > 0:
 		reason = "Missed dose escalation required"
 	case workState == domain.WorkStateOwnerMissing:
-		reason = "No execution owner assigned"
+		reason = "Owner chain awaiting assignment"
 	}
 	if reason == "" {
 		return nil

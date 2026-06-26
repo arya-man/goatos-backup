@@ -18,6 +18,10 @@ import (
 
 const defaultQueryTimeout = 3 * time.Second
 
+// configListLimit bounds the Config authority list. Protocol versions per tenant/category are
+// inherently small (dozens), so a fixed cap is safe at million-goat scale and needs no cursor.
+const configListLimit = 500
+
 // Repository is the Postgres-backed protocol repository.
 type Repository struct {
 	pool         *pgxpool.Pool
@@ -297,6 +301,59 @@ func (r *Repository) ListRules(ctx context.Context, tenantID, versionID string) 
 			CatchUp:             row.CatchUp,
 			SortOrder:           row.SortOrder,
 		})
+	}
+	return out, nil
+}
+
+// ListConfigs returns every protocol version (draft/published/retired) in a category for a tenant,
+// projected for the generic Config authority screen. Read-only; no mutation, no audit.
+func (r *Repository) ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	rows, err := r.queries.ListProtocolConfigsForCategory(ctx, protocoldb.ListProtocolConfigsForCategoryParams{
+		TenantID: tenant,
+		Category: category,
+		RowLimit: configListLimit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("protocol: list configs: %w", err)
+	}
+	out := make([]domain.ConfigListItem, 0, len(rows))
+	for _, row := range rows {
+		item := domain.ConfigListItem{
+			ProtocolID:        row.ProtocolID,
+			Code:              row.Code,
+			Name:              row.Name,
+			Category:          row.Category,
+			ProtocolVersionID: row.ProtocolVersionID,
+			Version:           row.Version,
+			VersionLabel:      row.VersionLabel,
+			ScopeType:         row.ScopeType,
+			ScopeID:           row.ScopeID,
+			Status:            row.Status,
+			EffectiveFrom:     pgconv.DateValue(row.EffectiveFrom),
+			EffectiveTo:       pgconv.DateValue(row.EffectiveTo),
+			SopVersionID:      row.SopVersionID,
+			PublishedBy:       row.PublishedBy,
+			SourceSystem:      row.SourceSystem,
+			SourceRef:         row.SourceRef,
+			ReviewStatus:      row.ReviewStatus,
+			ApprovedBy:        row.ApprovedBy,
+			RuleCount:         row.RuleCount,
+		}
+		if row.PublishedAt.Valid {
+			t := row.PublishedAt.Time
+			item.PublishedAt = &t
+		}
+		if row.UpdatedAt.Valid {
+			t := row.UpdatedAt.Time
+			item.UpdatedAt = &t
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }

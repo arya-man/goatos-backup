@@ -33,3 +33,42 @@ SELECT rule_id::text AS rule_id, dose_code, "sequence", trigger_type, offset_day
 FROM protocol_rules
 WHERE tenant_id = @tenant_id AND protocol_version_id = @protocol_version_id
 ORDER BY sort_order ASC, "sequence" ASC;
+
+-- name: ListProtocolConfigsForCategory :many
+-- Config authority list (B3): every version (draft/published/retired) of every protocol definition
+-- in a category for a tenant, with the rule-row count, source-review state lifted out of rule_dsl,
+-- linked SOP, effective window, and publisher/updated metadata. Scoped by tenant+category and
+-- bounded by @row_limit; protocol versions per tenant/category are inherently small, so no cursor.
+SELECT
+  pd.protocol_id::text                                          AS protocol_id,
+  pd.code                                                       AS code,
+  pd.name                                                       AS name,
+  pd.category                                                   AS category,
+  pv.protocol_version_id::text                                  AS protocol_version_id,
+  pv.version                                                    AS version,
+  pv.version_label                                              AS version_label,
+  pv.scope_type                                                 AS scope_type,
+  COALESCE(pv.scope_id::text, '')::text                         AS scope_id,
+  pv.status                                                     AS status,
+  pv.effective_from                                             AS effective_from,
+  pv.effective_to                                               AS effective_to,
+  COALESCE(pv.sop_version_id::text, '')::text                   AS sop_version_id,
+  COALESCE(pv.published_by::text, '')::text                     AS published_by,
+  pv.published_at                                               AS published_at,
+  pv.updated_at                                                 AS updated_at,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'source_system', '')::text AS source_system,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '')::text    AS source_ref,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '')::text AS review_status,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'approved_by', '')::text   AS approved_by,
+  (
+    SELECT COUNT(*)
+    FROM protocol_rules pr
+    WHERE pr.tenant_id = pv.tenant_id
+      AND pr.protocol_version_id = pv.protocol_version_id
+  )::int                                                        AS rule_count
+FROM protocol_versions pv
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = @tenant_id AND pd.category = @category
+ORDER BY pd.code ASC, pv.version DESC, pv.protocol_version_id DESC
+LIMIT @row_limit::int;

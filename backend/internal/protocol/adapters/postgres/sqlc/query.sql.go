@@ -94,6 +94,118 @@ func (q *Queries) GetProtocolVersion(ctx context.Context, arg GetProtocolVersion
 	return i, err
 }
 
+const listProtocolConfigsForCategory = `-- name: ListProtocolConfigsForCategory :many
+SELECT
+  pd.protocol_id::text                                          AS protocol_id,
+  pd.code                                                       AS code,
+  pd.name                                                       AS name,
+  pd.category                                                   AS category,
+  pv.protocol_version_id::text                                  AS protocol_version_id,
+  pv.version                                                    AS version,
+  pv.version_label                                              AS version_label,
+  pv.scope_type                                                 AS scope_type,
+  COALESCE(pv.scope_id::text, '')::text                         AS scope_id,
+  pv.status                                                     AS status,
+  pv.effective_from                                             AS effective_from,
+  pv.effective_to                                               AS effective_to,
+  COALESCE(pv.sop_version_id::text, '')::text                   AS sop_version_id,
+  COALESCE(pv.published_by::text, '')::text                     AS published_by,
+  pv.published_at                                               AS published_at,
+  pv.updated_at                                                 AS updated_at,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'source_system', '')::text AS source_system,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '')::text    AS source_ref,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '')::text AS review_status,
+  COALESCE(pv.rule_dsl -> 'source' ->> 'approved_by', '')::text   AS approved_by,
+  (
+    SELECT COUNT(*)
+    FROM protocol_rules pr
+    WHERE pr.tenant_id = pv.tenant_id
+      AND pr.protocol_version_id = pv.protocol_version_id
+  )::int                                                        AS rule_count
+FROM protocol_versions pv
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = $1 AND pd.category = $2
+ORDER BY pd.code ASC, pv.version DESC, pv.protocol_version_id DESC
+LIMIT $3::int
+`
+
+type ListProtocolConfigsForCategoryParams struct {
+	TenantID pgtype.UUID
+	Category string
+	RowLimit int32
+}
+
+type ListProtocolConfigsForCategoryRow struct {
+	ProtocolID        string
+	Code              string
+	Name              string
+	Category          string
+	ProtocolVersionID string
+	Version           int32
+	VersionLabel      string
+	ScopeType         string
+	ScopeID           string
+	Status            string
+	EffectiveFrom     pgtype.Date
+	EffectiveTo       pgtype.Date
+	SopVersionID      string
+	PublishedBy       string
+	PublishedAt       pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	SourceSystem      string
+	SourceRef         string
+	ReviewStatus      string
+	ApprovedBy        string
+	RuleCount         int32
+}
+
+// Config authority list (B3): every version (draft/published/retired) of every protocol definition
+// in a category for a tenant, with the rule-row count, source-review state lifted out of rule_dsl,
+// linked SOP, effective window, and publisher/updated metadata. Scoped by tenant+category and
+// bounded by @row_limit; protocol versions per tenant/category are inherently small, so no cursor.
+func (q *Queries) ListProtocolConfigsForCategory(ctx context.Context, arg ListProtocolConfigsForCategoryParams) ([]ListProtocolConfigsForCategoryRow, error) {
+	rows, err := q.db.Query(ctx, listProtocolConfigsForCategory, arg.TenantID, arg.Category, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProtocolConfigsForCategoryRow
+	for rows.Next() {
+		var i ListProtocolConfigsForCategoryRow
+		if err := rows.Scan(
+			&i.ProtocolID,
+			&i.Code,
+			&i.Name,
+			&i.Category,
+			&i.ProtocolVersionID,
+			&i.Version,
+			&i.VersionLabel,
+			&i.ScopeType,
+			&i.ScopeID,
+			&i.Status,
+			&i.EffectiveFrom,
+			&i.EffectiveTo,
+			&i.SopVersionID,
+			&i.PublishedBy,
+			&i.PublishedAt,
+			&i.UpdatedAt,
+			&i.SourceSystem,
+			&i.SourceRef,
+			&i.ReviewStatus,
+			&i.ApprovedBy,
+			&i.RuleCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublishedVaccinationVersions = `-- name: ListPublishedVaccinationVersions :many
 SELECT pv.protocol_version_id::text AS protocol_version_id
 FROM protocol_versions pv

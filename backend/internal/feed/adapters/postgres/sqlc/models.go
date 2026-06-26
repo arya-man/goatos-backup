@@ -21,6 +21,47 @@ type AnimalStageLookup struct {
 	UpdatedAt     pgtype.Timestamptz
 }
 
+type ArrivalIntakeReview struct {
+	ReviewID       pgtype.UUID
+	TenantID       pgtype.UUID
+	LoadID         pgtype.UUID
+	ParkLocationID pgtype.UUID
+	ExpectedCount  int32
+	LoadedCount    int32
+	ArrivedCount   int32
+	MatchedCount   int32
+	MissingCount   int32
+	ExtraCount     int32
+	RejectedCount  int32
+	HealthFlags    []byte
+	WeightFlags    []byte
+	MediaProofID   pgtype.UUID
+	Status         string
+	ReviewedBy     pgtype.UUID
+	ReviewedAt     pgtype.Timestamptz
+	IdempotencyKey string
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	RowVersion     int32
+}
+
+type ArrivalIntakeReviewGoat struct {
+	ReviewGoatID pgtype.UUID
+	TenantID     pgtype.UUID
+	ReviewID     pgtype.UUID
+	LoadID       pgtype.UUID
+	GoatID       pgtype.UUID
+	TemporaryID  pgtype.Text
+	SourceTag    pgtype.Text
+	ItemKey      string
+	ArrivalState string
+	HealthFlag   pgtype.Text
+	WeightFlag   pgtype.Text
+	ProofRefID   pgtype.UUID
+	Notes        string
+	CreatedAt    pgtype.Timestamptz
+}
+
 type AuditLog struct {
 	AuditID      pgtype.UUID
 	TenantID     pgtype.UUID
@@ -1516,6 +1557,136 @@ type Party struct {
 	UpdatedAt   pgtype.Timestamptz
 }
 
+type ProcurementHfVaccinationEvidence struct {
+	EvidenceID        pgtype.UUID
+	TenantID          pgtype.UUID
+	LoadID            pgtype.UUID
+	GoatID            pgtype.UUID
+	ProtocolVersionID pgtype.UUID
+	RuleID            pgtype.UUID
+	DoseCode          string
+	AdministeredAt    pgtype.Timestamptz
+	VaccineName       string
+	LotNumber         string
+	ProofRefID        pgtype.UUID
+	SourceRef         string
+	ReviewStatus      string
+	ReviewedBy        pgtype.UUID
+	ReviewedAt        pgtype.Timestamptz
+	ReviewReason      string
+	IdempotencyKey    string
+	ImportedBy        pgtype.UUID
+	ImportedAt        pgtype.Timestamptz
+	Metadata          []byte
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RowVersion        int32
+}
+
+type ProcurementLoad struct {
+	LoadID            pgtype.UUID
+	TenantID          pgtype.UUID
+	SourcePartyID     pgtype.UUID
+	SourceLocationID  pgtype.UUID
+	ExpectedCount     int32
+	PurchaseDate      pgtype.Date
+	PlannedDispatchAt pgtype.Timestamptz
+	Status            string
+	Notes             string
+	Context           []byte
+	IdempotencyKey    string
+	CreatedBy         pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RowVersion        int32
+}
+
+type ProcurementLoadGoat struct {
+	LoadGoatID          pgtype.UUID
+	TenantID            pgtype.UUID
+	LoadID              pgtype.UUID
+	GoatID              pgtype.UUID
+	SourceTag           pgtype.Text
+	SourceRfid          pgtype.Text
+	TemporaryID         pgtype.Text
+	SelectionState      string
+	SelectionReason     string
+	CurrentState        string
+	IdentityReviewState string
+	IdentityReviewRef   pgtype.Text
+	OwnershipState      string
+	HealthState         string
+	WarmupStartedAt     pgtype.Timestamptz
+	WarmupEndedAt       pgtype.Timestamptz
+	WarmupDays          pgtype.Int4
+	HoldingLocationID   pgtype.UUID
+	LoadedAt            pgtype.Timestamptz
+	ArrivedAt           pgtype.Timestamptz
+	IntakeAcceptedAt    pgtype.Timestamptz
+	ExitReason          pgtype.Text
+	ProofRefs           []byte
+	Metadata            []byte
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	RowVersion          int32
+	Purpose             string
+}
+
+type ProcurementPhcHandoff struct {
+	HandoffID                 pgtype.UUID
+	TenantID                  pgtype.UUID
+	LoadID                    pgtype.UUID
+	GoatID                    pgtype.UUID
+	AcceptedAt                pgtype.Timestamptz
+	ParkLocationID            pgtype.UUID
+	ShedLocationID            pgtype.UUID
+	EntryDate                 pgtype.Date
+	TrustedVaccinationHistory []byte
+	IntakeHealthSignal        pgtype.Text
+	EventStatus               string
+	IdempotencyKey            string
+	CreatedAt                 pgtype.Timestamptz
+	UpdatedAt                 pgtype.Timestamptz
+}
+
+type ProcurementSourceHealthCheck struct {
+	HealthCheckID  pgtype.UUID
+	TenantID       pgtype.UUID
+	GoatID         pgtype.UUID
+	LoadID         pgtype.UUID
+	HealthState    string
+	Reason         string
+	CheckedBy      pgtype.UUID
+	CheckedAt      pgtype.Timestamptz
+	ProofRefID     pgtype.UUID
+	SopTaskID      pgtype.UUID
+	IdempotencyKey string
+	CreatedAt      pgtype.Timestamptz
+}
+
+type ProofArtifact struct {
+	ProofID         pgtype.UUID
+	TenantID        pgtype.UUID
+	StorageProvider string
+	ObjectKey       string
+	ContentHash     string
+	MimeType        string
+	SizeBytes       int64
+	DurationMs      pgtype.Int8
+	UploadState     string
+	ScopeType       string
+	ScopeID         pgtype.UUID
+	SubjectType     string
+	SubjectID       pgtype.UUID
+	ProofType       string
+	UploadedBy      pgtype.UUID
+	Metadata        []byte
+	CreatedAt       pgtype.Timestamptz
+	UploadedAt      pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	RowVersion      int32
+}
+
 type ProtocolDefinition struct {
 	ProtocolID pgtype.UUID
 	TenantID   pgtype.UUID
@@ -1673,6 +1844,36 @@ type SopTask struct {
 	RowVersion   int32
 }
 
+type SopTaskReviewFanout struct {
+	ReviewFanoutID pgtype.UUID
+	TenantID       pgtype.UUID
+	TaskID         pgtype.UUID
+	TaskRowVersion int32
+	Outcome        string
+	Status         string
+	RequestedBy    pgtype.UUID
+	Reason         string
+	AttemptCount   int32
+	LastError      string
+	CompletedAt    pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type SopTaskSubmissionFanout struct {
+	SubmissionFanoutID pgtype.UUID
+	TenantID           pgtype.UUID
+	TaskID             pgtype.UUID
+	SubmissionID       pgtype.UUID
+	Status             string
+	RequestedBy        pgtype.UUID
+	AttemptCount       int32
+	LastError          string
+	CompletedAt        pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
 type SopVersion struct {
 	SopVersionID     pgtype.UUID
 	TenantID         pgtype.UUID
@@ -1691,6 +1892,45 @@ type SopVersion struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	RowVersion       int32
+}
+
+type SourceEntryDecision struct {
+	DecisionID      pgtype.UUID
+	TenantID        pgtype.UUID
+	GoatID          pgtype.UUID
+	LoadID          pgtype.UUID
+	DecisionStage   string
+	DecisionType    string
+	Reason          string
+	DecidedBy       pgtype.UUID
+	DecidedAt       pgtype.Timestamptz
+	ProofRefID      pgtype.UUID
+	SopTaskID       pgtype.UUID
+	OwnerID         pgtype.UUID
+	ResumeCondition pgtype.Text
+	IdempotencyKey  string
+	Metadata        []byte
+	CreatedAt       pgtype.Timestamptz
+}
+
+type SourceHoldingStay struct {
+	StayID            pgtype.UUID
+	TenantID          pgtype.UUID
+	GoatID            pgtype.UUID
+	LoadID            pgtype.UUID
+	HoldingLocationID pgtype.UUID
+	StartedAt         pgtype.Timestamptz
+	EndedAt           pgtype.Timestamptz
+	WarmupState       string
+	WarmupDays        pgtype.Int4
+	HealthState       string
+	OwnershipState    string
+	Status            string
+	ProofRefs         []byte
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RowVersion        int32
+	Purpose           string
 }
 
 type StatusDefinition struct {
@@ -1713,6 +1953,25 @@ type Tenant struct {
 	Status    string
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type TransitHandoff struct {
+	HandoffID        pgtype.UUID
+	TenantID         pgtype.UUID
+	LoadID           pgtype.UUID
+	FromLocationID   pgtype.UUID
+	ToLocationID     pgtype.UUID
+	LoadedCount      int32
+	DispatchedAt     pgtype.Timestamptz
+	ArrivedAt        pgtype.Timestamptz
+	ProofRefID       pgtype.UUID
+	DiscrepancyState string
+	Status           string
+	IdempotencyKey   string
+	CreatedBy        pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	RowVersion       int32
 }
 
 type UserScopeGrant struct {
@@ -1781,6 +2040,12 @@ type VwGoatTagging struct {
 	Status           string
 	ValidFrom        pgtype.Timestamptz
 	ValidTo          pgtype.Timestamptz
+}
+
+type VwProcurementVaccinationExcludedGoat struct {
+	TenantID        pgtype.UUID
+	GoatID          pgtype.UUID
+	ExclusionReason string
 }
 
 type WorkforceAbsence struct {

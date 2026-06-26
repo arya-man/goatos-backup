@@ -32,11 +32,19 @@ type Warning struct {
 }
 
 type LocationPath struct {
-	Display  string  `json:"display"`
-	FarmID   *string `json:"farm_id"`
-	ParkID   *string `json:"park_id"`
-	ShedID   *string `json:"shed_id"`
-	CohortID *string `json:"cohort_id"`
+	Display    string  `json:"display"`
+	FarmID     *string `json:"farm_id"`
+	FarmCode   *string `json:"farm_code,omitempty"`
+	FarmName   *string `json:"farm_name,omitempty"`
+	ParkID     *string `json:"park_id"`
+	ParkCode   *string `json:"park_code,omitempty"`
+	ParkName   *string `json:"park_name,omitempty"`
+	ShedID     *string `json:"shed_id"`
+	ShedCode   *string `json:"shed_code,omitempty"`
+	ShedName   *string `json:"shed_name,omitempty"`
+	CohortID   *string `json:"cohort_id"`
+	CohortCode *string `json:"cohort_code,omitempty"`
+	CohortName *string `json:"cohort_name,omitempty"`
 }
 
 type EvidenceRef struct {
@@ -68,6 +76,7 @@ type GoatSummary struct {
 	HealthStatus       *string      `json:"health_status"`
 	IdentityState      string       `json:"identity_state"`
 	LocationPath       LocationPath `json:"location_path"`
+	WeightKg           *float64     `json:"weight_kg,omitempty"`
 	Warnings           []Warning    `json:"warnings"`
 }
 

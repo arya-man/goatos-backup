@@ -92,6 +92,33 @@ type Rule struct {
 	SortOrder           int32
 }
 
+// ConfigListItem is one row of the Config authority list (B3): a protocol version (any status)
+// joined to its definition, with the rule-row count, source-review state lifted out of rule_dsl,
+// linked SOP, effective window, and publisher/updated metadata. Read-only projection for /config.
+type ConfigListItem struct {
+	ProtocolID        string
+	Code              string
+	Name              string
+	Category          string
+	ProtocolVersionID string
+	Version           int32
+	VersionLabel      string
+	ScopeType         string
+	ScopeID           string
+	Status            string // draft | published | retired
+	EffectiveFrom     *time.Time
+	EffectiveTo       *time.Time
+	SopVersionID      string
+	PublishedBy       string
+	PublishedAt       *time.Time
+	UpdatedAt         *time.Time
+	SourceSystem      string // from rule_dsl.source — drives the publishable gate display
+	SourceRef         string
+	ReviewStatus      string
+	ApprovedBy        string
+	RuleCount         int32
+}
+
 // NewTrigger is the input to create a protocol trigger.
 type NewTrigger struct {
 	TenantID          string

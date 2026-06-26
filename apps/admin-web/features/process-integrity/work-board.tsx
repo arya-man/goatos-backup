@@ -1,14 +1,12 @@
 import Link from "next/link";
-import { ArrowRight, Ban, Syringe, UserRound } from "lucide-react";
+import { ArrowRight, Syringe } from "lucide-react";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
 import {
   PROOF_META,
   SEVERITY_META,
-  SOP_META,
   TONE_SWATCH,
-  VERIFICATION_META,
   WORK_STATE_META,
-  WORK_STATE_ORDER,
+  type Tone,
 } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
@@ -31,109 +29,168 @@ function initials(name?: string): string {
     .toUpperCase();
 }
 
+function displayBlocker(reason?: string | null): string | null {
+  if (!reason) return null;
+  return reason;
+}
+
+function eventCode(row: ActionCenterObligation): string {
+  return row.shed_name || row.dose_code || "Vaccination";
+}
+
+function shortDueLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fmtDate(value);
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", timeZone: "Asia/Kolkata" }).format(date);
+}
+
+function parkChipLabel(value: string): string {
+  return value.toLowerCase() === "coimbatore" ? "CBE" : value;
+}
+
+export function actionDriveLabel(row: Pick<ActionCenterObligation, "drive_name" | "protocol_name" | "dose_code">): string {
+  const raw = row.drive_name || `${row.protocol_name} ${row.dose_code}` || "Vaccination drive";
+  const cleaned = raw
+    .replace(/\s+[-–]\s+PHC-[A-Z0-9-]+$/i, "")
+    .replace(/\s+[-–]\s+[A-Z]+-[A-Z0-9-]+$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "Vaccination drive";
+}
+
+export function actionWorkTitle(row: ActionCenterObligation): string {
+  const shed = row.shed_name || "shed";
+  if (row.work_state === "owner_missing" || row.owner_state === "missing" || !row.owner?.operator_name) {
+    return `Assign owner chain — ${shed}`;
+  }
+  if (row.proof_state === "missing") return `Capture vaccination proof — ${shed}`;
+  if (row.verification_state === "pending") return `Verify vaccination proof — ${shed}`;
+  if (row.work_state === "overdue") return `${actionDriveLabel(row)} overdue — ${shed}`;
+  return `${actionDriveLabel(row)} — ${shed}`;
+}
+
 // One mock-shaped task card for a single Action Center obligation (ported from the mock taskCard2).
-function WorkCard({ row }: { row: ActionCenterObligation }) {
+function WorkCard({ row, href }: { row: ActionCenterObligation; href: string }) {
   const ownerMissing = row.owner_state === "missing" || !row.owner?.operator_name;
-  const title = row.drive_name ?? `${row.protocol_name} · ${row.dose_code}`;
-  const href = `/workflows/${encodeURIComponent(row.row_id)}`;
+  const blocker = displayBlocker(row.blocker_reason);
+  const drive = actionDriveLabel(row);
+  const title = actionWorkTitle(row);
+  const ownerLabel = ownerMissing ? "owner chain: assign" : row.owner?.operator_name;
+  const progress = row.expected_count > 0 ? `${row.completed_count}/${row.expected_count} done` : null;
+  const showBlocker = blocker && !ownerMissing;
   return (
-    <div className="task" style={{ cursor: "default" }}>
+    <Link
+      href={href}
+      scroll={false}
+      className="task task-ac"
+      aria-label={`Open Action Center work item for ${row.shed_name}`}
+      style={{ color: "inherit", textDecoration: "none" }}
+    >
       <div className="tt">
-        <span
-          className="fic"
-          style={{ width: 24, height: 24, borderRadius: 7, background: "var(--brand-soft)", color: "var(--brand-d)" }}
-        >
+        <span className="fic">
           <Syringe className="ic" style={{ width: 14 }} aria-hidden="true" />
         </span>
-        <span className="ec">{row.shed_name}</span>
-        <span className={`sla ${slaClass(row.work_state)}`} style={{ marginLeft: "auto" }}>
-          due {fmtDate(row.due_at)}
+        <span className="ec">{eventCode(row)}</span>
+        <span className={`sla ${slaClass(row.work_state)}`} style={{ marginLeft: "auto" }} title={`due ${fmtDate(row.due_at)}`}>
+          due {shortDueLabel(row.due_at)}
         </span>
       </div>
-      <h4 style={{ fontSize: 13 }}>{title}</h4>
-      <div className="row">
-        <Tag tone="mut">{row.park_name}</Tag>
-        <Tag tone="info">{row.animal_stage}</Tag>
-        <Tag tone={SEVERITY_META[row.severity].tone}>{SEVERITY_META[row.severity].label}</Tag>
-        {row.expected_count > 0 ? (
-          <span className="muted small">
-            {row.completed_count}/{row.expected_count} done
-          </span>
-        ) : null}
+      <h4>{title}</h4>
+      <div className="muted small ac-drive">
+        {drive}
       </div>
-      {row.blocker_reason ? (
-        <div className="row" style={{ color: "var(--danger)", marginTop: 6 }} title={row.blocker_reason}>
-          <Ban className="ic" style={{ width: 13, flexShrink: 0 }} aria-hidden="true" />
-          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {row.blocker_reason.split(" — ")[0]}
-          </span>
+      <div className="row">
+        <Tag tone="mut">Vaccination</Tag>
+        <Tag tone="info">{parkChipLabel(row.park_name)}</Tag>
+        <Tag tone={SEVERITY_META[row.severity].tone}>{SEVERITY_META[row.severity].label}</Tag>
+      </div>
+      <div className="row" style={{ marginTop: 6 }}>
+        <Tag tone="info">{row.animal_stage}</Tag>
+        <Tag tone={WORK_STATE_META[row.work_state].tone}>{WORK_STATE_META[row.work_state].label}</Tag>
+        {row.proof_state !== "missing" ? <Tag tone={PROOF_META[row.proof_state].tone}>{PROOF_META[row.proof_state].label}</Tag> : null}
+        {progress ? <span className="muted small ac-progress">{progress}</span> : null}
+      </div>
+      {showBlocker ? (
+        <div className="ac-blocker" title={blocker}>
+          {blocker.split(" - ")[0]}
         </div>
       ) : null}
-      <div className="row" style={{ marginTop: 6 }}>
-        <Tag tone={SOP_META[row.sop_task_state].tone}>{SOP_META[row.sop_task_state].label}</Tag>
-        <Tag tone={PROOF_META[row.proof_state].tone}>{PROOF_META[row.proof_state].label}</Tag>
-        <Tag tone={VERIFICATION_META[row.verification_state].tone}>{VERIFICATION_META[row.verification_state].label}</Tag>
-      </div>
       <div className="who">
         <span className="av xs">{initials(row.owner?.operator_name)}</span>
-        {ownerMissing ? <span style={{ color: "var(--danger)" }}>operator: unassigned</span> : row.owner?.operator_name}
+        <span style={ownerMissing ? { color: "var(--danger)" } : undefined}>{ownerLabel}</span>
+        <ArrowRight className="ic" style={{ width: 13, marginLeft: "auto", flexShrink: 0 }} aria-hidden="true" />
       </div>
-      <div style={{ marginTop: 9, display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <Link href={href} className="btn sm" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          {row.next_action}
-          <ArrowRight className="ic" style={{ width: 13, flexShrink: 0 }} aria-hidden="true" />
-        </Link>
-        {row.goat_id ? (
-          <Link href={`/goats/${encodeURIComponent(row.goat_id)}`} className="btn sm">
-            Passport
-          </Link>
-        ) : null}
-      </div>
-      {!ownerMissing && row.owner?.park_head_name ? (
-        <div className="muted small" style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
-          <UserRound className="ic" style={{ width: 12, opacity: 0.7 }} aria-hidden="true" />
-          {row.owner.park_head_name}
-        </div>
-      ) : null}
-    </div>
+    </Link>
   );
 }
 
-// Mock-shaped status board (ported from the mock taskboard): one .tcol per work state, header swatch +
-// label + count, cards inside .tcards, and a "—" placeholder for empty columns. The mock always renders
-// the full status set so the board shell reads as a board even when sparse; pass showAllColumns to keep
-// every column, or omit it to collapse to columns that have rows. Source rows are the real
-// ActionCenterResponse items — server-computed work state, not inferred.
+type BoardColumn = {
+  key: string;
+  label: string;
+  tone: Tone;
+  states: WorkState[];
+};
+
+// The mock Action Center is a six-lane status board. Vaccination has richer backend work states, so the
+// visual lanes stay mock-shaped while each card still carries the exact server-computed work state.
+const BOARD_COLUMNS: BoardColumn[] = [
+  {
+    key: "pending",
+    label: "Pending",
+    tone: "info",
+    states: ["owner_missing", "due", "scheduled", "proof_pending", "verification_pending", "in_progress"],
+  },
+  { key: "ontime", label: "On-time", tone: "ok", states: ["completed"] },
+  { key: "late", label: "Late", tone: "warn", states: ["overdue"] },
+  { key: "skipped", label: "Skipped — silent", tone: "dng", states: ["rejected", "deferred"] },
+  { key: "deviated", label: "Deviated", tone: "pur", states: ["blocked"] },
+];
+
+function boardColumnFor(row: ActionCenterObligation): BoardColumn {
+  return BOARD_COLUMNS.find((column) => column.states.includes(row.work_state)) ?? BOARD_COLUMNS[0];
+}
+
+// Mock-shaped status board (ported from the mock taskboard): one .tcol per visual lane, header swatch +
+// label + count, cards inside .tcards, and a "—" placeholder for empty columns. Source rows are the real
+// ActionCenterResponse items — server-computed work state, shown inside each card.
 export function WorkBoard({
   rows,
   showAllColumns = false,
+  drawerHrefForRow,
 }: {
   rows: ActionCenterObligation[];
   showAllColumns?: boolean;
+  drawerHrefForRow?: (row: ActionCenterObligation) => string;
 }) {
-  const byState = new Map<WorkState, ActionCenterObligation[]>();
+  const byColumn = new Map<string, ActionCenterObligation[]>();
   for (const r of rows) {
-    const list = byState.get(r.work_state) ?? [];
+    const column = boardColumnFor(r);
+    const list = byColumn.get(column.key) ?? [];
     list.push(r);
-    byState.set(r.work_state, list);
+    byColumn.set(column.key, list);
   }
-  const columns = showAllColumns ? WORK_STATE_ORDER : WORK_STATE_ORDER.filter((s) => (byState.get(s)?.length ?? 0) > 0);
+  const columns = showAllColumns ? BOARD_COLUMNS : BOARD_COLUMNS.filter((column) => (byColumn.get(column.key)?.length ?? 0) > 0);
 
   return (
     <div className="taskboard" role="group" aria-label="Vaccination work board" tabIndex={0}>
-      {columns.map((state) => {
-        const col = byState.get(state) ?? [];
-        const meta = WORK_STATE_META[state];
+      {columns.map((column) => {
+        const col = byColumn.get(column.key) ?? [];
         return (
-          <div className="tcol" data-st={state} key={state}>
+          <div className="tcol" data-st={column.key} key={column.key}>
             <div className="tcolh">
-              <span className="sw" style={{ background: TONE_SWATCH[meta.tone] }} />
-              {meta.label}
+              <span className="sw" style={{ background: TONE_SWATCH[column.tone] }} />
+              {column.label}
               <span className="n">{col.length}</span>
             </div>
             <div className="tcards">
               {col.length ? (
-                col.map((row) => <WorkCard key={row.row_id} row={row} />)
+                col.map((row) => (
+                  <WorkCard
+                    key={row.row_id}
+                    row={row}
+                    href={drawerHrefForRow ? drawerHrefForRow(row) : `/workflows/${encodeURIComponent(row.row_id)}`}
+                  />
+                ))
               ) : (
                 <div className="muted small" style={{ padding: 10, textAlign: "center" }}>
                   —

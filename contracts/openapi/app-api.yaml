@@ -541,6 +541,35 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
   /protocols:
+    get:
+      tags:
+        - Protocol Config
+      operationId: listProtocolConfigs
+      summary: List protocol config versions for a category (Config authority screen).
+      description: >-
+        Tenant- and category-scoped list of every protocol version (draft, published, retired) with
+        rule-row count, source-review state, linked SOP, effective window, and publisher metadata.
+        Read-only; the source-backed approval gate is enforced on publish, not here.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Protocol category to list (defaults to vaccination — today's visible slice).
+      responses:
+        "200":
+          description: Protocol config versions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtocolConfigListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
     post:
       tags:
         - Protocol Config
@@ -2780,21 +2809,61 @@ components:
             - string
             - "null"
           format: uuid
+        farm_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        farm_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         park_id:
           type:
             - string
             - "null"
           format: uuid
+        park_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        park_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         shed_id:
           type:
             - string
             - "null"
           format: uuid
+        shed_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        shed_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
         cohort_id:
           type:
             - string
             - "null"
           format: uuid
+        cohort_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        cohort_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
     EvidenceRef:
       type: object
       additionalProperties: false
@@ -2907,6 +2976,11 @@ components:
           $ref: "#/components/schemas/IdentityState"
         location_path:
           $ref: "#/components/schemas/LocationPath"
+        weight_kg:
+          type:
+            - number
+            - "null"
+          minimum: 0
         warnings:
           type: array
           items:
@@ -3782,6 +3856,18 @@ components:
           $ref: "#/components/schemas/VaccinationExecutionVerificationStatus"
         nextAction:
           type: string
+        obligationId:
+          type: string
+          format: uuid
+        batchId:
+          type: string
+          format: uuid
+        sopTaskId:
+          type: string
+          format: uuid
+        completionId:
+          type: string
+          format: uuid
     VaccinationExecutionResponse:
       type: object
       additionalProperties: false
@@ -4265,6 +4351,90 @@ components:
         sop_version_id:
           type: string
         row_version:
+          type: integer
+    ProtocolConfigListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - category
+        - items
+      properties:
+        category:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProtocolConfigItem"
+    ProtocolConfigItem:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_id
+        - code
+        - name
+        - category
+        - protocol_version_id
+        - version
+        - version_label
+        - scope_type
+        - status
+        - source_system
+        - source_ref
+        - review_status
+        - approved_by
+        - rule_count
+      properties:
+        protocol_id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        protocol_version_id:
+          type: string
+        version:
+          type: integer
+        version_label:
+          type: string
+        scope_type:
+          type: string
+        scope_id:
+          type: string
+        status:
+          type: string
+          description: draft | published | retired
+        effective_from:
+          type: string
+          format: date-time
+          nullable: true
+        effective_to:
+          type: string
+          format: date-time
+          nullable: true
+        sop_version_id:
+          type: string
+        published_by:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        source_system:
+          type: string
+          description: From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by) for the version to be publishable.
+        source_ref:
+          type: string
+        review_status:
+          type: string
+        approved_by:
+          type: string
+        rule_count:
           type: integer
     RejectVaccinationCompletionRequest:
       type: object

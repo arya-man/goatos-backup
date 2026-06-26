@@ -245,6 +245,20 @@ SELECT
 FROM goat_identifiers gi
 JOIN goats g ON g.tenant_id = gi.tenant_id AND g.goat_id = gi.goat_id
 LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
+LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
+LEFT JOIN LATERAL (
+  SELECT (gie.payload->>'weight_kg')::float8 AS weight_kg
+  FROM goat_identity_events gie
+  WHERE gie.tenant_id = g.tenant_id
+    AND gie.goat_id = g.goat_id
+    AND gie.payload ? 'weight_kg'
+    AND (gie.payload->>'weight_kg') ~ '^[0-9]+(\.[0-9]+)?$'
+  ORDER BY gie.occurred_at DESC, gie.recorded_at DESC, gie.identity_event_id DESC
+  LIMIT 1
+) latest_weight ON true
 LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
   AND old_tag.goat_id = g.goat_id
   AND old_tag.identifier_type = 'old_tag'
@@ -326,6 +340,20 @@ func goatSummarySelect() string {
 	return "SELECT " + goatSummaryColumns() + `
 FROM goats g
 LEFT JOIN locations loc ON loc.tenant_id = g.tenant_id AND loc.location_id = g.current_location_id
+LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
+LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
+LEFT JOIN LATERAL (
+  SELECT (gie.payload->>'weight_kg')::float8 AS weight_kg
+  FROM goat_identity_events gie
+  WHERE gie.tenant_id = g.tenant_id
+    AND gie.goat_id = g.goat_id
+    AND gie.payload ? 'weight_kg'
+    AND (gie.payload->>'weight_kg') ~ '^[0-9]+(\.[0-9]+)?$'
+  ORDER BY gie.occurred_at DESC, gie.recorded_at DESC, gie.identity_event_id DESC
+  LIMIT 1
+) latest_weight ON true
 LEFT JOIN goat_identifiers old_tag ON old_tag.tenant_id = g.tenant_id
   AND old_tag.goat_id = g.goat_id
   AND old_tag.identifier_type = 'old_tag'
@@ -354,9 +382,18 @@ func goatSummaryColumns() string {
   g.identity_state,
   COALESCE(loc.name, 'Unknown location'),
   g.farm_id::text,
+  farm.location_code,
+  farm.name,
   g.park_id::text,
+  park.location_code,
+  park.name,
   g.shed_id::text,
+  shed.location_code,
+  shed.name,
   g.cohort_id::text,
+  cohort.location_code,
+  cohort.name,
+  latest_weight.weight_kg,
   g.species,
   g.merged_into_goat_id::text,
   g.row_version`
@@ -382,9 +419,18 @@ type sqlcGoatRow struct {
 	IdentityState      string
 	LocationDisplay    string
 	FarmID             string
+	FarmCode           string
+	FarmName           string
 	ParkID             string
+	ParkCode           string
+	ParkName           string
 	ShedID             string
+	ShedCode           string
+	ShedName           string
 	CohortID           string
+	CohortCode         string
+	CohortName         string
+	WeightKg           *float64
 	Species            string
 	MergedIntoGoatID   string
 	RowVersion         int32
@@ -458,12 +504,21 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 		HealthStatus:       pgTextPtr(row.HealthStatus),
 		IdentityState:      row.IdentityState,
 		LocationPath: domain.LocationPath{
-			Display:  row.LocationDisplay,
-			FarmID:   nonEmptyStringPtr(row.FarmID),
-			ParkID:   nonEmptyStringPtr(row.ParkID),
-			ShedID:   nonEmptyStringPtr(row.ShedID),
-			CohortID: nonEmptyStringPtr(row.CohortID),
+			Display:    row.LocationDisplay,
+			FarmID:     nonEmptyStringPtr(row.FarmID),
+			FarmCode:   nonEmptyStringPtr(row.FarmCode),
+			FarmName:   nonEmptyStringPtr(row.FarmName),
+			ParkID:     nonEmptyStringPtr(row.ParkID),
+			ParkCode:   nonEmptyStringPtr(row.ParkCode),
+			ParkName:   nonEmptyStringPtr(row.ParkName),
+			ShedID:     nonEmptyStringPtr(row.ShedID),
+			ShedCode:   nonEmptyStringPtr(row.ShedCode),
+			ShedName:   nonEmptyStringPtr(row.ShedName),
+			CohortID:   nonEmptyStringPtr(row.CohortID),
+			CohortCode: nonEmptyStringPtr(row.CohortCode),
+			CohortName: nonEmptyStringPtr(row.CohortName),
 		},
+		WeightKg: row.WeightKg,
 		Warnings: []domain.Warning{},
 	}
 	return summary, row.Species, nonEmptyStringPtr(row.MergedIntoGoatID), int(row.RowVersion)
@@ -503,9 +558,18 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 		management    sql.NullString
 		health        sql.NullString
 		farmID        sql.NullString
+		farmCode      sql.NullString
+		farmName      sql.NullString
 		parkID        sql.NullString
+		parkCode      sql.NullString
+		parkName      sql.NullString
 		shedID        sql.NullString
+		shedCode      sql.NullString
+		shedName      sql.NullString
 		cohortID      sql.NullString
+		cohortCode    sql.NullString
+		cohortName    sql.NullString
+		weightKg      sql.NullFloat64
 		species       string
 		mergedInto    sql.NullString
 		rowVersion    int
@@ -526,9 +590,18 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 		&summary.IdentityState,
 		&summary.LocationPath.Display,
 		&farmID,
+		&farmCode,
+		&farmName,
 		&parkID,
+		&parkCode,
+		&parkName,
 		&shedID,
+		&shedCode,
+		&shedName,
 		&cohortID,
+		&cohortCode,
+		&cohortName,
+		&weightKg,
 		&species,
 		&mergedInto,
 		&rowVersion,
@@ -549,9 +622,18 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 	summary.ManagementStage = stringPtr(management)
 	summary.HealthStatus = stringPtr(health)
 	summary.LocationPath.FarmID = stringPtr(farmID)
+	summary.LocationPath.FarmCode = stringPtr(farmCode)
+	summary.LocationPath.FarmName = stringPtr(farmName)
 	summary.LocationPath.ParkID = stringPtr(parkID)
+	summary.LocationPath.ParkCode = stringPtr(parkCode)
+	summary.LocationPath.ParkName = stringPtr(parkName)
 	summary.LocationPath.ShedID = stringPtr(shedID)
+	summary.LocationPath.ShedCode = stringPtr(shedCode)
+	summary.LocationPath.ShedName = stringPtr(shedName)
 	summary.LocationPath.CohortID = stringPtr(cohortID)
+	summary.LocationPath.CohortCode = stringPtr(cohortCode)
+	summary.LocationPath.CohortName = stringPtr(cohortName)
+	summary.WeightKg = floatPtr(weightKg)
 	summary.Warnings = []domain.Warning{}
 	return summary, species, stringPtr(mergedInto), rowVersion, nil
 }
@@ -604,9 +686,18 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		management     sql.NullString
 		health         sql.NullString
 		farmID         sql.NullString
+		farmCode       sql.NullString
+		farmName       sql.NullString
 		parkID         sql.NullString
+		parkCode       sql.NullString
+		parkName       sql.NullString
 		shedID         sql.NullString
+		shedCode       sql.NullString
+		shedName       sql.NullString
 		cohortID       sql.NullString
+		cohortCode     sql.NullString
+		cohortName     sql.NullString
+		weightKg       sql.NullFloat64
 		species        string
 		mergedInto     sql.NullString
 		rowVersion     int
@@ -638,9 +729,18 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		&summary.IdentityState,
 		&summary.LocationPath.Display,
 		&farmID,
+		&farmCode,
+		&farmName,
 		&parkID,
+		&parkCode,
+		&parkName,
 		&shedID,
+		&shedCode,
+		&shedName,
 		&cohortID,
+		&cohortCode,
+		&cohortName,
+		&weightKg,
 		&species,
 		&mergedInto,
 		&rowVersion,
@@ -664,9 +764,18 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 	summary.ManagementStage = stringPtr(management)
 	summary.HealthStatus = stringPtr(health)
 	summary.LocationPath.FarmID = stringPtr(farmID)
+	summary.LocationPath.FarmCode = stringPtr(farmCode)
+	summary.LocationPath.FarmName = stringPtr(farmName)
 	summary.LocationPath.ParkID = stringPtr(parkID)
+	summary.LocationPath.ParkCode = stringPtr(parkCode)
+	summary.LocationPath.ParkName = stringPtr(parkName)
 	summary.LocationPath.ShedID = stringPtr(shedID)
+	summary.LocationPath.ShedCode = stringPtr(shedCode)
+	summary.LocationPath.ShedName = stringPtr(shedName)
 	summary.LocationPath.CohortID = stringPtr(cohortID)
+	summary.LocationPath.CohortCode = stringPtr(cohortCode)
+	summary.LocationPath.CohortName = stringPtr(cohortName)
+	summary.WeightKg = floatPtr(weightKg)
 	summary.Warnings = []domain.Warning{}
 	return identifier, summary, nil
 }

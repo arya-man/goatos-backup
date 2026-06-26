@@ -34,18 +34,29 @@ type ObligationWriter interface {
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 }
 
+// CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
+// a matching post-arrival obligation. Only trusted evidence may suppress due work.
+type CompletionEvidenceReader interface {
+	HasTrustedCompletionEvidence(ctx context.Context, tenantID, goatID, protocolVersionID, ruleID, doseCode string, dueAt, generationAt time.Time) (bool, error)
+}
+
 // GenerationService implements SM-1: expand a published protocol version's rules into per-goat
 // obligations over the in-care cohort, idempotently, deferring (visibly) ICU/quarantine/sick goats.
 type GenerationService struct {
-	proto ProtocolReader
-	goats GoatLister
-	obl   ObligationWriter
-	page  int32
+	proto    ProtocolReader
+	goats    GoatLister
+	obl      ObligationWriter
+	evidence CompletionEvidenceReader
+	page     int32
 }
 
 // NewGenerationService wires the three repos.
 func NewGenerationService(proto ProtocolReader, goats GoatLister, obl ObligationWriter) *GenerationService {
-	return &GenerationService{proto: proto, goats: goats, obl: obl, page: 500}
+	s := &GenerationService{proto: proto, goats: goats, obl: obl, page: 500}
+	if reader, ok := goats.(CompletionEvidenceReader); ok {
+		s.evidence = reader
+	}
+	return s
 }
 
 type genEligibility struct {
@@ -137,6 +148,16 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
+		}
+		if s.evidence != nil {
+			trusted, err := s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, g.GoatID, versionID, rule.RuleID, rule.DoseCode, due, asOf)
+			if err != nil {
+				return err
+			}
+			if trusted {
+				res.SuppressedByTrustedHistory++
+				continue
+			}
 		}
 		scopeType, scopeID := "tenant", tenantID
 		if g.ParkID != "" {

@@ -300,7 +300,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List protocol config versions for a category (Config authority screen).
+         * @description Tenant- and category-scoped list of every protocol version (draft, published, retired) with rule-row count, source-review state, linked SOP, effective window, and publisher metadata. Read-only; the source-backed approval gate is enforced on publish, not here.
+         */
+        get: operations["listProtocolConfigs"];
         put?: never;
         /** Create a protocol definition. */
         post: operations["createProtocolDefinition"];
@@ -1051,12 +1055,20 @@ export interface components {
             display: string;
             /** Format: uuid */
             farm_id?: string | null;
+            farm_code?: string | null;
+            farm_name?: string | null;
             /** Format: uuid */
             park_id?: string | null;
+            park_code?: string | null;
+            park_name?: string | null;
             /** Format: uuid */
             shed_id?: string | null;
+            shed_code?: string | null;
+            shed_name?: string | null;
             /** Format: uuid */
             cohort_id?: string | null;
+            cohort_code?: string | null;
+            cohort_name?: string | null;
         };
         EvidenceRef: {
             /** @enum {string} */
@@ -1081,6 +1093,7 @@ export interface components {
             health_status: string | null;
             identity_state: components["schemas"]["IdentityState"];
             location_path: components["schemas"]["LocationPath"];
+            weight_kg?: number | null;
             warnings: components["schemas"]["Warning"][];
         };
         GoatIdentifier: {
@@ -1385,6 +1398,14 @@ export interface components {
             proofStatus: components["schemas"]["VaccinationExecutionProofStatus"];
             verificationStatus: components["schemas"]["VaccinationExecutionVerificationStatus"];
             nextAction: string;
+            /** Format: uuid */
+            obligationId?: string;
+            /** Format: uuid */
+            batchId?: string;
+            /** Format: uuid */
+            sopTaskId?: string;
+            /** Format: uuid */
+            completionId?: string;
         };
         VaccinationExecutionResponse: {
             /** @enum {string} */
@@ -1583,6 +1604,39 @@ export interface components {
             };
             sop_version_id?: string;
             row_version: number;
+        };
+        ProtocolConfigListResponse: {
+            category: string;
+            items: components["schemas"]["ProtocolConfigItem"][];
+        };
+        ProtocolConfigItem: {
+            protocol_id: string;
+            code: string;
+            name: string;
+            category: string;
+            protocol_version_id: string;
+            version: number;
+            version_label: string;
+            scope_type: string;
+            scope_id?: string;
+            /** @description draft | published | retired */
+            status: string;
+            /** Format: date-time */
+            effective_from?: string | null;
+            /** Format: date-time */
+            effective_to?: string | null;
+            sop_version_id?: string;
+            published_by?: string;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+            /** @description From rule_dsl.source — must be vaccinations_db/phc/vet (with source_ref, approved review, approved_by) for the version to be publishable. */
+            source_system: string;
+            source_ref: string;
+            review_status: string;
+            approved_by: string;
+            rule_count: number;
         };
         RejectVaccinationCompletionRequest: {
             reason?: string;
@@ -2192,6 +2246,32 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listProtocolConfigs: {
+        parameters: {
+            query?: {
+                /** @description Protocol category to list (defaults to vaccination — today's visible slice). */
+                category?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Protocol config versions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProtocolConfigListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
         };
     };
     createProtocolDefinition: {

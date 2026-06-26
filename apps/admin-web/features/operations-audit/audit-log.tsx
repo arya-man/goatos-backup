@@ -1,6 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, ArrowLeft, ArrowRight, Clock, Filter, ScrollText, Search, ShieldCheck, Upload, UserRound, Zap } from "lucide-react";
+import {
+  AlertTriangle,
+  ClipboardList,
+  Clock,
+  Database,
+  Eye,
+  Filter,
+  ScrollText,
+  Search,
+  ShieldCheck,
+  Syringe,
+  Truck,
+  Upload,
+  UserRound,
+  X,
+  Zap,
+} from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
 import {
@@ -13,27 +29,32 @@ import {
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dash, fmtDateTime, joinParts, shortId } from "@/lib/format";
+import { ROLE_LENSES, roleLensById } from "@/lib/role-lens";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 
 const PATHNAME = "/operations/audit";
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 25;
 const COLS = ["Time", "Operation", "Operator", "Action", "Target", "Result", "Proof"];
 const ACTOR_TYPES = ["human", "system", "worker", "service", "user"] as const;
 
-const VIEW_CHIPS: Array<{ label: string; actorType?: OperationsAuditActorType }> = [
-  { label: "All actors" },
-  { label: "Operators", actorType: "human" },
-  { label: "System", actorType: "system" },
-  { label: "Workers", actorType: "worker" },
-  { label: "Services", actorType: "service" },
+// Top-bar scope + role-preview state to keep when a user clears the page filters.
+const PRESERVE_ON_CLEAR = ["viewing_as", "scope_mode", "park", "as_of", "range", "from", "to"];
+
+// Visible audit families stay locked to the current vaccination slice. Source Entry, Herd Register, and
+// Admin/SOP are shown only because they feed the vaccination evidence/config chain.
+const OPERATION_FAMILIES: Array<{ label: string; domain: string | null; icon: typeof Zap }> = [
+  { label: "Vaccination", domain: "vaccination", icon: Syringe },
+  { label: "Source Entry", domain: "procurement", icon: Truck },
+  { label: "Herd Register", domain: "counts", icon: ClipboardList },
+  { label: "Admin / SOP", domain: "admin", icon: Database },
 ];
 
-const OPERATION_CHIPS = [
-  { label: "All operations", action: null },
-  { label: "Goat created", action: "goat.created" },
-  { label: "Obligation generated", action: "vaccination.obligation.generate" },
-  { label: "SOP submitted", action: "sop.task.submit" },
-  { label: "Verification accepted", action: "vaccination.verification.accept" },
+// Result/status tabs map to real list filters.
+const STATUS_TABS: Array<{ label: string; status?: string; result?: string; proofGaps?: boolean }> = [
+  { label: "All results" },
+  { label: "Awaiting", status: "verification_pending" },
+  { label: "Rejected", result: "rejected" },
+  { label: "Proof gaps", proofGaps: true },
 ];
 
 export async function OperationsAuditPage({ searchParams }: { searchParams?: RouteSearchParams }) {
@@ -41,6 +62,9 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
   const filters = parseFilters(sp);
   const actorQ = one(sp, "actor_q")?.trim().toLowerCase() ?? "";
+  // `viewing_as` is a CEO/admin role-PREVIEW lens, synced to the shared role-lens model used by the top bar.
+  // It is label-only and never becomes a backend filter — backend RBAC governs the real audit span.
+  const lens = roleLensById(one(sp, "viewing_as"));
 
   const [listResult, summaryResult] = await Promise.all([
     listOperationsAudit({ ...filters, limit: PAGE_SIZE, cursor: one(sp, "cursor") }),
@@ -52,8 +76,12 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
   const rows = listResult.ok ? listResult.data.items : [];
   const summary = summaryResult.ok ? summaryResult.data : null;
   const actors = spanOfControl(rows, actorQ);
+  const operationCounts = countByOperation(rows, summary?.actions ?? rows.length, filters.domain ?? "vaccination");
   const nextHref = listResult.ok ? hrefWithCursor(PATHNAME, sp, listResult.data.next_cursor ?? null) : null;
   const prevHref = hrefPreviousCursor(PATHNAME, sp);
+  const clearedHref = clearHref(sp);
+  const activeStatusTab = STATUS_TABS.find((tab) => statusTabActive(tab, filters)) ?? STATUS_TABS[0];
+  const selectedRow = rows.find((row) => row.audit_id === one(sp, "audit_id"));
 
   return (
     <div className="screen on">
@@ -64,8 +92,8 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
           </div>
           <h1>Audit Log</h1>
           <div className="sub">
-            Every action by every operator <b>and admin</b> — organised by <b>operation</b>, not by area.
-            Scoped to your hierarchy via the top-bar company/park and date controls. Append-only · tamper-proof.
+            Vaccination audit trail with supporting source-entry, herd, config, and SOP events. Scoped by the
+            top-bar park and date controls. Append-only · tamper-proof.
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
@@ -83,74 +111,105 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
       )}
 
       <div className="grid g4" style={{ marginBottom: 14 }}>
-        <KPI label="Actions in view" value={summary ? String(summary.actions) : "—"} hint="tap to clear filters" tone="info" icon={Zap} href={PATHNAME} />
-        <KPI label="Awaiting verification" value={summary ? String(summary.awaiting_verification) : "—"} hint="proof + sign-off" tone="warn" icon={Clock} href={hrefWithUpdates(sp, { status: "verification_pending", cursor: null, page: null })} />
-        <KPI label="Proof coverage" value={summary ? `${summary.proof_coverage_percent}%` : "—"} hint="proof-bearing audit actions" tone="teal" icon={ShieldCheck} />
-        <KPI label="Flagged anomalies" value={summary ? String(summary.anomalies) : "—"} hint="stock · deletes · skips" tone="dng" icon={AlertTriangle} href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", cursor: null, page: null })} />
+        <KPI label="Actions in view" value={summary ? String(summary.actions) : "—"} hint="tap to clear filters" tone="info" icon={Zap} href={clearedHref} />
+        <KPI label="Awaiting verification" value={summary ? String(summary.awaiting_verification) : "—"} hint="proof + sign-off" tone="warn" icon={Clock} href={hrefWithUpdates(sp, { status: "verification_pending", result: null, proof_gaps: null, cursor: null, page: null })} />
+        <KPI label="Proof coverage" value={summary ? `${summary.proof_coverage_percent}%` : "—"} hint="tap → proof gaps" tone="teal" icon={ShieldCheck} href={hrefWithUpdates(sp, { proof_gaps: filters.proofGaps ? null : "true", cursor: null, page: null })} />
+        <KPI label="Flagged anomalies" value={summary ? String(summary.anomalies) : "—"} hint="stock · deletes · skips" tone="dng" icon={AlertTriangle} href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", proof_gaps: null, cursor: null, page: null })} />
       </div>
 
-      <div className="subtabs" style={{ marginBottom: 12 }}>
-        {VIEW_CHIPS.map((chip) => (
+      {/* Viewing as — CEO/admin role-preview lens, mirrors the shared top-bar role lens. Preview only. */}
+      <div className="subtabs" style={{ marginBottom: 8 }}>
+        <span className="muted small" style={{ padding: "7px 8px 7px 4px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Eye className="ic" style={{ width: 14 }} aria-hidden="true" /> Viewing as
+        </span>
+        {ROLE_LENSES.map((role) => (
           <Link
-            key={chip.label}
-            href={hrefWithUpdates(sp, { actor_type: chip.actorType ?? null, cursor: null, page: null })}
-            className={`tab ${filters.actorType === chip.actorType || (!filters.actorType && !chip.actorType) ? "on" : ""}`}
+            key={role.id}
+            href={hrefWithUpdates(sp, { viewing_as: role.superadmin ? null : role.id, cursor: null, page: null })}
+            replace
+            scroll={false}
+            className={`${lens.id === role.id ? "on" : ""}`}
+            title={`${role.name} · ${role.scope}`}
           >
-            {chip.label}
+            {role.auditShort}
           </Link>
         ))}
       </div>
+      <div className="note" style={{ marginBottom: 12 }}>
+        Previewing as <b>{lens.name}</b> · {lens.scope}. Role preview is a presentation lens only — the real
+        audit span is governed by backend RBAC and the top-bar park/date scope, not by this control.
+      </div>
 
+      {/* Operation families — real backend `domain` filter for vaccination-supporting surfaces only. */}
       <div className="opf" style={{ marginBottom: 12 }}>
-        {OPERATION_CHIPS.map((chip) => (
-          <Link
-            key={chip.label}
-            href={hrefWithUpdates(sp, { action: chip.action, cursor: null, page: null })}
-            className={`op ${filters.action === chip.action || (!filters.action && chip.action === null) ? "on" : ""}`}
-          >
-            {chip.label}
-          </Link>
-        ))}
+        {OPERATION_FAMILIES.map((family) => {
+          const Icon = family.icon;
+          const active = (filters.domain ?? null) === family.domain;
+          return (
+            <Link
+              key={family.label}
+              href={hrefWithUpdates(sp, { domain: family.domain, cursor: null, page: null })}
+              replace
+              scroll={false}
+              className={active ? "on" : ""}
+              title={`Filter to ${family.label} events`}
+            >
+              <span className="oc">
+                <Icon className="ic" aria-hidden="true" />
+              </span>
+              {family.label}
+              <span className="cbq">{operationCounts.get(family.domain ?? "all") ?? 0}</span>
+            </Link>
+          );
+        })}
       </div>
 
-      <section className="card" style={{ marginBottom: 14 }}>
-        <div className="hd">
-          <Search className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>Search and filters</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <Link href={PATHNAME} className="lk small">
-            Clear
-          </Link>
-        </div>
-        <form className="bd" action={PATHNAME} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <Field name="actor_id" label="Operator / actor" value={filters.actorId} placeholder="actor uuid" width={170} />
-          <Field name="domain" label="Domain" value={filters.domain} placeholder="procurement" width={132} />
-          <Field name="module" label="Module" value={filters.module} placeholder="source_entry" width={146} />
-          <Field name="category" label="Category" value={filters.category} placeholder="accepted_intake" width={154} />
-          <Field name="status" label="Status" value={filters.status} placeholder="queued" width={118} />
-          <Field name="resource_type" label="Target type" value={filters.resourceType} placeholder="goat" width={120} />
-          <Field name="resource_id" label="Target id" value={filters.resourceId} placeholder="uuid" width={170} />
-          <label className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 2 }}>
-            <input type="checkbox" name="anomalies_only" value="true" defaultChecked={filters.anomaliesOnly} />
-            Anomalies only
-          </label>
-          <button type="submit" className="btn sm">
-            <Filter className="ic" aria-hidden="true" />
-            Apply
-          </button>
+      <div className="wftoolbar" style={{ marginBottom: 14 }}>
+        <form className="tsearch" action={PATHNAME} style={{ maxWidth: 300 }} title="Search action, operator, ID, operation, target, or result.">
+          {preservedHiddenInputs(sp, ["q", "cursor", "page", "cursor_stack", "audit_id"])}
+          <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
+          <input
+            name="q"
+            defaultValue={filters.q ?? ""}
+            placeholder="Search action, operator, ID..."
+            aria-label="Search audit trail"
+          />
         </form>
-      </section>
+        <div className="subtabs" style={{ margin: 0 }}>
+          {STATUS_TABS.map((tab) => (
+            <Link
+              key={tab.label}
+              href={hrefWithUpdates(sp, { status: tab.status ?? null, result: tab.result ?? null, proof_gaps: tab.proofGaps ? "true" : null, cursor: null, page: null })}
+              replace
+              scroll={false}
+              className={activeStatusTab.label === tab.label ? "on" : ""}
+            >
+              {tab.label}
+            </Link>
+          ))}
+        </div>
+        <span className="sp" style={{ flex: 1 }} />
+        <Link
+          href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", cursor: null, page: null })}
+          replace
+          scroll={false}
+          className={`btn sm ${filters.anomaliesOnly ? "p" : ""}`}
+        >
+          <AlertTriangle className="ic" style={{ width: 13 }} aria-hidden="true" />
+          Anomalies only
+        </Link>
+      </div>
 
-      <div className="grid g2" style={{ gridTemplateColumns: "288px 1fr" }}>
+      <div className="gridside">
         <section className="card">
           <div className="hd">
             <UserRound className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
             <h3>Span of control</h3>
             <div className="sp" style={{ flex: 1 }} />
-            <span className="pill">{actors.length}</span>
+            <span className="pill">{actors.length} operators</span>
           </div>
           <form action={PATHNAME} className="spansearch">
-            {preservedHiddenInputs(sp, ["actor_q", "cursor", "page", "cursor_stack"])}
+            {preservedHiddenInputs(sp, ["actor_q", "cursor", "page", "cursor_stack", "audit_id"])}
             <input name="actor_q" defaultValue={one(sp, "actor_q") ?? ""} placeholder="Filter operators..." />
           </form>
           <div className="bd feed auditops">
@@ -162,8 +221,10 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
               actors.map((actor) => (
                 <Link
                   key={actor.key}
-                  href={hrefWithUpdates(sp, { actor_id: actor.actorId ?? null, actor_type: actor.actorId ? null : actor.actorType, cursor: null, page: null })}
-                  className="fitem"
+                  href={hrefWithUpdates(sp, { actor_id: actor.actorId ?? null, actor_type: actor.actorId ? null : actor.actorType, cursor: null, page: null, audit_id: null })}
+                  replace
+                  scroll={false}
+                  className={`fitem${filters.actorId === actor.actorId || (!filters.actorId && filters.actorType === actor.actorType) ? " on" : ""}`}
                   style={{ textDecoration: "none" }}
                 >
                   <div className="tx">
@@ -177,16 +238,19 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
           </div>
         </section>
 
-        <section className="card">
+        {/* min-width:0 lets the 1fr grid track shrink so the wide audit table scrolls inside its own
+            overflow-x container instead of blowing the section past the viewport edge. */}
+        <section className="card" style={{ minWidth: 0 }}>
           <div className="hd">
             <ScrollText className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
             <h3>Activity trail</h3>
             <div className="sp" style={{ flex: 1 }} />
             <span className="small muted">
-              Page {page} · {rows.length} entries
+              {pageTrailMeta(page, rows.length, Boolean(nextHref))}
             </span>
           </div>
           <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label="Audit activity trail">
+            <Pager prevHref={prevHref} nextHref={nextHref} page={page} count={rows.length} top />
             <table data-enh="1">
               <thead>
                 <tr>
@@ -205,7 +269,7 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
                     </td>
                   </tr>
                 ) : (
-                  rows.map((row) => <AuditTableRow key={row.audit_id} row={row} />)
+                  rows.map((row) => <AuditTableRow key={row.audit_id} row={row} searchParams={sp} />)
                 )}
               </tbody>
             </table>
@@ -217,23 +281,70 @@ export async function OperationsAuditPage({ searchParams }: { searchParams?: Rou
           </div>
         </section>
       </div>
+
+      {/* Raw developer fields are NOT the primary UX. They live here for entity-history deep links
+          (resource_type / resource_id) and power-user filtering, preserving the business selections above. */}
+      <details className="card" style={{ marginTop: 14 }}>
+        <summary className="hd" style={{ cursor: "pointer", listStyle: "revert" }}>
+          <Filter className="ic" style={{ color: "var(--muted)" }} aria-hidden="true" />
+          <h3>Advanced (raw) filters</h3>
+          <span className="muted small" style={{ marginLeft: 8 }}>resource / module / actor IDs — for entity-history links</span>
+        </summary>
+        <form className="bd" action={PATHNAME} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          {preservedHiddenInputs(sp, ["actor_id", "module", "category", "resource_type", "resource_id", "cursor", "page", "cursor_stack"])}
+          <Field name="actor_id" label="Operator / actor id" value={filters.actorId} placeholder="actor uuid" width={184} />
+          <Field name="resource_type" label="Target type" value={filters.resourceType} placeholder="goat" width={120} />
+          <Field name="resource_id" label="Target id" value={filters.resourceId} placeholder="uuid" width={184} />
+          <Field name="module" label="Module" value={filters.module} placeholder="source_entry" width={150} />
+          <Field name="category" label="Category" value={filters.category} placeholder="accepted_intake" width={158} />
+          <button type="submit" className="btn sm">
+            <Filter className="ic" aria-hidden="true" />
+            Apply
+          </button>
+          <Link href={clearedHref} replace scroll={false} className="lk small" style={{ marginBottom: 8 }}>
+            Clear all
+          </Link>
+        </form>
+      </details>
+      {selectedRow ? <AuditDetailDrawer row={selectedRow} searchParams={sp} /> : null}
     </div>
   );
 }
 
-function AuditTableRow({ row }: { row: OperationsAuditRow }) {
+function AuditTableRow({ row, searchParams }: { row: OperationsAuditRow; searchParams: RouteSearchParams }) {
   const result = metaString(row, "status") ?? metaString(row, "result") ?? (row.anomaly ? "flagged" : "recorded");
   const proof = metaString(row, "proof_id") ?? metaString(row, "proof_ref_id") ?? metaString(row, "media_proof_id") ?? (row.action.includes("proof") ? "proof event" : undefined);
-  const operation = joinParts([metaString(row, "domain"), metaString(row, "module"), metaString(row, "category")]);
+  const operation = operationLabel(row);
+  const operator = operatorLabel(row);
+  const target = targetLabel(row);
+  const detailHref = hrefWithUpdates(searchParams, { audit_id: row.audit_id });
+  const OperationIcon = operation.icon;
   return (
-    <tr>
-      <td className="muted">{fmtDateTime(row.recorded_at)}</td>
-      <td>{operation}</td>
-      <td>
-        <span className="gid">{row.actor_id ? shortId(row.actor_id) : row.actor_type}</span>
+    <tr className={row.anomaly ? "audit-anomaly" : undefined}>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        <Link href={detailHref} className="lk small" scroll={false}>
+          {fmtDateTime(row.recorded_at)}
+        </Link>
       </td>
-      <td>{row.action}</td>
-      <td>{joinParts([row.resource_type, row.resource_id ? shortId(row.resource_id) : undefined])}</td>
+      <td>
+        <span className="opcell">
+          <span className="oc">
+            <OperationIcon className="ic" aria-hidden="true" />
+          </span>
+          {operation.label}
+        </span>
+        {operation.detail ? <div className="mt">{operation.detail}</div> : null}
+      </td>
+      <td>
+        <b className="trc opn">{operator.primary}</b>
+        <div className="mt trc opn">{operator.secondary}</div>
+      </td>
+      <td>
+        <Link href={detailHref} className="lk" scroll={false}>
+          {humanAction(row.action)}
+        </Link>
+      </td>
+      <td>{target.href ? <Link href={target.href} className="gid">{target.label}</Link> : target.label}</td>
       <td>
         <Tag tone={row.anomaly ? "dng" : toneForResult(result)} title={row.anomaly ? "Flagged anomaly" : undefined}>
           {result}
@@ -241,6 +352,79 @@ function AuditTableRow({ row }: { row: OperationsAuditRow }) {
       </td>
       <td>{dash(proof)}</td>
     </tr>
+  );
+}
+
+function AuditDetailDrawer({ row, searchParams }: { row: OperationsAuditRow; searchParams: RouteSearchParams }) {
+  const result = metaString(row, "status") ?? metaString(row, "result") ?? (row.anomaly ? "flagged" : "recorded");
+  const proof = metaString(row, "proof_id") ?? metaString(row, "proof_ref_id") ?? metaString(row, "media_proof_id");
+  const operation = operationLabel(row);
+  const target = targetLabel(row);
+  const operator = operatorLabel(row);
+  const closeHref = hrefWithUpdates(searchParams, { audit_id: null });
+  const OperationIcon = operation.icon;
+  return (
+    <>
+      <Link
+        href={closeHref}
+        replace
+        className="veil"
+        aria-label="Close audit details"
+        scroll={false}
+        style={{ opacity: 1, pointerEvents: "auto" }}
+      />
+      <aside className="drawer on" aria-label="Audit details">
+        <div className="dh">
+          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
+            <OperationIcon className="ic" aria-hidden="true" />
+          </span>
+          <div>
+            <div className="mt">AUDIT</div>
+            <h2>{humanAction(row.action)}</h2>
+          </div>
+          <span className="sp" style={{ flex: 1 }} />
+          <Link href={closeHref} replace className="iconbtn" aria-label="Close audit details" scroll={false}>
+            <X className="ic" />
+          </Link>
+        </div>
+        <div className="dc">
+          <div className="helpgrid">
+            <div className="hk">Time</div>
+            <div>{fmtDateTime(row.recorded_at)}</div>
+            <div className="hk">Operation</div>
+            <div>
+              <b>{operation.label}</b>
+              {operation.detail ? <div className="mt">{operation.detail}</div> : null}
+            </div>
+            <div className="hk">Operator</div>
+            <div>
+              <b>{operator.primary}</b>
+              <div className="mt">{operator.secondary}</div>
+            </div>
+            <div className="hk">Target</div>
+            <div>{target.href ? <Link href={target.href} className="gid">{target.label}</Link> : target.label}</div>
+            <div className="hk">Result</div>
+            <div>
+              <Tag tone={row.anomaly ? "dng" : toneForResult(result)}>{result}</Tag>
+            </div>
+            <div className="hk">Proof</div>
+            <div>{dash(proof)}</div>
+          </div>
+          <div className="note" style={{ marginTop: 14 }}>
+            Read-only business audit projection. Raw trace IDs and replay fields stay in backend audit infrastructure;
+            this drawer shows who did what, where, with proof, and the result.
+          </div>
+        </div>
+        <div className="df">
+          <Link href={target.href ?? closeHref} className={`btn p${target.href ? "" : " disabled"}`} aria-disabled={!target.href} scroll={false}>
+            Open target
+          </Link>
+          <Link href={closeHref} replace className="btn" scroll={false}>
+            Close
+          </Link>
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -273,7 +457,7 @@ function KPI({
     </>
   );
   return href ? (
-    <Link href={href} className="kpi" style={{ textDecoration: "none" }}>
+    <Link href={href} replace scroll={false} className="kpi" style={{ textDecoration: "none" }}>
       {content}
     </Link>
   ) : (
@@ -303,30 +487,60 @@ function Field({
   );
 }
 
-function Pager({ prevHref, nextHref, page, count }: { prevHref: string | null; nextHref: string | null; page: number; count: number }) {
+function Pager({
+  prevHref,
+  nextHref,
+  page,
+  count,
+  top = false,
+}: {
+  prevHref: string | null;
+  nextHref: string | null;
+  page: number;
+  count: number;
+  top?: boolean;
+}) {
   return (
-    <div className="pager2">
+    <div className="pager2" style={top ? { borderTop: 0, borderBottom: "1px solid var(--line2)" } : undefined}>
       <span className="muted small">
-        Page {page} · {count} rows
+        {pageTrailMeta(page, count, Boolean(nextHref))}
       </span>
+      <label className="pgmeta" style={{ marginRight: 0, fontWeight: 600 }}>
+        Rows{" "}
+        <select disabled title="Audit cursor contract currently fixes page size at 25 for this mock-shaped view.">
+          <option>25</option>
+        </select>
+      </label>
       {prevHref ? (
-        <Link href={prevHref} scroll={false} className="btn sm">
-          <ArrowLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> Previous
+        <Link href={PATHNAME} scroll={false} className="btn sm">
+          « First
         </Link>
       ) : (
         <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
-          <ArrowLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> Previous
+          « First
+        </span>
+      )}
+      {prevHref ? (
+        <Link href={prevHref} scroll={false} className="btn sm">
+          ‹ Prev
+        </Link>
+      ) : (
+        <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
+          ‹ Prev
         </span>
       )}
       {nextHref ? (
         <Link href={nextHref} scroll={false} className="btn sm">
-          Next <ArrowRight className="ic" style={{ width: 13 }} aria-hidden="true" />
+          Next ›
         </Link>
       ) : (
         <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
-          Next <ArrowRight className="ic" style={{ width: 13 }} aria-hidden="true" />
+          Next ›
         </span>
       )}
+      <span className="btn sm" aria-disabled title="Cursor pagination cannot jump to the last page without a backend count cursor." style={{ opacity: 0.45, cursor: "not-allowed" }}>
+        Last »
+      </span>
     </div>
   );
 }
@@ -342,17 +556,26 @@ function parseFilters(params: RouteSearchParams): OperationsAuditListParams {
     resourceId: one(params, "resource_id"),
     scopeType: one(params, "scope_type"),
     scopeId: one(params, "scope_id"),
-    domain: one(params, "domain"),
+    domain: one(params, "domain") ?? "vaccination",
     module: one(params, "module"),
     category: one(params, "category"),
     result: one(params, "result"),
     status: one(params, "status"),
+    q: one(params, "q"),
     anomaliesOnly: one(params, "anomalies_only") === "true",
+    proofGaps: one(params, "proof_gaps") === "true",
   };
 }
 
 function actorType(value: string | undefined): OperationsAuditActorType | undefined {
   return ACTOR_TYPES.find((candidate) => candidate === value);
+}
+
+function statusTabActive(tab: { status?: string; result?: string; proofGaps?: boolean }, filters: OperationsAuditListParams): boolean {
+  if (tab.proofGaps) return Boolean(filters.proofGaps);
+  if (!tab.status && !tab.result) return !filters.status && !filters.result && !filters.proofGaps;
+  if (tab.status) return filters.status === tab.status;
+  return filters.result === tab.result;
 }
 
 function spanOfControl(rows: OperationsAuditRow[], actorQ: string) {
@@ -369,6 +592,66 @@ function spanOfControl(rows: OperationsAuditRow[], actorQ: string) {
   return [...groups.values()]
     .filter((actor) => !actorQ || actor.key.toLowerCase().includes(actorQ) || actor.actorType.toLowerCase().includes(actorQ))
     .sort((a, b) => b.count - a.count);
+}
+
+function pageTrailMeta(page: number, count: number, hasNext: boolean): string {
+  if (count === 0) return "0 results";
+  const start = (page - 1) * PAGE_SIZE + 1;
+  const end = start + count - 1;
+  return `${start}–${end}${hasNext ? "+" : ""} · Page ${page}`;
+}
+
+function familyForDomain(domain?: string | null) {
+  return OPERATION_FAMILIES.find((family) => family.domain === (domain ?? null)) ?? OPERATION_FAMILIES[0];
+}
+
+function countByOperation(rows: OperationsAuditRow[], activeCount: number, activeDomain: string) {
+  const counts = new Map<string, number>([[activeDomain, activeCount]]);
+  for (const row of rows) {
+    const key = metaString(row, "domain") ?? "admin";
+    if (key === activeDomain) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function operationLabel(row: OperationsAuditRow): { label: string; detail?: string; icon: typeof Zap } {
+  const domain = metaString(row, "domain") ?? "admin";
+  const family = familyForDomain(domain);
+  const rawDetail = joinParts([metaString(row, "module"), metaString(row, "category")]);
+  const detail = rawDetail === "—" ? undefined : rawDetail;
+  return { label: family.label, detail, icon: family.icon };
+}
+
+function operatorLabel(row: OperationsAuditRow): { primary: string; secondary: string } {
+  const name = metaString(row, "operator_name") ?? metaString(row, "actor_name");
+  const role = metaString(row, "operator_role") ?? metaString(row, "role") ?? row.actor_type;
+  if (name) return { primary: name, secondary: role };
+  if (row.actor_id) return { primary: shortId(row.actor_id), secondary: role };
+  return { primary: row.actor_type, secondary: "system event" };
+}
+
+function targetLabel(row: OperationsAuditRow): { label: string; href?: string } {
+  const label =
+    metaString(row, "target_label") ??
+    metaString(row, "goat_id") ??
+    metaString(row, "goat_code") ??
+    metaString(row, "load_code") ??
+    joinParts([row.resource_type, row.resource_id ? shortId(row.resource_id) : undefined]);
+  const goatId = metaString(row, "goat_id") ?? (row.resource_type === "goat" ? row.resource_id : undefined);
+  if (goatId) return { label, href: `/goats/${encodeURIComponent(goatId)}` };
+  if (row.resource_type === "source_load" && row.resource_id) {
+    return { label, href: `/procurement/source-entry/loads/${encodeURIComponent(row.resource_id)}` };
+  }
+  return { label };
+}
+
+function humanAction(action: string): string {
+  return action
+    .split(/[._:]+/)
+    .filter(Boolean)
+    .map((part) => (part.length <= 3 ? part.toUpperCase() : part[0]?.toUpperCase() + part.slice(1)))
+    .join(" ");
 }
 
 function metaString(row: OperationsAuditRow, key: string): string | undefined {
@@ -406,6 +689,17 @@ function hrefWithUpdates(params: RouteSearchParams, updates: Record<string, stri
     next.delete(key);
     if (value === null || value === undefined || value === false || value === "") continue;
     next.set(key, String(value));
+  }
+  const qs = next.toString();
+  return qs ? `${PATHNAME}?${qs}` : PATHNAME;
+}
+
+// Clearing filters resets the trail to its base while keeping the role-preview lens and top-bar scope.
+function clearHref(params: RouteSearchParams): string {
+  const next = new URLSearchParams();
+  for (const key of PRESERVE_ON_CLEAR) {
+    const value = one(params, key);
+    if (value) next.set(key, value);
   }
   const qs = next.toString();
   return qs ? `${PATHNAME}?${qs}` : PATHNAME;

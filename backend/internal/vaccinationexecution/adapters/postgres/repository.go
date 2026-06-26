@@ -65,6 +65,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 	for rows.Next() {
 		var p domain.ExecutionProjection
 		var batchID, batchStatus, taskState, operatorName, parkHeadName, verifierName pgtype.Text
+		var obligationID, sopTaskID, completionID pgtype.Text
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
 		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount int64
@@ -100,6 +101,9 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 			&p.IsQuarantine,
 			&p.IsICU,
 			&healthDeferredCount,
+			&obligationID,
+			&sopTaskID,
+			&completionID,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan vaccination execution: %w", err)
 		}
@@ -123,6 +127,9 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 		p.ParkHeadName = textPtr(parkHeadName)
 		p.VerifierName = textPtr(verifierName)
 		p.HealthDeferredCount = int(healthDeferredCount)
+		p.ObligationID = textPtr(obligationID)
+		p.SOPTaskID = textPtr(sopTaskID)
+		p.CompletionID = textPtr(completionID)
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {
@@ -248,6 +255,7 @@ raw AS (
     ob.status AS batch_status,
     ob.conducted_by,
     st.state AS task_state,
+    st.task_id AS sop_task_id,
     st.assigned_to,
     g.lifecycle_status AS goat_lifecycle_status,
     g.health_status AS goat_health_status,
@@ -258,6 +266,7 @@ raw AS (
       WHEN vc.status IN ('accepted', 'rejected') AND vc.verified_at IS NOT NULL AND vc.verified_at > $7::timestamptz THEN 'recorded'
       ELSE vc.status
     END AS completion_status,
+    vc.completion_id,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -396,7 +405,10 @@ grouped AS (
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
-    )::bigint AS health_deferred_count
+    )::bigint AS health_deferred_count,
+    (ARRAY_AGG(located.obligation_id ORDER BY located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
+    (ARRAY_AGG(located.sop_task_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
+    (ARRAY_AGG(located.completion_id ORDER BY located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
   FROM located
   JOIN locations shed
     ON shed.tenant_id = $1::uuid
@@ -493,7 +505,10 @@ SELECT
   grouped.usable_for_vaccination,
   grouped.is_quarantine,
   grouped.is_icu,
-  grouped.health_deferred_count
+  grouped.health_deferred_count,
+  grouped.obligation_id,
+  grouped.sop_task_id,
+  grouped.completion_id
 FROM stateful grouped
 JOIN locations park
   ON park.tenant_id = $1::uuid

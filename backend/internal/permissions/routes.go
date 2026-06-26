@@ -93,6 +93,8 @@ var protectedRoutes = []Route{
 	{OperationID: "createProcurementSourceEntryLoad", Method: "POST", Pattern: "/procurement/source-entry/loads", Permissions: []string{ProcurementWrite}},
 	{OperationID: "getProcurementSourceEntryLoad", Method: "GET", Pattern: "/procurement/source-entry/loads/{load_id}", Permissions: []string{ProcurementRead}},
 	{OperationID: "addProcurementSourceEntryLoadGoat", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/goats", Permissions: []string{ProcurementWrite}},
+	{OperationID: "recordProcurementHFVaccinationEvidence", Method: "POST", Pattern: "/procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence", Permissions: []string{ProcurementWrite}},
+	{OperationID: "reviewProcurementHFVaccinationEvidence", Method: "POST", Pattern: "/procurement/source-entry/hf-vaccination-evidence/{evidence_id}/review", Permissions: []string{ProcurementReview}},
 	{OperationID: "recordProcurementSourceHealth", Method: "POST", Pattern: "/procurement/source-entry/goats/{goat_id}/source-health", Permissions: []string{ProcurementWrite}},
 	{OperationID: "recordProcurementPreDispatchDecision", Method: "POST", Pattern: "/procurement/source-entry/goats/{goat_id}/pre-dispatch-decision", Permissions: []string{ProcurementReview}},
 	{OperationID: "dispatchProcurementSourceEntryLoad", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/dispatch", Permissions: []string{ProcurementWrite}},
@@ -102,6 +104,7 @@ var protectedRoutes = []Route{
 	// not nested /procurement/source-entry/* routes. Those nested lens routes are intentionally not registered.
 
 	// Phase 1A — protocol config / vaccination obligation engine.
+	{OperationID: "listProtocolConfigs", Method: "GET", Pattern: "/protocols", Permissions: []string{ProtocolRead}},
 	{OperationID: "createProtocolDefinition", Method: "POST", Pattern: "/protocols", Permissions: []string{ProtocolWrite}},
 	{OperationID: "createProtocolVersion", Method: "POST", Pattern: "/protocols/{protocol_id}/versions", Permissions: []string{ProtocolWrite}},
 	{OperationID: "addProtocolRule", Method: "POST", Pattern: "/protocols/versions/{version_id}/rules", Permissions: []string{ProtocolWrite}},

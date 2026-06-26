@@ -38,3 +38,8 @@ func (s *Service) GetVersion(ctx context.Context, tenantID, versionID string) (d
 func (s *Service) AddRule(ctx context.Context, in domain.NewRule) (string, error) {
 	return s.repo.CreateRule(ctx, in)
 }
+
+// ListConfigs returns the Config authority list for a category (all versions, any status).
+func (s *Service) ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error) {
+	return s.repo.ListConfigs(ctx, tenantID, category)
+}

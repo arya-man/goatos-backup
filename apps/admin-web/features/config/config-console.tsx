@@ -47,7 +47,9 @@ export function ConfigConsole({
             <Plus className="ic" /> New draft rule
           </button>
         </div>
-        <div style={{ overflowX: "auto" }}>
+        {/* Keyboard-accessible scroll region (WCAG scrollable-region-focusable): .card .bd overflow-x makes
+            this scrollable on narrow widths, so it must be tab-focusable like the other data tables. */}
+        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Protocol rules">
           <table>
             <thead>
               <tr>

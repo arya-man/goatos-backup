@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AlertTriangle, Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
 import { CATEGORIES } from "./rule-dsl";
+import { listProtocolConfigs, type ProtocolConfigItem } from "@/lib/api/server";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
@@ -12,13 +13,64 @@ function resolveCategory(category: string): string {
   return CATEGORIES.includes(category) ? category : "vaccination";
 }
 
+// Mirrors the backend publish gate (protocol/app/publish.go publishableSources). A draft is
+// publishable ONLY when source-backed, reviewed, and approved; otherwise the row says so plainly.
+const PUBLISHABLE_SOURCES = new Set(["vaccinations_db", "phc", "vet"]);
+
+function isPublishableSource(item: ProtocolConfigItem): boolean {
+  return (
+    PUBLISHABLE_SOURCES.has(item.source_system) &&
+    item.source_ref.trim() !== "" &&
+    item.review_status === "approved" &&
+    item.approved_by.trim() !== ""
+  );
+}
+
+function fmtDate(iso?: string | null): string {
+  return iso ? iso.slice(0, 10) : "—";
+}
+
+function shortId(id?: string): string {
+  if (!id) return "—";
+  return id.length > 10 ? `${id.slice(0, 8)}…` : id;
+}
+
+function statusOf(item: ProtocolConfigItem): { text: string; tone: ConfigRuleRow["statusTone"] } {
+  if (item.status === "published") return { text: "Published", tone: "ok" };
+  if (item.status === "retired") return { text: "Retired", tone: "mut" };
+  return isPublishableSource(item)
+    ? { text: "Draft · source-backed", tone: "info" }
+    : { text: "Draft · not source-backed", tone: "warn" };
+}
+
+// Project a backend protocol-config version into a Config table row. No invented values: rule count,
+// status, scope, effective date, linked SOP, and publisher are backend truth ("—" when absent).
+function toRuleRow(item: ProtocolConfigItem): ConfigRuleRow {
+  const status = statusOf(item);
+  return {
+    id: item.protocol_version_id,
+    categoryLabel: item.name || item.code,
+    ruleRows: item.rule_count,
+    ruleRowLabel: item.rule_count === 1 ? "rule" : "rules",
+    version: item.version_label?.trim() || `v${item.version}`,
+    scope: item.scope_type === "tenant" ? "tenant" : `park:${item.scope_id ?? ""}`,
+    statusText: status.text,
+    statusTone: status.tone,
+    effective: fmtDate(item.effective_from),
+    linkedSop: shortId(item.sop_version_id),
+    lastPublisher: shortId(item.published_by),
+  };
+}
+
 // Rendered at Admin / Data Ops / Config. This is the generic protocol authority surface: PHC/
-// Vaccination links here with category=vaccination, but no module owns the screen.
-export function ConfigProtocolRulesPage({ category }: { category: string }) {
+// Vaccination links here with category=vaccination, but no module owns the screen. Rules are read
+// from the real backend protocol list (B3, GET /protocols?category=…) through the generated client —
+// never fabricated. A failed read surfaces an error band, not a silent empty table.
+export async function ConfigProtocolRulesPage({ category }: { category: string }) {
   const initialCategory = resolveCategory(category);
-  // Rules come from the backend protocol list. No list endpoint exists yet, so this is empty and the
-  // table renders an honest empty state — rows are never fabricated. Wire to the list API when it lands.
-  const rules: ConfigRuleRow[] = [];
+  const res = await listProtocolConfigs(initialCategory);
+  const rules: ConfigRuleRow[] = res.ok ? res.data.items.map(toRuleRow) : [];
+  const loadError = res.ok ? null : (res.error.message ?? "could not load protocol rules");
 
   return (
     <div className="screen on">
@@ -44,6 +96,16 @@ export function ConfigProtocolRulesPage({ category }: { category: string }) {
           are invented, and a draft publishes only when source-backed, reviewed, and approved.
         </div>
       </div>
+
+      {loadError ? (
+        <div className="alert" role="alert" style={{ marginBottom: 14 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>
+            Could not load protocol rules from the backend ({loadError}). This is a real error, not an
+            empty config — fix the API/connection and reload rather than treating the table as empty.
+          </div>
+        </div>
+      ) : null}
 
       <ConfigConsole rules={rules} initialCategory={initialCategory} />
 

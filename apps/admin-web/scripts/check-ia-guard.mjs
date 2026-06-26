@@ -83,9 +83,9 @@ walk(APP_ROOT, pageFiles, (file) => file.endsWith("page.tsx"));
 
 const findings = [];
 
-// Vaccination trigger-closure scope guard: Counts is reopened only for Herd Register. The broad mock still
-// contains future Counts leaves, but the admin shell must not surface them as active or disabled sidebar
-// placeholders unless a future approved slice explicitly reopens them.
+// Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
+// create new unsupported route trees. Herd Register is the only real Counts page in this slice; broad labels
+// must route into Herd Register or top-level command lenses.
 const shellFile = "components/mesha-shell.tsx";
 if (existsSync(shellFile)) {
   const shellText = stripComments(readFileSync(shellFile, "utf8"));
@@ -97,12 +97,35 @@ if (existsSync(shellFile)) {
     );
   } else {
     const labels = [...countsGroup[1].matchAll(/label:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
-    if (labels.length !== 1 || labels[0] !== "Herd Register") {
+    const hrefs = [...countsGroup[1].matchAll(/href:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+    const unsupportedCountsHrefs = hrefs.filter((href) => href !== "/counts/herd" && href !== "/action-center");
+    if (!labels.includes("Herd register") && !labels.includes("Herd Register")) {
       findings.push(
-        `${shellFile} exposes Counts sidebar leaves [${labels.join(", ") || "none"}]. ` +
-          "Current vaccination trigger scope allows exactly one Counts leaf: Herd Register. " +
-          "Do not show Counts overall, Count reconciliation, Tagging & identity, or Weights & ADG " +
-          "as active or disabled placeholders.",
+        `${shellFile} must include the real Counts -> Herd Register leaf. ` +
+          `Current Counts labels are [${labels.join(", ") || "none"}].`,
+      );
+    }
+    if (unsupportedCountsHrefs.length > 0) {
+      findings.push(
+        `${shellFile} routes Counts mock labels to unsupported paths [${unsupportedCountsHrefs.join(", ")}]. ` +
+          "Counts mock labels may appear, but this slice may only route them to /counts/herd or top-level Action Center.",
+      );
+    }
+
+    // Audit Log is a business surface under Admin / Data Ops — NOT its own "Operations" vertical. The
+    // `/operations/audit` route is an implementation detail; the visible IA must place Audit Log beside
+    // Config and SOP Library, and must not surface a separate Operations sidebar group.
+    if (/label:\s*["'`]Operations["'`]/.test(shellText)) {
+      findings.push(
+        `${shellFile} defines an "Operations" sidebar group. Audit Log belongs under Admin / Data Ops; ` +
+          "do not surface a separate Operations vertical.",
+      );
+    }
+    const adminGroup = shellText.match(/id:\s*["'`]admin-data["'`][\s\S]*?leaves:\s*\[([\s\S]*?)\]\s*,?\s*\}/);
+    const adminLabels = adminGroup ? [...adminGroup[1].matchAll(/label:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]) : [];
+    if (!adminLabels.includes("Audit Log")) {
+      findings.push(
+        `${shellFile} must list "Audit Log" under the Admin / Data Ops group (beside Config and SOP Library).`,
       );
     }
   }

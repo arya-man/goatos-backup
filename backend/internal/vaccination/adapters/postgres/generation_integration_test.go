@@ -161,6 +161,136 @@ func TestGoatCreatedHandlerGeneratesViaBus(t *testing.T) {
 	}
 }
 
+func TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.hf.suppress", Name: "HF Suppress", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	ruleDSL := []byte(`{"eligibility":{"stage":"K1"},"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	trustedGoat := "30000000-0000-4000-8000-0000000000c1"
+	importedGoat := "30000000-0000-4000-8000-0000000000c2"
+	futureTrustedGoat := "30000000-0000-4000-8000-0000000000c3"
+	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	seedGenGoat(t, ctx, pool, trustedGoat, "alive")
+	seedGenGoat(t, ctx, pool, importedGoat, "alive")
+	seedGenGoat(t, ctx, pool, futureTrustedGoat, "alive")
+	for _, goatID := range []string{trustedGoat, importedGoat, futureTrustedGoat} {
+		if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET entry_date = $3::date,
+    origin_type = 'procured',
+    shed_id = $4::uuid,
+    current_location_id = $4::uuid
+WHERE tenant_id = $1 AND goat_id = $2`, impTenant, goatID, entryDate, impCbe); err != nil {
+			t.Fatalf("set entry date: %v", err)
+		}
+	}
+	pastAdministered := time.Date(2026, 6, 8, 8, 0, 0, 0, time.UTC)
+	pastReviewed := time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC)
+	futureAdministered := time.Date(2026, 6, 12, 8, 0, 0, 0, time.UTC)
+	futureReviewed := time.Date(2026, 6, 13, 8, 0, 0, 0, time.UTC)
+	seedGenerationProcurementEvidence(t, ctx, pool, "30000000-0000-4000-8000-00000000d001", trustedGoat, versionID, ruleID, "trusted", pastAdministered, &pastReviewed)
+	seedGenerationProcurementEvidence(t, ctx, pool, "30000000-0000-4000-8000-00000000d002", importedGoat, versionID, ruleID, "imported", pastAdministered, nil)
+	seedGenerationProcurementEvidence(t, ctx, pool, "30000000-0000-4000-8000-00000000d003", futureTrustedGoat, versionID, ruleID, "trusted", futureAdministered, &futureReviewed)
+
+	gen := vaccapp.NewGenerationService(proto, vacc, obl)
+	asOf := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
+	trustedResult, err := gen.GenerateForGoat(ctx, impTenant, trustedGoat, asOf)
+	if err != nil {
+		t.Fatalf("generate trusted goat: %v", err)
+	}
+	if trustedResult.Generated != 0 || trustedResult.SuppressedByTrustedHistory != 1 {
+		t.Fatalf("trusted result = %#v, want generated 0 suppressed 1", trustedResult)
+	}
+	importedResult, err := gen.GenerateForGoat(ctx, impTenant, importedGoat, asOf)
+	if err != nil {
+		t.Fatalf("generate imported goat: %v", err)
+	}
+	if importedResult.Generated != 1 || importedResult.SuppressedByTrustedHistory != 0 {
+		t.Fatalf("imported result = %#v, want generated 1 suppressed 0", importedResult)
+	}
+	futureTrustedResult, err := gen.GenerateForGoat(ctx, impTenant, futureTrustedGoat, asOf)
+	if err != nil {
+		t.Fatalf("generate future trusted goat: %v", err)
+	}
+	if futureTrustedResult.Generated != 1 || futureTrustedResult.SuppressedByTrustedHistory != 0 {
+		t.Fatalf("future trusted result = %#v, want generated 1 suppressed 0", futureTrustedResult)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, impTenant, trustedGoat); got != 0 {
+		t.Fatalf("trusted HF evidence goat obligations = %d, want 0", got)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, impTenant, importedGoat); got != 1 {
+		t.Fatalf("imported-only HF evidence goat obligations = %d, want 1", got)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, impTenant, futureTrustedGoat); got != 1 {
+		t.Fatalf("future trusted HF evidence goat obligations = %d, want 1", got)
+	}
+}
+
+func seedGenerationProcurementEvidence(t *testing.T, ctx context.Context, pool *pgxpool.Pool, loadID, goatID, versionID, ruleID, reviewStatus string, administeredAt time.Time, reviewedAt *time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_loads (load_id, tenant_id, source_party_id, expected_count, status, idempotency_key)
+VALUES ($1, $2, $3, 1, 'source_warmup', $4)
+ON CONFLICT (tenant_id, load_id) DO NOTHING`, loadID, impTenant, impParty, "gen-hf-load:"+loadID); err != nil {
+		t.Fatalf("seed procurement load: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (
+  tenant_id, load_id, goat_id, purpose, current_state, selection_state,
+  identity_review_state, ownership_state, health_state
+) VALUES (
+  $1, $2, $3, 'breeding', 'accepted_herd_intake', 'accepted_herd_intake',
+  'clean', 'mesha_owned', 'passed'
+)
+ON CONFLICT (tenant_id, load_id, goat_id) DO NOTHING`, impTenant, loadID, goatID); err != nil {
+		t.Fatalf("seed procurement load goat: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_hf_vaccination_evidence (
+  tenant_id, load_id, goat_id, protocol_version_id, rule_id, dose_code,
+  administered_at, vaccine_name, lot_number, source_ref, review_status,
+  reviewed_at, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, $5, 'primary',
+  $6::timestamptz, 'HF vaccine', 'HF-LOT', 'supplier:hf',
+  $7, $8::timestamptz,
+  $9
+)`, impTenant, loadID, goatID, versionID, ruleID, administeredAt, reviewStatus, reviewedAt, "gen-hf-evidence:"+goatID); err != nil {
+		t.Fatalf("seed HF evidence: %v", err)
+	}
+}
+
 func countRowsVacc(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) int {
 	t.Helper()
 	var n int

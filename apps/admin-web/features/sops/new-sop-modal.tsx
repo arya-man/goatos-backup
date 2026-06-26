@@ -326,7 +326,7 @@ export function NewSopModal({ open, onClose }: { open: boolean; onClose: () => v
               <b>Conditional logic:</b> a step can show only if a previous step was answered, and an answer can
               require this step, require proof, or block submission — emitted as declarative{" "}
               <span className="mono">visible_if / required_if / proof_required_if / block_submission_if</span> rules.
-              Cross-domain action routing (alert vet, ICU shift) is a backend gap.
+              Cross-domain actions are routed through Action Center ownership and verification.
             </div>
           </div>
 

@@ -82,6 +82,10 @@ type ExecutionRow struct {
 	ProofStatus        ProofStatus        `json:"proofStatus"`
 	VerificationStatus VerificationStatus `json:"verificationStatus"`
 	NextAction         string             `json:"nextAction"`
+	ObligationID       *string            `json:"obligationId,omitempty"`
+	BatchID            *string            `json:"batchId,omitempty"`
+	SOPTaskID          *string            `json:"sopTaskId,omitempty"`
+	CompletionID       *string            `json:"completionId,omitempty"`
 }
 
 type ExecutionResponse struct {
@@ -248,4 +252,7 @@ type ExecutionProjection struct {
 	IsQuarantine         bool
 	IsICU                bool
 	HealthDeferredCount  int
+	ObligationID         *string
+	SOPTaskID            *string
+	CompletionID         *string
 }

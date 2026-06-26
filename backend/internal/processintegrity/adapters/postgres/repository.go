@@ -750,7 +750,7 @@ derived AS (
       WHEN stateful.is_quarantine THEN 'Shed is quarantine; PHC defer/approval required'
       WHEN stateful.health_deferred_count > 0 THEN 'Some goats are sick, under treatment, quarantined, or in ICU'
       WHEN stateful.missed_count > 0 THEN 'Missed dose escalation required'
-      WHEN stateful.conducted_by IS NULL AND stateful.assigned_to IS NULL AND stateful.completed_count < stateful.expected_count THEN 'No execution owner assigned'
+      WHEN stateful.conducted_by IS NULL AND stateful.assigned_to IS NULL AND stateful.completed_count < stateful.expected_count THEN 'Owner chain awaiting assignment'
       ELSE NULL
     END AS blocker_reason,
     CASE stateful.work_state

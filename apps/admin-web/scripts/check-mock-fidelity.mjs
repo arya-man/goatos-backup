@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 // In-scope screens that must already be ported from the mock (current review scope).
 const SCAN_PATHS = [
-  "components/mesha-shell.tsx",
+  "components",
   "features/control-tower",
   "features/process-integrity",
   "features/phc-vaccination",
@@ -75,6 +75,23 @@ for (const file of files) {
     if (EMOJI_RANGE.test(line)) findings.push(`${file}:${n}  emoji glyph — use the mock's SVG/lucide icon`);
     if (ADMIN_PRIMITIVES.test(line)) findings.push(`${file}:${n}  imports legacy components/admin-primitives — port this screen from the mock instead`);
   });
+}
+
+// Sidebar nav interaction-state guard (mock anatomy = a VISIBLE hover). The mock's nav/group/leaf
+// hover is background:var(--sidebar-2) — a clearly lighter row. A faint brand color-mix on the
+// near-black sidebar reads as a dead hover (Anatomy Rule "Known failure mode 2"). Porting the markup
+// is not enough; the hover value is part of the anatomy. Fail if a nav :hover drifts off --sidebar-2.
+const THEME_CSS = "app/mesha-theme.css";
+if (existsSync(THEME_CSS)) {
+  readFileSync(THEME_CSS, "utf8")
+    .split("\n")
+    .forEach((line, i) => {
+      if (/\.(nav|leaf|ggrp):hover\s*\{/.test(line) && /color-mix\([^)]*var\(--brand\)/.test(line)) {
+        findings.push(
+          `${THEME_CSS}:${i + 1}  sidebar nav :hover uses a faint brand color-mix — use background:var(--sidebar-2) (mock anatomy: a visible hover row)`,
+        );
+      }
+    });
 }
 
 if (findings.length > 0) {

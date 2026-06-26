@@ -1,3 +1,9 @@
 
 # compiled CLI binary from `go build ./cmd/bq-reconcile`
 /bq-reconcile
+
+# compiled CLI binary from `go build ./cmd/generate-vaccination-obligations`
+/generate-vaccination-obligations
+
+# local-only media store written by the dev stack — never commit
+.goatos-local-media/

@@ -549,6 +549,64 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 	}, true, nil
 }
 
+// HasTrustedCompletionEvidence returns true when reviewed supplier/HF evidence already satisfies
+// the matching protocol rule for this goat as of this generation run. Imported/rejected/conflicting/
+// duplicate rows, future administrations, and future reviews never suppress due work.
+func (r *Repository) HasTrustedCompletionEvidence(ctx context.Context, tenantID, goatID, protocolVersionID, ruleID, doseCode string, dueAt, generationAt time.Time) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	goat, err := pgconv.UUID(goatID)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: goat id: %w", err)
+	}
+	version, err := pgconv.UUID(protocolVersionID)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: protocol version id: %w", err)
+	}
+	rule, err := pgconv.UUID(ruleID)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: rule id: %w", err)
+	}
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM procurement_hf_vaccination_evidence ev
+  JOIN goats g
+    ON g.tenant_id = ev.tenant_id
+   AND g.goat_id = ev.goat_id
+  LEFT JOIN procurement_load_goats plg
+    ON plg.tenant_id = ev.tenant_id
+   AND plg.load_id = ev.load_id
+   AND plg.goat_id = ev.goat_id
+  WHERE ev.tenant_id = $1
+    AND ev.goat_id = $2
+    AND ev.protocol_version_id = $3
+    AND ev.rule_id = $4
+    AND ev.dose_code = $5
+    AND ev.review_status = 'trusted'
+    AND ev.reviewed_at IS NOT NULL
+    AND ev.administered_at <= $6::timestamptz
+    AND ev.administered_at <= $7::timestamptz
+    AND ev.reviewed_at <= $7::timestamptz
+    AND (
+      plg.intake_accepted_at IS NULL
+      OR ev.administered_at <= plg.intake_accepted_at
+    )
+    AND (
+      g.entry_date IS NULL
+      OR ev.administered_at < (g.entry_date::timestamptz + interval '1 day')
+    )
+)`, tenant, goat, version, rule, doseCode, dueAt, generationAt).Scan(&exists); err != nil {
+		return false, fmt.Errorf("vaccination: trusted completion evidence: %w", err)
+	}
+	return exists, nil
+}
+
 // SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.
 func (r *Repository) SumAvailableStock(ctx context.Context, tenantID, itemID string, locationID *string) (string, *time.Time, error) {
 	ctx, cancel := r.withTimeout(ctx)

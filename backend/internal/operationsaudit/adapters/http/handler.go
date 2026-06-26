@@ -127,7 +127,9 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request) (domain.Query, b
 	q.Category = optional(values.Get("category"))
 	q.Result = optional(values.Get("result"))
 	q.Status = optional(values.Get("status"))
+	q.Search = optional(values.Get("q"))
 	q.AnomaliesOnly = strings.EqualFold(values.Get("anomalies_only"), "true")
+	q.ProofGapsOnly = strings.EqualFold(values.Get("proof_gaps"), "true")
 	return q, true
 }
 

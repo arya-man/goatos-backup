@@ -17,6 +17,9 @@ type fakeConfig struct {
 	gotVersion domain.NewVersion
 	getErr     error
 	publishErr error
+	listItems  []domain.ConfigListItem
+	listErr    error
+	gotListCat string
 }
 
 func (f *fakeConfig) CreateDefinition(context.Context, domain.NewDefinition) (string, error) {
@@ -32,6 +35,10 @@ func (f *fakeConfig) GetVersion(context.Context, string, string) (domain.Version
 }
 func (f *fakeConfig) PublishVersion(context.Context, string, string, *string) error {
 	return f.publishErr
+}
+func (f *fakeConfig) ListConfigs(_ context.Context, _ string, category string) ([]domain.ConfigListItem, error) {
+	f.gotListCat = category
+	return f.listItems, f.listErr
 }
 
 func serve(h *Handler, method, target, body string) *httptest.ResponseRecorder {
@@ -92,6 +99,37 @@ func TestGetVersionNotFound(t *testing.T) {
 	rec := serve(NewHandler(&fakeConfig{getErr: ports.ErrNotFound}), http.MethodGet, "/protocols/versions/v1", "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", rec.Code)
+	}
+}
+
+func TestListConfigsReturnsItemsAndDefaultsCategory(t *testing.T) {
+	fake := &fakeConfig{listItems: []domain.ConfigListItem{
+		{ProtocolID: "p1", Code: "vaccination.enterotox", Name: "Enterotoxaemia", Category: "vaccination",
+			ProtocolVersionID: "v1", Version: 1, Status: "draft", SourceSystem: "manual_admin", ReviewStatus: "draft", RuleCount: 2},
+	}}
+	// No category param → defaults to vaccination.
+	rec := serve(NewHandler(fake), http.MethodGet, "/protocols", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list configs: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if fake.gotListCat != "vaccination" {
+		t.Fatalf("category default: want vaccination, got %q", fake.gotListCat)
+	}
+	var resp configListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].ProtocolVersionID != "v1" || resp.Items[0].RuleCount != 2 {
+		t.Fatalf("unexpected items: %+v", resp.Items)
+	}
+	if resp.Items[0].Status != "draft" || resp.Items[0].SourceSystem != "manual_admin" {
+		t.Fatalf("source-review state not surfaced: %+v", resp.Items[0])
+	}
+
+	// Explicit category param is passed through.
+	rec = serve(NewHandler(fake), http.MethodGet, "/protocols?category=feed_direction", "")
+	if rec.Code != http.StatusOK || fake.gotListCat != "feed_direction" {
+		t.Fatalf("category passthrough: code=%d cat=%q", rec.Code, fake.gotListCat)
 	}
 }
 

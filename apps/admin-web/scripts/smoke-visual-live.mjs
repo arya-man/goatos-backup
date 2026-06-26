@@ -7,7 +7,7 @@ import { chromium } from "@playwright/test";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
-const appBaseUrl = "http://127.0.0.1:3300";
+const appBaseUrl = trimTrailingSlash(process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "http://127.0.0.1:3300");
 const requiredEnv = ["GOATOS_API_BASE_URL", "GOATOS_BEARER_TOKEN", "GOATOS_TENANT_ID"];
 const missing = requiredEnv.filter((key) => !process.env[key]);
 const args = parseArgs(process.argv.slice(2));
@@ -37,6 +37,7 @@ let baselineUpdated = 0;
 
 await waitForApp(appBaseUrl);
 const goatId = await resolveSmokeGoatID(apiBaseUrl, bearerToken, tenantId);
+const procurementLoadId = await resolveSmokeProcurementLoadID(apiBaseUrl, bearerToken, tenantId);
 mkdirSync(screenshotDir, { recursive: true });
 if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
@@ -48,12 +49,19 @@ const routes = [
   { name: "workflows", path: "/workflows" },
   { name: "vaccination", path: "/vaccination" },
   { name: "vaccination-execution", path: "/vaccination#execution" },
+  { name: "procurement-source-entry", path: "/procurement/source-entry" },
   { name: "config", path: "/config?category=vaccination" },
   { name: "sops", path: "/sops" },
   { name: "counts-herd", path: "/counts/herd" },
   { name: "operations-audit", path: "/operations/audit" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];
+if (procurementLoadId) {
+  routes.push({
+    name: "procurement-load-detail",
+    path: `/procurement/source-entry/loads/${encodeURIComponent(procurementLoadId)}`,
+  });
+}
 
 const browser = await chromium.launch();
 try {
@@ -70,6 +78,8 @@ try {
       assertHealthyHTML(route.name, html, bearerToken);
       await assertLayoutHealthy(page, route.name, viewport.label);
       await assertA11y(page, route.name, viewport.label);
+      await assertCoreInteractions(page, route.name, viewport.label);
+      await settleAtTop(page);
       const screenshotName = `${viewport.label}-${route.name}.png`;
       const screenshotPath = join(screenshotDir, screenshotName);
       await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -148,6 +158,19 @@ async function resolveSmokeGoatID(baseUrl, token, tenant) {
   return goatID;
 }
 
+async function resolveSmokeProcurementLoadID(baseUrl, token, tenant) {
+  const response = await fetch(`${baseUrl}/procurement/source-entry/loads?limit=1`, {
+    headers: { Authorization: `Bearer ${token}`, [TENANT_CONTEXT_HEADER]: tenant },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`backend smoke procurement load lookup failed: status ${response.status}`);
+  }
+  const body = await response.json();
+  const loadID = body?.items?.[0]?.load_id;
+  return typeof loadID === "string" && loadID.length > 0 ? loadID : null;
+}
+
 function assertHealthyHTML(routeName, html, token) {
   const forbidden = [
     "Server configuration missing",
@@ -170,7 +193,14 @@ function assertHealthyHTML(routeName, html, token) {
 }
 
 async function assertLayoutHealthy(page, routeName, viewportLabel) {
+  // Settle the page at the top BEFORE measuring. A hash route (e.g. /vaccination#execution) scrolls to its
+  // anchor, and an in-flight smooth-scroll animation yields a transient negative main.top — a vertical
+  // scroll artifact, not a layout defect. Force scroll-behavior to instant, scroll to the top, and let it
+  // settle so the measurement reflects the resting layout. This does NOT touch the horizontal overflow or
+  // card-clipping checks (they measure the same resting layout) — it only removes the main.top false positive.
+  await settleAtTop(page);
   const layout = await page.evaluate(() => {
+    window.scrollTo(0, 0);
     const root = document.documentElement;
     const overflow = root.scrollWidth - root.clientWidth;
     const main = document.querySelector("main")?.getBoundingClientRect();
@@ -201,8 +231,14 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       .map((element) => element.getBoundingClientRect());
     const navLabelLefts = navLabelRects.map((rect) => Math.round(rect.left));
     const navLabelSpread = navLabelLefts.length > 1 ? Math.max(...navLabelLefts) - Math.min(...navLabelLefts) : 0;
+    // WCAG 2.5.8 (Target Size Minimum) exempts targets rendered INLINE within a sentence. True
+    // display:inline prose anchors (e.g. ".lk" cross-references — "…ripples into Protocol Adherence and the
+    // Control Tower.") are not standalone tap targets: they report a 0 content box and their wrapped-line
+    // rects overlap. Exempt ONLY display:inline anchors from the small-target + overlap checks. Every real
+    // control (buttons and .btn/.nav/.tab/.leaf/.lk.small links) renders inline-flex/block and stays checked.
     const interactives = Array.from(document.querySelectorAll('a[href], button:not([disabled]), input:not([type="hidden"]), select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])'))
-      .filter(isVisible);
+      .filter(isVisible)
+      .filter((element) => !(element.tagName === "A" && window.getComputedStyle(element).display === "inline"));
     const smallTargets = interactives
       .filter((element) => {
         const rect = element.getBoundingClientRect();
@@ -248,6 +284,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
     };
 
     function isVisible(element) {
+      if (element.closest("details:not([open])")) return false;
       const rect = element.getBoundingClientRect();
       const style = window.getComputedStyle(element);
       return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
@@ -293,6 +330,15 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   }
 }
 
+async function settleAtTop(page) {
+  await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = "auto";
+    if (document.body) document.body.style.scrollBehavior = "auto";
+    window.scrollTo(0, 0);
+  });
+  await page.waitForTimeout(80);
+}
+
 async function assertA11y(page, routeName, viewportLabel) {
   const results = await new AxeBuilder({ page }).analyze();
   const violations = results.violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious");
@@ -304,6 +350,147 @@ async function assertA11y(page, routeName, viewportLabel) {
     nodes: violation.nodes.slice(0, 3).map((node) => node.target),
   }));
   throw new Error(`${routeName} ${viewportLabel} has serious/critical accessibility violations: ${JSON.stringify(summary)}`);
+}
+
+async function assertCoreInteractions(page, routeName, viewportLabel) {
+  // The visual smoke gate is not a full mock-fidelity claim, but it must still prove that the core mock
+  // controls are not dead. These checks deliberately avoid business writes: they only open/close overlays.
+  if (viewportLabel !== "desktop") return;
+
+  if (routeName === "counts-herd") {
+    await openAndCloseDialog(page, page.getByRole("button", { name: "Filters", exact: true }), "Filter — Counts / Herd", "Close filters", routeName);
+    await openAndCloseDialog(page, page.getByRole("button", { name: "Register goat", exact: true }), "Register goat", "Close", routeName);
+    await openAndCloseDialog(page, page.getByRole("button", { name: "Import sheet", exact: true }), "Import sheet", "Close", routeName);
+    await openAndCloseDrawer(
+      page,
+      page.locator('section:has-text("Herd") tbody tr .celllink').first(),
+      "Goat Passport",
+      routeName,
+    );
+  }
+
+  if (routeName === "action-center") {
+    await openAndCloseDrawer(page, page.locator(".taskboard .task").first(), "ACTION", routeName);
+  }
+
+  if (routeName === "procurement-source-entry") {
+    await openAndCloseDrawer(
+      page,
+      page.locator('section:has-text("Supplier warmup") tbody tr .celllink').first(),
+      "SOURCE LOAD",
+      routeName,
+    );
+  }
+
+  if (routeName === "workflows") {
+    const row = page.locator(".wfcat .wfrow").first();
+    const rowCount = await row.count();
+    if (rowCount === 1) {
+      await row.scrollIntoViewIfNeeded();
+      await row.click();
+      await page.waitForURL(/workflow=/, { timeout: 5_000 });
+      await page.getByRole("link", { name: /Back to list/i }).waitFor({ state: "visible", timeout: 5_000 });
+      await page.getByRole("link", { name: /Open workflow detail/i }).waitFor({ state: "visible", timeout: 5_000 });
+      await page.getByRole("link", { name: /Back to list/i }).click();
+      await page.waitForURL((url) => !url.searchParams.has("workflow"), { timeout: 5_000 });
+    }
+  }
+
+  if (routeName === "vaccination") {
+    await openAndCloseDialog(page, page.getByRole("button", { name: "SOP", exact: true }), "Vaccination Drive SOP", "Close", routeName);
+    await openAndCloseDialog(page, page.getByRole("button", { name: "Import sheet", exact: true }), "Import vaccination sheet", "Close", routeName);
+    await openAndCloseDialog(page, page.getByRole("button", { name: "New drive", exact: true }), "New vaccination drive", "Close", routeName);
+
+    const filters = page.getByRole("button", { name: "Filters", exact: true });
+    const filterCount = await filters.count();
+    if (filterCount !== 4) {
+      throw new Error(`${routeName} expected 4 Filters buttons, found ${filterCount}`);
+    }
+    for (const [i, label] of [
+      "Filter — Supplier warmup",
+      "Filter — Vaccination status matrix",
+      "Filter — Per-cohort vaccination detail",
+      "Filter — Vaccination shed events",
+    ].entries()) {
+      await openAndCloseDialog(page, filters.nth(i), label, "Close filters", routeName);
+    }
+
+    await openAndCloseDrawer(
+      page,
+      page.locator('section:has-text("Supplier warmup") tbody tr .celllink').first(),
+      "WARMUP",
+      routeName,
+    );
+    await openAndCloseDrawer(
+      page,
+      page.locator('section:has-text("Vaccination status matrix") tbody tr .celllink').first(),
+      "Record / verify vaccination",
+      routeName,
+    );
+    await openAndCloseDrawer(
+      page,
+      page.locator('section:has-text("Per-cohort vaccination detail") tbody tr .celllink').first(),
+      "RECORD",
+      routeName,
+    );
+    await openAndCloseDrawer(page, page.locator(".pexec .pexr").first(), "RECORD", routeName);
+  }
+}
+
+async function openAndCloseDialog(page, trigger, dialogLabel, closeName, routeName) {
+  const triggerCount = await trigger.count();
+  if (triggerCount !== 1) {
+    throw new Error(`${routeName} trigger for "${dialogLabel}" resolved to ${triggerCount} elements`);
+  }
+  await trigger.click();
+  const dialog = page.locator(`[role="dialog"][aria-label="${cssString(dialogLabel)}"]`);
+  await dialog.waitFor({ state: "visible", timeout: 5_000 });
+  const close = dialog.locator(`button[aria-label="${cssString(closeName)}"]`);
+  const closeCount = await close.count();
+  if (closeCount !== 1) {
+    throw new Error(`${routeName} close button for "${dialogLabel}" resolved to ${closeCount} elements`);
+  }
+  const topmost = await close.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return top === element || element.contains(top);
+  });
+  if (!topmost) {
+    throw new Error(`${routeName} close button for "${dialogLabel}" is covered by another layer`);
+  }
+  await close.click();
+  await dialog.waitFor({ state: "hidden", timeout: 5_000 });
+}
+
+async function openAndCloseDrawer(page, trigger, expectedText, routeName) {
+  const triggerCount = await trigger.count();
+  if (triggerCount !== 1) {
+    throw new Error(`${routeName} drawer trigger for "${expectedText}" resolved to ${triggerCount} elements`);
+  }
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.click();
+  const drawer = page.locator(".drawer.on").first();
+  await drawer.waitFor({ state: "visible", timeout: 5_000 });
+  await drawer.getByText(expectedText, { exact: false }).first().waitFor({ state: "visible", timeout: 5_000 });
+  const close = drawer.locator('a[aria-label^="Close"]').first();
+  const closeCount = await close.count();
+  if (closeCount !== 1) {
+    throw new Error(`${routeName} close link for drawer "${expectedText}" resolved to ${closeCount} elements`);
+  }
+  const topmost = await close.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return top === element || element.contains(top);
+  });
+  if (!topmost) {
+    throw new Error(`${routeName} close link for drawer "${expectedText}" is covered by another layer`);
+  }
+  await close.click();
+  await drawer.waitFor({ state: "hidden", timeout: 5_000 });
+}
+
+function cssString(value) {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function compareOrUpdateBaseline(screenshotName, screenshotPath) {

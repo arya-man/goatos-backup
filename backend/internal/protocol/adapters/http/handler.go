@@ -24,6 +24,7 @@ type ProtocolConfig interface {
 	AddRule(ctx context.Context, in domain.NewRule) (string, error)
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error
+	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
 }
 
 // Handler serves the protocol config endpoints.
@@ -45,6 +46,7 @@ func NewHandler(config ProtocolConfig, log ...*slog.Logger) *Handler {
 
 // Register mounts the protocol config routes.
 func Register(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("GET /protocols", h.ListConfigs)
 	mux.HandleFunc("POST /protocols", h.CreateDefinition)
 	mux.HandleFunc("POST /protocols/{protocol_id}/versions", h.CreateVersion)
 	mux.HandleFunc("POST /protocols/versions/{version_id}/rules", h.AddRule)
@@ -151,6 +153,66 @@ func (h *Handler) AddRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusCreated, map[string]string{"rule_id": id})
+}
+
+// ---- list configs (Config authority screen, B3) ----
+
+type configItemResponse struct {
+	ProtocolID        string     `json:"protocol_id"`
+	Code              string     `json:"code"`
+	Name              string     `json:"name"`
+	Category          string     `json:"category"`
+	ProtocolVersionID string     `json:"protocol_version_id"`
+	Version           int32      `json:"version"`
+	VersionLabel      string     `json:"version_label"`
+	ScopeType         string     `json:"scope_type"`
+	ScopeID           string     `json:"scope_id,omitempty"`
+	Status            string     `json:"status"`
+	EffectiveFrom     *time.Time `json:"effective_from,omitempty"`
+	EffectiveTo       *time.Time `json:"effective_to,omitempty"`
+	SopVersionID      string     `json:"sop_version_id,omitempty"`
+	PublishedBy       string     `json:"published_by,omitempty"`
+	PublishedAt       *time.Time `json:"published_at,omitempty"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+	SourceSystem      string     `json:"source_system"`
+	SourceRef         string     `json:"source_ref"`
+	ReviewStatus      string     `json:"review_status"`
+	ApprovedBy        string     `json:"approved_by"`
+	RuleCount         int32      `json:"rule_count"`
+}
+
+type configListResponse struct {
+	Category string               `json:"category"`
+	Items    []configItemResponse `json:"items"`
+}
+
+// ListConfigs serves GET /protocols?category=… — the generic Config authority list. Defaults to the
+// vaccination category (the only visible content slice today). Read-only; the source-backed publish
+// gate is enforced by PublishVersion, this list simply surfaces each version's source-review state.
+func (h *Handler) ListConfigs(w http.ResponseWriter, r *http.Request) {
+	category := r.URL.Query().Get("category")
+	if category == "" {
+		category = "vaccination"
+	}
+	items, err := h.config.ListConfigs(r.Context(), tenantID(r), category)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	resp := configListResponse{Category: category, Items: make([]configItemResponse, 0, len(items))}
+	for _, it := range items {
+		resp.Items = append(resp.Items, configItemResponse{
+			ProtocolID: it.ProtocolID, Code: it.Code, Name: it.Name, Category: it.Category,
+			ProtocolVersionID: it.ProtocolVersionID, Version: it.Version, VersionLabel: it.VersionLabel,
+			ScopeType: it.ScopeType, ScopeID: it.ScopeID, Status: it.Status,
+			EffectiveFrom: it.EffectiveFrom, EffectiveTo: it.EffectiveTo,
+			SopVersionID: it.SopVersionID, PublishedBy: it.PublishedBy,
+			PublishedAt: it.PublishedAt, UpdatedAt: it.UpdatedAt,
+			SourceSystem: it.SourceSystem, SourceRef: it.SourceRef,
+			ReviewStatus: it.ReviewStatus, ApprovedBy: it.ApprovedBy, RuleCount: it.RuleCount,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
 // ---- get version ----

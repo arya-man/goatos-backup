@@ -110,6 +110,23 @@ func TestOperationsAuditRepositoryPaginationFiltersAndAnomalies(t *testing.T) {
 		t.Fatalf("anomalies=%#v", anomalies)
 	}
 
+	search := "verification"
+	searched, _, err := repo.List(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, Search: &search, Limit: 10})
+	if err != nil {
+		t.Fatalf("search list: %v", err)
+	}
+	if len(searched) != 1 || searched[0].AuditID != "90000000-0000-4000-8000-000000000005" {
+		t.Fatalf("searched=%#v", searched)
+	}
+
+	proofGaps, _, err := repo.List(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, ProofGapsOnly: true, Limit: 10})
+	if err != nil {
+		t.Fatalf("proof gap list: %v", err)
+	}
+	if len(proofGaps) != 2 || proofGaps[0].AuditID != "90000000-0000-4000-8000-000000000005" || proofGaps[1].AuditID != "90000000-0000-4000-8000-000000000001" {
+		t.Fatalf("proofGaps=%#v", proofGaps)
+	}
+
 	summary, err := repo.Summary(ctx, domain.Query{TenantID: auditTestTenant, From: &from, To: &to, Domain: &domainFilter, Module: &moduleFilter})
 	if err != nil {
 		t.Fatalf("summary: %v", err)

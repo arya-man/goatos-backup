@@ -106,9 +106,10 @@ type EligibleGoat struct {
 
 // GenerateResult summarises an SM-1 generation run.
 type GenerateResult struct {
-	Generated        int
-	Deferred         int
-	SkippedNoDueDate int
+	Generated                  int
+	Deferred                   int
+	SkippedNoDueDate           int
+	SuppressedByTrustedHistory int
 }
 
 // ImpactPreview is the computed live impact (eligible goats, catch-up, obligations, batches,

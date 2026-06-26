@@ -22,6 +22,9 @@ type Repository interface {
 	CreateVersion(ctx context.Context, in domain.NewVersion) (versionID string, err error)
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
 	ListPublishedVersions(ctx context.Context, tenantID, protocolID string) ([]domain.Version, error)
+	// ListConfigs returns every version (draft/published/retired) of every protocol in a category
+	// for a tenant, newest first, for the generic Config authority screen.
+	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
 	// PublishVersion flips a draft version to published. The source-backed approval gate is
 	// enforced by the app layer before calling this.
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string) error
