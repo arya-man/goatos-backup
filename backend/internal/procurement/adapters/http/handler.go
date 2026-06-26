@@ -23,6 +23,8 @@ type Service interface {
 	CreateLoad(ctx context.Context, in ports.CreateLoad) (domain.Load, error)
 	GetLoadDetail(ctx context.Context, tenantID, loadID string) (domain.LoadDetail, error)
 	AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (domain.LoadGoat, error)
+	RecordHFVaccinationEvidence(ctx context.Context, in ports.HFVaccinationEvidence) (domain.HFVaccinationEvidence, error)
+	ReviewHFVaccinationEvidence(ctx context.Context, in ports.ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error)
 	RecordSourceHealth(ctx context.Context, in ports.SourceHealth) (domain.SourceHealthCheck, error)
 	PreDispatchDecision(ctx context.Context, in ports.Decision) (domain.Decision, error)
 	DispatchLoad(ctx context.Context, in ports.DispatchLoad) (domain.TransitHandoff, error)
@@ -52,6 +54,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /procurement/source-entry/loads", h.CreateLoad)
 	mux.HandleFunc("GET /procurement/source-entry/loads/{load_id}", h.GetLoad)
 	mux.HandleFunc("POST /procurement/source-entry/loads/{load_id}/goats", h.AddGoat)
+	mux.HandleFunc("POST /procurement/source-entry/goats/{goat_id}/hf-vaccination-evidence", h.RecordHFVaccinationEvidence)
+	mux.HandleFunc("POST /procurement/source-entry/hf-vaccination-evidence/{evidence_id}/review", h.ReviewHFVaccinationEvidence)
 	mux.HandleFunc("POST /procurement/source-entry/goats/{goat_id}/source-health", h.RecordSourceHealth)
 	mux.HandleFunc("POST /procurement/source-entry/goats/{goat_id}/pre-dispatch-decision", h.PreDispatchDecision)
 	mux.HandleFunc("POST /procurement/source-entry/loads/{load_id}/dispatch", h.DispatchLoad)
@@ -90,6 +94,11 @@ type loadDetailResponse struct {
 type loadGoatResponse struct {
 	Goat    domain.LoadGoat `json:"goat"`
 	TraceID string          `json:"trace_id"`
+}
+
+type hfVaccinationEvidenceResponse struct {
+	Evidence domain.HFVaccinationEvidence `json:"evidence"`
+	TraceID  string                       `json:"trace_id"`
 }
 
 type healthResponse struct {
@@ -231,6 +240,7 @@ type addGoatRequest struct {
 	TemporaryID       *string         `json:"temporary_id"`
 	SelectionState    string          `json:"selection_state"`
 	SelectionReason   string          `json:"selection_reason"`
+	Purpose           string          `json:"purpose"`
 	CurrentState      string          `json:"current_state"`
 	IdentityState     string          `json:"identity_review_state"`
 	IdentityReviewRef *string         `json:"identity_review_ref"`
@@ -258,6 +268,7 @@ func (h *Handler) AddGoat(w http.ResponseWriter, r *http.Request) {
 		TemporaryID:       req.TemporaryID,
 		SelectionState:    req.SelectionState,
 		SelectionReason:   req.SelectionReason,
+		Purpose:           req.Purpose,
 		CurrentState:      req.CurrentState,
 		IdentityState:     req.IdentityState,
 		IdentityReviewRef: req.IdentityReviewRef,
@@ -273,6 +284,73 @@ func (h *Handler) AddGoat(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey:    idempotencyKey(r),
 	})
 	h.respond(w, r, loadGoatResponse{Goat: goat, TraceID: traceID(r)}, err)
+}
+
+type hfVaccinationEvidenceRequest struct {
+	LoadID            string          `json:"load_id"`
+	ProtocolVersionID string          `json:"protocol_version_id"`
+	RuleID            string          `json:"rule_id"`
+	DoseCode          string          `json:"dose_code"`
+	AdministeredAt    time.Time       `json:"administered_at"`
+	VaccineName       string          `json:"vaccine_name"`
+	LotNumber         string          `json:"lot_number"`
+	ProofRefID        *string         `json:"proof_ref_id"`
+	SourceRef         string          `json:"source_ref"`
+	Metadata          json.RawMessage `json:"metadata"`
+}
+
+func (h *Handler) RecordHFVaccinationEvidence(w http.ResponseWriter, r *http.Request) {
+	var req hfVaccinationEvidenceRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	evidence, err := h.service.RecordHFVaccinationEvidence(r.Context(), ports.HFVaccinationEvidence{
+		TenantID:          tenantID(r),
+		LoadID:            req.LoadID,
+		GoatID:            r.PathValue("goat_id"),
+		ProtocolVersionID: req.ProtocolVersionID,
+		RuleID:            req.RuleID,
+		DoseCode:          req.DoseCode,
+		AdministeredAt:    req.AdministeredAt,
+		VaccineName:       req.VaccineName,
+		LotNumber:         req.LotNumber,
+		ProofRefID:        req.ProofRefID,
+		SourceRef:         req.SourceRef,
+		Metadata:          req.Metadata,
+		ImportedBy:        actorPtr(r),
+		IdempotencyKey:    idempotencyKey(r),
+	})
+	h.respond(w, r, hfVaccinationEvidenceResponse{Evidence: evidence, TraceID: traceID(r)}, err)
+}
+
+type hfVaccinationEvidenceReviewRequest struct {
+	ExpectedRowVersion int        `json:"expected_row_version"`
+	ReviewStatus       string     `json:"review_status"`
+	ReviewReason       string     `json:"review_reason"`
+	ReviewedAt         *time.Time `json:"reviewed_at"`
+}
+
+func (h *Handler) ReviewHFVaccinationEvidence(w http.ResponseWriter, r *http.Request) {
+	var req hfVaccinationEvidenceReviewRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	reviewedAt := time.Time{}
+	if req.ReviewedAt != nil {
+		reviewedAt = *req.ReviewedAt
+	}
+	evidence, err := h.service.ReviewHFVaccinationEvidence(r.Context(), ports.ReviewHFVaccinationEvidence{
+		TenantID:           tenantID(r),
+		EvidenceID:         r.PathValue("evidence_id"),
+		ExpectedRowVersion: req.ExpectedRowVersion,
+		ReviewStatus:       req.ReviewStatus,
+		ReviewReason:       req.ReviewReason,
+		ReviewedBy:         actorPtr(r),
+		ReviewedAt:         reviewedAt,
+		ReviewedAtSet:      req.ReviewedAt != nil,
+		IdempotencyKey:     idempotencyKey(r),
+	})
+	h.respond(w, r, hfVaccinationEvidenceResponse{Evidence: evidence, TraceID: traceID(r)}, err)
 }
 
 type sourceHealthRequest struct {
@@ -527,6 +605,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, e
 	if errors.Is(err, ports.ErrIdempotencyConflict) {
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "idempotency_conflict", Message: "Idempotency-Key was reused with a different request payload", TraceID: traceID(r)}, err)
+		return
+	}
+	if errors.Is(err, ports.ErrStaleWrite) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "write_conflict", Message: "record changed; reload before retrying", TraceID: traceID(r)}, err)
 		return
 	}
 	if errors.Is(err, ports.ErrNotFound) {

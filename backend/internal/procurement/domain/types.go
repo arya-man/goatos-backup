@@ -46,6 +46,17 @@ const (
 	HealthPassed   = "passed"
 	HealthFailed   = "failed"
 	HealthDeferred = "deferred"
+
+	PurposeBreeding    = "breeding"
+	PurposeFattening   = "fattening"
+	PurposeNonBreeding = "non_breeding"
+	PurposeUnspecified = "unspecified"
+
+	HFVaccinationReviewImported    = "imported"
+	HFVaccinationReviewTrusted     = "trusted"
+	HFVaccinationReviewRejected    = "rejected"
+	HFVaccinationReviewConflicting = "conflicting"
+	HFVaccinationReviewDuplicate   = "duplicate"
 )
 
 type LoadQuery struct {
@@ -66,19 +77,22 @@ type LoadListResult struct {
 }
 
 type Load struct {
-	LoadID           string          `json:"load_id"`
-	TenantID         string          `json:"tenant_id"`
-	SourcePartyID    string          `json:"source_party_id"`
-	SourceLocationID *string         `json:"source_location_id,omitempty"`
-	ExpectedCount    int             `json:"expected_count"`
-	PurchaseDate     *time.Time      `json:"purchase_date,omitempty"`
-	PlannedDispatch  *time.Time      `json:"planned_dispatch_at,omitempty"`
-	Status           string          `json:"status"`
-	Notes            string          `json:"notes"`
-	Context          json.RawMessage `json:"context"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
-	RowVersion       int             `json:"row_version"`
+	LoadID             string          `json:"load_id"`
+	TenantID           string          `json:"tenant_id"`
+	SourcePartyID      string          `json:"source_party_id"`
+	SourcePartyName    string          `json:"source_party_name,omitempty"`
+	SourceLocationID   *string         `json:"source_location_id,omitempty"`
+	SourceLocationCode *string         `json:"source_location_code,omitempty"`
+	SourceLocationName *string         `json:"source_location_name,omitempty"`
+	ExpectedCount      int             `json:"expected_count"`
+	PurchaseDate       *time.Time      `json:"purchase_date,omitempty"`
+	PlannedDispatch    *time.Time      `json:"planned_dispatch_at,omitempty"`
+	Status             string          `json:"status"`
+	Notes              string          `json:"notes"`
+	Context            json.RawMessage `json:"context"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+	RowVersion         int             `json:"row_version"`
 }
 
 type LoadGoat struct {
@@ -91,6 +105,7 @@ type LoadGoat struct {
 	TemporaryID       *string         `json:"temporary_id,omitempty"`
 	SelectionState    string          `json:"selection_state"`
 	SelectionReason   string          `json:"selection_reason"`
+	Purpose           string          `json:"purpose"`
 	CurrentState      string          `json:"current_state"`
 	IdentityReview    string          `json:"identity_review_state"`
 	IdentityReviewRef *string         `json:"identity_review_ref,omitempty"`
@@ -121,6 +136,7 @@ type HoldingStay struct {
 	EndedAt           *time.Time      `json:"ended_at,omitempty"`
 	WarmupState       string          `json:"warmup_state"`
 	WarmupDays        *int            `json:"warmup_days,omitempty"`
+	Purpose           string          `json:"purpose"`
 	HealthState       string          `json:"health_state"`
 	OwnershipState    string          `json:"ownership_state"`
 	Status            string          `json:"status"`
@@ -243,16 +259,42 @@ type PHCHandoff struct {
 	UpdatedAt                 time.Time       `json:"updated_at"`
 }
 
+type HFVaccinationEvidence struct {
+	EvidenceID        string          `json:"evidence_id"`
+	TenantID          string          `json:"tenant_id"`
+	LoadID            string          `json:"load_id"`
+	GoatID            string          `json:"goat_id"`
+	ProtocolVersionID string          `json:"protocol_version_id"`
+	RuleID            string          `json:"rule_id"`
+	DoseCode          string          `json:"dose_code"`
+	AdministeredAt    time.Time       `json:"administered_at"`
+	VaccineName       string          `json:"vaccine_name"`
+	LotNumber         string          `json:"lot_number"`
+	ProofRefID        *string         `json:"proof_ref_id,omitempty"`
+	SourceRef         string          `json:"source_ref"`
+	ReviewStatus      string          `json:"review_status"`
+	ReviewedBy        *string         `json:"reviewed_by,omitempty"`
+	ReviewedAt        *time.Time      `json:"reviewed_at,omitempty"`
+	ReviewReason      string          `json:"review_reason"`
+	ImportedBy        *string         `json:"imported_by,omitempty"`
+	ImportedAt        time.Time       `json:"imported_at"`
+	Metadata          json.RawMessage `json:"metadata"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	RowVersion        int             `json:"row_version"`
+}
+
 type LoadDetail struct {
-	Load           Load                `json:"load"`
-	Goats          []LoadGoat          `json:"goats"`
-	HoldingStays   []HoldingStay       `json:"holding_stays"`
-	HealthChecks   []SourceHealthCheck `json:"source_health_checks"`
-	Decisions      []Decision          `json:"decisions"`
-	Transit        []TransitHandoff    `json:"transit_handoffs"`
-	ArrivalReviews []ArrivalReview     `json:"arrival_reviews"`
-	PHCHandoffs    []PHCHandoff        `json:"phc_handoffs"`
-	Timeline       []TimelineEvent     `json:"timeline"`
+	Load           Load                    `json:"load"`
+	Goats          []LoadGoat              `json:"goats"`
+	HoldingStays   []HoldingStay           `json:"holding_stays"`
+	HFVaccinations []HFVaccinationEvidence `json:"hf_vaccination_evidence"`
+	HealthChecks   []SourceHealthCheck     `json:"source_health_checks"`
+	Decisions      []Decision              `json:"decisions"`
+	Transit        []TransitHandoff        `json:"transit_handoffs"`
+	ArrivalReviews []ArrivalReview         `json:"arrival_reviews"`
+	PHCHandoffs    []PHCHandoff            `json:"phc_handoffs"`
+	Timeline       []TimelineEvent         `json:"timeline"`
 }
 
 type TimelineEvent struct {

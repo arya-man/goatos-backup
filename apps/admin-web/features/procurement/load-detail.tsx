@@ -24,7 +24,7 @@ import type {
   ProcurementTransitHandoff,
 } from "@/lib/api/procurement";
 import { fmtDate, fmtDateTime, shortId } from "@/lib/format";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { Tag } from "@/components/ui-primitives";
 import type { Tone } from "@/components/ui-primitives";
 import { LoadWriteActions } from "./load-forms";
@@ -145,7 +145,7 @@ function GoatRows({ goats }: { goats: ProcurementLoadGoat[] }) {
               </tr>
             ) : (
               goats.map((goat) => {
-                const warm = warmupMeta(goat.warmup_days);
+                const warm = warmupMeta(goat.warmup_days, goat.purpose);
                 const accepted = isAcceptedIntake(goat.current_state);
                 const historyOnly = isProcurementHistoryOnly(goat.current_state);
                 return (
@@ -360,7 +360,7 @@ function HoldingCard({ stays }: { stays: ProcurementHoldingStay[] }) {
         <h3>Holding stays</h3>
         <Tag tone="info">{stays.length}</Tag>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">source warmup 45–70 days is normal</span>
+        <span className="muted small">breeding 45–70d · fattening/non-breeding 0–14d</span>
       </div>
       <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Holding stays">
         <table>
@@ -376,7 +376,7 @@ function HoldingCard({ stays }: { stays: ProcurementHoldingStay[] }) {
           </thead>
           <tbody>
             {stays.map((s, idx) => {
-              const warm = warmupMeta(s.warmup_days);
+              const warm = warmupMeta(s.warmup_days, s.purpose);
               return (
                 <tr key={s.stay_id ?? idx}>
                   <td>
@@ -491,7 +491,8 @@ export async function ProcurementLoadDetailPage({ loadId, searchParams }: { load
   const sp = searchParams ?? {};
   const actionStatus = one(sp, "action_status");
   const actionMessage = one(sp, "action_message");
-  const returnTo = `/procurement/source-entry/loads/${loadId}`;
+  const returnTo = hrefWithoutAction(`/procurement/source-entry/loads/${encodeURIComponent(loadId)}`, sp);
+  const backHref = hrefWithoutAction("/procurement/source-entry", sp);
 
   if (!result.ok) {
     return (
@@ -507,7 +508,7 @@ export async function ProcurementLoadDetailPage({ loadId, searchParams }: { load
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
         </div>
-        <Link href="/procurement/source-entry" className="btn">
+        <Link href={backHref} className="btn">
           <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> Back to Source Entry Board
         </Link>
       </div>
@@ -516,23 +517,34 @@ export async function ProcurementLoadDetailPage({ loadId, searchParams }: { load
 
   const detail: ProcurementLoadDetail = result.data.detail;
   const { load } = detail;
+  const goats = detail.goats ?? [];
+  const hfEvidence = detail.hf_vaccination_evidence ?? [];
+  const decisions = detail.decisions ?? [];
+  const arrivalReviews = detail.arrival_reviews ?? [];
+  const transitHandoffs = detail.transit_handoffs ?? [];
+  const holdingStays = detail.holding_stays ?? [];
+  const sourceHealthChecks = detail.source_health_checks ?? [];
+  const phcHandoffs = detail.phc_handoffs ?? [];
+  const timeline = detail.timeline ?? [];
+  const sourceParty = load.source_party_name || shortId(load.source_party_id);
+  const sourceLocation = load.source_location_name || load.source_location_code || null;
+  const title = `${sourceLocation ?? "Holding farm"} · ${sourceParty}`;
 
   return (
     <div className="screen on">
       <div className="phead">
         <div>
           <div className="crumb">
-            <b>Procurement</b> · Source entry · Load
+            <b>Procurement</b> · Source entry · Holding-farm load
           </div>
-          <h1>Load {shortId(load.load_id)}</h1>
+          <h1>{title}</h1>
           <div className="sub">
-            Source party {shortId(load.source_party_id)}
-            {load.source_location_id ? ` · holding ${shortId(load.source_location_id)}` : ""} — full journey from purchase to
-            accepted intake.
+            <b>Load {shortId(load.load_id)}</b> · {PROC_LOAD_STATUS_META[load.status].label} · full journey from
+            purchase/source through holding warmup, HF vaccination evidence, health selection, and accepted intake.
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <Link href="/procurement/source-entry" className="btn">
+        <Link href={backHref} className="btn">
           <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> Source Entry Board
         </Link>
       </div>
@@ -558,7 +570,7 @@ export async function ProcurementLoadDetailPage({ loadId, searchParams }: { load
         )
       ) : null}
 
-      <GoatRows goats={detail.goats} />
+      <GoatRows goats={goats} />
 
       {/* Operator write surface — every control submits a real server action (idempotency-keyed). */}
       <section className="card" style={{ marginBottom: 16, background: "transparent", border: "none", padding: 0 }}>
@@ -567,16 +579,21 @@ export async function ProcurementLoadDetailPage({ loadId, searchParams }: { load
           <div className="sp" style={{ flex: 1 }} />
           <span className="muted small">add goat · source health · pre-dispatch · dispatch · arrival · accept intake</span>
         </div>
-        <LoadWriteActions loadId={load.load_id} goats={detail.goats} returnTo={returnTo} />
+        <LoadWriteActions
+          loadId={load.load_id}
+          goats={goats}
+          hfEvidence={hfEvidence}
+          returnTo={returnTo}
+        />
       </section>
 
-      <DecisionCard decisions={detail.decisions} />
-      <ArrivalGateCard reviews={detail.arrival_reviews} />
-      <TransitCard handoffs={detail.transit_handoffs} />
-      <HoldingCard stays={detail.holding_stays} />
-      <HealthCard checks={detail.source_health_checks} />
-      <HandoffCard handoffs={detail.phc_handoffs} />
-      <TimelineCard events={detail.timeline} />
+      <DecisionCard decisions={decisions} />
+      <ArrivalGateCard reviews={arrivalReviews} />
+      <TransitCard handoffs={transitHandoffs} />
+      <HoldingCard stays={holdingStays} />
+      <HealthCard checks={sourceHealthChecks} />
+      <HandoffCard handoffs={phcHandoffs} />
+      <TimelineCard events={timeline} />
     </div>
   );
 }

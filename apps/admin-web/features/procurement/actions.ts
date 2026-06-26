@@ -12,9 +12,11 @@ import {
   addProcurementLoadGoat,
   createProcurementLoad,
   dispatchProcurementLoad,
+  recordProcurementHFVaccinationEvidence,
   recordProcurementArrivalReview,
   recordProcurementPreDispatchDecision,
   recordProcurementSourceHealth,
+  reviewProcurementHFVaccinationEvidence,
 } from "@/lib/api/procurement-server";
 import type {
   AcceptProcurementIntakeRequest,
@@ -25,10 +27,13 @@ import type {
   ProcurementArrivalState,
   ProcurementHealthState,
   ProcurementOwnershipState,
+  ProcurementPurpose,
   ProcurementSelectionState,
+  RecordProcurementHFVaccinationEvidenceRequest,
   RecordProcurementArrivalReviewRequest,
   RecordProcurementDecisionRequest,
   RecordProcurementSourceHealthRequest,
+  ReviewProcurementHFVaccinationEvidenceRequest,
 } from "@/lib/api/procurement";
 
 const DECISION_TYPES = ["accepted", "rejected", "deferred", "blocked"] as const;
@@ -44,6 +49,9 @@ const SELECTION_STATES: ProcurementSelectionState[] = [
 ];
 const HEALTH_FULL: ProcurementHealthState[] = ["pending", "passed", "failed", "deferred"];
 const OWNERSHIP_STATES: ProcurementOwnershipState[] = ["pending", "shared_pending", "mesha_owned", "blocked", "not_owned", "settled"];
+const PURPOSES: ProcurementPurpose[] = ["breeding", "fattening", "non_breeding", "unspecified"];
+type HFReviewRequestStatus = ReviewProcurementHFVaccinationEvidenceRequest["review_status"];
+const HF_REVIEW_STATUSES: HFReviewRequestStatus[] = ["trusted", "rejected", "conflicting", "duplicate"];
 
 // The idempotency key MUST be stable across a retry/double-submit, so it is minted once at form render and
 // carried as a hidden field (IdempotencyKeyField). Reading it here — instead of calling randomUUID() per
@@ -68,6 +76,12 @@ function optRfc3339(formData: FormData, key: string): string | null {
   if (!raw) return null;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function requiredRfc3339(formData: FormData, key: string, label: string): string {
+  const value = optRfc3339(formData, key);
+  if (!value) throw new Error(`${label} is required.`);
+  return value;
 }
 
 function csvIds(formData: FormData, key: string): string[] {
@@ -157,6 +171,9 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
       ownership_state: optionalString(formData, "ownership_state")
         ? inEnum<ProcurementOwnershipState>(optionalString(formData, "ownership_state"), OWNERSHIP_STATES, "ownership_state")
         : undefined,
+      purpose: optionalString(formData, "purpose")
+        ? inEnum<ProcurementPurpose>(optionalString(formData, "purpose"), PURPOSES, "purpose")
+        : undefined,
       warmup_days: optInt(formData, "warmup_days"),
       holding_location_id: optionalString(formData, "holding_location_id") ?? null,
     };
@@ -174,6 +191,77 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
   } catch (error) {
     status = "error";
     message = error instanceof Error ? error.message : "Unable to add source goat.";
+  }
+  actionRedirect(formData, status, message);
+}
+
+export async function recordHFVaccinationEvidenceAction(formData: FormData): Promise<void> {
+  let status: "success" | "error" = "success";
+  let message = "";
+  const loadId = requiredString(formData, "load_id");
+  try {
+    const body: RecordProcurementHFVaccinationEvidenceRequest = {
+      load_id: loadId,
+      protocol_version_id: requiredString(formData, "protocol_version_id"),
+      rule_id: requiredString(formData, "rule_id"),
+      dose_code: requiredString(formData, "dose_code"),
+      administered_at: requiredRfc3339(formData, "administered_at", "Administered at"),
+      vaccine_name: optionalString(formData, "vaccine_name"),
+      lot_number: optionalString(formData, "lot_number"),
+      proof_ref_id: optionalString(formData, "proof_ref_id") ?? null,
+      source_ref: optionalString(formData, "source_ref"),
+    };
+    const result = await recordProcurementHFVaccinationEvidence(
+      requiredString(formData, "goat_id"),
+      body,
+      formIdempotencyKey(formData),
+    );
+    if (!result.ok) {
+      status = "error";
+      message = actionErrorMessage(result.error);
+    } else {
+      message = `HF vaccination evidence imported: ${result.data.evidence.dose_code}.`;
+      revalidateProcurement(loadId);
+    }
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Unable to import HF vaccination evidence.";
+  }
+  actionRedirect(formData, status, message);
+}
+
+export async function reviewHFVaccinationEvidenceAction(formData: FormData): Promise<void> {
+  let status: "success" | "error" = "success";
+  let message = "";
+  const loadId = requiredString(formData, "load_id");
+  try {
+    const expectedRowVersion = optInt(formData, "expected_row_version");
+    if (!expectedRowVersion || expectedRowVersion < 1) throw new Error("Expected row version is required.");
+    const body: ReviewProcurementHFVaccinationEvidenceRequest = {
+      expected_row_version: expectedRowVersion,
+      review_status: inEnum<HFReviewRequestStatus>(
+        optionalString(formData, "review_status"),
+        HF_REVIEW_STATUSES,
+        "review_status",
+      ),
+      review_reason: optionalString(formData, "review_reason"),
+      reviewed_at: optRfc3339(formData, "reviewed_at"),
+    };
+    const result = await reviewProcurementHFVaccinationEvidence(
+      requiredString(formData, "evidence_id"),
+      body,
+      formIdempotencyKey(formData),
+    );
+    if (!result.ok) {
+      status = "error";
+      message = actionErrorMessage(result.error);
+    } else {
+      message = `HF evidence reviewed: ${result.data.evidence.review_status}.`;
+      revalidateProcurement(loadId);
+    }
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Unable to review HF vaccination evidence.";
   }
   actionRedirect(formData, status, message);
 }

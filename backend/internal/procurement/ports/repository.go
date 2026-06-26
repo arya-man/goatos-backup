@@ -13,6 +13,7 @@ import (
 var (
 	ErrNotFound          = errors.New("procurement: not found")
 	ErrInvalidTransition = errors.New("procurement: invalid transition")
+	ErrStaleWrite        = errors.New("procurement: stale row version")
 	// ErrIdempotencyConflict is returned when an idempotency key is replayed with a different request
 	// payload (semantic fingerprint mismatch). The write must be rejected without mutating state.
 	ErrIdempotencyConflict = errors.New("procurement: idempotency key reused with different payload")
@@ -26,6 +27,8 @@ type Repository interface {
 	AddGoatToLoad(ctx context.Context, in AddGoatToLoad) (domain.LoadGoat, error)
 	RecordSourceHealth(ctx context.Context, in SourceHealth) (domain.SourceHealthCheck, error)
 	RecordDecision(ctx context.Context, in Decision) (domain.Decision, error)
+	RecordHFVaccinationEvidence(ctx context.Context, in HFVaccinationEvidence) (domain.HFVaccinationEvidence, error)
+	ReviewHFVaccinationEvidence(ctx context.Context, in ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error)
 	DispatchLoad(ctx context.Context, in DispatchLoad) (domain.TransitHandoff, error)
 	RecordArrivalReview(ctx context.Context, in ArrivalReview) (domain.ArrivalReview, error)
 	AcceptIntake(ctx context.Context, in AcceptIntake) ([]domain.PHCHandoff, error)
@@ -55,6 +58,7 @@ type AddGoatToLoad struct {
 	TemporaryID       *string
 	SelectionState    string
 	SelectionReason   string
+	Purpose           string
 	CurrentState      string
 	IdentityState     string
 	IdentityReviewRef *string
@@ -68,6 +72,35 @@ type AddGoatToLoad struct {
 	Metadata          json.RawMessage
 	ActorID           *string
 	IdempotencyKey    string
+}
+
+type HFVaccinationEvidence struct {
+	TenantID          string
+	LoadID            string
+	GoatID            string
+	ProtocolVersionID string
+	RuleID            string
+	DoseCode          string
+	AdministeredAt    time.Time
+	VaccineName       string
+	LotNumber         string
+	ProofRefID        *string
+	SourceRef         string
+	Metadata          json.RawMessage
+	ImportedBy        *string
+	IdempotencyKey    string
+}
+
+type ReviewHFVaccinationEvidence struct {
+	TenantID           string
+	EvidenceID         string
+	ExpectedRowVersion int
+	ReviewStatus       string
+	ReviewReason       string
+	ReviewedBy         *string
+	ReviewedAt         time.Time
+	ReviewedAtSet      bool // true when the client supplied reviewed_at (participates in the fingerprint)
+	IdempotencyKey     string
 }
 
 type SourceHealth struct {

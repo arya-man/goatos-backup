@@ -2,9 +2,10 @@
 // the Action Center / Adherence / Control Tower / Workflows lenses). These mirror the generated admin-api
 // enums exactly. Tone + label defined once so every procurement screen renders states identically.
 //
-// Business-rule helpers live here too: source warmup of 45-70 days is VALID and must never render as an
-// anomaly/error, and only accepted-intake goats may flow to PHC/Parks — every rejected, source-only, or
-// unresolved goat stays procurement history. UI must reflect that boundary, not leak it.
+// Business-rule helpers live here too: source warmup is purpose-specific. Breeding stock has a long
+// 45-70 day warmup; fattening/non-breeding can legitimately move in a 0-14 day window. Only
+// accepted-intake goats may flow to PHC/Parks — every rejected, source-only, or unresolved goat stays
+// procurement history. UI must reflect that boundary, not leak it.
 import type { Tone } from "@/components/ui-primitives";
 import type {
   ProcurementArrivalState,
@@ -186,17 +187,49 @@ export const TONE_SWATCH: Record<Tone, string> = {
   mut: "var(--line2)",
 };
 
-// Source warmup classification. The operator rule: 45-70 days is a VALID, expected source warmup and must
-// not look anomalous. Only beyond the normal window is it surfaced as a watch (still valid, never an error).
-const NORMAL_WARMUP_MAX_DAYS = 70;
-export function warmupMeta(days: number | null | undefined): { label: string; tone: Tone; note?: string } {
-  if (days === null || days === undefined) return { label: "—", tone: "mut" };
-  const label = `${days}d`;
-  if (days > NORMAL_WARMUP_MAX_DAYS) {
-    return { label, tone: "warn", note: "outside normal window — still valid" };
+export function warmupExpectation(purpose: string | null | undefined): { label: string; maxDays: number; note: string } {
+  if (purpose === "fattening" || purpose === "non_breeding") {
+    return {
+      label: "0-14d",
+      maxDays: 14,
+      note: "fattening / non-breeding warmup can be same-day to about two weeks",
+    };
   }
-  // 0-70 days, including the documented 45-70 long-but-normal source warmup.
-  return { label, tone: days >= 45 ? "info" : "ok" };
+  if (purpose === "breeding") {
+    return {
+      label: "45-70d",
+      maxDays: 70,
+      note: "breeding stock warmup is expected to be 45-70 days",
+    };
+  }
+  return {
+    label: "set purpose",
+    maxDays: 70,
+    note: "set purpose to classify the warmup window; fallback is the breeding-safe 70 day ceiling",
+  };
+}
+
+// Source warmup classification. Long breeding warmup is valid and must not look anomalous; short
+// fattening/non-breeding warmup is also valid. Beyond the purpose window is a watch, not a hard error.
+export function warmupMeta(
+  days: number | null | undefined,
+  purpose?: string | null,
+): { label: string; tone: Tone; note?: string; expectation: string } {
+  const expected = warmupExpectation(purpose);
+  if (days === null || days === undefined) return { label: "—", tone: "mut", note: expected.note, expectation: expected.label };
+  const label = `${days}d`;
+  if (days > expected.maxDays) {
+    return {
+      label,
+      tone: "warn",
+      note: `outside ${expected.label} purpose window — still valid, review before dispatch`,
+      expectation: expected.label,
+    };
+  }
+  if (purpose === "breeding" && days < 45) {
+    return { label, tone: "info", note: expected.note, expectation: expected.label };
+  }
+  return { label, tone: "ok", note: expected.note, expectation: expected.label };
 }
 
 // Goats whose journey ended before accepted intake. These remain procurement history/work and must NEVER

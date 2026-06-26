@@ -322,6 +322,12 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 	if in.SelectionState == "" {
 		in.SelectionState = "candidate"
 	}
+	if in.Purpose == "" {
+		in.Purpose = domain.PurposeUnspecified
+	}
+	if !validPurpose(in.Purpose) {
+		return domain.LoadGoat{}, BadRequest("invalid_purpose", "purpose must be breeding, fattening, non_breeding, or unspecified")
+	}
 	if in.CurrentState == "" {
 		in.CurrentState = domain.GoatStateSourceCandidate
 		if in.WarmupStartedAt != nil {
@@ -351,6 +357,87 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 		return domain.LoadGoat{}, BadRequest("source_rfid_conflict", "source_rfid already belongs to another goat and requires identity review")
 	}
 	return goat, err
+}
+
+func (s *Service) RecordHFVaccinationEvidence(ctx context.Context, in ports.HFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	if err := validateTenant(in.TenantID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if err := requireUUID("load_id", in.LoadID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if err := requireUUID("goat_id", in.GoatID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if err := requireUUID("protocol_version_id", in.ProtocolVersionID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if err := requireUUID("rule_id", in.RuleID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if strings.TrimSpace(in.DoseCode) == "" {
+		return domain.HFVaccinationEvidence{}, BadRequest("missing_dose_code", "dose_code is required")
+	}
+	if in.AdministeredAt.IsZero() {
+		return domain.HFVaccinationEvidence{}, BadRequest("missing_administered_at", "administered_at is required")
+	}
+	if err := validateOptionalUUID("proof_ref_id", in.ProofRefID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if err := requireIdempotency(in.IdempotencyKey); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	in.DoseCode = strings.TrimSpace(in.DoseCode)
+	in.VaccineName = strings.TrimSpace(in.VaccineName)
+	in.LotNumber = strings.TrimSpace(in.LotNumber)
+	in.SourceRef = strings.TrimSpace(in.SourceRef)
+	in.Metadata = jsonObject(in.Metadata)
+	evidence, err := s.repo.RecordHFVaccinationEvidence(ctx, in)
+	if errors.Is(err, ports.ErrInvalidTransition) {
+		return domain.HFVaccinationEvidence{}, BadRequest("invalid_hf_vaccination_evidence", "HF vaccination evidence must reference a goat on the procurement load")
+	}
+	return evidence, err
+}
+
+func (s *Service) ReviewHFVaccinationEvidence(ctx context.Context, in ports.ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	if err := validateTenant(in.TenantID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if err := requireUUID("evidence_id", in.EvidenceID); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if in.ExpectedRowVersion <= 0 {
+		return domain.HFVaccinationEvidence{}, BadRequest("missing_expected_row_version", "expected_row_version is required")
+	}
+	if !oneOf(in.ReviewStatus,
+		domain.HFVaccinationReviewTrusted,
+		domain.HFVaccinationReviewRejected,
+		domain.HFVaccinationReviewConflicting,
+		domain.HFVaccinationReviewDuplicate,
+	) {
+		return domain.HFVaccinationEvidence{}, BadRequest("invalid_review_status", "review_status must be trusted, rejected, conflicting, or duplicate")
+	}
+	if err := validateOptionalUUID("reviewed_by", in.ReviewedBy); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if err := requireIdempotency(in.IdempotencyKey); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if !in.ReviewedAtSet {
+		in.ReviewedAt = s.now().UTC()
+	}
+	in.ReviewReason = strings.TrimSpace(in.ReviewReason)
+	evidence, err := s.repo.ReviewHFVaccinationEvidence(ctx, in)
+	if errors.Is(err, ports.ErrNotFound) {
+		return domain.HFVaccinationEvidence{}, NotFound("HF vaccination evidence was not found")
+	}
+	if errors.Is(err, ports.ErrStaleWrite) {
+		return domain.HFVaccinationEvidence{}, Conflict("stale_hf_vaccination_evidence_review", "HF vaccination evidence changed; reload before reviewing")
+	}
+	if errors.Is(err, ports.ErrInvalidTransition) {
+		return domain.HFVaccinationEvidence{}, Conflict("invalid_hf_vaccination_evidence_review_transition", "trusted HF vaccination evidence cannot be changed by this review endpoint")
+	}
+	return evidence, err
 }
 
 func (s *Service) RecordSourceHealth(ctx context.Context, in ports.SourceHealth) (domain.SourceHealthCheck, error) {
@@ -599,6 +686,10 @@ func procurementStateBlocksVaccination(goat domain.LoadGoat) bool {
 		return false
 	}
 	return true
+}
+
+func validPurpose(purpose string) bool {
+	return oneOf(purpose, domain.PurposeBreeding, domain.PurposeFattening, domain.PurposeNonBreeding, domain.PurposeUnspecified)
 }
 
 func arrivalStatus(in ports.ArrivalReview) string {

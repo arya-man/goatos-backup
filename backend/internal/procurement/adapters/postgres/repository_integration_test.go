@@ -60,6 +60,133 @@ func TestProcurementSourceEntryPostgresPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("purpose-specific warmup classifies non-breeding window", func(t *testing.T) {
+		start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+		days := 15
+		end := start.Add(time.Duration(days) * 24 * time.Hour)
+		load := createProcurementLoad(t, ctx, repo, "fattening-warmup-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			SourceTag:         strPtr("FATTENING-WARMUP"),
+			Purpose:           domain.PurposeFattening,
+			WarmupStartedAt:   &start,
+			WarmupEndedAt:     &end,
+			HoldingLocationID: strPtr(testSourceLocation),
+			IdempotencyKey:    "fattening-warmup-goat",
+		})
+		if goat.Purpose != domain.PurposeFattening {
+			t.Fatalf("purpose = %q, want fattening", goat.Purpose)
+		}
+		var stayPurpose, warmupState string
+		if err := pool.QueryRow(ctx, `
+SELECT purpose, warmup_state
+FROM source_holding_stays
+WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, &warmupState); err != nil {
+			t.Fatalf("read warmup stay: %v", err)
+		}
+		if stayPurpose != domain.PurposeFattening || warmupState != "outside_normal_window" {
+			t.Fatalf("stay purpose/state = %s/%s, want fattening/outside_normal_window", stayPurpose, warmupState)
+		}
+	})
+
+	t.Run("HF vaccination evidence import and review are idempotent and audited", func(t *testing.T) {
+		load := createProcurementLoad(t, ctx, repo, "hf-evidence-load", 1)
+		goat := addProcurementGoat(t, ctx, repo, load.LoadID, ports.AddGoatToLoad{
+			TenantID:       testTenant,
+			LoadID:         load.LoadID,
+			SourceTag:      strPtr("HF-EVIDENCE"),
+			Purpose:        domain.PurposeBreeding,
+			IdempotencyKey: "hf-evidence-goat",
+		})
+		versionID, ruleID := seedProcurementHFProtocol(t, ctx, pool)
+		importIn := ports.HFVaccinationEvidence{
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			GoatID:            goat.GoatID,
+			ProtocolVersionID: versionID,
+			RuleID:            ruleID,
+			DoseCode:          "primary",
+			AdministeredAt:    time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC),
+			VaccineName:       "HF Enterotox",
+			LotNumber:         "HF-LOT-1",
+			SourceRef:         "supplier:hf-dose-log",
+			Metadata:          []byte(`{"source":"holding_farm"}`),
+			IdempotencyKey:    "hf-evidence-import",
+		}
+		first, err := repo.RecordHFVaccinationEvidence(ctx, importIn)
+		if err != nil {
+			t.Fatalf("RecordHFVaccinationEvidence first: %v", err)
+		}
+		if first.ReviewStatus != domain.HFVaccinationReviewImported {
+			t.Fatalf("review status = %q, want imported", first.ReviewStatus)
+		}
+		replay, err := repo.RecordHFVaccinationEvidence(ctx, importIn)
+		if err != nil {
+			t.Fatalf("RecordHFVaccinationEvidence replay: %v", err)
+		}
+		if replay.EvidenceID != first.EvidenceID {
+			t.Fatalf("replay evidence = %s, want %s", replay.EvidenceID, first.EvidenceID)
+		}
+		badImport := importIn
+		badImport.DoseCode = "booster"
+		if _, err := repo.RecordHFVaccinationEvidence(ctx, badImport); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same-key different HF import err = %v, want ErrIdempotencyConflict", err)
+		}
+		reviewIn := ports.ReviewHFVaccinationEvidence{
+			TenantID:           testTenant,
+			EvidenceID:         first.EvidenceID,
+			ExpectedRowVersion: first.RowVersion,
+			ReviewStatus:       domain.HFVaccinationReviewTrusted,
+			ReviewReason:       "clear supplier proof",
+			ReviewedAt:         time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC),
+			ReviewedAtSet:      true,
+			IdempotencyKey:     "hf-evidence-review",
+		}
+		reviewed, err := repo.ReviewHFVaccinationEvidence(ctx, reviewIn)
+		if err != nil {
+			t.Fatalf("ReviewHFVaccinationEvidence first: %v", err)
+		}
+		if reviewed.ReviewStatus != domain.HFVaccinationReviewTrusted {
+			t.Fatalf("review status = %q, want trusted", reviewed.ReviewStatus)
+		}
+		reviewReplay, err := repo.ReviewHFVaccinationEvidence(ctx, reviewIn)
+		if err != nil {
+			t.Fatalf("ReviewHFVaccinationEvidence replay: %v", err)
+		}
+		if reviewReplay.EvidenceID != first.EvidenceID || reviewReplay.ReviewStatus != domain.HFVaccinationReviewTrusted {
+			t.Fatalf("review replay = %#v", reviewReplay)
+		}
+		badReview := reviewIn
+		badReview.ReviewStatus = domain.HFVaccinationReviewRejected
+		if _, err := repo.ReviewHFVaccinationEvidence(ctx, badReview); !errors.Is(err, ports.ErrIdempotencyConflict) {
+			t.Fatalf("same-key different HF review err = %v, want ErrIdempotencyConflict", err)
+		}
+		staleReview := reviewIn
+		staleReview.IdempotencyKey = "hf-evidence-review-stale"
+		staleReview.ReviewStatus = domain.HFVaccinationReviewDuplicate
+		if _, err := repo.ReviewHFVaccinationEvidence(ctx, staleReview); !errors.Is(err, ports.ErrStaleWrite) {
+			t.Fatalf("stale HF review err = %v, want ErrStaleWrite", err)
+		}
+		changeTrusted := reviewIn
+		changeTrusted.ExpectedRowVersion = reviewed.RowVersion
+		changeTrusted.IdempotencyKey = "hf-evidence-review-change-trusted"
+		changeTrusted.ReviewStatus = domain.HFVaccinationReviewRejected
+		if _, err := repo.ReviewHFVaccinationEvidence(ctx, changeTrusted); !errors.Is(err, ports.ErrInvalidTransition) {
+			t.Fatalf("trusted status change err = %v, want ErrInvalidTransition", err)
+		}
+		detail, err := repo.GetLoadDetail(ctx, testTenant, load.LoadID)
+		if err != nil {
+			t.Fatalf("GetLoadDetail: %v", err)
+		}
+		if len(detail.HFVaccinations) != 1 || detail.HFVaccinations[0].EvidenceID != first.EvidenceID {
+			t.Fatalf("detail HF evidence = %#v", detail.HFVaccinations)
+		}
+		if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_type='hf_vaccination_evidence' AND resource_id=$2`, testTenant, first.EvidenceID); got != 2 {
+			t.Fatalf("HF evidence audit rows = %d, want 2", got)
+		}
+	})
+
 	t.Run("source RFID conflict blocks identity without duplicate goat", func(t *testing.T) {
 		seedExistingRFIDGoat(t, ctx, pool, testOtherGoat, "RFID-CONFLICT-1")
 		before := countRows(t, ctx, pool, `SELECT count(*) FROM goats WHERE tenant_id=$1`, testTenant)
@@ -717,6 +844,9 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		if n := countLoads(); n != loadsAfterFirst {
 			t.Fatalf("replay created a duplicate load: count %d -> %d", loadsAfterFirst, n)
 		}
+		if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_type='procurement_load' AND resource_id=$2`, testTenant, first.LoadID); got != 1 {
+			t.Fatalf("source load audit rows = %d, want 1", got)
+		}
 
 		bad := in
 		bad.ExpectedCount = 9
@@ -764,6 +894,9 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		if v2 := loadGoatVersion(load.LoadID, first.GoatID); v2 != v1 {
 			t.Fatalf("replay mutated state: row_version %d -> %d", v1, v2)
 		}
+		if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_type='procurement_load_goat' AND resource_id=$2`, testTenant, first.LoadGoatID); got != 1 {
+			t.Fatalf("source goat audit rows = %d, want 1", got)
+		}
 
 		bad := in
 		bad.SourceTag = strPtr("IDEM-ADDGOAT-DIFFERENT")
@@ -801,6 +934,9 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		}
 		if replay.HealthCheckID != first.HealthCheckID {
 			t.Fatalf("replay returned different result: first=%s replay=%s", first.HealthCheckID, replay.HealthCheckID)
+		}
+		if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_type='procurement_source_health_check' AND resource_id=$2`, testTenant, first.HealthCheckID); got != 1 {
+			t.Fatalf("source health audit rows = %d, want 1", got)
 		}
 	})
 
@@ -1033,6 +1169,35 @@ VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::
 ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
 	if err != nil {
 		t.Fatalf("seed protocol rule: %v", err)
+	}
+	return versionID, ruleID
+}
+
+func seedProcurementHFProtocol(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (string, string) {
+	t.Helper()
+	protocolID := "72000000-0000-4000-8000-000000000085"
+	versionID := "73000000-0000-4000-8000-000000000085"
+	ruleID := "74000000-0000-4000-8000-000000000085"
+	_, err := pool.Exec(ctx, `
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ($1, $2, 'vaccination.hf_evidence', 'HF Evidence Vaccine', 'vaccination', 'active')
+ON CONFLICT (tenant_id, code) DO NOTHING`, protocolID, testTenant)
+	if err != nil {
+		t.Fatalf("seed HF protocol definition: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
+VALUES ($1, $2, $3, 'tenant', 1, 'published', DATE '2026-01-01', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (tenant_id, protocol_version_id) DO NOTHING`, versionID, testTenant, protocolID)
+	if err != nil {
+		t.Fatalf("seed HF protocol version: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, repeat, catch_up, eligibility_json, proof_policy)
+VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
+	if err != nil {
+		t.Fatalf("seed HF protocol rule: %v", err)
 	}
 	return versionID, ruleID
 }

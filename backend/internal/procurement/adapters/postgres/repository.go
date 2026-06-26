@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -55,17 +56,20 @@ func (r *Repository) ListLoads(ctx context.Context, q domain.LoadQuery) (domain.
 		cursorLoadID = q.Cursor.LoadID
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT load_id::text, tenant_id::text, source_party_id::text, source_location_id::text,
-       expected_count, purchase_date, planned_dispatch_at, status, notes, context,
-       created_at, updated_at, row_version
-FROM procurement_loads
-WHERE tenant_id = $1::uuid
-  AND ($2::text = '' OR status = $2::text)
+SELECT pl.load_id::text, pl.tenant_id::text, pl.source_party_id::text, p.display_name,
+       pl.source_location_id::text, loc.location_code, loc.name,
+       pl.expected_count, pl.purchase_date, pl.planned_dispatch_at, pl.status, pl.notes, pl.context,
+       pl.created_at, pl.updated_at, pl.row_version
+FROM procurement_loads pl
+JOIN parties p ON p.party_id = pl.source_party_id
+LEFT JOIN locations loc ON loc.tenant_id = pl.tenant_id AND loc.location_id = pl.source_location_id
+WHERE pl.tenant_id = $1::uuid
+  AND ($2::text = '' OR pl.status = $2::text)
   AND (
     $4::timestamptz IS NULL
-    OR (updated_at, load_id) < ($4::timestamptz, $5::uuid)
+    OR (pl.updated_at, pl.load_id) < ($4::timestamptz, $5::uuid)
   )
-ORDER BY updated_at DESC, load_id DESC
+ORDER BY pl.updated_at DESC, pl.load_id DESC
 LIMIT $3`, q.TenantID, q.Status, fetchLimit, cursorUpdated, cursorLoadID)
 	if err != nil {
 		return domain.LoadListResult{}, fmt.Errorf("procurement: list loads: %w", err)
@@ -132,7 +136,11 @@ INSERT INTO procurement_loads (
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET idempotency_key = EXCLUDED.idempotency_key
-RETURNING load_id::text, tenant_id::text, source_party_id::text, source_location_id::text,
+RETURNING load_id::text, tenant_id::text, source_party_id::text,
+          (SELECT display_name FROM parties WHERE party_id = procurement_loads.source_party_id),
+          source_location_id::text,
+          (SELECT location_code FROM locations WHERE locations.tenant_id = procurement_loads.tenant_id AND locations.location_id = procurement_loads.source_location_id),
+          (SELECT name FROM locations WHERE locations.tenant_id = procurement_loads.tenant_id AND locations.location_id = procurement_loads.source_location_id),
           expected_count, purchase_date, planned_dispatch_at, status, notes, context,
           created_at, updated_at, row_version`,
 		in.TenantID, in.SourcePartyID, stringPtrValue(in.SourceLocationID), in.ExpectedCount,
@@ -140,6 +148,29 @@ RETURNING load_id::text, tenant_id::text, source_party_id::text, source_location
 		in.IdempotencyKey, stringPtrValue(in.ActorID)))
 	if err != nil {
 		return domain.Load{}, fmt.Errorf("procurement: create load: %w", err)
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     in.TenantID,
+		ActorID:      stringPtrValue(in.ActorID),
+		ActorType:    "human",
+		Action:       "procurement.source_load.created",
+		ResourceType: "procurement_load",
+		ResourceID:   load.LoadID,
+		ScopeType:    "load",
+		ScopeID:      load.LoadID,
+		AfterState:   load,
+		Metadata: map[string]any{
+			"domain":          "procurement",
+			"module":          "source_entry",
+			"category":        "source_load",
+			"result":          load.Status,
+			"status":          load.Status,
+			"idempotency_key": in.IdempotencyKey,
+			"operation_id":    in.IdempotencyKey,
+			"source_party_id": in.SourcePartyID,
+		},
+	}); err != nil {
+		return domain.Load{}, fmt.Errorf("procurement: audit source load create: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_load", load.LoadID); err != nil {
@@ -156,11 +187,14 @@ func (r *Repository) GetLoadDetail(ctx context.Context, tenantID, loadID string)
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	load, err := scanLoad(r.pool.QueryRow(ctx, `
-SELECT load_id::text, tenant_id::text, source_party_id::text, source_location_id::text,
-       expected_count, purchase_date, planned_dispatch_at, status, notes, context,
-       created_at, updated_at, row_version
-FROM procurement_loads
-WHERE tenant_id = $1::uuid AND load_id = $2::uuid`, tenantID, loadID))
+SELECT pl.load_id::text, pl.tenant_id::text, pl.source_party_id::text, p.display_name,
+       pl.source_location_id::text, loc.location_code, loc.name,
+       pl.expected_count, pl.purchase_date, pl.planned_dispatch_at, pl.status, pl.notes, pl.context,
+       pl.created_at, pl.updated_at, pl.row_version
+FROM procurement_loads pl
+JOIN parties p ON p.party_id = pl.source_party_id
+LEFT JOIN locations loc ON loc.tenant_id = pl.tenant_id AND loc.location_id = pl.source_location_id
+WHERE pl.tenant_id = $1::uuid AND pl.load_id = $2::uuid`, tenantID, loadID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.LoadDetail{}, ports.ErrNotFound
 	}
@@ -173,6 +207,9 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`, tenantID, loadID))
 		return domain.LoadDetail{}, err
 	}
 	if detail.HoldingStays, err = r.listHoldingStays(ctx, tenantID, loadID); err != nil {
+		return domain.LoadDetail{}, err
+	}
+	if detail.HFVaccinations, err = r.listHFVaccinationEvidence(ctx, tenantID, loadID); err != nil {
 		return domain.LoadDetail{}, err
 	}
 	if detail.HealthChecks, err = r.listHealthChecks(ctx, tenantID, loadID); err != nil {
@@ -197,6 +234,9 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`, tenantID, loadID))
 func (r *Repository) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (domain.LoadGoat, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
+	if strings.TrimSpace(in.Purpose) == "" {
+		in.Purpose = domain.PurposeUnspecified
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return domain.LoadGoat{}, err
@@ -208,9 +248,9 @@ func (r *Repository) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) 
 	fingerprint := requestFingerprint(
 		in.TenantID, in.LoadID, stringPtrValue(in.GoatID), stringPtrValue(in.SourceTag),
 		stringPtrValue(in.SourceRFID), stringPtrValue(in.TemporaryID), in.SelectionState,
-		in.CurrentState, in.IdentityState, in.OwnershipState, in.HealthState,
+		in.SelectionReason, in.Purpose, in.CurrentState, in.IdentityState, in.OwnershipState, in.HealthState,
 		stringPtrValue(in.HoldingLocationID), fpTime(in.WarmupStartedAt), fpTime(in.WarmupEndedAt),
-		canonicalJSON(in.ProofRefs), canonicalJSON(in.Metadata),
+		intPtrFingerprint(in.WarmupDays), canonicalJSON(in.ProofRefs), canonicalJSON(in.Metadata),
 	)
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
@@ -295,13 +335,13 @@ RETURNING goat_id::text`, in.TenantID, identityState, sourcePartyID, stringPtrVa
 	row := tx.QueryRow(ctx, `
 INSERT INTO procurement_load_goats (
   tenant_id, load_id, goat_id, source_tag, source_rfid, temporary_id,
-  selection_state, selection_reason, current_state, identity_review_state,
+  selection_state, selection_reason, purpose, current_state, identity_review_state,
   identity_review_ref, ownership_state, health_state, warmup_started_at,
   warmup_ended_at, warmup_days, holding_location_id, proof_refs, metadata
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), nullif($5::text, ''), nullif($6::text, ''),
-  $7, $8, $9, $10, nullif($11::text, ''), $12, $13, $14::timestamptz,
-  $15::timestamptz, $16, nullif($17::text, '')::uuid, $18::jsonb, $19::jsonb
+  $7, $8, $9, $10, $11, nullif($12::text, ''), $13, $14, $15::timestamptz,
+  $16::timestamptz, $17, nullif($18::text, '')::uuid, $19::jsonb, $20::jsonb
 )
 ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
 SET source_tag = COALESCE(EXCLUDED.source_tag, procurement_load_goats.source_tag),
@@ -309,6 +349,7 @@ SET source_tag = COALESCE(EXCLUDED.source_tag, procurement_load_goats.source_tag
     temporary_id = COALESCE(EXCLUDED.temporary_id, procurement_load_goats.temporary_id),
     selection_state = EXCLUDED.selection_state,
     selection_reason = EXCLUDED.selection_reason,
+    purpose = EXCLUDED.purpose,
     current_state = EXCLUDED.current_state,
     identity_review_state = EXCLUDED.identity_review_state,
     identity_review_ref = COALESCE(EXCLUDED.identity_review_ref, procurement_load_goats.identity_review_ref),
@@ -323,41 +364,67 @@ SET source_tag = COALESCE(EXCLUDED.source_tag, procurement_load_goats.source_tag
     updated_at = now(),
     row_version = procurement_load_goats.row_version + 1
 RETURNING load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
-          source_tag, source_rfid, temporary_id, selection_state, selection_reason,
+          source_tag, source_rfid, temporary_id, selection_state, selection_reason, purpose,
           current_state, identity_review_state, identity_review_ref, ownership_state,
           health_state, warmup_started_at, warmup_ended_at, warmup_days,
           holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
           exit_reason, proof_refs, metadata, created_at, updated_at, row_version`,
 		in.TenantID, in.LoadID, goatID, stringPtrValue(in.SourceTag), stringPtrValue(in.SourceRFID),
-		stringPtrValue(in.TemporaryID), in.SelectionState, in.SelectionReason, in.CurrentState,
-		in.IdentityState, stringPtrValue(in.IdentityReviewRef), in.OwnershipState, in.HealthState,
+		stringPtrValue(in.TemporaryID), in.SelectionState, in.SelectionReason, in.Purpose,
+		in.CurrentState, in.IdentityState, stringPtrValue(in.IdentityReviewRef), in.OwnershipState, in.HealthState,
 		timeArg(in.WarmupStartedAt), timeArg(in.WarmupEndedAt), intPtrArg(in.WarmupDays),
 		stringPtrValue(in.HoldingLocationID), jsonArrayArg(in.ProofRefs), jsonObjectArg(in.Metadata))
 	loadGoat, err := scanLoadGoat(row)
 	if err != nil {
 		return domain.LoadGoat{}, fmt.Errorf("procurement: add goat to load: %w", err)
 	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     in.TenantID,
+		ActorID:      stringPtrValue(in.ActorID),
+		ActorType:    "human",
+		Action:       "procurement.source_goat.added",
+		ResourceType: "procurement_load_goat",
+		ResourceID:   loadGoat.LoadGoatID,
+		ScopeType:    "load",
+		ScopeID:      in.LoadID,
+		AfterState:   loadGoat,
+		Metadata: map[string]any{
+			"domain":          "procurement",
+			"module":          "source_entry",
+			"category":        "source_goat",
+			"result":          loadGoat.CurrentState,
+			"status":          loadGoat.CurrentState,
+			"idempotency_key": in.IdempotencyKey,
+			"operation_id":    in.IdempotencyKey,
+			"goat_id":         loadGoat.GoatID,
+			"load_id":         in.LoadID,
+			"purpose":         loadGoat.Purpose,
+		},
+	}); err != nil {
+		return domain.LoadGoat{}, fmt.Errorf("procurement: audit source goat add: %w", err)
+	}
 	if in.HoldingLocationID != nil && in.WarmupStartedAt != nil {
 		_, err = tx.Exec(ctx, `
 INSERT INTO source_holding_stays (
   tenant_id, goat_id, load_id, holding_location_id, started_at, ended_at,
-  warmup_state, warmup_days, health_state, ownership_state, proof_refs
+  warmup_state, warmup_days, purpose, health_state, ownership_state, proof_refs
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::timestamptz, $6::timestamptz,
-  $7, $8, $9, $10, $11::jsonb
+  $7, $8, $9, $10, $11, $12::jsonb
 )
 ON CONFLICT (tenant_id, load_id, goat_id, holding_location_id, started_at) DO UPDATE
 SET ended_at = COALESCE(EXCLUDED.ended_at, source_holding_stays.ended_at),
     warmup_state = EXCLUDED.warmup_state,
     warmup_days = COALESCE(EXCLUDED.warmup_days, source_holding_stays.warmup_days),
+    purpose = EXCLUDED.purpose,
     health_state = EXCLUDED.health_state,
     ownership_state = EXCLUDED.ownership_state,
     proof_refs = EXCLUDED.proof_refs,
     updated_at = now(),
     row_version = source_holding_stays.row_version + 1`,
 			in.TenantID, goatID, in.LoadID, *in.HoldingLocationID, timeArg(in.WarmupStartedAt),
-			timeArg(in.WarmupEndedAt), warmupState(in.WarmupDays), intPtrArg(in.WarmupDays),
-			in.HealthState, in.OwnershipState, jsonArrayArg(in.ProofRefs))
+			timeArg(in.WarmupEndedAt), warmupState(in.WarmupDays, in.Purpose), intPtrArg(in.WarmupDays),
+			in.Purpose, in.HealthState, in.OwnershipState, jsonArrayArg(in.ProofRefs))
 		if err != nil {
 			return domain.LoadGoat{}, fmt.Errorf("procurement: upsert holding stay: %w", err)
 		}
@@ -374,6 +441,197 @@ SET ended_at = COALESCE(EXCLUDED.ended_at, source_holding_stays.ended_at),
 		return domain.LoadGoat{}, err
 	}
 	return loadGoat, nil
+}
+
+func (r *Repository) RecordHFVaccinationEvidence(ctx context.Context, in ports.HFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.hf_vaccination_evidence.import"
+	fingerprint := requestFingerprint(
+		in.TenantID, in.LoadID, in.GoatID, in.ProtocolVersionID, in.RuleID, in.DoseCode,
+		in.AdministeredAt.UTC().Format(time.RFC3339Nano), in.VaccineName, in.LotNumber,
+		stringPtrValue(in.ProofRefID), in.SourceRef, canonicalJSON(in.Metadata),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.HFVaccinationEvidence{}, rerr
+		}
+		if !res.proceed {
+			_ = tx.Rollback(ctx)
+			return r.getHFVaccinationEvidenceByID(ctx, in.TenantID, res.resultID)
+		}
+	}
+
+	evidence, err := scanHFVaccinationEvidence(tx.QueryRow(ctx, `
+INSERT INTO procurement_hf_vaccination_evidence (
+  tenant_id, load_id, goat_id, protocol_version_id, rule_id, dose_code,
+  administered_at, vaccine_name, lot_number, proof_ref_id, source_ref,
+  idempotency_key, imported_by, metadata
+)
+SELECT
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6,
+  $7::timestamptz, $8, $9, nullif($10::text, '')::uuid, $11,
+  $12, nullif($13::text, '')::uuid, $14::jsonb
+WHERE EXISTS (
+  SELECT 1
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = $1::uuid
+    AND plg.load_id = $2::uuid
+    AND plg.goat_id = $3::uuid
+)
+RETURNING evidence_id::text, tenant_id::text, load_id::text, goat_id::text,
+          protocol_version_id::text, rule_id::text, dose_code, administered_at,
+          vaccine_name, lot_number, proof_ref_id::text, source_ref, review_status,
+          reviewed_by::text, reviewed_at, review_reason, imported_by::text,
+          imported_at, metadata, created_at, updated_at, row_version`,
+		in.TenantID, in.LoadID, in.GoatID, in.ProtocolVersionID, in.RuleID, in.DoseCode,
+		in.AdministeredAt, in.VaccineName, in.LotNumber, stringPtrValue(in.ProofRefID),
+		in.SourceRef, in.IdempotencyKey, stringPtrValue(in.ImportedBy), jsonObjectArg(in.Metadata)))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.HFVaccinationEvidence{}, ports.ErrInvalidTransition
+	}
+	if err != nil {
+		return domain.HFVaccinationEvidence{}, fmt.Errorf("procurement: record HF vaccination evidence: %w", err)
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     in.TenantID,
+		ActorID:      stringPtrValue(in.ImportedBy),
+		ActorType:    "human",
+		Action:       "procurement.hf_vaccination_evidence.imported",
+		ResourceType: "hf_vaccination_evidence",
+		ResourceID:   evidence.EvidenceID,
+		ScopeType:    "load",
+		ScopeID:      in.LoadID,
+		AfterState:   evidence,
+		Metadata: map[string]any{
+			"domain":          "procurement",
+			"module":          "source_entry",
+			"category":        "hf_vaccination_evidence",
+			"result":          evidence.ReviewStatus,
+			"status":          evidence.ReviewStatus,
+			"idempotency_key": in.IdempotencyKey,
+			"operation_id":    in.IdempotencyKey,
+			"goat_id":         in.GoatID,
+			"load_id":         in.LoadID,
+			"rule_id":         in.RuleID,
+		},
+	}); err != nil {
+		return domain.HFVaccinationEvidence{}, fmt.Errorf("procurement: audit HF vaccination evidence import: %w", err)
+	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_hf_vaccination_evidence", evidence.EvidenceID); err != nil {
+			return domain.HFVaccinationEvidence{}, fmt.Errorf("procurement: complete HF evidence import idempotency: %w", err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	return evidence, nil
+}
+
+func (r *Repository) ReviewHFVaccinationEvidence(ctx context.Context, in ports.ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const scope = "procurement.hf_vaccination_evidence.review"
+	fingerprint := requestFingerprint(
+		in.TenantID, in.EvidenceID, fmt.Sprintf("%d", in.ExpectedRowVersion), in.ReviewStatus, in.ReviewReason,
+		stringPtrValue(in.ReviewedBy), fpTimeIf(in.ReviewedAtSet, in.ReviewedAt),
+	)
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		res, rerr := reserveIdempotency(ctx, tx, in.TenantID, scope, key, fingerprint)
+		if rerr != nil {
+			return domain.HFVaccinationEvidence{}, rerr
+		}
+		if !res.proceed {
+			_ = tx.Rollback(ctx)
+			return r.getHFVaccinationEvidenceByID(ctx, in.TenantID, res.resultID)
+		}
+	}
+
+	before, err := r.getHFVaccinationEvidenceByIDTx(ctx, tx, in.TenantID, in.EvidenceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.HFVaccinationEvidence{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if before.RowVersion != in.ExpectedRowVersion {
+		return domain.HFVaccinationEvidence{}, ports.ErrStaleWrite
+	}
+	if before.ReviewStatus == domain.HFVaccinationReviewTrusted && in.ReviewStatus != domain.HFVaccinationReviewTrusted {
+		return domain.HFVaccinationEvidence{}, fmt.Errorf("%w: trusted HF vaccination evidence requires correction workflow", ports.ErrInvalidTransition)
+	}
+	evidence, err := scanHFVaccinationEvidence(tx.QueryRow(ctx, `
+UPDATE procurement_hf_vaccination_evidence
+SET review_status = $3,
+    review_reason = $4,
+    reviewed_by = nullif($5::text, '')::uuid,
+    reviewed_at = $6::timestamptz,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND evidence_id = $2::uuid
+  AND row_version = $7
+RETURNING evidence_id::text, tenant_id::text, load_id::text, goat_id::text,
+          protocol_version_id::text, rule_id::text, dose_code, administered_at,
+          vaccine_name, lot_number, proof_ref_id::text, source_ref, review_status,
+          reviewed_by::text, reviewed_at, review_reason, imported_by::text,
+          imported_at, metadata, created_at, updated_at, row_version`,
+		in.TenantID, in.EvidenceID, in.ReviewStatus, in.ReviewReason, stringPtrValue(in.ReviewedBy), in.ReviewedAt, in.ExpectedRowVersion))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.HFVaccinationEvidence{}, ports.ErrStaleWrite
+	}
+	if err != nil {
+		return domain.HFVaccinationEvidence{}, fmt.Errorf("procurement: review HF vaccination evidence: %w", err)
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     in.TenantID,
+		ActorID:      stringPtrValue(in.ReviewedBy),
+		ActorType:    "human",
+		Action:       "procurement.hf_vaccination_evidence.reviewed",
+		ResourceType: "hf_vaccination_evidence",
+		ResourceID:   evidence.EvidenceID,
+		ScopeType:    "load",
+		ScopeID:      evidence.LoadID,
+		BeforeState:  before,
+		AfterState:   evidence,
+		Metadata: map[string]any{
+			"domain":          "procurement",
+			"module":          "source_entry",
+			"category":        "hf_vaccination_evidence",
+			"result":          evidence.ReviewStatus,
+			"status":          evidence.ReviewStatus,
+			"idempotency_key": in.IdempotencyKey,
+			"operation_id":    in.IdempotencyKey,
+			"goat_id":         evidence.GoatID,
+			"load_id":         evidence.LoadID,
+			"rule_id":         evidence.RuleID,
+		},
+	}); err != nil {
+		return domain.HFVaccinationEvidence{}, fmt.Errorf("procurement: audit HF vaccination evidence review: %w", err)
+	}
+	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
+		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_hf_vaccination_evidence", evidence.EvidenceID); err != nil {
+			return domain.HFVaccinationEvidence{}, fmt.Errorf("procurement: complete HF evidence review idempotency: %w", err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	return evidence, nil
 }
 
 func (r *Repository) RecordSourceHealth(ctx context.Context, in ports.SourceHealth) (domain.SourceHealthCheck, error) {
@@ -452,6 +710,30 @@ SET status = $3, updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 		in.TenantID, in.LoadID, loadStatus); err != nil {
 		return domain.SourceHealthCheck{}, fmt.Errorf("procurement: update load health status: %w", err)
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     in.TenantID,
+		ActorID:      stringPtrValue(in.CheckedBy),
+		ActorType:    "human",
+		Action:       "procurement.source_health.recorded",
+		ResourceType: "procurement_source_health_check",
+		ResourceID:   check.HealthCheckID,
+		ScopeType:    "load",
+		ScopeID:      in.LoadID,
+		AfterState:   check,
+		Metadata: map[string]any{
+			"domain":          "procurement",
+			"module":          "source_entry",
+			"category":        "source_health",
+			"result":          check.HealthState,
+			"status":          check.HealthState,
+			"idempotency_key": in.IdempotencyKey,
+			"operation_id":    in.IdempotencyKey,
+			"goat_id":         in.GoatID,
+			"load_id":         in.LoadID,
+		},
+	}); err != nil {
+		return domain.SourceHealthCheck{}, fmt.Errorf("procurement: audit source health: %w", err)
 	}
 	if key := strings.TrimSpace(in.IdempotencyKey); key != "" {
 		if err = completeIdempotency(ctx, tx, in.TenantID, scope, key, "procurement_source_health_check", check.HealthCheckID); err != nil {
@@ -1301,16 +1583,20 @@ type scanner interface {
 
 func scanLoad(row scanner) (domain.Load, error) {
 	var out domain.Load
-	var sourceLocation pgtype.Text
+	var sourcePartyName, sourceLocation, sourceLocationCode, sourceLocationName pgtype.Text
 	var purchaseDate pgtype.Date
 	var planned pgtype.Timestamptz
 	var contextBytes []byte
-	if err := row.Scan(&out.LoadID, &out.TenantID, &out.SourcePartyID, &sourceLocation,
+	if err := row.Scan(&out.LoadID, &out.TenantID, &out.SourcePartyID, &sourcePartyName,
+		&sourceLocation, &sourceLocationCode, &sourceLocationName,
 		&out.ExpectedCount, &purchaseDate, &planned, &out.Status, &out.Notes, &contextBytes,
 		&out.CreatedAt, &out.UpdatedAt, &out.RowVersion); err != nil {
 		return domain.Load{}, err
 	}
+	out.SourcePartyName = textValue(sourcePartyName)
 	out.SourceLocationID = textPtr(sourceLocation)
+	out.SourceLocationCode = textPtr(sourceLocationCode)
+	out.SourceLocationName = textPtr(sourceLocationName)
 	out.PurchaseDate = datePtr(purchaseDate)
 	out.PlannedDispatch = timePtr(planned)
 	out.Context = rawJSON(contextBytes, `{}`)
@@ -1325,7 +1611,7 @@ func scanLoadGoat(row scanner) (domain.LoadGoat, error) {
 	var proofRefs, metadata []byte
 	if err := row.Scan(&out.LoadGoatID, &out.TenantID, &out.LoadID, &out.GoatID,
 		&sourceTag, &sourceRFID, &tempID, &out.SelectionState, &out.SelectionReason,
-		&out.CurrentState, &out.IdentityReview, &identityRef, &out.OwnershipState,
+		&out.Purpose, &out.CurrentState, &out.IdentityReview, &identityRef, &out.OwnershipState,
 		&out.HealthState, &warmupStart, &warmupEnd, &warmupDays, &holdingID, &loadedAt,
 		&arrivedAt, &intakeAt, &exitReason, &proofRefs, &metadata, &out.CreatedAt,
 		&out.UpdatedAt, &out.RowVersion); err != nil {
@@ -1355,13 +1641,52 @@ func scanHoldingStay(row scanner) (domain.HoldingStay, error) {
 	var proofRefs []byte
 	if err := row.Scan(&out.StayID, &out.TenantID, &out.GoatID, &out.LoadID,
 		&out.HoldingLocationID, &out.StartedAt, &ended, &out.WarmupState, &days,
-		&out.HealthState, &out.OwnershipState, &out.Status, &proofRefs, &out.CreatedAt,
+		&out.Purpose, &out.HealthState, &out.OwnershipState, &out.Status, &proofRefs, &out.CreatedAt,
 		&out.UpdatedAt, &out.RowVersion); err != nil {
 		return domain.HoldingStay{}, err
 	}
 	out.EndedAt = timePtr(ended)
 	out.WarmupDays = intPtr(days)
 	out.ProofRefs = rawJSON(proofRefs, `[]`)
+	return out, nil
+}
+
+func scanHFVaccinationEvidence(row scanner) (domain.HFVaccinationEvidence, error) {
+	var out domain.HFVaccinationEvidence
+	var proofRef, reviewedBy, importedBy pgtype.Text
+	var reviewedAt pgtype.Timestamptz
+	var metadata []byte
+	if err := row.Scan(
+		&out.EvidenceID,
+		&out.TenantID,
+		&out.LoadID,
+		&out.GoatID,
+		&out.ProtocolVersionID,
+		&out.RuleID,
+		&out.DoseCode,
+		&out.AdministeredAt,
+		&out.VaccineName,
+		&out.LotNumber,
+		&proofRef,
+		&out.SourceRef,
+		&out.ReviewStatus,
+		&reviewedBy,
+		&reviewedAt,
+		&out.ReviewReason,
+		&importedBy,
+		&out.ImportedAt,
+		&metadata,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+		&out.RowVersion,
+	); err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	out.ProofRefID = textPtr(proofRef)
+	out.ReviewedBy = textPtr(reviewedBy)
+	out.ReviewedAt = timePtr(reviewedAt)
+	out.ImportedBy = textPtr(importedBy)
+	out.Metadata = rawJSON(metadata, `{}`)
 	return out, nil
 }
 
@@ -1546,14 +1871,18 @@ WITH goat_rows AS (
       WHEN plg.ownership_state IN ('pending', 'shared_pending') THEN 'owner_missing'
       WHEN plg.current_state IN ('pre_dispatch_deferred') OR plg.health_state = 'deferred' THEN 'deferred'
       WHEN plg.current_state = 'pre_dispatch_accepted' THEN 'proof_pending'
-      WHEN plg.warmup_started_at IS NOT NULL AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) > 70 THEN 'overdue'
+      WHEN plg.warmup_started_at IS NOT NULL
+       AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) >
+           CASE WHEN plg.purpose IN ('fattening', 'non_breeding') THEN 14 ELSE 70 END THEN 'overdue'
       ELSE 'due'
     END AS work_state,
     CASE
       WHEN plg.identity_review_state IN ('conflict', 'unknown_extra') OR plg.ownership_state IN ('blocked', 'not_owned') THEN 'critical'
       WHEN plg.current_state IN ('pre_dispatch_rejected', 'arrival_rejected', 'source_rejected', 'dead', 'sold', 'lost') OR plg.health_state = 'failed' THEN 'critical'
       WHEN plg.current_state = 'arrival_review_pending' THEN 'at_risk'
-      WHEN plg.warmup_started_at IS NOT NULL AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) > 70 THEN 'at_risk'
+      WHEN plg.warmup_started_at IS NOT NULL
+       AND COALESCE(plg.warmup_days, floor(extract(epoch FROM (now() - plg.warmup_started_at)) / 86400)::int) >
+           CASE WHEN plg.purpose IN ('fattening', 'non_breeding') THEN 14 ELSE 70 END THEN 'at_risk'
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'ok'
       ELSE 'watch'
     END AS severity,
@@ -1568,7 +1897,7 @@ WITH goat_rows AS (
       WHEN plg.current_state = 'arrival_accepted' THEN 'Accept herd intake'
       ELSE 'Review source-entry state'
     END AS title,
-    concat_ws(' / ', plg.current_state, 'health=' || plg.health_state, 'identity=' || plg.identity_review_state, 'ownership=' || plg.ownership_state) AS detail,
+    concat_ws(' / ', plg.current_state, 'purpose=' || plg.purpose, 'health=' || plg.health_state, 'identity=' || plg.identity_review_state, 'ownership=' || plg.ownership_state) AS detail,
     CASE
       WHEN plg.current_state = 'accepted_herd_intake' THEN 'No action'
       WHEN plg.identity_review_state IN ('conflict', 'unknown_extra') THEN 'Open identity review before dispatch'
@@ -1672,7 +2001,7 @@ ORDER BY work_state`
 func (r *Repository) listLoadGoats(ctx context.Context, tenantID, loadID string) ([]domain.LoadGoat, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
-       source_tag, source_rfid, temporary_id, selection_state, selection_reason,
+       source_tag, source_rfid, temporary_id, selection_state, selection_reason, purpose,
        current_state, identity_review_state, identity_review_ref, ownership_state,
        health_state, warmup_started_at, warmup_ended_at, warmup_days,
        holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
@@ -1698,7 +2027,7 @@ ORDER BY created_at ASC, goat_id ASC`, tenantID, loadID)
 func (r *Repository) listHoldingStays(ctx context.Context, tenantID, loadID string) ([]domain.HoldingStay, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT stay_id::text, tenant_id::text, goat_id::text, load_id::text, holding_location_id::text,
-       started_at, ended_at, warmup_state, warmup_days, health_state, ownership_state,
+       started_at, ended_at, warmup_state, warmup_days, purpose, health_state, ownership_state,
        status, proof_refs, created_at, updated_at, row_version
 FROM source_holding_stays
 WHERE tenant_id = $1::uuid AND load_id = $2::uuid
@@ -1710,6 +2039,31 @@ ORDER BY started_at ASC, stay_id ASC`, tenantID, loadID)
 	var out []domain.HoldingStay
 	for rows.Next() {
 		row, scanErr := scanHoldingStay(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) listHFVaccinationEvidence(ctx context.Context, tenantID, loadID string) ([]domain.HFVaccinationEvidence, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT evidence_id::text, tenant_id::text, load_id::text, goat_id::text,
+       protocol_version_id::text, rule_id::text, dose_code, administered_at,
+       vaccine_name, lot_number, proof_ref_id::text, source_ref, review_status,
+       reviewed_by::text, reviewed_at, review_reason, imported_by::text,
+       imported_at, metadata, created_at, updated_at, row_version
+FROM procurement_hf_vaccination_evidence
+WHERE tenant_id = $1::uuid AND load_id = $2::uuid
+ORDER BY administered_at DESC, evidence_id DESC`, tenantID, loadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.HFVaccinationEvidence{}
+	for rows.Next() {
+		row, scanErr := scanHFVaccinationEvidence(rows)
 		if scanErr != nil {
 			return nil, scanErr
 		}
@@ -1792,24 +2146,44 @@ ORDER BY dispatched_at ASC, handoff_id ASC`, tenantID, loadID)
 // getLoadByID re-reads a previously created load for an idempotent CreateLoad replay.
 func (r *Repository) getLoadByID(ctx context.Context, tenantID, loadID string) (domain.Load, error) {
 	return scanLoad(r.pool.QueryRow(ctx, `
-SELECT load_id::text, tenant_id::text, source_party_id::text, source_location_id::text,
-       expected_count, purchase_date, planned_dispatch_at, status, notes, context,
-       created_at, updated_at, row_version
-FROM procurement_loads
-WHERE tenant_id = $1::uuid AND load_id = nullif($2::text, '')::uuid`, tenantID, loadID))
+SELECT pl.load_id::text, pl.tenant_id::text, pl.source_party_id::text, p.display_name,
+       pl.source_location_id::text, loc.location_code, loc.name,
+       pl.expected_count, pl.purchase_date, pl.planned_dispatch_at, pl.status, pl.notes, pl.context,
+       pl.created_at, pl.updated_at, pl.row_version
+FROM procurement_loads pl
+JOIN parties p ON p.party_id = pl.source_party_id
+LEFT JOIN locations loc ON loc.tenant_id = pl.tenant_id AND loc.location_id = pl.source_location_id
+WHERE pl.tenant_id = $1::uuid AND pl.load_id = nullif($2::text, '')::uuid`, tenantID, loadID))
 }
 
 // getLoadGoatByID re-reads a previously added load goat for an idempotent AddGoatToLoad replay.
 func (r *Repository) getLoadGoatByID(ctx context.Context, tenantID, loadGoatID string) (domain.LoadGoat, error) {
 	return scanLoadGoat(r.pool.QueryRow(ctx, `
 SELECT load_goat_id::text, tenant_id::text, load_id::text, goat_id::text,
-       source_tag, source_rfid, temporary_id, selection_state, selection_reason,
+       source_tag, source_rfid, temporary_id, selection_state, selection_reason, purpose,
        current_state, identity_review_state, identity_review_ref, ownership_state,
        health_state, warmup_started_at, warmup_ended_at, warmup_days,
        holding_location_id::text, loaded_at, arrived_at, intake_accepted_at,
        exit_reason, proof_refs, metadata, created_at, updated_at, row_version
 FROM procurement_load_goats
 WHERE tenant_id = $1::uuid AND load_goat_id = nullif($2::text, '')::uuid`, tenantID, loadGoatID))
+}
+
+func (r *Repository) getHFVaccinationEvidenceByID(ctx context.Context, tenantID, evidenceID string) (domain.HFVaccinationEvidence, error) {
+	return r.getHFVaccinationEvidenceByIDTx(ctx, r.pool, tenantID, evidenceID)
+}
+
+func (r *Repository) getHFVaccinationEvidenceByIDTx(ctx context.Context, rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, tenantID, evidenceID string) (domain.HFVaccinationEvidence, error) {
+	return scanHFVaccinationEvidence(rowQuerier.QueryRow(ctx, `
+SELECT evidence_id::text, tenant_id::text, load_id::text, goat_id::text,
+       protocol_version_id::text, rule_id::text, dose_code, administered_at,
+       vaccine_name, lot_number, proof_ref_id::text, source_ref, review_status,
+       reviewed_by::text, reviewed_at, review_reason, imported_by::text,
+       imported_at, metadata, created_at, updated_at, row_version
+FROM procurement_hf_vaccination_evidence
+WHERE tenant_id = $1::uuid AND evidence_id = nullif($2::text, '')::uuid`, tenantID, evidenceID))
 }
 
 func (r *Repository) getSourceHealthByID(ctx context.Context, tenantID, healthCheckID string) (domain.SourceHealthCheck, error) {
@@ -2038,11 +2412,15 @@ func arrivalItemKey(item ports.ArrivalGoat) string {
 	}
 }
 
-func warmupState(days *int) string {
+func warmupState(days *int, purpose string) string {
 	if days == nil {
 		return "in_progress"
 	}
-	if *days > 70 {
+	limit := 70
+	if purpose == domain.PurposeFattening || purpose == domain.PurposeNonBreeding {
+		limit = 14
+	}
+	if *days > limit {
 		return "outside_normal_window"
 	}
 	return "completed"
@@ -2054,6 +2432,13 @@ func textPtr(v pgtype.Text) *string {
 	}
 	s := v.String
 	return &s
+}
+
+func textValue(v pgtype.Text) string {
+	if !v.Valid {
+		return ""
+	}
+	return v.String
 }
 
 func timePtr(v pgtype.Timestamptz) *time.Time {
@@ -2110,6 +2495,13 @@ func intPtrArg(v *int) any {
 		return nil
 	}
 	return *v
+}
+
+func intPtrFingerprint(v *int) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", *v)
 }
 
 func jsonObjectArg(v json.RawMessage) []byte {

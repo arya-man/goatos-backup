@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { ChevronDown, Flag, HeartPulse, PackageCheck, Plus, Truck } from "lucide-react";
-import type { ProcurementLoadGoat } from "@/lib/api/procurement";
+import type { ProcurementHFVaccinationEvidence, ProcurementLoadGoat } from "@/lib/api/procurement";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { fmtDate } from "@/lib/format";
 import { isAcceptedIntake, isProcurementHistoryOnly } from "./work-state";
 import {
   acceptIntakeAction,
@@ -10,7 +11,9 @@ import {
   createLoadAction,
   dispatchLoadAction,
   preDispatchDecisionAction,
+  recordHFVaccinationEvidenceAction,
   recordSourceHealthAction,
+  reviewHFVaccinationEvidenceAction,
 } from "./actions";
 
 // Operator write surface for a load. Every control submits a real server action against a generated
@@ -19,21 +22,35 @@ import {
 // is optional on these contracts, so the actions still run without it.
 
 const SELECTION_OPTIONS = ["source_only", "candidate", "purchased"];
+const PURPOSE_OPTIONS = ["breeding", "fattening", "non_breeding", "unspecified"];
 const HEALTH_OPTIONS = ["pending", "passed", "failed", "deferred"];
 const OWNERSHIP_OPTIONS = ["pending", "shared_pending", "mesha_owned", "not_owned", "settled", "blocked"];
 const DECISION_OPTIONS = ["accepted", "rejected", "deferred", "blocked"];
 const HEALTH_RESULT_OPTIONS = ["passed", "failed", "deferred"];
 const ARRIVAL_STATUS_OPTIONS = ["pending", "mismatch", "accepted", "rejected", "deferred", "blocked"];
 const INTAKE_SIGNAL_OPTIONS = ["clear", "defer", "quarantine", "review"];
+const HF_REVIEW_OPTIONS = ["trusted", "rejected", "conflicting", "duplicate"];
 
 function goatLabel(goat: ProcurementLoadGoat): string {
   return goat.source_tag || goat.source_rfid || goat.temporary_id || (goat.goat_id ? goat.goat_id.slice(0, 8) : "—");
 }
 
 // A native disclosure that reads as a mock card header; no client JS needed in a server component.
-function Disclosure({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Disclosure({
+  icon,
+  title,
+  children,
+  id,
+  defaultOpen,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+  id?: string;
+  defaultOpen?: boolean;
+}) {
   return (
-    <details className="card" style={{ marginBottom: 12 }}>
+    <details id={id} className="card" open={defaultOpen} style={{ marginBottom: 12, scrollMarginTop: 82 }}>
       <summary className="hd" style={{ cursor: "pointer", listStyle: "none" }}>
         {icon}
         <h3>{title}</h3>
@@ -108,7 +125,17 @@ export function NewLoadForm({ returnTo }: { returnTo: string }) {
   );
 }
 
-export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; goats: ProcurementLoadGoat[]; returnTo: string }) {
+export function LoadWriteActions({
+  loadId,
+  goats,
+  hfEvidence = [],
+  returnTo,
+}: {
+  loadId: string;
+  goats: ProcurementLoadGoat[];
+  hfEvidence?: ProcurementHFVaccinationEvidence[];
+  returnTo: string;
+}) {
   // Per-goat source health + pre-dispatch decision belong to goats still inside source entry — not to
   // terminal (rejected/dead/sold/lost) or already-accepted-intake goats.
   const actionableGoats = goats.filter((g) => !isProcurementHistoryOnly(g.current_state) && !isAcceptedIntake(g.current_state));
@@ -159,6 +186,14 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
                 ))}
               </select>
             </div>
+            <div className="fld" style={{ flex: 1, minWidth: 150 }}>
+              <label>Purpose</label>
+              <select name="purpose" defaultValue="unspecified">
+                {PURPOSE_OPTIONS.map((o) => (
+                  <option key={o} value={o}>{o.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ width: 140 }}>
@@ -175,6 +210,139 @@ export function LoadWriteActions({ loadId, goats, returnTo }: { loadId: string; 
             Add source goat
           </button>
         </form>
+      </Disclosure>
+
+      {/* Holding-farm vaccination evidence — this is the mock's supplier-warmup vaccination action surface.
+          It stays in Procurement Source Entry, not PHC / Vaccination. Imported+trusted evidence is later
+          consumed by the accepted-intake handoff/no-double-dose path. */}
+      <Disclosure
+        id="hf-evidence"
+        defaultOpen
+        icon={<HeartPulse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
+        title="Holding-farm vaccination evidence"
+      >
+        {goats.length === 0 ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            Add source goats first. HF dose evidence must be keyed to a goat in this procurement load.
+          </p>
+        ) : (
+          <div style={{ display: "grid", gap: 14 }}>
+            <form action={recordHFVaccinationEvidenceAction} style={{ maxWidth: 780 }}>
+              <IdempotencyKeyField />
+              <input type="hidden" name="return_to" value={returnTo} />
+              <input type="hidden" name="load_id" value={loadId} />
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div className="fld" style={{ flex: 1, minWidth: 190 }}>
+                  <label>Goat in load</label>
+                  <select name="goat_id" required aria-label="Goat in load">
+                    {goats.map((goat) => (
+                      <option key={goat.load_goat_id} value={goat.goat_id}>
+                        {goatLabel(goat)} · {goat.purpose.replace(/_/g, " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="fld" style={{ flex: 1, minWidth: 180 }}>
+                  <label>Dose code</label>
+                  <input name="dose_code" required placeholder="e.g. PPR" />
+                </div>
+                <div className="fld" style={{ flex: 1, minWidth: 190 }}>
+                  <label>Administered at HF</label>
+                  <input name="administered_at" type="datetime-local" required aria-label="Administered at HF" />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div className="fld" style={{ flex: 1, minWidth: 220 }}>
+                  <label>Protocol version id</label>
+                  <input name="protocol_version_id" required placeholder="vaccination protocol version uuid" />
+                </div>
+                <div className="fld" style={{ flex: 1, minWidth: 220 }}>
+                  <label>Rule id</label>
+                  <input name="rule_id" required placeholder="protocol rule uuid" />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div className="fld" style={{ flex: 1, minWidth: 180 }}>
+                  <label>Vaccine name</label>
+                  <input name="vaccine_name" placeholder="optional" />
+                </div>
+                <div className="fld" style={{ flex: 1, minWidth: 160 }}>
+                  <label>Lot number</label>
+                  <input name="lot_number" placeholder="optional" />
+                </div>
+                <div className="fld" style={{ flex: 1, minWidth: 200 }}>
+                  <label>Proof ref id</label>
+                  <input name="proof_ref_id" placeholder="cold-chain / video proof uuid" />
+                </div>
+              </div>
+              <div className="fld">
+                <label>Source ref</label>
+                <input name="source_ref" placeholder="supplier bill / field-app ref / sheet row" />
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button type="submit" className="btn p">Import HF dose evidence</button>
+                <DisabledMediaProof />
+              </div>
+            </form>
+
+            {hfEvidence.length === 0 ? (
+              <div className="note" style={{ margin: 0 }}>
+                No HF vaccination evidence imported for this load yet.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="HF vaccination evidence">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Goat</th>
+                      <th>Dose</th>
+                      <th>Administered</th>
+                      <th>Evidence</th>
+                      <th>Review</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hfEvidence.map((evidence) => (
+                      <tr key={evidence.evidence_id}>
+                        <td>
+                          <span className="gid">{evidence.goat_id.slice(0, 8)}</span>
+                        </td>
+                        <td>
+                          <b>{evidence.dose_code}</b>
+                          <div className="muted small">{evidence.vaccine_name || "vaccine name not set"}</div>
+                        </td>
+                        <td className="muted">{fmtDate(evidence.administered_at)}</td>
+                        <td className="muted small">
+                          {evidence.proof_ref_id ? `proof ${evidence.proof_ref_id.slice(0, 8)}` : "proof ref not set"}
+                        </td>
+                        <td>
+                          {evidence.review_status === "trusted" ? (
+                            <span className="muted small">trusted · locked</span>
+                          ) : (
+                            <form action={reviewHFVaccinationEvidenceAction} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <IdempotencyKeyField />
+                              <input type="hidden" name="return_to" value={returnTo} />
+                              <input type="hidden" name="load_id" value={loadId} />
+                              <input type="hidden" name="evidence_id" value={evidence.evidence_id} />
+                              <input type="hidden" name="expected_row_version" value={evidence.row_version} />
+                              <select name="review_status" defaultValue="trusted" className="tsize" aria-label="HF evidence review status">
+                                {HF_REVIEW_OPTIONS.map((option) => (
+                                  <option key={option} value={option}>{option}</option>
+                                ))}
+                              </select>
+                              <input name="review_reason" placeholder="reason" style={{ maxWidth: 170 }} />
+                              <button type="submit" className="btn sm">Review</button>
+                            </form>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </Disclosure>
 
       {/* Pre-dispatch section — per-goat source health + accept/reject-before-truck/defer/block. */}

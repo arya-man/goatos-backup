@@ -296,6 +296,12 @@ func (f *fakeRepo) RecordSourceHealth(_ context.Context, in ports.SourceHealth) 
 func (f *fakeRepo) RecordDecision(_ context.Context, in ports.Decision) (domain.Decision, error) {
 	return domain.Decision{LoadID: in.LoadID, GoatID: in.GoatID, DecisionType: in.DecisionType, Replayed: f.replay}, nil
 }
+func (f *fakeRepo) RecordHFVaccinationEvidence(_ context.Context, in ports.HFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	return domain.HFVaccinationEvidence{LoadID: in.LoadID, GoatID: in.GoatID, ProtocolVersionID: in.ProtocolVersionID, RuleID: in.RuleID, DoseCode: in.DoseCode, ReviewStatus: domain.HFVaccinationReviewImported}, nil
+}
+func (f *fakeRepo) ReviewHFVaccinationEvidence(_ context.Context, in ports.ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	return domain.HFVaccinationEvidence{EvidenceID: in.EvidenceID, ReviewStatus: in.ReviewStatus}, nil
+}
 func (f *fakeRepo) DispatchLoad(_ context.Context, in ports.DispatchLoad) (domain.TransitHandoff, error) {
 	return domain.TransitHandoff{LoadID: in.LoadID, LoadedCount: len(in.GoatIDs)}, nil
 }

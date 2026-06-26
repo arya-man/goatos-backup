@@ -25,11 +25,14 @@ import type {
   ProcurementLoadGoatResponse,
   ProcurementLoadListResponse,
   ProcurementLoadResponse,
+  ProcurementHFVaccinationEvidenceResponse,
   ProcurementSourceHealthResponse,
   ProcurementTransitHandoffResponse,
+  RecordProcurementHFVaccinationEvidenceRequest,
   RecordProcurementArrivalReviewRequest,
   RecordProcurementDecisionRequest,
   RecordProcurementSourceHealthRequest,
+  ReviewProcurementHFVaccinationEvidenceRequest,
 } from "@/lib/api/procurement";
 
 // NOTE: command lenses are TOP-LEVEL for every vertical. Procurement Action Center / Protocol Adherence /
@@ -99,6 +102,44 @@ export async function addProcurementLoadGoat(
   const path = `/procurement/source-entry/loads/${encodeURIComponent(loadId)}/goats` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<ProcurementLoadGoatResponse>(path, { method: "POST", cache: "no-store", headers: idempotentHeaders(idempotencyKey), body }),
+  );
+}
+
+export async function recordProcurementHFVaccinationEvidence(
+  goatId: string,
+  body: RecordProcurementHFVaccinationEvidenceRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<ProcurementHFVaccinationEvidenceResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/procurement/source-entry/goats/${encodeURIComponent(goatId)}/hf-vaccination-evidence` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<ProcurementHFVaccinationEvidenceResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function reviewProcurementHFVaccinationEvidence(
+  evidenceId: string,
+  body: ReviewProcurementHFVaccinationEvidenceRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<ProcurementHFVaccinationEvidenceResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/procurement/source-entry/hf-vaccination-evidence/${encodeURIComponent(evidenceId)}/review` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<ProcurementHFVaccinationEvidenceResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
   );
 }
 

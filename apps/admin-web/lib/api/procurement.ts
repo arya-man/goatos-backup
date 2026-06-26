@@ -15,6 +15,10 @@ export type DispatchProcurementLoadRequest = AdminApiComponents["schemas"]["Disp
 export type RecordProcurementArrivalReviewRequest = AdminApiComponents["schemas"]["RecordProcurementArrivalReviewRequest"];
 export type ProcurementArrivalGoatRequest = AdminApiComponents["schemas"]["ProcurementArrivalGoatRequest"];
 export type AcceptProcurementIntakeRequest = AdminApiComponents["schemas"]["AcceptProcurementIntakeRequest"];
+export type RecordProcurementHFVaccinationEvidenceRequest =
+  AdminApiComponents["schemas"]["RecordProcurementHFVaccinationEvidenceRequest"];
+export type ReviewProcurementHFVaccinationEvidenceRequest =
+  AdminApiComponents["schemas"]["ReviewProcurementHFVaccinationEvidenceRequest"];
 
 // Loads + load detail.
 export type ProcurementLoad = AdminApiComponents["schemas"]["ProcurementLoad"];
@@ -23,6 +27,8 @@ export type ProcurementLoadDetail = AdminApiComponents["schemas"]["ProcurementLo
 export type ProcurementLoadDetailResponse = AdminApiComponents["schemas"]["ProcurementLoadDetailResponse"];
 export type ProcurementLoadResponse = AdminApiComponents["schemas"]["ProcurementLoadResponse"];
 export type ProcurementLoadGoatResponse = AdminApiComponents["schemas"]["ProcurementLoadGoatResponse"];
+export type ProcurementHFVaccinationEvidenceResponse =
+  AdminApiComponents["schemas"]["ProcurementHFVaccinationEvidenceResponse"];
 export type ProcurementSourceHealthResponse = AdminApiComponents["schemas"]["ProcurementSourceHealthResponse"];
 export type ProcurementDecisionResponse = AdminApiComponents["schemas"]["ProcurementDecisionResponse"];
 export type ProcurementTransitHandoffResponse = AdminApiComponents["schemas"]["ProcurementTransitHandoffResponse"];
@@ -37,6 +43,7 @@ export type ProcurementArrivalReview = AdminApiComponents["schemas"]["Procuremen
 export type ProcurementArrivalGoat = AdminApiComponents["schemas"]["ProcurementArrivalGoat"];
 export type ProcurementPHCHandoff = AdminApiComponents["schemas"]["ProcurementPHCHandoff"];
 export type ProcurementTimelineEvent = AdminApiComponents["schemas"]["ProcurementTimelineEvent"];
+export type ProcurementHFVaccinationEvidence = AdminApiComponents["schemas"]["ProcurementHFVaccinationEvidence"];
 
 // Process-integrity lenses (Action Center / Adherence / Control Tower / Workflows).
 export type ProcurementWorkRow = AdminApiComponents["schemas"]["ProcurementWorkRow"];
@@ -60,3 +67,6 @@ export type ProcurementGoatState = AdminApiComponents["schemas"]["ProcurementGoa
 export type ProcurementOwnershipState = AdminApiComponents["schemas"]["ProcurementOwnershipState"];
 export type ProcurementHealthState = AdminApiComponents["schemas"]["ProcurementHealthState"];
 export type ProcurementArrivalState = AdminApiComponents["schemas"]["ProcurementArrivalState"];
+export type ProcurementPurpose = AdminApiComponents["schemas"]["ProcurementPurpose"];
+export type ProcurementHFVaccinationReviewStatus =
+  AdminApiComponents["schemas"]["ProcurementHFVaccinationReviewStatus"];
