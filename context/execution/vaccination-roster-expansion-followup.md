@@ -25,24 +25,35 @@ Classify each of `PPR`, `FMD`, `HS`, `BQ` and add source-backed
 schedule-bearing vaccination protocol rows only for the vaccines with sufficient
 schedule evidence.
 
-Sufficient evidence means the source gives enough of the following to generate
-obligations honestly:
+For this follow-up, `schedule-backed` requires these mandatory fields:
 
+- goat applicability: target species, plus any stage/age/lifecycle/sex/breed
+  eligibility constraints the source gives
 - canonical vaccine name and aliases
-- target species and eligibility stage/age/lifecycle/sex/breed, if constrained
 - trigger type: `birth_age`, `post_arrival`, `calendar`,
   `after_previous_completion`, or `manual_campaign`
 - offset day/date and due window
-- booster interval, repeat policy, catch-up policy, and missed-dose policy
-- dose amount/unit, route/site, withdrawal days if applicable
-- proof requirements and executable SOP version
+- dose amount/unit, or an explicit source-backed reason dose is not required for
+  the chosen execution path
+- booster/repeat/catch-up/missed-dose policy, or an explicit source-backed
+  statement that there is no booster/repeat path
+- proof requirements and executable SOP binding
+- publishable source metadata: `source_system` in `vaccinations_db`, `phc`, or
+  `vet`; `source_ref`; `review_status=approved`; `approved_by`; `approved_at`
+
+Other useful source fields to capture when present:
+
+- route/site, withdrawal days if applicable
 - inventory item and lot requirements if execution proof consumes stock
-- source metadata: `source_system`, `source_ref`, `review_status`,
-  `approved_by`, `approved_at`
 
 If a source only names a vaccine but does not give timing/dose/booster details,
 record `label-only closed` for that vaccine and stop. That is a completed
 outcome for this pass, not a pending blocker. Do not invent a protocol row.
+
+If a source gives timing/dose values but does not carry publishable approval
+metadata, create at most a draft/reviewed candidate row and verify the backend
+publish gate rejects it. Do not publish it and do not generate obligations from
+it until `rule_dsl.source` satisfies the backend gate.
 
 ## Closure rule
 
@@ -98,7 +109,9 @@ For each source-backed vaccine schedule:
     deterministic rows, not duplicate them.
 11. Keep tenant and scope explicit. Use tenant scope only when the source is
     genuinely tenant-wide; otherwise use park/shed scope.
-12. Never mutate Cloud SQL or prod/stg from this follow-up session unless the
+12. Seed/import helper commands must pass the shared local/dev target guard
+    (`localtarget.ValidateLocalDatabaseTarget`) before opening a DB pool.
+13. Never mutate Cloud SQL or prod/stg from this follow-up session unless the
     user explicitly asks and the Google org/project/account are verified first.
 
 ## UI/UX expectation
@@ -117,6 +130,8 @@ Existing surfaces should consume the new rows:
 Do only a small admin-web QA pass after backend/config work:
 
 - multiple protocols render without hardcoded labels
+- existing display/sort helpers must not add new hardcoded PPR/FMD/HS/BQ
+  vaccine-order lists; prefer backend protocol names and data-driven ordering
 - long vaccine names do not overflow tables/cards
 - status chips still reflect source-backed/draft/published state
 - matrix/table columns come from backend data, not UI constants
@@ -134,6 +149,8 @@ Source quality:
   rule, no pending item
 - schedule has timing but no dose: allow generation only if dose is not required
   for the chosen execution path; otherwise keep draft/not source-backed
+- schedule has timing/dose but no approved source metadata: draft/reviewed only;
+  verify publish rejection and do not generate obligations
 - source says "annual" without start age: require explicit start trigger or
   keep draft
 - source conflicts with ET baseline or another source: create a new version only
@@ -247,15 +264,20 @@ Minimum checks for a roster expansion session:
 
 ```text
 In /Users/ravi/mesha/goatos, close the optional PHC vaccination roster expansion
-for PPR/FMD/HS/BQ. Start by reading AGENTS.md, SKILLS.md, context/README.md,
-docs/phases/README.md, context/source-findings/phc-vaccination-roster-stage-proposal.md,
-and context/execution/vaccination-roster-expansion-followup.md. Use Graphify/wiki/
+for PPR/FMD/HS/BQ. Follow AGENTS.md graph-first lookup before raw reads: CRG,
+Mesha docs/visual Graphify, and goatos-docs Graphify. Then read AGENTS.md,
+SKILLS.md, context/README.md, docs/phases/README.md,
+context/source-findings/phc-vaccination-roster-stage-proposal.md, and
+context/execution/vaccination-roster-expansion-followup.md. Use Graphify/wiki/
 SOP/legacy sources first; cite exact source paths. For each vaccine, end in one
-closed state: schedule-backed if source evidence gives real timing/dose/booster
-values, or label-only closed if sources only name the vaccine. Reuse the existing
-protocol engine, publish gate, SOP binding, generation, sweeper, inventory,
-proof, and verification path. Do not hardcode UI vaccine columns or invent
-schedules from labels. Add idempotent source-backed seed/import/config rows only
-for schedule-backed vaccines, verify generation/replay/sweeper/proof/read-models,
-and update docs with the final state for all four vaccines.
+closed state: schedule-backed only if source evidence gives real timing/dose/
+booster values and publishable approval metadata, or label-only closed if sources
+only name the vaccine. If timing/dose exists without approval metadata, create at
+most a draft/reviewed candidate, verify publish rejection, and do not generate
+obligations. Reuse the existing protocol engine, publish gate, SOP binding,
+generation, sweeper, inventory, proof, and verification path. Do not hardcode UI
+vaccine columns or invent schedules from labels. Add idempotent source-backed
+seed/import/config rows only for schedule-backed vaccines, verify generation/
+replay/sweeper/proof/read-models, and update docs with the final state for all
+four vaccines.
 ```

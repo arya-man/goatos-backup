@@ -67,6 +67,8 @@ awk '/-- \+goose Up/{u=1} /-- \+goose Down/{u=0} u' \
   | psql "postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable" -v ON_ERROR_STOP=1
 # Seed (idempotent): actor grant + source-derived ET dev baseline.
 cd backend
+export GOATOS_ENV=local
+export DATABASE_URL="postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable"
 go run ./cmd/seed-dev-grant -tenant-id <tenant> -user-id <user> -role ceo_internal
 go run ./cmd/seed-vaccination-trigger              # protocol/inventory/SOP/lot fixtures
 ```

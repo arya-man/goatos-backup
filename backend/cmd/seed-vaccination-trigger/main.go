@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -44,6 +45,9 @@ func run(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	pgCfg := platformpg.ConfigFromEnv()
+	if err := validateTarget(os.Getenv("GOATOS_ENV"), pgCfg.DatabaseURL); err != nil {
+		return err
+	}
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return err
@@ -80,6 +84,10 @@ func getenv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func validateTarget(env, databaseURL string) error {
+	return localtarget.ValidateLocalDatabaseTarget("seed-vaccination-trigger", env, databaseURL, "local", "dev", "test")
 }
 
 const seedSQL = `

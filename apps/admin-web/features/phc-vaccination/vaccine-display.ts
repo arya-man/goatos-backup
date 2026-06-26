@@ -1,31 +1,40 @@
 import type { VaccinationOperationsProtocol } from "@/lib/api/server";
 
-const VACCINE_COLUMNS = [
-  { key: "ppr", label: "PPR" },
-  { key: "fmd", label: "FMD" },
-  { key: "enterotox", label: "ENTEROTOX" },
-  { key: "deworm", label: "DEWORM" },
-  { key: "ccpp", label: "CCPP" },
-] as const;
+const TEST_ONLY_LABEL_RE = /\s*\(test-only local development\)\s*/gi;
+const SEED_SUFFIX_RE = /\s*(?:-|\u2013)\s*seed_[a-z0-9]+-[a-z0-9_]+/gi;
+const DOSE_RE = /\b(primary|booster[\s_-]?\d*|annual|catch[\s_-]?up)\b/i;
+const DOSE_STRIP_RE = /(?:^|[\s_-]+)(primary|booster[\s_-]?\d*|annual|catch[\s_-]?up)(?:[\s_-]*\d+)?(?=$|[\s_-]+)/gi;
 
 function normalizedProtocolName(protocol: VaccinationOperationsProtocol): string {
-  return protocol.name.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  return protocol.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function vaccineColumnKey(protocol: VaccinationOperationsProtocol): string {
-  const normalized = normalizedProtocolName(protocol);
-  if (normalized.includes("ppr")) return "ppr";
-  if (normalized.includes("fmd")) return "fmd";
-  if (normalized.includes("enterotox")) return "enterotox";
-  if (normalized.includes("deworm")) return "deworm";
-  if (normalized.includes("ccpp")) return "ccpp";
-  return normalized.trim();
+function cleanDisplayLabel(raw: string): string {
+  return raw
+    .replace(TEST_ONLY_LABEL_RE, " ")
+    .replace(SEED_SUFFIX_RE, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactDisplayLabel(raw: string): string {
+  const cleaned = cleanDisplayLabel(raw);
+  if (!cleaned) return "";
+  return /^[a-z0-9]{2,5}$/i.test(cleaned) ? cleaned.toUpperCase() : cleaned;
+}
+
+function doseLabel(raw: string): string {
+  const match = raw.match(DOSE_RE);
+  return match
+    ? match[1]
+        .replace(/[\s_-]+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (m) => m.toUpperCase())
+    : "";
 }
 
 export function vaccinationProtocolDisplayName(protocol: VaccinationOperationsProtocol): string {
-  const key = vaccineColumnKey(protocol);
-  const column = VACCINE_COLUMNS.find((candidate) => candidate.key === key);
-  return column?.label ?? protocol.name.replace(/\s*\(test-only local development\)\s*/gi, "").trim();
+  return compactDisplayLabel(protocol.name) || normalizedProtocolName(protocol) || "Vaccination protocol";
 }
 
 // Clean a raw drive/protocol display string (e.g. "FMD (TEST-ONLY local development) - seed_fmd-PRIMARY")
@@ -34,34 +43,15 @@ export function vaccinationProtocolDisplayName(protocol: VaccinationOperationsPr
 export function vaccinationDriveDisplayName(raw: string | undefined | null): string {
   const source = (raw ?? "").trim();
   if (!source) return "Vaccination drive";
-  const lower = source.toLowerCase();
-  const column = VACCINE_COLUMNS.find((c) => lower.includes(c.key) || (c.key === "enterotox" && lower.includes("enterotox")));
-  const doseMatch = source.match(/\b(primary|booster[\s_-]?\d*|annual|catch[\s_-]?up)\b/i);
-  const dose = doseMatch
-    ? doseMatch[1]
-        .replace(/[\s_-]+/g, " ")
-        .trim()
-        .replace(/\b\w/g, (m) => m.toUpperCase())
-    : "";
-  if (column) return dose ? `${column.label} · ${dose}` : column.label;
-  // No known vaccine keyword (e.g. "Trigger Gate PHC Vaccination"): strip only the TEST-ONLY/seed noise.
-  const cleaned = source
-    .replace(/\s*\(test-only local development\)\s*/gi, " ")
-    .replace(/\s*[-–]\s*seed_[a-z0-9]+-[a-z0-9_]+/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned || "Vaccination drive";
+  const dose = doseLabel(source);
+  const labelWithoutDose = cleanDisplayLabel(source).replace(DOSE_STRIP_RE, " ").replace(/\s+/g, " ").trim();
+  const label = compactDisplayLabel(labelWithoutDose);
+  if (label && dose) return `${label} · ${dose}`;
+  if (label) return label;
+  if (dose) return dose;
+  return compactDisplayLabel(source) || "Vaccination drive";
 }
 
 export function sortVaccinationProtocols(protocols: VaccinationOperationsProtocol[]): VaccinationOperationsProtocol[] {
-  return [...protocols].sort((a, b) => {
-    const aKey = vaccineColumnKey(a);
-    const bKey = vaccineColumnKey(b);
-    const aIndex = VACCINE_COLUMNS.findIndex((column) => column.key === aKey);
-    const bIndex = VACCINE_COLUMNS.findIndex((column) => column.key === bKey);
-    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-    if (aIndex !== -1) return -1;
-    if (bIndex !== -1) return 1;
-    return vaccinationProtocolDisplayName(a).localeCompare(vaccinationProtocolDisplayName(b));
-  });
+  return [...protocols].sort((a, b) => vaccinationProtocolDisplayName(a).localeCompare(vaccinationProtocolDisplayName(b)));
 }
