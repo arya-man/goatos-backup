@@ -54,6 +54,17 @@
   .top .sp{flex:1}
   .parkpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px}
   .scopechips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 18px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel) 60%,transparent)}.schip{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--muted)}.schip.on{border-color:var(--brand);color:var(--brand)}
+  /* in-app back / breadcrumb trail (shows when you drilled into a screen) */
+  .navback{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;padding:7px 18px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:saturate(1.2) blur(6px)}
+  .nbback{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 11px 5px 8px;font:inherit;font-weight:650;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap}
+  .nbback:hover{border-color:var(--brand);color:var(--brand-d)}
+  .nbback .ic{width:15px;transform:rotate(180deg)}
+  .nbtrail{display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0;font-size:12px;color:var(--muted)}
+  .nbtrail .nbc{cursor:pointer;color:var(--muted);border-radius:6px;padding:2px 6px;white-space:nowrap}
+  .nbtrail .nbc:hover{background:var(--bg);color:var(--brand-d)}
+  .nbtrail .nbc.cur{color:var(--ink);font-weight:650;cursor:default}
+  .nbtrail .nbc.cur:hover{background:transparent}
+  .nbtrail .nbsep{width:11px;height:11px;color:var(--faint);flex:none}
 .scopebadge{display:inline-flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--brand) 16%,var(--panel));color:var(--brand-d);border:1px solid var(--line);border-radius:9px;padding:3px 10px;font-weight:700;font-size:12px;margin-left:10px;vertical-align:middle;white-space:nowrap}
   .scopebadge.park{background:color-mix(in srgb,var(--info) 16%,var(--panel));color:var(--info)}
   .scopetabs{padding:2px}
@@ -686,7 +697,7 @@
   </aside>
 
   <!-- ============ MAIN ============ -->
-  <main class="main"><div id="scopeChips" class="scopechips"></div><div class="wrap">
+  <main class="main"><div id="scopeChips" class="scopechips"></div><div id="navback" class="navback" style="display:none"></div><div class="wrap">
 
     <!-- ===== OVERVIEW ===== -->
     <section class="screen on" data-screen="command">
@@ -2044,7 +2055,7 @@ function applyScope(scope){
   else{sel.style.display='none';chip.style.display='flex';const a=L[scope]||['Org-wide','i-flow'];document.getElementById('scopeChipLbl').textContent=a[0];chip.querySelector('use').setAttribute('href','#'+a[1]);}
 }
 /* ---------- navigation ---------- */
-function go(screen,sub){var _R=(typeof ROLES!=='undefined'&&typeof CUR_ROLE!=='undefined')?ROLES[CUR_ROLE]:null;if(_R&&_R.screens!=='all'&&screen!=='passport'&&_R.screens.indexOf(screen)<0){var _vk=['counts','health','breeding','procurement','farmernet','parks'];screen=(_R.screens.filter(function(x){return _vk.indexOf(x)>=0;})[0])||_R.screens[0];sub=null;}
+function go(screen,sub,_mode){var _R=(typeof ROLES!=='undefined'&&typeof CUR_ROLE!=='undefined')?ROLES[CUR_ROLE]:null;if(_R&&_R.screens!=='all'&&screen!=='passport'&&_R.screens.indexOf(screen)<0){var _vk=['counts','health','breeding','procurement','farmernet','parks'];screen=(_R.screens.filter(function(x){return _vk.indexOf(x)>=0;})[0])||_R.screens[0];sub=null;}
   const scr=document.querySelector('.screen[data-screen="'+screen+'"]');
   document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('on',x===scr));
   if(scr){const subs=scr.querySelectorAll('.subpanel');
@@ -2069,7 +2080,41 @@ function go(screen,sub){var _R=(typeof ROLES!=='undefined'&&typeof CUR_ROLE!=='u
   var _rc=document.getElementById('rangeCtl');if(_rc&&scr){var _has=scr.querySelector('.subpanel')?scr.querySelector('.subpanel.on .chartcard'):scr.querySelector('.chartcard');_rc.style.display=_has?'':'none';}
   var sc=document.getElementById('scopeCtl');if(sc){sc.style.display='inline-flex';sc.style.opacity=(typeof SCOPE_MODE!=='undefined'&&SCOPE_MODE==='company')?'0.6':'1';}if(typeof injectScopeBadges==='function')injectScopeBadges();
   if(typeof afterGo==='function')afterGo(screen,sub);document.querySelector('.main').scrollTop=0; closeAll();
+  /* ---- in-app back-stack bookkeeping (sub is now resolved) ---- */
+  var _tgt={screen:screen,sub:sub||null,label:navLabelFor(screen,sub)};
+  if(_mode!=='back'){
+    if(NAV_CUR&&(NAV_CUR.screen!==_tgt.screen||NAV_CUR.sub!==_tgt.sub)){
+      NAV_STACK.push(NAV_CUR);if(NAV_STACK.length>24)NAV_STACK.shift();
+      try{history.pushState({nb:NAV_STACK.length},'');}catch(e){}
+    }
+  }
+  NAV_CUR=_tgt;renderNavBack();
 }
+/* ===== in-app navigation back-stack + breadcrumb ===== */
+var NAV_CUR=null,NAV_STACK=[];
+function navLabelFor(screen,sub){
+  var el=null;
+  if(sub)el=document.querySelector('.leaf[data-go="'+screen+'"][data-sub="'+sub+'"]');
+  if(!el)el=document.querySelector('.leaf[data-go="'+screen+'"]');
+  if(!el)el=document.querySelector('.nav[data-go="'+screen+'"]');
+  if(!el)return screen;
+  var c=el.cloneNode(true);
+  c.querySelectorAll('.cbq,.qc,.pill,.dot,svg').forEach(function(x){x.remove();});
+  var t=c.textContent.replace(/\s+/g,' ').trim();
+  return t||screen;
+}
+function renderNavBack(){
+  var bar=document.getElementById('navback');if(!bar)return;
+  if(!NAV_STACK.length){bar.style.display='none';bar.innerHTML='';return;}
+  bar.style.display='flex';
+  var prev=NAV_STACK[NAV_STACK.length-1];
+  var crumbs=NAV_STACK.map(function(s,i){return '<span class="nbc" onclick="navJump('+i+')" title="Back to '+escA(s.label)+'">'+escA(s.label)+'</span>';}).join('<svg class="ic nbsep"><use href="#i-chev"/></svg>');
+  bar.innerHTML='<button class="nbback" onclick="navBack()" title="Back to '+escA(prev.label)+'"><svg class="ic"><use href="#i-chev"/></svg>Back</button>'
+    +'<div class="nbtrail">'+crumbs+'<svg class="ic nbsep"><use href="#i-chev"/></svg><span class="nbc cur">'+escA((NAV_CUR&&NAV_CUR.label)||'')+'</span></div>';
+}
+function navBack(){if(NAV_STACK.length)history.back();}
+function navJump(i){if(i<NAV_STACK.length)history.go(-(NAV_STACK.length-i));}
+window.addEventListener('popstate',function(){if(NAV_STACK.length){var t=NAV_STACK.pop();go(t.screen,t.sub,'back');}});
 function toggleNav(){
   if(window.innerWidth>860){document.querySelector('.layout').classList.toggle('rail');return;}
   const s=document.getElementById('side'),sc=document.getElementById('navscrim'),o=!s.classList.contains('open');s.classList.toggle('open',o);sc.classList.toggle('on',o);
