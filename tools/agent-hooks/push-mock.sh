@@ -22,6 +22,14 @@ if git diff --quiet -- "$F" && git diff --cached --quiet -- "$F"; then
   exit 0
 fi
 
+# HARD GATE: never push a mock whose clicks are broken. A bad inline script
+# kills every handler, so verify syntax + headless click-smoke first. Block on
+# failure (do NOT commit/push) and print loudly so the agent fixes it.
+if ! "$REPO/tools/agent-hooks/check-mock.sh"; then
+  echo "[push-mock] ABORT — mock failed click validation; not committing/pushing." >&2
+  exit 1
+fi
+
 git add "$F" || exit 0
 git commit -q -m "chore: update ops-console mock (auto)" -- "$F" || exit 0
 
