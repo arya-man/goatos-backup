@@ -784,6 +784,24 @@ ORDER BY recorded_at DESC, audit_id DESC
 LIMIT 50;"
 }
 
+validate_calendar_vaccination_plans() {
+  explain_must_use_index "CalendarVaccinationWidestList" 'Seq Scan on calendar_event_projections' "EXPLAIN (COSTS OFF)
+SELECT event_id, event_type, owner_key, title, status, severity, due_at
+FROM calendar_event_projections
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND slice_key = 'vaccination'
+  AND system = false
+  AND due_at >= TIMESTAMPTZ '2026-06-27 00:00:00+00'
+  AND due_at < TIMESTAMPTZ '2026-08-12 00:00:00+00'
+  AND (''::text = '' OR owner_key = ''::text)
+  AND (''::text = '' OR status = ''::text)
+  AND (''::text = '' OR park_id = nullif(''::text, '')::uuid)
+  AND (''::text = '' OR shed_id = nullif(''::text, '')::uuid)
+  AND (NULL::timestamptz IS NULL OR (due_at, event_id) > (NULL::timestamptz, ''::text))
+ORDER BY due_at ASC, event_id ASC
+LIMIT 200;"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -813,5 +831,6 @@ validate_feed_review_queue_plan
 validate_feed_shed_history_plan
 validate_procurement_source_entry_plans
 validate_operations_audit_plans
+validate_calendar_vaccination_plans
 
 echo "Validated current hot-path query plans"

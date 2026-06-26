@@ -23,6 +23,7 @@ tags:
   - name: Workflows
   - name: Proof Media
   - name: Vaccination
+  - name: Calendar
   - name: Vaccination Passport
 paths:
   /admin/tasks/review-fanouts/retry:
@@ -1258,6 +1259,209 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events:
+    get:
+      tags:
+        - Calendar
+      operationId: listCalendarVaccinationEvents
+      summary: List bounded Calendar events for the PHC vaccination slice.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: owner_key
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CalendarOwnerFilter"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CalendarStatus"
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive date; API rejects ranges greater than 45 days.
+          schema:
+            type: string
+            format: date
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: Calendar events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEventListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events/{event_id}:
+    get:
+      tags:
+        - Calendar
+      operationId: getCalendarVaccinationEvent
+      summary: Get one Calendar event with vaccination-specific sidebar detail.
+      parameters:
+        - $ref: "#/components/parameters/CalendarEventId"
+      responses:
+        "200":
+          description: Calendar event detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEventDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events/{event_id}/history:
+    get:
+      tags:
+        - Calendar
+      operationId: getCalendarVaccinationEventHistory
+      summary: Get audit, reminder, nudge, snooze, proof, and verification history for one Calendar event.
+      parameters:
+        - $ref: "#/components/parameters/CalendarEventId"
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Calendar event history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarHistoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events/{event_id}/nudge:
+    post:
+      tags:
+        - Calendar
+      operationId: sendCalendarVaccinationEventNudge
+      summary: Idempotently queue a nudge notification for a Calendar event.
+      parameters:
+        - $ref: "#/components/parameters/CalendarEventId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarNudgeRequest"
+      responses:
+        "200":
+          description: Nudge queued or replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events/{event_id}/snooze:
+    post:
+      tags:
+        - Calendar
+      operationId: snoozeCalendarVaccinationEvent
+      summary: Idempotently record a durable snooze for a Calendar event.
+      parameters:
+        - $ref: "#/components/parameters/CalendarEventId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarSnoozeRequest"
+      responses:
+        "200":
+          description: Snooze recorded or replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/verification-queue:
     get:
       tags:
@@ -1458,6 +1662,14 @@ components:
       schema:
         type: string
         format: uuid
+    CalendarEventId:
+      name: event_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
     ProofId:
       name: proof_id
       in: path
@@ -3272,6 +3484,424 @@ components:
             - string
             - "null"
           format: uuid
+    CalendarOwnerFilter:
+      type: string
+      enum:
+        - all
+        - phc
+        - inventory
+        - admin_data_ops
+    CalendarOwnerKey:
+      type: string
+      enum:
+        - phc
+        - inventory
+        - admin_data_ops
+    CalendarStatus:
+      type: string
+      enum:
+        - scheduled
+        - due
+        - overdue
+        - in_progress
+        - proof_pending
+        - verification_pending
+        - rejected
+        - rework_due
+        - deferred
+        - blocked
+        - completed
+        - canceled
+    CalendarSeverity:
+      type: string
+      enum:
+        - info
+        - warning
+        - critical
+    CalendarEventType:
+      type: string
+      enum:
+        - vaccination_dose_due
+        - vaccination_drive
+        - vaccination_campaign
+        - vaccination_booster_due
+        - vaccination_defer_review
+        - vaccination_evidence_review
+        - vaccination_proof_verification
+        - vaccination_rework_due
+        - vaccine_stock_readiness
+        - vaccine_cold_chain_check
+        - vaccine_reorder_expiry_grn
+        - phc_stock_anti_misuse
+        - vaccination_config_source_approval
+    CalendarJSONBlock:
+      type: object
+      additionalProperties: true
+    CalendarEventLinks:
+      type: object
+      additionalProperties:
+        oneOf:
+          - type: string
+          - type: boolean
+          - type: "null"
+    CalendarEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - event_type
+        - owner_key
+        - title
+        - subtitle
+        - status
+        - severity
+        - due_at
+        - window_start
+        - window_end
+        - timezone
+        - timezone_source
+        - park_id
+        - park_code
+        - shed_id
+        - shed_name
+        - cohort_id
+        - cohort_name
+        - target_type
+        - target_count
+        - protocol_id
+        - protocol_version_id
+        - rule_id
+        - vaccine_name
+        - dose_code
+        - source_backed
+        - source_label
+        - assignee_label
+        - executor_role
+        - verifier_label
+        - reminder_state
+        - primary_notification_channel
+        - escalation_state
+        - system
+        - cross_cutting
+        - links
+      properties:
+        event_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        event_type:
+          $ref: "#/components/schemas/CalendarEventType"
+        owner_key:
+          $ref: "#/components/schemas/CalendarOwnerKey"
+        title:
+          type: string
+        subtitle:
+          type: string
+        status:
+          $ref: "#/components/schemas/CalendarStatus"
+        severity:
+          $ref: "#/components/schemas/CalendarSeverity"
+        due_at:
+          type: string
+          format: date-time
+        window_start:
+          type:
+            - string
+            - "null"
+          format: date-time
+        window_end:
+          type:
+            - string
+            - "null"
+          format: date-time
+        timezone:
+          type: string
+        timezone_source:
+          type: string
+        park_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        park_code:
+          type:
+            - string
+            - "null"
+        shed_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        shed_name:
+          type:
+            - string
+            - "null"
+        cohort_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        cohort_name:
+          type:
+            - string
+            - "null"
+        target_type:
+          type: string
+        target_count:
+          type: integer
+          minimum: 0
+        protocol_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        protocol_version_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        rule_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        vaccine_name:
+          type:
+            - string
+            - "null"
+        dose_code:
+          type:
+            - string
+            - "null"
+        source_backed:
+          type: boolean
+        source_label:
+          type: string
+        assignee_label:
+          type:
+            - string
+            - "null"
+        executor_role:
+          type:
+            - string
+            - "null"
+        verifier_label:
+          type:
+            - string
+            - "null"
+        reminder_state:
+          type: string
+        primary_notification_channel:
+          type: string
+        escalation_state:
+          type: string
+        system:
+          type: boolean
+        cross_cutting:
+          type: boolean
+        links:
+          $ref: "#/components/schemas/CalendarEventLinks"
+    CalendarEventListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - items
+        - next_cursor
+      properties:
+        source:
+          type: string
+          const: api
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarEvent"
+        next_cursor:
+          type:
+            - string
+            - "null"
+    CalendarHistoryItem:
+      type: object
+      additionalProperties: false
+      required:
+        - history_id
+        - event_type
+        - status
+        - title
+        - actor_label
+        - occurred_at
+        - channel
+        - reason
+        - trace_id
+        - source_table
+        - details
+      properties:
+        history_id:
+          type: string
+        event_type:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        actor_label:
+          type:
+            - string
+            - "null"
+        occurred_at:
+          type: string
+          format: date-time
+        channel:
+          type:
+            - string
+            - "null"
+        reason:
+          type:
+            - string
+            - "null"
+        trace_id:
+          type:
+            - string
+            - "null"
+        source_table:
+          type: string
+        details:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+    CalendarHistoryResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - event_id
+        - items
+        - next_cursor
+      properties:
+        source:
+          type: string
+          const: api
+        event_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarHistoryItem"
+        next_cursor:
+          type:
+            - string
+            - "null"
+    CalendarEventDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - event
+        - summary
+        - source_and_rule
+        - execution
+        - stock
+        - proof
+        - verification
+        - notification_channels
+        - notification_policy
+        - links
+        - recent_actions
+      properties:
+        event:
+          $ref: "#/components/schemas/CalendarEvent"
+        summary:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+        source_and_rule:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+        execution:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+        stock:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+        proof:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+        verification:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+        notification_channels:
+          type: array
+          items:
+            type: string
+        notification_policy:
+          $ref: "#/components/schemas/CalendarJSONBlock"
+        links:
+          $ref: "#/components/schemas/CalendarEventLinks"
+        recent_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarHistoryItem"
+    CalendarNudgeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        channel:
+          type: string
+          enum:
+            - local-stub
+            - push_fcm
+            - slack
+            - email
+            - webhook
+        message:
+          type: string
+          maxLength: 2000
+        reason:
+          type: string
+          maxLength: 1000
+    CalendarSnoozeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - snooze_until
+        - reason
+      properties:
+        snooze_until:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        replace_existing:
+          type: boolean
+          default: false
+    CalendarActionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - action_id
+        - event_id
+        - action_type
+        - status
+        - channel
+        - snooze_until
+        - idempotent_replay
+      properties:
+        action_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+        action_type:
+          type: string
+          enum:
+            - reminder
+            - nudge
+            - snooze
+        status:
+          type: string
+        channel:
+          type:
+            - string
+            - "null"
+        snooze_until:
+          type:
+            - string
+            - "null"
+          format: date-time
+        idempotent_replay:
+          type: boolean
     WorkState:
       type: string
       enum:

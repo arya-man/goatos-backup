@@ -37,6 +37,8 @@ const (
 	ObligationRead            = "obligation.read"
 	VaccinationRead           = "vaccination.read"
 	VaccinationVerify         = "vaccination.verify"
+	CalendarRead              = "calendar.read"
+	CalendarAction            = "calendar.action"
 	ProcurementRead           = "procurement.read"
 	ProcurementWrite          = "procurement.write"
 	ProcurementReview         = "procurement.review"
@@ -51,6 +53,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
 	RoleVerifier: {
@@ -59,6 +62,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {},
 		TaskRead:      {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementReview: {},
 	},
 	RoleParkHead: {
@@ -67,6 +71,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
+		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
 	RoleOperator: {
@@ -80,6 +85,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
 }

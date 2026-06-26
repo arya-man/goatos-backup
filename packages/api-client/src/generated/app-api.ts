@@ -555,6 +555,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendar/vaccination/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List bounded Calendar events for the PHC vaccination slice. */
+        get: operations["listCalendarVaccinationEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/vaccination/events/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one Calendar event with vaccination-specific sidebar detail. */
+        get: operations["getCalendarVaccinationEvent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/vaccination/events/{event_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get audit, reminder, nudge, snooze, proof, and verification history for one Calendar event. */
+        get: operations["getCalendarVaccinationEventHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/vaccination/events/{event_id}/nudge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently queue a nudge notification for a Calendar event. */
+        post: operations["sendCalendarVaccinationEventNudge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/vaccination/events/{event_id}/snooze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently record a durable snooze for a Calendar event. */
+        post: operations["snoozeCalendarVaccinationEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/verification-queue": {
         parameters: {
             query?: never;
@@ -1197,6 +1282,134 @@ export interface components {
             first_result_id?: string | null;
         };
         /** @enum {string} */
+        CalendarOwnerFilter: "all" | "phc" | "inventory" | "admin_data_ops";
+        /** @enum {string} */
+        CalendarOwnerKey: "phc" | "inventory" | "admin_data_ops";
+        /** @enum {string} */
+        CalendarStatus: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "rework_due" | "deferred" | "blocked" | "completed" | "canceled";
+        /** @enum {string} */
+        CalendarSeverity: "info" | "warning" | "critical";
+        /** @enum {string} */
+        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "phc_stock_anti_misuse" | "vaccination_config_source_approval";
+        CalendarJSONBlock: {
+            [key: string]: unknown;
+        };
+        CalendarEventLinks: {
+            [key: string]: string | boolean | null;
+        };
+        CalendarEvent: {
+            event_id: string;
+            event_type: components["schemas"]["CalendarEventType"];
+            owner_key: components["schemas"]["CalendarOwnerKey"];
+            title: string;
+            subtitle: string;
+            status: components["schemas"]["CalendarStatus"];
+            severity: components["schemas"]["CalendarSeverity"];
+            /** Format: date-time */
+            due_at: string;
+            /** Format: date-time */
+            window_start: string | null;
+            /** Format: date-time */
+            window_end: string | null;
+            timezone: string;
+            timezone_source: string;
+            /** Format: uuid */
+            park_id: string | null;
+            park_code: string | null;
+            /** Format: uuid */
+            shed_id: string | null;
+            shed_name: string | null;
+            /** Format: uuid */
+            cohort_id: string | null;
+            cohort_name: string | null;
+            target_type: string;
+            target_count: number;
+            /** Format: uuid */
+            protocol_id: string | null;
+            /** Format: uuid */
+            protocol_version_id: string | null;
+            /** Format: uuid */
+            rule_id: string | null;
+            vaccine_name: string | null;
+            dose_code: string | null;
+            source_backed: boolean;
+            source_label: string;
+            assignee_label: string | null;
+            executor_role: string | null;
+            verifier_label: string | null;
+            reminder_state: string;
+            primary_notification_channel: string;
+            escalation_state: string;
+            system: boolean;
+            cross_cutting: boolean;
+            links: components["schemas"]["CalendarEventLinks"];
+        };
+        CalendarEventListResponse: {
+            /** @constant */
+            source: "api";
+            items: components["schemas"]["CalendarEvent"][];
+            next_cursor: string | null;
+        };
+        CalendarHistoryItem: {
+            history_id: string;
+            event_type: string;
+            status: string;
+            title: string;
+            actor_label: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            channel: string | null;
+            reason: string | null;
+            trace_id: string | null;
+            source_table: string;
+            details: components["schemas"]["CalendarJSONBlock"];
+        };
+        CalendarHistoryResponse: {
+            /** @constant */
+            source: "api";
+            event_id: string;
+            items: components["schemas"]["CalendarHistoryItem"][];
+            next_cursor: string | null;
+        };
+        CalendarEventDetail: {
+            event: components["schemas"]["CalendarEvent"];
+            summary: components["schemas"]["CalendarJSONBlock"];
+            source_and_rule: components["schemas"]["CalendarJSONBlock"];
+            execution: components["schemas"]["CalendarJSONBlock"];
+            stock: components["schemas"]["CalendarJSONBlock"];
+            proof: components["schemas"]["CalendarJSONBlock"];
+            verification: components["schemas"]["CalendarJSONBlock"];
+            notification_channels: string[];
+            notification_policy: components["schemas"]["CalendarJSONBlock"];
+            links: components["schemas"]["CalendarEventLinks"];
+            recent_actions: components["schemas"]["CalendarHistoryItem"][];
+        };
+        CalendarNudgeRequest: {
+            /** @enum {string} */
+            channel?: "local-stub" | "push_fcm" | "slack" | "email" | "webhook";
+            message?: string;
+            reason?: string;
+        };
+        CalendarSnoozeRequest: {
+            /** Format: date-time */
+            snooze_until: string;
+            reason: string;
+            /** @default false */
+            replace_existing: boolean;
+        };
+        CalendarActionResponse: {
+            /** Format: uuid */
+            action_id: string;
+            event_id: string;
+            /** @enum {string} */
+            action_type: "reminder" | "nudge" | "snooze";
+            status: string;
+            channel: string | null;
+            /** Format: date-time */
+            snooze_until: string | null;
+            idempotent_replay: boolean;
+        };
+        /** @enum {string} */
         WorkState: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "owner_missing" | "blocked" | "completed";
         /** @enum {string} */
         ProcessIntegritySeverity: "ok" | "watch" | "at_risk" | "broken";
@@ -1803,6 +2016,7 @@ export interface components {
         ProtocolVersionId: string;
         CompletionId: string;
         ShedId: string;
+        CalendarEventId: string;
         ProofId: string;
     };
     requestBodies: never;
@@ -2759,6 +2973,165 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listCalendarVaccinationEvents: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                owner_key?: components["schemas"]["CalendarOwnerFilter"];
+                status?: components["schemas"]["CalendarStatus"];
+                date_from?: string;
+                /** @description Inclusive date; API rejects ranges greater than 45 days. */
+                date_to?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Calendar events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEventListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCalendarVaccinationEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: components["parameters"]["CalendarEventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Calendar event detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEventDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCalendarVaccinationEventHistory: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                event_id: components["parameters"]["CalendarEventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Calendar event history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarHistoryResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    sendCalendarVaccinationEventNudge: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                event_id: components["parameters"]["CalendarEventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CalendarNudgeRequest"];
+            };
+        };
+        responses: {
+            /** @description Nudge queued or replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    snoozeCalendarVaccinationEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                event_id: components["parameters"]["CalendarEventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarSnoozeRequest"];
+            };
+        };
+        responses: {
+            /** @description Snooze recorded or replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

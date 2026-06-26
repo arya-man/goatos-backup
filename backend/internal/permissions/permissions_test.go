@@ -24,6 +24,13 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleOperator, TaskExecute, true},
 		{RoleOperator, SOPWrite, false},
 		{RoleVerifier, TaskVerify, true},
+		{RoleAdmin, CalendarAction, true},
+		{RoleCEOInternal, CalendarAction, true},
+		{RoleParkHead, CalendarRead, true},
+		{RoleParkHead, CalendarAction, true},
+		{RoleVerifier, CalendarRead, true},
+		{RoleVerifier, CalendarAction, false},
+		{RoleOperator, CalendarRead, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.role+"/"+tt.permission, func(t *testing.T) {
@@ -127,6 +134,11 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/vaccination/operations"},
 		{"GET", "/vaccination/execution"},
 		{"GET", "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001"},
+		{"GET", "/calendar/vaccination/events"},
+		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001"},
+		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/history"},
+		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/nudge"},
+		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/snooze"},
 		{"GET", "/vaccination/verification-queue"},
 		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/accept"},
 		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/reject"},
@@ -135,6 +147,24 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 	for _, route := range implemented {
 		if _, ok := Match(route.method, route.path); !ok {
 			t.Fatalf("implemented route not registered: %s %s", route.method, route.path)
+		}
+	}
+}
+
+func TestCalendarBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/calendar/vaccination/events"},
+		{"GET", "/calendar/vaccination/events/batch:86000000-0000-4000-8000-000000001002:rule:86000000-0000-4000-8000-000000000503:shed:86000000-0000-4000-8000-000000000101"},
+		{"GET", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/history"},
+		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/nudge"},
+		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/snooze"},
+	}
+	for _, route := range routes {
+		if _, ok := Match(route.method, route.path); !ok {
+			t.Fatalf("calendar backend route smoke failed: %s %s is not registered", route.method, route.path)
 		}
 	}
 }
