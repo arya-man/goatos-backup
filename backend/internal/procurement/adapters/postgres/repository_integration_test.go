@@ -100,6 +100,7 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			IdempotencyKey: "hf-evidence-goat",
 		})
 		versionID, ruleID := seedProcurementHFProtocol(t, ctx, pool)
+		proofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000500", "hf-evidence-proof")
 		importIn := ports.HFVaccinationEvidence{
 			TenantID:          testTenant,
 			LoadID:            load.LoadID,
@@ -110,6 +111,7 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 			AdministeredAt:    time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC),
 			VaccineName:       "HF Enterotox",
 			LotNumber:         "HF-LOT-1",
+			ProofRefID:        &proofID,
 			SourceRef:         "supplier:hf-dose-log",
 			Metadata:          []byte(`{"source":"holding_farm"}`),
 			IdempotencyKey:    "hf-evidence-import",
@@ -175,12 +177,51 @@ WHERE tenant_id=$1 AND goat_id=$2`, testTenant, goat.GoatID).Scan(&stayPurpose, 
 		if _, err := repo.ReviewHFVaccinationEvidence(ctx, changeTrusted); !errors.Is(err, ports.ErrInvalidTransition) {
 			t.Fatalf("trusted status change err = %v, want ErrInvalidTransition", err)
 		}
+		// Trusting evidence that carries no proof_ref_id must be rejected — unproven evidence cannot
+		// suppress a real post-arrival dose.
+		noProof, err := repo.RecordHFVaccinationEvidence(ctx, ports.HFVaccinationEvidence{
+			TenantID:          testTenant,
+			LoadID:            load.LoadID,
+			GoatID:            goat.GoatID,
+			ProtocolVersionID: versionID,
+			RuleID:            ruleID,
+			DoseCode:          "booster",
+			AdministeredAt:    time.Date(2026, 5, 3, 8, 0, 0, 0, time.UTC),
+			SourceRef:         "supplier:hf-dose-log-2",
+			IdempotencyKey:    "hf-evidence-import-no-proof",
+		})
+		if err != nil {
+			t.Fatalf("RecordHFVaccinationEvidence no-proof: %v", err)
+		}
+		if _, err := repo.ReviewHFVaccinationEvidence(ctx, ports.ReviewHFVaccinationEvidence{
+			TenantID:           testTenant,
+			EvidenceID:         noProof.EvidenceID,
+			ExpectedRowVersion: noProof.RowVersion,
+			ReviewStatus:       domain.HFVaccinationReviewTrusted,
+			ReviewReason:       "attempt trust without proof",
+			ReviewedAt:         time.Date(2026, 5, 3, 9, 0, 0, 0, time.UTC),
+			ReviewedAtSet:      true,
+			IdempotencyKey:     "hf-evidence-review-no-proof",
+		}); !errors.Is(err, ports.ErrProofRequired) {
+			t.Fatalf("trust without proof err = %v, want ErrProofRequired", err)
+		}
 		detail, err := repo.GetLoadDetail(ctx, testTenant, load.LoadID)
 		if err != nil {
 			t.Fatalf("GetLoadDetail: %v", err)
 		}
-		if len(detail.HFVaccinations) != 1 || detail.HFVaccinations[0].EvidenceID != first.EvidenceID {
+		// Two evidence rows now: the trusted (proof-backed) import and the imported no-proof booster
+		// whose trust attempt was rejected above.
+		if len(detail.HFVaccinations) != 2 {
 			t.Fatalf("detail HF evidence = %#v", detail.HFVaccinations)
+		}
+		foundFirst := false
+		for _, e := range detail.HFVaccinations {
+			if e.EvidenceID == first.EvidenceID {
+				foundFirst = true
+			}
+		}
+		if !foundFirst {
+			t.Fatalf("trusted HF evidence missing from detail = %#v", detail.HFVaccinations)
 		}
 		if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_type='hf_vaccination_evidence' AND resource_id=$2`, testTenant, first.EvidenceID); got != 2 {
 			t.Fatalf("HF evidence audit rows = %d, want 2", got)
