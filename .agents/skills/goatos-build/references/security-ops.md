@@ -1,13 +1,15 @@
 # Security And Ops Reference
 
-Load this when working on auth, RBAC, dashboard access, secrets, IAM, Slack token
-cleanup, prod agent access, or deployment safety.
+Load this when working on auth, RBAC, dashboard access, secrets, IAM, Google
+Cloud context, Cloud SQL data pulls, Slack token cleanup, prod agent access, or
+deployment safety.
 
 Canonical docs:
 
 - `context/execution/env-load-test-and-doc-hygiene.md`
 - `context/architecture/final-architecture.md`
 - `context/frontend/final-frontend-mobile-backend-architecture.md`
+- `docs/runbooks/google-cloud-environments.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/phc-vaccination/TRD.md`
 
@@ -24,6 +26,12 @@ Rules:
 - Store secrets in Secret Manager or env-specific secret stores, never source.
 - Enforce prod read-only for agents through IAM, not markdown promises.
 - Separate dev/stg/prod projects, DBs, datasets, service accounts, and secrets.
+- For read-only Goat OS Google-backed data pulls, Cloud SQL queries, dashboard
+  issue CSVs, or tasks phrased as "use gcloud/browser login", first follow
+  `docs/runbooks/google-cloud-environments.md` -> `goatos-dev Read-Only Cloud
+  SQL Access`: verify `ravi@mesha.sg`, `goatos-dev`, `vgoats.com`, and the
+  `vgoats/goatos` repo; use Secret Manager + Cloud SQL Auth Proxy + Postgres;
+  treat Chrome/dashboard as context only, not the extraction source.
 - Customer/investor-facing data is sanitized read-model data, not raw operational truth.
 - `backend/cmd/mint-dev-token` and `backend/cmd/seed-dev-grant` are local/dev
   bootstrap helpers only. They must not become production issuance or grant

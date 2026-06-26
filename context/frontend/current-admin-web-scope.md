@@ -105,6 +105,33 @@ The only admin-web UI/UX source of truth is:
 Port the mock's layout, screen structure, tables, empty states, icon system,
 spacing, font scale, and density. It is not a color theme.
 
+**RULE — default to the mock's full UX richness; diverge only for a documented reason
+(do not make the maintainer repeat this):** when the mock looks good, do not ship a
+lazier/plainer screen. Dropping/simplifying a mock element out of oversight is a defect
+(e.g. a bare `All parks`/`As of` pill instead of the mock's `Company-wide | Park-wise`
+toggle + `CBE · all sheds` selector + `Date range … · data <date> · ⚠ Nd old` chip; a
+thin Filters button instead of the mock's full Counts/Herd filter modal). This is NOT
+blind 1:1 matching — not every mock element must match. The app diverges on purpose for
+business reasons documented in the **wiki** (`/Users/ravi/mesha/wiki` + Graphify
+`mesha_docs_graph`), the scope-minimal/vaccination-data-scope lock, and backend honesty.
+Read the relevant wiki/business doc before deciding what to match vs diverge. When you
+diverge, do it deliberately: an un-backed control stays at the mock's look + disabled-
+with-reason (disable ≠ simplify, never a bare pill); an intentional business divergence
+must be grounded in a doc, not a guess. Green build / `check:mock-fidelity` are not
+visual proof.
+
+### Mock Component Anatomy Rule
+
+Mock fidelity means porting the mock's component **anatomy** — markup structure,
+interaction states (`:hover`/active/open/focus), and control sizing — not just
+its CSS classes, colors, or shell. The full rule (per-surface porting steps, the
+fidelity ledger, and the known failure modes: flat `helpgrid`/metadata drawer
+bodies; near-invisible nav hovers that drifted off `var(--sidebar-2)`; top-bar
+controls bloated past the mock's compact sizes) is **canonical** in
+`apps/admin-web/AGENTS.md` → "Mock Component Anatomy Rule", and is partly
+enforced by `apps/admin-web/scripts/check-mock-fidelity.mjs`. Do not duplicate it
+here — update that file.
+
 Do not reuse, adapt, or recolor the old admin UI. The old admin primitives,
 chart components, layout shell, and dashboard routes have been removed.
 
@@ -133,6 +160,22 @@ scope across Control Tower, Action Center, Protocol Adherence, Workflows, PHC
 Vaccination, Vaccination execution context, Config, and SOP Library. If a route or
 query selects a park such as CBE, the top bar must show that selected park; it
 must not still say "All parks".
+
+Company-wide vs Park-wise is a presentation lens, not a hidden data-source
+switch. Do not invent a separate "global" or "central" dataset unless a concrete
+backend contract explicitly returns one. For the current admin-web slice:
+
+```text
+Company-wide = all in-scope data shown as one leadership/company rollup.
+Park-wise + All parks = the same all in-scope data shown through park/shed
+                        breakdown, grouping, or filters.
+Park-wise + CBE/shed = only that selected park/shed scope.
+```
+
+If the app cannot yet render a meaningful aggregate-vs-breakdown difference,
+disable or remove the Company-wide/Park-wise toggle rather than assigning it
+fake semantics. "All parks" means everything in the current slice across parks;
+it must not exclude invented central/admin rows.
 
 Page bodies may show page-specific controls only. For example, Action Center may
 show Status board/SOP queues, domain chips, work-state chips, My tasks, Filters,
@@ -247,13 +290,13 @@ Current vaccination-closure active slice:
 
 ```text
 Counts / Herd Register
-Operations / Audit Log
+Admin / Data Ops / Audit Log (business surface; route `/operations/audit`)
 ```
 
 These two surfaces are active because they are required to test the real
 vaccination cascade from a business trigger: create/import a goat, emit
 `goat.created`, generate vaccination obligations, and inspect the resulting
-operator/admin/system audit chain. This active slice is defined in
+operator/admin/system business audit chain. This active slice is defined in
 `context/execution/vaccination-trigger-closure-parallel-handoff.md`. Follow that
 doc's golden rule for this slice: mock-faithful for every implemented element,
 scope-minimal for every unimplemented mock surface, and no fake clicks/rows/
@@ -264,11 +307,16 @@ Herd Register may build the setup it needs to register/import/list goats
 honestly: location/park/shed selectors, lookup choices, identifier validation,
 duplicate/conflict/needs-review states, active/review/inactive lifecycle display,
 bulk preview row errors, limited backend-backed count cards, row-to-Passport
-links, and audit/history links. Operations -> Audit Log may build operation/
-actor/resource taxonomy, filters, entity links, and cursor pagination needed to
-inspect the chain. These dependencies must use current GoatOS contracts,
-canonical Postgres truth, generated clients, and the mock. They must not revive
-old dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
+links, and audit/history links. Admin / Data Ops -> Audit Log may build the
+business-facing audit presentation needed to inspect the chain: operation-family
+chips, operator/span controls, status/proof/anomaly filters, activity trail,
+entity links, and cursor pagination. It may use the backend `audit_log` read API
+as the source, but the visible dashboard must not expose raw dev/debug fields
+such as UUID-only actor filters, `domain`, `module`, or `category` as the main
+UX. Exact backend filters may live in URL params and active chips for entity
+history links. These dependencies must use current GoatOS contracts, canonical
+Postgres truth, generated clients, and the mock. They must not revive old
+dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
 import-review, or old Operations. The Counts sidebar shows only `Herd Register`
 in this slice; do not show disabled `Tagging & identity`, `Weights & ADG`,
 `Counts overall`, or `Count reconciliation` leaves for mock fidelity.
@@ -320,7 +368,7 @@ These are the only current admin-web product routes:
 /procurement/source-entry  Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd               Herd Register for vaccination trigger closure
-/operations/audit          Operations Audit Log
+/operations/audit          Admin / Data Ops Audit Log (business surface)
 /config
 /sops
 /goats/{goat_id}
@@ -405,6 +453,7 @@ Procurement              (reopened vertical)
   Source Entry
 Admin / Data Ops
   Config
+  Audit Log
   SOP Library
 ```
 
@@ -417,11 +466,62 @@ is rendered inside /vaccination, not as a separate Parks nav item.
   surfaces; it never grants authority.
 - CEO/COO/superadmin may get a role-preview lens. Staff roles do not get a role
   switcher when they log in.
+- The top-bar role preview is part of the approved CEO/admin experience. It is
+  used by superadmin/CEO/COO to preview how role-scoped navigation,
+  permissions, and Audit Log span would look for other roles. It is not an
+  authority bypass and does not weaken backend RBAC.
+- Canonical preview lenses for this slice are: `Superadmin / CEO / COO`
+  (all/deep), `Health Director` (health vertical, all parks),
+  `Procurement Director` (procurement/source-entry, all parks), `HR Director`
+  (people/HR, all parks), `Park Head - CBE` (all verticals, one park),
+  `Health Mgr - CBE` (health vertical, one park), `Assist / Ground - CBE`
+  (tasks, one park), and `Investor` (read-only summary). The Audit Log
+  `Viewing as` control must mirror these lenses instead of maintaining a
+  separate hard-coded role list.
 - Config publish/raw edit remains backend-gated by protocol capabilities.
 - PHC is a vertical and must not use the syringe/injection icon.
 - Vaccination may use the syringe/injection icon.
 - Counts is a separate future vertical. Control Tower must not show raw goat
   census/count totals.
+- Audit has two meanings. Backend/platform `audit_log` is internal debug,
+  replay, idempotency, and proof infrastructure; it can carry raw action names,
+  UUIDs, metadata, trace IDs, and domain/module/category fields and does not need
+  a CEO dashboard UI. The visible CEO/admin Audit Log is a business projection
+  under Admin / Data Ops: who did what, where, with what proof, what result. It
+  must match the mock's business UX and must not become a raw developer filter
+  panel.
+- The business Audit Log feature set comes from the mock: summary KPI cards,
+  operation-family chips, `Viewing as` role/span preview, search, status tabs,
+  Operators/span control, Anomalies only, Activity trail, cursor pagination,
+  row history links, empty/error states, and disabled export until a backend
+  export exists.
+- Business Audit Log rows must be business-readable projections of backend audit
+  rows: operation family, operator, action, target, result, proof, anomaly, role,
+  park/scope, and recorded time. Raw UUID/domain/module/category/debug fields may
+  exist in URL params or detail drawers, but they are not the primary dashboard
+  UX.
+- Current implementation status: `/operations/audit` list/summary contracts,
+  generated client types, backend `internal/operationsaudit`, and a real
+  admin-web page already exist. Treat Audit Log work as finish-and-verify, not a
+  rebuild. The frontend may map the existing generated row + metadata into a
+  business view-model for this slice; add backend contract fields only when a
+  concrete data gap is found, and make them additive.
+- Do not rebuild `backend/internal/operationsaudit`, `apps/admin-web/features/
+  operations-audit`, or the generated `/operations/audit` client from scratch.
+  Audit those paths first, then make scoped changes.
+- Active admin-web architecture is accepted: generated-client data through
+  `apps/admin-web/lib/api/*`, no direct datastore access, no raw backend URLs,
+  no hand-written DTOs, and no local route-handler business mutations.
+  `apps/investor-web-shadow` is a legacy/reference snapshot and must not be used
+  as the architecture pattern for active admin-web. Large component SRP cleanup
+  is follow-up debt; extract shared role-lens data only when needed to keep the
+  top bar and Audit `Viewing as` in sync.
+- Until future domains are actually built, the visible Audit Log must show only
+  events for current built surfaces: Herd Register, vaccination cascade,
+  Config/SOP work, Procurement/Source Entry/HF evidence where backend contracts
+  exist, auth/session only when business-relevant, and system generation/sweeper
+  events that explain visible work. Do not fake operation families or totals for
+  unbuilt mock areas.
 - Goat Passport is contextual drilldown only. Do not add global million-goat
   search as the main workflow.
 - The hamburger beside the Mesha logo must actually collapse/expand desktop nav
@@ -467,9 +567,10 @@ removed from active admin-web:
 
 `/sops` was explicitly reopened on 2026-06-24 as the new Admin / Data Ops SOP
 Library / form-builder surface. The engine can be generic, but the current
-visible review surface is vaccination-only. `/counts/herd` and
-`/operations/audit` are active as vaccination trigger-closure surfaces,
-including their required dependency closure described above. This does not
+visible review surface is vaccination-only. `/counts/herd` is active for Herd
+Register and `/operations/audit` is active as the Admin / Data Ops business Audit
+Log for the vaccination trigger-closure slice, including their required
+dependency closure described above. This does not
 authorize unrelated Counts modules, old `/herd`, old `/tasks`, old Operations,
 old generic SOP/task pages, old admin primitives, all-domain SOP inventory, or
 old dashboard UI. For Counts, removed also means not visible as disabled sidebar

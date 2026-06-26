@@ -3,6 +3,10 @@
 Status: P4 remote state bootstrap plus P7-preapply Layer 1 foundation plan. This
 does not make the app live, and no Layer 1 Terraform apply has been run.
 
+For read-only data pulls from the live dev database, do not infer credentials or
+scrape the dashboard. Use the `goatos-dev Read-Only Cloud SQL Access` workflow in
+`docs/runbooks/google-cloud-environments.md`.
+
 ## State Backend
 
 ```text

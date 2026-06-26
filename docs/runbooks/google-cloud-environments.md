@@ -145,6 +145,132 @@ for project in goatos-dev goatos-stg goatos-prod; do
 done
 ```
 
+## goatos-dev Read-Only Cloud SQL Access
+
+Use this path when a task asks for real Google-backed data, a dashboard issue
+CSV, Cloud SQL data, or "use gcloud/browser login". The dashboard UI can provide
+visual context, but it is not the extraction source.
+
+Before connecting, verify that the local shell is in the Mesha/VGoats context:
+
+```bash
+gcloud auth list --format="table(account,status)"
+gcloud config list --format="text(core.account,core.project)"
+git -C /Users/ravi/mesha/goatos remote get-url origin \
+  | sed -E 's#(https://)[^/@]+@#\1***@#'
+gcloud organizations list --format="table(displayName,name,directoryCustomerId)"
+gcloud projects describe goatos-dev --format="json(projectId,name,parent)"
+```
+
+Expected context:
+
+```text
+Account: ravi@mesha.sg
+Project: goatos-dev
+Organization: vgoats.com / organizations/563962826703
+Folder: goat-os / folders/188649904255
+Repo: https://github.com/vgoats/goatos.git
+```
+
+If the account or project is wrong, correct it before doing anything else:
+
+```bash
+gcloud config set account ravi@mesha.sg
+gcloud config set project goatos-dev
+```
+
+If the gcloud user token is expired, use browser-code auth:
+
+```bash
+gcloud auth login --no-launch-browser --brief
+```
+
+Open the printed URL, complete Google login as `ravi@mesha.sg`, then paste the
+verification code back into the CLI. Do not enter a Google password directly
+into the terminal.
+
+For data pulls, discover the current runtime resources instead of guessing:
+
+```bash
+gcloud run services describe goatos-api-dev \
+  --project=goatos-dev \
+  --region=asia-south1 \
+  --format=json
+
+gcloud sql instances describe goatos-dev-core-db \
+  --project=goatos-dev \
+  --format="json(name,connectionName,ipAddresses,settings.ipConfiguration)"
+
+gcloud secrets list --project=goatos-dev
+```
+
+Current dev database facts:
+
+```text
+Cloud SQL instance: goatos-dev-core-db
+Connection name:    goatos-dev:asia-south1:goatos-dev-core-db
+Database:           goatos
+Runtime DB user:    goatos_app
+DB URL secret:      goatos-dev-database-url
+Admin tenant secret: goatos-dev-admin-web-tenant-id
+```
+
+Prefer an explicit OAuth access token for the Cloud SQL Auth Proxy. Local ADC
+can be stale or point at another business account, which commonly fails with
+`invalid_rapt`. Do not write the bearer token to a temp file or shell profile.
+
+```bash
+CSQL_PROXY_TOKEN="$(gcloud auth print-access-token --account=ravi@mesha.sg)" \
+cloud-sql-proxy \
+  --port 5433 \
+  goatos-dev:asia-south1:goatos-dev-core-db
+```
+
+In another shell, read the secret-backed DSN without printing it, override the
+host/port to the local proxy, and run read-only SQL. `psql` may not be installed
+on every Codex host; Python with `psycopg2` is an acceptable local client.
+
+```bash
+DB_URL="$(gcloud secrets versions access latest \
+  --secret=goatos-dev-database-url \
+  --project=goatos-dev)"
+
+TENANT_ID="$(gcloud secrets versions access latest \
+  --secret=goatos-dev-admin-web-tenant-id \
+  --project=goatos-dev)"
+
+DB_URL="$DB_URL" TENANT_ID="$TENANT_ID" python3 - <<'PY'
+import os
+from urllib.parse import urlparse
+import psycopg2
+
+url = urlparse(os.environ["DB_URL"])
+conn = psycopg2.connect(
+    dbname=url.path.lstrip("/"),
+    user=url.username,
+    password=url.password,
+    host="127.0.0.1",
+    port=5433,
+    sslmode="disable",
+)
+conn.set_session(readonly=True, autocommit=True)
+with conn.cursor() as cur:
+    cur.execute("select current_database(), current_user")
+    print(cur.fetchone())
+conn.close()
+PY
+```
+
+For dashboard-matching exports, filter by the admin-web tenant secret when the
+table is tenant-scoped. Export CSVs from Postgres query results, not from Chrome
+or dashboard DOM scraping.
+
+When done, stop `cloud-sql-proxy`.
+
+No write SQL, migrations, IAM changes, deploys, billing changes, or Cloud
+resource changes are allowed in this workflow unless the task explicitly asks
+for them and the active account/project/org have been re-verified first.
+
 ## Resource Plan After Billing
 
 After billing is linked, provision each environment separately:

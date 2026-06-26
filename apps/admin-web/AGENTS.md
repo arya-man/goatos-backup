@@ -25,6 +25,15 @@ normally running `next dev` on a fixed port (commonly `:3300`) with a live
 browser tab. The rules below keep restarts clean — they are not a blanket ban,
 given the standing authorization above.
 
+> **Local bearer token now self-refreshes — a restart is NO LONGER needed for an
+> expired token.** In local bearer mode (`GOATOS_ENV=local` + `GOATOS_AUTH_MODE=bearer`),
+> SSR self-mints a fresh short-lived HS256 token per request via
+> `lib/api/local-dev-token.ts` (matching `backend/internal/platform/auth.MintHS256Token`,
+> strictly local-only). The old failure — `dev:local` mints one boot-time token, it
+> hits the 24h cap, then every SSR fetch 401s `invalid_bearer_token` until restart —
+> is fixed permanently; the static `GOATOS_BEARER_TOKEN` is only a fallback. Restart
+> for code/build reasons, not to refresh an expired token.
+
 Operational hygiene when you do restart/rebuild (so a restart is clean, not
 destructive):
 
@@ -132,8 +141,9 @@ Admin-web is built around the vaccination process-integrity slice:
   -> Execute chain, vaccination status matrix, per-cohort detail, drive/shed-event
   execution, proof/verification/rework states, and honest empty states when data
   is absent. It links OUT to the command screens; it does not embed them.
-- **Admin / Data Ops**: generic protocol config at `/config` and the reopened
-  vaccination-only SOP Library / form-builder at `/sops`.
+- **Admin / Data Ops**: generic protocol config at `/config`, the CEO/admin
+  business Audit Log at `/operations/audit`, and the reopened vaccination-only
+  SOP Library / form-builder at `/sops`.
 - **Vaccination execution context**: park/shed/stage/defer/blocker/owner context
   renders INSIDE PHC / Vaccination at `/vaccination`, scoped by
   the top-bar park dropdown. It is powered by the execution read-model endpoints
@@ -144,17 +154,54 @@ Admin-web is built around the vaccination process-integrity slice:
   generic Parks.
 - **Goat Passport**: contextual drilldown at `/goats/{goat_id}` only.
 - **Vaccination trigger-closure active surfaces**: Counts -> Herd Register at
-  `/counts/herd` and Operations -> Audit Log at `/operations/audit` are active
-  for proving the real vaccination cascade from a business trigger and
-  inspecting the resulting audit chain. This active slice includes the dependency
-  closure required for those surfaces to actually work: location/park/shed
-  selectors, lookup choices, identifier validation/conflict states, bulk preview
-  row errors, limited backend-backed count cards, entity-history links, audit
-  filters, and generated-client plumbing. It does not authorize unrelated Counts
-  modules, old Operations, old `/herd`, or old import/review surfaces. The
-  Counts sidebar shows only `Herd Register` in this slice; do not show disabled
-  `Tagging & identity`, `Weights & ADG`, `Counts overall`, or `Count
-  reconciliation` leaves for mock fidelity.
+  `/counts/herd` and Admin / Data Ops -> Audit Log at `/operations/audit` are
+  active for proving the real vaccination cascade from a business trigger and
+  inspecting the resulting business audit chain. This active slice includes the
+  dependency closure required for those surfaces to actually work:
+  location/park/shed selectors, lookup choices, identifier validation/conflict
+  states, bulk preview row errors, limited backend-backed count cards,
+  entity-history links, audit filters, and generated-client plumbing. It does
+  not authorize unrelated Counts modules, old Operations, old `/herd`, or old
+  import/review surfaces. The Counts sidebar shows only `Herd Register` in this
+  slice; do not show disabled `Tagging & identity`, `Weights & ADG`, `Counts
+  overall`, or `Count reconciliation` leaves for mock fidelity.
+- **Audit meaning split**: backend/platform `audit_log` is internal debug,
+  replay, idempotency, proof, and investigation infrastructure. It can carry raw
+  action names, UUIDs, metadata, trace IDs, and domain/module/category fields and
+  does not need a dashboard UI. The visible CEO/admin Audit Log is a business
+  projection under Admin / Data Ops: who did what, where, with what proof, and
+  what result. Do not expose raw developer fields as the main dashboard UX.
+  Match the mock's business controls: KPI cards, operation-family chips,
+  `Viewing as` role/span preview, search/status tabs, Operators/span,
+  Anomalies only, Activity trail, cursor pagination, row history links, and
+  disabled export until a backend export exists. Show only real events for built
+  surfaces; do not fake future operation families or totals.
+- **Audit finish rule**: `/operations/audit` list/summary contracts,
+  generated-client types, backend `internal/operationsaudit`, and the
+  `features/operations-audit` page already exist. Do not rebuild them from
+  scratch. First diff current behavior against the mock and docs, then close
+  only concrete gaps. Backend work is verify-only unless the generated contract
+  is missing data that the business Audit Log cannot derive from existing row
+  metadata; any such contract change must be additive.
+- **Role preview**: the top-bar role preview is a CEO/COO/superadmin capability
+  for previewing role-scoped navigation, permissions, and Audit Log span. It is
+  local preview state only and must never bypass backend RBAC. Keep Audit Log's
+  `Viewing as` roles in sync with the same role lens model: Superadmin/CEO/COO,
+  Health Director, Procurement Director, HR Director, Park Head, Health Manager,
+  Assist/Ground, and Investor. Extract or import a shared role-lens model if
+  needed; do not re-declare a separate Audit-only role list.
+- **Audit ownership**: only one agent may edit `apps/admin-web/features/
+  operations-audit`, `apps/admin-web/app/(admin)/operations/audit`,
+  `backend/internal/operationsaudit`, and `/operations/audit` OpenAPI/generated
+  client artifacts during an Audit Log finish pass.
+- **Architecture posture**: active admin-web architecture is accepted for this
+  slice: generated clients through `lib/api/*`, no raw backend URLs, no direct
+  datastore access, no hand-written DTOs, and no local route-handler business
+  mutations. `apps/investor-web-shadow` is a legacy/reference snapshot; never
+  copy its direct BigQuery or local API-route patterns into active admin-web.
+  Component SRP debt is follow-up work, not a reason to rewrite large surfaces
+  during Audit/Herd/Register pre-E2E closure. Extract shared role-lens data only
+  as needed to sync top-bar preview with Audit `Viewing as`.
 - **Procurement / Source Entry**: `/procurement/source-entry` and
   `/procurement/source-entry/loads/{load_id}` are active for the supplier
   Holding Farm warmup -> accepted-intake branch and the dependencies that branch
@@ -168,6 +215,139 @@ proof-pending, verification-pending, rejected, deferred, and owner-missing.
 `../../mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of
 truth. Port its layout, table shapes, empty states, icon system, spacing, font
 scale, and density. It is not a color theme.
+
+**RULE — default to the mock's full UX richness; diverge only for a documented
+reason (do not make the maintainer repeat this):** when the mock looks good, do not
+ship a lazier/plainer screen. Porting a mock element as a bare/simpler substitute out
+of oversight is a defect — e.g. shipping a bare `All parks` / `As of <date>` pill where
+the mock has a `Company-wide | Park-wise` toggle + `CBE · all sheds` selector +
+`Date range … · data <date> · ⚠ Nd old` freshness chip; or a thin Filters button where
+the mock's Counts/Herd filter modal has Park/Gender/Breed/Age Cohort/Shed/Pregnancy-
+Lactation/Status/Identity Review/Origin Farm/Days-in-Stage/Weight/ADG + Clear all/Apply.
+But this is NOT blind 1:1 pixel-copying: not every mock element must match. The app
+diverges on purpose for **business reasons documented in the wiki**
+(`/Users/ravi/mesha/wiki` + Graphify `mesha_docs_graph`), the scope-minimal/vaccination-
+data-scope lock, and backend honesty (no fake rows/totals). **Read the relevant wiki/
+business doc before deciding what to match vs diverge.** When you do diverge, do it
+deliberately: a control the backend cannot power yet stays at the mock's look and is
+disabled-with-reason (`aria-disabled`/title) — disable ≠ simplify, never a bare pill —
+and an intentional business divergence must be grounded in a doc, not a guess. Green
+build / `check:mock-fidelity` are NOT visual proof — diff against the mock and judge each
+element against the documented business intent.
+
+### Mock Component Anatomy Rule
+
+Mock fidelity means porting the mock's component anatomy, not only importing its
+CSS classes, matching colors, or using a similar shell.
+
+For every in-scope screen, sidebar/nav, top-bar control, drawer, modal, card,
+table, filter, and click action:
+
+1. Inspect the exact mock markup/function AND the mock's CSS for that surface in
+   `../../mock/goatos-dashboard-mock.html` before editing the app component or
+   `app/mesha-theme.css`. Anatomy includes interaction states (`:hover`, `.on`/
+   active, `.open`, focus), not just the resting markup.
+2. Extract the visible structure: header, status block, assignee/due block,
+   priority/status chips, linked tags, checklist/stepper, proof pills, form
+   fields, footer action row, nav hover/active/group-open states, control
+   sizing/padding, empty state, and disabled-with-reason states.
+3. Implement that structure in the app with real backend data, or with a visibly
+   disabled mock-shaped control when the backend contract is missing.
+4. Do not replace a rich mock component with a flat key/value grid, generic
+   `helpgrid`, bare button row, or simpler local invention just because it is
+   easier.
+5. If a mock subcomponent is already ported in CSS (`.drawer`, `.metagrid`,
+   `.stepper`, `.step`, `.no`, `.ln`, `.ct`, `.vp`, `.fld`, `.chip`, `.tag`),
+   use the same anatomy the mock uses for that class. Existing CSS is not proof
+   of fidelity when the JSX body is a flatter substitute.
+6. Before calling a surface done, produce a ledger entry for each route/drawer/
+   modal: mock source selector or function, app component path, visible anatomy
+   matched, backend-backed fields, disabled backend gaps, and screenshot proof.
+
+Known failure mode 1 (drawer body): Action Center / vaccination drawers used the
+mock `.drawer` shell but rendered a flat `helpgrid`/metadata body plus a few
+buttons. The mock's task/action drawer body is richer: computed-status block,
+assignee + due, severity/priority chips, SOP checklist stepper with numbered/
+check circles, video/proof pills, linked tags, and a full action footer. That
+must be rebuilt from the mock anatomy, not approximated.
+
+Known failure mode 2 (interaction states / control sizing): the sidebar nav was
+"ported" by copying the mock's `.nav`/`.ggrp`/`.leaf` markup + classes, but the
+hover states in `app/mesha-theme.css` were silently changed from the mock's
+`background:var(--sidebar-2)` (a clearly lighter row) to a near-invisible
+`color-mix(... var(--brand) 8% , var(--sidebar))`, so hover read as dead. Badges
+were hardcoded (`#9f2f2f`) instead of `var(--danger)`, and top-bar controls
+(`.iconbtn`/`.pscope`/`.parkpick`/`.me`) were bloated to a uniform `height:42px`
+instead of the mock's compact sizes (38px icon button, content-sized pills).
+Porting markup is not enough — the mock's `:hover`/active/sizing values are part
+of the anatomy. The narrow (≤600px) ≥40px touch-target overrides belong in the
+narrow media query only; they must not bloat the desktop control sizes. This is
+now enforced: `scripts/check-mock-fidelity.mjs` fails if a nav `:hover` uses a
+faint brand `color-mix` instead of `var(--sidebar-2)`.
+
+Known failure mode 3 (right anatomy, WRONG content): the Action Center drawer's
+"Checklist · SOP" was rebuilt with the mock's `.stepper` anatomy but fed the
+obligation LIFECYCLE chain (Config published → Obligation generated → Batch →
+SOP task → Proof → Verification → Completion → Booster) instead of the SOP's
+PROCEDURE steps. The mock's drawer checklist is the SOP's operator steps (e.g.
+"Drive scheduled", "Per-shed administration" + a "video proof required" pill,
+"Consume posted", "Coverage + booster") — what the operator does, with per-step
+proof gates — NOT the system lifecycle. The lifecycle chain belongs to the
+Workflow record (`/workflows/{row_id}`), not the drawer. Drawer SOP steps come
+from `features/phc-vaccination/vaccination-sop-steps.ts` (shared with the PHC
+SOP quick-view) rendered by `features/process-integrity/sop-checklist.tsx` with
+done/current derived read-only from the computed obligation states. Matching the
+component shell + class is not enough — the checklist must show the SOP's steps,
+and proof gates must render as the mock's `video proof required` pill.
+
+Known failure mode 4 (dead rows / flat record drawers): in the mock, list/table
+rows are tap-to-open — clicking a row (or matrix cell) opens a RECORD drawer.
+Two regressions: (a) the Protocol Adherence ledger rows had NO click at all
+(only the next-action cell linked out), so there was no record drawer; (b) the
+vaccination status-matrix, per-cohort detail, shed-execution, and supplier-warmup
+drawers DID open but rendered a flat `helpgrid` key/value stack instead of the
+mock's RECORD drawer `.metagrid` (a 2-col grid of uppercase-key cells — for
+adherence: Expected / Actual / Gap / Severity / Owner / Next action / Evidence).
+Rules: every vaccination-flow list row/cell must be a `.celllink` → a drawer
+keyed by a `?…_row`/`?…_record` search param (server-rendered, same pattern as
+Action Center's `ac_row`); and record-drawer bodies use `.metagrid` (RECORD
+anatomy), never `helpgrid`/a flat stack. The row-param drawer needs `scope_mode`
+present in the URL or the shell scope-normalize drops the param (failure mode 2's
+cousin) — in-app clicks already carry scope, so this only bites direct URLs.
+
+Known failure mode 5 (overflow + wrong chain widget): (a) the drawer footer
+(`.df`) action row was plain `flex` (no wrap) — a long primary label ("Assign
+operator / owner chain") wrapped 3-lines tall and the last action (Escalate) was
+clipped off the right edge. The mock has this defect too; the fix is better than
+the mock: `.drawer .df{flex-wrap:wrap}` + `.df .btn{flex:0 0 auto;white-space:nowrap;min-height:38px}`
+so every button is one line, equal height, and nothing is ever clipped. (b) the
+Workflows chain map was rendered as a flat `.chain`/`.cstep` 7-card grid (every
+card identical, no progress) instead of the mock's chain anatomy: a `.ostages`
+stage-pill row (done/current highlighted) + the done/current/next/pending/blocked
+`.legend` + the `.otree` of `.onode` cards (numbered/check `.dotn`, `.obody`,
+`YOU ARE HERE`/`NEXT` badges, `.cur`/`.blocked`/`.pending` states) computed from
+the obligation lifecycle. `.chain`/`.cstep` is only for the linear
+Target→Group→Route→Execute drive band on `/vaccination`, NOT the workflow chain
+map. Note: `.onode.pending` must not use the mock's `opacity:.62` (it fails the
+visual smoke's WCAG-AA check on the meta text) — mark pending with a dashed
+border + muted title instead.
+
+Known failure mode 6 (stale old-admin components + data-vs-UI confusion):
+(a) Dead old-admin/shadcn primitives lingered under `components/` (`cursor-pagination.tsx`,
+`ui/error-state.tsx`, `ui/loading-state.tsx`, `ui/{button,card,table,tabs}.tsx`) — Tailwind
+utilities + the banned cyan/slate palette (`#14F1D9`, `#334155`, `#8899AA`), a foreign design
+system, never mesha-ported. The fidelity gate only scanned `components/mesha-shell.tsx`, so they
+slipped through. Fixed: deleted them all (0 importers) and broadened `check-mock-fidelity.mjs`
+SCAN to the whole `components/` dir so old-admin palette anywhere in components now fails CI.
+(b) The herd register pager was a verbose `.bd` sentence; the mock uses the `.pager2` footer bar
+(range/meta left via `margin-right:auto`, pager buttons right, top border) — use `.pager2`.
+(c) DATA / SCALE ≠ UI bug, and must be explained as such, not "fixed" by faking: the vaccination
+status matrix shows only the cohorts × PUBLISHED protocols that actually exist in the local DB
+(e.g. 1 protocol × 2 cohorts), not the mock's 5-vaccine × 7-cohort sample; the herd's empty
+WT/health/breeding cells are real goats lacking that data; and the herd uses CURSOR pagination
+with NO total count (million-goat scale forbids `COUNT(*)`), so the mock's "1–10 of 39 / numbered
+pages / 1,160 goats" is intentionally replaced by "Page N · M rows · server-paginated at scale".
+Do not seed fake protocols/rows/totals to match the mock's sample density.
 
 Do not reuse, adapt, recolor, or recreate the old admin UI. The old
 `admin-primitives` component, old chart/layout components, and old dashboard
@@ -201,6 +381,22 @@ the selected scope is CBE, the top bar must say CBE; if it is all parks, the top
 bar says All parks. Page bodies must not repeat the same scope as another
 "Scope", "All parks", or date chip row.
 
+Company-wide vs Park-wise is a presentation lens, not a hidden data-source
+switch. Do not invent a separate "global" or "central" dataset unless a concrete
+backend contract explicitly returns one. For the current admin-web slice:
+
+```text
+Company-wide = all in-scope data shown as one leadership/company rollup.
+Park-wise + All parks = the same all in-scope data shown through park/shed
+                        breakdown, grouping, or filters.
+Park-wise + CBE/shed = only that selected park/shed scope.
+```
+
+If the app cannot yet render a meaningful aggregate-vs-breakdown difference,
+disable or remove the Company-wide/Park-wise toggle rather than assigning it
+fake semantics. "All parks" means everything in the current slice across parks;
+it must not exclude invented central/admin rows.
+
 Page bodies may show only page-specific controls:
 
 - Action Center: Status board/SOP queues, domain chips, work-state chips, My
@@ -232,7 +428,7 @@ Only these routes are current product routes:
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd                 Herd Register for vaccination trigger closure
-/operations/audit            Operations Audit Log
+/operations/audit            Admin / Data Ops Audit Log (business surface)
 /config
 /sops
 /goats/{goat_id}
@@ -299,8 +495,9 @@ Do not rebuild these unless the product scope is explicitly reopened:
 ```
 
 `/sops` was reopened as the Admin / Data Ops SOP Library (vaccination-only review
-surface); it is an active route, not a removed one. `/counts/herd` and
-`/operations/audit` are active as vaccination trigger-closure surfaces.
+surface); it is an active route, not a removed one. `/counts/herd` is active for
+Herd Register, and `/operations/audit` is active as the Admin / Data Ops business
+Audit Log for the vaccination trigger-closure slice.
 Old `/herd`, unrelated Counts modules, old `/tasks`, old Operations, old generic
 SOP/task pages, and old admin primitives stay removed. For Counts, removed also
 means not visible as disabled sidebar placeholders unless a future approved slice

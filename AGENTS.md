@@ -173,6 +173,12 @@ Organization boundaries:
   links billing, deploys, or changes configuration, verify and state the active
   account, organization, folder, project, and target repo. If the target is not
   Mesha/VGoats for Goat OS work, stop and correct context first.
+- For read-only Google-backed data pulls, Cloud SQL queries, dashboard issue
+  CSVs, or any request phrased as "use gcloud/browser login", follow
+  `docs/runbooks/google-cloud-environments.md` -> `goatos-dev Read-Only Cloud
+  SQL Access` before touching Chrome or dashboard UI. The default source is
+  gcloud + Secret Manager + Cloud SQL Auth Proxy + Postgres, not dashboard DOM
+  scraping.
 - For GitHub operations in this repo, use the Mesha/VGoats repository token
   path: `git mesha-push main` for pushes and the `MESHA_GITHUB_PAT`-backed
   remote URL for direct remote/CI verification. Do not rely on whatever `gh`

@@ -83,7 +83,7 @@ status only. They do not override the protocol-engine Phase 0 contract above.
 | `references/phase-prd-trd.md` | Starting or reviewing a phase PRD/TRD, Protocol Engine Phase 0, checking phase scope, or ensuring phase docs update agent references before code |
 | `references/source-findings.md` | Using facts from General/Slack docs, customer promise safety findings, legacy source docs, or checking whether source facts reached canonical docs |
 | `references/existing-repos.md` | Inspecting or migrating from `dashboard`, `vgoats-dashboard`, `procurement_app`, `slack-automation-scripts`, or `website` reference repos |
-| `references/security-ops.md` | Dashboard gating, Slack token rotation, secrets, IAM tiers, prod read-only agent access, or auth/RBAC concerns |
+| `references/security-ops.md` | Dashboard gating, Slack token rotation, secrets, IAM tiers, Google Cloud context, Cloud SQL data pulls, prod read-only agent access, or auth/RBAC concerns |
 
 ## Reference Doc Convention
 

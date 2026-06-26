@@ -6,7 +6,9 @@ Current runbooks:
 
 - [GitHub workflows](github-workflows.md)
 - [Google Cloud environments](google-cloud-environments.md)
+- [Legacy live data refresh](legacy-live-data-refresh.md)
 - [Local full-stack rehearsal](local-full-stack-rehearsal.md)
+- [Vaccination local business-chain proof (pre-E2E)](vaccination-local-business-chain.md)
 - [Local Docker storage](local-docker-storage.md)
 - [Observability](observability.md)
 
