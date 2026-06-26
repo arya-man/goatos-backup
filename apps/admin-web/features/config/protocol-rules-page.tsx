@@ -73,7 +73,9 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
   const loadError = res.ok ? null : (res.error.message ?? "could not load protocol rules");
 
   // Real published SOP versions the author can bind to a protocol version. An active SOP exposes its
-  // published version via active_sop_version_id; publish requires one (no hardcoded SOP labels).
+  // published version via active_sop_version_id; publish requires one (no hardcoded SOP labels). A
+  // SUCCESSFUL empty list is honest (no published SOP yet); a FAILED read (403/500/backend-down) must
+  // NOT masquerade as "no published SOP version" — it surfaces as an error band and blocks authoring.
   const sopRes = await listSops({ status: "active" });
   const sopVersions: SopVersionOption[] = sopRes.ok
     ? sopRes.data.items
@@ -83,6 +85,7 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
           label: `${s.name || s.code} · ${(s.active_sop_version_id as string).slice(0, 8)}…`,
         }))
     : [];
+  const sopsError = sopRes.ok ? null : (sopRes.error.message ?? "could not load SOP versions");
 
   // Backend-driven stage vocabulary (animal_stage_lookup). The Config stage picker uses these rows,
   // never hardcoded K0/K1/K2. A SUCCESSFUL empty list is honest (no stages seeded → seed-state); a
@@ -143,12 +146,24 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
         </div>
       ) : null}
 
+      {sopsError ? (
+        <div className="alert warn" role="alert" style={{ marginBottom: 14 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>
+            Could not load SOP versions from the backend ({sopsError}). This is a real error, not “no
+            published SOP version” — authoring is blocked until the SOP read succeeds, so an outage is
+            never mistaken for an empty SOP Library. Fix the API/connection and reload.
+          </div>
+        </div>
+      ) : null}
+
       <ConfigConsole
         rules={rules}
         initialCategory={initialCategory}
         sopVersions={sopVersions}
         animalStages={animalStages}
         stagesError={stagesError}
+        sopsError={sopsError}
       />
 
       {/* How a published rule maps to live work */}

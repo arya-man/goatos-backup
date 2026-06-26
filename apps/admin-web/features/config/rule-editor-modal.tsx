@@ -66,6 +66,7 @@ export function RuleEditorModal({
   sopVersions = [],
   animalStages = [],
   stagesError = null,
+  sopsError = null,
   canPublish = true,
 }: {
   open: boolean;
@@ -74,6 +75,7 @@ export function RuleEditorModal({
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
   stagesError?: string | null;
+  sopsError?: string | null;
   canPublish?: boolean;
 }) {
   // Stage bands come from the backend (animal_stage_lookup). Three states, kept distinct so an outage
@@ -85,6 +87,13 @@ export function RuleEditorModal({
   const stagePickerDisabled = !stagesSeeded || !!stagesError;
   const stageBlockReason = stagesError
     ? `Stage reference data failed to load (${stagesError}) — fix the API and reload before authoring`
+    : "";
+  // SOP versions follow the same three states. A FAILED read (sopsError) must not look like an empty
+  // SOP Library: disable the picker and block Save/Publish until the read succeeds. A loaded-but-empty
+  // list is the honest "no published SOP version" state (picker stays usable, publish gated on select).
+  const sopReadFailed = !!sopsError;
+  const sopBlockReason = sopsError
+    ? `SOP reference data failed to load (${sopsError}) — fix the API and reload before authoring`
     : "";
   const [category, setCategory] = useState(initialCategory);
   const [code, setCode] = useState("");
@@ -163,6 +172,8 @@ export function RuleEditorModal({
   // stage-reference read blocks first: we cannot trust eligibility authoring if the stage set is unknown.
   const publishBlock = stageBlockReason
     ? stageBlockReason
+    : sopBlockReason
+    ? sopBlockReason
     : !canPublish
     ? "Only CEO/COO can publish"
     : !versionId
@@ -209,8 +220,9 @@ export function RuleEditorModal({
   }
 
   function save() {
-    if (stageBlockReason) {
-      setNotice({ ok: false, message: stageBlockReason });
+    const readBlock = stageBlockReason || sopBlockReason;
+    if (readBlock) {
+      setNotice({ ok: false, message: readBlock });
       return;
     }
     startTransition(async () => {
@@ -261,6 +273,16 @@ export function RuleEditorModal({
                 </div>
               </div>
             ) : null}
+            {sopsError ? (
+              <div className="alert warn" role="alert">
+                <AlertTriangle className="ic" />
+                <div>
+                  SOP versions failed to load ({sopsError}). This is a real backend error, not “no
+                  published SOP version” — the SOP picker is disabled and Save/Publish are blocked until
+                  the SOP read succeeds. Fix the API/connection and reopen.
+                </div>
+              </div>
+            ) : null}
             {notice ? (
               notice.ok ? (
                 <div className="note">
@@ -306,10 +328,15 @@ export function RuleEditorModal({
               aria-label="Executable SOP version"
               value={sopVersionId}
               onChange={(e) => setSopVersionId(e.target.value)}
-              disabled={sopVersions.length === 0}
+              disabled={sopReadFailed || sopVersions.length === 0}
+              title={sopReadFailed ? sopBlockReason : undefined}
             >
               <option value="">
-                {sopVersions.length === 0 ? "no published SOP version — publish a SOP in the SOP Library first" : "select a published SOP version…"}
+                {sopReadFailed
+                  ? "SOP versions failed to load — fix the API and reload"
+                  : sopVersions.length === 0
+                    ? "no published SOP version — publish a SOP in the SOP Library first"
+                    : "select a published SOP version…"}
               </option>
               {sopVersions.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -748,9 +775,9 @@ export function RuleEditorModal({
             type="button"
             className="btn"
             onClick={save}
-            disabled={pending || !!stageBlockReason}
-            title={stageBlockReason || undefined}
-            style={stageBlockReason ? { opacity: 0.45 } : undefined}
+            disabled={pending || !!stageBlockReason || !!sopBlockReason}
+            title={stageBlockReason || sopBlockReason || undefined}
+            style={stageBlockReason || sopBlockReason ? { opacity: 0.45 } : undefined}
           >
             {pending ? "Saving…" : "Save draft"}
           </button>

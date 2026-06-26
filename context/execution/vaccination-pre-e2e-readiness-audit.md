@@ -200,6 +200,21 @@ Done in this pass:
   unknown. It never silently falls back to hardcoded bands. Satisfies the PHC
   vaccination TRD rule that stage bands live in `animal_stage_lookup`, not in code,
   and the AGENTS rule that API failures surface as an error state, not empty data.
+- **Reference-read failures are error-vs-empty distinct for BOTH stages AND SOPs
+  (CLOSED).** Same fix applied to the executable SOP picker: a failed
+  `listSops({status:"active"})` read no longer collapses to `[]` (which read as "no
+  published SOP version"). `sopsError` now surfaces an error band (page + inside the
+  modal), disables the SOP picker, and blocks Save + Publish — while a genuinely
+  empty-but-OK list stays the honest "no published SOP version — publish a SOP first"
+  state. Threaded `stagesError`/`sopsError` through
+  `protocol-rules-page → config-console → rule-editor-modal`; gate priority is
+  stage-read → SOP-read → role → saved → dirty → SOP-selected → proof → source.
+- **TRD schema sketch reconciled to the shipped migration (CLOSED).**
+  `docs/phc-vaccination/TRD.md` `animal_stage_lookup` no longer claims a `stage_id`/
+  `label`/weight-band/hardcoded-`stage_code`-CHECK shape; it now matches the committed
+  `000071_location_profiles.sql` (`animal_stage_id` UUID PK, `stage_code text` with NO
+  static enum, `name`, age bands, `status`, `sort_order`) and names the migration as
+  source of truth. Runtime was already correct; only the doc overclaimed exactness.
 - **Docs reconciled (CLOSED).** `docs/protocol-engine/obligation-engine.md`,
   `docs/phc-vaccination/TRD.md`, and
   `context/execution/sop-vaccination-backend-handoff.md` now state that the
