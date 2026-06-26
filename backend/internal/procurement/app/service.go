@@ -392,7 +392,19 @@ func (s *Service) RecordHFVaccinationEvidence(ctx context.Context, in ports.HFVa
 	in.LotNumber = strings.TrimSpace(in.LotNumber)
 	in.SourceRef = strings.TrimSpace(in.SourceRef)
 	in.Metadata = jsonObject(in.Metadata)
+	// App-level validation: the goat must already be on the load before evidence is recorded, so a bad
+	// reference returns a precise 400 rather than relying on the DB FK / WHERE-EXISTS to fail late.
+	onLoad, err := s.repo.GoatOnLoad(ctx, in.TenantID, in.LoadID, in.GoatID)
+	if err != nil {
+		return domain.HFVaccinationEvidence{}, err
+	}
+	if !onLoad {
+		return domain.HFVaccinationEvidence{}, BadRequest("goat_not_on_load", "goat_id must reference a goat on the procurement load")
+	}
 	evidence, err := s.repo.RecordHFVaccinationEvidence(ctx, in)
+	if errors.Is(err, ports.ErrInvalidReference) {
+		return domain.HFVaccinationEvidence{}, BadRequest("invalid_hf_vaccination_reference", "protocol_version_id, rule_id, goat_id, or proof_ref_id does not exist for this tenant")
+	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
 		return domain.HFVaccinationEvidence{}, BadRequest("invalid_hf_vaccination_evidence", "HF vaccination evidence must reference a goat on the procurement load")
 	}
@@ -433,6 +445,9 @@ func (s *Service) ReviewHFVaccinationEvidence(ctx context.Context, in ports.Revi
 	}
 	if errors.Is(err, ports.ErrStaleWrite) {
 		return domain.HFVaccinationEvidence{}, Conflict("stale_hf_vaccination_evidence_review", "HF vaccination evidence changed; reload before reviewing")
+	}
+	if errors.Is(err, ports.ErrProofRequired) {
+		return domain.HFVaccinationEvidence{}, BadRequest("missing_proof_ref", "trusted HF vaccination evidence requires a proof_ref_id before it can suppress a dose")
 	}
 	if errors.Is(err, ports.ErrInvalidTransition) {
 		return domain.HFVaccinationEvidence{}, Conflict("invalid_hf_vaccination_evidence_review_transition", "trusted HF vaccination evidence cannot be changed by this review endpoint")

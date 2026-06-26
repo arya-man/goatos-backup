@@ -50,13 +50,25 @@ type GenerationService struct {
 	page     int32
 }
 
-// NewGenerationService wires the three repos.
+// NewGenerationService wires the three repos. The completion-evidence reader is auto-wired when the
+// goat repo implements it (the production path); requireEvidenceReader then fails generation loudly if
+// it is ever absent, so trusted HF/import evidence is never silently ignored (double-dose risk).
 func NewGenerationService(proto ProtocolReader, goats GoatLister, obl ObligationWriter) *GenerationService {
 	s := &GenerationService{proto: proto, goats: goats, obl: obl, page: 500}
 	if reader, ok := goats.(CompletionEvidenceReader); ok {
 		s.evidence = reader
 	}
 	return s
+}
+
+// requireEvidenceReader guards generation: without a completion-evidence reader, SM-1 cannot check
+// trusted HF/import evidence and could re-issue a dose a goat already received. Refuse rather than
+// silently skip the suppression check.
+func (s *GenerationService) requireEvidenceReader() error {
+	if s.evidence == nil {
+		return fmt.Errorf("vaccination: generation requires a completion-evidence reader to honor trusted HF/import suppression; refusing to generate")
+	}
+	return nil
 }
 
 type genEligibility struct {
@@ -85,6 +97,9 @@ func normDim(v string) string {
 // the eligible in-care cohort. Idempotent (deterministic key → ON CONFLICT no-op). Returns counts.
 func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time) (domain.GenerateResult, error) {
 	var res domain.GenerateResult
+	if err := s.requireEvidenceReader(); err != nil {
+		return res, err
+	}
 
 	v, err := s.proto.GetVersion(ctx, tenantID, versionID)
 	if err != nil {
@@ -149,15 +164,14 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		if s.evidence != nil {
-			trusted, err := s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, g.GoatID, versionID, rule.RuleID, rule.DoseCode, due, asOf)
-			if err != nil {
-				return err
-			}
-			if trusted {
-				res.SuppressedByTrustedHistory++
-				continue
-			}
+		// evidence is guaranteed non-nil here: both entrypoints call requireEvidenceReader first.
+		trusted, err := s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, g.GoatID, versionID, rule.RuleID, rule.DoseCode, due, asOf)
+		if err != nil {
+			return err
+		}
+		if trusted {
+			res.SuppressedByTrustedHistory++
+			continue
 		}
 		scopeType, scopeID := "tenant", tenantID
 		if g.ParkID != "" {
@@ -209,6 +223,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 // is eligible for. Used by the goat.created handler (event-driven SM-1). Idempotent.
 func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
 	var res domain.GenerateResult
+	if err := s.requireEvidenceReader(); err != nil {
+		return res, err
+	}
 	g, found, err := s.goats.GetGoatForGeneration(ctx, tenantID, goatID)
 	if err != nil {
 		return res, err

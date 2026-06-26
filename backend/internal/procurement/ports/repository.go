@@ -17,6 +17,13 @@ var (
 	// ErrIdempotencyConflict is returned when an idempotency key is replayed with a different request
 	// payload (semantic fingerprint mismatch). The write must be rejected without mutating state.
 	ErrIdempotencyConflict = errors.New("procurement: idempotency key reused with different payload")
+	// ErrProofRequired is returned when HF vaccination evidence is reviewed as trusted but carries no
+	// proof_ref_id. Trusted evidence can suppress a real post-arrival dose, so unproven evidence must
+	// not be trusted.
+	ErrProofRequired = errors.New("procurement: proof reference required")
+	// ErrInvalidReference is returned when a write references a tenant-scoped entity that does not exist
+	// (protocol version, rule, goat, load, or proof). Surfaced as a 400 instead of a raw FK 500.
+	ErrInvalidReference = errors.New("procurement: referenced entity does not exist")
 )
 
 type Repository interface {
@@ -25,6 +32,7 @@ type Repository interface {
 	CreateLoad(ctx context.Context, in CreateLoad) (domain.Load, error)
 	GetLoadDetail(ctx context.Context, tenantID, loadID string) (domain.LoadDetail, error)
 	AddGoatToLoad(ctx context.Context, in AddGoatToLoad) (domain.LoadGoat, error)
+	GoatOnLoad(ctx context.Context, tenantID, loadID, goatID string) (bool, error)
 	RecordSourceHealth(ctx context.Context, in SourceHealth) (domain.SourceHealthCheck, error)
 	RecordDecision(ctx context.Context, in Decision) (domain.Decision, error)
 	RecordHFVaccinationEvidence(ctx context.Context, in HFVaccinationEvidence) (domain.HFVaccinationEvidence, error)

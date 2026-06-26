@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -443,6 +444,34 @@ SET ended_at = COALESCE(EXCLUDED.ended_at, source_holding_stays.ended_at),
 	return loadGoat, nil
 }
 
+// GoatOnLoad reports whether the goat is currently a member of the procurement load (tenant-scoped).
+// Used by the app layer to validate HF vaccination evidence references before the write.
+func (r *Repository) GoatOnLoad(ctx context.Context, tenantID, loadID, goatID string) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM procurement_load_goats
+  WHERE tenant_id = $1::uuid AND load_id = $2::uuid AND goat_id = $3::uuid
+)`, tenantID, loadID, goatID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("procurement: check goat on load: %w", err)
+	}
+	return exists, nil
+}
+
+// mapHFReferenceError translates a Postgres foreign-key violation (SQLSTATE 23503) on the HF evidence
+// insert into ports.ErrInvalidReference, so a missing protocol version / rule / goat / load / proof
+// surfaces as a 400 instead of a raw 500. Returns nil for any other error.
+func mapHFReferenceError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return fmt.Errorf("%w (%s)", ports.ErrInvalidReference, pgErr.ConstraintName)
+	}
+	return nil
+}
+
 func (r *Repository) RecordHFVaccinationEvidence(ctx context.Context, in ports.HFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -498,6 +527,9 @@ RETURNING evidence_id::text, tenant_id::text, load_id::text, goat_id::text,
 		return domain.HFVaccinationEvidence{}, ports.ErrInvalidTransition
 	}
 	if err != nil {
+		if ref := mapHFReferenceError(err); ref != nil {
+			return domain.HFVaccinationEvidence{}, ref
+		}
 		return domain.HFVaccinationEvidence{}, fmt.Errorf("procurement: record HF vaccination evidence: %w", err)
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -570,6 +602,12 @@ func (r *Repository) ReviewHFVaccinationEvidence(ctx context.Context, in ports.R
 	}
 	if before.RowVersion != in.ExpectedRowVersion {
 		return domain.HFVaccinationEvidence{}, ports.ErrStaleWrite
+	}
+	// Trusted evidence can suppress a real post-arrival dose, so it must carry verifiable proof. Reject a
+	// trust transition on a row with no proof_ref_id (checked against the in-txn `before` snapshot).
+	if in.ReviewStatus == domain.HFVaccinationReviewTrusted &&
+		(before.ProofRefID == nil || strings.TrimSpace(*before.ProofRefID) == "") {
+		return domain.HFVaccinationEvidence{}, ports.ErrProofRequired
 	}
 	if before.ReviewStatus == domain.HFVaccinationReviewTrusted && in.ReviewStatus != domain.HFVaccinationReviewTrusted {
 		return domain.HFVaccinationEvidence{}, fmt.Errorf("%w: trusted HF vaccination evidence requires correction workflow", ports.ErrInvalidTransition)

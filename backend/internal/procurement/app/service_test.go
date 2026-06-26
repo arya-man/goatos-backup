@@ -18,7 +18,60 @@ const (
 	testParty  = "20000000-0000-4000-8000-000000000001"
 	testPark   = "54000000-0000-4000-8000-000000000001"
 	testShed   = "55000000-0000-4000-8000-000000000001"
+
+	testProtocolVersion = "60000000-0000-4000-8000-000000000001"
+	testRule            = "61000000-0000-4000-8000-000000000001"
+	testEvidence        = "62000000-0000-4000-8000-000000000001"
 )
+
+func hfEvidenceInput() ports.HFVaccinationEvidence {
+	return ports.HFVaccinationEvidence{
+		TenantID:          testTenant,
+		LoadID:            testLoad,
+		GoatID:            testGoat,
+		ProtocolVersionID: testProtocolVersion,
+		RuleID:            testRule,
+		DoseCode:          "primary",
+		AdministeredAt:    time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC),
+		IdempotencyKey:    "hf-evidence-1",
+	}
+}
+
+func TestRecordHFEvidenceRejectsGoatNotOnLoad(t *testing.T) {
+	repo := &fakeRepo{goatNotOnLoad: true}
+	svc := NewService(repo)
+	_, err := svc.RecordHFVaccinationEvidence(context.Background(), hfEvidenceInput())
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "goat_not_on_load" {
+		t.Fatalf("RecordHFVaccinationEvidence() error = %v, want goat_not_on_load", err)
+	}
+}
+
+func TestRecordHFEvidenceMapsInvalidReference(t *testing.T) {
+	repo := &fakeRepo{recordHFErr: ports.ErrInvalidReference}
+	svc := NewService(repo)
+	_, err := svc.RecordHFVaccinationEvidence(context.Background(), hfEvidenceInput())
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_hf_vaccination_reference" {
+		t.Fatalf("RecordHFVaccinationEvidence() error = %v, want invalid_hf_vaccination_reference", err)
+	}
+}
+
+func TestReviewHFEvidenceTrustedRequiresProof(t *testing.T) {
+	repo := &fakeRepo{reviewHFErr: ports.ErrProofRequired}
+	svc := NewService(repo)
+	_, err := svc.ReviewHFVaccinationEvidence(context.Background(), ports.ReviewHFVaccinationEvidence{
+		TenantID:           testTenant,
+		EvidenceID:         testEvidence,
+		ExpectedRowVersion: 1,
+		ReviewStatus:       domain.HFVaccinationReviewTrusted,
+		IdempotencyKey:     "hf-review-1",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "missing_proof_ref" {
+		t.Fatalf("ReviewHFVaccinationEvidence() error = %v, want missing_proof_ref", err)
+	}
+}
 
 func TestSourceWarmupFortyFiveToSeventyDaysRemainsValid(t *testing.T) {
 	repo := &fakeRepo{}
@@ -273,7 +326,10 @@ type fakeRepo struct {
 	lastWorkQuery domain.WorkQuery
 	workRows      []domain.WorkRow
 	acceptErr     error
-	replay        bool // when true, the write methods report an idempotent replay (Replayed=true)
+	goatNotOnLoad bool  // when true, GoatOnLoad reports the goat is not a member of the load
+	recordHFErr   error // when set, RecordHFVaccinationEvidence returns it
+	reviewHFErr   error // when set, ReviewHFVaccinationEvidence returns it
+	replay        bool  // when true, the write methods report an idempotent replay (Replayed=true)
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return nil }
@@ -296,10 +352,19 @@ func (f *fakeRepo) RecordSourceHealth(_ context.Context, in ports.SourceHealth) 
 func (f *fakeRepo) RecordDecision(_ context.Context, in ports.Decision) (domain.Decision, error) {
 	return domain.Decision{LoadID: in.LoadID, GoatID: in.GoatID, DecisionType: in.DecisionType, Replayed: f.replay}, nil
 }
+func (f *fakeRepo) GoatOnLoad(context.Context, string, string, string) (bool, error) {
+	return !f.goatNotOnLoad, nil
+}
 func (f *fakeRepo) RecordHFVaccinationEvidence(_ context.Context, in ports.HFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	if f.recordHFErr != nil {
+		return domain.HFVaccinationEvidence{}, f.recordHFErr
+	}
 	return domain.HFVaccinationEvidence{LoadID: in.LoadID, GoatID: in.GoatID, ProtocolVersionID: in.ProtocolVersionID, RuleID: in.RuleID, DoseCode: in.DoseCode, ReviewStatus: domain.HFVaccinationReviewImported}, nil
 }
 func (f *fakeRepo) ReviewHFVaccinationEvidence(_ context.Context, in ports.ReviewHFVaccinationEvidence) (domain.HFVaccinationEvidence, error) {
+	if f.reviewHFErr != nil {
+		return domain.HFVaccinationEvidence{}, f.reviewHFErr
+	}
 	return domain.HFVaccinationEvidence{EvidenceID: in.EvidenceID, ReviewStatus: in.ReviewStatus}, nil
 }
 func (f *fakeRepo) DispatchLoad(_ context.Context, in ports.DispatchLoad) (domain.TransitHandoff, error) {
