@@ -2,7 +2,8 @@
 
 Date: 2026-06-27
 
-Status: implementation plan.
+Status: implemented v1 for admin-web bootstrap compiler; Redis/event
+invalidation remains the production cache follow-up.
 
 Purpose: turn the current backend-owned admin-web contract into a production
 config API with stable revisions, cache keys, invalidation, and rollout gates.
@@ -46,10 +47,12 @@ apps/admin-web/lib/api/server.ts#getAdminWebBootstrap
 apps/admin-web/features/**/*
 ```
 
-Current contract already owns shell navigation, page copy, table contracts,
-option groups, action copy, route labels, and disabled reasons. The missing
-piece is production-grade revisioning and cache/invalidation around the
-compiled contract.
+Current contract owns shell navigation, page copy, table contracts, option
+groups, action copy, route labels, and disabled reasons. The v1 compiler is now
+request-aware: it receives authenticated tenant/actor/grants from backend auth
+middleware, compiles DB-backed families for locations, selected config
+vocabularies, SOP labels, and permissions into `/admin-web/bootstrap`, and
+returns deterministic `contract_revision`, `family_hashes`, and `cache_policy`.
 
 ## What Belongs In The Config API
 
@@ -111,21 +114,20 @@ Response adds:
 {
   "source": "api",
   "schema_version": "admin-web-ui-v1",
-  "contract_revision": "rev_...",
-  "etag": "sha256:...",
-  "generated_at": "2026-06-27T00:00:00Z",
-  "tenant_id": "00000000-0000-4000-8000-000000000001",
-  "actor_role": "ceo_internal",
-  "locale": "en-IN",
-  "families": [
-    {
-      "id": "chrome",
-      "revision": "rev_...",
-      "hash": "sha256:...",
-      "source": "backend_contract",
-      "ttl_seconds": 3600
-    }
-  ],
+  "contract_revision": "3a5c...",
+  "family_hashes": {
+    "chrome": "9b19...",
+    "permissions": "1f20...",
+    "locations": "62aa...",
+    "config": "bb70...",
+    "db:locations": "b0e4..."
+  },
+  "cache_policy": {
+    "etag": "W/\"3a5c...\"",
+    "in_process_ttl_sec": 60,
+    "redis_ttl_hint_sec": 600,
+    "revision_source": "tenant-role-family-hashes"
+  },
   "navigation": {},
   "route_labels": [],
   "top_bar": {},
@@ -174,31 +176,33 @@ fallback mechanism.
 Add these generated-client schemas:
 
 ```text
-AdminWebContractMeta
+AdminWebBootstrapResponse
   schema_version
   contract_revision
-  etag
-  generated_at
-  tenant_id
-  actor_id
-  actor_role
-  locale
-  cache_status
-  families[]
+  family_hashes
+  cache_policy
 
-AdminWebContractFamily
-  id
-  revision
-  hash
-  source
-  source_tables[]
-  ttl_seconds
-  changed_at
+AdminWebContractCachePolicy
+  etag
+  in_process_ttl_sec
+  redis_ttl_hint_sec
+  revision_source
 ```
 
 `contract_revision` is the composite hash of the family hashes included in the
 response. The hash must be deterministic over normalized JSON so equivalent
 contracts produce the same ETag.
+
+Implemented v1 sources:
+
+- `backend/internal/adminui/app` owns the compiler and stable product shape.
+- `backend/internal/adminui/adapters/postgres` reads tenant-scoped DB families:
+  active parks, protocol categories, published SOP labels, active/review goat
+  breeds, and active status definitions for health/reproductive/defer options.
+- `backend/internal/adminui/adapters/http` passes authenticated request context
+  from `httpmiddleware` into the compiler.
+- `apps/admin-web/components/admin-shell.tsx` derives top-bar parks from
+  bootstrap instead of making a second `/admin/locations` read for shell chrome.
 
 ## Revision Sources
 
@@ -218,6 +222,20 @@ Use explicit family revisions instead of guessing from response text.
 If a table lacks `row_version`, use `updated_at` for v1 and add row versions in
 the owning module later. Do not introduce a frontend-side cache key to hide a
 missing backend revision.
+
+## Remaining Production Cache Follow-Up
+
+The current implementation uses an in-process 60 second cache and publishes a
+Redis TTL hint in the contract. Production Redis/Memorystore should cache by:
+
+```text
+admin-web:<schema_version>:tenant:<tenant_id>:roles:<role_hash>:families:<contract_revision>
+```
+
+Writes to locations, permissions, protocol config, and SOP publishing should
+emit family-specific invalidation events and/or bump a family revision row so
+Redis keys miss immediately. Until that event path lands, Postgres remains
+canonical and the in-process TTL bounds staleness.
 
 ## Database Plan
 

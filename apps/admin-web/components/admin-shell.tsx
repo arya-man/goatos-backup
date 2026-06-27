@@ -1,12 +1,20 @@
 import { FirebaseSessionBridge } from "@/components/auth/firebase-session-bridge";
 import { MeshaShell } from "@/components/mesha-shell";
-import { getScopeParks } from "@/lib/api/scope-parks";
-import { getAdminWebBootstrap } from "@/lib/api/server";
+import { getAdminWebBootstrap, type AdminWebBootstrapResponse } from "@/lib/api/server";
+import type { Park } from "@/lib/scope";
 
-// Server component: fetch the parks list once for the top-bar scope control so the shell can render human
-// park labels from the locations API while the URL/API carry the backend-safe location UUID.
+function parksFromContract(contract: AdminWebBootstrapResponse): Park[] {
+  return contract.top_bar.park_selector.options.map((option) => ({
+    id: option.key,
+    code: option.label,
+    name: option.title || option.label,
+  }));
+}
+
+// Server component: business UI renders only after the backend-owned bootstrap contract succeeds.
+// Top-bar park options are compiled into that contract from the backend locations source.
 export async function AdminShell({ children }: { children: React.ReactNode }) {
-  const [parks, contract] = await Promise.all([getScopeParks(), getAdminWebBootstrap()]);
+  const contract = await getAdminWebBootstrap();
   if (!contract.ok) {
     return (
       <>
@@ -36,7 +44,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <FirebaseSessionBridge />
-      <MeshaShell parks={parks} contract={contract.data}>{children}</MeshaShell>
+      <MeshaShell parks={parksFromContract(contract.data)} contract={contract.data}>{children}</MeshaShell>
     </>
   );
 }

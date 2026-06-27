@@ -1,17 +1,22 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 func TestBootstrapPublishesAdminWebContract(t *testing.T) {
-	resp := NewService().Bootstrap()
+	resp := NewService().Bootstrap(context.Background(), BootstrapInput{})
 	if resp.SchemaVersion != "admin-web-ui-v1" {
 		t.Fatalf("schema version = %q", resp.SchemaVersion)
+	}
+	if resp.ContractRevision == "" || resp.CachePolicy.ETag == "" || len(resp.FamilyHashes) == 0 {
+		t.Fatalf("revision/cache metadata missing: revision=%q cache=%#v hashes=%#v", resp.ContractRevision, resp.CachePolicy, resp.FamilyHashes)
 	}
 	if len(resp.Navigation.Primary) == 0 || len(resp.Navigation.Groups) == 0 {
 		t.Fatalf("navigation contract is empty: %#v", resp.Navigation)
@@ -25,7 +30,7 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 }
 
 func TestBootstrapJSONDoesNotPublishNullCollections(t *testing.T) {
-	raw, err := json.Marshal(NewService().Bootstrap())
+	raw, err := json.Marshal(NewService().Bootstrap(context.Background(), BootstrapInput{}))
 	if err != nil {
 		t.Fatalf("marshal bootstrap: %v", err)
 	}
@@ -35,7 +40,7 @@ func TestBootstrapJSONDoesNotPublishNullCollections(t *testing.T) {
 }
 
 func TestBootstrapDoesNotPublishHardcodedLocationTruth(t *testing.T) {
-	raw, err := json.Marshal(NewService().Bootstrap())
+	raw, err := json.Marshal(NewService().Bootstrap(context.Background(), BootstrapInput{}))
 	if err != nil {
 		t.Fatalf("marshal bootstrap: %v", err)
 	}
@@ -55,12 +60,80 @@ func TestBootstrapDoesNotPublishHardcodedLocationTruth(t *testing.T) {
 }
 
 func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T) {
-	page := pageByRouteID(t, NewService().Bootstrap().Pages, "action-center")
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "action-center")
 	group := optionGroupByID(t, page.OptionGroups, "park_display_chips")
 
 	if len(group.Options) != 0 {
 		t.Fatalf("phase-0 bootstrap must not publish static park chip options; locations must be DB-compiled, got %#v", group.Options)
 	}
+}
+
+func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	if got := resp.TopBar.ParkSelector.Options; len(got) != 1 || got[0].Key != "park-1" || got[0].Label != "P1" {
+		t.Fatalf("park selector options = %#v", got)
+	}
+	actionCenter := pageByRouteID(t, resp.Pages, "action-center")
+	parkChips := optionGroupByID(t, actionCenter.OptionGroups, "park_display_chips")
+	if len(parkChips.Options) != 1 || parkChips.Options[0].Key != "park-1" {
+		t.Fatalf("park display chips = %#v", parkChips.Options)
+	}
+	config := pageByRouteID(t, resp.Pages, "config")
+	ruleScopes := optionGroupByID(t, config.OptionGroups, "rule_scopes")
+	if len(ruleScopes.Options) != 2 || ruleScopes.Options[1].Key != "park:park-1" || !strings.Contains(ruleScopes.Options[1].Label, "P1") {
+		t.Fatalf("rule scopes were not DB compiled: %#v", ruleScopes.Options)
+	}
+	breeds := optionGroupByID(t, config.OptionGroups, "rule_breeds")
+	if len(breeds.Options) < 2 || breeds.Options[1].Key != "DB Breed" {
+		t.Fatalf("breed options were not DB compiled: %#v", breeds.Options)
+	}
+	deferStates := optionGroupByID(t, config.OptionGroups, "defer_states")
+	for _, opt := range deferStates.Options {
+		if opt.Key == "healthy" {
+			t.Fatalf("defer states must not include healthy status: %#v", deferStates.Options)
+		}
+	}
+	if resp.FamilyHashes["locations"] == "" || resp.FamilyHashes["config"] == "" || resp.FamilyHashes["db:locations"] == "" {
+		t.Fatalf("family hashes missing: %#v", resp.FamilyHashes)
+	}
+}
+
+func TestBootstrapDisablesUnauthorizedNavFromRequestGrants(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	item := primaryNavByID(t, resp.Navigation.Primary, "action-center")
+	if item.Enabled {
+		t.Fatalf("action-center should be disabled for operator-only admin-web grant: %#v", item)
+	}
+	if item.DisabledReason == "" {
+		t.Fatalf("disabled nav item must carry backend disabled reason: %#v", item)
+	}
+}
+
+type fakeFamilies struct{}
+
+func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
+	return ReferenceFamilies{
+		Parks:              []ReferenceOption{{Key: "park-1", Label: "P1", Title: "Park One", Tone: "info"}},
+		RuleCategories:     []ReferenceOption{{Key: "vaccination", Label: "vaccination"}},
+		Breeds:             []ReferenceOption{{Key: "DB Breed", Label: "DB Breed"}},
+		HealthStatuses:     []ReferenceOption{{Key: "healthy", Label: "healthy"}},
+		ReproductiveStates: []ReferenceOption{{Key: "pregnant", Label: "pregnant"}},
+		DeferStates:        []ReferenceOption{{Key: "healthy", Label: "healthy"}, {Key: "quarantine", Label: "quarantine"}},
+		SOPLabels:          []ReferenceOption{{Key: "sop-v1", Label: "SOP v1"}},
+		RevisionInputs:     map[string]string{"locations": "park-1"},
+	}, nil
 }
 
 func pageByRouteID(t *testing.T, pages []domain.PageContract, routeID string) domain.PageContract {
@@ -72,6 +145,17 @@ func pageByRouteID(t *testing.T, pages []domain.PageContract, routeID string) do
 	}
 	t.Fatalf("missing page contract %q", routeID)
 	return domain.PageContract{}
+}
+
+func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) domain.NavigationItem {
+	t.Helper()
+	for _, item := range items {
+		if item.ID == id {
+			return item
+		}
+	}
+	t.Fatalf("missing primary nav item %q", id)
+	return domain.NavigationItem{}
 }
 
 func optionGroupByID(t *testing.T, groups []domain.OptionGroup, id string) domain.OptionGroup {

@@ -17,7 +17,6 @@ import {
 } from "./rule-dsl";
 import type { ImpactPreviewResult } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { Park } from "@/lib/scope";
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok" } as const;
 
@@ -27,7 +26,6 @@ export function RuleEditorModal({
   initialCategory,
   sopVersions = [],
   animalStages = [],
-  parks = [],
   stagesError = null,
   sopsError = null,
   canPublish = true,
@@ -38,7 +36,6 @@ export function RuleEditorModal({
   initialCategory: string;
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
-  parks?: Park[];
   stagesError?: string | null;
   sopsError?: string | null;
   canPublish?: boolean;
@@ -46,17 +43,7 @@ export function RuleEditorModal({
 }) {
   const ruleCategories = optionGroup(pageContract, "rule_categories");
   const ruleScopes = optionGroup(pageContract, "rule_scopes");
-  const scopeOptions = [
-    ...ruleScopes.filter((option) => !option.key.startsWith("park:")),
-    ...parks.map((park) => ({
-      key: `park:${park.id}`,
-      label: `${copy(pageContract, "modal.rule_editor.label.park_scope_prefix")} ${park.code?.trim() || park.name || park.id}`,
-      title: park.name || park.id,
-      enabled: true,
-      disabled_reason: "",
-      tone: "info",
-    })),
-  ];
+  const scopeOptions = ruleScopes;
   const protocolPlaceholders = optionGroup(pageContract, "protocol_placeholders");
   const animalStageScope = optionGroup(pageContract, "animal_stage_scope");
   const sexOptions = optionGroup(pageContract, "rule_sexes");
@@ -214,8 +201,22 @@ export function RuleEditorModal({
   );
 
   const dsl = useMemo(() => buildRuleDsl(input), [input]);
-  const badge = sourceBadge(input.source);
-  const publishGate = validatePublish(input.source);
+  const publishableSourceKeys = new Set(sourceSystemOptions.filter((option) => option.tone === "ok").map((option) => option.key));
+  const badge = sourceBadge(input.source, sourceSystemOptions, {
+    notSourceBacked: copy(pageContract, "modal.rule_editor.source_badge.not_source_backed"),
+    notPublishable: copy(pageContract, "modal.rule_editor.source_badge.not_publishable"),
+    approved: copy(pageContract, "modal.rule_editor.source_badge.approved"),
+    pending: copy(pageContract, "modal.rule_editor.source_badge.pending"),
+    sourceRefNeeded: copy(pageContract, "modal.rule_editor.source_badge.source_ref_needed"),
+  });
+  const publishGate = validatePublish(input.source, publishableSourceKeys, {
+    sourceSystem: copy(pageContract, "modal.rule_editor.publish_block.source_system"),
+    sourceRef: copy(pageContract, "modal.rule_editor.publish_block.source_ref"),
+    reviewStatus: copy(pageContract, "modal.rule_editor.publish_block.review_status"),
+    approvedBy: copy(pageContract, "modal.rule_editor.publish_block.approved_by"),
+    approvedAt: copy(pageContract, "modal.rule_editor.publish_block.approved_at"),
+    approvedAtRFC3339: copy(pageContract, "modal.rule_editor.publish_block.approved_at_rfc"),
+  });
   const inputSig = useMemo(() => JSON.stringify(input), [input]);
   // dirty = saved once, but the form has changed since — the stored version is stale for publish.
   const dirty = versionId !== "" && inputSig !== savedSig;
@@ -288,7 +289,7 @@ export function RuleEditorModal({
   }
 
   function publish() {
-    startTransition(async () => setNotice(await publishVersion(versionId, input.source)));
+    startTransition(async () => setNotice(await publishVersion(versionId)));
   }
 
   if (!open) return null;

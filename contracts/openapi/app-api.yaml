@@ -2913,6 +2913,9 @@ components:
       required:
         - source
         - schema_version
+        - contract_revision
+        - family_hashes
+        - cache_policy
         - navigation
         - route_labels
         - top_bar
@@ -2926,6 +2929,16 @@ components:
           const: api
         schema_version:
           type: string
+        contract_revision:
+          type: string
+          minLength: 1
+        family_hashes:
+          type: object
+          additionalProperties:
+            type: string
+            minLength: 1
+        cache_policy:
+          $ref: "#/components/schemas/AdminWebContractCachePolicy"
         navigation:
           $ref: "#/components/schemas/AdminWebNavigationContract"
         route_labels:
@@ -2950,6 +2963,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminWebDisplayRule"
+    AdminWebContractCachePolicy:
+      type: object
+      additionalProperties: false
+      required: [etag, in_process_ttl_sec, redis_ttl_hint_sec, revision_source]
+      properties:
+        etag:
+          type: string
+          minLength: 1
+        in_process_ttl_sec:
+          type: integer
+          minimum: 0
+        redis_ttl_hint_sec:
+          type: integer
+          minimum: 0
+        revision_source:
+          type: string
+          minLength: 1
     AdminWebNavigationContract:
       type: object
       additionalProperties: false

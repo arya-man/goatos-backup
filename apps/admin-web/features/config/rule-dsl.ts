@@ -1,4 +1,4 @@
-// Pure rule_dsl builder + option vocab + gates. Shared by the client modal (live JSONB preview) and
+// Pure rule_dsl builder + gates. Shared by the client modal (live JSONB preview) and
 // the server action (persisted rule_dsl), so the two cannot drift. The editor is category/schema
 // driven: vaccination renders dose/lot policy; feed_direction renders ration/session/inventory policy.
 
@@ -94,62 +94,14 @@ export interface ProtocolRuleDraft {
   sortOrder: number;
 }
 
-// ---- option vocab (mirrors mock New-draft-rule modal + obligation-engine config contract) ----
-// Only categories with a real DSL builder + backend support are exposed. vaccination is the live slice;
-// feed_direction is authorable (category/schema-driven editor) but not publishable yet (see backend
-// publishableSources). deworming/biosecurity/etc. are unbuilt and must not be shown as live
-// (context/frontend/current-admin-web-scope.md).
-export const CATEGORIES = ["vaccination", "feed_direction"];
 // Stage bands (K0/K1/K2…) are NOT hardcoded here. They are backend reference data from
 // animal_stage_lookup, loaded via listAnimalStages and passed in as AnimalStageOption[] (PHC
 // vaccination TRD: stage bands live in the lookup). The only stage literal the UI owns is the
 // ALL_STAGES filter below, which is a UI scope ("every stage"), not an animal_stage_lookup row.
 export const ALL_STAGES_VALUE = "all";
-export const SEXES = ["all", "female", "male"];
-export const BREEDS = ["all", "Beetal", "Sirohi", "Boer×"];
-export const HEALTHS = ["healthy", "any"];
-export const LIFECYCLES = ["active", "any"];
-export const REPRODUCTIVE = ["any", "exclude_pregnant", "exclude_lactating", "pregnant_only"];
-export const DEFER_STATES = ["ICU", "quarantine", "sick"];
-export const MISSED_DOSE_POLICIES = [
-  { value: "immediate", label: "catch up immediately" },
-  { value: "next_cycle", label: "skip to next cycle" },
-  { value: "phc_approval", label: "require PHC approval" },
-  { value: "defer", label: "defer with reason" },
-];
-export const SOURCE_SYSTEMS = [
-  { value: "manual_admin", label: "manual admin (not publishable)" },
-  { value: "vaccinations_db", label: "Vaccinations DB" },
-  { value: "phc", label: "PHC" },
-  { value: "vet", label: "vet" },
-  { value: "feed_master", label: "Feed master" },
-  { value: "nutritionist", label: "nutritionist" },
-  { value: "ops_source", label: "operations source" },
-];
-export const REVIEW_STATUSES = ["extracted", "reviewed", "approved"];
-export const TRIGGER_TYPES = ["birth_age", "post_arrival", "calendar", "after_previous_completion", "manual_campaign"];
-export const REPEATS = ["none", "every_n_days", "yearly", "until_age", "after_age"];
-export const CATCH_UPS = ["immediate", "next_cycle", "phc_approval", "defer"];
-export const SOP_VERSIONS = ["vacc-sop v2", "deworm-sop v1"];
-export const FEED_CLASSES = ["all", "kid", "grower", "fattening", "pregnant_lactating", "buck", "custom"];
-export const FEED_ITEMS = ["Mesha concentrate", "Masoor bhusa", "Toor dhal bhusa", "Green feed", "Dry feed", "custom"];
-export const FEED_UNITS = ["kg", "g", "litre", "bundle"];
-export const FEED_INVENTORY_POLICIES = [
-  { value: "reserve_consume_release", label: "reserve before pack -> consume verified qty -> release remainder" },
-  { value: "consume_on_verify", label: "consume only after verifier accepts execution proof" },
-  { value: "manual_hold", label: "manual reserve hold; release by Data Ops" },
-];
 
 export const NEXT_DUE_BASIS = "last_accepted_completion_else_dob";
 export const STAGE_SOURCE = "shed_profiles.animal_stage_id -> animal_stage_lookup";
-
-// SOURCE_BACKED: sources that count as authored-from-a-real-source (not manual_admin). PUBLISHABLE_SOURCES
-// is the stricter set the BACKEND will actually publish (backend/internal/protocol/app/publish.go
-// publishableSources) — vaccination protocol sources only. Feed/nutrition sources are source-backed for
-// authoring but cannot publish yet; the client gate must mirror the backend so it never claims a draft is
-// publishable when publish would 422.
-const SOURCE_BACKED = ["vaccinations_db", "phc", "vet", "feed_master", "nutritionist", "ops_source"];
-const PUBLISHABLE_SOURCES = ["vaccinations_db", "phc", "vet"];
 
 export function isRfc3339Timestamp(value: string): boolean {
   const trimmed = value.trim();
@@ -382,23 +334,37 @@ export interface SourceBadge {
   tone: "warn" | "info" | "ok";
 }
 
-export function sourceBadge(source: SourceMeta): SourceBadge {
+export type SourceSystemContractOption = { key: string; label: string; tone: string };
+
+export type SourceBadgeCopy = {
+  notSourceBacked: string;
+  notPublishable: string;
+  approved: string;
+  pending: string;
+  sourceRefNeeded: string;
+};
+
+export type PublishGateCopy = {
+  sourceSystem: string;
+  sourceRef: string;
+  reviewStatus: string;
+  approvedBy: string;
+  approvedAt: string;
+  approvedAtRFC3339: string;
+};
+
+function sourceOption(sourceSystem: string, options: SourceSystemContractOption[]): SourceSystemContractOption | undefined {
+  return options.find((option) => option.key === sourceSystem.trim());
+}
+
+export function sourceBadge(source: SourceMeta, options: SourceSystemContractOption[], labels: SourceBadgeCopy): SourceBadge {
   const sourceSystem = source.sourceSystem.trim();
   const reviewStatus = source.reviewStatus.trim();
-  const labels: Record<string, string> = {
-    vaccinations_db: "Vaccinations DB",
-    phc: "PHC",
-    vet: "vet",
-    feed_master: "Feed master",
-    nutritionist: "nutritionist",
-    ops_source: "operations source",
-    manual_admin: "manual admin",
-  };
-  const sourced = SOURCE_BACKED.includes(sourceSystem);
-  const publishable = PUBLISHABLE_SOURCES.includes(sourceSystem);
-  if (!sourced) return { text: "Draft - not source-backed - cannot publish", tone: "warn" };
-  if (!publishable) {
-    return { text: `Draft - ${labels[sourceSystem]} - not a publishable source (vaccinations_db/phc/vet only)`, tone: "warn" };
+  const option = sourceOption(sourceSystem, options);
+  const sourceLabel = option?.label ?? sourceSystem;
+  if (!option || option.tone === "warn") return { text: labels.notSourceBacked, tone: "warn" };
+  if (option.tone !== "ok") {
+    return { text: `${labels.notPublishable} - ${sourceLabel}`, tone: "warn" };
   }
   if (
     reviewStatus === "approved" &&
@@ -406,22 +372,21 @@ export function sourceBadge(source: SourceMeta): SourceBadge {
     source.approvedBy.trim() &&
     isRfc3339Timestamp(source.approvedAt)
   ) {
-    return { text: `Approved - publishable - ${labels[sourceSystem]}`, tone: "ok" };
+    return { text: `${labels.approved} - ${sourceLabel}`, tone: "ok" };
   }
-  return { text: `Draft - source-backed - pending approval${source.sourceRef.trim() ? "" : " - source_ref required"}`, tone: "info" };
+  return { text: `${labels.pending}${source.sourceRef.trim() ? "" : ` - ${labels.sourceRefNeeded}`}`, tone: "info" };
 }
 
-// validatePublish mirrors the backend source-backed gate (publish.go ValidatePublishable). The source
-// system must be one the backend will publish (vaccinations_db/phc/vet); feed/nutrition sources are
-// authorable but not publishable, so the client rejects them up front instead of letting publish 422.
-export function validatePublish(source: SourceMeta): { ok: boolean; message?: string } {
-  if (!PUBLISHABLE_SOURCES.includes(source.sourceSystem.trim())) {
-    return { ok: false, message: "Publish blocked - source_system must be vaccinations_db, phc, or vet" };
+// validatePublish mirrors the backend source-backed gate using backend-owned source_systems metadata.
+// The backend remains authoritative on submit; this only drives the pre-submit disabled reason.
+export function validatePublish(source: SourceMeta, publishableSourceKeys: Set<string>, labels: PublishGateCopy): { ok: boolean; message?: string } {
+  if (!publishableSourceKeys.has(source.sourceSystem.trim())) {
+    return { ok: false, message: labels.sourceSystem };
   }
-  if (!source.sourceRef.trim()) return { ok: false, message: "Publish blocked - source_ref required" };
-  if (source.reviewStatus.trim() !== "approved") return { ok: false, message: "Publish blocked - review_status must be approved" };
-  if (!source.approvedBy.trim()) return { ok: false, message: "Publish blocked - approved_by required" };
-  if (!source.approvedAt.trim()) return { ok: false, message: "Publish blocked - approved_at required" };
-  if (!isRfc3339Timestamp(source.approvedAt)) return { ok: false, message: "Publish blocked - approved_at must be RFC3339" };
+  if (!source.sourceRef.trim()) return { ok: false, message: labels.sourceRef };
+  if (source.reviewStatus.trim() !== "approved") return { ok: false, message: labels.reviewStatus };
+  if (!source.approvedBy.trim()) return { ok: false, message: labels.approvedBy };
+  if (!source.approvedAt.trim()) return { ok: false, message: labels.approvedAt };
+  if (!isRfc3339Timestamp(source.approvedAt)) return { ok: false, message: labels.approvedAtRFC3339 };
   return { ok: true };
 }

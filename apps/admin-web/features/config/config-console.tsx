@@ -5,7 +5,6 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, Plus, Search } from "
 import { RuleEditorModal } from "./rule-editor-modal";
 import type { AnimalStageOption, SopVersionOption } from "./rule-dsl";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { Park } from "@/lib/scope";
 
 export interface ConfigRuleRow {
   id: string;
@@ -30,31 +29,29 @@ export function ConfigConsole({
   initialCategory,
   sopVersions = [],
   animalStages = [],
-  parks = [],
   loadError = null,
-	  stagesError = null,
-	  sopsError = null,
-	  canPublish = true,
-	  pageContract,
-	}: {
-	  rules: ConfigRuleRow[];
-	  initialCategory: string;
+  stagesError = null,
+  sopsError = null,
+  canPublish = true,
+  pageContract,
+}: {
+  rules: ConfigRuleRow[];
+  initialCategory: string;
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
-  parks?: Park[];
   loadError?: string | null;
-	  stagesError?: string | null;
-	  sopsError?: string | null;
-	  canPublish?: boolean;
-	  pageContract: AdminUiPageContract;
-	}) {
-	  const [open, setOpen] = useState(false);
-	  const [query, setQuery] = useState("");
-	  const [requestedPage, setRequestedPage] = useState(1);
-	  const pageSizeOptions = tablePageSizes(pageContract, "protocol-rules");
-	  const defaultPageSize = pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10);
-	  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
-	  const labels = tableLabels(pageContract, "protocol-rules");
+  stagesError?: string | null;
+  sopsError?: string | null;
+  canPublish?: boolean;
+  pageContract: AdminUiPageContract;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [requestedPage, setRequestedPage] = useState(1);
+  const pageSizeOptions = tablePageSizes(pageContract, "protocol-rules");
+  const defaultPageSize = pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10);
+  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
+  const labels = tableLabels(pageContract, "protocol-rules");
   const filteredRules = rules.filter((rule) => {
     const q = query.trim().toLowerCase();
     if (!q) return true;
@@ -238,7 +235,7 @@ export function ConfigConsole({
               style={page >= totalPages ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
               onClick={() => setRequestedPage((p) => Math.min(totalPages, p + 1))}
             >
-	              {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
+              {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
             </button>
           </div>
         ) : null}
@@ -251,7 +248,6 @@ export function ConfigConsole({
         initialCategory={initialCategory}
         sopVersions={sopVersions}
         animalStages={animalStages}
-        parks={parks}
         stagesError={stagesError}
         sopsError={sopsError}
         canPublish={canPublish}

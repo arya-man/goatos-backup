@@ -2,15 +2,25 @@
 package domain
 
 type BootstrapResponse struct {
-	Source        string             `json:"source"`
-	SchemaVersion string             `json:"schema_version"`
-	Navigation    NavigationContract `json:"navigation"`
-	RouteLabels   []RouteLabelRule   `json:"route_labels"`
-	TopBar        TopBarContract     `json:"top_bar"`
-	RoleLenses    []RoleLensContract `json:"role_lenses"`
-	Pages         []PageContract     `json:"pages"`
-	Copy          map[string]string  `json:"copy"`
-	DisplayRules  []DisplayRule      `json:"display_rules"`
+	Source           string              `json:"source"`
+	SchemaVersion    string              `json:"schema_version"`
+	ContractRevision string              `json:"contract_revision"`
+	FamilyHashes     map[string]string   `json:"family_hashes"`
+	CachePolicy      ContractCachePolicy `json:"cache_policy"`
+	Navigation       NavigationContract  `json:"navigation"`
+	RouteLabels      []RouteLabelRule    `json:"route_labels"`
+	TopBar           TopBarContract      `json:"top_bar"`
+	RoleLenses       []RoleLensContract  `json:"role_lenses"`
+	Pages            []PageContract      `json:"pages"`
+	Copy             map[string]string   `json:"copy"`
+	DisplayRules     []DisplayRule       `json:"display_rules"`
+}
+
+type ContractCachePolicy struct {
+	ETag            string `json:"etag"`
+	InProcessTTLSec int    `json:"in_process_ttl_sec"`
+	RedisTTLHintSec int    `json:"redis_ttl_hint_sec"`
+	RevisionSource  string `json:"revision_source"`
 }
 
 type NavigationContract struct {

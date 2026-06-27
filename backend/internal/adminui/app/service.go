@@ -1,25 +1,58 @@
 // Package app builds the admin-web UI contract.
 package app
 
-import "github.com/vgoats/goatos/backend/internal/adminui/domain"
+import (
+	"context"
+	"sync"
+	"time"
 
-type Service struct{}
+	"github.com/vgoats/goatos/backend/internal/adminui/domain"
+)
 
-func NewService() *Service {
-	return &Service{}
+type Service struct {
+	repo     ReferenceRepository
+	mu       sync.Mutex
+	cache    map[string]cacheEntry
+	cacheTTL time.Duration
+	now      func() time.Time
 }
 
-func (s *Service) Bootstrap() domain.BootstrapResponse {
+func NewService(repo ...ReferenceRepository) *Service {
+	var r ReferenceRepository
+	if len(repo) > 0 {
+		r = repo[0]
+	}
+	return &Service{
+		repo:     r,
+		cache:    map[string]cacheEntry{},
+		cacheTTL: defaultContractCacheTTL,
+		now:      time.Now,
+	}
+}
+
+func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
+	return s.bootstrapCached(ctx, input)
+}
+
+func baseBootstrap() domain.BootstrapResponse {
 	return domain.BootstrapResponse{
-		Source:        "api",
-		SchemaVersion: "admin-web-ui-v1",
-		Navigation:    navigation(),
-		RouteLabels:   routeLabels(),
-		TopBar:        topBar(),
-		RoleLenses:    roleLenses(),
-		Pages:         pages(),
-		Copy:          chromeCopy(),
-		DisplayRules:  displayRules(),
+		Source:           "api",
+		SchemaVersion:    "admin-web-ui-v1",
+		ContractRevision: "",
+		FamilyHashes:     map[string]string{},
+		CachePolicy: domain.ContractCachePolicy{
+			ETag:            "",
+			InProcessTTLSec: int(defaultContractCacheTTL.Seconds()),
+			RedisTTLHintSec: redisTTLHintSeconds,
+			RevisionSource:  "tenant-role-family-hashes",
+		},
+		Navigation:   navigation(),
+		RouteLabels:  routeLabels(),
+		TopBar:       topBar(),
+		RoleLenses:   roleLenses(),
+		Pages:        pages(),
+		Copy:         chromeCopy(),
+		DisplayRules: displayRules(),
 	}
 }
 
@@ -1399,6 +1432,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.dirty_publish":                  "Inputs changed since the last save — save the draft again before publishing",
 			"modal.rule_editor.select_sop_publish":             "Select an executable SOP version before publishing",
 			"modal.rule_editor.proof_publish":                  "Add at least one proof token before publishing (an empty proof policy is not publishable)",
+			"modal.rule_editor.publish_block.source_system":    "Publish blocked - selected source_system is not publishable by this contract",
+			"modal.rule_editor.publish_block.source_ref":       "Publish blocked - source_ref required",
+			"modal.rule_editor.publish_block.review_status":    "Publish blocked - review_status must be approved",
+			"modal.rule_editor.publish_block.approved_by":      "Publish blocked - approved_by required",
+			"modal.rule_editor.publish_block.approved_at":      "Publish blocked - approved_at required",
+			"modal.rule_editor.publish_block.approved_at_rfc":  "Publish blocked - approved_at must be RFC3339",
+			"modal.rule_editor.source_badge.not_source_backed": "Draft - not source-backed - cannot publish",
+			"modal.rule_editor.source_badge.not_publishable":   "Draft - source is not publishable by this contract",
+			"modal.rule_editor.source_badge.approved":          "Approved - publishable",
+			"modal.rule_editor.source_badge.pending":           "Draft - source-backed - pending approval",
+			"modal.rule_editor.source_badge.source_ref_needed": "source_ref required",
 			"modal.rule_editor.default_vaccination_escalation": "miss -> Asst -> Park Head -> PHC Director; overdue -> escalate",
 			"modal.rule_editor.default_feed_escalation":        "missed session -> Park Head -> Feed Director; stock gap -> Data Ops review",
 			"modal.rule_editor.default_vaccine_lot_policy":     "FEFO lot required; cold-chain and expiry checked before verification",
@@ -2070,13 +2114,13 @@ func configOptionGroups() []domain.OptionGroup {
 		{
 			ID: "source_systems",
 			Options: []domain.Option{
-				option("manual_admin", "manual admin (not publishable)", "", ""),
-				option("vaccinations_db", "Vaccinations DB", "", ""),
-				option("phc", "PHC", "", ""),
-				option("vet", "vet", "", ""),
-				option("feed_master", "Feed master", "", ""),
-				option("nutritionist", "nutritionist", "", ""),
-				option("ops_source", "operations source", "", ""),
+				option("manual_admin", "manual admin (not publishable)", "not_source_backed", "warn"),
+				option("vaccinations_db", "Vaccinations DB", "publishable", "ok"),
+				option("phc", "PHC", "publishable", "ok"),
+				option("vet", "vet", "publishable", "ok"),
+				option("feed_master", "Feed master", "source_backed_not_publishable", "info"),
+				option("nutritionist", "nutritionist", "source_backed_not_publishable", "info"),
+				option("ops_source", "operations source", "source_backed_not_publishable", "info"),
 			},
 		},
 		{

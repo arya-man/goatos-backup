@@ -4,8 +4,6 @@ import { ConfigConsole, type ConfigRuleRow } from "./config-console";
 import { isRfc3339Timestamp, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
 import { listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { getScopeParks } from "@/lib/api/scope-parks";
-import type { Park } from "@/lib/scope";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
@@ -17,13 +15,16 @@ function resolveCategory(category: string, pageContract: AdminUiPageContract): s
   return categories.some((option) => option.key === category) ? category : categories[0]?.key ?? category;
 }
 
-// Mirrors the backend publish gate (protocol/app/publish.go publishableSources). A draft is
-// publishable ONLY when source-backed, reviewed, and approved; otherwise the row says so plainly.
-const PUBLISHABLE_SOURCES = new Set(["vaccinations_db", "phc", "vet"]);
+function sourceSystemOption(item: ProtocolConfigItem, pageContract: AdminUiPageContract) {
+  return optionGroup(pageContract, "source_systems").find((option) => option.key === item.source_system);
+}
 
-function isPublishableSource(item: ProtocolConfigItem): boolean {
+// Mirrors the backend publish gate through the backend-owned source_systems contract metadata. A draft is
+// publishable ONLY when source-backed, reviewed, and approved; otherwise the row says so plainly.
+function isPublishableSource(item: ProtocolConfigItem, pageContract: AdminUiPageContract): boolean {
+  const source = sourceSystemOption(item, pageContract);
   return (
-    PUBLISHABLE_SOURCES.has(item.source_system) &&
+    source?.tone === "ok" &&
     item.source_ref.trim() !== "" &&
     item.review_status === "approved" &&
     item.approved_by.trim() !== "" &&
@@ -40,18 +41,18 @@ function shortId(id: string | null | undefined, pageContract: AdminUiPageContrac
   return id.length > 10 ? `${id.slice(0, 8)}…` : id;
 }
 
-function scopeLabel(item: ProtocolConfigItem, parks: Park[], pageContract: AdminUiPageContract): string {
+function scopeLabel(item: ProtocolConfigItem, pageContract: AdminUiPageContract): string {
   if (item.scope_type === "tenant") return copy(pageContract, "modal.rule_editor.label.tenant");
   if (item.scope_type === "park") {
-    const park = parks.find((p) => p.id === item.scope_id);
     const parkScope = optionGroup(pageContract, "rule_scopes").find((option) => option.key === `park:${item.scope_id}`)?.label;
-    return parkScope ?? `${copy(pageContract, "modal.rule_editor.label.park_scope_prefix")} ${park?.code?.trim() || park?.name || shortId(item.scope_id, pageContract)}`;
+    return parkScope ?? `${copy(pageContract, "modal.rule_editor.label.park_scope_prefix")} ${shortId(item.scope_id, pageContract)}`;
   }
   return `${item.scope_type}: ${shortId(item.scope_id, pageContract)}`;
 }
 
-function hasSourceEvidence(item: ProtocolConfigItem): boolean {
-  return PUBLISHABLE_SOURCES.has(item.source_system) && item.source_ref.trim() !== "";
+function hasSourceEvidence(item: ProtocolConfigItem, pageContract: AdminUiPageContract): boolean {
+  const source = sourceSystemOption(item, pageContract);
+  return !!source && source.tone !== "warn" && item.source_ref.trim() !== "";
 }
 
 function statusOf(item: ProtocolConfigItem, pageContract: AdminUiPageContract): { text: string; tone: ConfigRuleRow["statusTone"] } {
@@ -59,9 +60,9 @@ function statusOf(item: ProtocolConfigItem, pageContract: AdminUiPageContract): 
     ? "published"
     : item.status === "retired"
       ? "retired"
-      : isPublishableSource(item)
+      : isPublishableSource(item, pageContract)
         ? "draft_publishable"
-        : hasSourceEvidence(item)
+        : hasSourceEvidence(item, pageContract)
           ? "draft_pending_approval"
           : "draft_not_publishable";
   return {
@@ -72,7 +73,7 @@ function statusOf(item: ProtocolConfigItem, pageContract: AdminUiPageContract): 
 
 // Project a backend protocol-config version into a Config table row. No invented values: rule count,
 // status, scope, effective date, linked SOP, and publisher are backend truth ("—" when absent).
-function toRuleRow(item: ProtocolConfigItem, parks: Park[], pageContract: AdminUiPageContract): ConfigRuleRow {
+function toRuleRow(item: ProtocolConfigItem, pageContract: AdminUiPageContract): ConfigRuleRow {
   const status = statusOf(item, pageContract);
   return {
     id: item.protocol_version_id,
@@ -80,7 +81,7 @@ function toRuleRow(item: ProtocolConfigItem, parks: Park[], pageContract: AdminU
     ruleRows: item.rule_count,
     ruleRowLabel: item.rule_count === 1 ? copy(pageContract, "modal.rule_editor.label.rule_singular") : copy(pageContract, "modal.rule_editor.label.rule_plural"),
     version: item.version_label?.trim() || `v${item.version}`,
-    scope: scopeLabel(item, parks, pageContract),
+    scope: scopeLabel(item, pageContract),
     statusText: status.text,
     statusTone: status.tone,
     effective: fmtDate(item.effective_from, pageContract),
@@ -95,13 +96,12 @@ function toRuleRow(item: ProtocolConfigItem, parks: Park[], pageContract: AdminU
 // never fabricated. A failed read surfaces an error band, not a silent empty table.
 export async function ConfigProtocolRulesPage({ category, pageContract }: { category: string; pageContract: AdminUiPageContract }) {
   const initialCategory = resolveCategory(category, pageContract);
-  const [res, sopRes, stagesRes, parks] = await Promise.all([
+  const [res, sopRes, stagesRes] = await Promise.all([
     listProtocolConfigs(initialCategory),
     listSops({ status: "active" }),
     listAnimalStages(),
-    getScopeParks(),
   ]);
-  const rules: ConfigRuleRow[] = res.ok ? res.data.items.map((item) => toRuleRow(item, parks, pageContract)) : [];
+  const rules: ConfigRuleRow[] = res.ok ? res.data.items.map((item) => toRuleRow(item, pageContract)) : [];
   const loadError = res.ok ? null : (res.error.message ?? copy(pageContract, "error.rules_load"));
 
   // Real published SOP versions the author can bind to a protocol version. An active SOP exposes its
@@ -140,7 +140,6 @@ export async function ConfigProtocolRulesPage({ category, pageContract }: { cate
         loadError={loadError}
         stagesError={stagesError}
         sopsError={sopsError}
-        parks={parks}
         pageContract={pageContract}
       />
 

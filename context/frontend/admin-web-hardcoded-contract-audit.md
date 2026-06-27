@@ -21,18 +21,38 @@ config compiler is being built, but must not hardcode live data:
 
 ## Fixed In Current Pass
 
+- Added request-context bootstrap compilation: `/admin-web/bootstrap` now
+  receives tenant, actor, active grants, and trace from backend auth middleware.
+- Added an adminui Postgres family repository that compiles active parks,
+  protocol categories, active/review goat breeds, active health/reproductive
+  status vocabularies, defer states, and published SOP labels into the bootstrap
+  contract.
+- Added backend contract metadata: deterministic `contract_revision`,
+  `family_hashes`, and `cache_policy` with an in-process TTL and Redis TTL hint.
+- Made top-bar park selector options and optional `park_display_chips`
+  DB-compiled from active `locations`, keyed by `location_id`.
+- Made navigation enabled/disabled state and role preview/lenses derive from
+  request grants instead of being the same static contract for every role.
+- Removed the AdminShell's separate top-bar `/admin/locations` read; shell park
+  options now come from `/admin-web/bootstrap`.
 - Removed static phase-1 park UUID constants from
   `backend/internal/adminui/app/service.go`.
 - Stopped publishing static `park_display_chips`; the group remains present but
-  empty until DB-compiled location options land.
-- Stopped publishing static `park:CBE` / `park:CPT` Config scopes. Phase-0
-  publishes tenant scope only; park scopes must be compiled from `locations`.
-- Replaced CBE-specific role-lens labels and hardcoded person preview with
-  generic labels until request-context actor/role compilation lands.
+  empty only when the tenant has no active DB parks or the DB family read fails.
+- Stopped publishing static `park:CBE` / `park:CPT` Config scopes. The
+  compiler now fills `rule_scopes` from active DB `locations`, keyed as
+  `park:<location_id>`, and the rule editor renders those contract options.
+- Replaced CBE-specific role-lens labels and hardcoded person preview; role
+  preview/lenses are now compiled from request grants.
 - Removed frontend CBE defaulting in `MeshaShell`; default park now follows the
   DB-returned park order.
 - Removed duplicate frontend `ROLE_LENSES`; Audit Log now consumes bootstrap
   `role_lenses`.
+- Removed frontend publishable-source allowlists from Config. Source badges,
+  table publishability status, and Publish disabled reasons now consume
+  backend-owned `source_systems` option metadata and contract copy; the server
+  action lets the protocol API return the authoritative `not_publishable`
+  reason.
 - Removed unused legacy `apps/admin-web/lib/constants.ts` containing farm tabs
   and shed-capacity truth.
 - Added guard coverage for frontend live-location literals and backend bootstrap
@@ -40,36 +60,31 @@ config compiler is being built, but must not hardcode live data:
 
 ## Remaining Required Work
 
-1. Request-context bootstrap compiler.
-   `GET /admin-web/bootstrap` must take authenticated tenant, actor, role,
-   capabilities, locale, and default scope. Static `Bootstrap()` is only a phase-0
-   bridge.
+1. Redis/event invalidation.
+   The compiler publishes family hashes and a Redis TTL hint, and uses bounded
+   in-process caching. Production Redis invalidation still needs config-change
+   events/family revision rows for immediate cache misses.
 
-2. DB-backed location family.
-   Compile `top_bar.park_selector.options`, `park_display_chips`, Config
-   `rule_scopes`, default park scope, and park display aliases from
-   `locations`/`location_aliases`, keyed by `location_id`.
+2. Governed config tables for still-static bounded product vocabularies.
+   Some finite protocol UI values still come from backend product contract shape
+   or DB CHECK constraints rather than first-class governed config tables. Those
+   include trigger/repeat/catch-up policies, source-system publishing vocabulary,
+   feed class/unit/inventory policies, and stable UI tab/status taxonomies.
+   They are no longer frontend-owned, but the next schema pass should give them
+   explicit DB family tables where the business needs governance.
 
-3. DB-backed permission/role family.
-   Compile nav visibility, action enablement, disabled reasons, role lenses, and
-   role preview from permissions/actor context. Backend RBAC remains authority.
-
-4. DB-backed protocol/config vocabularies.
-   Move source-backed Config dropdowns and publishability rules into backend
-   contract/DB families. Frontend `rule-dsl.ts` may keep pure validators and JSON
-   builders, but not visible option lists or source authority.
-
-5. E2E contract assertions.
+3. E2E contract assertions.
    For every active page, fetch `/admin-web/bootstrap` and assert nav labels,
    page titles, table columns, chips, tabs, filters, role lenses, and dropdowns
    are either in the contract or in the row/object returned by a backend API.
 
 ## Audit Findings To Keep Watching
 
-- `features/config/rule-dsl.ts` still contains finite rule defaults and
-  publishability validators. Some are product-contract data and should move to
-  backend config families; some are pure JSON builder defaults. Review item 4
-  before calling Config fully DB-driven.
+- `features/config/rule-dsl.ts` still contains pure JSON builder defaults such
+  as version-level `next_due_basis` and stage-source field names. Frontend
+  publishability now uses contract metadata, but source-system policy itself
+  still needs a governed DB family table before Config can be called fully
+  DB-governed.
 - Audit Log still has local filter wiring arrays for operation families/status
   tabs. Labels are contract-owned, but filter membership/action semantics should
   be represented in backend controls/options.

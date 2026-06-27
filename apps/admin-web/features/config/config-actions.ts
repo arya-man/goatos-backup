@@ -10,7 +10,7 @@ import {
   type ImpactPreviewInput,
   type ImpactPreviewResult,
 } from "@/lib/api/server";
-import { buildProtocolRuleRows, buildProofPolicy, buildRuleDsl, parseScope, validatePublish, type RuleInput } from "./rule-dsl";
+import { buildProtocolRuleRows, buildProofPolicy, buildRuleDsl, parseScope, type RuleInput } from "./rule-dsl";
 
 export interface ActionResult {
   ok: boolean;
@@ -83,13 +83,11 @@ export async function saveDraft(input: RuleInput): Promise<ActionResult> {
   return { ok: true, message: `draft saved - ${protocolRows.length} rule rows - no live obligations`, versionId: version.data.protocol_version_id };
 }
 
-// publishVersion attempts to publish through the source-backed gate. The gate is also enforced
-// client-side (validatePublish) and by the backend (422 not_publishable); this re-checks before the
-// network call so a not-source-backed draft fails fast with the exact missing field.
-export async function publishVersion(versionId: string, source: RuleInput["source"]): Promise<ActionResult> {
+// publishVersion attempts to publish through the backend source-backed gate. The client may disable the
+// button using backend contract metadata, but this server action does not duplicate publishable-source
+// business rules; the protocol API returns the authoritative not_publishable reason.
+export async function publishVersion(versionId: string): Promise<ActionResult> {
   if (!versionId) return { ok: false, message: "save the draft first" };
-  const gate = validatePublish(source);
-  if (!gate.ok) return { ok: false, message: gate.message ?? "not publishable" };
   const res = await publishProtocolVersion(versionId);
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
   // A publish generates obligations, which surface across every process-integrity screen.

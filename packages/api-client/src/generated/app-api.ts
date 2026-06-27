@@ -1155,6 +1155,11 @@ export interface components {
             /** @constant */
             source: "api";
             schema_version: string;
+            contract_revision: string;
+            family_hashes: {
+                [key: string]: string;
+            };
+            cache_policy: components["schemas"]["AdminWebContractCachePolicy"];
             navigation: components["schemas"]["AdminWebNavigationContract"];
             route_labels: components["schemas"]["AdminWebRouteLabelRule"][];
             top_bar: components["schemas"]["AdminWebTopBarContract"];
@@ -1164,6 +1169,12 @@ export interface components {
                 [key: string]: string;
             };
             display_rules: components["schemas"]["AdminWebDisplayRule"][];
+        };
+        AdminWebContractCachePolicy: {
+            etag: string;
+            in_process_ttl_sec: number;
+            redis_ttl_hint_sec: number;
+            revision_source: string;
         };
         AdminWebNavigationContract: {
             primary: components["schemas"]["AdminWebNavigationItem"][];

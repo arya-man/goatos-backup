@@ -12,6 +12,7 @@ import (
 	"time"
 
 	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
+	adminuipg "github.com/vgoats/goatos/backend/internal/adminui/adapters/postgres"
 	adminuiapp "github.com/vgoats/goatos/backend/internal/adminui/app"
 	calendarhttp "github.com/vgoats/goatos/backend/internal/calendar/adapters/http"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
@@ -237,7 +238,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
-	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService())
+	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
