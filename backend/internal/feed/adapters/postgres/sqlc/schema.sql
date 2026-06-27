@@ -449,6 +449,34 @@ CREATE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
+  IF NEW.aggregate_type = 'calendar_notification' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM notification_requests
+      WHERE tenant_id = NEW.tenant_id
+        AND notification_request_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'calendar notification outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'calendar_snooze' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM calendar_snoozes
+      WHERE tenant_id = NEW.tenant_id
+        AND snooze_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'calendar snooze outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF NEW.aggregate_type = 'correction_request' THEN
     IF NOT EXISTS (
       SELECT 1
@@ -812,7 +840,7 @@ CREATE TABLE public.auth_pending_email_grants (
     claim_count bigint DEFAULT 0 NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT auth_pending_email_grants_email_check CHECK (((normalized_email = lower(btrim(email))) AND (normalized_email <> ''::text) AND (normalized_email !~~ '%,%'::text) AND (normalized_email !~~ '% %'::text) AND (POSITION(('@'::text) IN (normalized_email)) > 1))),
-    CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
+    CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'phc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT auth_pending_email_grants_scope_check CHECK (((scope_type = 'tenant'::text) AND (scope_id = tenant_id))),
     CONSTRAINT auth_pending_email_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text]))),
     CONSTRAINT auth_pending_email_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
@@ -846,6 +874,92 @@ CREATE TABLE public.breeds (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
+);
+
+
+--
+-- Name: calendar_event_projections; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_event_projections (
+    tenant_id uuid NOT NULL,
+    event_id text NOT NULL,
+    slice_key text NOT NULL,
+    event_type text NOT NULL,
+    owner_key text NOT NULL,
+    title text NOT NULL,
+    subtitle text DEFAULT ''::text NOT NULL,
+    status text NOT NULL,
+    severity text DEFAULT 'info'::text NOT NULL,
+    due_at timestamp with time zone,
+    window_start timestamp with time zone,
+    window_end timestamp with time zone,
+    timezone text DEFAULT 'Asia/Kolkata'::text NOT NULL,
+    timezone_source text DEFAULT 'fallback'::text NOT NULL,
+    park_id uuid,
+    park_code text,
+    shed_id uuid,
+    shed_name text,
+    cohort_id uuid,
+    cohort_name text,
+    target_type text NOT NULL,
+    target_count integer DEFAULT 0 NOT NULL,
+    protocol_id uuid,
+    protocol_version_id uuid,
+    rule_id uuid,
+    vaccine_name text,
+    dose_code text,
+    source_backed boolean DEFAULT false NOT NULL,
+    source_label text DEFAULT ''::text NOT NULL,
+    source_target_type text DEFAULT 'calendar_event'::text NOT NULL,
+    source_target_id uuid,
+    assignee_label text,
+    executor_role text,
+    verifier_label text,
+    reminder_state text DEFAULT 'not_scheduled'::text NOT NULL,
+    primary_notification_channel text DEFAULT 'not configured'::text NOT NULL,
+    escalation_state text DEFAULT 'none'::text NOT NULL,
+    system boolean DEFAULT false NOT NULL,
+    cross_cutting boolean DEFAULT false NOT NULL,
+    links jsonb DEFAULT '{}'::jsonb NOT NULL,
+    detail jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT calendar_event_detail_object_check CHECK ((jsonb_typeof(detail) = 'object'::text)),
+    CONSTRAINT calendar_event_human_action_check CHECK ((system OR ((due_at IS NOT NULL) AND (owner_key = ANY (ARRAY['phc'::text, 'inventory'::text, 'admin_data_ops'::text])) AND ((executor_role IS NOT NULL) OR (assignee_label IS NOT NULL) OR (verifier_label IS NOT NULL))))),
+    CONSTRAINT calendar_event_links_object_check CHECK ((jsonb_typeof(links) = 'object'::text)),
+    CONSTRAINT calendar_event_owner_check CHECK ((owner_key = ANY (ARRAY['phc'::text, 'inventory'::text, 'admin_data_ops'::text]))),
+    CONSTRAINT calendar_event_severity_check CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text]))),
+    CONSTRAINT calendar_event_slice_check CHECK ((slice_key = 'vaccination'::text)),
+    CONSTRAINT calendar_event_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rejected'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text, 'completed'::text, 'canceled'::text]))),
+    CONSTRAINT calendar_event_target_count_check CHECK ((target_count >= 0)),
+    CONSTRAINT calendar_event_type_check CHECK ((event_type = ANY (ARRAY['vaccination_dose_due'::text, 'vaccination_drive'::text, 'vaccination_campaign'::text, 'vaccination_booster_due'::text, 'vaccination_defer_review'::text, 'vaccination_evidence_review'::text, 'vaccination_proof_verification'::text, 'vaccination_rework_due'::text, 'vaccine_stock_readiness'::text, 'vaccine_cold_chain_check'::text, 'vaccine_reorder_expiry_grn'::text, 'phc_stock_anti_misuse'::text, 'vaccination_config_source_approval'::text]))),
+    CONSTRAINT calendar_event_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
+);
+
+
+--
+-- Name: calendar_snoozes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_snoozes (
+    snooze_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    calendar_event_id text NOT NULL,
+    target_type text NOT NULL,
+    target_id uuid,
+    snooze_until timestamp with time zone NOT NULL,
+    reason text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    replaced_by_snooze_id uuid,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    trace_id text,
+    CONSTRAINT calendar_snoozes_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
+    CONSTRAINT calendar_snoozes_status_check CHECK ((status = ANY (ARRAY['active'::text, 'replaced'::text, 'expired'::text, 'canceled'::text])))
 );
 
 
@@ -1894,7 +2008,7 @@ CREATE TABLE public.identity_decisions (
     CONSTRAINT identity_decisions_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT identity_decisions_decided_by_type_check CHECK ((decided_by_type = ANY (ARRAY['human'::text, 'system_rule'::text, 'import_policy'::text, 'ai_proposal'::text]))),
     CONSTRAINT identity_decisions_decision_state_check CHECK ((decision_state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text]))),
-    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text])))
+    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text])))
 );
 
 
@@ -2637,6 +2751,46 @@ CREATE TABLE public.movement_commands (
 
 
 --
+-- Name: notification_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_requests (
+    notification_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    calendar_event_id text NOT NULL,
+    target_type text NOT NULL,
+    target_id uuid,
+    notification_type text NOT NULL,
+    channel text NOT NULL,
+    recipient_ref text,
+    title text NOT NULL,
+    body text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'queued'::text NOT NULL,
+    requested_by uuid,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    sent_at timestamp with time zone,
+    read_at timestamp with time zone,
+    failure_reason text,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    trace_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    delivery_attempts integer DEFAULT 0 NOT NULL,
+    next_attempt_at timestamp with time zone,
+    leased_at timestamp with time zone,
+    lease_token uuid,
+    delivered_by text,
+    CONSTRAINT notification_requests_channel_check CHECK ((channel = ANY (ARRAY['local-stub'::text, 'push_fcm'::text, 'slack'::text, 'email'::text, 'webhook'::text]))),
+    CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
+    CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
+    CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'suppressed'::text, 'read'::text]))),
+    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text])))
+);
+
+
+--
 -- Name: obligation_batches; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2689,7 +2843,7 @@ CREATE TABLE public.obligation_escalations (
     acknowledged_at timestamp with time zone,
     resolved_at timestamp with time zone,
     CONSTRAINT obligation_escalations_level_check CHECK ((level >= 1)),
-    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
+    CONSTRAINT obligation_escalations_role_check CHECK (((escalated_to_role IS NULL) OR (escalated_to_role = ANY (ARRAY['admin'::text, 'park_head'::text, 'phc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text])))),
     CONSTRAINT obligation_escalations_status_check CHECK ((status = ANY (ARRAY['open'::text, 'acknowledged'::text, 'resolved'::text, 'expired'::text])))
 );
 
@@ -3628,7 +3782,7 @@ CREATE TABLE public.user_scope_grants (
     valid_to timestamp with time zone,
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT user_scope_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
+    CONSTRAINT user_scope_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'phc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT user_scope_grants_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
     CONSTRAINT user_scope_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
     CONSTRAINT user_scope_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
@@ -3906,7 +4060,7 @@ CREATE TABLE public.workforce_members (
     row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT workforce_members_display_code_check CHECK ((btrim(display_code) <> ''::text)),
     CONSTRAINT workforce_members_display_name_check CHECK ((btrim(display_name) <> ''::text)),
-    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
+    CONSTRAINT workforce_members_role_hint_check CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'phc_director'::text, 'verifier'::text, 'supervisor'::text, 'admin'::text, 'other'::text]))),
     CONSTRAINT workforce_members_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT workforce_members_status_check CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
 );
@@ -4216,6 +4370,30 @@ ALTER TABLE ONLY public.breeds
 
 ALTER TABLE ONLY public.breeds
     ADD CONSTRAINT breeds_unique_name UNIQUE (species, canonical_name);
+
+
+--
+-- Name: calendar_event_projections calendar_event_projections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_projections
+    ADD CONSTRAINT calendar_event_projections_pkey PRIMARY KEY (tenant_id, event_id);
+
+
+--
+-- Name: calendar_snoozes calendar_snoozes_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_snoozes
+    ADD CONSTRAINT calendar_snoozes_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: calendar_snoozes calendar_snoozes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_snoozes
+    ADD CONSTRAINT calendar_snoozes_pkey PRIMARY KEY (snooze_id);
 
 
 --
@@ -4928,6 +5106,22 @@ ALTER TABLE ONLY public.mortality_sync_runs
 
 ALTER TABLE ONLY public.movement_commands
     ADD CONSTRAINT movement_commands_pkey PRIMARY KEY (command_id);
+
+
+--
+-- Name: notification_requests notification_requests_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_requests
+    ADD CONSTRAINT notification_requests_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: notification_requests notification_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_requests
+    ADD CONSTRAINT notification_requests_pkey PRIMARY KEY (notification_request_id);
 
 
 --
@@ -5728,6 +5922,20 @@ CREATE INDEX audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx1 ON publi
 
 
 --
+-- Name: audit_log_tenant_calendar_event_recorded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_tenant_calendar_event_recorded_idx ON ONLY public.audit_log USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
+
+
+--
+-- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_06 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
+
+
+--
 -- Name: audit_log_tenant_recorded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5826,6 +6034,13 @@ CREATE INDEX audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1 ON publi
 
 
 --
+-- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_07 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
+
+
+--
 -- Name: audit_log_2026_07_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5900,6 +6115,13 @@ CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx ON public
 --
 
 CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx1 ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'result'::text)), recorded_at DESC, audit_id DESC);
+
+
+--
+-- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_08 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
 
 
 --
@@ -5980,6 +6202,13 @@ CREATE INDEX audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx1 ON publi
 
 
 --
+-- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_2026_09 USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
+
+
+--
 -- Name: audit_log_2026_09_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6057,6 +6286,13 @@ CREATE INDEX audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1 ON publi
 
 
 --
+-- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2 ON public.audit_log_default USING btree (tenant_id, ((metadata ->> 'calendar_event_id'::text)), recorded_at DESC, audit_id DESC) WHERE (metadata ? 'calendar_event_id'::text);
+
+
+--
 -- Name: audit_log_default_tenant_id_recorded_at_audit_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6089,6 +6325,55 @@ CREATE UNIQUE INDEX auth_pending_email_grants_active_unique_idx ON public.auth_p
 --
 
 CREATE INDEX auth_pending_email_grants_lookup_idx ON public.auth_pending_email_grants USING btree (normalized_email, tenant_id, status, valid_from, valid_to);
+
+
+--
+-- Name: calendar_event_projections_due_reminder_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_event_projections_due_reminder_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, reminder_state, due_at, event_id) WHERE ((system = false) AND (due_at IS NOT NULL) AND (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text])));
+
+
+--
+-- Name: calendar_event_projections_hot_list_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_event_projections_hot_list_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, system, due_at, event_id) INCLUDE (owner_key, status, severity, park_id, shed_id) WHERE ((system = false) AND (due_at IS NOT NULL));
+
+
+--
+-- Name: calendar_event_projections_owner_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_event_projections_owner_window_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, owner_key, due_at, event_id) WHERE ((system = false) AND (due_at IS NOT NULL));
+
+
+--
+-- Name: calendar_event_projections_scope_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_event_projections_scope_window_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, park_id, shed_id, due_at, event_id) WHERE ((system = false) AND (due_at IS NOT NULL));
+
+
+--
+-- Name: calendar_event_projections_status_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_event_projections_status_window_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, status, due_at, event_id) WHERE ((system = false) AND (due_at IS NOT NULL));
+
+
+--
+-- Name: calendar_snoozes_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_snoozes_active_idx ON public.calendar_snoozes USING btree (tenant_id, calendar_event_id, snooze_until) WHERE (status = 'active'::text);
+
+
+--
+-- Name: calendar_snoozes_event_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_snoozes_event_idx ON public.calendar_snoozes USING btree (tenant_id, calendar_event_id, created_at DESC, snooze_id DESC);
 
 
 --
@@ -7303,10 +7588,45 @@ CREATE INDEX movement_commands_task_idx ON public.movement_commands USING btree 
 
 
 --
+-- Name: notification_requests_event_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_event_idx ON public.notification_requests USING btree (tenant_id, calendar_event_id, requested_at DESC, notification_request_id DESC);
+
+
+--
+-- Name: notification_requests_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_queue_idx ON public.notification_requests USING btree (tenant_id, status, COALESCE(next_attempt_at, requested_at), notification_request_id) WHERE (status = ANY (ARRAY['queued'::text, 'failed'::text]));
+
+
+--
+-- Name: notification_requests_sending_lease_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_sending_lease_idx ON public.notification_requests USING btree (tenant_id, leased_at, notification_request_id) WHERE (status = 'sending'::text);
+
+
+--
 -- Name: obligation_batches_scope_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX obligation_batches_scope_idx ON public.obligation_batches USING btree (tenant_id, scope_type, scope_id, status);
+
+
+--
+-- Name: obligation_escalations_obligation_level_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_escalations_obligation_level_idx ON public.obligation_escalations USING btree (tenant_id, obligation_id, level, status);
+
+
+--
+-- Name: obligation_escalations_open_level_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX obligation_escalations_open_level_unique ON public.obligation_escalations USING btree (tenant_id, obligation_id, level) WHERE (status = ANY (ARRAY['open'::text, 'acknowledged'::text]));
 
 
 --
@@ -8192,6 +8512,13 @@ ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.
 
 
 --
+-- Name: audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_06_tenant_id_expr_recorded_at_audit_id_idx2;
+
+
+--
 -- Name: audit_log_2026_06_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -8273,6 +8600,13 @@ ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.
 --
 
 ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx1;
+
+
+--
+-- Name: audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_07_tenant_id_expr_recorded_at_audit_id_idx2;
 
 
 --
@@ -8360,6 +8694,13 @@ ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.
 
 
 --
+-- Name: audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_08_tenant_id_expr_recorded_at_audit_id_idx2;
+
+
+--
 -- Name: audit_log_2026_08_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -8444,6 +8785,13 @@ ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.
 
 
 --
+-- Name: audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_2026_09_tenant_id_expr_recorded_at_audit_id_idx2;
+
+
+--
 -- Name: audit_log_2026_09_tenant_id_recorded_at_audit_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -8525,6 +8873,13 @@ ALTER INDEX public.audit_log_tenant_status_recorded_idx ATTACH PARTITION public.
 --
 
 ALTER INDEX public.audit_log_tenant_result_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_recorded_at_audit_id_idx1;
+
+
+--
+-- Name: audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_log_tenant_calendar_event_recorded_idx ATTACH PARTITION public.audit_log_default_tenant_id_expr_recorded_at_audit_id_idx2;
 
 
 --
@@ -9310,6 +9665,78 @@ ALTER TABLE ONLY public.auth_pending_email_grants
 
 ALTER TABLE ONLY public.breed_aliases
     ADD CONSTRAINT breed_aliases_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
+
+
+--
+-- Name: calendar_event_projections calendar_event_location_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_projections
+    ADD CONSTRAINT calendar_event_location_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: calendar_event_projections calendar_event_location_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_projections
+    ADD CONSTRAINT calendar_event_location_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: calendar_event_projections calendar_event_projections_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_projections
+    ADD CONSTRAINT calendar_event_projections_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: calendar_event_projections calendar_event_protocol_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_projections
+    ADD CONSTRAINT calendar_event_protocol_fk FOREIGN KEY (tenant_id, protocol_id) REFERENCES public.protocol_definitions(tenant_id, protocol_id);
+
+
+--
+-- Name: calendar_event_projections calendar_event_rule_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_projections
+    ADD CONSTRAINT calendar_event_rule_fk FOREIGN KEY (tenant_id, rule_id) REFERENCES public.protocol_rules(tenant_id, rule_id);
+
+
+--
+-- Name: calendar_event_projections calendar_event_version_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_projections
+    ADD CONSTRAINT calendar_event_version_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: calendar_snoozes calendar_snoozes_event_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_snoozes
+    ADD CONSTRAINT calendar_snoozes_event_fk FOREIGN KEY (tenant_id, calendar_event_id) REFERENCES public.calendar_event_projections(tenant_id, event_id);
+
+
+--
+-- Name: calendar_snoozes calendar_snoozes_replaced_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_snoozes
+    ADD CONSTRAINT calendar_snoozes_replaced_fk FOREIGN KEY (replaced_by_snooze_id) REFERENCES public.calendar_snoozes(snooze_id);
+
+
+--
+-- Name: calendar_snoozes calendar_snoozes_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_snoozes
+    ADD CONSTRAINT calendar_snoozes_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -10974,6 +11401,22 @@ ALTER TABLE ONLY public.movement_commands
 
 ALTER TABLE ONLY public.movement_commands
     ADD CONSTRAINT movement_commands_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: notification_requests notification_requests_event_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_requests
+    ADD CONSTRAINT notification_requests_event_fk FOREIGN KEY (tenant_id, calendar_event_id) REFERENCES public.calendar_event_projections(tenant_id, event_id);
+
+
+--
+-- Name: notification_requests notification_requests_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_requests
+    ADD CONSTRAINT notification_requests_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

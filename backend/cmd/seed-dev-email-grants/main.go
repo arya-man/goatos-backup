@@ -39,7 +39,7 @@ func main() {
 	var source string
 	var emails emailFlags
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope pending email grants")
-	flag.StringVar(&role, "role", permissions.RoleCEOInternal, "role: admin, verifier, park_head, operator, or ceo_internal")
+	flag.StringVar(&role, "role", permissions.RoleCEOInternal, "role: admin, verifier, park_head, phc_director, operator, or ceo_internal")
 	flag.StringVar(&source, "source", "manual_dev_seed", "audit/source label for the pending email grants")
 	flag.Var(&emails, "email", "approved email; may be repeated or comma-separated")
 	flag.Parse()
@@ -138,7 +138,7 @@ func validateTarget(env, databaseURL string) error {
 
 func validRole(role string) bool {
 	switch role {
-	case permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RoleOperator, permissions.RoleCEOInternal:
+	case permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePHCDirector, permissions.RoleOperator, permissions.RoleCEOInternal:
 		return true
 	default:
 		return false

@@ -6,6 +6,7 @@ const (
 	RoleAdmin       = "admin"
 	RoleVerifier    = "verifier"
 	RoleParkHead    = "park_head"
+	RolePHCDirector = "phc_director"
 	RoleOperator    = "operator"
 	RoleCEOInternal = "ceo_internal"
 
@@ -74,6 +75,15 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
+	},
+	RolePHCDirector: {
+		GoatRead:      {},
+		LocationsRead: {},
+		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
+		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		CalendarRead: {}, CalendarAction: {},
+		ProcurementRead: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, ProcurementRead: {}, ProcurementWrite: {},

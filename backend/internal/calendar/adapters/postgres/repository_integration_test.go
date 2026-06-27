@@ -466,6 +466,60 @@ WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, 
 	}
 }
 
+func TestCalendarEscalationSweepRoutesLevel3ToPHCDirector(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000861"
+	versionID := "86000000-0000-4000-8000-000000000862"
+	ruleID := "86000000-0000-4000-8000-000000000863"
+	obligationID := "86000000-0000-4000-8000-000000000864"
+	dueAt := time.Now().UTC().Add(-25 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-48 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 4 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("SweepEscalations: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued escalations = %d, want 1", queued)
+	}
+	eventID := "obligation:" + obligationID
+	assertCount(t, ctx, pool, "phc director escalation notification", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND recipient_ref='phc_director'
+  AND notification_type='escalation'
+  AND status='queued'`, 1, testTenantID, eventID)
+	assertCount(t, ctx, pool, "phc director obligation escalation", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid
+  AND level=3
+  AND escalated_to_role='phc_director'
+  AND status='open'`, 1, testTenantID, obligationID)
+}
+
 func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

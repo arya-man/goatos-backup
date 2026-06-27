@@ -15,6 +15,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 )
 
@@ -804,15 +805,15 @@ WHERE tenant_id = $1::uuid AND event_id = $2`, tenantID, target.EventID, channel
 func escalationRole(level int, target escalationTarget) string {
 	switch {
 	case level >= 4:
-		return "ceo_internal"
+		return permissions.RoleCEOInternal
 	case level == 3:
-		return "admin"
+		return permissions.RolePHCDirector
 	case level == 2:
-		return "park_head"
+		return permissions.RoleParkHead
 	case target.Status == "verification_pending" || strings.TrimSpace(target.VerifierLabel) != "":
-		return "verifier"
+		return permissions.RoleVerifier
 	default:
-		return "operator"
+		return permissions.RoleOperator
 	}
 }
 

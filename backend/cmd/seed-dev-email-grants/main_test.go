@@ -25,7 +25,7 @@ func TestNormalizeEmailsRejectsInvalidEmail(t *testing.T) {
 }
 
 func TestValidRole(t *testing.T) {
-	for _, role := range []string{permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RoleOperator, permissions.RoleCEOInternal} {
+	for _, role := range []string{permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePHCDirector, permissions.RoleOperator, permissions.RoleCEOInternal} {
 		if !validRole(role) {
 			t.Fatalf("valid role rejected: %s", role)
 		}
