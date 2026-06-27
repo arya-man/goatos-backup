@@ -303,6 +303,19 @@ func TestRecordCompletionsFromSubmissionSkipsTerminalObligation(t *testing.T) {
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, obligationID); got != 0 {
 		t.Fatalf("terminal obligation completion rows = %d, want 0", got)
 	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET status='missed' WHERE tenant_id=$1 AND obligation_id=$2`,
+		impTenant, obligationID); err != nil {
+		t.Fatalf("mark obligation missed for late fanout: %v", err)
+	}
+	count, err = vacc.RecordCompletionsFromSubmission(ctx, impTenant, taskID, submissionID, impParty)
+	if err != nil || count != 1 {
+		t.Fatalf("missed late fanout count=%d err=%v, want one materialized completion", count, err)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, obligationID); got != 1 {
+		t.Fatalf("missed obligation completion rows = %d, want 1", got)
+	}
 }
 
 func TestRecordCompletionsFromSubmissionFailsPartialMaterialization(t *testing.T) {

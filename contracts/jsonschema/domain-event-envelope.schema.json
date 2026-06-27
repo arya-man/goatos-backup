@@ -56,7 +56,8 @@
         "calendar.escalation.acknowledged",
         "calendar.escalation.resolved",
         "vaccination.verify.accepted",
-        "vaccination.verify.rejected"
+        "vaccination.verify.rejected",
+        "protocol.version.published"
       ]
     },
     "schema_version": {
@@ -79,7 +80,8 @@
         "calendar_notification",
         "calendar_snooze",
         "obligation_escalation",
-        "vaccination_completion"
+        "vaccination_completion",
+        "protocol_version"
       ]
     },
     "aggregate_id": {
@@ -98,7 +100,8 @@
         "legacy_import_run",
         "location",
         "calendar_event",
-        "vaccination_completion"
+        "vaccination_completion",
+        "protocol_version"
       ]
     },
     "subject_id": {

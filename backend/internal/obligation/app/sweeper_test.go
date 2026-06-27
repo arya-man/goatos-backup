@@ -96,6 +96,97 @@ func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
 	}
 }
 
+func TestSweeperFinalizesExistingPlannedBatchMissingTask(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-1",
+				ScopeType:           "park",
+				ScopeID:             "park-1",
+				EstimatedTargets:    3,
+				AttachedObligations: 3,
+				HasStockReservation: true,
+			},
+		}},
+	}
+	tasks := &fakeSweepTaskCreator{id: "task-1"}
+	svc := NewSweeperService(repo, tasks, nil)
+
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		SOPVersionID: "sop-version-1",
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if result.Batches != 0 || result.Obligations != 0 {
+		t.Fatalf("result = %#v, want no newly-created work", result)
+	}
+	if tasks.calls != 1 || repo.setTaskCalls != 1 || repo.lastTaskID != "task-1" {
+		t.Fatalf("task repair calls=%d setCalls=%d taskID=%q", tasks.calls, repo.setTaskCalls, repo.lastTaskID)
+	}
+	if repo.createBatchCalls != 0 {
+		t.Fatalf("new batches created = %d, want 0", repo.createBatchCalls)
+	}
+}
+
+func TestSweeperFinalizesExistingPlannedBatchMissingStockReservation(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-1",
+				ScopeType:           "park",
+				ScopeID:             "park-1",
+				EstimatedTargets:    2,
+				AttachedObligations: 2,
+				HasSOPTask:          true,
+			},
+		}},
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  2,
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if result.Batches != 0 || result.Obligations != 0 {
+		t.Fatalf("result = %#v, want no newly-created work", result)
+	}
+	if reserver.calls != 1 || reserver.lastBatchID != "batch-1" || reserver.lastQty != 4 {
+		t.Fatalf("reservation repair calls=%d batch=%q qty=%d", reserver.calls, reserver.lastBatchID, reserver.lastQty)
+	}
+}
+
+func TestSweeperMarksExistingBatchBlockedWhenFinalizedReservationFails(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-1",
+				ScopeType:           "park",
+				ScopeID:             "park-1",
+				AttachedObligations: 1,
+				HasSOPTask:          true,
+			},
+		}},
+	}
+	reserver := &fakeSweepStockReserver{err: errors.New("inventory: stock unavailable")}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Now())
+	if err == nil {
+		t.Fatal("SweepVersion expected stock error")
+	}
+	if repo.stockBlockCalls != 1 {
+		t.Fatalf("stock block calls = %d, want 1", repo.stockBlockCalls)
+	}
+}
+
 func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
 	repo := &fakeSweepRepo{missedPages: []int{1000, 2}}
 	svc := NewSweeperService(repo, nil, nil)
@@ -119,6 +210,8 @@ type fakeSweepRepo struct {
 	lastTaskID          string
 	missedPages         []int
 	missedCalls         int
+	finalizationPages   [][]domain.PlannedBatchFinalization
+	finalizationCalls   int
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
@@ -157,6 +250,15 @@ func (f *fakeSweepRepo) SetBatchSOPTask(_ context.Context, _, _, taskID string) 
 func (f *fakeSweepRepo) MarkBatchStockBlocked(context.Context, string, string, string, int64, string) error {
 	f.stockBlockCalls++
 	return nil
+}
+
+func (f *fakeSweepRepo) ListPlannedBatchesNeedingFinalization(context.Context, string, string, bool, bool, int32) ([]domain.PlannedBatchFinalization, error) {
+	if f.finalizationCalls >= len(f.finalizationPages) {
+		return nil, nil
+	}
+	rows := f.finalizationPages[f.finalizationCalls]
+	f.finalizationCalls++
+	return rows, nil
 }
 
 func (f *fakeSweepRepo) ListUnbatchedDueForVersion(context.Context, string, string, time.Time, int32) ([]domain.UnbatchedDue, error) {

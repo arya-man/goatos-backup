@@ -90,11 +90,13 @@ func (s *GenerationService) requireEvidenceReader() error {
 }
 
 type genEligibility struct {
-	Stage       string   `json:"stage"`
-	Sex         string   `json:"sex"`
-	Breed       string   `json:"breed"`
-	Health      string   `json:"health"`
-	DeferStates []string `json:"defer_states"`
+	Stage                     string   `json:"stage"`
+	Sex                       string   `json:"sex"`
+	Breed                     string   `json:"breed"`
+	Health                    string   `json:"health"`
+	Reproductive              string   `json:"reproductive"`
+	ExcludeReproductiveStates []string `json:"exclude_reproductive_states"`
+	DeferStates               []string `json:"defer_states"`
 }
 
 type genDSL struct {
@@ -226,13 +228,12 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		Stage:    normDim(elig.Stage),
 		Sex:      normDim(elig.Sex),
 		Breed:    normDim(elig.Breed),
+		Health:   normDim(elig.Health),
 	}
 	if v.ScopeType == "park" && v.ScopeID != "" {
 		park := v.ScopeID
 		filter.ParkID = &park
 	}
-	defersEnabled := len(elig.DeferStates) > 0
-
 	after := ""
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
@@ -243,7 +244,10 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		for _, g := range goats {
-			if err := s.genOneGoat(ctx, tenantID, versionID, rules, defersEnabled, g, asOf, opts, &res); err != nil {
+			if !goatMatchesEligibility(g, elig) {
+				continue
+			}
+			if err := s.genOneGoat(ctx, tenantID, versionID, rules, elig.DeferStates, g, asOf, opts, &res); err != nil {
 				return res, err
 			}
 		}
@@ -256,8 +260,8 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 }
 
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
-// visible deferred event when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, defersEnabled bool, g domain.EligibleGoat, asOf time.Time, opts generationOptions, res *domain.GenerateResult) error {
+// canonical deferred state when the goat is in a defer state. Accumulates counts into res.
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, res *domain.GenerateResult) error {
 	for _, rule := range rules {
 		due, ok, skip := dueAt(rule, g, asOf, opts)
 		if skip {
@@ -281,6 +285,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			scopeType, scopeID = "park", g.ParkID
 		}
 		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, due.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
+		status := "scheduled"
+		deferReason := deferredReason(g, deferStates)
+		deferred := deferReason != ""
+		if deferred {
+			status = "deferred"
+		}
 		obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 			TenantID:          tenantID,
 			ProtocolVersionID: versionID,
@@ -290,7 +300,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			ScopeType:         scopeType,
 			ScopeID:           scopeID,
 			DueAt:             due,
-			Status:            "scheduled",
+			Status:            status,
 			IdempotencyKey:    key,
 			Sequence:          rule.Sequence,
 		})
@@ -302,8 +312,8 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		res.Generated++
 
-		if defersEnabled && g.LifecycleStatus != "alive" {
-			payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "lifecycle_status": g.LifecycleStatus})
+		if deferred {
+			payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason, "lifecycle_status": g.LifecycleStatus})
 			if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
 				TenantID:       tenantID,
 				ObligationID:   obID,
@@ -312,7 +322,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				Payload:        payload,
 				IdempotencyKey: obID + ":deferred",
 				Scope:          "obligation.status_event",
-				RequestHash:    "defer:" + g.LifecycleStatus,
+				RequestHash:    "defer:" + deferReason,
 			}); err != nil {
 				return err
 			}
@@ -356,7 +366,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		if err != nil {
 			return res, err
 		}
-		if err := s.genOneGoat(ctx, tenantID, versionID, rules, len(dsl.Eligibility.DeferStates) > 0, g, asOf, generationOptions{}, &res); err != nil {
+		if err := s.genOneGoat(ctx, tenantID, versionID, rules, dsl.Eligibility.DeferStates, g, asOf, generationOptions{}, &res); err != nil {
 			return res, err
 		}
 	}
@@ -372,6 +382,35 @@ func inCare(lifecycle string) bool {
 	}
 }
 
+func deferredReason(g domain.EligibleGoat, allowed []string) string {
+	if len(allowed) == 0 {
+		return ""
+	}
+	allowedStates := make(map[string]bool, len(allowed))
+	for _, state := range allowed {
+		normalized := strings.ToLower(strings.TrimSpace(state))
+		if normalized != "" {
+			allowedStates[normalized] = true
+		}
+	}
+	for _, value := range []string{g.HealthStatus, g.LifecycleStatus} {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		switch normalized {
+		case "sick", "under_treatment", "quarantine", "icu":
+			if allowedStates[normalized] {
+				return normalized
+			}
+		}
+	}
+	if g.LocationIsICU && allowedStates["icu"] {
+		return "location_icu"
+	}
+	if g.LocationIsQuarantine && allowedStates["quarantine"] {
+		return "location_quarantine"
+	}
+	return ""
+}
+
 func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility) bool {
 	if s := normDim(e.Stage); s != "" && s != g.Stage {
 		return false
@@ -381,6 +420,17 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility) bool {
 	}
 	if s := normDim(e.Breed); s != "" && s != g.Breed {
 		return false
+	}
+	if s := normDim(e.Health); s != "" && s != g.HealthStatus {
+		return false
+	}
+	if s := normDim(e.Reproductive); s != "" && s != g.ReproductiveStatus {
+		return false
+	}
+	for _, excluded := range e.ExcludeReproductiveStates {
+		if normDim(excluded) != "" && normDim(excluded) == g.ReproductiveStatus {
+			return false
+		}
 	}
 	return true
 }

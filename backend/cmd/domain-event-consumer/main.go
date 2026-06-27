@@ -105,6 +105,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
+	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewManualCampaignHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	if logger != nil {

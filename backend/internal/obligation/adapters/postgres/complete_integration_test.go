@@ -91,3 +91,85 @@ func TestMarkMissedBeforeMaterializesCanonicalStatus(t *testing.T) {
 		t.Fatalf("replay marked missed = %d, want 0", replay)
 	}
 }
+
+func TestMarkCompletedAllowsLateMissedObligation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	if n, err := repo.MarkMissedBefore(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100); err != nil || n != 1 {
+		t.Fatalf("mark missed: n=%d err=%v", n, err)
+	}
+
+	ok, err := repo.MarkCompleted(ctx, tenantID, obA)
+	if err != nil || !ok {
+		t.Fatalf("late complete missed obligation: ok=%v err=%v", ok, err)
+	}
+	if got := scanStatus(t, ctx, pool, obA); got != "completed" {
+		t.Fatalf("status: want completed, got %s", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='missed'`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("missed event count = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='completed'`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("completed event count = %d, want 1", got)
+	}
+}
+
+func TestMarkMissedBeforeSkipsDeferredObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='deferred' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obA); err != nil {
+		t.Fatalf("defer obligation: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	n, err := repo.MarkMissedBefore(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatalf("mark missed: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("marked deferred obligation missed: n=%d, want 0", n)
+	}
+	if got := scanStatus(t, ctx, pool, obA); got != "deferred" {
+		t.Fatalf("deferred obligation status = %s, want deferred", got)
+	}
+}
+
+func TestCancelOpenForGoatCancelsInProgress(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='in_progress' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obA); err != nil {
+		t.Fatalf("set in_progress: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	n, err := repo.CancelOpenForGoat(ctx, tenantID, testGoatID, "dead")
+	if err != nil {
+		t.Fatalf("cancel open: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("canceled = %d, want 1", n)
+	}
+	if got := scanStatus(t, ctx, pool, obA); got != "canceled" {
+		t.Fatalf("status: want canceled, got %s", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='canceled'`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("canceled event count = %d, want 1", got)
+	}
+}

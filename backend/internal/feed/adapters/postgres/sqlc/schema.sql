@@ -562,6 +562,20 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  IF NEW.aggregate_type = 'protocol_version' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM protocol_versions
+      WHERE tenant_id = NEW.tenant_id
+        AND protocol_version_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'protocol version outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF NEW.aggregate_type = 'correction_request' THEN
     IF NOT EXISTS (
       SELECT 1
@@ -2989,7 +3003,7 @@ CREATE TABLE public.obligation_instances (
     row_version integer DEFAULT 1 NOT NULL,
     CONSTRAINT obligation_instances_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT obligation_instances_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
-    CONSTRAINT obligation_instances_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'canceled'::text, 'superseded'::text]))),
+    CONSTRAINT obligation_instances_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'deferred'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'canceled'::text, 'superseded'::text]))),
     CONSTRAINT obligation_instances_target_type_check CHECK ((target_type = ANY (ARRAY['goat'::text, 'cohort'::text, 'shed'::text, 'park'::text, 'tenant'::text])))
 );
 
@@ -7864,6 +7878,13 @@ CREATE INDEX obligation_instances_batch_idx ON public.obligation_instances USING
 --
 
 CREATE INDEX obligation_instances_due_window_idx ON public.obligation_instances USING btree (tenant_id, status, due_at, obligation_id);
+
+
+--
+-- Name: obligation_instances_missed_deadline_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_instances_missed_deadline_idx ON public.obligation_instances USING btree (tenant_id, status, COALESCE(window_end, due_at), obligation_id) WHERE (status = ANY (ARRAY['scheduled'::text, 'due'::text]));
 
 
 --

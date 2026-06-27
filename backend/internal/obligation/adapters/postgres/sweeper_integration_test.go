@@ -109,6 +109,82 @@ func TestSM4bSpawnsSopTaskPerBatch(t *testing.T) {
 	}
 }
 
+func TestSM4bFinalizesPlannedBatchMissingSOPTask(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.sweep.repair", Name: "SweepRepair", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	skeletonVersion := "b0000000-0000-4000-8000-000000000002"
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		SopVersionID: &skeletonVersion,
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	obligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "park", TargetID: cbePark, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "repair-b1", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert obligation: applied=%v err=%v", applied, err)
+	}
+	batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "park", ScopeID: cbePark,
+		Status: "planned", EstimatedTargets: 1,
+	}, []string{obligationID})
+	if err != nil {
+		t.Fatalf("create attached batch: %v", err)
+	}
+	if attached != 1 {
+		t.Fatalf("attached=%d, want 1", attached)
+	}
+
+	creator := &rawTaskCreator{pool: pool}
+	sweep := oblapp.NewSweeperService(repo, creator, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{SOPVersionID: skeletonVersion}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("repair sweep: %v", err)
+	}
+	if res.Batches != 0 || res.Obligations != 0 {
+		t.Fatalf("repair should not create new batches: %#v", res)
+	}
+	if creator.n != 1 {
+		t.Fatalf("expected one repair task, got %d", creator.n)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2 AND sop_task_id IS NOT NULL`, tenantID, batchID); got != 1 {
+		t.Fatalf("expected repaired batch to have sop_task_id, got %d", got)
+	}
+
+	res2, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{SOPVersionID: skeletonVersion}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("repair re-sweep: %v", err)
+	}
+	if res2.Batches != 0 || creator.n != 1 {
+		t.Fatalf("repair re-sweep should be idempotent: batches=%d tasks=%d", res2.Batches, creator.n)
+	}
+}
+
 func TestSM4SweeperBatchesByScope(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

@@ -59,7 +59,6 @@ import (
 	protocolhttp "github.com/vgoats/goatos/backend/internal/protocol/adapters/http"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
-	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
@@ -252,21 +251,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService).
 		WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
-	protocolService := protocolapp.NewService(protocolRepo).WithAfterPublishHook(protocolapp.AfterPublishFunc(
-		func(ctx context.Context, tenantID string, version protocoldomain.Version, publishedAt time.Time) error {
-			if version.Category != "vaccination" {
-				return nil
-			}
-			_, _, err := vaccinationGeneration.GenerateForVersionWithRun(ctx, tenantID, version.ProtocolVersionID, publishedAt, "publish", version.ProtocolVersionID)
-			return err
-		},
-	))
+	protocolService := protocolapp.NewService(protocolRepo)
 	protocolHandler := protocolhttp.NewHandler(protocolService, log)
 	bus := eventbus.NewInProcessBus()
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
+	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewManualCampaignHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	sopService.

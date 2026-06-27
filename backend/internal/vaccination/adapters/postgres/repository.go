@@ -529,7 +529,7 @@ WHERE si.tenant_id = $1
   AND si.submission_id = $3
   AND si.goat_id IS NOT NULL
   AND si.state IN ('accepted', 'needs_review')
-  AND oi.status NOT IN ('completed', 'missed', 'waived', 'canceled', 'superseded')
+  AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
   AND (
     oi.batch_id IS NULL
     OR (
@@ -537,12 +537,12 @@ WHERE si.tenant_id = $1
       AND COALESCE((ss.answers ->> 'cold_chain_verified')::boolean, false)
     )
   )
-	  AND (
-	    sd.code IN ('vaccination.drive', 'vaccination.session')
-	    OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
-	  )
-	ON CONFLICT DO NOTHING
-	RETURNING completion_id::text`,
+  AND (
+    sd.code IN ('vaccination.drive', 'vaccination.session')
+    OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+  )
+ON CONFLICT DO NOTHING
+RETURNING completion_id::text`,
 		tenant, task, submission, recordedBy)
 	if err != nil {
 		return 0, fmt.Errorf("vaccination: record completions from submission: %w", err)
@@ -776,6 +776,7 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 		Stage:       f.Stage,
 		Sex:         f.Sex,
 		Breed:       f.Breed,
+		Health:      f.Health,
 		ParkID:      pgconv.NullableUUID(f.ParkID),
 		AfterGoatID: afterUUID,
 		RowLimit:    limit,
@@ -786,12 +787,19 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 	out := make([]domain.EligibleGoat, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, domain.EligibleGoat{
-			GoatID:          row.GoatID,
-			DOB:             pgconv.DateValue(row.Dob),
-			EntryDate:       pgconv.DateValue(row.EntryDate),
-			LifecycleStatus: row.LifecycleStatus,
-			ShedID:          row.ShedID,
-			ParkID:          row.ParkID,
+			GoatID:               row.GoatID,
+			DOB:                  pgconv.DateValue(row.Dob),
+			EntryDate:            pgconv.DateValue(row.EntryDate),
+			LifecycleStatus:      row.LifecycleStatus,
+			HealthStatus:         row.HealthStatus,
+			ReproductiveStatus:   row.ReproductiveStatus,
+			ShedID:               row.ShedID,
+			ParkID:               row.ParkID,
+			Sex:                  row.Sex,
+			Breed:                row.Breed,
+			Stage:                row.ManagementStage,
+			LocationIsQuarantine: row.LocationIsQuarantine,
+			LocationIsICU:        row.LocationIsIcu,
 		})
 	}
 	return out, nil
@@ -817,15 +825,19 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 		return domain.EligibleGoat{}, false, fmt.Errorf("vaccination: get goat for generation: %w", err)
 	}
 	return domain.EligibleGoat{
-		GoatID:          row.GoatID,
-		DOB:             pgconv.DateValue(row.Dob),
-		EntryDate:       pgconv.DateValue(row.EntryDate),
-		LifecycleStatus: row.LifecycleStatus,
-		ShedID:          row.ShedID,
-		ParkID:          row.ParkID,
-		Sex:             row.Sex,
-		Breed:           row.Breed,
-		Stage:           row.ManagementStage,
+		GoatID:               row.GoatID,
+		DOB:                  pgconv.DateValue(row.Dob),
+		EntryDate:            pgconv.DateValue(row.EntryDate),
+		LifecycleStatus:      row.LifecycleStatus,
+		HealthStatus:         row.HealthStatus,
+		ReproductiveStatus:   row.ReproductiveStatus,
+		ShedID:               row.ShedID,
+		ParkID:               row.ParkID,
+		Sex:                  row.Sex,
+		Breed:                row.Breed,
+		Stage:                row.ManagementStage,
+		LocationIsQuarantine: row.LocationIsQuarantine,
+		LocationIsICU:        row.LocationIsIcu,
 	}, true, nil
 }
 

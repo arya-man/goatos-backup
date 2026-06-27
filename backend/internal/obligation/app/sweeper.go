@@ -46,6 +46,9 @@ func NewSweeperService(repo ports.Repository, tasks TaskCreator, reserver StockR
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
 func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	var res domain.SweepResult
+	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+		return res, err
+	}
 	for {
 		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
 		if err != nil {
@@ -119,6 +122,51 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 		}
 	}
 	return res, nil
+}
+
+func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
+	needsTask := s.tasks != nil && cfg.SOPVersionID != ""
+	needsStock := s.reserver != nil && cfg.VaccineItemID != ""
+	if !needsTask && !needsStock {
+		return nil
+	}
+	for {
+		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, needsTask, needsStock, s.page)
+		if err != nil {
+			return err
+		}
+		if len(batches) == 0 {
+			return nil
+		}
+		for _, b := range batches {
+			if needsTask && !b.HasSOPTask {
+				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+b.ScopeID, b.ScopeType, b.ScopeID)
+				if err != nil {
+					return err
+				}
+				if err := s.repo.SetBatchSOPTask(ctx, tenantID, b.BatchID, taskID); err != nil {
+					return err
+				}
+			}
+			if needsStock && !b.HasStockReservation && !b.StockBlocked {
+				dosesPer := cfg.DosesPerGoat
+				if dosesPer < 1 {
+					dosesPer = 1
+				}
+				qty := b.AttachedObligations * int64(dosesPer)
+				if qty <= 0 {
+					continue
+				}
+				if err := s.reserver.ReserveForBatch(ctx, tenantID, b.BatchID, b.ScopeID, cfg.VaccineItemID, qty); err != nil {
+					_ = s.repo.MarkBatchStockBlocked(ctx, tenantID, b.BatchID, cfg.VaccineItemID, qty, err.Error())
+					return err
+				}
+			}
+		}
+		if int32(len(batches)) < s.page {
+			return nil
+		}
+	}
 }
 
 // MarkMissed materializes the terminal missed state for obligations whose due window/deadline has

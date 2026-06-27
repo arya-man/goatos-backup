@@ -22,6 +22,10 @@ const EventGoatLocationChanged = "goat.location.changed"
 // vaccination version. It is not part of normal publish/backfill generation.
 const EventManualCampaignRequested = "vaccination.manual_campaign.requested"
 
+// EventProtocolVersionPublished is the durable protocol publish event. Vaccination consumes this
+// event to generate existing-cohort obligations after a source-backed version is published.
+const EventProtocolVersionPublished = "protocol.version.published"
+
 // GoatCreatedHandler runs event-driven SM-1: on goat.created it generates obligations for that goat
 // across published vaccination versions. Idempotent (safe under at-least-once delivery). It is an
 // eventbus.Handler, so the in-process bus and the future Pub/Sub consumer invoke the same code.
@@ -80,6 +84,61 @@ func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 type manualCampaignPayload struct {
 	ProtocolVersionID string `json:"protocol_version_id"`
 	CampaignID        string `json:"campaign_id"`
+}
+
+type protocolPublishedPayload struct {
+	ProtocolVersionID string `json:"protocol_version_id"`
+	Category          string `json:"category"`
+}
+
+// ProtocolPublishedHandler runs publish-triggered existing-cohort generation from the durable
+// outbox/domain-event path. It is idempotent through GenerateForVersionWithRun.
+type ProtocolPublishedHandler struct {
+	gen *GenerationService
+}
+
+func NewProtocolPublishedHandler(gen *GenerationService) *ProtocolPublishedHandler {
+	return &ProtocolPublishedHandler{gen: gen}
+}
+
+var _ eventbus.Handler = (*ProtocolPublishedHandler)(nil)
+
+func (h *ProtocolPublishedHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventProtocolVersionPublished, h)
+}
+
+func (h *ProtocolPublishedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	var p protocolPublishedPayload
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+	}
+	versionID := p.ProtocolVersionID
+	if versionID == "" {
+		versionID = e.Key
+	}
+	if versionID == "" {
+		return nil
+	}
+	if p.Category != "" && p.Category != "vaccination" {
+		return nil
+	}
+	if p.Category == "" {
+		version, err := h.gen.proto.GetVersion(ctx, e.TenantID, versionID)
+		if err != nil {
+			return err
+		}
+		if version.Category != "vaccination" {
+			return nil
+		}
+	}
+	asOf := e.OccurredAt
+	if asOf.IsZero() {
+		asOf = time.Now()
+	}
+	_, _, err := h.gen.GenerateForVersionWithRun(ctx, e.TenantID, versionID, asOf, "publish", versionID)
+	return err
 }
 
 // ManualCampaignHandler materializes manual_campaign rules only when a campaign request event is

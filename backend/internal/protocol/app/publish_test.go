@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
@@ -168,15 +167,11 @@ func TestValidateExecutionContract(t *testing.T) {
 	}
 }
 
-func TestPublishVersionReplaysHookForAlreadyPublishedVersion(t *testing.T) {
+func TestPublishVersionAlreadyPublishedRetryIsNoop(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("published"),
 	}
-	called := false
-	service := NewService(repo).WithAfterPublishHook(AfterPublishFunc(func(context.Context, string, domain.Version, time.Time) error {
-		called = true
-		return nil
-	}))
+	service := NewService(repo)
 
 	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
 	if err != nil {
@@ -184,9 +179,6 @@ func TestPublishVersionReplaysHookForAlreadyPublishedVersion(t *testing.T) {
 	}
 	if repo.publishCalled {
 		t.Fatalf("repo publish must not run for already-published retry")
-	}
-	if !called {
-		t.Fatalf("after-publish hook must replay for already-published vaccination version")
 	}
 }
 
@@ -202,20 +194,11 @@ func TestPublishVersionRejectsRetiredVersion(t *testing.T) {
 	}
 }
 
-func TestPublishVersionRunsAfterPublishHookForDraft(t *testing.T) {
+func TestPublishVersionDelegatesDraftPublishToRepository(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
 	}
-	var gotVersion domain.Version
-	var gotAt time.Time
-	service := NewService(repo).WithAfterPublishHook(AfterPublishFunc(func(_ context.Context, tenantID string, version domain.Version, publishedAt time.Time) error {
-		if tenantID != "tenant-1" {
-			t.Fatalf("tenantID=%q", tenantID)
-		}
-		gotVersion = version
-		gotAt = publishedAt
-		return nil
-	}))
+	service := NewService(repo)
 
 	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
 		t.Fatalf("publish: %v", err)
@@ -223,38 +206,8 @@ func TestPublishVersionRunsAfterPublishHookForDraft(t *testing.T) {
 	if !repo.publishCalled {
 		t.Fatalf("repo publish was not called")
 	}
-	if gotVersion.ProtocolVersionID != "version-1" || gotVersion.Status != "published" || gotVersion.Category != "vaccination" {
-		t.Fatalf("hook version=%+v", gotVersion)
-	}
-	if gotAt.IsZero() {
-		t.Fatalf("hook publishedAt was zero")
-	}
-}
-
-func TestPublishVersionRetryAfterHookFailureDoesNotRepublish(t *testing.T) {
-	repo := &fakeProtocolRepo{
-		version: validPublishVersion("draft"),
-	}
-	hookCalls := 0
-	service := NewService(repo).WithAfterPublishHook(AfterPublishFunc(func(context.Context, string, domain.Version, time.Time) error {
-		hookCalls++
-		if hookCalls == 1 {
-			return errors.New("generation worker temporarily failed")
-		}
-		return nil
-	}))
-
-	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err == nil {
-		t.Fatal("first publish should surface hook failure")
-	}
-	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
-		t.Fatalf("retry after hook failure: %v", err)
-	}
-	if repo.publishCalls != 1 {
-		t.Fatalf("repo publish calls = %d, want 1", repo.publishCalls)
-	}
-	if hookCalls != 2 {
-		t.Fatalf("hook calls = %d, want 2", hookCalls)
+	if repo.version.Status != "published" {
+		t.Fatalf("repo status = %s, want published", repo.version.Status)
 	}
 }
 

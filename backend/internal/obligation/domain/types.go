@@ -82,6 +82,19 @@ type UnbatchedDue struct {
 	ScopeID      string
 }
 
+// PlannedBatchFinalization is a planned batch that already owns obligations but still needs
+// replayable side-effect finalization (SOP task link and/or stock reservation).
+type PlannedBatchFinalization struct {
+	BatchID             string
+	ScopeType           string
+	ScopeID             string
+	EstimatedTargets    int32
+	AttachedObligations int64
+	HasSOPTask          bool
+	HasStockReservation bool
+	StockBlocked        bool
+}
+
 // SweepResult summarises an SM-4 sweep (batches created, obligations attached).
 type SweepResult struct {
 	Batches     int

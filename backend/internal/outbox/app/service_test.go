@@ -41,6 +41,41 @@ func TestRunOnceReturnsRepositoryMarkError(t *testing.T) {
 	}
 }
 
+func TestEnvelopeValidatorAcceptsProtocolPublished(t *testing.T) {
+	eventID := serviceTestUUID("21000000", 1)
+	versionID := "62000000-0000-4000-8000-000000000001"
+	payload, err := json.Marshal(map[string]any{
+		"event_id":        eventID,
+		"event_type":      "protocol.version.published",
+		"schema_version":  "1.0.0",
+		"schema_ref":      "contracts/jsonschema/domain-event-envelope.schema.json#protocol.version.published",
+		"aggregate_type":  "protocol_version",
+		"aggregate_id":    versionID,
+		"occurred_at":     serviceTestNow.Format(time.RFC3339),
+		"recorded_at":     serviceTestNow.Format(time.RFC3339),
+		"producer":        map[string]any{"service": "goatos-test", "module": "protocol", "version": nil},
+		"idempotency_key": "protocol:version:published:" + versionID,
+		"actor":           map[string]any{"actor_type": "system_rule", "actor_id": nil, "actor_ref": nil},
+		"subject_type":    "protocol_version",
+		"subject_id":      versionID,
+		"visibility_scope": map[string]any{
+			"tenant_id": "00000000-0000-4000-8000-000000000001",
+		},
+		"evidence_refs": []any{},
+		"payload": map[string]any{
+			"protocol_version_id": versionID,
+			"category":            "vaccination",
+		},
+		"trace_id": "protocol:version:published:" + versionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := serviceTestValidator(t).Validate(payload); err != nil {
+		t.Fatalf("protocol published envelope should validate: %v", err)
+	}
+}
+
 func serviceTestMessage(t *testing.T, suffix int, payload json.RawMessage) domain.Message {
 	t.Helper()
 	eventID := serviceTestUUID("20000000", suffix)

@@ -96,7 +96,13 @@ func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND protocol_version_id=$2`, impTenant, versionID); got != 3 {
 		t.Fatalf("expected 3 obligations, got %d", got)
 	}
-	// Defer is visible: a 'deferred' status event exists for the quarantine goat's obligation.
+	// Defer is canonical: the quarantine goat's obligation is held in deferred status and also has
+	// a deferred ledger event for audit/as-of views.
+	if got := countRowsVacc(t, ctx, pool,
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='deferred'`,
+		impTenant, "30000000-0000-4000-8000-0000000000d1"); got != 1 {
+		t.Fatalf("expected 1 deferred obligation for quarantine goat, got %d", got)
+	}
 	if got := countRowsVacc(t, ctx, pool,
 		`SELECT count(*) FROM obligation_status_events e
 		 JOIN obligation_instances o ON o.tenant_id=e.tenant_id AND o.obligation_id=e.obligation_id

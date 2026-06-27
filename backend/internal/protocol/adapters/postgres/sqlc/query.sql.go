@@ -217,7 +217,7 @@ type ListProtocolConfigsForCategoryRow struct {
 	VersionLabel      string
 	ScopeType         string
 	ScopeID           string
-	ScopeLabel        string
+	ScopeLabel        interface{}
 	Status            string
 	EffectiveFrom     pgtype.Date
 	EffectiveTo       pgtype.Date

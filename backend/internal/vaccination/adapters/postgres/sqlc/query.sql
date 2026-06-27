@@ -134,31 +134,54 @@ WHERE tenant_id = @tenant_id
 -- name: ListEligibleGoatsForGeneration :many
 -- Chunked (keyset) listing of the in-care cohort for SM-1 generation. Cursor by goat_id over the
 -- (tenant_id, goat_id) unique index. Includes defer-state goats (icu/quarantine/sick) so the
--- handler can emit a visible deferred obligation rather than silently skipping them.
-SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
-       COALESCE(shed_id::text, '')::text AS shed_id,
-       COALESCE(park_id::text, '')::text AS park_id
-FROM goats
-WHERE tenant_id = @tenant_id
-  AND lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-  AND (@stage::text = '' OR management_stage = @stage::text)
-  AND (@sex::text = '' OR sex = @sex::text)
-  AND (@breed::text = '' OR breed = @breed::text)
-  AND (sqlc.narg('park_id')::uuid IS NULL OR park_id = sqlc.narg('park_id')::uuid)
-  AND goat_id > @after_goat_id::uuid
-ORDER BY goat_id
+-- handler can write a canonical deferred obligation rather than silently skipping them.
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+       COALESCE(g.health_status, '')::text AS health_status,
+       COALESCE(g.reproductive_status, '')::text AS reproductive_status,
+       COALESCE(g.shed_id::text, '')::text AS shed_id,
+       COALESCE(g.park_id::text, '')::text AS park_id,
+       COALESCE(g.sex, '')::text AS sex,
+       COALESCE(g.breed, '')::text AS breed,
+       COALESCE(g.management_stage, '')::text AS management_stage,
+       COALESCE(loa.is_quarantine, false)::boolean AS location_is_quarantine,
+       COALESCE(loa.is_icu, false)::boolean AS location_is_icu
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = @tenant_id
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
+  AND (@stage::text = '' OR g.management_stage = @stage::text)
+  AND (@sex::text = '' OR g.sex = @sex::text)
+  AND (@breed::text = '' OR g.breed = @breed::text)
+  AND (@health::text = '' OR COALESCE(g.health_status, '') = @health::text)
+  AND (sqlc.narg('park_id')::uuid IS NULL OR g.park_id = sqlc.narg('park_id')::uuid)
+  AND g.goat_id > @after_goat_id::uuid
+ORDER BY g.goat_id
 LIMIT @row_limit;
 
 -- name: GetGoatForGeneration :one
 -- Single-goat generation fields (incl sex/breed/stage for Go-side eligibility match on goat.created).
-SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
-       COALESCE(shed_id::text, '')::text AS shed_id,
-       COALESCE(park_id::text, '')::text AS park_id,
-       COALESCE(sex, '')::text AS sex,
-       COALESCE(breed, '')::text AS breed,
-       COALESCE(management_stage, '')::text AS management_stage
-FROM goats
-WHERE tenant_id = @tenant_id AND goat_id = @goat_id::uuid;
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+       COALESCE(g.health_status, '')::text AS health_status,
+       COALESCE(g.reproductive_status, '')::text AS reproductive_status,
+       COALESCE(g.shed_id::text, '')::text AS shed_id,
+       COALESCE(g.park_id::text, '')::text AS park_id,
+       COALESCE(g.sex, '')::text AS sex,
+       COALESCE(g.breed, '')::text AS breed,
+       COALESCE(g.management_stage, '')::text AS management_stage,
+       COALESCE(loa.is_quarantine, false)::boolean AS location_is_quarantine,
+       COALESCE(loa.is_icu, false)::boolean AS location_is_icu
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = @tenant_id AND g.goat_id = @goat_id::uuid;
 
 -- name: SumAvailableStockForItem :one
 -- Available (unreserved) doses for the vaccine item + earliest expiry, within an optional location.

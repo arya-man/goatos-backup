@@ -49,13 +49,14 @@ WHERE tenant_id = @tenant_id
   AND batch_id IS NULL;
 
 -- name: MarkObligationCompleted :execrows
--- SM-5: mark an obligation completed on accepted verification. Idempotent: a row already terminal
--- (completed/missed/waived/canceled/superseded) is not matched, so a re-run completes nothing.
+-- SM-5: mark an obligation completed on accepted verification. Late real-world work may complete
+-- a previously-missed obligation; the missed event remains in the ledger for audit/as-of views.
+-- Idempotent: rows already completed/waived/canceled/superseded are not matched.
 UPDATE obligation_instances
 SET status = 'completed', completed_at = now(), row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = @tenant_id
   AND obligation_id = @obligation_id
-  AND status IN ('scheduled', 'due', 'in_progress');
+  AND status IN ('scheduled', 'due', 'in_progress', 'missed');
 
 -- name: ReScopeOpenObligationsForGoat :many
 -- SM-2: on a goat shift, move the goat's still-open, unbatched obligations to the new scope. The
@@ -80,7 +81,7 @@ SET status = 'canceled', row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = @tenant_id
   AND target_type = 'goat'
   AND target_id = @target_id
-  AND status IN ('scheduled', 'due')
+  AND status IN ('scheduled', 'due', 'in_progress')
 RETURNING obligation_id::text AS obligation_id;
 
 -- name: CompleteIdempotencyKey :exec

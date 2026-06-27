@@ -428,6 +428,91 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
+func (r *Repository) ListPlannedBatchesNeedingFinalization(ctx context.Context, tenantID, versionID string, needsTask, needsStock bool, limit int32) ([]domain.PlannedBatchFinalization, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if !needsTask && !needsStock {
+		return nil, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(versionID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: version id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT ob.batch_id::text,
+       ob.scope_type,
+       ob.scope_id::text,
+       ob.estimated_targets,
+       COUNT(oi.obligation_id)::bigint AS attached_obligations,
+       (ob.sop_task_id IS NOT NULL) AS has_sop_task,
+       EXISTS (
+         SELECT 1
+         FROM inventory_stock_movements ism
+         WHERE ism.tenant_id = ob.tenant_id
+           AND ism.batch_id = ob.batch_id
+           AND ism.movement_type = 'reserve'
+       ) AS has_stock_reservation,
+       (ob.context ? 'stock_block') AS stock_blocked
+FROM obligation_batches ob
+JOIN obligation_instances oi
+  ON oi.tenant_id = ob.tenant_id
+ AND oi.batch_id = ob.batch_id
+ AND oi.status IN ('scheduled', 'due', 'in_progress', 'missed')
+WHERE ob.tenant_id = $1
+  AND ob.protocol_version_id = $2
+  AND ob.status = 'planned'
+GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.estimated_targets, ob.sop_task_id, ob.context, ob.created_at
+HAVING COUNT(oi.obligation_id) > 0
+   AND (
+     ($3::boolean AND ob.sop_task_id IS NULL)
+     OR (
+       $4::boolean
+       AND NOT (ob.context ? 'stock_block')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM inventory_stock_movements ism
+         WHERE ism.tenant_id = ob.tenant_id
+           AND ism.batch_id = ob.batch_id
+           AND ism.movement_type = 'reserve'
+       )
+     )
+   )
+ORDER BY ob.created_at ASC, ob.batch_id ASC
+LIMIT $5`, tenant, version, needsTask, needsStock, limit)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list planned batch finalization: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.PlannedBatchFinalization, 0)
+	for rows.Next() {
+		var b domain.PlannedBatchFinalization
+		if err := rows.Scan(
+			&b.BatchID,
+			&b.ScopeType,
+			&b.ScopeID,
+			&b.EstimatedTargets,
+			&b.AttachedObligations,
+			&b.HasSOPTask,
+			&b.HasStockReservation,
+			&b.StockBlocked,
+		); err != nil {
+			return nil, fmt.Errorf("obligation: scan planned batch finalization: %w", err)
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: list planned batch finalization rows: %w", err)
+	}
+	return out, nil
+}
+
 func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 	ids := make([]pgtype.UUID, 0, len(values))
 	for _, id := range values {
@@ -440,9 +525,9 @@ func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 	return ids, nil
 }
 
-// CancelOpenForGoat cancels a goat's scheduled/due obligations (SM-3 death/sale) and writes a
-// 'canceled' status event for each, in one transaction. Idempotent: a re-run finds no open rows
-// and cancels nothing. Completed/accepted/missed history is never touched (WHERE status filter).
+// CancelOpenForGoat cancels a goat's scheduled/due/in_progress obligations (SM-3 death/sale) and
+// writes a 'canceled' status event for each, in one transaction. Idempotent: a re-run finds no open
+// rows and cancels nothing. Completed/accepted/missed history is never touched (WHERE status filter).
 func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -637,7 +722,8 @@ RETURNING oi.obligation_id::text, ob.batch_id::text`, tenantID, goatID, scopeTyp
 }
 
 // MarkCompleted marks an obligation completed (SM-5) and writes a 'completed' status event, in one
-// txn. Returns completed=false (no-op) when the obligation is already terminal. Idempotent.
+// txn. Missed obligations can complete late; the missed event remains as audit history. Returns
+// completed=false (no-op) when the obligation is already closed. Idempotent.
 func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -712,7 +798,7 @@ WITH candidate AS (
   WHERE tenant_id = $1
     AND status IN ('scheduled', 'due')
     AND COALESCE(window_end, due_at) < $2
-  ORDER BY due_at ASC, obligation_id ASC
+  ORDER BY COALESCE(window_end, due_at) ASC, obligation_id ASC
   LIMIT $3
   FOR UPDATE SKIP LOCKED
 )

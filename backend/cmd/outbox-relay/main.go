@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
+	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
@@ -109,12 +111,18 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
 		vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
+		inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
+		vaccinationService := vaccinationapp.NewService(vaccinationRepo)
+		vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService).
+			WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
 		generation := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
 		vaccinationapp.NewGoatRecheckHandler(generation).Register(bus)
+		vaccinationapp.NewProtocolPublishedHandler(generation).Register(bus)
 		vaccinationapp.NewManualCampaignHandler(generation).Register(bus)
+		vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

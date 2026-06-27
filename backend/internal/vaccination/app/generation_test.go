@@ -7,6 +7,7 @@ import (
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -72,6 +73,35 @@ func TestManualCampaignHTTPRunFailedRetryReusesOriginalAsOf(t *testing.T) {
 		if !obligation.DueAt.Equal(firstAt) {
 			t.Fatalf("inserted[%d].DueAt = %s, want original as_of %s", i, obligation.DueAt, firstAt)
 		}
+	}
+}
+
+func TestProtocolPublishedHandlerStartsGenerationRun(t *testing.T) {
+	ctx := context.Background()
+	proto := &generationProtoFake{}
+	goats := &generationGoatFake{}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
+	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
+	handler := NewProtocolPublishedHandler(gen)
+
+	occurred := time.Date(2026, time.June, 27, 9, 0, 0, 0, time.UTC)
+	err := handler.HandleEvent(ctx, eventbus.Event{
+		Type:       EventProtocolVersionPublished,
+		TenantID:   "tenant-1",
+		Key:        "version-1",
+		OccurredAt: occurred,
+		Payload:    []byte(`{"protocol_version_id":"version-1","category":"vaccination"}`),
+	})
+	if err != nil {
+		t.Fatalf("handle protocol published: %v", err)
+	}
+	if len(runs.startInputs) != 1 {
+		t.Fatalf("start inputs = %#v, want one publish run", runs.startInputs)
+	}
+	got := runs.startInputs[0]
+	if got.TriggerType != "publish" || got.TriggerRef != "version-1" || got.IdempotencyKey != generationRunKey("tenant-1", "version-1", "publish", "version-1") || !got.StartedAt.Equal(occurred) {
+		t.Fatalf("publish generation input = %#v", got)
 	}
 }
 

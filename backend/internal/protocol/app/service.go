@@ -4,43 +4,19 @@ package app
 
 import (
 	"context"
-	"time"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
 
-// AfterPublishHook lets verticals react after a config version is actually
-// published. The protocol layer remains generic; vaccination wires this to the
-// idempotent SM-1 generator in bootstrap.
-type AfterPublishHook interface {
-	AfterProtocolVersionPublished(ctx context.Context, tenantID string, version domain.Version, publishedAt time.Time) error
-}
-
-// AfterPublishFunc adapts a function into an AfterPublishHook.
-type AfterPublishFunc func(ctx context.Context, tenantID string, version domain.Version, publishedAt time.Time) error
-
-func (f AfterPublishFunc) AfterProtocolVersionPublished(ctx context.Context, tenantID string, version domain.Version, publishedAt time.Time) error {
-	return f(ctx, tenantID, version, publishedAt)
-}
-
 // Service coordinates protocol config use-cases over the repository boundary.
 type Service struct {
-	repo             ports.Repository
-	afterPublishHook AfterPublishHook
+	repo ports.Repository
 }
 
 // NewService constructs a Service.
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo}
-}
-
-// WithAfterPublishHook registers a generic post-publish hook. It is optional
-// and must be idempotent because publish requests/retries can replay around the
-// API boundary.
-func (s *Service) WithAfterPublishHook(h AfterPublishHook) *Service {
-	s.afterPublishHook = h
-	return s
 }
 
 // CreateDefinition registers a protocol definition.

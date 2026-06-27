@@ -174,9 +174,6 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		return err
 	}
 	if v.Status == "published" {
-		if s.afterPublishHook != nil {
-			return s.afterPublishHook.AfterProtocolVersionPublished(ctx, tenantID, v, time.Now().UTC())
-		}
 		return nil
 	}
 	if v.Status != "draft" {
@@ -190,10 +187,6 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 	}
 	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy); err != nil {
 		return err
-	}
-	if s.afterPublishHook != nil {
-		v.Status = "published"
-		return s.afterPublishHook.AfterProtocolVersionPublished(ctx, tenantID, v, time.Now().UTC())
 	}
 	return nil
 }

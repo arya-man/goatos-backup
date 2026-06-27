@@ -40,7 +40,7 @@ SET status = 'canceled', row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $1
   AND target_type = 'goat'
   AND target_id = $2
-  AND status IN ('scheduled', 'due')
+  AND status IN ('scheduled', 'due', 'in_progress')
 RETURNING obligation_id::text AS obligation_id
 `
 
@@ -237,7 +237,7 @@ UPDATE obligation_instances
 SET status = 'completed', completed_at = now(), row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $1
   AND obligation_id = $2
-  AND status IN ('scheduled', 'due', 'in_progress')
+  AND status IN ('scheduled', 'due', 'in_progress', 'missed')
 `
 
 type MarkObligationCompletedParams struct {
@@ -245,8 +245,9 @@ type MarkObligationCompletedParams struct {
 	ObligationID pgtype.UUID
 }
 
-// SM-5: mark an obligation completed on accepted verification. Idempotent: a row already terminal
-// (completed/missed/waived/canceled/superseded) is not matched, so a re-run completes nothing.
+// SM-5: mark an obligation completed on accepted verification. Late real-world work may complete
+// a previously-missed obligation; the missed event remains in the ledger for audit/as-of views.
+// Idempotent: rows already completed/waived/canceled/superseded are not matched.
 func (q *Queries) MarkObligationCompleted(ctx context.Context, arg MarkObligationCompletedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markObligationCompleted, arg.TenantID, arg.ObligationID)
 	if err != nil {

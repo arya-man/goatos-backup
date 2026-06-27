@@ -223,14 +223,21 @@ func (q *Queries) GetAcceptableVaccinationCompletionByIdempotency(ctx context.Co
 }
 
 const getGoatForGeneration = `-- name: GetGoatForGeneration :one
-SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
-       COALESCE(shed_id::text, '')::text AS shed_id,
-       COALESCE(park_id::text, '')::text AS park_id,
-       COALESCE(sex, '')::text AS sex,
-       COALESCE(breed, '')::text AS breed,
-       COALESCE(management_stage, '')::text AS management_stage
-FROM goats
-WHERE tenant_id = $1 AND goat_id = $2::uuid
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+       COALESCE(g.health_status, '')::text AS health_status,
+       COALESCE(g.reproductive_status, '')::text AS reproductive_status,
+       COALESCE(g.shed_id::text, '')::text AS shed_id,
+       COALESCE(g.park_id::text, '')::text AS park_id,
+       COALESCE(g.sex, '')::text AS sex,
+       COALESCE(g.breed, '')::text AS breed,
+       COALESCE(g.management_stage, '')::text AS management_stage,
+       COALESCE(loa.is_quarantine, false)::boolean AS location_is_quarantine,
+       COALESCE(loa.is_icu, false)::boolean AS location_is_icu
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = $1 AND g.goat_id = $2::uuid
 `
 
 type GetGoatForGenerationParams struct {
@@ -239,15 +246,19 @@ type GetGoatForGenerationParams struct {
 }
 
 type GetGoatForGenerationRow struct {
-	GoatID          string
-	Dob             pgtype.Date
-	EntryDate       pgtype.Date
-	LifecycleStatus string
-	ShedID          string
-	ParkID          string
-	Sex             string
-	Breed           string
-	ManagementStage string
+	GoatID               string
+	Dob                  pgtype.Date
+	EntryDate            pgtype.Date
+	LifecycleStatus      string
+	HealthStatus         string
+	ReproductiveStatus   string
+	ShedID               string
+	ParkID               string
+	Sex                  string
+	Breed                string
+	ManagementStage      string
+	LocationIsQuarantine bool
+	LocationIsIcu        bool
 }
 
 // Single-goat generation fields (incl sex/breed/stage for Go-side eligibility match on goat.created).
@@ -259,11 +270,15 @@ func (q *Queries) GetGoatForGeneration(ctx context.Context, arg GetGoatForGenera
 		&i.Dob,
 		&i.EntryDate,
 		&i.LifecycleStatus,
+		&i.HealthStatus,
+		&i.ReproductiveStatus,
 		&i.ShedID,
 		&i.ParkID,
 		&i.Sex,
 		&i.Breed,
 		&i.ManagementStage,
+		&i.LocationIsQuarantine,
+		&i.LocationIsIcu,
 	)
 	return i, err
 }
@@ -339,19 +354,35 @@ func (q *Queries) GetRecordedVaccinationCompletion(ctx context.Context, arg GetR
 }
 
 const listEligibleGoatsForGeneration = `-- name: ListEligibleGoatsForGeneration :many
-SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
-       COALESCE(shed_id::text, '')::text AS shed_id,
-       COALESCE(park_id::text, '')::text AS park_id
-FROM goats
-WHERE tenant_id = $1
-  AND lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-  AND ($2::text = '' OR management_stage = $2::text)
-  AND ($3::text = '' OR sex = $3::text)
-  AND ($4::text = '' OR breed = $4::text)
-  AND ($5::uuid IS NULL OR park_id = $5::uuid)
-  AND goat_id > $6::uuid
-ORDER BY goat_id
-LIMIT $7
+SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
+       COALESCE(g.health_status, '')::text AS health_status,
+       COALESCE(g.reproductive_status, '')::text AS reproductive_status,
+       COALESCE(g.shed_id::text, '')::text AS shed_id,
+       COALESCE(g.park_id::text, '')::text AS park_id,
+       COALESCE(g.sex, '')::text AS sex,
+       COALESCE(g.breed, '')::text AS breed,
+       COALESCE(g.management_stage, '')::text AS management_stage,
+       COALESCE(loa.is_quarantine, false)::boolean AS location_is_quarantine,
+       COALESCE(loa.is_icu, false)::boolean AS location_is_icu
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = $1
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
+  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($3::text = '' OR g.sex = $3::text)
+  AND ($4::text = '' OR g.breed = $4::text)
+  AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
+  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
+  AND g.goat_id > $7::uuid
+ORDER BY g.goat_id
+LIMIT $8
 `
 
 type ListEligibleGoatsForGenerationParams struct {
@@ -359,29 +390,38 @@ type ListEligibleGoatsForGenerationParams struct {
 	Stage       string
 	Sex         string
 	Breed       string
+	Health      string
 	ParkID      pgtype.UUID
 	AfterGoatID pgtype.UUID
 	RowLimit    int32
 }
 
 type ListEligibleGoatsForGenerationRow struct {
-	GoatID          string
-	Dob             pgtype.Date
-	EntryDate       pgtype.Date
-	LifecycleStatus string
-	ShedID          string
-	ParkID          string
+	GoatID               string
+	Dob                  pgtype.Date
+	EntryDate            pgtype.Date
+	LifecycleStatus      string
+	HealthStatus         string
+	ReproductiveStatus   string
+	ShedID               string
+	ParkID               string
+	Sex                  string
+	Breed                string
+	ManagementStage      string
+	LocationIsQuarantine bool
+	LocationIsIcu        bool
 }
 
 // Chunked (keyset) listing of the in-care cohort for SM-1 generation. Cursor by goat_id over the
 // (tenant_id, goat_id) unique index. Includes defer-state goats (icu/quarantine/sick) so the
-// handler can emit a visible deferred obligation rather than silently skipping them.
+// handler can write a canonical deferred obligation rather than silently skipping them.
 func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEligibleGoatsForGenerationParams) ([]ListEligibleGoatsForGenerationRow, error) {
 	rows, err := q.db.Query(ctx, listEligibleGoatsForGeneration,
 		arg.TenantID,
 		arg.Stage,
 		arg.Sex,
 		arg.Breed,
+		arg.Health,
 		arg.ParkID,
 		arg.AfterGoatID,
 		arg.RowLimit,
@@ -398,8 +438,15 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 			&i.Dob,
 			&i.EntryDate,
 			&i.LifecycleStatus,
+			&i.HealthStatus,
+			&i.ReproductiveStatus,
 			&i.ShedID,
 			&i.ParkID,
+			&i.Sex,
+			&i.Breed,
+			&i.ManagementStage,
+			&i.LocationIsQuarantine,
+			&i.LocationIsIcu,
 		); err != nil {
 			return nil, err
 		}
