@@ -239,7 +239,7 @@ RETURNING notification_request_id::text`,
 		Channel:    &channel,
 	}
 	if err := insertOutbox(ctx, tx, in.TenantID, "calendar.nudge.requested", "calendar.notification.v1",
-		"calendar_notification", requestID, "calendar.notifications", scopedKey, in.TraceID, response, in.EventID); err != nil {
+		"calendar_notification", requestID, "calendar.notifications", scopedKey, in.TraceID, "human", in.ActorID, response, in.EventID); err != nil {
 		return domain.CalendarActionResponse{}, err
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -352,7 +352,7 @@ WHERE tenant_id = $1::uuid AND calendar_event_id = $2 AND status = 'active' AND 
 		SnoozeUntil: &in.SnoozeUntil,
 	}
 	if err := insertOutbox(ctx, tx, in.TenantID, "calendar.snooze.recorded", "calendar.snooze.v1",
-		"calendar_snooze", snoozeID, "calendar.notifications", scopedKey, in.TraceID, response, in.EventID); err != nil {
+		"calendar_snooze", snoozeID, "calendar.notifications", scopedKey, in.TraceID, "human", in.ActorID, response, in.EventID); err != nil {
 		return domain.CalendarActionResponse{}, err
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -507,7 +507,7 @@ RETURNING notification_request_id::text`,
 	}
 	resp := domain.CalendarActionResponse{ActionID: requestID, EventID: e.EventID, ActionType: "reminder", Status: "queued", Channel: &channel}
 	if err := insertOutbox(ctx, tx, tenantID, "calendar.reminder.queued", "calendar.notification.v1",
-		"calendar_notification", requestID, "calendar.notifications", key, "", resp, e.EventID); err != nil {
+		"calendar_notification", requestID, "calendar.notifications", key, "", "system_rule", "", resp, e.EventID); err != nil {
 		return false, err
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -738,27 +738,76 @@ FOR UPDATE`, tenantID, eventID)
 	return ids, rows.Err()
 }
 
-func insertOutbox(ctx context.Context, tx pgx.Tx, tenantID, eventType, schemaVersion, aggregateType, aggregateID, topic, idempotencyKey, traceID string, payload any, calendarEventID string) error {
-	payloadBytes, err := json.Marshal(payload)
+const calendarOutboxEnvelopeVersion = "1.0.0"
+
+func insertOutbox(ctx context.Context, tx pgx.Tx, tenantID, eventType, schemaRef, aggregateType, aggregateID, topic, idempotencyKey, traceID, actorType, actorID string, payload any, calendarEventID string) error {
+	var eventID string
+	if err := tx.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&eventID); err != nil {
+		return fmt.Errorf("calendar: generate outbox event id: %w", err)
+	}
+	payloadBytes, err := calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateType, aggregateID, idempotencyKey, traceID, actorType, actorID, payload, calendarEventID)
 	if err != nil {
 		return err
 	}
 	headersBytes, _ := json.Marshal(map[string]any{
 		"calendar_event_id": calendarEventID,
-		"schema_version":    schemaVersion,
+		"schema_version":    calendarOutboxEnvelopeVersion,
 	})
 	_, err = tx.Exec(ctx, `
 INSERT INTO outbox_messages (
   tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
   topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
 ) VALUES (
-  $1::uuid, gen_random_uuid(), $2, $3, $4, $5::uuid,
-  $6, $7::jsonb, $8::jsonb, $9, nullif($10, ''), 'pending', now()
-)`, tenantID, eventType, schemaVersion, aggregateType, aggregateID, topic, payloadBytes, headersBytes, idempotencyKey, traceID)
+  $1::uuid, $2::uuid, $3, $4, $5, $6::uuid,
+  $7, $8::jsonb, $9::jsonb, $10, nullif($11, ''), 'pending', now()
+)`, tenantID, eventID, eventType, calendarOutboxEnvelopeVersion, aggregateType, aggregateID, topic, payloadBytes, headersBytes, idempotencyKey, traceID)
 	if err != nil {
 		return fmt.Errorf("calendar: insert outbox: %w", err)
 	}
 	return nil
+}
+
+func calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateType, aggregateID, idempotencyKey, traceID, actorType, actorID string, payload any, calendarEventID string) ([]byte, error) {
+	if strings.TrimSpace(traceID) == "" {
+		traceID = "calendar-outbox:" + eventType + ":" + aggregateID
+	}
+	actorIDValue := any(nil)
+	if strings.TrimSpace(actorID) != "" {
+		actorIDValue = actorID
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	return json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     eventType,
+		"schema_version": calendarOutboxEnvelopeVersion,
+		"schema_ref":     schemaRef,
+		"aggregate_type": aggregateType,
+		"aggregate_id":   aggregateID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "calendar_vaccination",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": actorType,
+			"actor_id":   actorIDValue,
+			"actor_ref":  nil,
+		},
+		"subject_type": "calendar_event",
+		"subject_id":   calendarEventID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "event",
+			"evidence_id":   calendarEventID,
+		}},
+		"payload":  payload,
+		"trace_id": traceID,
+	})
 }
 
 const calendarListSQL = `

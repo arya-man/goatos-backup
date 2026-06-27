@@ -46,7 +46,10 @@
         "identity.correction_request.created",
         "identity.correction_request.updated",
         "legacy_import.row_processed",
-        "legacy_import.completed"
+        "legacy_import.completed",
+        "calendar.nudge.requested",
+        "calendar.reminder.queued",
+        "calendar.snooze.recorded"
       ]
     },
     "schema_version": {
@@ -65,7 +68,9 @@
         "identity_conflict",
         "identity_decision",
         "correction_request",
-        "legacy_import_run"
+        "legacy_import_run",
+        "calendar_notification",
+        "calendar_snooze"
       ]
     },
     "aggregate_id": {
@@ -82,7 +87,8 @@
         "correction_request",
         "legacy_import_row",
         "legacy_import_run",
-        "location"
+        "location",
+        "calendar_event"
       ]
     },
     "subject_id": {

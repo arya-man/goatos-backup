@@ -104,6 +104,8 @@
   .chartcard .lg span{display:inline-flex;align-items:center;gap:5px}
   .chartcard svg{display:block}
   .fchipsbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 12px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px}
+  .fchipsbar.calband{min-height:42px;background:var(--bg);padding:8px 13px;font-size:13px;color:var(--muted)}
+  .fchipsbar.calband b{color:var(--ink);font-weight:750}
   .achip{display:inline-flex;gap:6px;align-items:center;background:var(--brand-soft);color:var(--brand-d);border-radius:7px;padding:3px 9px;font-size:11.5px;font-weight:600}
   .achip b{cursor:pointer;opacity:.65;font-weight:800}
   .achip b:hover{opacity:1}
@@ -126,7 +128,7 @@
   #acQuickTabs button:not(.on) .qc{color:var(--muted)}
   .subtabs button .cbq,.subtabs a .cbq,#acQuickTabs .qc{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:16px;padding:0 5px;margin-left:7px;border-radius:999px;background:var(--line2);color:var(--muted);font-size:10.5px;font-weight:800;vertical-align:middle}
   .subtabs button.on .cbq,.subtabs a.on .cbq,#acQuickTabs button.on .qc,#acQuickTabs a.on .qc{background:var(--brand-soft);color:var(--brand-d)}
-  .subtabs a.disabled,.subtabs button:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+  .subtabs a.disabled,.subtabs button.disabled,.subtabs button:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
   .wftoolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
   .wfwrap{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
   /* Right column must shrink so the chain map scrolls internally instead of widening the grid. */
@@ -505,6 +507,21 @@
   .modal{position:fixed;z-index:220;top:50%;left:50%;transform:translate(-50%,-46%) scale(.97);opacity:0;pointer-events:none;width:620px;max-width:94vw;max-height:90vh;overflow:auto;background:var(--panel);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.5);transition:.2s}
   .modal.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
   .note{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+  .lenslink{font-size:12px;font-weight:650;color:var(--brand-d);background:var(--brand-soft);border:1px solid var(--line);padding:4px 10px;border-radius:7px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+  .lenslink:hover{border-color:var(--brand)}
+  .lenslink.mutedlink{color:var(--muted);background:var(--line2);cursor:default;pointer-events:none}
+  /* in-app back / breadcrumb trail (ported from mock .navback) */
+  .navback{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;padding:7px 18px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:saturate(1.2) blur(6px)}
+  .screen>.navback{margin:-20px -26px 20px}
+  .nbback{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 11px 5px 8px;font:inherit;font-weight:650;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap;text-decoration:none}
+  .nbback:hover{border-color:var(--brand);color:var(--brand-d)}
+  .nbback .ic{width:15px}
+  .nbtrail{display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0;font-size:12px;color:var(--muted)}
+  .nbtrail .nbc{color:var(--muted);border-radius:6px;padding:2px 6px;white-space:nowrap;text-decoration:none}
+  a.nbc:hover{background:var(--bg);color:var(--brand-d)}
+  .nbtrail .nbc.cur{color:var(--ink);font-weight:650;cursor:default}
+  .nbtrail .nbsep{width:11px;height:11px;color:var(--faint);flex:none}
+  .nbtitle{color:var(--ink);font-size:12.5px;font-weight:650;padding:2px 6px;white-space:nowrap}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:4px}
   .legend span{display:inline-flex;align-items:center;gap:6px}
   .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
@@ -545,12 +562,16 @@
   .ia.del:hover{color:var(--danger);border-color:var(--danger)}
   .ia .ic{width:15px;height:15px}
   /* ---------- calendar / reminders ---------- */
+  .calendar-week-grid{grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr)}
   .rhythm{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-  .rday{flex:1;min-width:84px;text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 6px}
+  .rday{display:block;flex:1;min-width:84px;text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 6px;color:inherit;text-decoration:none;transition:.12s}
+  .rday:hover{border-color:var(--brand);transform:translateY(-1px)}
+  .rday.included{background:color-mix(in srgb,var(--brand-soft) 32%,var(--bg));border-color:color-mix(in srgb,var(--brand) 34%,var(--line))}
   .rday.today{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
   .rday .d{font-weight:700;font-size:12px}.rday .mode{font-size:9.5px;font-weight:800;letter-spacing:.5px;margin-top:3px}
-  .mode.plan{color:var(--info)}.mode.log{color:var(--amber)}.mode.exec{color:var(--brand-d)}.mode.rest{color:var(--faint)}
-  .agenda .dh{font-weight:700;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;margin:14px 2px 8px}
+  .mode.plan{color:var(--info)}.mode.log{color:var(--amber)}.mode.exec{color:var(--brand-d)}.mode.rest{color:var(--muted)}
+  .agenda .dh{font-weight:700;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;line-height:1.25;margin:18px 2px 13px}
+  .agenda .dh + .ev{margin-top:0}
   .ev{display:flex;gap:11px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:10px;padding:10px 12px;margin-bottom:8px;box-shadow:var(--shadow);cursor:pointer;transition:.12s}
   .ev:hover{border-color:var(--brand);transform:translateX(2px)}
   .ev .et{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);width:52px;flex:none;padding-top:1px}
@@ -577,6 +598,8 @@
     /* Off-canvas nav rows stay >=40px tap targets on touch widths. */
     .side .nav,.side .leaf,.side .ggrp{min-height:40px}
     .wrap{padding:16px 14px 56px}
+    .screen>.navback{margin:-16px -14px 18px}
+    .calendar-week-grid{grid-template-columns:1fr}
     .phead h1{font-size:19px}
     .phead{gap:10px}
     .parkpick [data-park="ALL"]{display:none}
@@ -589,6 +612,7 @@
        targets. Drop the non-essential scope/date chips; pin icon buttons + the role button to 40px. */
     .top .pscope{display:none}
     .iconbtn{flex:none;width:40px;height:40px}
+    .nbback{min-height:40px}
     /* Top-bar scope controls that stay visible on touch widths are real controls — >=40px tap targets.
        (.pscope chips are hidden above; the Company-wide/Park-wise toggle + legacy .parkbtn stay.) */
     .parkbtn,.parkpick a,.parkpick button{min-height:40px}

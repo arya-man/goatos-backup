@@ -88,6 +88,25 @@ func getenv(key, fallback string) string {
 }
 
 const seedSQL = `
+UPDATE calendar_snoozes
+SET status = 'replaced'
+WHERE tenant_id = $1::uuid
+  AND status = 'active'
+  AND calendar_event_id IN (
+    'obligation:86000000-0000-4000-8000-000000001001',
+    'batch:86000000-0000-4000-8000-000000001002:rule:` + ruleID + `:shed:` + cbeShedID + `',
+    'calendar:86000000-0000-4000-8000-000000001003',
+    'calendar:86000000-0000-4000-8000-000000001004',
+    'calendar:86000000-0000-4000-8000-000000001005',
+    'calendar:86000000-0000-4000-8000-000000001006',
+    'calendar:86000000-0000-4000-8000-000000001007',
+    'calendar:86000000-0000-4000-8000-000000001008',
+    'calendar:86000000-0000-4000-8000-000000001009',
+    'calendar:86000000-0000-4000-8000-000000001010',
+    'calendar:86000000-0000-4000-8000-000000001011',
+    'calendar:86000000-0000-4000-8000-000000001012'
+  );
+
 INSERT INTO locations (
   location_id, tenant_id, location_type, location_code, name, parent_location_id,
   country, state_region, timezone, status, updated_at

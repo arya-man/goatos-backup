@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -86,6 +87,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	}
 	assertCount(t, ctx, pool, "nudge notifications", `SELECT count(*) FROM notification_requests WHERE tenant_id=$1 AND calendar_event_id=$2 AND notification_type='nudge'`, 1, testTenantID, testCalendarEvent)
 	assertCount(t, ctx, pool, "nudge outbox", `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND aggregate_type='calendar_notification' AND aggregate_id=$2::uuid`, 1, testTenantID, first.ActionID)
+	assertOutboxEnvelope(t, ctx, pool, "nudge outbox envelope", "calendar_notification", first.ActionID, "calendar.nudge.requested", testCalendarEvent)
 	assertCount(t, ctx, pool, "nudge audit", `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND metadata->>'calendar_event_id'=$2 AND action='calendar.nudge.sent'`, 1, testTenantID, testCalendarEvent)
 
 	snoozeUntil := time.Now().UTC().Add(6 * time.Hour)
@@ -121,6 +123,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 		t.Fatalf("second active snooze err = %v, want ErrActiveSnoozeExists", err)
 	}
 	assertCount(t, ctx, pool, "active snoozes", `SELECT count(*) FROM calendar_snoozes WHERE tenant_id=$1 AND calendar_event_id=$2 AND status='active'`, 1, testTenantID, testCalendarEvent)
+	assertOutboxEnvelope(t, ctx, pool, "snooze outbox envelope", "calendar_snooze", snooze.ActionID, "calendar.snooze.recorded", testCalendarEvent)
 
 	history, err := repo.History(ctx, domain.HistoryQuery{TenantID: testTenantID, EventID: testCalendarEvent, Limit: 20, Scope: domain.ScopeFilter{TenantWide: true}})
 	if err != nil {
@@ -138,6 +141,11 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 		t.Fatalf("queued reminders = %d, want 1", queued)
 	}
 	assertCount(t, ctx, pool, "reminder requests", `SELECT count(*) FROM notification_requests WHERE tenant_id=$1 AND calendar_event_id=$2 AND notification_type='reminder'`, 1, testTenantID, testReminderEvent)
+	var reminderID string
+	if err := pool.QueryRow(ctx, `SELECT notification_request_id::text FROM notification_requests WHERE tenant_id=$1 AND calendar_event_id=$2 AND notification_type='reminder'`, testTenantID, testReminderEvent).Scan(&reminderID); err != nil {
+		t.Fatalf("reminder id query: %v", err)
+	}
+	assertOutboxEnvelope(t, ctx, pool, "reminder outbox envelope", "calendar_notification", reminderID, "calendar.reminder.queued", testReminderEvent)
 }
 
 func TestCalendarWidestRequestPlanUsesHotListIndex(t *testing.T) {
@@ -610,5 +618,32 @@ func assertCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, s
 	}
 	if got != want {
 		t.Fatalf("%s count = %d, want %d", label, got, want)
+	}
+}
+
+func assertOutboxEnvelope(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, aggregateType, aggregateID, eventType, calendarEventID string) {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(ctx, `
+SELECT payload
+FROM outbox_messages
+WHERE tenant_id = $1::uuid
+  AND aggregate_type = $2
+  AND aggregate_id = $3::uuid`, testTenantID, aggregateType, aggregateID).Scan(&raw); err != nil {
+		t.Fatalf("%s payload query: %v", label, err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("%s payload decode: %v", label, err)
+	}
+	if envelope["event_type"] != eventType || envelope["aggregate_type"] != aggregateType || envelope["aggregate_id"] != aggregateID {
+		t.Fatalf("%s envelope = %#v", label, envelope)
+	}
+	if envelope["subject_type"] != "calendar_event" || envelope["subject_id"] != calendarEventID {
+		t.Fatalf("%s subject = %v/%v, want calendar_event/%s", label, envelope["subject_type"], envelope["subject_id"], calendarEventID)
+	}
+	payload, ok := envelope["payload"].(map[string]any)
+	if !ok || payload["action_id"] != aggregateID || payload["event_id"] != calendarEventID {
+		t.Fatalf("%s nested payload = %#v", label, envelope["payload"])
 	}
 }

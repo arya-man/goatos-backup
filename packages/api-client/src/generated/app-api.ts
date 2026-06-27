@@ -1344,9 +1344,91 @@ export interface components {
             cross_cutting: boolean;
             links: components["schemas"]["CalendarEventLinks"];
         };
+        CalendarPresentationQuery: {
+            [key: string]: string;
+        };
+        CalendarPresentationTab: {
+            key: string;
+            label: string;
+            active: boolean;
+            enabled: boolean;
+            disabled_reason: string;
+            query: components["schemas"]["CalendarPresentationQuery"];
+        };
+        CalendarOwnerPresentationTab: {
+            key: string;
+            label: string;
+            scope_label: string;
+            color: string;
+            active: boolean;
+            enabled: boolean;
+            disabled_reason: string;
+            query: components["schemas"]["CalendarPresentationQuery"];
+        };
+        CalendarRhythmDay: {
+            day: string;
+            label: string;
+            tone: string;
+            enabled: boolean;
+            query: components["schemas"]["CalendarPresentationQuery"];
+        };
+        CalendarRhythmPresentation: {
+            title: string;
+            note: string;
+            days: components["schemas"]["CalendarRhythmDay"][];
+        };
+        CalendarViewPresentation: {
+            title: string;
+            scope_label: string;
+            scope_only_message: string;
+            clear_scope_label: string;
+            whole_period_message: string;
+            all_days_selected_label: string;
+            clear_day_label: string;
+            empty_message: string;
+            reminder_title: string;
+            reminder_empty_message: string;
+            reminder_note: string;
+            as_of_hint: string;
+            cell_note: string;
+        };
+        CalendarActionPresentation: {
+            label: string;
+            enabled: boolean;
+            disabled_reason: string;
+        };
+        CalendarEmptyStatePresentation: {
+            ok_message: string;
+            error_message: string;
+            primary_label: string;
+            secondary_label: string;
+        };
+        CalendarKeyLabel: {
+            key: string;
+            label: string;
+        };
+        CalendarPresentation: {
+            page_title: string;
+            page_subtitle: string;
+            view_tabs: components["schemas"]["CalendarPresentationTab"][];
+            owner_tabs: components["schemas"]["CalendarOwnerPresentationTab"][];
+            workstream_tabs: components["schemas"]["CalendarPresentationTab"][];
+            rhythm: components["schemas"]["CalendarRhythmPresentation"];
+            week: components["schemas"]["CalendarViewPresentation"];
+            month: components["schemas"]["CalendarViewPresentation"];
+            new_event: components["schemas"]["CalendarActionPresentation"];
+            empty_state: components["schemas"]["CalendarEmptyStatePresentation"];
+            event_types: components["schemas"]["CalendarKeyLabel"][];
+            active_owner_key: string;
+            active_owner_label: string;
+            active_owner_scope_label: string;
+            active_owner_color: string;
+            all_owners_selected_label: string;
+        };
         CalendarEventListResponse: {
             /** @constant */
             source: "api";
+            presentation: components["schemas"]["CalendarPresentation"];
             items: components["schemas"]["CalendarEvent"][];
             next_cursor: string | null;
         };

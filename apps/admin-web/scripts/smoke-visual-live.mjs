@@ -45,6 +45,7 @@ const routes = [
   { name: "login", path: "/login" },
   { name: "control-tower", path: "/" },
   { name: "action-center", path: "/action-center" },
+  { name: "calendar", path: "/calendar" },
   { name: "protocol-adherence", path: "/protocol-adherence" },
   { name: "workflows", path: "/workflows" },
   { name: "vaccination", path: "/vaccination" },
@@ -56,8 +57,6 @@ const routes = [
   { name: "operations-audit", path: "/operations/audit" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];
-// /calendar is an approved build target, not an implemented route yet. Add it here in the same frontend PR
-// that adds app/(admin)/calendar/page.tsx and the primary-nav entry.
 if (procurementLoadId) {
   routes.push({
     name: "procurement-load-detail",
@@ -373,6 +372,20 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
   if (routeName === "action-center") {
     await openAndCloseDrawer(page, page.locator(".taskboard .task").first(), "ACTION", routeName);
+  }
+
+  if (routeName === "calendar") {
+    await openAndCloseDrawer(page, page.locator(".agenda .ev.celllink").first(), "CALENDAR EVENT", routeName);
+    // Month view + a month-cell (.mev) event open — exercised in-app so the top-bar scope is carried.
+    const monthTab = page.getByRole("link", { name: "Month", exact: true });
+    if ((await monthTab.count()) === 1) {
+      await monthTab.click();
+      await page.locator(".mcal").first().waitFor({ state: "visible", timeout: 5_000 });
+      const mev = page.locator(".mcal .mev").first();
+      if ((await mev.count()) === 1) {
+        await openAndCloseDrawer(page, mev, "CALENDAR EVENT", routeName);
+      }
+    }
   }
 
   if (routeName === "procurement-source-entry") {

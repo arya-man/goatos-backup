@@ -78,6 +78,7 @@ func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.Calend
 	if err != nil {
 		return domain.CalendarEventListResponse{}, mapRepoError(err)
 	}
+	resp.Presentation = domain.CalendarPresentationForQuery(q.OwnerKey)
 	return resp, nil
 }
 

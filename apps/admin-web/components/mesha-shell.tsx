@@ -48,12 +48,14 @@ const roleLenses = ROLE_LENSES;
 const primary: Leaf[] = [
   { label: "Control Tower", href: "/" },
   { label: "Action Center", href: "/action-center" },
+  { label: "Calendar", href: "/calendar" },
   { label: "Protocol Adherence", href: "/protocol-adherence" },
   { label: "Workflows", href: "/workflows" },
 ];
 const primaryIcons: Record<string, React.ElementType> = {
   "/": TowerControl,
   "/action-center": Zap,
+  "/calendar": CalendarDays,
   "/protocol-adherence": ClipboardCheck,
   "/workflows": Workflow,
 };
@@ -99,6 +101,7 @@ const groups: Group[] = [
 
 // Disabled placeholder leaves are not navigable, so they never count toward active-route matching.
 const allHrefs: string[] = [...primary, ...groups.flatMap((g) => g.leaves.filter((l) => !l.disabled))].map((l) => l.href);
+const SCOPE_QUERY_KEYS = new Set(["scope_mode", "park", "range", "as_of", "date_from", "date_to", "domain"]);
 
 // Business date for the top bar. MUST be the operating-tenant timezone (IST, Asia/Kolkata) — using UTC
 // (`toISOString`) shows yesterday after midnight IST (e.g. 00:12 IST = previous UTC day). en-CA gives a
@@ -163,8 +166,12 @@ export function MeshaShell({ children, parks = [] }: { children: React.ReactNode
 
   useEffect(() => {
     if (explicitScopeMode || scope.parkId || !defaultPark) return;
-    router.replace(scopeHref(pathname, scope, { park: defaultPark.id, mode: "park" }), { scroll: false });
-  }, [defaultPark, explicitScopeMode, pathname, router, scope]);
+    const pageFilters: Record<string, string> = {};
+    searchParams?.forEach((value, key) => {
+      if (!SCOPE_QUERY_KEYS.has(key)) pageFilters[key] = value;
+    });
+    router.replace(scopeHref(pathname, scope, { park: defaultPark.id, mode: "park" }, pageFilters), { scroll: false });
+  }, [defaultPark, explicitScopeMode, pathname, router, scope, searchParams]);
 
   useEffect(() => {
     let cancelled = false;

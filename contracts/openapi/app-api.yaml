@@ -3701,17 +3701,259 @@ components:
           type: boolean
         links:
           $ref: "#/components/schemas/CalendarEventLinks"
+    CalendarPresentationQuery:
+      type: object
+      additionalProperties:
+        type: string
+    CalendarPresentationTab:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - active
+        - enabled
+        - disabled_reason
+        - query
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        active:
+          type: boolean
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+        query:
+          $ref: "#/components/schemas/CalendarPresentationQuery"
+    CalendarOwnerPresentationTab:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+        - scope_label
+        - color
+        - active
+        - enabled
+        - disabled_reason
+        - query
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        scope_label:
+          type: string
+        color:
+          type: string
+        active:
+          type: boolean
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+        query:
+          $ref: "#/components/schemas/CalendarPresentationQuery"
+    CalendarRhythmDay:
+      type: object
+      additionalProperties: false
+      required:
+        - day
+        - label
+        - tone
+        - enabled
+        - query
+      properties:
+        day:
+          type: string
+        label:
+          type: string
+        tone:
+          type: string
+        enabled:
+          type: boolean
+        query:
+          $ref: "#/components/schemas/CalendarPresentationQuery"
+    CalendarRhythmPresentation:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - note
+        - days
+      properties:
+        title:
+          type: string
+        note:
+          type: string
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarRhythmDay"
+    CalendarViewPresentation:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - scope_label
+        - scope_only_message
+        - clear_scope_label
+        - whole_period_message
+        - all_days_selected_label
+        - clear_day_label
+        - empty_message
+        - reminder_title
+        - reminder_empty_message
+        - reminder_note
+        - as_of_hint
+        - cell_note
+      properties:
+        title:
+          type: string
+        scope_label:
+          type: string
+        scope_only_message:
+          type: string
+        clear_scope_label:
+          type: string
+        whole_period_message:
+          type: string
+        all_days_selected_label:
+          type: string
+        clear_day_label:
+          type: string
+        empty_message:
+          type: string
+        reminder_title:
+          type: string
+        reminder_empty_message:
+          type: string
+        reminder_note:
+          type: string
+        as_of_hint:
+          type: string
+        cell_note:
+          type: string
+    CalendarActionPresentation:
+      type: object
+      additionalProperties: false
+      required:
+        - label
+        - enabled
+        - disabled_reason
+      properties:
+        label:
+          type: string
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+    CalendarEmptyStatePresentation:
+      type: object
+      additionalProperties: false
+      required:
+        - ok_message
+        - error_message
+        - primary_label
+        - secondary_label
+      properties:
+        ok_message:
+          type: string
+        error_message:
+          type: string
+        primary_label:
+          type: string
+        secondary_label:
+          type: string
+    CalendarKeyLabel:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+    CalendarPresentation:
+      type: object
+      additionalProperties: false
+      required:
+        - page_title
+        - page_subtitle
+        - view_tabs
+        - owner_tabs
+        - workstream_tabs
+        - rhythm
+        - week
+        - month
+        - new_event
+        - empty_state
+        - event_types
+        - active_owner_key
+        - active_owner_label
+        - active_owner_scope_label
+        - active_owner_color
+        - all_owners_selected_label
+      properties:
+        page_title:
+          type: string
+        page_subtitle:
+          type: string
+        view_tabs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarPresentationTab"
+        owner_tabs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarOwnerPresentationTab"
+        workstream_tabs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarPresentationTab"
+        rhythm:
+          $ref: "#/components/schemas/CalendarRhythmPresentation"
+        week:
+          $ref: "#/components/schemas/CalendarViewPresentation"
+        month:
+          $ref: "#/components/schemas/CalendarViewPresentation"
+        new_event:
+          $ref: "#/components/schemas/CalendarActionPresentation"
+        empty_state:
+          $ref: "#/components/schemas/CalendarEmptyStatePresentation"
+        event_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarKeyLabel"
+        active_owner_key:
+          type: string
+        active_owner_label:
+          type: string
+        active_owner_scope_label:
+          type: string
+        active_owner_color:
+          type: string
+        all_owners_selected_label:
+          type: string
     CalendarEventListResponse:
       type: object
       additionalProperties: false
       required:
         - source
+        - presentation
         - items
         - next_cursor
       properties:
         source:
           type: string
           const: api
+        presentation:
+          $ref: "#/components/schemas/CalendarPresentation"
         items:
           type: array
           items:

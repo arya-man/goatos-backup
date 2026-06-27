@@ -98,9 +98,97 @@ type CalendarEvent struct {
 }
 
 type CalendarEventListResponse struct {
-	Source     string          `json:"source"`
-	Items      []CalendarEvent `json:"items"`
-	NextCursor *string         `json:"next_cursor"`
+	Source       string               `json:"source"`
+	Presentation CalendarPresentation `json:"presentation"`
+	Items        []CalendarEvent      `json:"items"`
+	NextCursor   *string              `json:"next_cursor"`
+}
+
+type CalendarPresentation struct {
+	PageTitle              string                         `json:"page_title"`
+	PageSubtitle           string                         `json:"page_subtitle"`
+	ViewTabs               []CalendarPresentationTab      `json:"view_tabs"`
+	OwnerTabs              []CalendarOwnerPresentationTab `json:"owner_tabs"`
+	WorkstreamTabs         []CalendarPresentationTab      `json:"workstream_tabs"`
+	Rhythm                 CalendarRhythmPresentation     `json:"rhythm"`
+	Week                   CalendarViewPresentation       `json:"week"`
+	Month                  CalendarViewPresentation       `json:"month"`
+	NewEvent               CalendarActionPresentation     `json:"new_event"`
+	EmptyState             CalendarEmptyStatePresentation `json:"empty_state"`
+	EventTypes             []CalendarKeyLabel             `json:"event_types"`
+	ActiveOwnerKey         string                         `json:"active_owner_key"`
+	ActiveOwnerLabel       string                         `json:"active_owner_label"`
+	ActiveOwnerScopeLabel  string                         `json:"active_owner_scope_label"`
+	ActiveOwnerColor       string                         `json:"active_owner_color"`
+	AllOwnersSelectedLabel string                         `json:"all_owners_selected_label"`
+}
+
+type CalendarPresentationTab struct {
+	Key            string            `json:"key"`
+	Label          string            `json:"label"`
+	Active         bool              `json:"active"`
+	Enabled        bool              `json:"enabled"`
+	DisabledReason string            `json:"disabled_reason"`
+	Query          map[string]string `json:"query"`
+}
+
+type CalendarOwnerPresentationTab struct {
+	Key            string            `json:"key"`
+	Label          string            `json:"label"`
+	ScopeLabel     string            `json:"scope_label"`
+	Color          string            `json:"color"`
+	Active         bool              `json:"active"`
+	Enabled        bool              `json:"enabled"`
+	DisabledReason string            `json:"disabled_reason"`
+	Query          map[string]string `json:"query"`
+}
+
+type CalendarRhythmPresentation struct {
+	Title string              `json:"title"`
+	Note  string              `json:"note"`
+	Days  []CalendarRhythmDay `json:"days"`
+}
+
+type CalendarRhythmDay struct {
+	Day     string            `json:"day"`
+	Label   string            `json:"label"`
+	Tone    string            `json:"tone"`
+	Enabled bool              `json:"enabled"`
+	Query   map[string]string `json:"query"`
+}
+
+type CalendarViewPresentation struct {
+	Title                string `json:"title"`
+	ScopeLabel           string `json:"scope_label"`
+	ScopeOnlyMessage     string `json:"scope_only_message"`
+	ClearScopeLabel      string `json:"clear_scope_label"`
+	WholePeriodMessage   string `json:"whole_period_message"`
+	AllDaysSelectedLabel string `json:"all_days_selected_label"`
+	ClearDayLabel        string `json:"clear_day_label"`
+	EmptyMessage         string `json:"empty_message"`
+	ReminderTitle        string `json:"reminder_title"`
+	ReminderEmptyMessage string `json:"reminder_empty_message"`
+	ReminderNote         string `json:"reminder_note"`
+	AsOfHint             string `json:"as_of_hint"`
+	CellNote             string `json:"cell_note"`
+}
+
+type CalendarActionPresentation struct {
+	Label          string `json:"label"`
+	Enabled        bool   `json:"enabled"`
+	DisabledReason string `json:"disabled_reason"`
+}
+
+type CalendarEmptyStatePresentation struct {
+	OkMessage      string `json:"ok_message"`
+	ErrorMessage   string `json:"error_message"`
+	PrimaryLabel   string `json:"primary_label"`
+	SecondaryLabel string `json:"secondary_label"`
+}
+
+type CalendarKeyLabel struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
 }
 
 type CalendarEventDetail struct {
