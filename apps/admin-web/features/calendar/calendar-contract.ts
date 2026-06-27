@@ -240,23 +240,34 @@ export function eventTypeMeta(eventType: string, presentation?: CalendarPresenta
 
 // ── Mapping helpers ──────────────────────────────────────────────────────────────────────────────
 
-// Backend reminder_state ∈ {not_scheduled, scheduled, queued, nudged, snoozed}; escalation_state ∈
-// {none, pending, …}. "not_scheduled"/"none" mean nothing is queued yet — they are NOT a live reminder.
+// Backend reminder_state includes escalation side effects; escalation_state carries finite level-aware
+// projection states. "not_scheduled"/"none" mean nothing is queued yet - they are NOT a live reminder.
 // States that represent an ACTIVE reminder/escalation a CEO should see in the rail.
-const ACTIVE_REMINDER = new Set(["scheduled", "queued", "nudged", "snoozed", "sent"]);
-const ACTIVE_ESCALATION = new Set(["pending", "queued", "escalated"]);
+const ESCALATION_LEVEL_STATES = [
+  "level_1_open",
+  "level_2_open",
+  "level_3_open",
+  "level_4_open",
+  "level_1_acknowledged",
+  "level_2_acknowledged",
+  "level_3_acknowledged",
+  "level_4_acknowledged",
+];
+const ACTIVE_REMINDER = new Set(["scheduled", "queued", "nudged", "snoozed", "sent", "escalated"]);
+const ACTIVE_ESCALATION = new Set(["pending", "queued", "escalated", "acknowledged", ...ESCALATION_LEVEL_STATES]);
+
+export function activeReminderState(event: CalendarEvent): string {
+  return ACTIVE_REMINDER.has(event.reminder_state) ? event.reminder_state : "";
+}
+
+export function activeEscalationState(event: CalendarEvent): string {
+  return ACTIVE_ESCALATION.has(event.escalation_state) ? event.escalation_state : "";
+}
 
 // True only when an actual reminder or escalation is live (drives the reminder rail + row badge). Excludes
 // not_scheduled/none so idle rows don't pollute the rail.
 export function hasReminderOrEscalation(event: CalendarEvent): boolean {
-  return ACTIVE_REMINDER.has(event.reminder_state) || ACTIVE_ESCALATION.has(event.escalation_state);
-}
-
-// Short badge for an agenda row: escalation wins, else an active reminder state, else nothing.
-export function rowReminderBadge(event: CalendarEvent): string {
-  if (ACTIVE_ESCALATION.has(event.escalation_state)) return event.escalation_state === "pending" ? "escalation" : event.escalation_state;
-  if (ACTIVE_REMINDER.has(event.reminder_state)) return event.reminder_state;
-  return "";
+  return Boolean(activeReminderState(event) || activeEscalationState(event));
 }
 
 // Flatten one detail JSONBlock ({[k]: unknown}) into label/value rows for a metagrid. Scalars only;

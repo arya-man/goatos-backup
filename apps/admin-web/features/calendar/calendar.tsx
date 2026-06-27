@@ -5,6 +5,8 @@ import { one, hrefWithoutAction, type RouteSearchParams } from "@/lib/search-par
 import { backendScope, parseScope, scopeHref, type Scope } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import {
+  activeEscalationState,
+  activeReminderState,
   eventTypeMeta,
   fallbackCalendarPresentation,
   hasReminderOrEscalation,
@@ -13,7 +15,6 @@ import {
   ownerMetaFromPresentation,
   ownerScopeLabel,
   presentationQueryToSearch,
-  rowReminderBadge,
   type CalendarEvent,
   type CalendarOwnerFilter,
   type CalendarOwnerPresentationTab,
@@ -73,7 +74,11 @@ function EventRow({ event, href, ownerMeta, pageContract }: { event: CalendarEve
   const meta = [optionLabel(pageContract, "calendar_status", event.status), event.subtitle, event.park_code, event.shed_name, ownerLabel(event.owner_key, ownerMeta)]
     .filter(Boolean)
     .join(" · ");
-  const badge = rowReminderBadge(event);
+  const escalationState = activeEscalationState(event);
+  const reminderState = activeReminderState(event);
+  const badgeGroup = escalationState ? "calendar_escalation_state" : "calendar_reminder_state";
+  const badgeState = escalationState || reminderState;
+  const badge = badgeState ? optionLabel(pageContract, badgeGroup, badgeState) : "";
   return (
     <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
       <div className="et">{timeOf(event.due_at)}</div>
@@ -390,36 +395,37 @@ function WeekView({
               {presentation.week.reminder_empty_message}
             </p>
           ) : (
-            remindable.map((e) => (
-              <Link key={e.event_id} href={eventHref(e.event_id)} replace scroll={false} className="fitem">
-                <span className="fic" style={{ background: `color-mix(in srgb, ${ownerColor(e.owner_key, ownerMeta)} 20%, var(--panel))`, color: ownerColor(e.owner_key, ownerMeta) }}>
-                  <Clock className="ic" aria-hidden="true" />
-                </span>
-                <div className="tx">
-                  <b>{e.title}</b>
-                  <div className="mt">{[ownerLabel(e.owner_key, ownerMeta), e.park_code, e.shed_name].filter(Boolean).join(" · ")}</div>
-                  <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    <span className="tag t-info" style={{ fontSize: 10 }}>
-                      {e.primary_notification_channel || copy(pageContract, "label.not_configured")}
-                    </span>
-                    {e.escalation_state === "pending" || e.escalation_state === "escalated" ? (
-                      <span className={`tag t-${optionTone(pageContract, "calendar_escalation_state", e.escalation_state)}`} style={{ fontSize: 10 }}>
-                        {optionLabel(pageContract, "calendar_escalation_state", e.escalation_state)}
+            remindable.map((e) => {
+              const escalationState = activeEscalationState(e);
+              const reminderState = activeReminderState(e);
+              const visibleReminderState = reminderState === "escalated" && escalationState ? "" : reminderState;
+              return (
+                <Link key={e.event_id} href={eventHref(e.event_id)} replace scroll={false} className="fitem">
+                  <span className="fic" style={{ background: `color-mix(in srgb, ${ownerColor(e.owner_key, ownerMeta)} 20%, var(--panel))`, color: ownerColor(e.owner_key, ownerMeta) }}>
+                    <Clock className="ic" aria-hidden="true" />
+                  </span>
+                  <div className="tx">
+                    <b>{e.title}</b>
+                    <div className="mt">{[ownerLabel(e.owner_key, ownerMeta), e.park_code, e.shed_name].filter(Boolean).join(" · ")}</div>
+                    <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      <span className="tag t-info" style={{ fontSize: 10 }}>
+                        {e.primary_notification_channel || copy(pageContract, "label.not_configured")}
                       </span>
-                    ) : null}
-                    {e.reminder_state === "snoozed" ? (
-                      <span className={`tag t-${optionTone(pageContract, "calendar_reminder_state", e.reminder_state)}`} style={{ fontSize: 10 }}>
-                        {optionLabel(pageContract, "calendar_reminder_state", e.reminder_state)}
-                      </span>
-                    ) : e.reminder_state === "nudged" ? (
-                      <span className={`tag t-${optionTone(pageContract, "calendar_reminder_state", e.reminder_state)}`} style={{ fontSize: 10 }}>
-                        {optionLabel(pageContract, "calendar_reminder_state", e.reminder_state)}
-                      </span>
-                    ) : null}
+                      {escalationState ? (
+                        <span className={`tag t-${optionTone(pageContract, "calendar_escalation_state", escalationState)}`} style={{ fontSize: 10 }}>
+                          {optionLabel(pageContract, "calendar_escalation_state", escalationState)}
+                        </span>
+                      ) : null}
+                      {visibleReminderState ? (
+                        <span className={`tag t-${optionTone(pageContract, "calendar_reminder_state", visibleReminderState)}`} style={{ fontSize: 10 }}>
+                          {optionLabel(pageContract, "calendar_reminder_state", visibleReminderState)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              </Link>
-            ))
+                </Link>
+              );
+            })
           )}
           <div className="note" style={{ marginTop: 10 }}>
             {presentation.week.reminder_note}

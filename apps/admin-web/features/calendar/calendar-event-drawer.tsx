@@ -4,7 +4,7 @@ import { Bell, X } from "lucide-react";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";
 import { scopeHref, type Scope } from "@/lib/scope";
-import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalOption, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { sendNudgeAction, snoozeAction } from "./calendar-actions";
 import {
   blockEntries,
@@ -51,8 +51,9 @@ function BlockCard({ title, block, leading }: { title: string; block: CalendarJS
 }
 
 function contractStateLabel(pageContract: AdminUiPageContract, groupId: string, state: string | null | undefined, noneKey = "label.placeholder"): string {
-  if (!state || state === "none" || state === "not_scheduled") return copy(pageContract, noneKey);
-  return optionLabel(pageContract, groupId, state);
+  const key = state?.trim();
+  if (!key || key === "none" || key === "not_scheduled") return copy(pageContract, noneKey);
+  return optionalOption(pageContract, groupId, key)?.label ?? key.replace(/_/g, " ");
 }
 
 export function CalendarEventDrawer({

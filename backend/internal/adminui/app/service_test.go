@@ -68,6 +68,28 @@ func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T
 	}
 }
 
+func TestCalendarOptionGroupsCoverProjectionStates(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "calendar")
+
+	reminderKeys := optionKeys(optionGroupByID(t, page.OptionGroups, "calendar_reminder_state"))
+	for _, key := range []string{"not_scheduled", "scheduled", "queued", "nudged", "snoozed", "sent", "escalated"} {
+		if !reminderKeys[key] {
+			t.Fatalf("calendar_reminder_state missing projected key %q", key)
+		}
+	}
+
+	escalationKeys := optionKeys(optionGroupByID(t, page.OptionGroups, "calendar_escalation_state"))
+	for _, key := range []string{
+		"none", "pending", "queued", "escalated", "acknowledged", "resolved",
+		"level_1_open", "level_2_open", "level_3_open", "level_4_open",
+		"level_1_acknowledged", "level_2_acknowledged", "level_3_acknowledged", "level_4_acknowledged",
+	} {
+		if !escalationKeys[key] {
+			t.Fatalf("calendar_escalation_state missing projected key %q", key)
+		}
+	}
+}
+
 func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
@@ -167,4 +189,12 @@ func optionGroupByID(t *testing.T, groups []domain.OptionGroup, id string) domai
 	}
 	t.Fatalf("missing option group %q", id)
 	return domain.OptionGroup{}
+}
+
+func optionKeys(group domain.OptionGroup) map[string]bool {
+	keys := make(map[string]bool, len(group.Options))
+	for _, option := range group.Options {
+		keys[option.Key] = true
+	}
+	return keys
 }
