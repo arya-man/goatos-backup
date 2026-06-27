@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
@@ -18,11 +19,16 @@ import (
 
 func seedGenGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle string) {
 	t.Helper()
+	seedGenGoatWithStage(t, ctx, pool, id, lifecycle, "K1")
+}
+
+func seedGenGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle, stage string) {
+	t.Helper()
 	_, err := pool.Exec(ctx,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id,
 		   current_location_id, park_id, management_stage, dob)
-		 VALUES ($1, $2, $3, 'clean', $4, $5, $5, 'K1', DATE '2026-05-01')`,
-		id, impTenant, lifecycle, impParty, impCbe)
+		 VALUES ($1, $2, $3, 'clean', $4, $5, $5, $6, DATE '2026-05-01')`,
+		id, impTenant, lifecycle, impParty, impCbe, stage)
 	if err != nil {
 		t.Fatalf("seed gen goat %s: %v", id, err)
 	}
@@ -45,7 +51,7 @@ func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
-	ruleDSL := []byte(`{"eligibility":{"stage":"K1","defer_states":["ICU","quarantine","sick"]},` +
+	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["ICU","quarantine","sick"]},` +
 		`"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
@@ -65,10 +71,12 @@ func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 		t.Fatalf("publish: %v", err)
 	}
 
-	// 2 alive + 1 quarantine (defer) K1 goats.
+	// 2 alive + 1 quarantine (defer) K1 goats, plus one non-K1 goat that Config-authored
+	// animal_stage eligibility must exclude.
 	seedGenGoat(t, ctx, pool, "30000000-0000-4000-8000-0000000000a1", "alive")
 	seedGenGoat(t, ctx, pool, "30000000-0000-4000-8000-0000000000a2", "alive")
 	seedGenGoat(t, ctx, pool, "30000000-0000-4000-8000-0000000000d1", "quarantine")
+	seedGenGoatWithStage(t, ctx, pool, "30000000-0000-4000-8000-0000000000e1", "alive", "adult")
 
 	gen := vaccapp.NewGenerationService(proto, vacc, obl)
 	asOf := time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC)
@@ -221,7 +229,7 @@ func TestGoatCreatedHandlerGeneratesViaBus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
-	ruleDSL := []byte(`{"eligibility":{"stage":"K1","defer_states":["ICU","quarantine","sick"]},` +
+	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["ICU","quarantine","sick"]},` +
 		`"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
@@ -261,6 +269,93 @@ func TestGoatCreatedHandlerGeneratesViaBus(t *testing.T) {
 	}
 }
 
+func TestGoatRecheckDefersExistingScheduledObligation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.recheck.defer", Name: "Recheck Defer", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick","quarantine","ICU"]},` +
+		`"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	goatID := "30000000-0000-4000-8000-0000000000f1"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+	gen := vaccapp.NewGenerationService(proto, vacc, obl)
+	asOf := time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC)
+	if res, err := gen.GenerateForGoat(ctx, impTenant, goatID, asOf); err != nil || res.Generated != 1 {
+		t.Fatalf("initial generate result=%#v err=%v", res, err)
+	}
+	obligationID := scanText(t, ctx, pool,
+		`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3`,
+		impTenant, goatID, versionID)
+	batchID, attached, err := obl.CreateBatchWithObligations(ctx, obldomain.NewBatch{
+		TenantID: impTenant, ProtocolVersionID: versionID, ScopeType: "park", ScopeID: impCbe,
+		Status: "planned", EstimatedTargets: 1,
+	}, []string{obligationID})
+	if err != nil {
+		t.Fatalf("attach planned batch: %v", err)
+	}
+	if attached != 1 {
+		t.Fatalf("attached=%d, want 1", attached)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID); err != nil {
+		t.Fatalf("mark goat sick: %v", err)
+	}
+	bus := eventbus.NewInProcessBus()
+	vaccapp.NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type: vaccapp.EventGoatLocationChanged, TenantID: impTenant, Key: goatID,
+		OccurredAt: asOf.Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("publish goat recheck: %v", err)
+	}
+
+	if got := scanText(t, ctx, pool, `SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, obligationID); got != "deferred" {
+		t.Fatalf("status=%q, want deferred", got)
+	}
+	if got := countRowsVacc(t, ctx, pool,
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2 AND batch_id IS NULL`,
+		impTenant, obligationID); got != 1 {
+		t.Fatalf("expected deferred obligation detached from planned batch, got %d", got)
+	}
+	if got := scanText(t, ctx, pool, `SELECT estimated_targets::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2`, impTenant, batchID); got != "0" {
+		t.Fatalf("planned batch estimated_targets=%s, want 0 after defer detach", got)
+	}
+	if got := countRowsVacc(t, ctx, pool,
+		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='deferred'`,
+		impTenant, obligationID); got != 1 {
+		t.Fatalf("deferred events=%d, want 1", got)
+	}
+}
+
 func TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -277,7 +372,7 @@ func TestGoatCreatedTrustedHFEvidenceSuppressesMatchingObligation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
-	ruleDSL := []byte(`{"eligibility":{"stage":"K1"},"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
+	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1"},"source":{"source_system":"phc","source_ref":"PHC §6","review_status":"approved","approved_by":"Reviewer"}}`)
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
 		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
 		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),

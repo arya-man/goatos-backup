@@ -105,12 +105,77 @@ func TestProtocolPublishedHandlerStartsGenerationRun(t *testing.T) {
 	}
 }
 
-type generationProtoFake struct {
-	rules []protodomain.Rule
+func TestGenerateForVersionUsesConfigAnimalStageEligibility(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-k1", LifecycleStatus: "alive", Stage: "K1", DOB: &dob},
+		{GoatID: "goat-adult", LifecycleStatus: "alive", Stage: "adult", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].TargetID != "goat-k1" {
+		t.Fatalf("result=%#v inserted=%#v, want only K1 goat generated", result, obl.inserted)
+	}
+	if len(goats.filters) != 1 || goats.filters[0].Stage != "K1" {
+		t.Fatalf("impact filters=%#v, want Config animal_stage propagated", goats.filters)
+	}
 }
 
-func (*generationProtoFake) GetVersion(context.Context, string, string) (protodomain.Version, error) {
-	return protodomain.Version{ProtocolVersionID: "version-1", Status: "published", ScopeType: "tenant"}, nil
+func TestGenerateForGoatRecheckDefersExistingOpenObligation(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick","quarantine","ICU"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{
+		goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "healthy", Stage: "K1", DOB: &dob},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	first, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	if first.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].Status != "scheduled" {
+		t.Fatalf("initial result=%#v inserted=%#v, want one scheduled obligation", first, obl.inserted)
+	}
+
+	goats.goat.HealthStatus = "sick"
+	recheck, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("recheck generate: %v", err)
+	}
+	if recheck.Generated != 0 || recheck.Deferred != 1 {
+		t.Fatalf("recheck result=%#v, want existing obligation deferred", recheck)
+	}
+	if obl.inserted[0].Status != "deferred" || len(obl.deferredKeys) != 1 || obl.deferReasons[0] != "sick" {
+		t.Fatalf("defer state inserted=%#v keys=%#v reasons=%#v", obl.inserted, obl.deferredKeys, obl.deferReasons)
+	}
+}
+
+type generationProtoFake struct {
+	rules   []protodomain.Rule
+	ruleDSL []byte
+}
+
+func (p *generationProtoFake) GetVersion(context.Context, string, string) (protodomain.Version, error) {
+	return protodomain.Version{ProtocolVersionID: "version-1", Status: "published", ScopeType: "tenant", RuleDsl: p.ruleDSL}, nil
 }
 
 func (p *generationProtoFake) ListRules(context.Context, string, string) ([]protodomain.Rule, error) {
@@ -126,28 +191,48 @@ func (*generationProtoFake) ListPublishedVaccinationVersions(context.Context, st
 	return []string{"version-1"}, nil
 }
 
-type generationGoatFake struct{}
+type generationGoatFake struct {
+	list    []domain.EligibleGoat
+	goat    domain.EligibleGoat
+	filters []domain.ImpactFilter
+}
 
-func (generationGoatFake) ListEligibleGoatsForGeneration(context.Context, domain.ImpactFilter, string, int32) ([]domain.EligibleGoat, error) {
+func (g *generationGoatFake) ListEligibleGoatsForGeneration(_ context.Context, f domain.ImpactFilter, _ string, _ int32) ([]domain.EligibleGoat, error) {
+	g.filters = append(g.filters, f)
+	if len(g.list) > 0 {
+		return g.list, nil
+	}
 	return []domain.EligibleGoat{{GoatID: "goat-1", LifecycleStatus: "alive"}}, nil
 }
 
-func (generationGoatFake) GetGoatForGeneration(context.Context, string, string) (domain.EligibleGoat, bool, error) {
+func (g *generationGoatFake) GetGoatForGeneration(context.Context, string, string) (domain.EligibleGoat, bool, error) {
+	if g.goat.GoatID != "" {
+		return g.goat, true, nil
+	}
 	return domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive"}, true, nil
 }
 
-func (generationGoatFake) HasTrustedCompletionEvidence(context.Context, string, string, string, string, string, time.Time, time.Time) (bool, error) {
+func (*generationGoatFake) HasTrustedCompletionEvidence(context.Context, string, string, string, string, string, time.Time, time.Time) (bool, error) {
 	return false, nil
 }
 
 type generationObligationFake struct {
 	seen                  map[string]bool
+	keyIndex              map[string]int
 	inserted              []obldomain.NewObligation
+	deferredKeys          []string
+	deferReasons          []string
 	failOnceAfterInserted int
 	failed                bool
 }
 
 func (o *generationObligationFake) InsertObligation(_ context.Context, in obldomain.NewObligation) (string, bool, error) {
+	if o.seen == nil {
+		o.seen = map[string]bool{}
+	}
+	if o.keyIndex == nil {
+		o.keyIndex = map[string]int{}
+	}
 	if o.seen[in.IdempotencyKey] {
 		return "obligation-1", false, nil
 	}
@@ -156,7 +241,23 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 		return "", false, errors.New("forced partial failure")
 	}
 	o.seen[in.IdempotencyKey] = true
+	o.keyIndex[in.IdempotencyKey] = len(o.inserted)
 	o.inserted = append(o.inserted, in)
+	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (string, bool, error) {
+	idx, ok := o.keyIndex[idempotencyKey]
+	if !ok {
+		return "", false, errors.New("obligation not found")
+	}
+	switch o.inserted[idx].Status {
+	case "deferred", "completed", "waived", "canceled", "superseded":
+		return "obligation-1", false, nil
+	}
+	o.inserted[idx].Status = "deferred"
+	o.deferredKeys = append(o.deferredKeys, idempotencyKey)
+	o.deferReasons = append(o.deferReasons, reason)
 	return "obligation-1", true, nil
 }
 

@@ -32,6 +32,7 @@ type GoatLister interface {
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
+	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 }
 
@@ -90,6 +91,7 @@ func (s *GenerationService) requireEvidenceReader() error {
 }
 
 type genEligibility struct {
+	AnimalStage               string   `json:"animal_stage"`
 	Stage                     string   `json:"stage"`
 	Sex                       string   `json:"sex"`
 	Breed                     string   `json:"breed"`
@@ -223,9 +225,10 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		_ = json.Unmarshal(v.RuleDsl, &dsl)
 	}
 	elig := dsl.Eligibility
+	stage := eligibilityStage(elig)
 	filter := domain.ImpactFilter{
 		TenantID: tenantID,
-		Stage:    normDim(elig.Stage),
+		Stage:    normDim(stage),
 		Sex:      normDim(elig.Sex),
 		Breed:    normDim(elig.Breed),
 		Health:   normDim(elig.Health),
@@ -308,6 +311,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return err
 		}
 		if !applied {
+			if deferred {
+				_, changed, err := s.obl.DeferOpenObligationByIdempotencyKey(ctx, tenantID, key, deferReason, asOf)
+				if err != nil {
+					return err
+				}
+				if changed {
+					res.Deferred++
+				}
+			}
 			continue // replay no-op
 		}
 		res.Generated++
@@ -411,8 +423,15 @@ func deferredReason(g domain.EligibleGoat, allowed []string) string {
 	return ""
 }
 
+func eligibilityStage(e genEligibility) string {
+	if e.AnimalStage != "" {
+		return e.AnimalStage
+	}
+	return e.Stage
+}
+
 func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility) bool {
-	if s := normDim(e.Stage); s != "" && s != g.Stage {
+	if s := normDim(eligibilityStage(e)); s != "" && s != g.Stage {
 		return false
 	}
 	if s := normDim(e.Sex); s != "" && s != g.Sex {

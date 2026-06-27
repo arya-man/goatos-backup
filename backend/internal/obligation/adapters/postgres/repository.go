@@ -121,6 +121,155 @@ func (r *Repository) GetByIdempotencyKey(ctx context.Context, tenantID, idempote
 	}, nil
 }
 
+// DeferOpenObligationByIdempotencyKey moves an existing scheduled/due/missed obligation into the
+// canonical deferred state during goat rechecks. If the row was still in a planned batch, it is
+// detached so the held goat is not executed by an already-created drive.
+func (r *Repository) DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (string, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: begin defer tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var obligationID, oldBatchID, oldBatchStatus string
+	err = tx.QueryRow(ctx, `
+SELECT oi.obligation_id::text,
+       COALESCE(oi.batch_id::text, '')::text AS batch_id,
+       COALESCE(ob.status, '')::text AS batch_status
+FROM obligation_instances oi
+LEFT JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+WHERE oi.tenant_id = $1
+  AND oi.idempotency_key = $2
+  AND oi.status IN ('scheduled', 'due', 'missed')
+FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &oldBatchID, &oldBatchStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, lookupErr := r.queries.WithTx(tx).GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
+			TenantID:       tenant,
+			IdempotencyKey: idempotencyKey,
+		})
+		if errors.Is(lookupErr, pgx.ErrNoRows) {
+			return "", false, ports.ErrNotFound
+		}
+		if lookupErr != nil {
+			return "", false, fmt.Errorf("obligation: lookup defer replay: %w", lookupErr)
+		}
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return "", false, fmt.Errorf("obligation: commit defer replay: %w", cerr)
+		}
+		return row.ObligationID, false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: lock defer target: %w", err)
+	}
+
+	detachPlannedBatch := oldBatchID != "" && oldBatchStatus == "planned"
+	tag, err := tx.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'deferred',
+    batch_id = CASE WHEN $3::boolean THEN NULL ELSE batch_id END,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND obligation_id = $2::uuid
+  AND status IN ('scheduled', 'due', 'missed')`, tenant, obligationID, detachPlannedBatch)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: defer open obligation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return "", false, fmt.Errorf("obligation: commit defer raced noop: %w", cerr)
+		}
+		return obligationID, false, nil
+	}
+
+	if detachPlannedBatch {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches ob
+SET estimated_targets = GREATEST(0, estimated_targets - 1),
+    context = CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM inventory_stock_movements ism
+        WHERE ism.tenant_id = ob.tenant_id
+          AND ism.batch_id = ob.batch_id
+          AND ism.movement_type = 'reserve'
+      ) THEN context || jsonb_build_object(
+        'defer_repair', jsonb_build_object(
+          'state', 'stock_reconcile_required',
+          'held_obligation_id', $3::text,
+          'reason', $4::text,
+          'recorded_at', now()
+        )
+      )
+      ELSE context
+    END,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, oldBatchID, obligationID, reason); err != nil {
+			return "", false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
+		}
+	}
+
+	qtx := r.queries.WithTx(tx)
+	eventKey := obligationID + ":deferred"
+	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+		IdempotencyKey: eventKey,
+		TenantID:       tenant,
+		Scope:          "obligation.status_event",
+		RequestHash:    "defer:" + reason,
+	})
+	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("obligation: reserve deferred event key: %w", reserveErr)
+	}
+	if reserveErr == nil {
+		oblUUID, err := pgconv.UUID(obligationID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: deferred obligation id: %w", err)
+		}
+		payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": reason})
+		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oblUUID,
+			EventType:      "deferred",
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
+			Payload:        pgconv.JSONB(payload),
+			IdempotencyKey: eventKey,
+		})
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: insert deferred event: %w", err)
+		}
+		eventUUID, err := pgconv.UUID(eventID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: deferred event id: %w", err)
+		}
+		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+			ResultType:     pgconv.Text("obligation_status_event"),
+			ResultID:       eventUUID,
+			IdempotencyKey: eventKey,
+		}); err != nil {
+			return "", false, fmt.Errorf("obligation: complete deferred event key: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("obligation: commit defer: %w", err)
+	}
+	return obligationID, true, nil
+}
+
 // ListDue returns obligations in a status whose due_at <= dueBefore.
 func (r *Repository) ListDue(ctx context.Context, tenantID, status string, dueBefore time.Time, limit int32) ([]domain.DueObligation, error) {
 	ctx, cancel := r.withTimeout(ctx)
