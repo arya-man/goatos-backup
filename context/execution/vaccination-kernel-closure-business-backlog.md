@@ -9,6 +9,11 @@ message fully literal in runtime behavior. This is not a rewrite of the kernel
 architecture. The kernel spine exists; this file tracks the business closure
 work still required on top of it.
 
+Frontend implementation details for the required screens live in
+`context/frontend/vaccination-kernel-closure-screen-requirements.md`. Use that
+doc before building UI; these screens must match the existing admin-web mock
+anatomy, theme tokens, hover/click states, filters, drawers, and pagination.
+
 ## Plain Answer
 
 Frontend is required for some items, but not all.

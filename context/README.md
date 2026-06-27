@@ -98,6 +98,9 @@ Admin-web full E2E checklist and contract-driven UI gap ledger
 Admin-web backend UI contract and current surface inventory
   context/frontend/admin-web-backend-ui-contract.md
 
+Vaccination kernel closure screen requirements
+  context/frontend/vaccination-kernel-closure-screen-requirements.md
+
 Vaccination pre-E2E readiness audit
   context/execution/vaccination-pre-e2e-readiness-audit.md
 

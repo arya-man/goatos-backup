@@ -203,6 +203,12 @@ The dashboard purpose is process integrity: config + SOP set the process, and
 the product proves whether that process is being followed. The visible command
 lenses read the same backend truth:
 
+For the 9 vaccination kernel closure items, screen-level UI requirements are in
+`context/frontend/vaccination-kernel-closure-screen-requirements.md`. That doc
+is binding for closure screens: use the existing mock anatomy, Mesha theme
+tokens, hover/click states, filters, drawers, pagination, and backend-owned page
+contracts rather than plain text blocks or local UI inventions.
+
 Architecture boundary:
 
 ```text
