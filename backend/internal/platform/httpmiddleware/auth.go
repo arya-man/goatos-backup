@@ -92,7 +92,7 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		roles, err := a.grants.ActiveTenantRoles(ctx, userID, tenantID)
+		grants, err := a.grants.ActiveTenantGrants(ctx, userID, tenantID)
 		if err != nil {
 			a.log.ErrorContext(ctx, "auth_grant_lookup_failed",
 				slog.String("request_id", RequestIDFromContext(ctx)),
@@ -102,6 +102,8 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			writeAuthError(w, r.WithContext(ctx), http.StatusInternalServerError, "auth_grant_lookup_failed", "authorization lookup failed")
 			return
 		}
+		ctx = WithAuthGrants(ctx, grants)
+		roles := routeRoles(route, grants, tenantID)
 		if !permissions.RolesAuthorize(roles, route.Permissions, route.AdminOnly) {
 			writeAuthError(w, r.WithContext(ctx), http.StatusForbidden, "permission_denied", "permission denied")
 			return
@@ -164,6 +166,26 @@ func bearerToken(value string) (string, bool) {
 
 func isPublicHealthRoute(r *http.Request) bool {
 	return r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/livez" || r.URL.Path == "/readyz")
+}
+
+func routeRoles(route permissions.Route, grants []permissions.ActiveGrant, tenantID string) []string {
+	roles := make([]string, 0, len(grants))
+	seen := map[string]struct{}{}
+	for _, grant := range grants {
+		if !routeAllowsScopedGrants(route) && !(grant.ScopeType == "tenant" && grant.ScopeID == tenantID) {
+			continue
+		}
+		if _, ok := seen[grant.Role]; ok {
+			continue
+		}
+		seen[grant.Role] = struct{}{}
+		roles = append(roles, grant.Role)
+	}
+	return roles
+}
+
+func routeAllowsScopedGrants(route permissions.Route) bool {
+	return strings.HasPrefix(route.Pattern, "/calendar/")
 }
 
 // DevHeadersEnvironmentAllowed is the exact allowlist for the local/dev header

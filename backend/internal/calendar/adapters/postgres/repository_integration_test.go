@@ -19,6 +19,10 @@ const (
 	testActorID       = "86000000-0000-4000-8000-000000009999"
 	testCalendarEvent = "obligation:86000000-0000-4000-8000-000000001001"
 	testReminderEvent = "calendar:86000000-0000-4000-8000-000000001002"
+	testParkA         = "86000000-0000-4000-8000-000000000701"
+	testParkB         = "86000000-0000-4000-8000-000000000702"
+	testShedA         = "86000000-0000-4000-8000-000000000711"
+	testShedB         = "86000000-0000-4000-8000-000000000712"
 )
 
 func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
@@ -38,6 +42,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 		DateFrom: from,
 		DateTo:   to,
 		Limit:    200,
+		Scope:    domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
@@ -45,7 +50,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	if len(list.Items) != 2 {
 		t.Fatalf("list items = %d, want 2", len(list.Items))
 	}
-	detail, err := repo.GetEventDetail(ctx, testTenantID, testCalendarEvent)
+	detail, err := repo.GetEventDetail(ctx, domain.EventQuery{TenantID: testTenantID, EventID: testCalendarEvent, Scope: domain.ScopeFilter{TenantWide: true}})
 	if err != nil {
 		t.Fatalf("GetEventDetail: %v", err)
 	}
@@ -56,7 +61,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	first, err := repo.SendNudge(ctx, ports.SendNudge{
 		TenantID: testTenantID, EventID: testCalendarEvent, ActorID: testActorID,
 		TraceID: "trace-nudge", IdempotencyKey: "calendar-nudge-key", Channel: "slack",
-		Message: "Please handle this dose", Reason: "CEO follow-up",
+		Message: "Please handle this dose", Reason: "CEO follow-up", Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
 		t.Fatalf("SendNudge first: %v", err)
@@ -64,7 +69,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	replay, err := repo.SendNudge(ctx, ports.SendNudge{
 		TenantID: testTenantID, EventID: testCalendarEvent, ActorID: testActorID,
 		TraceID: "trace-nudge", IdempotencyKey: "calendar-nudge-key", Channel: "slack",
-		Message: "Please handle this dose", Reason: "CEO follow-up",
+		Message: "Please handle this dose", Reason: "CEO follow-up", Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
 		t.Fatalf("SendNudge replay: %v", err)
@@ -74,7 +79,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	}
 	if _, err := repo.SendNudge(ctx, ports.SendNudge{
 		TenantID: testTenantID, EventID: testCalendarEvent, ActorID: testActorID,
-		IdempotencyKey: "calendar-nudge-key", Channel: "email", Message: "different",
+		IdempotencyKey: "calendar-nudge-key", Channel: "email", Message: "different", Scope: domain.ScopeFilter{TenantWide: true},
 	}); !errors.Is(err, ports.ErrIdempotencyConflict) {
 		t.Fatalf("SendNudge conflict err = %v, want ErrIdempotencyConflict", err)
 	}
@@ -86,7 +91,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	snooze, err := repo.Snooze(ctx, ports.Snooze{
 		TenantID: testTenantID, EventID: testCalendarEvent, ActorID: testActorID,
 		TraceID: "trace-snooze", IdempotencyKey: "calendar-snooze-key",
-		SnoozeUntil: snoozeUntil, Reason: "wait for morning round",
+		SnoozeUntil: snoozeUntil, Reason: "wait for morning round", Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
 		t.Fatalf("Snooze first: %v", err)
@@ -94,7 +99,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	snoozeReplay, err := repo.Snooze(ctx, ports.Snooze{
 		TenantID: testTenantID, EventID: testCalendarEvent, ActorID: testActorID,
 		TraceID: "trace-snooze", IdempotencyKey: "calendar-snooze-key",
-		SnoozeUntil: snoozeUntil, Reason: "wait for morning round",
+		SnoozeUntil: snoozeUntil, Reason: "wait for morning round", Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {
 		t.Fatalf("Snooze replay: %v", err)
@@ -104,19 +109,19 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	}
 	if _, err := repo.Snooze(ctx, ports.Snooze{
 		TenantID: testTenantID, EventID: testCalendarEvent, ActorID: testActorID,
-		IdempotencyKey: "calendar-snooze-key", SnoozeUntil: snoozeUntil.Add(time.Hour), Reason: "different",
+		IdempotencyKey: "calendar-snooze-key", SnoozeUntil: snoozeUntil.Add(time.Hour), Reason: "different", Scope: domain.ScopeFilter{TenantWide: true},
 	}); !errors.Is(err, ports.ErrIdempotencyConflict) {
 		t.Fatalf("Snooze conflict err = %v, want ErrIdempotencyConflict", err)
 	}
 	if _, err := repo.Snooze(ctx, ports.Snooze{
 		TenantID: testTenantID, EventID: testCalendarEvent, ActorID: testActorID,
-		IdempotencyKey: "calendar-snooze-second", SnoozeUntil: snoozeUntil.Add(time.Hour), Reason: "second active",
+		IdempotencyKey: "calendar-snooze-second", SnoozeUntil: snoozeUntil.Add(time.Hour), Reason: "second active", Scope: domain.ScopeFilter{TenantWide: true},
 	}); !errors.Is(err, ports.ErrActiveSnoozeExists) {
 		t.Fatalf("second active snooze err = %v, want ErrActiveSnoozeExists", err)
 	}
 	assertCount(t, ctx, pool, "active snoozes", `SELECT count(*) FROM calendar_snoozes WHERE tenant_id=$1 AND calendar_event_id=$2 AND status='active'`, 1, testTenantID, testCalendarEvent)
 
-	history, err := repo.History(ctx, domain.HistoryQuery{TenantID: testTenantID, EventID: testCalendarEvent, Limit: 20})
+	history, err := repo.History(ctx, domain.HistoryQuery{TenantID: testTenantID, EventID: testCalendarEvent, Limit: 20, Scope: domain.ScopeFilter{TenantWide: true}})
 	if err != nil {
 		t.Fatalf("History: %v", err)
 	}
@@ -151,7 +156,7 @@ func TestCalendarWidestRequestPlanUsesHotListIndex(t *testing.T) {
 	}
 	rows, err := tx.Query(ctx, `EXPLAIN (COSTS OFF) `+calendarListSQL,
 		testTenantID, "", "", "", "", time.Now().UTC().Add(-24*time.Hour), time.Now().UTC().Add(45*24*time.Hour),
-		nil, "", 200)
+		nil, "", 200, true, []string{}, []string{})
 	if err != nil {
 		t.Fatalf("explain calendar list: %v", err)
 	}
@@ -170,6 +175,131 @@ func TestCalendarWidestRequestPlanUsesHotListIndex(t *testing.T) {
 	}
 	if !strings.Contains(plan, "calendar_event_projections_hot_list_idx") {
 		t.Fatalf("calendar widest request plan did not use hot list index:\n%s", plan)
+	}
+}
+
+func TestCalendarPostgresAppliesParkShedScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	eventA := "obligation:86000000-0000-4000-8000-000000001101"
+	eventB := "obligation:86000000-0000-4000-8000-000000001102"
+	seedScopedCalendarProjection(t, ctx, pool, eventA, "86000000-0000-4000-8000-00000000a101", testParkA, testShedA, false)
+	seedScopedCalendarProjection(t, ctx, pool, eventB, "86000000-0000-4000-8000-00000000a102", testParkB, testShedB, false)
+
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{ParkIDs: []string{testParkA}},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents park scope: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].EventID != eventA {
+		t.Fatalf("park scoped list = %#v, want only %s", list.Items, eventA)
+	}
+	if _, err := repo.GetEventDetail(ctx, domain.EventQuery{
+		TenantID: testTenantID,
+		EventID:  eventB,
+		Scope:    domain.ScopeFilter{ParkIDs: []string{testParkA}},
+	}); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-park detail err = %v, want ErrNotFound", err)
+	}
+	if _, err := repo.SendNudge(ctx, ports.SendNudge{
+		TenantID: testTenantID, EventID: eventB, ActorID: testActorID,
+		IdempotencyKey: "scoped-nudge-cross-park", Scope: domain.ScopeFilter{ParkIDs: []string{testParkA}},
+	}); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-park nudge err = %v, want ErrNotFound", err)
+	}
+
+	list, err = repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{ShedIDs: []string{testShedB}},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents shed scope: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].EventID != eventB {
+		t.Fatalf("shed scoped list = %#v, want only %s", list.Items, eventB)
+	}
+}
+
+func TestCalendarPostgresHidesSystemEventsFromDirectReads(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	eventID := "calendar:86000000-0000-4000-8000-000000001201"
+	seedScopedCalendarProjection(t, ctx, pool, eventID, "86000000-0000-4000-8000-00000000a201", testParkA, testShedA, true)
+
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Fatalf("system list items = %d, want 0", len(list.Items))
+	}
+	if _, err := repo.GetEventDetail(ctx, domain.EventQuery{TenantID: testTenantID, EventID: eventID, Scope: domain.ScopeFilter{TenantWide: true}}); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("system detail err = %v, want ErrNotFound", err)
+	}
+	if _, err := repo.History(ctx, domain.HistoryQuery{TenantID: testTenantID, EventID: eventID, Limit: 10, Scope: domain.ScopeFilter{TenantWide: true}}); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("system history err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000801"
+	versionID := "86000000-0000-4000-8000-000000000802"
+	ruleID := "86000000-0000-4000-8000-000000000803"
+	obligationID := "86000000-0000-4000-8000-000000000804"
+	dueAt := time.Now().UTC().Add(4 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+
+	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	})
+	if err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("projection count = %d, want 1", count)
+	}
+	var gotEventID string
+	var sourceBacked bool
+	if err := pool.QueryRow(ctx, `
+SELECT event_id, source_backed
+FROM calendar_event_projections
+WHERE tenant_id = $1::uuid AND event_id = $2`,
+		testTenantID, "obligation:"+obligationID).Scan(&gotEventID, &sourceBacked); err != nil {
+		t.Fatalf("query projection: %v", err)
+	}
+	if gotEventID != "obligation:"+obligationID || !sourceBacked {
+		t.Fatalf("projection event_id=%s source_backed=%t", gotEventID, sourceBacked)
 	}
 }
 
@@ -197,6 +327,111 @@ SET due_at = EXCLUDED.due_at,
     updated_at = now()`, testTenantID, eventID, dueAt, reminderState)
 	if err != nil {
 		t.Fatalf("seed calendar projection: %v", err)
+	}
+}
+
+func seedScopedCalendarProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, sourceID, parkID, shedID string, system bool) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+INSERT INTO locations (
+  location_id, tenant_id, location_type, location_code, name, parent_location_id,
+  country, timezone, status, updated_at
+) VALUES
+  ($1::uuid, $3::uuid, 'park', 'TST-' || right(($1::uuid)::text, 4), 'Test Park ' || right(($1::uuid)::text, 4), NULL, 'IN', 'Asia/Kolkata', 'active', now()),
+  ($2::uuid, $3::uuid, 'shed', 'TST-' || right(($2::uuid)::text, 4), 'Test Shed ' || right(($2::uuid)::text, 4), $1::uuid, 'IN', 'Asia/Kolkata', 'active', now())
+ON CONFLICT (location_id) DO UPDATE
+SET status = 'active',
+    updated_at = now()`, parkID, shedID, testTenantID)
+	if err != nil {
+		t.Fatalf("seed scoped locations: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+INSERT INTO calendar_event_projections (
+  tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
+  due_at, window_start, window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
+  target_type, target_count, source_backed, source_label, source_target_type, source_target_id,
+  assignee_label, executor_role, reminder_state, primary_notification_channel, escalation_state,
+  system, cross_cutting, links, detail
+) VALUES (
+  $5::uuid, $3, 'vaccination', 'vaccination_dose_due', 'phc', 'Scoped dose due',
+  'Scoped integration test', 'due', 'warning', now() + interval '2 hours', now(), now() + interval '1 day',
+  'Asia/Kolkata', 'location', $1::uuid, 'TST', $2::uuid, 'Scoped Shed',
+  'shed', 1, true, 'source-backed test', 'shed', $4::uuid,
+  'PHC test owner', 'phc_vaccinator', 'not_scheduled', 'local-stub', 'none',
+  $6, false, '{}'::jsonb,
+  '{"summary":{"owner":"PHC"},"source_and_rule":{"source_backed":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
+)
+ON CONFLICT (tenant_id, event_id) DO UPDATE
+SET park_id = EXCLUDED.park_id,
+    shed_id = EXCLUDED.shed_id,
+    system = EXCLUDED.system,
+    updated_at = now()`, parkID, shedID, eventID, sourceID, testTenantID, system)
+	if err != nil {
+		t.Fatalf("seed scoped calendar projection: %v", err)
+	}
+}
+
+func seedVaccinationObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, protocolID, versionID, ruleID, obligationID string, dueAt time.Time) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ($1::uuid, $2::uuid, 'vaccination.calendar.projection_test', 'Projection Test Vaccine', 'vaccination', 'active')
+ON CONFLICT (protocol_id) DO UPDATE
+SET status = 'active',
+    updated_at = now()`,
+		protocolID, testTenantID)
+	if err != nil {
+		t.Fatalf("seed protocol definition: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+INSERT INTO protocol_versions (
+  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+  version_label, status, effective_from, effective_to, rule_dsl, proof_policy, published_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 1,
+  'Projection source-backed published test', 'published', DATE '2026-01-01', DATE '2028-01-01',
+  '{"source":{"review_status":"approved","source_ref":"docs/phc-vaccination/PRD.md","source_system":"phc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
+  '{"required_proofs":["administration"]}'::jsonb, now()
+)
+ON CONFLICT (protocol_version_id) DO UPDATE
+SET status = 'published',
+    rule_dsl = EXCLUDED.rule_dsl,
+    updated_at = now()`,
+		versionID, testTenantID, protocolID)
+	if err != nil {
+		t.Fatalf("seed protocol version: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
+  proof_policy, sort_order
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'PROJ-PRIMARY', 1, 'calendar',
+  0, 1, 0, 'none', 'immediate', '{}'::jsonb, '{"required_proofs":["administration"]}'::jsonb, 10
+)
+ON CONFLICT (rule_id) DO UPDATE
+SET dose_code = EXCLUDED.dose_code`,
+		ruleID, testTenantID, versionID)
+	if err != nil {
+		t.Fatalf("seed protocol rule: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+INSERT INTO obligation_instances (
+  obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, window_start, window_end, status, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'tenant', $2::uuid,
+  'tenant', $2::uuid, $5::timestamptz, $5::timestamptz, $5::timestamptz + interval '1 day',
+  'scheduled', 'calendar-projection-test-' || ($1::uuid)::text
+)
+ON CONFLICT (obligation_id) DO UPDATE
+SET due_at = EXCLUDED.due_at,
+    status = 'scheduled',
+    updated_at = now()`,
+		obligationID, testTenantID, versionID, ruleID, dueAt)
+	if err != nil {
+		t.Fatalf("seed vaccination obligation: %v", err)
 	}
 }
 

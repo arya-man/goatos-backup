@@ -170,6 +170,13 @@ type Query struct {
 	DateTo   time.Time
 	Cursor   *CalendarCursor
 	Limit    int
+	Scope    ScopeFilter
+}
+
+type EventQuery struct {
+	TenantID string
+	EventID  string
+	Scope    ScopeFilter
 }
 
 type HistoryQuery struct {
@@ -177,6 +184,13 @@ type HistoryQuery struct {
 	EventID  string
 	Cursor   *HistoryCursor
 	Limit    int
+	Scope    ScopeFilter
+}
+
+type ScopeFilter struct {
+	TenantWide bool
+	ParkIDs    []string
+	ShedIDs    []string
 }
 
 type CalendarCursor struct {

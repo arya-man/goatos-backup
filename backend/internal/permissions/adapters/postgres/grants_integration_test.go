@@ -81,6 +81,13 @@ VALUES
 			t.Fatalf("non-live user %s got roles %#v", userID, roles)
 		}
 	}
+	grants, err := source.ActiveTenantGrants(ctx, parkScopeUser, meshaTenant)
+	if err != nil {
+		t.Fatalf("ActiveTenantGrants(parkScopeUser): %v", err)
+	}
+	if len(grants) != 1 || grants[0] != (permissions.ActiveGrant{Role: permissions.RoleAdmin, ScopeType: "park", ScopeID: cbeLocation}) {
+		t.Fatalf("park scoped grants = %#v", grants)
+	}
 
 	roles, err = source.ActiveTenantRoles(ctx, unionUser, meshaTenant)
 	if err != nil {

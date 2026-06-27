@@ -19,6 +19,8 @@ const (
 	maxDateRange        = 45 * 24 * time.Hour
 	defaultDateRange    = 30 * 24 * time.Hour
 	minIdempotencyLen   = 8
+	maxNudgeMessageLen  = 2000
+	maxActionReasonLen  = 1000
 )
 
 type Service struct {
@@ -79,14 +81,14 @@ func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.Calend
 	return resp, nil
 }
 
-func (s *Service) GetEventDetail(ctx context.Context, tenantID, eventID string) (domain.CalendarEventDetail, error) {
-	if !uuidutil.IsUUIDString(tenantID) {
+func (s *Service) GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error) {
+	if !uuidutil.IsUUIDString(q.TenantID) {
 		return domain.CalendarEventDetail{}, BadRequest("invalid_tenant", "tenant id is required")
 	}
-	if err := domain.ValidateEventID(eventID); err != nil {
+	if err := domain.ValidateEventID(q.EventID); err != nil {
 		return domain.CalendarEventDetail{}, BadRequest("invalid_event_id", "event_id is invalid")
 	}
-	detail, err := s.repo.GetEventDetail(ctx, tenantID, eventID)
+	detail, err := s.repo.GetEventDetail(ctx, q)
 	if err != nil {
 		return domain.CalendarEventDetail{}, mapRepoError(err)
 	}
@@ -124,6 +126,15 @@ func (s *Service) SendNudge(ctx context.Context, in ports.SendNudge) (domain.Cal
 	if err := validateActionEnvelope(in.TenantID, in.ActorID, in.EventID, in.IdempotencyKey); err != nil {
 		return domain.CalendarActionResponse{}, err
 	}
+	if in.Channel != "" && !allowedNotificationChannel(in.Channel) {
+		return domain.CalendarActionResponse{}, BadRequest("invalid_channel", "channel must be local-stub, push_fcm, slack, email, or webhook")
+	}
+	if len(in.Message) > maxNudgeMessageLen {
+		return domain.CalendarActionResponse{}, BadRequest("invalid_message", "message may not exceed 2000 characters")
+	}
+	if len(in.Reason) > maxActionReasonLen {
+		return domain.CalendarActionResponse{}, BadRequest("invalid_reason", "reason may not exceed 1000 characters")
+	}
 	resp, err := s.repo.SendNudge(ctx, in)
 	if err != nil {
 		return domain.CalendarActionResponse{}, mapRepoError(err)
@@ -146,6 +157,9 @@ func (s *Service) Snooze(ctx context.Context, in ports.Snooze) (domain.CalendarA
 	if in.Reason == "" {
 		return domain.CalendarActionResponse{}, BadRequest("invalid_reason", "reason is required")
 	}
+	if len(in.Reason) > maxActionReasonLen {
+		return domain.CalendarActionResponse{}, BadRequest("invalid_reason", "reason may not exceed 1000 characters")
+	}
 	resp, err := s.repo.Snooze(ctx, in)
 	if err != nil {
 		return domain.CalendarActionResponse{}, mapRepoError(err)
@@ -164,6 +178,33 @@ func (s *Service) SweepDueReminders(ctx context.Context, tenantID string, limit 
 		limit = 500
 	}
 	n, err := s.repo.SweepDueReminders(ctx, tenantID, limit)
+	if err != nil {
+		return 0, mapRepoError(err)
+	}
+	return n, nil
+}
+
+func (s *Service) RefreshVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (int, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if !uuidutil.IsUUIDString(in.TenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if in.DateFrom.IsZero() {
+		in.DateFrom = s.now().UTC().Add(-24 * time.Hour)
+	}
+	if in.DateTo.IsZero() {
+		in.DateTo = s.now().UTC().Add(defaultDateRange)
+	}
+	if in.DateTo.Before(in.DateFrom) {
+		return 0, BadRequest("invalid_date_range", "date_to must be on or after date_from")
+	}
+	if in.Limit <= 0 {
+		in.Limit = 1000
+	}
+	if in.Limit > 5000 {
+		in.Limit = 5000
+	}
+	n, err := s.repo.RefreshVaccinationProjection(ctx, in)
 	if err != nil {
 		return 0, mapRepoError(err)
 	}
@@ -209,6 +250,15 @@ func allowedStatus(status string) bool {
 		domain.StatusProofPending, domain.StatusVerificationPending, domain.StatusRejected,
 		domain.StatusReworkDue, domain.StatusDeferred, domain.StatusBlocked, domain.StatusCompleted,
 		domain.StatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+func allowedNotificationChannel(channel string) bool {
+	switch channel {
+	case "local-stub", "push_fcm", "slack", "email", "webhook":
 		return true
 	default:
 		return false

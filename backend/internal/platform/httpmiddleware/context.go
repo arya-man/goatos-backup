@@ -1,14 +1,19 @@
 package httpmiddleware
 
-import "context"
+import (
+	"context"
+
+	"github.com/vgoats/goatos/backend/internal/permissions"
+)
 
 type contextKey string
 
 const (
-	requestIDKey contextKey = "request_id"
-	traceIDKey   contextKey = "trace_id"
-	tenantIDKey  contextKey = "tenant_id"
-	actorIDKey   contextKey = "actor_id"
+	requestIDKey  contextKey = "request_id"
+	traceIDKey    contextKey = "trace_id"
+	tenantIDKey   contextKey = "tenant_id"
+	actorIDKey    contextKey = "actor_id"
+	authGrantsKey contextKey = "auth_grants"
 )
 
 // RequestIDFromContext returns the request ID attached by RequestContext.
@@ -43,4 +48,19 @@ func WithTenantID(ctx context.Context, tenantID string) context.Context {
 // WithActorID attaches an actor/user scope to a context.
 func WithActorID(ctx context.Context, actorID string) context.Context {
 	return context.WithValue(ctx, actorIDKey, actorID)
+}
+
+// AuthGrantsFromContext returns the active authorization grants attached by AuthMiddleware.
+func AuthGrantsFromContext(ctx context.Context) []permissions.ActiveGrant {
+	grants, _ := ctx.Value(authGrantsKey).([]permissions.ActiveGrant)
+	out := make([]permissions.ActiveGrant, len(grants))
+	copy(out, grants)
+	return out
+}
+
+// WithAuthGrants attaches active authorization grants to a context.
+func WithAuthGrants(ctx context.Context, grants []permissions.ActiveGrant) context.Context {
+	out := make([]permissions.ActiveGrant, len(grants))
+	copy(out, grants)
+	return context.WithValue(ctx, authGrantsKey, out)
 }

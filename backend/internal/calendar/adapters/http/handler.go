@@ -9,18 +9,22 @@ import (
 	"log/slog"
 	stdhttp "net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/calendar/app"
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
 
+const maxActionBodyBytes = 16 * 1024
+
 type Service interface {
 	ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error)
-	GetEventDetail(ctx context.Context, tenantID, eventID string) (domain.CalendarEventDetail, error)
+	GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error)
 	History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error)
 	SendNudge(ctx context.Context, in ports.SendNudge) (domain.CalendarActionResponse, error)
 	Snooze(ctx context.Context, in ports.Snooze) (domain.CalendarActionResponse, error)
@@ -61,7 +65,11 @@ func (h *Handler) ListEvents(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 
 func (h *Handler) GetEventDetail(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	resp, err := h.service.GetEventDetail(r.Context(), tenantID(r), r.PathValue("event_id"))
+	resp, err := h.service.GetEventDetail(r.Context(), domain.EventQuery{
+		TenantID: tenantID(r),
+		EventID:  r.PathValue("event_id"),
+		Scope:    calendarScope(r, permissions.CalendarRead),
+	})
 	if err != nil {
 		h.writeAppError(w, r, err)
 		return
@@ -71,7 +79,7 @@ func (h *Handler) GetEventDetail(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 
 func (h *Handler) History(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	query := r.URL.Query()
-	q := domain.HistoryQuery{TenantID: tenantID(r), EventID: r.PathValue("event_id")}
+	q := domain.HistoryQuery{TenantID: tenantID(r), EventID: r.PathValue("event_id"), Scope: calendarScope(r, permissions.CalendarRead)}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := domain.DecodeHistoryCursor(raw)
 		if err != nil {
@@ -97,9 +105,12 @@ func (h *Handler) History(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 
 func (h *Handler) SendNudge(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	r.Body = stdhttp.MaxBytesReader(w, r.Body, maxActionBodyBytes)
 	defer r.Body.Close()
 	var req domain.NudgeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		h.badRequest(w, r, "invalid_body", "request body must be JSON")
 		return
 	}
@@ -112,6 +123,7 @@ func (h *Handler) SendNudge(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		Channel:        req.Channel,
 		Message:        req.Message,
 		Reason:         req.Reason,
+		Scope:          calendarScope(r, permissions.CalendarAction),
 	})
 	if err != nil {
 		h.writeAppError(w, r, err)
@@ -121,9 +133,12 @@ func (h *Handler) SendNudge(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 
 func (h *Handler) Snooze(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	r.Body = stdhttp.MaxBytesReader(w, r.Body, maxActionBodyBytes)
 	defer r.Body.Close()
 	var req domain.SnoozeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		h.badRequest(w, r, "invalid_body", "request body must be JSON")
 		return
 	}
@@ -136,6 +151,7 @@ func (h *Handler) Snooze(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		SnoozeUntil:     req.SnoozeUntil,
 		Reason:          req.Reason,
 		ReplaceExisting: req.ReplaceExisting,
+		Scope:           calendarScope(r, permissions.CalendarAction),
 	})
 	if err != nil {
 		h.writeAppError(w, r, err)
@@ -149,6 +165,7 @@ func (h *Handler) listQuery(w stdhttp.ResponseWriter, r *stdhttp.Request) (domai
 	q := domain.Query{
 		TenantID: tenantID(r),
 		OwnerKey: query.Get("owner_key"),
+		Scope:    calendarScope(r, permissions.CalendarRead),
 	}
 	if raw := query.Get("park_id"); raw != "" {
 		q.ParkID = &raw
@@ -253,4 +270,38 @@ func actorID(r *stdhttp.Request) string {
 
 func traceID(r *stdhttp.Request) string {
 	return httpmiddleware.TraceIDFromContext(r.Context())
+}
+
+func calendarScope(r *stdhttp.Request, permission string) domain.ScopeFilter {
+	tenant := tenantID(r)
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	filter := domain.ScopeFilter{}
+	parkSeen := map[string]struct{}{}
+	shedSeen := map[string]struct{}{}
+	for _, grant := range grants {
+		if !permissions.RoleHasPermission(grant.Role, permission) {
+			continue
+		}
+		switch grant.ScopeType {
+		case "tenant":
+			if strings.EqualFold(grant.ScopeID, tenant) {
+				filter.TenantWide = true
+			}
+		case "park":
+			if grant.ScopeID != "" {
+				if _, ok := parkSeen[grant.ScopeID]; !ok {
+					parkSeen[grant.ScopeID] = struct{}{}
+					filter.ParkIDs = append(filter.ParkIDs, grant.ScopeID)
+				}
+			}
+		case "shed":
+			if grant.ScopeID != "" {
+				if _, ok := shedSeen[grant.ScopeID]; !ok {
+					shedSeen[grant.ScopeID] = struct{}{}
+					filter.ShedIDs = append(filter.ShedIDs, grant.ScopeID)
+				}
+			}
+		}
+	}
+	return filter
 }

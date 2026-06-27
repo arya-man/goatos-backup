@@ -92,6 +92,13 @@ var rolePermissions = map[string]map[string]struct{}{
 
 type GrantSource interface {
 	ActiveTenantRoles(ctx context.Context, userID, tenantID string) ([]string, error)
+	ActiveTenantGrants(ctx context.Context, userID, tenantID string) ([]ActiveGrant, error)
+}
+
+type ActiveGrant struct {
+	Role      string
+	ScopeType string
+	ScopeID   string
 }
 
 type PendingEmailGrantClaim struct {

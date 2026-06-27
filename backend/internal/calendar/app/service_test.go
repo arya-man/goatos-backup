@@ -37,6 +37,32 @@ func TestServiceMapsIdempotencyConflictToConflict(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsInvalidNudgeActionBody(t *testing.T) {
+	svc := NewService(fakeRepo{})
+	_, err := svc.SendNudge(context.Background(), ports.SendNudge{
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
+		ActorID:        "86000000-0000-4000-8000-000000009999",
+		IdempotencyKey: "same-key",
+		Channel:        "sms",
+	})
+	var appErr Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_channel" {
+		t.Fatalf("err = %v, want invalid_channel", err)
+	}
+
+	_, err = svc.SendNudge(context.Background(), ports.SendNudge{
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
+		ActorID:        "86000000-0000-4000-8000-000000009999",
+		IdempotencyKey: "same-key",
+		Message:        string(make([]byte, 2001)),
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_message" {
+		t.Fatalf("err = %v, want invalid_message", err)
+	}
+}
+
 type fakeRepo struct {
 	nudgeErr error
 }
@@ -45,7 +71,7 @@ func (f fakeRepo) ListEvents(context.Context, domain.Query) (domain.CalendarEven
 	return domain.CalendarEventListResponse{Source: domain.SourceAPI}, nil
 }
 
-func (f fakeRepo) GetEventDetail(context.Context, string, string) (domain.CalendarEventDetail, error) {
+func (f fakeRepo) GetEventDetail(context.Context, domain.EventQuery) (domain.CalendarEventDetail, error) {
 	return domain.CalendarEventDetail{}, nil
 }
 
@@ -62,5 +88,9 @@ func (f fakeRepo) Snooze(context.Context, ports.Snooze) (domain.CalendarActionRe
 }
 
 func (f fakeRepo) SweepDueReminders(context.Context, string, int) (int, error) {
+	return 0, nil
+}
+
+func (f fakeRepo) RefreshVaccinationProjection(context.Context, ports.RefreshVaccinationProjection) (int, error) {
 	return 0, nil
 }

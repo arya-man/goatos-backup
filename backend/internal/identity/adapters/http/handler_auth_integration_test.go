@@ -180,6 +180,17 @@ func (g authChainGrants) ActiveTenantRoles(_ context.Context, userID, tenantID s
 	return nil, nil
 }
 
+func (g authChainGrants) ActiveTenantGrants(_ context.Context, userID, tenantID string) ([]permissions.ActiveGrant, error) {
+	if userID != authChainUser || tenantID != authChainTenant {
+		return nil, nil
+	}
+	grants := make([]permissions.ActiveGrant, 0, len(g.roles))
+	for _, role := range g.roles {
+		grants = append(grants, permissions.ActiveGrant{Role: role, ScopeType: "tenant", ScopeID: tenantID})
+	}
+	return grants, nil
+}
+
 func authChainToken(t *testing.T, sub, tenant string) string {
 	t.Helper()
 	header := map[string]any{"alg": "HS256", "typ": "JWT"}

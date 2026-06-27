@@ -356,6 +356,37 @@ func TestAuthFailsClosedForUnregisteredProtectedRoute(t *testing.T) {
 	assertAuthErrorCode(t, rec, "route_not_registered")
 }
 
+func TestCalendarRoutesMayUseScopedGrantsWithoutBroadeningOtherRoutes(t *testing.T) {
+	scopedGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
+	mw := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {scopedGrant}}})
+	calendarHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grants := AuthGrantsFromContext(r.Context())
+		if len(grants) != 1 || grants[0] != scopedGrant {
+			t.Fatalf("grants=%#v want scoped calendar grant", grants)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	calendarReq := httptest.NewRequest(http.MethodGet, "/calendar/vaccination/events", nil)
+	calendarReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	calendarRec := httptest.NewRecorder()
+	calendarHandler.ServeHTTP(calendarRec, calendarReq)
+	if calendarRec.Code != http.StatusNoContent {
+		t.Fatalf("calendar status=%d body=%s", calendarRec.Code, calendarRec.Body.String())
+	}
+
+	otherHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("scoped grant should not authorize non-calendar route")
+	})))
+	otherReq := httptest.NewRequest(http.MethodGet, "/vaccination/operations", nil)
+	otherReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	otherRec := httptest.NewRecorder()
+	otherHandler.ServeHTTP(otherRec, otherReq)
+	if otherRec.Code != http.StatusForbidden {
+		t.Fatalf("other status=%d body=%s", otherRec.Code, otherRec.Body.String())
+	}
+	assertAuthErrorCode(t, otherRec, "permission_denied")
+}
+
 func TestDevHeadersRequireExplicitLocalOptIn(t *testing.T) {
 	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "prod", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
 		t.Fatal("dev_headers accepted prod environment")
@@ -398,8 +429,9 @@ func TestHealthRoutesBypassAuth(t *testing.T) {
 }
 
 type fakeGrantSource struct {
-	roles map[string][]string
-	err   error
+	roles  map[string][]string
+	grants map[string][]permissions.ActiveGrant
+	err    error
 }
 
 func (f fakeGrantSource) activeTenantRoles(userID, tenantID string) ([]string, error) {
@@ -407,6 +439,22 @@ func (f fakeGrantSource) activeTenantRoles(userID, tenantID string) ([]string, e
 		return nil, f.err
 	}
 	return f.roles[userID+"|"+tenantID], nil
+}
+
+func (f fakeGrantSource) activeTenantGrants(userID, tenantID string) ([]permissions.ActiveGrant, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := userID + "|" + tenantID
+	if grants, ok := f.grants[key]; ok {
+		return grants, nil
+	}
+	roles := f.roles[key]
+	grants := make([]permissions.ActiveGrant, 0, len(roles))
+	for _, role := range roles {
+		grants = append(grants, permissions.ActiveGrant{Role: role, ScopeType: "tenant", ScopeID: tenantID})
+	}
+	return grants, nil
 }
 
 func testBearerMiddleware(t *testing.T, grants fakeGrantSource) *AuthMiddleware {
@@ -439,6 +487,10 @@ type grantAdapter struct {
 
 func (g grantAdapter) ActiveTenantRoles(_ context.Context, userID, tenantID string) ([]string, error) {
 	return g.activeTenantRoles(userID, tenantID)
+}
+
+func (g grantAdapter) ActiveTenantGrants(_ context.Context, userID, tenantID string) ([]permissions.ActiveGrant, error) {
+	return g.activeTenantGrants(userID, tenantID)
 }
 
 type staticVerifier struct {
