@@ -3,6 +3,11 @@ package app
 
 import "github.com/vgoats/goatos/backend/internal/adminui/domain"
 
+const (
+	phase1CoimbatoreParkID  = "00000000-0000-4000-8000-000000003001"
+	phase1ChannapatnaParkID = "00000000-0000-4000-8000-000000003002"
+)
+
 type Service struct{}
 
 func NewService() *Service {
@@ -2268,7 +2273,8 @@ func genericOptionGroups() []domain.OptionGroup {
 		{
 			ID: "park_display_chips",
 			Options: []domain.Option{
-				option("Coimbatore", "CBE", "Coimbatore park short chip", "info"),
+				option(phase1CoimbatoreParkID, "CBE", "Coimbatore park short chip", "info"),
+				option(phase1ChannapatnaParkID, "CPT", "Channapatna park short chip", "info"),
 			},
 		},
 		{

@@ -115,7 +115,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       </div>
       <div className="row">
         <Tag tone="mut">{copy(pageContract, "label.vaccination")}</Tag>
-        <Tag tone={optionTone(parkOptions, row.park_name)}>{optionLabel(parkOptions, row.park_name)}</Tag>
+        <Tag tone={optionTone(parkOptions, row.park_id)}>{optionLabel(parkOptions, row.park_id)}</Tag>
         <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
       </div>
       <div className="row" style={{ marginTop: 6 }}>

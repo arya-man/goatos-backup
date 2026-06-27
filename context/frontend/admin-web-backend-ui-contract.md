@@ -33,6 +33,68 @@ If this contract is unavailable, admin-web must not silently render a local
 fallback IA. It should show a contract-unavailable state with the API/session/
 tenant error.
 
+## Config API and Cache Shape
+
+`/admin-web/bootstrap` is the SSR contract for admin-web business UI. The
+frontend should block business rendering on this contract and may show only
+loading, auth, or contract-unavailable states before it succeeds. It must not
+ship local business strings that are later replaced by async config, because
+that causes flicker and quietly creates a second frontend-owned contract.
+
+The bootstrap contract should carry small, stable UI contract data:
+
+- navigation groups/items, route labels, product chrome, role lenses, and
+  disabled reasons
+- page titles, subtitles, section labels, table columns, filters, sort keys,
+  page sizes, row-click rules, drawer anatomy, summary/detail fields, empty
+  states, and action labels
+- small option groups for chips/dropdowns/tabs such as status, severity,
+  proof state, work state, procurement state, calendar bands, and park display
+  chips
+- default UI semantics such as default tab, default sort, default page size,
+  default scope mode, and feature availability for the active tenant/role
+- icon, tone, density, and surface-kind tokens that the frontend maps to local
+  components/styles
+
+The bootstrap contract must not carry large or volatile data:
+
+- rows/cards/alerts/search results/counts
+- large searchable lists such as goats, vendors, operators, inventory lots, or
+  media references
+- live nav counts
+- full protocol/SOP bodies except on the page contract that is explicitly
+  rendering those records
+- transient form input values that depend on a selected row/object
+
+Those values come from normal domain/read-model APIs. Business-managed config
+such as locations, animal stages, protocol versions/rules, SOP versions,
+permissions, tenant feature flags, and source-backed vocabularies must be
+canonical in Postgres. Backend code may still own stable product UI copy in the
+first implementation, but the ownership remains backend-side, not React-side.
+
+Caching rule: Postgres is canonical. Redis/Memorystore may cache compiled
+contract JSON only as acceleration, never as truth. A production bootstrap
+response should include a contract revision/ETag plus family hashes such as
+`chrome`, `page:<route_id>`, `options:<family>`, `locations`, `permissions`,
+and `sop/protocol:<category>`. Backend cache keys should include tenant, role,
+locale, schema version, and the relevant revision/hash. Config writes or
+publish actions bump the affected family revision in Postgres and emit a
+`config.changed` event; Redis entries either miss by revision or expire by TTL.
+Recommended TTLs are short in-process cache for compiled bootstrap (30-120
+seconds) and longer Redis TTL for immutable/versioned published families
+(10-60 minutes), while current-pointer lookups stay short or event-invalidated.
+
+If bootstrap grows too large, split without changing ownership:
+
+```text
+GET /admin-web/bootstrap
+  -> shell/chrome, route index, global small option groups, family hashes
+GET /admin-web/pages/{route_id}/contract
+  -> route-specific page contract
+GET /admin-web/config-index
+  -> cheap revision/hash freshness check
+```
+
 ## Ownership Rule
 
 Backend owns:
@@ -57,6 +119,23 @@ Frontend owns:
   client-side text input value before submit, modal open state, focus traps
 - choosing how much of a backend object to show in compact row/card space versus
   the full drawer, but only from backend-declared summary/detail fields
+
+## Stable Option-Key Rule
+
+Option-group keys must match stable backend-emitted identifiers. Do not key a
+contract option by mutable display text. Examples:
+
+- park display chips must be keyed by `park_id` or canonical `location_code`,
+  not `park_name`
+- animal-stage chips must be keyed by stage code/id from `animal_stage_lookup`,
+  not local text such as `Kid`
+- protocol/SOP/status chips must be keyed by the backend enum/config key that
+  appears in the API row
+
+The frontend helpers should stay strict. If a row emits a valid key that is not
+present in the relevant backend option group, SSR/render should fail during
+validation instead of inventing a frontend fallback. The backend contract must
+cover every key its data APIs can emit for the active tenant/scope.
 
 ## Current Route Inventory
 
