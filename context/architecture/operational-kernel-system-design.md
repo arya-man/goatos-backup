@@ -197,6 +197,8 @@ generic rule so feed, breeding, procurement, and HR do not rebuild it.
 Exact PHC vaccination runtime coverage is tracked in
 `context/execution/vaccination-edge-case-code-coverage.md`; that ledger is the
 place to keep implementation caveats separate from the generic kernel design.
+The business closure backlog for the remaining CEO-message gaps is tracked in
+`context/execution/vaccination-kernel-closure-business-backlog.md`.
 
 ## DLQ, Replay, And Failure Management
 

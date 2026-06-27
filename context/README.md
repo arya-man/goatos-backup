@@ -104,6 +104,9 @@ Vaccination pre-E2E readiness audit
 Vaccination trigger closure parallel handoff
   context/execution/vaccination-trigger-closure-parallel-handoff.md
 
+Vaccination kernel closure business backlog
+  context/execution/vaccination-kernel-closure-business-backlog.md
+
 Calendar vaccination slice parallel handoff
   context/execution/calendar-vaccination-slice-parallel-handoff.md
 
