@@ -1609,11 +1609,56 @@ export interface components {
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
         };
-        ExitGoatRequest: {
-            /** @enum {string} */
-            lifecycle_status: "dead" | "sold" | "culled" | "transferred" | "lost" | "merged" | "inactive";
-            /** @enum {string} */
-            exit_reason: "sold" | "died" | "culled" | "transferred" | "lost";
+        ExitGoatRequest: components["schemas"]["ExitGoatDeadRequest"] | components["schemas"]["ExitGoatSoldRequest"] | components["schemas"]["ExitGoatCulledRequest"] | components["schemas"]["ExitGoatTransferredRequest"] | components["schemas"]["ExitGoatLostRequest"];
+        ExitGoatDeadRequest: {
+            /** @constant */
+            lifecycle_status: "dead";
+            /** @constant */
+            exit_reason: "died";
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        ExitGoatSoldRequest: {
+            /** @constant */
+            lifecycle_status: "sold";
+            /** @constant */
+            exit_reason: "sold";
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        ExitGoatCulledRequest: {
+            /** @constant */
+            lifecycle_status: "culled";
+            /** @constant */
+            exit_reason: "culled";
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        ExitGoatTransferredRequest: {
+            /** @constant */
+            lifecycle_status: "transferred";
+            /** @constant */
+            exit_reason: "transferred";
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        ExitGoatLostRequest: {
+            /** @constant */
+            lifecycle_status: "lost";
+            /** @constant */
+            exit_reason: "lost";
             reason: string;
             /** Format: date-time */
             occurred_at?: string;

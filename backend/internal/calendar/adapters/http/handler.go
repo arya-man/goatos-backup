@@ -182,6 +182,7 @@ func (h *Handler) AcknowledgeEscalation(w stdhttp.ResponseWriter, r *stdhttp.Req
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		Reason:         req.Reason,
 		Scope:          calendarScope(r, permissions.CalendarAction),
+		ActorGrants:    calendarActorGrants(r, permissions.CalendarAction),
 	})
 	if err != nil {
 		h.writeAppError(w, r, err)
@@ -208,6 +209,7 @@ func (h *Handler) ResolveEscalation(w stdhttp.ResponseWriter, r *stdhttp.Request
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		Reason:         req.Reason,
 		Scope:          calendarScope(r, permissions.CalendarAction),
+		ActorGrants:    calendarActorGrants(r, permissions.CalendarAction),
 	})
 	if err != nil {
 		h.writeAppError(w, r, err)
@@ -291,7 +293,11 @@ func (h *Handler) writeAppError(w stdhttp.ResponseWriter, r *stdhttp.Request, er
 		switch appErr.Code {
 		case "not_found":
 			status = stdhttp.StatusNotFound
+		case "permission_denied":
+			status = stdhttp.StatusForbidden
 		case "idempotency_conflict", "active_snooze_exists", "event_not_actionable":
+			status = stdhttp.StatusConflict
+		case "idempotency_in_progress":
 			status = stdhttp.StatusConflict
 		case "internal_error":
 			status = stdhttp.StatusInternalServerError
@@ -360,4 +366,29 @@ func calendarScope(r *stdhttp.Request, permission string) domain.ScopeFilter {
 		}
 	}
 	return filter
+}
+
+func calendarActorGrants(r *stdhttp.Request, permission string) []ports.ActorGrant {
+	tenant := tenantID(r)
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	out := make([]ports.ActorGrant, 0, len(grants))
+	for _, grant := range grants {
+		if !permissions.RoleHasPermission(grant.Role, permission) {
+			continue
+		}
+		switch grant.ScopeType {
+		case "tenant":
+			if !strings.EqualFold(grant.ScopeID, tenant) {
+				continue
+			}
+		case "park", "shed":
+			if grant.ScopeID == "" {
+				continue
+			}
+		default:
+			continue
+		}
+		out = append(out, ports.ActorGrant{Role: grant.Role, ScopeType: grant.ScopeType, ScopeID: grant.ScopeID})
+	}
+	return out
 }

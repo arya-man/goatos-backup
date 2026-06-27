@@ -349,8 +349,12 @@ func mapRepoError(err error) error {
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
 		return NotFound("calendar event was not found")
+	case errors.Is(err, ports.ErrForbidden):
+		return Forbidden("permission_denied", "actor is not allowed to action this escalation level")
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return Conflict("idempotency_conflict", "same Idempotency-Key was replayed with a different payload")
+	case errors.Is(err, ports.ErrIdempotencyInProgress):
+		return Conflict("idempotency_in_progress", "same Idempotency-Key is still being processed")
 	case errors.Is(err, ports.ErrActiveSnoozeExists):
 		return Conflict("active_snooze_exists", "an active snooze already exists; set replace_existing to create a replacement")
 	case errors.Is(err, ports.ErrEventNotActionable):

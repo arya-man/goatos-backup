@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
+	"golang.org/x/oauth2"
 )
 
 func TestSendEmailPostsVendorPayload(t *testing.T) {
@@ -134,6 +135,38 @@ func TestSendFCMRequiresRecipientOrDefaultTopic(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "push_fcm recipient") {
 		t.Fatalf("expected recipient error, got %v", err)
 	}
+}
+
+func TestSendFCMUsesCachedTokenSource(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer adc-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	source := &fakeTokenSource{token: &oauth2.Token{AccessToken: "adc-token"}}
+	gateway := New(Config{FCMEndpoint: server.URL}, nil)
+	gateway.fcmTokenSource = source
+	for i := 0; i < 2; i++ {
+		if err := gateway.Send(context.Background(), request("push_fcm", "device-token-1")); err != nil {
+			t.Fatalf("Send FCM %d: %v", i, err)
+		}
+	}
+	if source.calls != 2 {
+		t.Fatalf("token source calls=%d, want one token fetch per send from cached source", source.calls)
+	}
+}
+
+type fakeTokenSource struct {
+	token *oauth2.Token
+	calls int
+}
+
+func (f *fakeTokenSource) Token() (*oauth2.Token, error) {
+	f.calls++
+	return f.token, nil
 }
 
 func request(channel, recipientRef string) domain.Request {

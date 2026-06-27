@@ -44,8 +44,8 @@ resource "google_service_account_iam_member" "cloudscheduler_scheduler_token_cre
   member             = "serviceAccount:${google_project_service_identity.cloudscheduler.email}"
 }
 
-resource "google_service_account_iam_member" "cloudtasks_scheduler_token_creator" {
-  service_account_id = google_service_account.runtime["scheduler"].name
+resource "google_service_account_iam_member" "cloudtasks_enqueuer_token_creator" {
+  service_account_id = google_service_account.runtime["cloud_tasks_enqueuer"].name
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:${google_project_service_identity.cloudtasks.email}"
 }
@@ -56,7 +56,7 @@ resource "google_service_account_iam_member" "calendar_cloudtasks_oauth_act_as" 
     "calendar_escalation_sweeper",
   ])
 
-  service_account_id = google_service_account.runtime["scheduler"].name
+  service_account_id = google_service_account.runtime["cloud_tasks_enqueuer"].name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.runtime[each.key].email}"
 }

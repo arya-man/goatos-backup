@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -26,6 +27,10 @@ const (
 	testShedA         = "86000000-0000-4000-8000-000000000711"
 	testShedB         = "86000000-0000-4000-8000-000000000712"
 )
+
+func testCalendarActorGrants() []ports.ActorGrant {
+	return []ports.ActorGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: testTenantID}}
+}
 
 func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
@@ -501,7 +506,7 @@ func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
 	ack, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-ack", IdempotencyKey: "calendar-escalation-ack-key",
-		Reason: "shed owner accepted the escalation", Scope: domain.ScopeFilter{TenantWide: true},
+		Reason: "shed owner accepted the escalation", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
 	})
 	if err != nil {
 		t.Fatalf("AcknowledgeEscalation: %v", err)
@@ -512,7 +517,7 @@ func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
 	ackReplay, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-ack", IdempotencyKey: "calendar-escalation-ack-key",
-		Reason: "shed owner accepted the escalation", Scope: domain.ScopeFilter{TenantWide: true},
+		Reason: "shed owner accepted the escalation", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
 	})
 	if err != nil {
 		t.Fatalf("AcknowledgeEscalation replay: %v", err)
@@ -522,7 +527,7 @@ func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
 	}
 	if _, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
-		IdempotencyKey: "calendar-escalation-ack-key", Reason: "different", Scope: domain.ScopeFilter{TenantWide: true},
+		IdempotencyKey: "calendar-escalation-ack-key", Reason: "different", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
 	}); !errors.Is(err, ports.ErrIdempotencyConflict) {
 		t.Fatalf("ack conflict err = %v, want ErrIdempotencyConflict", err)
 	}
@@ -552,7 +557,7 @@ WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid AND event_type='escalation_a
 	resolved, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-resolve", IdempotencyKey: "calendar-escalation-resolve-key",
-		Reason: "proof corrected and owner confirmed", Scope: domain.ScopeFilter{TenantWide: true},
+		Reason: "proof corrected and owner confirmed", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
 	})
 	if err != nil {
 		t.Fatalf("ResolveEscalation: %v", err)
@@ -585,7 +590,7 @@ WHERE tenant_id=$1::uuid
   AND event_type='calendar.escalation.resolved'`, 1, testTenantID, ack.ActionID)
 	if _, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
-		IdempotencyKey: "calendar-escalation-resolve-again", Reason: "again", Scope: domain.ScopeFilter{TenantWide: true},
+		IdempotencyKey: "calendar-escalation-resolve-again", Reason: "again", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
 	}); !errors.Is(err, ports.ErrEventNotActionable) {
 		t.Fatalf("resolve again err = %v, want ErrEventNotActionable", err)
 	}
@@ -640,7 +645,7 @@ func TestCalendarEscalationResolveClosesActiveLadder(t *testing.T) {
 	level1, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-ladder-ack", IdempotencyKey: "calendar-escalation-ladder-ack-key",
-		Reason: "level one owner has seen it", Scope: domain.ScopeFilter{TenantWide: true},
+		Reason: "level one owner has seen it", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
 	})
 	if err != nil {
 		t.Fatalf("AcknowledgeEscalation level 1: %v", err)
@@ -665,7 +670,7 @@ WHERE tenant_id=$1::uuid
 	resolved, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
 		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
 		TraceID: "trace-escalation-ladder-resolve", IdempotencyKey: "calendar-escalation-ladder-resolve-key",
-		Reason: "drive completed after level two escalation", Scope: domain.ScopeFilter{TenantWide: true},
+		Reason: "drive completed after level two escalation", Scope: domain.ScopeFilter{TenantWide: true}, ActorGrants: testCalendarActorGrants(),
 	})
 	if err != nil {
 		t.Fatalf("ResolveEscalation ladder: %v", err)
@@ -699,6 +704,27 @@ WHERE tenant_id=$1::uuid
 SELECT count(*)
 FROM calendar_event_projections
 WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='resolved'`, 1, testTenantID, eventID)
+	reopened, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 4 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("SweepEscalations after resolve: %v", err)
+	}
+	if reopened != 0 {
+		t.Fatalf("resolved escalation reopened %d notifications, want 0", reopened)
+	}
+	assertCount(t, ctx, pool, "ladder escalation notifications not reopened", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='escalation'`, 2, testTenantID, eventID)
 }
 
 func TestCalendarEscalationSweepRoutesLevel3ToPHCDirector(t *testing.T) {
@@ -753,6 +779,17 @@ WHERE tenant_id=$1::uuid
   AND level=3
   AND escalated_to_role='phc_director'
   AND status='open'`, 1, testTenantID, obligationID)
+	if _, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
+		TenantID:       testTenantID,
+		EventID:        eventID,
+		ActorID:        testActorID,
+		IdempotencyKey: "calendar-escalation-unauthorized-resolve",
+		Reason:         "park head cannot resolve PHC director escalation",
+		Scope:          domain.ScopeFilter{TenantWide: true},
+		ActorGrants:    []ports.ActorGrant{{Role: permissions.RoleParkHead, ScopeType: "tenant", ScopeID: testTenantID}},
+	}); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("park head resolve level 3 err = %v, want ErrForbidden", err)
+	}
 }
 
 func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t *testing.T) {

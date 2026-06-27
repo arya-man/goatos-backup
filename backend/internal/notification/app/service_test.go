@@ -51,6 +51,24 @@ func TestServiceLeavesFinalFailureWithoutNextAttempt(t *testing.T) {
 	}
 }
 
+func TestServiceDoesNotRetryPermanentChannelMisconfiguration(t *testing.T) {
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	repo := &fakeRepo{requests: []domain.Request{
+		{TenantID: testTenant, NotificationRequestID: "86000000-0000-4000-8000-000000000004", LeaseToken: "86000000-0000-4000-8000-000000000104", Channel: "email", DeliveryAttempts: 1},
+	}}
+	service := NewService(repo, &fakeGateway{err: ports.ErrChannelNotConfigured}, Config{MaxAttempts: 5, Now: func() time.Time { return now }}, nil)
+	result, err := service.RunOnce(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if result.FailedCount != 1 || len(repo.failed) != 1 {
+		t.Fatalf("result=%#v failed=%#v", result, repo.failed)
+	}
+	if repo.failed[0].nextAttemptAt != nil {
+		t.Fatalf("permanent config failure next attempt=%v, want nil", repo.failed[0].nextAttemptAt)
+	}
+}
+
 const testTenant = "00000000-0000-4000-8000-000000000001"
 
 type fakeRepo struct {
@@ -84,11 +102,15 @@ func (f *fakeRepo) MarkFailed(_ context.Context, _, notificationRequestID, _, _,
 
 type fakeGateway struct {
 	failChannel string
+	err         error
 }
 
 func (f *fakeGateway) Name() string { return "fake" }
 
 func (f *fakeGateway) Send(_ context.Context, request domain.Request) error {
+	if f.err != nil {
+		return f.err
+	}
 	if request.Channel == f.failChannel {
 		return errors.New("synthetic failure")
 	}

@@ -31,6 +31,7 @@ locals {
       env = {
         GOOGLE_CLOUD_PROJECT                 = var.project_id
         GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID = google_pubsub_subscription.domain_events.name
+        GOATOS_DOMAIN_EVENT_SCHEMA_PATH      = "/app/contracts/jsonschema/domain-event-envelope.schema.json"
         GOATOS_PUBSUB_PROJECT_ID             = var.project_id
       }
     }
@@ -88,7 +89,7 @@ locals {
         GOATOS_CLOUD_TASKS_PROJECT_ID            = var.project_id
         GOATOS_CLOUD_TASKS_LOCATION              = var.region
         GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name
-        GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["scheduler"].email
+        GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
         GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
       }
     }
@@ -107,7 +108,7 @@ locals {
         GOATOS_CLOUD_TASKS_PROJECT_ID            = var.project_id
         GOATOS_CLOUD_TASKS_LOCATION              = var.region
         GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name
-        GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["scheduler"].email
+        GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
         GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
       }
     }
@@ -202,6 +203,14 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker" {
   name     = each.value.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.runtime["scheduler"].email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "cloud_tasks_notification_dispatcher_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.kernel["notification_dispatcher"].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.runtime["cloud_tasks_enqueuer"].email}"
 }
 
 resource "google_cloud_scheduler_job" "kernel" {

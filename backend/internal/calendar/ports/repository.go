@@ -10,11 +10,13 @@ import (
 )
 
 var (
-	ErrNotFound            = errors.New("calendar: not found")
-	ErrIdempotencyConflict = errors.New("calendar: idempotency conflict")
-	ErrActiveSnoozeExists  = errors.New("calendar: active snooze exists")
-	ErrEventNotActionable  = errors.New("calendar: event is not actionable")
-	ErrInvalidReference    = errors.New("calendar: invalid reference")
+	ErrNotFound              = errors.New("calendar: not found")
+	ErrForbidden             = errors.New("calendar: forbidden")
+	ErrIdempotencyConflict   = errors.New("calendar: idempotency conflict")
+	ErrIdempotencyInProgress = errors.New("calendar: idempotency request in progress")
+	ErrActiveSnoozeExists    = errors.New("calendar: active snooze exists")
+	ErrEventNotActionable    = errors.New("calendar: event is not actionable")
+	ErrInvalidReference      = errors.New("calendar: invalid reference")
 )
 
 type Repository interface {
@@ -62,6 +64,7 @@ type AcknowledgeEscalation struct {
 	IdempotencyKey string
 	Reason         string
 	Scope          domain.ScopeFilter
+	ActorGrants    []ActorGrant
 }
 
 type ResolveEscalation struct {
@@ -72,6 +75,13 @@ type ResolveEscalation struct {
 	IdempotencyKey string
 	Reason         string
 	Scope          domain.ScopeFilter
+	ActorGrants    []ActorGrant
+}
+
+type ActorGrant struct {
+	Role      string
+	ScopeType string
+	ScopeID   string
 }
 
 type RefreshVaccinationProjection struct {

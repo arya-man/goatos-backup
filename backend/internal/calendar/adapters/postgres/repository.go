@@ -411,6 +411,7 @@ func (r *Repository) AcknowledgeEscalation(ctx context.Context, in ports.Acknowl
 		EventType:       "calendar.escalation.acknowledged",
 		StatusEventType: "escalation_acknowledged",
 		ResultStatus:    "acknowledged",
+		ActorGrants:     in.ActorGrants,
 	})
 }
 
@@ -428,6 +429,7 @@ func (r *Repository) ResolveEscalation(ctx context.Context, in ports.ResolveEsca
 		EventType:       "calendar.escalation.resolved",
 		StatusEventType: "escalation_resolved",
 		ResultStatus:    "resolved",
+		ActorGrants:     in.ActorGrants,
 	})
 }
 
@@ -444,6 +446,7 @@ type escalationActionInput struct {
 	EventType       string
 	StatusEventType string
 	ResultStatus    string
+	ActorGrants     []ports.ActorGrant
 }
 
 type lockedEscalation struct {
@@ -489,6 +492,9 @@ func (r *Repository) applyEscalationAction(ctx context.Context, in escalationAct
 	esc, err := lockLatestEscalation(ctx, tx, in.TenantID, target.TargetID)
 	if err != nil {
 		return domain.CalendarActionResponse{}, err
+	}
+	if !actorCanActionEscalation(in.ActorGrants, in.TenantID, target, esc.Role) {
+		return domain.CalendarActionResponse{}, ports.ErrForbidden
 	}
 	changed, resultStatus, err := updateEscalationState(ctx, tx, in, esc)
 	if err != nil {
@@ -805,7 +811,7 @@ FOR UPDATE SKIP LOCKED`, tenantID, eventID).Scan(&e.EventID, &e.Title, &e.Target
 		return false, fmt.Errorf("calendar: lock reminder event: %w", err)
 	}
 	channel := normalizeChannel("", e.PrimaryChannel)
-	key := tenantID + ":calendar.reminder:" + e.EventID + ":" + time.Now().UTC().Format("2006-01-02")
+	key := tenantID + ":calendar.reminder:" + e.EventID + ":" + calendarBusinessDate(time.Now().UTC())
 	var requestID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO notification_requests (
@@ -920,6 +926,7 @@ WITH candidates AS (
     AND due_at IS NOT NULL
     AND due_at <= $2::timestamptz
     AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+    AND COALESCE(escalation_state, '') <> 'resolved'
 )
 SELECT event_id, level
 FROM candidates c
@@ -986,6 +993,7 @@ WHERE tenant_id = $1::uuid
   AND system = false
   AND due_at <= $3::timestamptz
   AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+  AND COALESCE(escalation_state, '') <> 'resolved'
 FOR UPDATE SKIP LOCKED`, tenantID, eventID, now).Scan(
 		&target.EventID,
 		&target.Title,
@@ -1138,6 +1146,57 @@ func escalationRole(level int, target escalationTarget) string {
 	}
 }
 
+func actorCanActionEscalation(grants []ports.ActorGrant, tenantID string, target actionTarget, targetRole string) bool {
+	targetRank, ok := escalationRoleRank(targetRole)
+	if !ok {
+		return false
+	}
+	for _, grant := range grants {
+		actorRank, ok := escalationRoleRank(grant.Role)
+		if !ok || actorRank < targetRank {
+			continue
+		}
+		switch grant.ScopeType {
+		case "tenant":
+			if strings.EqualFold(grant.ScopeID, tenantID) {
+				return true
+			}
+		case "park":
+			if target.ParkID != "" && grant.ScopeID == target.ParkID {
+				return true
+			}
+		case "shed":
+			if target.ShedID != "" && grant.ScopeID == target.ShedID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func escalationRoleRank(role string) (int, bool) {
+	switch strings.TrimSpace(role) {
+	case permissions.RoleOperator, permissions.RoleVerifier:
+		return 10, true
+	case permissions.RoleParkHead:
+		return 20, true
+	case permissions.RolePHCDirector:
+		return 30, true
+	case permissions.RoleCEOInternal, permissions.RoleAdmin:
+		return 40, true
+	default:
+		return 0, false
+	}
+}
+
+func calendarBusinessDate(t time.Time) string {
+	loc, err := time.LoadLocation(domain.DefaultTimezone)
+	if err != nil {
+		loc = time.FixedZone("IST", 5*60*60+30*60)
+	}
+	return t.In(loc).Format("2006-01-02")
+}
+
 func escalationReason(target escalationTarget, level int) string {
 	return fmt.Sprintf("calendar event %s overdue at level %d; status=%s due_at=%s", target.EventID, level, target.Status, target.DueAt.UTC().Format(time.RFC3339))
 }
@@ -1281,6 +1340,8 @@ type actionTarget struct {
 	Title          string
 	TargetType     string
 	TargetID       string
+	ParkID         string
+	ShedID         string
 	PrimaryChannel string
 	RecipientRef   string
 }
@@ -1305,14 +1366,15 @@ func loadActionTarget(ctx context.Context, tx pgx.Tx, tenantID, eventID string, 
 	err := tx.QueryRow(ctx, `
 SELECT event_id, event_type, title, source_target_type, COALESCE(source_target_id::text, ''),
        primary_notification_channel, COALESCE(assignee_label, ''), COALESCE(executor_role, ''),
-       COALESCE(verifier_label, ''), source_backed, system
+       COALESCE(verifier_label, ''), COALESCE(park_id::text, ''), COALESCE(shed_id::text, ''),
+       source_backed, system
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
   AND system = false
   AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))
 FOR UPDATE`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(
 		&out.EventID, &out.EventType, &out.Title, &out.TargetType, &targetID, &out.PrimaryChannel,
-		&assignee, &executor, &verifier, &sourceBacked, &system,
+		&assignee, &executor, &verifier, &out.ParkID, &out.ShedID, &sourceBacked, &system,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return actionTarget{}, ports.ErrNotFound

@@ -195,11 +195,15 @@ func validateExitGoat(body *domain.ExitGoatRequest) error {
 	body.LifecycleStatus = strings.TrimSpace(body.LifecycleStatus)
 	body.ExitReason = strings.TrimSpace(body.ExitReason)
 	body.Reason = strings.TrimSpace(body.Reason)
-	if !allowedExitLifecycle[body.LifecycleStatus] {
-		return BadRequest("invalid_lifecycle_status", "lifecycle_status must be dead, sold, culled, transferred, lost, merged, or inactive")
+	expectedReason, ok := exitReasonByLifecycle[body.LifecycleStatus]
+	if !ok {
+		return BadRequest("invalid_lifecycle_status", "lifecycle_status must be dead, sold, culled, transferred, or lost")
 	}
 	if !allowedExitReasons[body.ExitReason] {
 		return BadRequest("invalid_exit_reason", "exit_reason must be sold, died, culled, transferred, or lost")
+	}
+	if body.ExitReason != expectedReason {
+		return BadRequest("invalid_exit_reason", "exit_reason must match lifecycle_status")
 	}
 	if len(body.Reason) < 3 || len(body.Reason) > 500 {
 		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
@@ -210,20 +214,18 @@ func validateExitGoat(body *domain.ExitGoatRequest) error {
 	return validateEvidenceRefs(body.EvidenceRefs, true)
 }
 
-var allowedExitLifecycle = map[string]bool{
-	"dead":        true,
-	"sold":        true,
-	"culled":      true,
-	"transferred": true,
-	"lost":        true,
-	"merged":      true,
-	"inactive":    true,
-}
-
 var allowedExitReasons = map[string]bool{
 	"sold":        true,
 	"died":        true,
 	"culled":      true,
 	"transferred": true,
 	"lost":        true,
+}
+
+var exitReasonByLifecycle = map[string]string{
+	"dead":        "died",
+	"sold":        "sold",
+	"culled":      "culled",
+	"transferred": "transferred",
+	"lost":        "lost",
 }

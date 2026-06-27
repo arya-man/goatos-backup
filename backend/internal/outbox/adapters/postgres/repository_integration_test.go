@@ -263,8 +263,26 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 		if state.Status != domain.StatusPending || state.AttemptCount != 0 || !state.NextAttemptAt.Valid || state.PublishedAt.Valid {
 			t.Fatalf("replayed state=%#v", state)
 		}
+		if state.ReplayCount != 1 {
+			t.Fatalf("replayed replay_count=%d want 1", state.ReplayCount)
+		}
 		if !strings.Contains(state.LastError, "replayed_from_dlq") {
 			t.Fatalf("replayed last_error=%q", state.LastError)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE outbox_messages SET status='dead_letter', replay_count=3 WHERE outbox_id=$1`, dead.OutboxID); err != nil {
+			t.Fatalf("set replay cap: %v", err)
+		}
+		replayed, err = repo.ReplayDeadLetters(ctx, ports.ReplayDeadLettersParams{
+			TenantID:  meshaTenant,
+			OutboxIDs: []string{dead.OutboxID},
+			Reason:    "operator tried fourth replay",
+			Now:       outboxTestNow.Add(time.Minute),
+		})
+		if err != nil {
+			t.Fatalf("ReplayDeadLetters capped: %v", err)
+		}
+		if replayed != 0 {
+			t.Fatalf("capped replayed=%d want 0", replayed)
 		}
 	})
 
@@ -373,6 +391,7 @@ func validEnvelopePayload(t *testing.T, eventID string, traceID string) json.Raw
 type outboxState struct {
 	Status        string
 	AttemptCount  int
+	ReplayCount   int
 	LastError     string
 	NextAttemptAt pgtype.Timestamptz
 	PublishedAt   pgtype.Timestamptz
@@ -382,9 +401,9 @@ func queryOutboxState(t *testing.T, pool *pgxpool.Pool, outboxID string) outboxS
 	t.Helper()
 	var state outboxState
 	if err := pool.QueryRow(context.Background(), `
-SELECT status, attempt_count, COALESCE(last_error, ''), next_attempt_at, published_at
+SELECT status, attempt_count, replay_count, COALESCE(last_error, ''), next_attempt_at, published_at
 FROM outbox_messages
-WHERE outbox_id = $1`, outboxID).Scan(&state.Status, &state.AttemptCount, &state.LastError, &state.NextAttemptAt, &state.PublishedAt); err != nil {
+WHERE outbox_id = $1`, outboxID).Scan(&state.Status, &state.AttemptCount, &state.ReplayCount, &state.LastError, &state.NextAttemptAt, &state.PublishedAt); err != nil {
 		t.Fatal(err)
 	}
 	return state

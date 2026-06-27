@@ -10,10 +10,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
@@ -32,9 +34,11 @@ type Config struct {
 }
 
 type Gateway struct {
-	client *http.Client
-	config Config
-	log    *slog.Logger
+	client         *http.Client
+	config         Config
+	log            *slog.Logger
+	fcmMu          sync.Mutex
+	fcmTokenSource oauth2.TokenSource
 }
 
 func New(config Config, log *slog.Logger) *Gateway {
@@ -217,9 +221,9 @@ func (g *Gateway) fcmBearer(ctx context.Context) (string, error) {
 	if token := strings.TrimSpace(g.config.FCMBearerToken); token != "" {
 		return token, nil
 	}
-	source, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/firebase.messaging")
+	source, err := g.fcmAuthSource(ctx)
 	if err != nil {
-		return "", fmt.Errorf("%w: push_fcm auth", ports.ErrChannelNotConfigured)
+		return "", err
 	}
 	token, err := source.Token()
 	if err != nil {
@@ -229,6 +233,20 @@ func (g *Gateway) fcmBearer(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("%w: push_fcm auth token", ports.ErrChannelNotConfigured)
 	}
 	return token.AccessToken, nil
+}
+
+func (g *Gateway) fcmAuthSource(ctx context.Context) (oauth2.TokenSource, error) {
+	g.fcmMu.Lock()
+	defer g.fcmMu.Unlock()
+	if g.fcmTokenSource != nil {
+		return g.fcmTokenSource, nil
+	}
+	source, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/firebase.messaging")
+	if err != nil {
+		return nil, fmt.Errorf("%w: push_fcm auth", ports.ErrChannelNotConfigured)
+	}
+	g.fcmTokenSource = source
+	return source, nil
 }
 
 func fcmData(request domain.Request) map[string]string {

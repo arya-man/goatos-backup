@@ -86,6 +86,76 @@ func TestRunUsesSubscriberAndAcksThroughAdapterContract(t *testing.T) {
 	}
 }
 
+func TestHandleMessageSkipsAlreadyProcessedEvent(t *testing.T) {
+	bus := eventbus.NewInProcessBus()
+	calls := 0
+	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {
+		calls++
+		return nil
+	}))
+	store := &fakeProcessedStore{decision: ProcessDecisionAlreadyProcessed}
+	service := NewService(bus, testValidator(t)).WithProcessedEventStore(store)
+	err := service.HandleMessage(context.Background(), Message{
+		ID:   "msg-processed",
+		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000004"),
+		Attributes: map[string]string{
+			"event_id": "attribute-event-id-must-not-win",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage: %v", err)
+	}
+	if calls != 0 || store.completed != 0 || store.failed != 0 {
+		t.Fatalf("calls=%d store=%#v, want duplicate skip", calls, store)
+	}
+	if store.last.EventID != "60000000-0000-4000-8000-000000000001" {
+		t.Fatalf("processed event id=%q, want envelope event_id", store.last.EventID)
+	}
+}
+
+func TestHandleMessageReturnsInProgressErrorForActiveProcessingRedelivery(t *testing.T) {
+	bus := eventbus.NewInProcessBus()
+	calls := 0
+	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {
+		calls++
+		return nil
+	}))
+	store := &fakeProcessedStore{decision: ProcessDecisionInProgress}
+	service := NewService(bus, testValidator(t)).WithProcessedEventStore(store)
+	err := service.HandleMessage(context.Background(), Message{
+		ID:   "msg-processing",
+		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000006"),
+	})
+	if !errors.Is(err, ErrEventProcessingInProgress) {
+		t.Fatalf("err=%v, want ErrEventProcessingInProgress", err)
+	}
+	if calls != 0 || store.completed != 0 || store.failed != 0 {
+		t.Fatalf("calls=%d store=%#v, want in-progress retry without handler", calls, store)
+	}
+}
+
+func TestHandleMessageMarksProcessedStoreFailedForRetry(t *testing.T) {
+	bus := eventbus.NewInProcessBus()
+	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {
+		return errors.New("temporary handler failure")
+	}))
+	store := &fakeProcessedStore{decision: ProcessDecisionClaimed}
+	service := NewService(bus, testValidator(t)).WithProcessedEventStore(store)
+	err := service.HandleMessage(context.Background(), Message{
+		ID:   "msg-failed",
+		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000005"),
+		Attributes: map[string]string{
+			"event_id": "60000000-0000-4000-8000-000000000005",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected handler error")
+	}
+	if store.failed != 1 || store.completed != 0 {
+		t.Fatalf("store=%#v, want one failed mark", store)
+	}
+}
+
 type fakeSubscriber struct {
 	message        Message
 	subscriptionID string
@@ -96,6 +166,30 @@ func (f *fakeSubscriber) Receive(ctx context.Context, subscriptionID string, han
 	f.subscriptionID = subscriptionID
 	f.handled++
 	return handler(ctx, f.message)
+}
+
+type fakeProcessedStore struct {
+	decision  ProcessDecision
+	started   int
+	completed int
+	failed    int
+	last      ProcessedEvent
+}
+
+func (f *fakeProcessedStore) BeginProcessing(_ context.Context, event ProcessedEvent) (ProcessDecision, error) {
+	f.started++
+	f.last = event
+	return f.decision, nil
+}
+
+func (f *fakeProcessedStore) MarkProcessed(context.Context, ProcessedEvent) error {
+	f.completed++
+	return nil
+}
+
+func (f *fakeProcessedStore) MarkFailed(context.Context, ProcessedEvent, string) error {
+	f.failed++
+	return nil
 }
 
 func testEnvelope(t *testing.T, eventType, aggregateID string) []byte {

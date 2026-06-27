@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	domainconsumerpg "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/postgres"
 	domainconsumerpubsub "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/pubsub"
 	consumerapp "github.com/vgoats/goatos/backend/internal/domainconsumer/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
@@ -72,7 +73,8 @@ func run(ctx context.Context, args []string) error {
 	}
 	logger := observability.New(observability.Config{Service: "domain-event-consumer"})
 	bus := buildDomainBus(pool, pgCfg, logger)
-	consumer := consumerapp.NewService(bus, validator, logger)
+	consumer := consumerapp.NewService(bus, validator, logger).
+		WithProcessedEventStore(domainconsumerpg.NewProcessedEventStore(pool, pgCfg.QueryTimeout))
 	subscriber, err := domainconsumerpubsub.NewGCPSubscriber(ctx, cfg.ProjectID)
 	if err != nil {
 		return err
@@ -145,7 +147,18 @@ func firstNonEmptyEnv(keys ...string) string {
 }
 
 func findDomainEventEnvelopeSchema() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("GOATOS_DOMAIN_EVENT_SCHEMA_PATH")); configured != "" {
+		abs, err := filepath.Abs(configured)
+		if err != nil {
+			return "", err
+		}
+		if _, err := os.Stat(abs); err == nil {
+			return abs, nil
+		}
+		return "", fmt.Errorf("GOATOS_DOMAIN_EVENT_SCHEMA_PATH does not exist: %s", abs)
+	}
 	candidates := []string{
+		filepath.Join("/app", "contracts", "jsonschema", "domain-event-envelope.schema.json"),
 		filepath.Join("contracts", "jsonschema", "domain-event-envelope.schema.json"),
 		filepath.Join("..", "contracts", "jsonschema", "domain-event-envelope.schema.json"),
 		filepath.Join("..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json"),

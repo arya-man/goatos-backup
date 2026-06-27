@@ -471,6 +471,31 @@ func TestMoveAndExitRequireEvidence(t *testing.T) {
 	}
 }
 
+func TestExitGoatRejectsMergeOrMismatchedReason(t *testing.T) {
+	svc := NewService(&fakeRepo{goats: map[string]*domain.GoatPassport{}})
+	_, err := svc.ExitGoat(context.Background(), ExitGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-exit-merged",
+		GoatID:         goatA,
+		RawBody:        []byte(`{"lifecycle_status":"merged","exit_reason":"lost","reason":"bad merge through exit","evidence_refs":[{"evidence_type":"source_record","evidence_id":"exit-ticket-merged"}],"row_version":1}`),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_lifecycle_status" {
+		t.Fatalf("merged exit err = %v, want invalid_lifecycle_status", err)
+	}
+	_, err = svc.ExitGoat(context.Background(), ExitGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-exit-mismatch",
+		GoatID:         goatA,
+		RawBody:        []byte(`{"lifecycle_status":"dead","exit_reason":"sold","reason":"bad lifecycle reason pair","evidence_refs":[{"evidence_type":"source_record","evidence_id":"exit-ticket-mismatch"}],"row_version":1}`),
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_exit_reason" {
+		t.Fatalf("mismatched exit err = %v, want invalid_exit_reason", err)
+	}
+}
+
 func validAddIdentifierInput() AddGoatIdentifierInput {
 	return AddGoatIdentifierInput{
 		TenantID:       testTenant,

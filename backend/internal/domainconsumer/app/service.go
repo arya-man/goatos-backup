@@ -2,9 +2,13 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"strings"
+	"time"
 
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -29,10 +33,38 @@ type Result struct {
 	Key       string
 }
 
+type ProcessedEvent struct {
+	TenantID        string
+	EventID         string
+	EventType       string
+	SubscriptionID  string
+	MessageID       string
+	DeliveryAttempt int
+	Now             time.Time
+}
+
+type ProcessDecision string
+
+const (
+	ProcessDecisionClaimed          ProcessDecision = "claimed"
+	ProcessDecisionAlreadyProcessed ProcessDecision = "already_processed"
+	ProcessDecisionInProgress       ProcessDecision = "in_progress"
+)
+
+var ErrEventProcessingInProgress = errors.New("domain event processing in progress")
+
+type ProcessedEventStore interface {
+	BeginProcessing(ctx context.Context, event ProcessedEvent) (ProcessDecision, error)
+	MarkProcessed(ctx context.Context, event ProcessedEvent) error
+	MarkFailed(ctx context.Context, event ProcessedEvent, reason string) error
+}
+
 type Service struct {
-	bus       eventbus.Bus
-	validator *outboxapp.EnvelopeValidator
-	log       *slog.Logger
+	bus            eventbus.Bus
+	validator      *outboxapp.EnvelopeValidator
+	processedStore ProcessedEventStore
+	now            func() time.Time
+	log            *slog.Logger
 }
 
 func NewService(bus eventbus.Bus, validator *outboxapp.EnvelopeValidator, log ...*slog.Logger) *Service {
@@ -42,7 +74,12 @@ func NewService(bus eventbus.Bus, validator *outboxapp.EnvelopeValidator, log ..
 	} else {
 		l = slog.Default()
 	}
-	return &Service{bus: bus, validator: validator, log: l}
+	return &Service{bus: bus, validator: validator, now: func() time.Time { return time.Now().UTC() }, log: l}
+}
+
+func (s *Service) WithProcessedEventStore(store ProcessedEventStore) *Service {
+	s.processedStore = store
+	return s
 }
 
 func (s *Service) Run(ctx context.Context, subscriber Subscriber, subscriptionID string) error {
@@ -52,10 +89,16 @@ func (s *Service) Run(ctx context.Context, subscriber Subscriber, subscriptionID
 	if subscriptionID == "" {
 		return fmt.Errorf("domain consumer subscription id is required")
 	}
-	return subscriber.Receive(ctx, subscriptionID, s.HandleMessage)
+	return subscriber.Receive(ctx, subscriptionID, func(ctx context.Context, message Message) error {
+		return s.handleMessage(ctx, subscriptionID, message)
+	})
 }
 
 func (s *Service) HandleMessage(ctx context.Context, message Message) (err error) {
+	return s.handleMessage(ctx, "direct", message)
+}
+
+func (s *Service) handleMessage(ctx context.Context, subscriptionID string, message Message) (err error) {
 	if s == nil || s.bus == nil {
 		return fmt.Errorf("domain consumer bus is not configured")
 	}
@@ -86,8 +129,50 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (err error
 	if err != nil {
 		return err
 	}
+	processed := ProcessedEvent{
+		TenantID:        event.TenantID,
+		EventID:         firstNonEmpty(envelopeEventID(message.Data), message.Attributes["event_id"], message.ID),
+		EventType:       event.Type,
+		SubscriptionID:  firstNonEmpty(subscriptionID, "direct"),
+		MessageID:       message.ID,
+		DeliveryAttempt: message.DeliveryAttempt,
+		Now:             s.now().UTC(),
+	}
+	claimed := false
+	if s.processedStore != nil {
+		decision, err := s.processedStore.BeginProcessing(ctx, processed)
+		if err != nil {
+			return err
+		}
+		switch decision {
+		case ProcessDecisionClaimed:
+			claimed = true
+		case ProcessDecisionAlreadyProcessed:
+			if s.log != nil {
+				s.log.InfoContext(ctx, "domain_event_duplicate_skipped",
+					slog.String("message_id", message.ID),
+					slog.String("event_id", processed.EventID),
+					slog.String("event_type", event.Type),
+					slog.String("tenant_id", event.TenantID),
+				)
+			}
+			return nil
+		case ProcessDecisionInProgress:
+			return fmt.Errorf("%w: event_id=%s subscription_id=%s", ErrEventProcessingInProgress, processed.EventID, processed.SubscriptionID)
+		default:
+			return fmt.Errorf("domain consumer processed-event store returned unknown decision %q", decision)
+		}
+	}
 	if err := s.bus.Publish(ctx, event); err != nil {
+		if claimed {
+			_ = s.processedStore.MarkFailed(ctx, processed, err.Error())
+		}
 		return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
+	}
+	if claimed {
+		if err := s.processedStore.MarkProcessed(ctx, processed); err != nil {
+			return err
+		}
 	}
 	if s.log != nil {
 		s.log.InfoContext(ctx, "domain_event_consumed",
@@ -99,4 +184,23 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (err error
 		)
 	}
 	return nil
+}
+
+func envelopeEventID(payload []byte) string {
+	var env struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(env.EventID)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

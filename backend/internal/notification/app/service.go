@@ -89,7 +89,7 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	}
 
 	var nextAttempt *time.Time
-	if request.DeliveryAttempts < s.config.MaxAttempts {
+	if !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
 		next := now.Add(s.backoff(request.DeliveryAttempts))
 		nextAttempt = &next
 	}

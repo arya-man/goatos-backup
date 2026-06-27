@@ -46,15 +46,18 @@ RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return idemReservation{}, err
 	}
-	var existingHash, resultType, resultID string
+	var existingHash, status, resultType, resultID string
 	if err := tx.QueryRow(ctx, `
-SELECT request_hash, COALESCE(result_type, ''), COALESCE(result_id::text, '')
+SELECT request_hash, status, COALESCE(result_type, ''), COALESCE(result_id::text, '')
 FROM idempotency_keys
-WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &resultType, &resultID); err != nil {
+WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &status, &resultType, &resultID); err != nil {
 		return idemReservation{}, err
 	}
 	if existingHash != fingerprint {
 		return idemReservation{}, ports.ErrIdempotencyConflict
+	}
+	if status != "completed" || resultType == "" || resultID == "" {
+		return idemReservation{}, ports.ErrIdempotencyInProgress
 	}
 	return idemReservation{proceed: false, resultType: resultType, resultID: resultID}, nil
 }

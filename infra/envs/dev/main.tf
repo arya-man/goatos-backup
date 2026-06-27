@@ -60,6 +60,10 @@ locals {
       account_id   = "goatos-scheduler-dev"
       display_name = "Goat OS dev scheduler invoker"
     }
+    cloud_tasks_enqueuer = {
+      account_id   = "goatos-cloud-tasks-dev"
+      display_name = "Goat OS dev Cloud Tasks OAuth enqueuer"
+    }
   }
 
   database_clients = toset([

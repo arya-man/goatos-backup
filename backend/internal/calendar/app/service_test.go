@@ -62,6 +62,20 @@ func TestServiceMapsIdempotencyConflictToConflict(t *testing.T) {
 	}
 }
 
+func TestServiceMapsIdempotencyInProgressToConflict(t *testing.T) {
+	svc := NewService(fakeRepo{nudgeErr: ports.ErrIdempotencyInProgress})
+	_, err := svc.SendNudge(context.Background(), ports.SendNudge{
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
+		ActorID:        "86000000-0000-4000-8000-000000009999",
+		IdempotencyKey: "same-key",
+	})
+	var appErr Error
+	if !errors.As(err, &appErr) || appErr.Code != "idempotency_in_progress" {
+		t.Fatalf("err = %v, want idempotency_in_progress", err)
+	}
+}
+
 func TestServiceRejectsInvalidNudgeActionBody(t *testing.T) {
 	svc := NewService(fakeRepo{})
 	_, err := svc.SendNudge(context.Background(), ports.SendNudge{

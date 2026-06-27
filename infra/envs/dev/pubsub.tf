@@ -29,7 +29,7 @@ resource "google_pubsub_subscription" "analytics_export" {
   name  = "goatos-dev-analytics-export"
   topic = google_pubsub_topic.outbox_events.id
 
-  ack_deadline_seconds       = 30
+  ack_deadline_seconds       = 300
   message_retention_duration = "604800s"
   retain_acked_messages      = false
 
@@ -45,7 +45,7 @@ resource "google_pubsub_subscription" "domain_events" {
   name  = "goatos-dev-domain-events"
   topic = google_pubsub_topic.outbox_events.id
 
-  ack_deadline_seconds       = 30
+  ack_deadline_seconds       = 300
   message_retention_duration = "604800s"
   retain_acked_messages      = false
 

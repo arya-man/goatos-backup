@@ -13,6 +13,7 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
+const maxDeadLetterReplays = 3
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -283,14 +284,16 @@ func (r *Repository) ReplayDeadLetters(ctx context.Context, params ports.ReplayD
 UPDATE outbox_messages
 SET status = 'pending',
     attempt_count = 0,
+    replay_count = replay_count + 1,
     next_attempt_at = $4::timestamptz,
     published_at = NULL,
     last_error = $3,
     updated_at = $4::timestamptz
 WHERE tenant_id = $1::uuid
   AND outbox_id::text = ANY($2::text[])
-  AND status IN ('dead_letter', 'failed')`,
-		params.TenantID, params.OutboxIDs, replayReason(params.Reason), params.Now)
+  AND status IN ('dead_letter', 'failed')
+  AND replay_count < $5`,
+		params.TenantID, params.OutboxIDs, replayReason(params.Reason), params.Now, maxDeadLetterReplays)
 	if err != nil {
 		return 0, fmt.Errorf("outbox: replay dead letters: %w", err)
 	}
@@ -300,8 +303,14 @@ WHERE tenant_id = $1::uuid
 func (r *Repository) execStatusUpdate(ctx context.Context, sql string, args ...any) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, sql, args...)
-	return err
+	tag, err := r.pool.Exec(ctx, sql, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("outbox: status update matched no publishing row")
+	}
+	return nil
 }
 
 func replayReason(reason string) string {
