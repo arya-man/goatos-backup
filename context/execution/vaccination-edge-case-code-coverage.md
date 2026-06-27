@@ -4,8 +4,8 @@ Date: 2026-06-27
 
 Purpose: record what the current Goat OS vaccination slice actually handles in
 code, which edge cases were missing or under-specified in the CEO-facing note,
-and which cases are still partial or not wired. This is an implementation audit,
-not product copy.
+and which cases remain partial, operationally gated, or not implemented. This is
+an implementation audit, not product copy.
 
 ## Code Evidence Rule
 
@@ -14,17 +14,49 @@ evidence in this audit. Wiki, handbook, SOP notes, proof packs, and legacy
 screens are useful for business expectation, but they are not used to mark
 something as implemented.
 
+## Post-Remediation Status
+
+This audit was updated after the six kernel remediation commits pushed on
+2026-06-27:
+
+- `3c4adfe` wires goat move/exit lifecycle APIs, outbox events, and obligation
+  shift/exit handlers.
+- `89b35f9` adds the domain Pub/Sub consumer fan-out path.
+- `39ded7c` adds dev Cloud Run job / Cloud Scheduler wiring plus a near-term
+  Cloud Tasks queue/adapter for reminder/escalation dispatch.
+- `75251a5` adds FCM and email notification gateway adapters.
+- `3af33ca` adds the `phc_director` role and routes level-3 PHC escalation to
+  that role.
+- `b24158a` adds escalation acknowledgement/resolution APIs and closes the full
+  active escalation ladder when a vaccination escalation is resolved.
+
+So the old "missing six" are no longer accurate as blanket gaps. The remaining
+caveats are narrower: Google resources are dev Terraform wiring until applied
+and verified in target projects; DLQ still has outbox CLI replay plus Pub/Sub
+DLQ policies but no ops triage UI or automatic DLQ alert; Opsgenie/PagerDuty-
+style incident integration is still not implemented; and shift handling remains
+a minimal re-scope of open, unbatched obligations rather than a full
+eligibility/batch recompute.
+
 ## Code Files Checked
 
 Implementation:
 
 - `backend/internal/bootstrap/api.go`
+- `backend/internal/identity/adapters/http/handler.go`
 - `backend/internal/identity/adapters/postgres/admin_goat_create.go`
+- `backend/internal/identity/adapters/postgres/goat_lifecycle.go`
 - `backend/internal/identity/adapters/postgres/identifier_write_integration_test.go`
+- `backend/internal/identity/app/goat_lifecycle.go`
 - `backend/internal/procurement/adapters/postgres/goat_created_outbox.go`
 - `backend/internal/procurement/app/service.go`
 - `backend/internal/procurement/app/service_test.go`
+- `backend/cmd/domain-event-consumer/main.go`
+- `backend/internal/domainconsumer/adapters/pubsub/subscriber.go`
+- `backend/internal/domainconsumer/app/service.go`
 - `backend/internal/platform/eventbus/eventbus.go`
+- `backend/internal/platform/eventbus/envelope.go`
+- `backend/internal/platform/taskqueue/cloudtasks.go`
 - `backend/internal/outbox/domain/types.go`
 - `backend/internal/outbox/app/service.go`
 - `backend/internal/outbox/adapters/postgres/repository.go`
@@ -60,13 +92,22 @@ Implementation:
 - `backend/internal/vaccinationexecution/adapters/postgres/repository.go`
 - `backend/internal/processintegrity/adapters/postgres/repository.go`
 - `backend/internal/adminui/app/service.go`
+- `backend/internal/permissions/permissions.go`
+- `backend/internal/permissions/routes.go`
 - `backend/migrations/postgres/000001_phase_1_identity_foundation.sql`
 - `backend/migrations/postgres/000074_obligation_engine.sql`
 - `backend/migrations/postgres/000083_procurement_source_entry.sql`
 - `backend/migrations/postgres/000086_calendar_vaccination_slice.sql`
 - `backend/migrations/postgres/000087_notification_delivery_escalation_kernel.sql`
+- `backend/migrations/postgres/000088_goat_lifecycle_identity_decisions.sql`
+- `backend/migrations/postgres/000089_phc_director_escalation_role.sql`
+- `backend/migrations/postgres/000090_escalation_ack_resolution_workflow.sql`
 - `infra/envs/dev/main.tf`
 - `infra/envs/dev/pubsub.tf`
+- `infra/envs/dev/cloud_run_jobs.tf`
+- `infra/envs/dev/cloud_tasks.tf`
+- `infra/envs/dev/iam.tf`
+- `infra/envs/dev/services.tf`
 - `infra/envs/dev/README.md`
 - `apps/admin-web/features/process-integrity/action-center.tsx`
 - `apps/admin-web/features/process-integrity/work-board.tsx`
@@ -89,19 +130,19 @@ This checks the screenshot architecture against actual code, not docs.
 
 | Kernel layer | Code status | Evidence | Actual miss / caveat |
 | --- | --- | --- | --- |
-| Goat event -> canonical transaction | Implemented for admin goat create and procurement accepted intake. | `CreateAdminGoat` writes goat row, location history, identity decision/event, audit row, outbox row, idempotency row, then commits once. Procurement accepted intake also emits `goat.created` plus audit/outbox in the caller transaction. | General `goat.shifted`, `goat.exited`, and `goat.stage_changed` event emission is not proven for all lifecycle paths. |
-| Postgres as source of truth | Implemented. | Canonical tables include `goats`, `goat_identity_events`, `audit_log`, `outbox_messages`, `obligation_instances`, batches, SOP tasks, completions, projections, and notification requests. | Good foundation, but some lifecycle handlers are not wired into runtime. |
+| Goat event -> canonical transaction | Implemented for admin goat create, procurement accepted intake, admin goat move, and admin goat exit. | `CreateAdminGoat`, `MoveGoat`, and `ExitGoat` write canonical goat/location/lifecycle state, audit/history, idempotency, identity events, and outbox rows in transaction. Procurement accepted intake also emits `goat.created` plus audit/outbox in the caller transaction. | `goat.stage_changed` event emission/handling is still not implemented. Lifecycle changes outside these APIs must emit the same events to get the same behavior. |
+| Postgres as source of truth | Implemented. | Canonical tables include `goats`, `goat_identity_events`, `audit_log`, `outbox_messages`, `obligation_instances`, batches, SOP tasks, completions, projections, notification requests, and obligation escalation rows. | Google transports/jobs are operational delivery, not truth; Postgres remains canonical. |
 | Outbox relay | Implemented as a CLI/service path. | `outbox-relay` claims pending rows, validates envelopes, publishes via logging, local eventbus, or GCP Pub/Sub adapter, then marks rows published/retry/dead-letter. `outbox-dlq` can list and replay selected failed/dead-letter rows to pending. | It is a relay binary; deployment/scheduling must run it continuously or frequently. DLQ replay is CLI-backed, not a full triage UI or automatic DLQ alert. |
-| Pub/Sub publish side | Partially implemented. | Pub/Sub publisher adapter exists and `infra/envs/dev/pubsub.tf` creates outbox topic, DLQ topic, and an analytics subscription with `dead_letter_policy`. | The DLQ policy found is for the analytics subscription. No domain Pub/Sub subscriber/consumer code was found that receives messages and invokes Goat OS handlers. Fan-out listeners are not end-to-end implemented through Pub/Sub yet. |
-| DLQ management | Partially implemented. | Outbox rows can move to `dead_letter`; `outbox-dlq` lists and replays selected failed/dead-letter rows; Pub/Sub analytics subscription has a DLQ topic/policy. | No checked DLQ triage UI or automatic DLQ alerting was found. Pub/Sub DLQ is still analytics-only, not domain subscriber redrive. |
-| Local eventbus listeners | Partially implemented. | API bootstrap registers vaccination verification handlers and also subscribes `GoatCreatedHandler`, but the checked API process only feeds that bus from SOP verification fanout. Outbox relay eventbus mode registers and feeds `goat.created` from outbox messages. | The API-process `GoatCreatedHandler` subscription appears inert for real goat-created flow; actual new-goat generation depends on outbox relay running in local/eventbus mode. `goat.shifted` and `goat.exited` handlers exist and have integration tests, but were not registered in the checked runtime paths. |
-| Obligation consumer | Implemented for `goat.created` only when outbox relay dispatches it, partial for other goat lifecycle events. | `NewGoatCreatedHandler` calls `GenerateForGoat`; generation suppresses trusted existing evidence and writes obligation rows/idempotency. | Existing-goat generation is not triggered by publish itself; it requires the generation/backfill CLI/job. New-goat generation requires `goat.created` outbox delivery through outbox-relay eventbus mode because Pub/Sub has no domain consumer. |
-| Projection refresher | Implemented as CLI/job code. | `calendar-vaccination-projector` refreshes `calendar_event_projections` from canonical vaccination state. | No Terraform/infra Cloud Scheduler job resource was found for this command. |
-| Time sweeper | Implemented as CLI/job code. | `obligation-sweeper` scans due obligations and groups them into shed/scope batches, with optional SOP task and stock reserve. | No Terraform/infra Cloud Scheduler job resource was found for this command. |
-| Cloud Tasks | Not implemented in checked code. | Search did not find Cloud Tasks client, queue resources, or `tasks.googleapis.com` usage. | The screenshot's "Cloud Tasks near-term only" box should not be claimed yet. |
-| Notifier/reminder | Partially implemented. | Calendar nudge/reminder code inserts `notification_requests`, audit rows, outbox messages, and updates reminder state. `notification-dispatcher` claims queued/failed rows, marks local-stub/webhook/Slack-webhook sends sent/failed, and retries with backoff. | Real FCM/email vendor adapters are not implemented; unconfigured channels fail visibly. Admin UI top-bar notifications are still disabled in the checked service code. |
-| Escalator | Partially implemented. | `calendar-escalation-sweeper` applies SLA thresholds, queues escalation notifications, updates projection escalation state, and writes `obligation_escalations` for obligation-backed events. | The role ladder is bounded by current DB roles: operator/verifier -> park_head -> admin -> ceo_internal. No PHC-director role, acknowledgement/resolution workflow, or Opsgenie integration was added. |
-| Waterfall SLA escalation | Partially implemented. | `calendar-escalation-sweeper` supports configurable level thresholds and idempotent escalation queues. | Requires scheduling/deployment; no Terraform Scheduler job was found/added in this pass. Non-obligation Calendar events get escalation notifications but not `obligation_escalations` rows. |
+| Pub/Sub publish/consume fan-out | Implemented for domain events. | Pub/Sub publisher adapter exists; `domain-event-consumer` receives messages from a domain subscription, validates envelopes, and dispatches to registered Goat OS handlers. Dev Terraform creates the outbox topic, domain subscription, analytics subscription, and DLQ topic/policies. | Google resources still need apply/verification per target environment. DLQ alerting/triage UI is not implemented. |
+| DLQ management | Partially implemented. | Outbox rows can move to `dead_letter`; `outbox-dlq` lists and replays selected failed/dead-letter rows; dev Pub/Sub subscriptions have DLQ policy. | No checked DLQ triage UI or automatic DLQ alerting was found. |
+| Local eventbus listeners | Implemented for current goat/vaccination handlers. | API bootstrap and domain-event-consumer register goat lifecycle handlers plus vaccination verification; outbox-relay local/eventbus mode registers the goat lifecycle handlers needed for outbox goat events. | API-process goat lifecycle subscriptions still depend on an event being published to that in-process bus; real goat lifecycle delivery is through outbox relay/local bus or Pub/Sub domain consumer. |
+| Obligation consumer | Implemented for `goat.created`, canonical `goat.location.changed` / legacy `goat.shifted`, and `goat.exited` event delivery. | `GoatCreatedHandler` generates new-goat vaccination obligations; `GoatShiftedHandler` re-scopes open unbatched obligations; `GoatExitedHandler` cancels open obligations. | Existing-goat generation is not triggered by publish itself; it requires the generation/backfill job. Shift behavior is minimal and does not fully recompute eligibility or move already-batched work. |
+| Projection refresher | Implemented as CLI/job code and dev Scheduler wiring. | `calendar-vaccination-projector` refreshes `calendar_event_projections`; dev Terraform schedules the Cloud Run job. | Verified deployment/apply is environment-specific. |
+| Time sweeper | Implemented as CLI/job code and dev Scheduler wiring. | `obligation-sweeper` scans due obligations and groups them into shed/scope batches, with optional SOP task and stock reserve; dev Terraform schedules the job. | Verified deployment/apply is environment-specific. |
+| Cloud Tasks | Implemented for near-term kernel dispatch. | `platform/taskqueue/cloudtasks.go` wraps Cloud Tasks, dev Terraform creates `near_term_kernel`, and reminder/escalation sweepers can enqueue the notification-dispatcher job URL. | Far-future business truth still lives in Postgres; Cloud Tasks is transport for near-term dispatch only. |
+| Notifier/reminder | Implemented with configurable adapters. | Calendar nudge/reminder code inserts `notification_requests`, audit rows, outbox messages, and updates reminder state. `notification-dispatcher` claims queued/failed rows and sends local-stub, generic webhook, Slack webhook, email webhook, and FCM HTTP v1 requests with retry/backoff. | Real delivery depends on secrets/config; unconfigured channels fail visibly for retry/ops review. |
+| Escalator | Implemented except incident vendor integration. | `calendar-escalation-sweeper` applies SLA thresholds, queues escalation notifications, updates projection escalation state, writes `obligation_escalations`, routes level 3 to `phc_director`, and level 4 to `ceo_internal`. Ack/resolve APIs update escalation state, audit/outbox/history, mark notifications read, and resolve all active ladder rows. | Opsgenie/PagerDuty-style incident integration is not implemented. |
+| Waterfall SLA escalation | Implemented with caveats. | `calendar-escalation-sweeper` supports configurable level thresholds and idempotent queues; dev Terraform schedules it; resolution closes the full active escalation ladder. | Non-obligation Calendar events get escalation notifications but not `obligation_escalations` rows. |
 | Frontend surfaces | Implemented for read/action surfaces, not full operator app. | Admin-web uses real backend APIs for vaccination execution, calendar, nudge/snooze, process integrity, and config. | Admin-web does not prove full field/operator SOP submission E2E; mobile/operator console remains separate. |
 
 ## Whole Event System Gap Check
@@ -114,62 +155,64 @@ completion. The current code implements only part of that kernel end to end.
 Code-backed today:
 
 - Postgres canonical transaction and outbox rows for admin/procurement goat
-  creation.
+  creation, admin goat move, and admin goat exit.
 - Outbox relay with retry, exponential backoff, failed, and `dead_letter`
   statuses.
-- Local/eventbus delivery path for `goat.created` when `outbox-relay` runs in
-  eventbus mode.
+- Local/eventbus delivery path for `goat.created`, canonical
+  `goat.location.changed` / legacy `goat.shifted`, and `goat.exited` when
+  `outbox-relay` runs in eventbus mode.
+- Domain Pub/Sub consumer fan-out through `domain-event-consumer`, with dev
+  Pub/Sub topic/subscription/DLQ Terraform.
 - Vaccination generation, duplicate suppression, per-shed obligation batching,
   SOP/proof fanout, verification, completion, booster scheduling, and
   projection refresh commands.
 - Durable `notification_requests` rows for reminders/nudges, plus outbox/audit
   records.
 - Notification dispatch worker for local-stub, configured generic webhook, and
-  configured Slack webhook channels, with delivery leases, retry backoff, and
-  sent/failed marking.
+  configured Slack webhook, email webhook, and FCM HTTP v1 channels, with
+  delivery leases, retry backoff, and sent/failed marking.
 - SLA escalation sweeper for overdue Calendar/Vaccination work, with
-  operator/verifier -> park_head -> admin -> ceo_internal levels and
+  operator/verifier -> park_head -> phc_director -> ceo_internal levels and
   obligation-backed escalation rows when the Calendar event maps to an
   obligation.
+- Escalation acknowledgement/resolution APIs, status events, outbox/audit rows,
+  notification read marking, and full active-ladder closure on resolution.
+- Dev Cloud Run job / Cloud Scheduler Terraform for outbox relay, domain event
+  consumer, vaccination generator, obligation sweeper, calendar projector,
+  reminder sweeper, escalation sweeper, and notification dispatcher.
+- Near-term Cloud Tasks queue/adapter for scheduler-triggered notification
+  dispatch from reminder/escalation sweepers.
 - Outbox DLQ list/replay CLI for selected failed/dead-letter rows.
-- Pub/Sub topic infrastructure and an analytics subscription DLQ policy in dev.
 
 Not code-backed end to end yet:
 
-- Domain Pub/Sub subscriber fan-out that receives events and calls Goat OS
-  handlers.
 - DLQ management beyond CLI replay: no triage UI or automatic DLQ alerting was
   found.
-- Cloud Tasks queueing/dispatch for near-term work.
-- Terraform/infra Cloud Scheduler jobs for generation, sweeper, projector,
-  reminder sweeper, or outbox relay.
-- FCM/email vendor notification adapters.
-- PHC-director-specific escalation role, acknowledgement/resolution workflow,
-  and Opsgenie-style incident integration.
 - Opsgenie or equivalent incident integration.
+- Production/staging application of dev Terraform and runtime secrets for
+  Pub/Sub, Cloud Tasks, Scheduler, FCM, email, and Slack/webhook delivery.
 
-## Stated But Not Live
+## CEO Claims Now Live With Caveats
 
-These two CEO-note claims are the riskiest because they read like live runtime
-guarantees, but the generic event paths are not wired:
+These two CEO-note claims were previously the riskiest. They are now code-backed
+for the admin lifecycle APIs and outbox/domain-consumer path, with the caveats
+below:
 
 1. **"If goat shifts to another shed, pending vaccination work moves to the new
    shed."**
-   Code exists for this as `GoatShiftedHandler`, and tests manually register it
-   on an in-process bus. The checked live wiring in API bootstrap and
-   `outbox-relay` does not register it. Also, the implemented behavior is
-   minimal: it only re-scopes open, unbatched obligations; it does not move
+   `POST /admin/goats/{goat_id}/move` writes the canonical move event/outbox,
+   and `GoatShiftedHandler` is registered in API bootstrap, outbox-relay
+   eventbus mode, and domain-event-consumer. The implemented obligation behavior
+   is still minimal: it re-scopes open, unbatched obligations; it does not move
    already-batched work or fully recompute eligibility.
 
 2. **"If goat is dead / sold / exited, pending vaccination work is cancelled."**
-   Code exists for generic `GoatExitedHandler`, and tests manually register it
-   on an in-process bus. The checked live wiring in API bootstrap and
-   `outbox-relay` does not register it. Procurement ineligible/excluded flows
-   are a separate exception: procurement service calls `CancelOpenForGoat`
-   directly, and the DB has a guard that blocks active vaccination obligations
-   for procurement-excluded or exited/dead/sold goats on obligation writes. That
-   guard is not the same as automatically cancelling already-open obligations
-   after a generic goat lifecycle change.
+   `POST /admin/goats/{goat_id}/exit` writes the canonical exit event/outbox,
+   and `GoatExitedHandler` is registered in API bootstrap, outbox-relay
+   eventbus mode, and domain-event-consumer. Procurement ineligible/excluded
+   flows remain a separate wired path: procurement service calls
+   `CancelOpenForGoat` directly, and the DB guard blocks active vaccination
+   obligation writes for excluded/exited goats.
 
 ## Non-Code Context: Not Implementation Proof
 
@@ -261,14 +304,14 @@ to "implemented" unless the code sections above prove it.
 
 | Sent claim | Current status | Safer internal wording |
 | --- | --- | --- |
-| `Config -> Due List -> Shed Drive -> SOP Execution -> Proof -> Verification -> Completion -> Alerts` | Mostly right, but each arrow depends on jobs/events. Alerts now have worker foundations, not full vendor/cloud completion. | Config publishes rules; generation/backfill creates obligations; sweeper creates drives; SOP/proof/verification completes work; calendar jobs project and queue reminders/escalations; notification-dispatcher sends local-stub/webhook/Slack-webhook channels. |
+| `Config -> Due List -> Shed Drive -> SOP Execution -> Proof -> Verification -> Completion -> Alerts` | Mostly right, but each arrow depends on jobs/events. Alerts now have Pub/Sub, scheduler, Cloud Tasks, dispatcher, FCM/email/webhook/Slack, PHC Director escalation, and ack/resolve foundations in code. | Config publishes rules; generation/backfill creates obligations; sweeper creates drives; SOP/proof/verification completes work; calendar jobs project and queue reminders/escalations; notification-dispatcher sends configured local-stub/webhook/Slack/email/FCM channels; escalation ack/resolve closes the active SLA ladder. |
 | Config is the approved vaccination rule. | Too broad. Publish gate is stricter than approval. | Config is a source-backed, approved, published protocol version with executable SOP and proof policy. |
 | Config includes which vaccine / group / age / stage / dose / booster / SOP / proof / approver. | Right as a product model. Current source-backed roster is narrower. | This is the intended config model; only source-backed schedule rows generate obligations. Current dev schedule-backed row is ET/K1/day-21. |
 | Config maintained in Admin / Data Ops -> Config -> Vaccination. | Correct for admin surface. | Keep. Add that PHC can draft/propose; COO/CEO publish per authority model. |
 | Vaccination page only shows live work. | Correct directionally. | Keep. It is an operations/status surface, not the rule-authoring source of truth. |
 | Once an approved rule is published, system checks goats and creates due list. | Overclaims automation. `PublishVersion` does not run old-goat generation. | After publish, existing goats need the generation/backfill job; new goats need `goat.created` outbox delivery to the handler; both paths are idempotent. |
 | Existing goats get marked by background check. | True only if the CLI/job is run/scheduled. | Existing-goat due list is created by `generate-vaccination-obligations`, not automatically inside publish. |
-| New goats are checked automatically. | Handler exists, but real delivery is narrower than the earlier wording. `goat.created` is written to identity events/outbox; the checked API in-process bus subscription is not fed by goat creation. Outbox relay local/eventbus mode can deliver it. Pub/Sub publish exists, but no Pub/Sub consumer was found. | New goats are handled only when `goat.created` is emitted to outbox and `outbox-relay` dispatches it to the vaccination generation handler in local/eventbus mode; Pub/Sub fan-out is not end-to-end yet. |
+| New goats are checked automatically. | Implemented through event delivery, not directly inside the create HTTP transaction. `goat.created` is written to identity events/outbox; outbox-relay local/eventbus mode and the Pub/Sub domain consumer can deliver it to the generation handler. | New goats are handled when `goat.created` is emitted to outbox and delivered by outbox-relay local/eventbus mode or the domain Pub/Sub consumer. |
 | System groups due goats shed-wise. | Implemented by the `obligation-sweeper` job for existing due obligations. | Sweeper groups due obligations by shed/scope into one batch/drive when the worker/CLI runs; this is not automatic inside publish. |
 | 45 goats in Shed A become one drive, not 45 tasks. | Correct for the sweeper batch model. | Keep, with "assuming the obligations share the same drive window/protocol scope." |
 | Operator follows SOP, uploads video/proof, verifier checks. | Backend path and SOP seed exist; admin-web is not the operator app. | SOP/proof/verification exists in backend; field/operator UI E2E remains separate from this audit. |
@@ -277,15 +320,15 @@ to "implemented" unless the code sections above prove it.
 | Draft/not approved creates no work. | Correct; generation reads published versions. | Keep. |
 | Trusted history avoids duplicate work. | Correct but narrow. | Trusted, reviewed matching HF/procurement/completion evidence suppresses matching dose generation. |
 | Sick / ICU / quarantine kept on hold with reason. | Partially implemented and config-gated. Generation records `deferred` only when the published rule DSL has `eligibility.defer_states`; otherwise in-care sick/quarantine/ICU goats can get normal scheduled obligations. Full recovery re-evaluation is not proven. | The system can show a deferred/blocked reason only for rules configured with defer states; re-check-on-recovery should be tracked separately. |
-| Goat shifts: pending work moves to new shed. | Handler/repo/tests exist, but live bootstrap/outbox registration was not found. Minimal only. | Code can re-scope open, unbatched obligations; live event wiring and full shift recompute are still gaps. |
-| Dead/sold/exited: pending work canceled. | Generic `goat.exited` handler/repo/tests exist, but live bootstrap/outbox registration was not found. Procurement ineligible/excluded flows do call `CancelOpenForGoat` directly, and a DB guard blocks active vaccination writes for excluded/exited goats. | Claim automatic generic exit cancellation only after `goat.exited` is emitted and the handler is wired. Procurement cancellation is a separate wired path. |
+| Goat shifts: pending work moves to new shed. | Implemented for admin move event delivery, with a limited behavior. | Admin goat move emits canonical `goat.location.changed`; the registered shift handler also keeps the legacy `goat.shifted` alias. The handler re-scopes open, unbatched obligations. Full eligibility recompute / already-batched drive migration is still not implemented. |
+| Dead/sold/exited: pending work canceled. | Implemented for admin exit event delivery and procurement direct cancellation. | Admin goat exit emits `goat.exited`; registered handlers cancel open obligations. Procurement cancellation is separately wired; DB guard blocks active vaccination writes for excluded/exited goats. |
 | Vaccination date passes: overdue/missed. | Yes, but UI states differ. | Calendar/execution show overdue; process-integrity can expose missed as blocked/gap reason. |
 | Stock missing/expired blocks work. | Partial. Preview warns; reservation is best-effort; expired-lot hard guard not proven. | Stock shortage/expiry is surfaced as warning/blocker/readiness risk; hard execution blocking needs proof/fix. |
 | Proof not uploaded -> pending proof. | Supported in read models / proof state. | Keep, but tie it to SOP/proof submission state. |
 | Rule changes later: old completed work stays old; new work follows new approved rule. | Completed work immutability is right. Auto-cancel/supersede of old open work not confirmed. | Published/completed history stays under its version; open old-version obligations need explicit supersede/cancel policy. |
 | Booster created after previous verified dose. | Correct. | Keep. |
 | Calendar/Action Center/Alerts show due/overdue/missed/pending proof/pending verification/blocked/completed. | Mostly true, but Calendar is a projection; `missed` may appear as blocked/gap, not literal execution filter. Projection refresh is a CLI/job path, not proven as scheduled infra. | Calendar and work surfaces project due, overdue, proof, verification, blocked/deferred, completed, and missed/gap cases once projector has refreshed. |
-| Reminder/nudge can be sent; if still not completed, escalate higher. | Partially implemented. Nudge/reminder/escalation rows can be queued; notification-dispatcher marks local-stub/webhook/Slack-webhook channels sent/failed; calendar-escalation-sweeper applies SLA thresholds. | Do not claim FCM/email vendor delivery, PHC-director-specific role routing, acknowledgement/resolution workflow, Opsgenie, or Cloud Scheduler deployment yet. |
+| Reminder/nudge can be sent; if still not completed, escalate higher. | Implemented with operational caveats. Nudge/reminder/escalation rows can be queued; notification-dispatcher handles configured local-stub/webhook/Slack/email/FCM channels; calendar-escalation-sweeper applies SLA thresholds and routes level 3 to PHC Director; ack/resolve APIs exist. | Do not claim Opsgenie/PagerDuty integration or verified production deployment until those are applied/tested. |
 | System shows why blocked or missed. | Partially true. Process-integrity/execution blocker reasons exist; not every path has a polished reason. | Work surfaces expose blocker/gap reasons where derived from canonical state. |
 
 ## Covered In Code, But Missing Or Too Light In The CEO Note
@@ -356,11 +399,12 @@ to "implemented" unless the code sections above prove it.
    (`calendar-vaccination-projector`) must run/refresh from canonical
    obligations, batches, SOP tasks, proof, and verification state.
 
-12. **Reminders/nudges are queued, not guaranteed delivered to every channel.**
+12. **Reminders/nudges are queued, with configurable delivery adapters.**
    Calendar nudge/snooze APIs, reminder sweeper, `notification_requests`, audit,
    and outbox writes exist. `notification-dispatcher` now marks local-stub,
-   configured generic webhook, and configured Slack-webhook requests sent/failed
-   with retry backoff. FCM/email vendor adapters are still not implemented.
+   configured generic webhook, configured Slack-webhook, email webhook, and FCM
+   HTTP v1 requests sent/failed with retry backoff. Real delivery still depends
+   on environment secrets/config.
 
 13. **Booster generation is tied to accepted verification.**
     The booster is scheduled only after an accepted completion, using the actual
@@ -387,60 +431,49 @@ to "implemented" unless the code sections above prove it.
     schedule-backed local/dev baseline. Due-list generation must stay tied to
     source-backed published protocol rows, not to labels in a dropdown.
 
-18. **Outbox DLQ foundation plus CLI replay exists.**
+18. **Outbox DLQ foundation plus CLI replay / Pub/Sub DLQ policies exist.**
     The outbox service can retry and then mark poison messages as `dead_letter`.
     `outbox-dlq` can list and replay selected failed/dead-letter rows back to
-    pending. Dev Pub/Sub also has an analytics subscription DLQ policy. DLQ
-    triage UI and automatic DLQ alerting are still not implemented.
+    pending. Dev Pub/Sub has domain and analytics subscriptions with DLQ
+    policies. DLQ triage UI and automatic DLQ alerting are still not
+    implemented.
 
-## Partially Implemented Or Operationally Gated
+## Implemented With Operational Caveats
 
 1. **Existing-goat trigger after publish**
-   Code exists as a CLI/job, but there is no evidence in the checked files that
-   `PublishVersion` automatically invokes it. Operations must run/schedule
-   `generate-vaccination-obligations` after publishing a version.
+   Code exists as a CLI/job and dev Scheduler job, but `PublishVersion` still
+   does not synchronously invoke it. Existing goats are materialized by
+   `generate-vaccination-obligations`.
 
-2. **`goat.created` trigger**
-   The handler exists and is subscribed on the API in-process bus, but the
-   checked API process feeds that bus from SOP verification fanout, not from
-   goat creation. Goat creation writes `goat.created` into identity events and
-   `outbox_messages`. The working checked delivery path is `outbox-relay` in
-   local/eventbus mode, which decodes outbox envelopes and publishes them to its
-   in-process bus. Pub/Sub publish exists, but a Pub/Sub subscriber that
-   delivers `goat.created` into the handler was not found.
+2. **`goat.created` / `goat.location.changed` / `goat.exited` delivery**
+   The handlers are registered in API bootstrap, outbox-relay eventbus mode, and
+   domain-event-consumer. Real lifecycle automation depends on the corresponding
+   outbox event being emitted and delivered by the relay or Pub/Sub consumer.
 
 3. **Outbox retry/dead-letter handling**
    The outbox service has retry/backoff, stale-publish reclaim, failed status,
    and `dead_letter` status when max attempts are exhausted. `outbox-dlq`
-   provides bounded list/replay for selected terminal rows. This is CLI
-   management, not a full DLQ operation center: no triage screen or automatic
-   alert on dead-letter rows was added.
+   provides bounded list/replay for selected terminal rows. This is not a full
+   DLQ operation center: no triage screen or automatic alert on dead-letter rows
+   was added.
 
 4. **Goat shift handling**
-   `goat.shifted` handler and repository code exist, with integration tests, but
-   the checked API bootstrap/outbox relay only registers `goat.created` and
-   vaccination verification handlers. Also, shift handling is explicitly
+   Canonical `goat.location.changed` is live for admin move events, with
+   `goat.shifted` retained as a legacy alias in the handler. Shift handling is
    minimal: it re-scopes open, unbatched obligations; it does not fully
    re-evaluate eligibility, move already-batched work, or create individual
    catch-up work when the destination drive is already completed.
 
 5. **Goat exited/dead/sold handling**
-   `goat.exited` cancellation handler and repository code exist, with
-   integration tests, but the checked API bootstrap/outbox relay does not
-   register this handler. Unless another composition path wires it, open
-   obligations will not be canceled automatically from a real emitted event.
-   Procurement rejected/deferred/blocked/source-only/excluded paths are different:
-   they are wired through `WithVaccinationCanceler(obligationRepo)` and call
-   `CancelOpenForGoat` directly. The DB guard also blocks active vaccination
-   obligation writes for excluded/exited goats, but it does not by itself emit a
-   cancellation event for an already-open generic goat lifecycle change.
+   `goat.exited` is live for admin exit events and procurement cancellation is
+   wired directly. Any lifecycle update path outside those APIs must emit the
+   same event or call the same cancellation boundary.
 
 6. **Stock shortage / expiry**
    Impact preview warns on shortage and early expiry. FEFO pick/reserve/consume
    exists, but reservation is best-effort: no available stock is a no-op, and
-   partial reserve is allowed. The current FEFO pick orders by `expiry_date` but
-   does not visibly filter out already-expired lots in the checked query. Do not
-   claim hard stock-out/expired-lot blocking unless E2E proves the exact path.
+   partial reserve is allowed. Do not claim hard stock-out/expired-lot blocking
+   unless E2E proves the exact path.
 
 7. **Missing DOB / entry date**
    `birth_age` rules need DOB and `post_arrival` rules need entry date. If that
@@ -448,32 +481,30 @@ to "implemented" unless the code sections above prove it.
    no obligation, defer reason, alert, or visible per-goat blocker was found.
 
 8. **Escalation**
-   Calendar projections have `escalation_state`, the UI can display it, and
-   seeded/dev rows include pending escalation examples. The
-   `calendar-escalation-sweeper` command now applies configurable SLA thresholds,
-   queues escalation
-   notifications, updates projection state, and creates `obligation_escalations`
-   for obligation-backed Calendar events. The ladder is limited to existing DB
-   roles: operator/verifier -> park_head -> admin -> ceo_internal.
+   Calendar escalation is now code-backed: configurable SLA thresholds, durable
+   escalation notifications, `obligation_escalations`, PHC Director level 3,
+   CEO/internal level 4, acknowledgement, resolution, history/audit/outbox, and
+   full active-ladder closure on resolve. Opsgenie/PagerDuty-style incident
+   integration is still not implemented.
 
 9. **Calendar reminder delivery**
-   The sweeper queues reminder notification requests and outbox messages for
-   due vaccination events. `notification-dispatcher` claims queued/failed rows
-   with leases and marks local-stub, configured webhook, and configured
-   Slack-webhook channels sent/failed. Email and FCM vendor delivery are still
-   not implemented.
+   `notification-dispatcher` claims queued/failed rows with leases and sends
+   local-stub, configured webhook, configured Slack webhook, email webhook, and
+   FCM HTTP v1 channels. Real delivery depends on configured URLs/tokens/service
+   accounts in the target environment.
 
 10. **Scheduler wiring**
-   CLI/job code exists for outbox relay, existing-goat generation, obligation
-   sweeping, calendar projection refresh, reminder sweeping, escalation
-   sweeping, notification dispatch, and DLQ replay. No checked Terraform/infra
-   code defines Cloud Scheduler jobs for those commands.
+   Dev Terraform defines Cloud Run Jobs and Cloud Scheduler jobs for outbox
+   relay, domain event consumer, existing-goat generation, obligation sweeping,
+   calendar projection refresh, reminder sweeping, escalation sweeping, and
+   notification dispatch. It must still be applied and verified in each target
+   Google project.
 
 11. **Rule change in flight**
    Published versions are immutable and generated work keeps its version. A new
-   version does not automatically rewrite old completed work. However,
-   automatically superseding/canceling already-open obligations from an older
-   version was not confirmed in the checked code.
+   version does not automatically rewrite old completed work. Automatically
+   superseding/canceling already-open obligations from an older version was not
+   confirmed in the checked code.
 
 12. **Cold-chain enforcement**
    The SOP seed says cold chain must be verified before submitting. Runtime
@@ -486,72 +517,51 @@ to "implemented" unless the code sections above prove it.
     task creation, or escalation to Health/PHC was not found.
 
 14. **Production/deployed delivery**
-    Local backend proof exists. External delivery still depends on target Google
-    resources, Pub/Sub subscriber/consumer code, Cloud Run/Scheduler/outbox
-    configuration, notification processors, and verified deployment context.
+    Local backend proof and dev Terraform exist. External delivery still depends
+    on target Google project apply, secrets, IAM, Pub/Sub, Cloud Tasks, Scheduler,
+    notification vendor configuration, and deployed runtime verification.
 
 ## Not Implemented / Do Not Claim Yet
 
-1. **Domain Pub/Sub consumer / listener fan-out**
-   Pub/Sub publish support and topic infra exist, but no checked backend binary
-   receives Pub/Sub messages and dispatches them to the Goat OS domain handlers.
+1. **DLQ triage UI / automatic DLQ alerting**
+   Outbox dead-letter status, selected-row CLI list/replay, and Pub/Sub DLQ
+   policies exist. No checked UI or automatic alerting path lets operations
+   triage/escalate dead-lettered domain messages.
 
-2. **DLQ triage UI / automatic DLQ alerting**
-   Outbox dead-letter status, selected-row CLI list/replay, and an analytics
-   Pub/Sub DLQ policy exist. No checked UI or automatic alerting path lets
-   operations triage/escalate dead-lettered domain messages.
+2. **Opsgenie/PagerDuty-style incident integration**
+   SLA escalation rows and notification dispatch exist. An incident-management
+   adapter/workflow is still not implemented.
 
-3. **Cloud Tasks near-term queue**
-   No checked backend or infra code uses Cloud Tasks clients, queues, or
-   `tasks.googleapis.com`. Do not claim Cloud Tasks is part of the current
-   execution kernel.
-
-4. **Cloud Scheduler resources for the vaccination jobs**
-   Job binaries exist, but no checked Terraform resource wires scheduler jobs for
-   generation, obligation sweeper, projector, reminder sweeper, escalation
-   sweeper, notification dispatcher, DLQ monitoring/replay, or outbox relay.
-
-5. **FCM/email notification vendor adapters**
-   `notification-dispatcher` handles local-stub, configured generic webhook,
-   and configured Slack webhook channels. FCM and email vendor adapters are not
-   implemented; unconfigured channels fail visibly for retry/ops review.
-
-6. **`goat.stage_changed` runtime trigger**
+3. **`goat.stage_changed` runtime trigger**
    The state-machine docs mention `goat.stage_changed`, and stage-driven rules
    exist in config, but no runtime `goat.stage_changed` handler was found.
 
-7. **Manual campaign trigger**
+4. **Manual campaign trigger**
    `manual_campaign` is allowed by schema and appears in config UI options, but
    generation explicitly skips it as manual. No campaign trigger handler was
    found.
 
-8. **Full shift recompute**
+5. **Full shift recompute**
    The spec-level behavior includes eligibility re-evaluation after shift,
    moving to destination batch, individual catch-up when needed, and canceling
    if no longer eligible. Current code only re-scopes open, unbatched
    obligations.
 
-9. **Full business-specific SLA escalation lifecycle**
-   `calendar-escalation-sweeper` implements configurable threshold levels using
-   existing DB roles. Do not claim PHC Director routing, acknowledgement/
-   resolution workflow, Opsgenie/PagerDuty integration, or Cloud Scheduler
-   deployment yet.
-
-10. **Hard expired-stock prevention at execution**
+6. **Hard expired-stock prevention at execution**
    The checked stock code does not prove a hard runtime block for expired lots.
    Treat expiry as preview/readiness warning unless a later E2E or code path
    proves enforcement.
 
-11. **Automatic recovery re-evaluation for deferred goats**
+7. **Automatic recovery re-evaluation for deferred goats**
    The state-machine docs expect re-evaluation when ICU/quarantine/sick status
    clears. The current audit found visible deferral, but not a complete recovery
    trigger that reopens/regenerates due work.
 
-12. **Automatic health follow-up for adverse reaction**
+8. **Automatic health follow-up for adverse reaction**
    No runtime path was found that turns `adverse_reaction=true` into a Health
    case, treatment plan, or follow-up obligation.
 
-13. **Generating obligations from label-only vaccines**
+9. **Generating obligations from label-only vaccines**
    Do not claim due-list generation for PPR/FMD/HS/BQ until source-backed
    schedules are approved and published.
 
@@ -559,30 +569,25 @@ to "implemented" unless the code sections above prove it.
 
 - It does not say existing-goat generation is a separate backfill/job after
   publish.
-- It does not say new-goat automation depends on `goat.created` event delivery,
-  specifically outbox-relay running in local/eventbus mode. The API-process
-  `GoatCreatedHandler` subscription is not fed by goat creation, and Pub/Sub
-  consumer delivery is not implemented end to end yet.
-- It does not say DLQ is CLI-managed today: outbox rows can become
+- It does not say new-goat automation depends on `goat.created` outbox delivery
+  through outbox-relay local/eventbus mode or the Pub/Sub domain consumer.
+- It does not say DLQ is outbox-CLI-backed today: outbox rows can become
   `dead_letter`, `outbox-dlq` can list/replay selected terminal rows, and dev
-  analytics Pub/Sub has a DLQ policy, but no DLQ triage UI or automatic DLQ
-  alerting exists.
+  Pub/Sub subscriptions have DLQ policies, but redrive UI for Pub/Sub DLQ,
+  DLQ triage UI, and automatic DLQ alerting do not exist.
 - It does not say the generation trigger matrix is limited: SM-1 schedules
   `birth_age`, `post_arrival`, and `calendar`; `after_previous_completion` is
   booster-only after accepted verification; `manual_campaign` is skipped.
 - It does not say `birth_age` silently skips goats with no DOB and
   `post_arrival` silently skips goats with no entry date, with no visible
   per-goat blocker found.
-- It does not say the screenshot-style Cloud Tasks path is not present in code.
-- It does not say scheduler resources for generation/sweeper/projector/reminder/
-  escalation/notification jobs were not found in infra.
-- It does not say notification delivery is partial: `notification-dispatcher`
-  handles local-stub, configured generic webhook, and configured Slack webhook,
-  but FCM/email vendor adapters are not implemented.
-- It does not say role/SLA waterfall alerting is bounded by current code:
-  `calendar-escalation-sweeper` escalates through existing DB roles only
-  (operator/verifier -> park_head -> admin -> ceo_internal), not PHC Director or
-  arbitrary hierarchy roles.
+- It does not say Cloud Tasks/Scheduler are dev infra wiring and still need
+  apply/verification in the target Google project.
+- It does not say notification delivery depends on configured Slack/webhook/email
+  URLs, FCM credentials, IAM, and runtime secrets.
+- It does not say the SLA ladder is now operator/verifier -> park_head ->
+  phc_director -> ceo_internal, with ack/resolve in code but no Opsgenie/
+  PagerDuty integration.
 - It does not say PPR/FMD/HS/BQ are label-only today, while ET is the
   schedule-backed local/dev row.
 - It does not mention cold-chain verification and three proof subjects
@@ -591,22 +596,15 @@ to "implemented" unless the code sections above prove it.
   automatic Health follow-up.
 - It overstates stock blocking: current code warns/reserves/consumes best-effort,
   but hard stock-out/expired-lot enforcement is not fully proven.
-- It overstates shift/dead/sold automation: handlers and tests exist, but live
-  event registration was not found in the checked bootstrap/relay paths. The
-  procurement excluded/ineligible cancellation path is wired separately, and the
-  DB guard blocks active vaccination writes for excluded/exited goats, but this
-  is not generic `goat.exited` event automation.
+- It overstates shift behavior if read as full recompute: current live code
+  re-scopes open, unbatched obligations only.
 - It overstates sick/ICU/quarantine hold: deferred status is written only when
   the published rule DSL includes `eligibility.defer_states`.
-- It overstates missed/escalation: missed can surface as overdue or blocked/gap;
-  reminder/nudge/escalation queueing and worker delivery foundations exist, but
-  DLQ alerting, FCM/email vendors, PHC Director routing, escalation ack/resolve,
-  Opsgenie/PagerDuty, and Cloud Scheduler deployment are not done.
 - It does not mention `goat.stage_changed` and `manual_campaign` are spec/UI
   concepts but not runtime implemented.
 - It does not mention deferred goat recovery re-check is not proven.
-- It does not mention backend local proof is not the same as full admin-web /
-  operator-mobile / deployed Google E2E.
+- It does not mention backend local proof/dev Terraform is not the same as full
+  admin-web / operator-mobile / deployed Google E2E.
 - It does not mention open old-version obligations may need explicit
   supersede/cancel policy after config changes.
 
@@ -617,88 +615,56 @@ Use this as the correction/addendum rather than rewriting the whole CEO note:
 ```text
 Small implementation clarification:
 
-The core vaccination data chain is implemented in Goat OS, but the full
-screenshot-style kernel is only partial today. Canonical Postgres rows, audit,
-outbox, outbox-relay local eventbus delivery, generation, sweeper, SOP/proof,
-verification, completion, booster scheduling, and read models exist in code.
-Outbox retry/dead-letter status, selected DLQ replay, notification dispatch for
-local-stub/webhook/Slack-webhook channels, and configurable Calendar SLA
-escalation also exist in code. Pub/Sub subscriber fan-out, Cloud Tasks,
-Scheduler infra wiring, FCM/email delivery, PHC-director-specific escalation,
-acknowledgement/resolution workflow, and Opsgenie-style incident escalation are
-not fully implemented in the checked code.
+The core vaccination chain is implemented in Goat OS code: canonical Postgres
+rows, audit, outbox, outbox relay, Pub/Sub domain consumer, generation,
+sweeper, shed drives, SOP/proof, verification, completion, booster scheduling,
+Calendar/Action Center read models, reminders/nudges, notification dispatch,
+SLA escalation, PHC Director routing, and escalation acknowledgement/resolution.
 
-After a rule is published, existing goats need the generation/backfill job to
-create due work. New goats are handled only when the goat.created outbox event is
-delivered to the vaccination handler. In checked code, that means outbox-relay
-running in local/eventbus mode; the API-process handler subscription is not fed
-by goat creation, and the Pub/Sub path has no domain consumer. The sweeper then
-groups due goats into shed drives. The binaries exist, but Scheduler resources
-for these jobs were not found in the checked infra.
+Existing goats are generated by the scheduled/backfill generation job after
+publish, not inside the publish call itself. New goats are handled after the
+goat.created outbox event is delivered by outbox-relay local/eventbus mode or
+the Pub/Sub domain consumer.
 
-Dead-letter handling should also be described carefully. The outbox can mark
-poison messages as dead-lettered, and `outbox-dlq` can list/replay selected
-failed/dead-letter rows. Dev Pub/Sub has an analytics subscription DLQ policy.
-There is still no checked DLQ triage UI or automatic alert on dead-lettered
-vaccination/domain messages.
+Goat shift and exit are now code-backed through admin move/exit APIs and
+outbox/domain event handlers. Shift currently re-scopes open, unbatched work;
+it is not yet a full eligibility/batch recompute.
 
-Two edge cases from the note are not live as generic automation yet: goat shed
-shift and goat dead/sold/exited cleanup. Handlers exist and tests prove them,
-but they are not registered in the checked API/outbox runtime wiring. Procurement
-ineligible/excluded cancellation is wired separately and the DB blocks active
-vaccination writes for excluded/exited goats, but that does not replace generic
-goat.exited event automation.
+Alerts are durable rows. The dispatcher supports local-stub, webhook, Slack
+webhook, email webhook, and FCM HTTP v1 when configured. Dev Cloud Scheduler,
+Cloud Run Jobs, and Cloud Tasks wiring exists, but each target Google project
+still needs apply/secret/IAM/runtime verification.
 
-The current source-backed dev vaccine schedule is ET / Enterotoxaemia. PPR, FMD,
-HS, and BQ are present as SOP/vocabulary labels only until PHC/vet source data
-approves schedule, dose, booster, and proof rules for them.
-
-Generation trigger support is also narrower than the config vocabulary: SM-1
-schedules birth_age, post_arrival, and calendar rules. Boosters are created
-after accepted verification. Manual campaigns are not generated by the checked
-runtime. A birth_age rule skips goats with no DOB, and a post_arrival rule skips
-goats with no entry date.
-
-Stock shortage, expiry, missed-dose escalation, generic goat shift/death cleanup,
-deferred-goat recovery, and missing-DOB visibility are the main areas to keep
-auditing. Some code/tests exist, but not every path is wired into the runtime
-flow yet.
-
-Alerts/reminders/escalations are durable rows from the Calendar/notification
-path. `notification-dispatcher` marks local-stub, configured webhook, and
-configured Slack webhook sends sent/failed with retry backoff. FCM/email vendor
-delivery is not implemented. `calendar-escalation-sweeper` applies SLA levels
-through existing DB roles (operator/verifier -> park_head -> admin ->
-ceo_internal), but not PHC Director routing, acknowledgement/resolution, or
-Opsgenie/PagerDuty-style escalation.
+Remaining non-code-backed claims: DLQ triage UI/automatic DLQ alerting,
+Opsgenie/PagerDuty incident integration, goat.stage_changed trigger,
+manual_campaign trigger, hard expired-stock blocking, deferred-goat recovery
+recheck, adverse-reaction health follow-up, and schedule-backed obligations for
+label-only vaccines such as PPR/FMD/HS/BQ.
 ```
 
 ## Safe Engineering Summary
 
-The core slice is real: source-backed config, canonical goat-create transaction
-with audit/outbox, outbox retry/dead-letter foundation plus selected replay,
-generation, per-shed batching, SOP/proof fanout, verification, completion,
-stock reserve/consume foundation, booster scheduling, Calendar/Action Center
-read models, reminder/nudge queueing, notification dispatch foundation, and SLA
-escalation sweeping exist in code.
+The core slice is real: source-backed config, canonical goat-create/move/exit
+transactions with audit/outbox, outbox retry/dead-letter foundation plus
+selected replay, Pub/Sub domain consumption, generation, per-shed batching,
+SOP/proof fanout, verification, completion, stock reserve/consume foundation,
+booster scheduling, Calendar/Action Center read models, reminder/nudge queueing,
+Cloud Tasks near-term dispatch, notification adapters, scheduler/job wiring, PHC
+Director escalation, and acknowledgement/resolution workflow exist in code.
 
 The main risks to communicate internally are:
 
 - publish does not by itself generate old-goat obligations;
-- new-goat generation depends on outbox-relay local/eventbus delivery; the API
-  bus subscription is not fed by goat creation;
+- event automation depends on outbox relay / Pub/Sub domain consumer delivery;
 - SM-1 generation only covers `birth_age`, `post_arrival`, and `calendar`;
 - missing DOB/entry date skips generation without a visible per-goat blocker;
-- Pub/Sub publishing exists, but domain subscriber fan-out was not found;
-- outbox dead-letter status and selected CLI replay exist, but DLQ triage UI and
-  automatic DLQ alerting were not found;
-- Cloud Tasks and Cloud Scheduler resource wiring were not found;
-- shift/exited handlers exist but are not visibly wired in the checked runtime;
-- procurement excluded/ineligible cancellation is wired separately, and the DB
-  guard blocks active vaccination writes for excluded/exited goats;
+- outbox dead-letter status, selected CLI replay, and Pub/Sub DLQ policies
+  exist, but DLQ triage UI and automatic DLQ alerting were not found;
+- dev Cloud Tasks/Scheduler/Cloud Run Jobs exist but must be applied and
+  verified in target Google projects;
+- shift handling is live but minimal: open, unbatched obligation re-scope only;
 - stock shortage/expiry is warning/best-effort, not a hard blocker yet;
 - stage-change and manual-campaign triggers are not implemented;
 - deferred sick/ICU/quarantine visibility depends on `eligibility.defer_states`;
-- reminders/nudges/escalations can be queued and locally/webhook dispatched, but
-  FCM/email adapters, PHC Director routing, escalation acknowledgement/
-  resolution, Opsgenie/PagerDuty, and Scheduler deployment were not found.
+- reminders/nudges/escalations can be queued and dispatched through configured
+  adapters, but Opsgenie/PagerDuty incident integration was not found.
