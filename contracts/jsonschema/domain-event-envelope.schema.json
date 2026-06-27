@@ -51,7 +51,9 @@
         "legacy_import.completed",
         "calendar.nudge.requested",
         "calendar.reminder.queued",
-        "calendar.snooze.recorded"
+        "calendar.snooze.recorded",
+        "vaccination.verify.accepted",
+        "vaccination.verify.rejected"
       ]
     },
     "schema_version": {
@@ -72,7 +74,8 @@
         "correction_request",
         "legacy_import_run",
         "calendar_notification",
-        "calendar_snooze"
+        "calendar_snooze",
+        "vaccination_completion"
       ]
     },
     "aggregate_id": {
@@ -90,7 +93,8 @@
         "legacy_import_row",
         "legacy_import_run",
         "location",
-        "calendar_event"
+        "calendar_event",
+        "vaccination_completion"
       ]
     },
     "subject_id": {

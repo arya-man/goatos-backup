@@ -21,8 +21,13 @@ output "runtime_service_accounts" {
 }
 
 output "pubsub_outbox_topic" {
-  description = "Outbox event topic id."
-  value       = google_pubsub_topic.outbox_events.id
+  description = "Outbox event topic short id for GOATOS_OUTBOX_PUBSUB_TOPIC_ID."
+  value       = google_pubsub_topic.outbox_events.name
+}
+
+output "pubsub_domain_events_subscription" {
+  description = "Domain event consumer subscription short id for GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID."
+  value       = google_pubsub_subscription.domain_events.name
 }
 
 output "secret_container_ids" {

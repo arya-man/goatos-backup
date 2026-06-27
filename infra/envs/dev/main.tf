@@ -20,6 +20,10 @@ locals {
       account_id   = "goatos-outbox-relay-dev"
       display_name = "Goat OS dev outbox relay runtime"
     }
+    domain_consumer = {
+      account_id   = "goatos-domain-consumer-dev"
+      display_name = "Goat OS dev domain event consumer runtime"
+    }
     migrate = {
       account_id   = "goatos-migrate-dev"
       display_name = "Goat OS dev migration job runtime"
@@ -37,6 +41,7 @@ locals {
   database_clients = toset([
     "api",
     "outbox_relay",
+    "domain_consumer",
     "migrate",
     "legacy_sync",
   ])
@@ -47,6 +52,7 @@ locals {
       accessors = [
         "api",
         "outbox_relay",
+        "domain_consumer",
         "migrate",
         "legacy_sync",
       ]

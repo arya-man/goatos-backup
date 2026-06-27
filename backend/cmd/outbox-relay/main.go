@@ -123,12 +123,16 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		if projectID == "" {
 			return nil, nil, fmt.Errorf("GOATOS_OUTBOX_PUBLISHER=pubsub requires GOATOS_PUBSUB_PROJECT_ID or GOOGLE_CLOUD_PROJECT")
 		}
+		topicID := firstNonEmptyEnv("GOATOS_OUTBOX_PUBSUB_TOPIC_ID", "GOATOS_PUBSUB_TOPIC_ID")
+		if topicID == "" {
+			return nil, nil, fmt.Errorf("GOATOS_OUTBOX_PUBLISHER=pubsub requires GOATOS_OUTBOX_PUBSUB_TOPIC_ID")
+		}
 		client, err := pubsubpublisher.NewGCPMessagePublisher(ctx, projectID)
 		if err != nil {
 			return nil, nil, err
 		}
-		logger.Info("outbox_relay_pubsub_publisher_ready", "project_id", projectID)
-		return pubsubpublisher.NewPublisher(client), client.Close, nil
+		logger.Info("outbox_relay_pubsub_publisher_ready", "project_id", projectID, "topic_id", topicID)
+		return pubsubpublisher.NewPublisherWithConfig(client, pubsubpublisher.Config{TopicID: topicID}), client.Close, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported GOATOS_OUTBOX_PUBLISHER %q", kind)
 	}
@@ -157,6 +161,15 @@ func parseFlags(args []string) (cliConfig, error) {
 		return cliConfig{}, errors.New("max-attempts must be positive")
 	}
 	return cfg, nil
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func findDomainEventEnvelopeSchema() (string, error) {

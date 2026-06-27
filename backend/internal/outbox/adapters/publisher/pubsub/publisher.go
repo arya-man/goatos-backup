@@ -28,12 +28,24 @@ type MessagePublisher interface {
 
 // Publisher implements ports.Publisher over a MessagePublisher.
 type Publisher struct {
-	client MessagePublisher
+	client  MessagePublisher
+	topicID string
+}
+
+type Config struct {
+	// TopicID is the physical Pub/Sub topic used for the outbox stream.
+	// Outbox rows keep their logical topic in the message and attributes.
+	TopicID string
 }
 
 // NewPublisher constructs a Publisher around a broker client.
 func NewPublisher(client MessagePublisher) *Publisher {
 	return &Publisher{client: client}
+}
+
+// NewPublisherWithConfig constructs a Publisher with a physical Pub/Sub topic override.
+func NewPublisherWithConfig(client MessagePublisher, config Config) *Publisher {
+	return &Publisher{client: client, topicID: config.TopicID}
 }
 
 var _ ports.Publisher = (*Publisher)(nil)
@@ -44,21 +56,26 @@ var _ ports.Publisher = (*Publisher)(nil)
 // retryable (at-least-once safe).
 func (p *Publisher) Publish(ctx context.Context, m ports.PublishMessage) error {
 	attrs := map[string]string{
-		"event_id":   m.EventID,
-		"event_type": m.EventType,
-		"tenant_id":  m.TenantID,
-		"outbox_id":  m.OutboxID,
+		"event_id":      m.EventID,
+		"event_type":    m.EventType,
+		"tenant_id":     m.TenantID,
+		"outbox_id":     m.OutboxID,
+		"logical_topic": m.Topic,
 	}
 	if m.TraceID != nil && *m.TraceID != "" {
 		attrs["trace_id"] = *m.TraceID
 	}
 
-	if _, err := p.client.Publish(ctx, m.Topic, []byte(m.Payload), attrs); err != nil {
+	topicID := p.topicID
+	if topicID == "" {
+		topicID = m.Topic
+	}
+	if _, err := p.client.Publish(ctx, topicID, []byte(m.Payload), attrs); err != nil {
 		var pe *ports.PublishError
 		if errors.As(err, &pe) {
 			return err // already classified (retryable or permanent)
 		}
-		return ports.RetryablePublishError(fmt.Errorf("pubsub publish topic %q event %q: %w", m.Topic, m.EventID, err))
+		return ports.RetryablePublishError(fmt.Errorf("pubsub publish topic %q event %q: %w", topicID, m.EventID, err))
 	}
 	return nil
 }

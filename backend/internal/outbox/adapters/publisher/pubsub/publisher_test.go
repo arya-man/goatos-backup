@@ -13,12 +13,14 @@ import (
 // attribute: re-publishing the same event_id returns the original server id without a new delivery.
 type fakeBroker struct {
 	delivered map[string]string // event_id -> serverID
+	lastTopic string
 	lastAttrs map[string]string
 	failWith  error
 	seq       int
 }
 
-func (f *fakeBroker) Publish(_ context.Context, _ string, _ []byte, attrs map[string]string) (string, error) {
+func (f *fakeBroker) Publish(_ context.Context, topicID string, _ []byte, attrs map[string]string) (string, error) {
+	f.lastTopic = topicID
 	f.lastAttrs = attrs
 	if f.failWith != nil {
 		return "", f.failWith
@@ -62,6 +64,26 @@ func TestPublishSuccessSetsAttributes(t *testing.T) {
 		if broker.lastAttrs[k] == "" {
 			t.Fatalf("expected attribute %q to be set, attrs=%v", k, broker.lastAttrs)
 		}
+	}
+	if broker.lastTopic != "identity.events" {
+		t.Fatalf("expected default logical topic publish, got %q", broker.lastTopic)
+	}
+	if broker.lastAttrs["logical_topic"] != "identity.events" {
+		t.Fatalf("expected logical topic attribute, attrs=%v", broker.lastAttrs)
+	}
+}
+
+func TestPublishUsesConfiguredPhysicalTopic(t *testing.T) {
+	broker := &fakeBroker{}
+	pub := NewPublisherWithConfig(broker, Config{TopicID: "goatos-dev-outbox-events"})
+	if err := pub.Publish(context.Background(), msg("evt-1")); err != nil {
+		t.Fatalf("publish success: %v", err)
+	}
+	if broker.lastTopic != "goatos-dev-outbox-events" {
+		t.Fatalf("expected configured physical topic, got %q", broker.lastTopic)
+	}
+	if broker.lastAttrs["logical_topic"] != "identity.events" {
+		t.Fatalf("expected logical topic attribute to remain identity.events, attrs=%v", broker.lastAttrs)
 	}
 }
 
