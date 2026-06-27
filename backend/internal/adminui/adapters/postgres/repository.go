@@ -55,6 +55,9 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.SOPLabels, out.RevisionInputs["sop-labels"], err = r.listSOPLabels(ctx, tenantID); err != nil {
 		return out, err
 	}
+	if out.FeedItems, out.RevisionInputs["feed-items"], err = r.listFeedItems(ctx, tenantID); err != nil {
+		return out, err
+	}
 	return out, nil
 }
 
@@ -114,6 +117,40 @@ LIMIT 100`, tenantID)
 		}
 		out = append(out, app.ReferenceOption{Key: key, Label: key})
 		rev.WriteString(key + "|" + updated + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	return out, rev.String(), nil
+}
+
+func (r *Repository) listFeedItems(ctx context.Context, tenantID string) ([]app.ReferenceOption, string, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  item_id::text,
+  COALESCE(NULLIF(name, ''), item_code) AS label,
+  name,
+  COALESCE(item_code, '') AS code,
+  updated_at::text
+FROM inventory_items
+WHERE tenant_id = $1::uuid
+  AND category = 'feed'
+  AND status = 'active'
+ORDER BY name, item_id
+LIMIT 500`, tenantID)
+	if err != nil {
+		return nil, "", fmt.Errorf("adminui: list feed items: %w", err)
+	}
+	defer rows.Close()
+	var out []app.ReferenceOption
+	var rev strings.Builder
+	for rows.Next() {
+		var id, label, name, code, updated string
+		if err := rows.Scan(&id, &label, &name, &code, &updated); err != nil {
+			return nil, "", err
+		}
+		out = append(out, app.ReferenceOption{Key: id, Label: label, Title: name})
+		rev.WriteString(id + "|" + label + "|" + name + "|" + code + "|" + updated + "\n")
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err

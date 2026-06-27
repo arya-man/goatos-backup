@@ -172,9 +172,11 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 	})
 	config := pageByRouteID(t, resp.Pages, "config")
 
+	// rule_categories is a fixed PRODUCT vocabulary, not live tenant data: an empty DB must still
+	// expose {vaccination, feed_direction} so the first protocol rule can be authored.
 	categories := optionGroupByID(t, config.OptionGroups, "rule_categories")
-	if len(categories.Options) != 0 {
-		t.Fatalf("empty DB rule_categories must stay empty, got %#v", categories.Options)
+	if got := optionKeys(categories); len(got) != 2 || !got["vaccination"] || !got["feed_direction"] {
+		t.Fatalf("empty DB rule_categories must keep the fixed product vocabulary, got %#v", categories.Options)
 	}
 	breeds := optionGroupByID(t, config.OptionGroups, "rule_breeds")
 	if got := optionKeys(breeds); len(got) != 1 || !got["all"] || got["Beetal"] || got["Sirohi"] {
@@ -243,6 +245,38 @@ func TestDLQCenterSeparatesReadNavFromRepairActions(t *testing.T) {
 	}
 }
 
+func TestBootstrapConfigCompilesFeedItemsAndCategories(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	config := pageByRouteID(t, resp.Pages, "config")
+
+	// feed_items: DB-backed active feed inventory item + the static 'custom' sentinel.
+	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
+	if got := optionKeys(feedItems); !got["custom"] || !got["feed-1"] {
+		t.Fatalf("feed_items must include DB items and the custom sentinel, got %#v", feedItems.Options)
+	}
+
+	// rule_categories: fixed vocab + DB categories, with 'vaccination' deduped to a single option.
+	categories := optionGroupByID(t, config.OptionGroups, "rule_categories")
+	if got := optionKeys(categories); !got["vaccination"] || !got["feed_direction"] {
+		t.Fatalf("rule_categories must include the product vocabulary, got %#v", categories.Options)
+	}
+	vaccinationCount := 0
+	for _, o := range categories.Options {
+		if o.Key == "vaccination" {
+			vaccinationCount++
+		}
+	}
+	if vaccinationCount != 1 {
+		t.Fatalf("rule_categories must dedup 'vaccination' across static+DB, got %d", vaccinationCount)
+	}
+}
+
 type fakeFamilies struct{}
 
 func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
@@ -254,6 +288,7 @@ func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFami
 		ReproductiveStates: []ReferenceOption{{Key: "pregnant", Label: "pregnant"}},
 		DeferStates:        []ReferenceOption{{Key: "healthy", Label: "healthy"}, {Key: "quarantine", Label: "quarantine"}},
 		SOPLabels:          []ReferenceOption{{Key: "sop-v1", Label: "SOP v1"}},
+		FeedItems:          []ReferenceOption{{Key: "feed-1", Label: "Mesha concentrate", Title: "Mesha concentrate"}},
 		RevisionInputs:     map[string]string{"locations": "park-1"},
 	}, nil
 }

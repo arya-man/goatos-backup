@@ -38,6 +38,7 @@ type ReferenceFamilies struct {
 	ReproductiveStates []ReferenceOption
 	DeferStates        []ReferenceOption
 	SOPLabels          []ReferenceOption
+	FeedItems          []ReferenceOption
 	RevisionInputs     map[string]string
 }
 
@@ -239,13 +240,19 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 
 func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
 	out := groups
-	out = replaceOptionGroup(out, "rule_categories", optionsFromReferences(families.RuleCategories, ""))
+	// rule_categories is a bounded PRODUCT vocabulary (vaccination, feed_direction), not live tenant
+	// data: merge the static defaults with any DB-discovered categories so a fresh tenant with no
+	// protocol rows can still author its first rule (empty DB must NOT yield an empty group).
+	out = mergeOptionGroupReferences(out, "rule_categories", families.RuleCategories, "")
 	out = replaceOptionGroup(out, "rule_scopes", ruleScopeOptions(families.Parks))
 	out = replaceOptionGroup(out, "rule_breeds", prependOption("all", "all", "", "", optionsFromReferences(families.Breeds, "")))
 	out = replaceOptionGroup(out, "rule_healths", append(optionsFromReferences(families.HealthStatuses, ""), option("any", "any", "", "")))
 	out = replaceOptionGroup(out, "rule_reproductive", prependOption("any", "any", "", "", optionsFromReferences(families.ReproductiveStates, "")))
 	out = replaceOptionGroup(out, "defer_states", optionsFromReferences(deferableStates(families.DeferStates), ""))
 	out = replaceOptionGroup(out, "schedule_sop_labels", optionsFromReferences(families.SOPLabels, ""))
+	// feed_items: source active feed inventory items from the DB, keeping the static 'custom' sentinel
+	// (free-text feed item) so feed-direction authoring is backed by real inventory, not a placeholder.
+	out = mergeOptionGroupReferences(out, "feed_items", families.FeedItems, "")
 	return out
 }
 
@@ -305,6 +312,40 @@ func replaceOptionGroup(groups []domain.OptionGroup, id string, options []domain
 		}
 	}
 	return append(out, domain.OptionGroup{ID: id, Options: options})
+}
+
+// mergeOptionGroupReferences keeps a group's existing (static) options as a bounded vocabulary /
+// sentinel and appends DB-discovered references not already present (dedup by key). Use for groups
+// that are a fixed product vocabulary or carry a sentinel (rule_categories, feed_items) so an empty
+// DB does not erase them — unlike replaceOptionGroup, which is for pure live-data families.
+func mergeOptionGroupReferences(groups []domain.OptionGroup, id string, refs []ReferenceOption, defaultTone string) []domain.OptionGroup {
+	out := make([]domain.OptionGroup, len(groups))
+	copy(out, groups)
+	for i := range out {
+		if out[i].ID != id {
+			continue
+		}
+		seen := make(map[string]struct{}, len(out[i].Options)+len(refs))
+		merged := make([]domain.Option, len(out[i].Options))
+		copy(merged, out[i].Options)
+		for _, o := range out[i].Options {
+			seen[o.Key] = struct{}{}
+		}
+		for _, ref := range refs {
+			if _, ok := seen[ref.Key]; ok {
+				continue
+			}
+			seen[ref.Key] = struct{}{}
+			tone := ref.Tone
+			if tone == "" {
+				tone = defaultTone
+			}
+			merged = append(merged, option(ref.Key, ref.Label, ref.Title, tone))
+		}
+		out[i].Options = merged
+		return out
+	}
+	return append(out, domain.OptionGroup{ID: id, Options: optionsFromReferences(refs, defaultTone)})
 }
 
 func optionsFromReferences(options []ReferenceOption, defaultTone string) []domain.Option {
@@ -467,7 +508,7 @@ func familyHashes(resp domain.BootstrapResponse, families ReferenceFamilies, inp
 		"pages":       hashStruct(resp.Pages),
 		"permissions": hashStruct(input.Grants),
 		"locations":   hashStruct(families.Parks),
-		"config":      hashStruct(struct{ Categories, Breeds, Health, Repro, Defer, SOP []ReferenceOption }{families.RuleCategories, families.Breeds, families.HealthStatuses, families.ReproductiveStates, families.DeferStates, families.SOPLabels}),
+		"config":      hashStruct(struct{ Categories, Breeds, Health, Repro, Defer, SOP, FeedItems []ReferenceOption }{families.RuleCategories, families.Breeds, families.HealthStatuses, families.ReproductiveStates, families.DeferStates, families.SOPLabels, families.FeedItems}),
 	}
 	for key, value := range families.RevisionInputs {
 		hashes["db:"+key] = hashString(value)
