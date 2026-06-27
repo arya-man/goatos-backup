@@ -466,6 +466,241 @@ WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, 
 	}
 }
 
+func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000871"
+	versionID := "86000000-0000-4000-8000-000000000872"
+	ruleID := "86000000-0000-4000-8000-000000000873"
+	obligationID := "86000000-0000-4000-8000-000000000874"
+	dueAt := time.Now().UTC().Add(-2 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 4 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	}); err != nil {
+		t.Fatalf("SweepEscalations: %v", err)
+	}
+	eventID := "obligation:" + obligationID
+	ack, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		TraceID: "trace-escalation-ack", IdempotencyKey: "calendar-escalation-ack-key",
+		Reason: "shed owner accepted the escalation", Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("AcknowledgeEscalation: %v", err)
+	}
+	if ack.ActionType != "acknowledge_escalation" || ack.Status != "acknowledged" {
+		t.Fatalf("ack response = %#v, want acknowledge_escalation/acknowledged", ack)
+	}
+	ackReplay, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		TraceID: "trace-escalation-ack", IdempotencyKey: "calendar-escalation-ack-key",
+		Reason: "shed owner accepted the escalation", Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("AcknowledgeEscalation replay: %v", err)
+	}
+	if ackReplay.ActionID != ack.ActionID || !ackReplay.IdempotentReplay {
+		t.Fatalf("ack replay = %#v, want same action replay", ackReplay)
+	}
+	if _, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		IdempotencyKey: "calendar-escalation-ack-key", Reason: "different", Scope: domain.ScopeFilter{TenantWide: true},
+	}); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("ack conflict err = %v, want ErrIdempotencyConflict", err)
+	}
+	assertCount(t, ctx, pool, "acknowledged escalation", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND escalation_id=$2::uuid
+  AND obligation_id=$3::uuid
+  AND status='acknowledged'
+  AND acknowledged_by=$4::uuid
+  AND acknowledgement_note='shed owner accepted the escalation'`, 1, testTenantID, ack.ActionID, obligationID, testActorID)
+	assertCount(t, ctx, pool, "acknowledged escalation projection", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='level_1_acknowledged'`, 1, testTenantID, eventID)
+	assertCount(t, ctx, pool, "ack read notification", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid AND calendar_event_id=$2 AND notification_type='escalation' AND status='read' AND read_at IS NOT NULL`, 1, testTenantID, eventID)
+	assertCount(t, ctx, pool, "ack status event", `
+SELECT count(*)
+FROM obligation_status_events
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid AND event_type='escalation_acknowledged'`, 1, testTenantID, obligationID)
+	assertOutboxEnvelope(t, ctx, pool, "ack escalation outbox envelope", "obligation_escalation", ack.ActionID, "calendar.escalation.acknowledged", eventID)
+
+	resolved, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		TraceID: "trace-escalation-resolve", IdempotencyKey: "calendar-escalation-resolve-key",
+		Reason: "proof corrected and owner confirmed", Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ResolveEscalation: %v", err)
+	}
+	if resolved.ActionID != ack.ActionID || resolved.ActionType != "resolve_escalation" || resolved.Status != "resolved" {
+		t.Fatalf("resolve response = %#v, want same escalation resolved", resolved)
+	}
+	assertCount(t, ctx, pool, "resolved escalation", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND escalation_id=$2::uuid
+  AND status='resolved'
+  AND resolved_by=$3::uuid
+  AND resolution_note='proof corrected and owner confirmed'`, 1, testTenantID, ack.ActionID, testActorID)
+	assertCount(t, ctx, pool, "resolved escalation projection", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='resolved'`, 1, testTenantID, eventID)
+	assertCount(t, ctx, pool, "resolve status event", `
+SELECT count(*)
+FROM obligation_status_events
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid AND event_type='escalation_resolved'`, 1, testTenantID, obligationID)
+	assertCount(t, ctx, pool, "resolve outbox", `
+SELECT count(*)
+FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND aggregate_type='obligation_escalation'
+  AND aggregate_id=$2::uuid
+  AND event_type='calendar.escalation.resolved'`, 1, testTenantID, ack.ActionID)
+	if _, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		IdempotencyKey: "calendar-escalation-resolve-again", Reason: "again", Scope: domain.ScopeFilter{TenantWide: true},
+	}); !errors.Is(err, ports.ErrEventNotActionable) {
+		t.Fatalf("resolve again err = %v, want ErrEventNotActionable", err)
+	}
+	history, err := repo.History(ctx, domain.HistoryQuery{TenantID: testTenantID, EventID: eventID, Limit: 20, Scope: domain.ScopeFilter{TenantWide: true}})
+	if err != nil {
+		t.Fatalf("History after escalation actions: %v", err)
+	}
+	foundEscalationHistory := false
+	for _, item := range history.Items {
+		if item.SourceTable == "obligation_escalations" && item.Status == "resolved" {
+			foundEscalationHistory = true
+			break
+		}
+	}
+	if !foundEscalationHistory {
+		t.Fatalf("history missing resolved obligation_escalations row: %#v", history.Items)
+	}
+}
+
+func TestCalendarEscalationResolveClosesActiveLadder(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000881"
+	versionID := "86000000-0000-4000-8000-000000000882"
+	ruleID := "86000000-0000-4000-8000-000000000883"
+	obligationID := "86000000-0000-4000-8000-000000000884"
+	dueAt := time.Now().UTC().Add(-6 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 12 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	}); err != nil {
+		t.Fatalf("SweepEscalations level 1: %v", err)
+	}
+	eventID := "obligation:" + obligationID
+	level1, err := repo.AcknowledgeEscalation(ctx, ports.AcknowledgeEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		TraceID: "trace-escalation-ladder-ack", IdempotencyKey: "calendar-escalation-ladder-ack-key",
+		Reason: "level one owner has seen it", Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("AcknowledgeEscalation level 1: %v", err)
+	}
+	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 4 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	}); err != nil {
+		t.Fatalf("SweepEscalations level 2: %v", err)
+	}
+	assertCount(t, ctx, pool, "active escalation ladder before resolve", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid
+  AND status IN ('open', 'acknowledged')`, 2, testTenantID, obligationID)
+	resolved, err := repo.ResolveEscalation(ctx, ports.ResolveEscalation{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		TraceID: "trace-escalation-ladder-resolve", IdempotencyKey: "calendar-escalation-ladder-resolve-key",
+		Reason: "drive completed after level two escalation", Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ResolveEscalation ladder: %v", err)
+	}
+	if resolved.ActionID == level1.ActionID {
+		t.Fatalf("resolve action id = %s, want latest level escalation not level 1 %s", resolved.ActionID, level1.ActionID)
+	}
+	assertCount(t, ctx, pool, "active escalation ladder after resolve", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid
+  AND status IN ('open', 'acknowledged')`, 0, testTenantID, obligationID)
+	assertCount(t, ctx, pool, "resolved escalation ladder after resolve", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid
+  AND status='resolved'
+  AND resolved_by=$3::uuid
+  AND resolution_note='drive completed after level two escalation'`, 2, testTenantID, obligationID, testActorID)
+	assertCount(t, ctx, pool, "ladder escalation notifications read", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='escalation'
+  AND status='read'
+  AND read_at IS NOT NULL`, 2, testTenantID, eventID)
+	assertCount(t, ctx, pool, "resolved ladder projection", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='resolved'`, 1, testTenantID, eventID)
+}
+
 func TestCalendarEscalationSweepRoutesLevel3ToPHCDirector(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

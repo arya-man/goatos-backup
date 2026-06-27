@@ -23,6 +23,8 @@ type Repository interface {
 	History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error)
 	SendNudge(ctx context.Context, in SendNudge) (domain.CalendarActionResponse, error)
 	Snooze(ctx context.Context, in Snooze) (domain.CalendarActionResponse, error)
+	AcknowledgeEscalation(ctx context.Context, in AcknowledgeEscalation) (domain.CalendarActionResponse, error)
+	ResolveEscalation(ctx context.Context, in ResolveEscalation) (domain.CalendarActionResponse, error)
 	SweepDueReminders(ctx context.Context, tenantID string, limit int) (int, error)
 	SweepEscalations(ctx context.Context, in SweepEscalations) (int, error)
 	RefreshVaccinationProjection(ctx context.Context, in RefreshVaccinationProjection) (int, error)
@@ -50,6 +52,26 @@ type Snooze struct {
 	Reason          string
 	ReplaceExisting bool
 	Scope           domain.ScopeFilter
+}
+
+type AcknowledgeEscalation struct {
+	TenantID       string
+	EventID        string
+	ActorID        string
+	TraceID        string
+	IdempotencyKey string
+	Reason         string
+	Scope          domain.ScopeFilter
+}
+
+type ResolveEscalation struct {
+	TenantID       string
+	EventID        string
+	ActorID        string
+	TraceID        string
+	IdempotencyKey string
+	Reason         string
+	Scope          domain.ScopeFilter
 }
 
 type RefreshVaccinationProjection struct {

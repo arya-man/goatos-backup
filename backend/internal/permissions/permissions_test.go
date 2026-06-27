@@ -150,6 +150,8 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/history"},
 		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/nudge"},
 		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/snooze"},
+		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/escalation/acknowledge"},
+		{"POST", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/escalation/resolve"},
 		{"GET", "/vaccination/verification-queue"},
 		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/accept"},
 		{"POST", "/vaccination/completions/aa000000-0000-4000-8000-000000000001/reject"},
@@ -172,6 +174,8 @@ func TestCalendarBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		{"GET", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/history"},
 		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/nudge"},
 		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/snooze"},
+		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/escalation/acknowledge"},
+		{"POST", "/calendar/vaccination/events/calendar:86000000-0000-4000-8000-000000001003/escalation/resolve"},
 	}
 	for _, route := range routes {
 		if _, ok := Match(route.method, route.path); !ok {

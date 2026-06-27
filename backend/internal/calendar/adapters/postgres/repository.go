@@ -397,6 +397,327 @@ WHERE tenant_id = $1::uuid AND event_id = $2`, in.TenantID, in.EventID); err != 
 	return response, nil
 }
 
+func (r *Repository) AcknowledgeEscalation(ctx context.Context, in ports.AcknowledgeEscalation) (domain.CalendarActionResponse, error) {
+	return r.applyEscalationAction(ctx, escalationActionInput{
+		TenantID:        in.TenantID,
+		EventID:         in.EventID,
+		ActorID:         in.ActorID,
+		TraceID:         in.TraceID,
+		IdempotencyKey:  in.IdempotencyKey,
+		Reason:          in.Reason,
+		Scope:           in.Scope,
+		ActionType:      "acknowledge_escalation",
+		ScopeName:       "calendar.escalation.acknowledge",
+		EventType:       "calendar.escalation.acknowledged",
+		StatusEventType: "escalation_acknowledged",
+		ResultStatus:    "acknowledged",
+	})
+}
+
+func (r *Repository) ResolveEscalation(ctx context.Context, in ports.ResolveEscalation) (domain.CalendarActionResponse, error) {
+	return r.applyEscalationAction(ctx, escalationActionInput{
+		TenantID:        in.TenantID,
+		EventID:         in.EventID,
+		ActorID:         in.ActorID,
+		TraceID:         in.TraceID,
+		IdempotencyKey:  in.IdempotencyKey,
+		Reason:          in.Reason,
+		Scope:           in.Scope,
+		ActionType:      "resolve_escalation",
+		ScopeName:       "calendar.escalation.resolve",
+		EventType:       "calendar.escalation.resolved",
+		StatusEventType: "escalation_resolved",
+		ResultStatus:    "resolved",
+	})
+}
+
+type escalationActionInput struct {
+	TenantID        string
+	EventID         string
+	ActorID         string
+	TraceID         string
+	IdempotencyKey  string
+	Reason          string
+	Scope           domain.ScopeFilter
+	ActionType      string
+	ScopeName       string
+	EventType       string
+	StatusEventType string
+	ResultStatus    string
+}
+
+type lockedEscalation struct {
+	EscalationID string
+	ObligationID string
+	Level        int
+	Role         string
+	Status       string
+}
+
+type escalationClosure struct {
+	IDs    []string
+	Levels []int
+}
+
+func (r *Repository) applyEscalationAction(ctx context.Context, in escalationActionInput) (domain.CalendarActionResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	target, err := loadActionTarget(ctx, tx, in.TenantID, in.EventID, in.Scope)
+	if err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	if target.TargetType != "obligation" || strings.TrimSpace(target.TargetID) == "" {
+		return domain.CalendarActionResponse{}, ports.ErrEventNotActionable
+	}
+	fingerprint := requestFingerprint(in.TenantID, in.EventID, in.ActorID, in.ActionType, in.Reason)
+	res, err := reserveIdempotency(ctx, tx, in.TenantID, in.ScopeName, in.IdempotencyKey, fingerprint)
+	if err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	if !res.proceed {
+		_ = tx.Rollback(ctx)
+		action, err := r.escalationActionByID(ctx, in.TenantID, in.EventID, res.resultID, in.ActionType)
+		action.IdempotentReplay = true
+		return action, err
+	}
+	esc, err := lockLatestEscalation(ctx, tx, in.TenantID, target.TargetID)
+	if err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	changed, resultStatus, err := updateEscalationState(ctx, tx, in, esc)
+	if err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	if !changed && in.ActionType == "resolve_escalation" {
+		return domain.CalendarActionResponse{}, ports.ErrEventNotActionable
+	}
+	closure := escalationClosure{}
+	if in.ActionType == "resolve_escalation" && changed {
+		closure, err = resolveActiveEscalations(ctx, tx, in, esc)
+		if err != nil {
+			return domain.CalendarActionResponse{}, err
+		}
+	}
+	response := domain.CalendarActionResponse{
+		ActionID:   esc.EscalationID,
+		EventID:    in.EventID,
+		ActionType: in.ActionType,
+		Status:     resultStatus,
+	}
+	if changed {
+		scopedKey := idemScopedKey(in.TenantID, in.ScopeName, in.IdempotencyKey)
+		if err := recordEscalationActionSideEffects(ctx, tx, in, target, esc, closure, response, scopedKey); err != nil {
+			return domain.CalendarActionResponse{}, err
+		}
+	}
+	if err := completeIdempotency(ctx, tx, in.TenantID, in.ScopeName, in.IdempotencyKey, "obligation_escalation", esc.EscalationID); err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	return response, nil
+}
+
+func lockLatestEscalation(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) (lockedEscalation, error) {
+	var esc lockedEscalation
+	if err := tx.QueryRow(ctx, `
+SELECT escalation_id::text, obligation_id::text, level, COALESCE(escalated_to_role, ''), status
+FROM obligation_escalations
+WHERE tenant_id = $1::uuid
+  AND obligation_id = $2::uuid
+  AND status IN ('open', 'acknowledged')
+ORDER BY level DESC, opened_at DESC, escalation_id DESC
+LIMIT 1
+FOR UPDATE`, tenantID, obligationID).Scan(&esc.EscalationID, &esc.ObligationID, &esc.Level, &esc.Role, &esc.Status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return lockedEscalation{}, ports.ErrEventNotActionable
+		}
+		return lockedEscalation{}, err
+	}
+	return esc, nil
+}
+
+func updateEscalationState(ctx context.Context, tx pgx.Tx, in escalationActionInput, esc lockedEscalation) (bool, string, error) {
+	switch in.ActionType {
+	case "acknowledge_escalation":
+		if esc.Status == "acknowledged" {
+			return false, "acknowledged", nil
+		}
+		tag, err := tx.Exec(ctx, `
+UPDATE obligation_escalations
+SET status = 'acknowledged',
+    acknowledged_at = $4::timestamptz,
+    acknowledged_by = $3::uuid,
+    acknowledgement_note = $5
+WHERE tenant_id = $1::uuid
+  AND escalation_id = $2::uuid
+  AND status = 'open'`, in.TenantID, esc.EscalationID, in.ActorID, time.Now().UTC(), in.Reason)
+		return tag.RowsAffected() > 0, "acknowledged", err
+	case "resolve_escalation":
+		tag, err := tx.Exec(ctx, `
+UPDATE obligation_escalations
+SET status = 'resolved',
+    resolved_at = $4::timestamptz,
+    resolved_by = $3::uuid,
+    resolution_note = $5
+WHERE tenant_id = $1::uuid
+  AND escalation_id = $2::uuid
+  AND status IN ('open', 'acknowledged')`, in.TenantID, esc.EscalationID, in.ActorID, time.Now().UTC(), in.Reason)
+		return tag.RowsAffected() > 0, "resolved", err
+	default:
+		return false, "", ports.ErrEventNotActionable
+	}
+}
+
+func resolveActiveEscalations(ctx context.Context, tx pgx.Tx, in escalationActionInput, esc lockedEscalation) (escalationClosure, error) {
+	closure := escalationClosure{
+		IDs:    []string{esc.EscalationID},
+		Levels: []int{esc.Level},
+	}
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_escalations
+SET status = 'resolved',
+    resolved_at = COALESCE(resolved_at, $4::timestamptz),
+    resolved_by = COALESCE(resolved_by, $3::uuid),
+    resolution_note = CASE WHEN resolution_note = '' THEN $5 ELSE resolution_note END
+WHERE tenant_id = $1::uuid
+  AND obligation_id = $2::uuid
+  AND status IN ('open', 'acknowledged')
+RETURNING escalation_id::text, level`, in.TenantID, esc.ObligationID, in.ActorID, time.Now().UTC(), in.Reason)
+	if err != nil {
+		return escalationClosure{}, fmt.Errorf("calendar: resolve active escalation ladder: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var level int
+		if err := rows.Scan(&id, &level); err != nil {
+			return escalationClosure{}, err
+		}
+		closure.IDs = append(closure.IDs, id)
+		closure.Levels = append(closure.Levels, level)
+	}
+	if err := rows.Err(); err != nil {
+		return escalationClosure{}, err
+	}
+	return closure, nil
+}
+
+func recordEscalationActionSideEffects(ctx context.Context, tx pgx.Tx, in escalationActionInput, target actionTarget, esc lockedEscalation, closure escalationClosure, response domain.CalendarActionResponse, scopedKey string) error {
+	now := time.Now().UTC()
+	projectionState := "resolved"
+	if in.ActionType == "acknowledge_escalation" {
+		projectionState = fmt.Sprintf("level_%d_acknowledged", esc.Level)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE notification_requests
+SET status = CASE WHEN status IN ('queued', 'sending', 'sent', 'failed') THEN 'read' ELSE status END,
+    read_at = COALESCE(read_at, $4::timestamptz),
+    updated_at = $4::timestamptz
+WHERE tenant_id = $1::uuid
+  AND calendar_event_id = $2
+  AND notification_type = 'escalation'
+  AND context->>'obligation_escalation_id' = ANY($3::text[])`, in.TenantID, in.EventID, escalationNotificationIDs(esc, closure), now); err != nil {
+		return fmt.Errorf("calendar: mark escalation notification read: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO obligation_status_events (
+  tenant_id, obligation_id, event_type, occurred_at, actor_id, payload, idempotency_key
+)
+SELECT $1::uuid, $2::uuid, $3, $7::timestamptz, $4::uuid, $5::jsonb, $6
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND obligation_id = $2::uuid
+    AND idempotency_key = $6
+)`,
+		in.TenantID, esc.ObligationID, in.StatusEventType, in.ActorID,
+		mustJSON(escalationActionDetails(in, target, esc, closure)),
+		scopedKey+":obligation_status", now); err != nil {
+		return fmt.Errorf("calendar: insert escalation action event: %w", err)
+	}
+	if err := insertOutbox(ctx, tx, in.TenantID, in.EventType, "calendar.escalation.v1",
+		"obligation_escalation", esc.EscalationID, "calendar.notifications", scopedKey, in.TraceID, "human", in.ActorID, response, in.EventID); err != nil {
+		return err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     in.TenantID,
+		ActorID:      in.ActorID,
+		ActorType:    "human",
+		Action:       in.EventType,
+		ResourceType: "obligation_escalation",
+		ResourceID:   esc.EscalationID,
+		ScopeType:    "obligation_escalation",
+		ScopeID:      esc.EscalationID,
+		AfterState:   response,
+		TraceID:      in.TraceID,
+		Metadata:     escalationActionAuditMetadata(in, esc, closure, response),
+	}); err != nil {
+		return fmt.Errorf("calendar: audit escalation action: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE calendar_event_projections
+SET escalation_state = $3,
+    updated_at = $4::timestamptz
+WHERE tenant_id = $1::uuid AND event_id = $2`, in.TenantID, in.EventID, projectionState, now); err != nil {
+		return fmt.Errorf("calendar: update escalation action projection: %w", err)
+	}
+	return nil
+}
+
+func escalationActionDetails(in escalationActionInput, target actionTarget, esc lockedEscalation, closure escalationClosure) map[string]any {
+	details := map[string]any{
+		"level":              esc.Level,
+		"role":               esc.Role,
+		"calendar_event_id":  in.EventID,
+		"escalation_id":      esc.EscalationID,
+		"action":             in.ActionType,
+		"reason":             in.Reason,
+		"source_target_type": target.TargetType,
+		"source_target_id":   target.TargetID,
+	}
+	if in.ActionType == "resolve_escalation" {
+		details["resolved_escalation_ids"] = closure.IDs
+		details["resolved_escalation_levels"] = closure.Levels
+	}
+	return details
+}
+
+func escalationActionAuditMetadata(in escalationActionInput, esc lockedEscalation, closure escalationClosure, response domain.CalendarActionResponse) map[string]any {
+	metadata := map[string]any{
+		"domain":            "calendar",
+		"module":            "vaccination",
+		"category":          "escalation",
+		"calendar_event_id": in.EventID,
+		"idempotency_key":   in.IdempotencyKey,
+		"status":            response.Status,
+		"result":            response.Status,
+		"level":             esc.Level,
+		"role":              esc.Role,
+		"reason":            in.Reason,
+	}
+	if in.ActionType == "resolve_escalation" {
+		metadata["resolved_escalation_ids"] = closure.IDs
+		metadata["resolved_escalation_levels"] = closure.Levels
+	}
+	return metadata
+}
+
+func escalationNotificationIDs(esc lockedEscalation, closure escalationClosure) []string {
+	if len(closure.IDs) > 0 {
+		return closure.IDs
+	}
+	return []string{esc.EscalationID}
+}
+
 func (r *Repository) SweepDueReminders(ctx context.Context, tenantID string, limit int) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -932,6 +1253,28 @@ WHERE tenant_id = $1::uuid AND calendar_event_id = $2 AND snooze_id = $3::uuid`,
 	return action, nil
 }
 
+func (r *Repository) escalationActionByID(ctx context.Context, tenantID, eventID, escalationID, actionType string) (domain.CalendarActionResponse, error) {
+	var action domain.CalendarActionResponse
+	if err := r.pool.QueryRow(ctx, `
+SELECT oe.escalation_id::text, cep.event_id, oe.status
+FROM obligation_escalations oe
+JOIN calendar_event_projections cep
+  ON cep.tenant_id = oe.tenant_id
+ AND cep.source_target_type = 'obligation'
+ AND cep.source_target_id = oe.obligation_id
+WHERE oe.tenant_id = $1::uuid
+  AND cep.event_id = $2
+  AND oe.escalation_id = $3::uuid`,
+		tenantID, eventID, escalationID).Scan(&action.ActionID, &action.EventID, &action.Status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.CalendarActionResponse{}, ports.ErrNotFound
+		}
+		return domain.CalendarActionResponse{}, err
+	}
+	action.ActionType = actionType
+	return action, nil
+}
+
 type actionTarget struct {
 	EventID        string
 	EventType      string
@@ -1163,6 +1506,35 @@ WITH history AS (
     ) AS details
   FROM calendar_snoozes
   WHERE tenant_id = $1::uuid AND calendar_event_id = $2
+
+  UNION ALL
+
+  SELECT
+    'escalation:' || oe.escalation_id::text AS history_id,
+    'calendar_escalation_' || oe.status AS event_type,
+    oe.status,
+    'Escalation L' || oe.level::text || ' ' || oe.status AS title,
+    COALESCE(oe.resolved_by::text, oe.acknowledged_by::text, oe.escalated_to_user_id::text) AS actor_label,
+    COALESCE(oe.resolved_at, oe.acknowledged_at, oe.opened_at) AS occurred_at,
+    NULL::text AS channel,
+    NULLIF(COALESCE(oe.resolution_note, oe.acknowledgement_note, oe.reason), '') AS reason,
+    NULL::text AS trace_id,
+    'obligation_escalations' AS source_table,
+    jsonb_build_object(
+      'escalation_id', oe.escalation_id,
+      'obligation_id', oe.obligation_id,
+      'level', oe.level,
+      'escalated_to_role', oe.escalated_to_role,
+      'opened_at', oe.opened_at,
+      'acknowledged_at', oe.acknowledged_at,
+      'resolved_at', oe.resolved_at
+    ) AS details
+  FROM obligation_escalations oe
+  JOIN calendar_event_projections cep
+    ON cep.tenant_id = oe.tenant_id
+   AND cep.source_target_type = 'obligation'
+   AND cep.source_target_id = oe.obligation_id
+  WHERE oe.tenant_id = $1::uuid AND cep.event_id = $2
 
   UNION ALL
 

@@ -238,6 +238,10 @@ type SnoozeRequest struct {
 	ReplaceExisting bool      `json:"replace_existing"`
 }
 
+type EscalationActionRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
 type CalendarActionResponse struct {
 	ActionID         string     `json:"action_id"`
 	EventID          string     `json:"event_id"`

@@ -88,6 +88,31 @@ func TestServiceRejectsInvalidNudgeActionBody(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsInvalidEscalationActions(t *testing.T) {
+	svc := NewService(fakeRepo{})
+	_, err := svc.AcknowledgeEscalation(context.Background(), ports.AcknowledgeEscalation{
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
+		ActorID:        "86000000-0000-4000-8000-000000009999",
+		IdempotencyKey: "ack-test-key",
+		Reason:         string(make([]byte, 1001)),
+	})
+	var appErr Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_reason" {
+		t.Fatalf("ack err = %v, want invalid_reason", err)
+	}
+
+	_, err = svc.ResolveEscalation(context.Background(), ports.ResolveEscalation{
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
+		ActorID:        "86000000-0000-4000-8000-000000009999",
+		IdempotencyKey: "resolve-key",
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_reason" {
+		t.Fatalf("resolve err = %v, want invalid_reason", err)
+	}
+}
+
 type fakeRepo struct {
 	nudgeErr error
 }
@@ -109,6 +134,14 @@ func (f fakeRepo) SendNudge(context.Context, ports.SendNudge) (domain.CalendarAc
 }
 
 func (f fakeRepo) Snooze(context.Context, ports.Snooze) (domain.CalendarActionResponse, error) {
+	return domain.CalendarActionResponse{}, nil
+}
+
+func (f fakeRepo) AcknowledgeEscalation(context.Context, ports.AcknowledgeEscalation) (domain.CalendarActionResponse, error) {
+	return domain.CalendarActionResponse{}, nil
+}
+
+func (f fakeRepo) ResolveEscalation(context.Context, ports.ResolveEscalation) (domain.CalendarActionResponse, error) {
 	return domain.CalendarActionResponse{}, nil
 }
 

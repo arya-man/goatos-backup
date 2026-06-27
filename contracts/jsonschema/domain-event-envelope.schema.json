@@ -52,6 +52,8 @@
         "calendar.nudge.requested",
         "calendar.reminder.queued",
         "calendar.snooze.recorded",
+        "calendar.escalation.acknowledged",
+        "calendar.escalation.resolved",
         "vaccination.verify.accepted",
         "vaccination.verify.rejected"
       ]
@@ -75,6 +77,7 @@
         "legacy_import_run",
         "calendar_notification",
         "calendar_snooze",
+        "obligation_escalation",
         "vaccination_completion"
       ]
     },

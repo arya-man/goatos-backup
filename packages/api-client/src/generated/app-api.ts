@@ -660,6 +660,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendar/vaccination/events/{event_id}/escalation/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently acknowledge the active escalation for a vaccination Calendar obligation. */
+        post: operations["acknowledgeCalendarVaccinationEscalation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/vaccination/events/{event_id}/escalation/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently resolve the active escalation for a vaccination Calendar obligation. */
+        post: operations["resolveCalendarVaccinationEscalation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/verification-queue": {
         parameters: {
             query?: never;
@@ -1661,12 +1695,18 @@ export interface components {
             /** @default false */
             replace_existing: boolean;
         };
+        CalendarEscalationAcknowledgeRequest: {
+            reason?: string;
+        };
+        CalendarEscalationResolveRequest: {
+            reason: string;
+        };
         CalendarActionResponse: {
             /** Format: uuid */
             action_id: string;
             event_id: string;
             /** @enum {string} */
-            action_type: "reminder" | "nudge" | "snooze";
+            action_type: "reminder" | "nudge" | "snooze" | "escalation" | "acknowledge_escalation" | "resolve_escalation";
             status: string;
             channel: string | null;
             /** Format: date-time */
@@ -3405,6 +3445,74 @@ export interface operations {
         };
         responses: {
             /** @description Snooze recorded or replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    acknowledgeCalendarVaccinationEscalation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                event_id: components["parameters"]["CalendarEventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CalendarEscalationAcknowledgeRequest"];
+            };
+        };
+        responses: {
+            /** @description Escalation acknowledged or replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    resolveCalendarVaccinationEscalation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                event_id: components["parameters"]["CalendarEventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarEscalationResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Escalation resolved or replayed. */
             200: {
                 headers: {
                     [name: string]: unknown;

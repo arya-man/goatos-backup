@@ -28,6 +28,8 @@ type Service interface {
 	History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error)
 	SendNudge(ctx context.Context, in ports.SendNudge) (domain.CalendarActionResponse, error)
 	Snooze(ctx context.Context, in ports.Snooze) (domain.CalendarActionResponse, error)
+	AcknowledgeEscalation(ctx context.Context, in ports.AcknowledgeEscalation) (domain.CalendarActionResponse, error)
+	ResolveEscalation(ctx context.Context, in ports.ResolveEscalation) (domain.CalendarActionResponse, error)
 }
 
 type Handler struct {
@@ -49,6 +51,8 @@ func Register(mux *stdhttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /calendar/vaccination/events/{event_id}/history", h.History)
 	mux.HandleFunc("POST /calendar/vaccination/events/{event_id}/nudge", h.SendNudge)
 	mux.HandleFunc("POST /calendar/vaccination/events/{event_id}/snooze", h.Snooze)
+	mux.HandleFunc("POST /calendar/vaccination/events/{event_id}/escalation/acknowledge", h.AcknowledgeEscalation)
+	mux.HandleFunc("POST /calendar/vaccination/events/{event_id}/escalation/resolve", h.ResolveEscalation)
 }
 
 func (h *Handler) ListEvents(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -152,6 +156,58 @@ func (h *Handler) Snooze(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		Reason:          req.Reason,
 		ReplaceExisting: req.ReplaceExisting,
 		Scope:           calendarScope(r, permissions.CalendarAction),
+	})
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, stdhttp.StatusOK, resp)
+}
+
+func (h *Handler) AcknowledgeEscalation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	r.Body = stdhttp.MaxBytesReader(w, r.Body, maxActionBodyBytes)
+	defer r.Body.Close()
+	var req domain.EscalationActionRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		h.badRequest(w, r, "invalid_body", "request body must be JSON")
+		return
+	}
+	resp, err := h.service.AcknowledgeEscalation(r.Context(), ports.AcknowledgeEscalation{
+		TenantID:       tenantID(r),
+		EventID:        r.PathValue("event_id"),
+		ActorID:        actorID(r),
+		TraceID:        traceID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		Reason:         req.Reason,
+		Scope:          calendarScope(r, permissions.CalendarAction),
+	})
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, stdhttp.StatusOK, resp)
+}
+
+func (h *Handler) ResolveEscalation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	r.Body = stdhttp.MaxBytesReader(w, r.Body, maxActionBodyBytes)
+	defer r.Body.Close()
+	var req domain.EscalationActionRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		h.badRequest(w, r, "invalid_body", "request body must be JSON")
+		return
+	}
+	resp, err := h.service.ResolveEscalation(r.Context(), ports.ResolveEscalation{
+		TenantID:       tenantID(r),
+		EventID:        r.PathValue("event_id"),
+		ActorID:        actorID(r),
+		TraceID:        traceID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		Reason:         req.Reason,
+		Scope:          calendarScope(r, permissions.CalendarAction),
 	})
 	if err != nil {
 		h.writeAppError(w, r, err)

@@ -172,6 +172,47 @@ func (s *Service) Snooze(ctx context.Context, in ports.Snooze) (domain.CalendarA
 	return resp, nil
 }
 
+func (s *Service) AcknowledgeEscalation(ctx context.Context, in ports.AcknowledgeEscalation) (domain.CalendarActionResponse, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ActorID = strings.TrimSpace(in.ActorID)
+	in.EventID = strings.TrimSpace(in.EventID)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	in.Reason = strings.TrimSpace(in.Reason)
+	if err := validateActionEnvelope(in.TenantID, in.ActorID, in.EventID, in.IdempotencyKey); err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	if len(in.Reason) > maxActionReasonLen {
+		return domain.CalendarActionResponse{}, BadRequest("invalid_reason", "reason may not exceed 1000 characters")
+	}
+	resp, err := s.repo.AcknowledgeEscalation(ctx, in)
+	if err != nil {
+		return domain.CalendarActionResponse{}, mapRepoError(err)
+	}
+	return resp, nil
+}
+
+func (s *Service) ResolveEscalation(ctx context.Context, in ports.ResolveEscalation) (domain.CalendarActionResponse, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ActorID = strings.TrimSpace(in.ActorID)
+	in.EventID = strings.TrimSpace(in.EventID)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	in.Reason = strings.TrimSpace(in.Reason)
+	if err := validateActionEnvelope(in.TenantID, in.ActorID, in.EventID, in.IdempotencyKey); err != nil {
+		return domain.CalendarActionResponse{}, err
+	}
+	if in.Reason == "" {
+		return domain.CalendarActionResponse{}, BadRequest("invalid_reason", "reason is required")
+	}
+	if len(in.Reason) > maxActionReasonLen {
+		return domain.CalendarActionResponse{}, BadRequest("invalid_reason", "reason may not exceed 1000 characters")
+	}
+	resp, err := s.repo.ResolveEscalation(ctx, in)
+	if err != nil {
+		return domain.CalendarActionResponse{}, mapRepoError(err)
+	}
+	return resp, nil
+}
+
 func (s *Service) SweepDueReminders(ctx context.Context, tenantID string, limit int) (int, error) {
 	if !uuidutil.IsUUIDString(tenantID) {
 		return 0, BadRequest("invalid_tenant", "tenant id is required")

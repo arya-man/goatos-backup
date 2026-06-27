@@ -1484,6 +1484,74 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events/{event_id}/escalation/acknowledge:
+    post:
+      tags:
+        - Calendar
+      operationId: acknowledgeCalendarVaccinationEscalation
+      summary: Idempotently acknowledge the active escalation for a vaccination Calendar obligation.
+      parameters:
+        - $ref: "#/components/parameters/CalendarEventId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarEscalationAcknowledgeRequest"
+      responses:
+        "200":
+          description: Escalation acknowledged or replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /calendar/vaccination/events/{event_id}/escalation/resolve:
+    post:
+      tags:
+        - Calendar
+      operationId: resolveCalendarVaccinationEscalation
+      summary: Idempotently resolve the active escalation for a vaccination Calendar obligation.
+      parameters:
+        - $ref: "#/components/parameters/CalendarEventId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarEscalationResolveRequest"
+      responses:
+        "200":
+          description: Escalation resolved or replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/verification-queue:
     get:
       tags:
@@ -4561,6 +4629,23 @@ components:
         replace_existing:
           type: boolean
           default: false
+    CalendarEscalationAcknowledgeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          maxLength: 1000
+    CalendarEscalationResolveRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
     CalendarActionResponse:
       type: object
       additionalProperties: false
@@ -4584,6 +4669,9 @@ components:
             - reminder
             - nudge
             - snooze
+            - escalation
+            - acknowledge_escalation
+            - resolve_escalation
         status:
           type: string
         channel:
