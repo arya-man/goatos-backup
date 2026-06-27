@@ -368,6 +368,104 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 }
 
+func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000851"
+	versionID := "86000000-0000-4000-8000-000000000852"
+	ruleID := "86000000-0000-4000-8000-000000000853"
+	obligationID := "86000000-0000-4000-8000-000000000854"
+	dueAt := time.Now().UTC().Add(-2 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 4 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("SweepEscalations: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued escalations = %d, want 1", queued)
+	}
+	eventID := "obligation:" + obligationID
+	assertCount(t, ctx, pool, "escalation notifications", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND target_type='obligation'
+  AND target_id=$3::uuid
+  AND notification_type='escalation'
+  AND status='queued'`, 1, testTenantID, eventID, obligationID)
+	assertCount(t, ctx, pool, "obligation escalations", `
+SELECT count(*)
+FROM obligation_escalations
+WHERE tenant_id=$1::uuid
+  AND obligation_id=$2::uuid
+  AND level=1
+  AND escalated_to_role='operator'
+  AND status='open'`, 1, testTenantID, obligationID)
+	var status, escalationState string
+	if err := pool.QueryRow(ctx, `
+SELECT status, escalation_state
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, &escalationState); err != nil {
+		t.Fatalf("query escalation projection: %v", err)
+	}
+	if status != domain.StatusOverdue || escalationState != "level_1_open" {
+		t.Fatalf("projection status=%s escalation=%s, want overdue/level_1_open", status, escalationState)
+	}
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection after escalation: %v", err)
+	}
+	var reminderState, channel string
+	if err := pool.QueryRow(ctx, `
+SELECT status, reminder_state, primary_notification_channel, escalation_state
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, &reminderState, &channel, &escalationState); err != nil {
+		t.Fatalf("query refreshed escalation projection: %v", err)
+	}
+	if status != domain.StatusOverdue || reminderState != "escalated" || channel != "local-stub" || escalationState != "level_1_open" {
+		t.Fatalf("refreshed projection status=%s reminder=%s channel=%s escalation=%s", status, reminderState, channel, escalationState)
+	}
+	again, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID:    testTenantID,
+		Limit:       10,
+		Now:         time.Now().UTC(),
+		Level1After: 0,
+		Level2After: 4 * time.Hour,
+		Level3After: 24 * time.Hour,
+		Level4After: 48 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("SweepEscalations replay: %v", err)
+	}
+	if again != 0 {
+		t.Fatalf("replay queued escalations = %d, want 0", again)
+	}
+}
+
 func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

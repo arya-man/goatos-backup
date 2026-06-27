@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -201,7 +202,99 @@ SET status = 'dead_letter',
     last_error = $2,
     updated_at = $3
 WHERE outbox_id = $1
-  AND status = 'publishing'`, outboxID, lastError, now)
+	AND status = 'publishing'`, outboxID, lastError, now)
+}
+
+func (r *Repository) ListDeadLetters(ctx context.Context, q ports.DeadLetterQuery) ([]domain.DeadLetterMessage, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if q.Limit <= 0 {
+		q.Limit = 50
+	}
+	if q.Limit > 500 {
+		q.Limit = 500
+	}
+	status := q.Status
+	if status == "" {
+		status = domain.StatusDeadLetter
+	}
+	if status != domain.StatusDeadLetter && status != domain.StatusFailed {
+		return nil, fmt.Errorf("outbox: dead letter status must be %q or %q", domain.StatusDeadLetter, domain.StatusFailed)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  outbox_id::text,
+  tenant_id::text,
+  event_id::text,
+  event_type,
+  aggregate_type,
+  aggregate_id::text,
+  topic,
+  status,
+  attempt_count,
+  COALESCE(last_error, ''),
+  created_at,
+  updated_at
+FROM outbox_messages
+WHERE tenant_id = $1::uuid
+  AND status = $2
+  AND ($3::text = '' OR event_type = $3)
+  AND ($4::text = '' OR topic = $4)
+ORDER BY updated_at DESC, outbox_id DESC
+LIMIT $5`, q.TenantID, status, q.EventType, q.Topic, q.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("outbox: list dead letters: %w", err)
+	}
+	defer rows.Close()
+	var messages []domain.DeadLetterMessage
+	for rows.Next() {
+		var message domain.DeadLetterMessage
+		if err := rows.Scan(
+			&message.OutboxID,
+			&message.TenantID,
+			&message.EventID,
+			&message.EventType,
+			&message.AggregateType,
+			&message.AggregateID,
+			&message.Topic,
+			&message.Status,
+			&message.AttemptCount,
+			&message.LastError,
+			&message.CreatedAt,
+			&message.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+func (r *Repository) ReplayDeadLetters(ctx context.Context, params ports.ReplayDeadLettersParams) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if params.Now.IsZero() {
+		params.Now = time.Now().UTC()
+	}
+	tag, err := r.pool.Exec(ctx, `
+UPDATE outbox_messages
+SET status = 'pending',
+    attempt_count = 0,
+    next_attempt_at = $4::timestamptz,
+    published_at = NULL,
+    last_error = $3,
+    updated_at = $4::timestamptz
+WHERE tenant_id = $1::uuid
+  AND outbox_id::text = ANY($2::text[])
+  AND status IN ('dead_letter', 'failed')`,
+		params.TenantID, params.OutboxIDs, replayReason(params.Reason), params.Now)
+	if err != nil {
+		return 0, fmt.Errorf("outbox: replay dead letters: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *Repository) execStatusUpdate(ctx context.Context, sql string, args ...any) error {
@@ -209,6 +302,16 @@ func (r *Repository) execStatusUpdate(ctx context.Context, sql string, args ...a
 	defer cancel()
 	_, err := r.pool.Exec(ctx, sql, args...)
 	return err
+}
+
+func replayReason(reason string) string {
+	if reason == "" {
+		return "replayed_from_dlq"
+	}
+	if len(reason) > 180 {
+		reason = reason[:180]
+	}
+	return "replayed_from_dlq: " + reason
 }
 
 func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

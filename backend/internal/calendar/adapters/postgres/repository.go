@@ -546,6 +546,280 @@ WHERE tenant_id = $1::uuid AND event_id = $2`, tenantID, e.EventID, channel); er
 	return true, nil
 }
 
+func (r *Repository) SweepEscalations(ctx context.Context, in ports.SweepEscalations) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if in.Limit <= 0 {
+		in.Limit = 100
+	}
+	events, err := r.selectEscalationEvents(ctx, in)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, event := range events {
+		persisted, err := r.queueEscalation(ctx, in.TenantID, event.EventID, event.Level, in.Now)
+		if err != nil {
+			return count, err
+		}
+		if persisted {
+			count++
+		}
+	}
+	return count, nil
+}
+
+type escalationEvent struct {
+	EventID string
+	Level   int
+}
+
+func (r *Repository) selectEscalationEvents(ctx context.Context, in ports.SweepEscalations) ([]escalationEvent, error) {
+	level1Cutoff := in.Now.Add(-in.Level1After)
+	level2Cutoff := in.Now.Add(-in.Level2After)
+	level3Cutoff := in.Now.Add(-in.Level3After)
+	level4Cutoff := in.Now.Add(-in.Level4After)
+	rows, err := r.pool.Query(ctx, `
+WITH candidates AS (
+  SELECT
+    event_id,
+    due_at,
+    CASE
+      WHEN due_at <= $6::timestamptz THEN 4
+      WHEN due_at <= $5::timestamptz THEN 3
+      WHEN due_at <= $4::timestamptz THEN 2
+      WHEN due_at <= $3::timestamptz THEN 1
+      ELSE 0
+    END AS level
+  FROM calendar_event_projections
+  WHERE tenant_id = $1::uuid
+    AND slice_key = 'vaccination'
+    AND system = false
+    AND due_at IS NOT NULL
+    AND due_at <= $2::timestamptz
+    AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+)
+SELECT event_id, level
+FROM candidates c
+WHERE level > 0
+  AND NOT EXISTS (
+    SELECT 1
+    FROM notification_requests nr
+    WHERE nr.tenant_id = $1::uuid
+      AND nr.idempotency_key = $1 || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
+  )
+ORDER BY due_at ASC, event_id ASC
+LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, in.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("calendar: select escalation sweep: %w", err)
+	}
+	defer rows.Close()
+	events := []escalationEvent{}
+	for rows.Next() {
+		var event escalationEvent
+		if err := rows.Scan(&event.EventID, &event.Level); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+type escalationTarget struct {
+	EventID          string
+	Title            string
+	Status           string
+	TargetType       string
+	TargetID         string
+	PrimaryChannel   string
+	SourceTargetType string
+	SourceTargetID   string
+	ExecutorRole     string
+	VerifierLabel    string
+	DueAt            time.Time
+}
+
+func (r *Repository) queueEscalation(ctx context.Context, tenantID, eventID string, level int, now time.Time) (bool, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var target escalationTarget
+	if err := tx.QueryRow(ctx, `
+SELECT event_id, title, status, source_target_type, COALESCE(source_target_id::text, ''),
+       primary_notification_channel, source_target_type, COALESCE(source_target_id::text, ''),
+       COALESCE(executor_role, ''), COALESCE(verifier_label, ''), due_at
+FROM calendar_event_projections
+WHERE tenant_id = $1::uuid
+  AND event_id = $2
+  AND slice_key = 'vaccination'
+  AND system = false
+  AND due_at <= $3::timestamptz
+  AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+FOR UPDATE SKIP LOCKED`, tenantID, eventID, now).Scan(
+		&target.EventID,
+		&target.Title,
+		&target.Status,
+		&target.TargetType,
+		&target.TargetID,
+		&target.PrimaryChannel,
+		&target.SourceTargetType,
+		&target.SourceTargetID,
+		&target.ExecutorRole,
+		&target.VerifierLabel,
+		&target.DueAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("calendar: lock escalation event: %w", err)
+	}
+	role := escalationRole(level, target)
+	key := tenantID + ":calendar.escalation:" + target.EventID + ":level:" + fmt.Sprint(level)
+	fingerprint := requestFingerprint(tenantID, target.EventID, "escalation", fmt.Sprint(level), role)
+	var escalationID string
+	if target.SourceTargetType == "obligation" && strings.TrimSpace(target.SourceTargetID) != "" {
+		err := tx.QueryRow(ctx, `
+INSERT INTO obligation_escalations (
+  tenant_id, obligation_id, level, escalated_to_role, reason, status, opened_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, 'open', $6::timestamptz
+)
+ON CONFLICT DO NOTHING
+RETURNING escalation_id::text`,
+			tenantID, target.SourceTargetID, level, role, escalationReason(target, level), now).Scan(&escalationID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, fmt.Errorf("calendar: insert obligation escalation: %w", err)
+		}
+		if escalationID != "" {
+			if _, err := tx.Exec(ctx, `
+INSERT INTO obligation_status_events (
+  tenant_id, obligation_id, event_type, occurred_at, actor_id, payload, idempotency_key
+)
+SELECT $1::uuid, $2::uuid, 'escalated', $5::timestamptz, NULL, $3::jsonb, $4
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND obligation_id = $2::uuid
+    AND idempotency_key = $4
+)`,
+				tenantID, target.SourceTargetID,
+				mustJSON(map[string]any{"level": level, "role": role, "calendar_event_id": target.EventID, "escalation_id": escalationID}),
+				key, now); err != nil {
+				return false, fmt.Errorf("calendar: insert obligation escalation event: %w", err)
+			}
+		}
+	}
+	channel := normalizeChannel("", target.PrimaryChannel)
+	if channel == "local-stub" && level >= 2 {
+		channel = "slack"
+	}
+	contextJSON := mustJSON(map[string]any{
+		"calendar_event_id":        target.EventID,
+		"source_target_type":       target.SourceTargetType,
+		"source_target_id":         target.SourceTargetID,
+		"escalation_level":         level,
+		"escalated_to_role":        role,
+		"obligation_escalation_id": escalationID,
+		"due_at":                   target.DueAt.UTC().Format(time.RFC3339Nano),
+		"sweeper":                  "calendar-escalation-sweeper",
+	})
+	var requestID string
+	err = tx.QueryRow(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, target_id, notification_type, channel,
+  recipient_ref, title, body, status, idempotency_key, request_fingerprint, context, trace_id
+) VALUES (
+  $1::uuid, $2, $3, nullif($4::text, '')::uuid, 'escalation', $5,
+  $6, $7, $8, 'queued', $9, $10, $11::jsonb, $12
+)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+RETURNING notification_request_id::text`,
+		tenantID, target.EventID, target.TargetType, target.TargetID, channel, role,
+		fmt.Sprintf("Escalation L%d: %s", level, target.Title),
+		fmt.Sprintf("%s is overdue. Escalated to %s.", target.Title, role),
+		key, fingerprint, contextJSON, "calendar-escalation-sweeper:"+target.EventID).Scan(&requestID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("calendar: insert escalation notification: %w", err)
+	}
+	resp := domain.CalendarActionResponse{ActionID: requestID, EventID: target.EventID, ActionType: "escalation", Status: "queued", Channel: &channel}
+	if err := insertOutbox(ctx, tx, tenantID, "calendar.escalation.queued", "calendar.notification.v1",
+		"calendar_notification", requestID, "calendar.notifications", key, "calendar-escalation-sweeper:"+target.EventID, "system_rule", "", resp, target.EventID); err != nil {
+		return false, err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorType:    "system",
+		Action:       "calendar.escalation.queued",
+		ResourceType: "calendar_notification",
+		ResourceID:   requestID,
+		ScopeType:    "notification_request",
+		ScopeID:      requestID,
+		AfterState:   resp,
+		TraceID:      "calendar-escalation-sweeper:" + target.EventID,
+		Metadata: map[string]any{
+			"domain":            "calendar",
+			"module":            "vaccination",
+			"category":          "escalation",
+			"calendar_event_id": target.EventID,
+			"idempotency_key":   key,
+			"status":            "queued",
+			"result":            "queued",
+			"channel":           channel,
+			"level":             level,
+			"role":              role,
+		},
+	}); err != nil {
+		return false, fmt.Errorf("calendar: audit escalation: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE calendar_event_projections
+SET status = CASE WHEN status IN ('scheduled', 'due') THEN 'overdue' ELSE status END,
+    severity = 'critical',
+    reminder_state = 'escalated',
+    primary_notification_channel = $3,
+    escalation_state = $4,
+    updated_at = $5::timestamptz
+WHERE tenant_id = $1::uuid AND event_id = $2`, tenantID, target.EventID, channel, fmt.Sprintf("level_%d_open", level), now); err != nil {
+		return false, fmt.Errorf("calendar: update escalation projection: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func escalationRole(level int, target escalationTarget) string {
+	switch {
+	case level >= 4:
+		return "ceo_internal"
+	case level == 3:
+		return "admin"
+	case level == 2:
+		return "park_head"
+	case target.Status == "verification_pending" || strings.TrimSpace(target.VerifierLabel) != "":
+		return "verifier"
+	default:
+		return "operator"
+	}
+}
+
+func escalationReason(target escalationTarget, level int) string {
+	return fmt.Sprintf("calendar event %s overdue at level %d; status=%s due_at=%s", target.EventID, level, target.Status, target.DueAt.UTC().Format(time.RFC3339))
+}
+
 func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -927,6 +1201,8 @@ WITH obligation_events AS (
     pd.name || ' ' || pr.dose_code || ' due' AS title,
     COALESCE(loc.shed_name, loc.park_code, 'Vaccination obligation') AS subtitle,
     CASE oi.status
+      WHEN 'scheduled' THEN CASE WHEN oi.due_at < now() THEN 'overdue' ELSE 'scheduled' END
+      WHEN 'due' THEN CASE WHEN oi.due_at < now() THEN 'overdue' ELSE 'due' END
       WHEN 'missed' THEN 'overdue'
       WHEN 'waived' THEN 'deferred'
       WHEN 'superseded' THEN 'canceled'
@@ -1380,8 +1656,19 @@ upserted AS (
       assignee_label = EXCLUDED.assignee_label,
       executor_role = EXCLUDED.executor_role,
       verifier_label = EXCLUDED.verifier_label,
-      primary_notification_channel = EXCLUDED.primary_notification_channel,
-      escalation_state = EXCLUDED.escalation_state,
+      reminder_state = CASE
+        WHEN calendar_event_projections.reminder_state <> 'not_scheduled' THEN calendar_event_projections.reminder_state
+        ELSE EXCLUDED.reminder_state
+      END,
+      primary_notification_channel = CASE
+        WHEN calendar_event_projections.reminder_state <> 'not_scheduled'
+          OR calendar_event_projections.escalation_state <> 'none' THEN calendar_event_projections.primary_notification_channel
+        ELSE EXCLUDED.primary_notification_channel
+      END,
+      escalation_state = CASE
+        WHEN calendar_event_projections.escalation_state <> 'none' THEN calendar_event_projections.escalation_state
+        ELSE EXCLUDED.escalation_state
+      END,
       system = EXCLUDED.system,
       cross_cutting = EXCLUDED.cross_cutting,
       links = EXCLUDED.links,

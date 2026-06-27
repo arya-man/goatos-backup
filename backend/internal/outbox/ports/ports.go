@@ -23,6 +23,21 @@ type ClaimResult struct {
 	DeadLetterCount int
 }
 
+type DeadLetterQuery struct {
+	TenantID  string
+	Status    string
+	EventType string
+	Topic     string
+	Limit     int
+}
+
+type ReplayDeadLettersParams struct {
+	TenantID  string
+	OutboxIDs []string
+	Reason    string
+	Now       time.Time
+}
+
 type Repository interface {
 	ReclaimStalePublishing(ctx context.Context, now time.Time, leaseTimeout time.Duration) (int64, error)
 	ClaimPending(ctx context.Context, params ClaimParams) (*ClaimResult, error)
@@ -30,6 +45,8 @@ type Repository interface {
 	MarkRetry(ctx context.Context, outboxID string, nextAttemptAt time.Time, lastError string, now time.Time) error
 	MarkFailed(ctx context.Context, outboxID string, lastError string, now time.Time) error
 	MarkDeadLetter(ctx context.Context, outboxID string, lastError string, now time.Time) error
+	ListDeadLetters(ctx context.Context, q DeadLetterQuery) ([]domain.DeadLetterMessage, error)
+	ReplayDeadLetters(ctx context.Context, params ReplayDeadLettersParams) (int64, error)
 	Ping(ctx context.Context) error
 }
 

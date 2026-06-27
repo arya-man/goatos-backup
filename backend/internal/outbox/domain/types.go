@@ -31,6 +31,21 @@ type Message struct {
 	UpdatedAt      time.Time
 }
 
+type DeadLetterMessage struct {
+	OutboxID      string
+	TenantID      string
+	EventID       string
+	EventType     string
+	AggregateType string
+	AggregateID   string
+	Topic         string
+	Status        string
+	AttemptCount  int
+	LastError     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type RunResult struct {
 	ReclaimedStaleCount int
 	ClaimedCount        int

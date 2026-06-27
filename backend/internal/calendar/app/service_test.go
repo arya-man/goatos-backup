@@ -116,6 +116,10 @@ func (f fakeRepo) SweepDueReminders(context.Context, string, int) (int, error) {
 	return 0, nil
 }
 
+func (f fakeRepo) SweepEscalations(context.Context, ports.SweepEscalations) (int, error) {
+	return 0, nil
+}
+
 func (f fakeRepo) RefreshVaccinationProjection(context.Context, ports.RefreshVaccinationProjection) (int, error) {
 	return 0, nil
 }

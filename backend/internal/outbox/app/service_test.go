@@ -153,6 +153,14 @@ func (r *serviceFakeRepo) MarkDeadLetter(context.Context, string, string, time.T
 	return nil
 }
 
+func (r *serviceFakeRepo) ListDeadLetters(context.Context, ports.DeadLetterQuery) ([]domain.DeadLetterMessage, error) {
+	return nil, nil
+}
+
+func (r *serviceFakeRepo) ReplayDeadLetters(context.Context, ports.ReplayDeadLettersParams) (int64, error) {
+	return 0, nil
+}
+
 func (r *serviceFakeRepo) Ping(context.Context) error {
 	return nil
 }

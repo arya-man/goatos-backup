@@ -18,6 +18,10 @@ const (
 	maxHistoryLimit     = 100
 	maxDateRange        = 45 * 24 * time.Hour
 	defaultDateRange    = 30 * 24 * time.Hour
+	defaultSLA1After    = 0
+	defaultSLA2After    = 4 * time.Hour
+	defaultSLA3After    = 24 * time.Hour
+	defaultSLA4After    = 48 * time.Hour
 	minIdempotencyLen   = 8
 	maxNudgeMessageLen  = 2000
 	maxActionReasonLen  = 1000
@@ -179,6 +183,40 @@ func (s *Service) SweepDueReminders(ctx context.Context, tenantID string, limit 
 		limit = 500
 	}
 	n, err := s.repo.SweepDueReminders(ctx, tenantID, limit)
+	if err != nil {
+		return 0, mapRepoError(err)
+	}
+	return n, nil
+}
+
+func (s *Service) SweepEscalations(ctx context.Context, in ports.SweepEscalations) (int, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if !uuidutil.IsUUIDString(in.TenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if in.Limit <= 0 {
+		in.Limit = 100
+	}
+	if in.Limit > 500 {
+		in.Limit = 500
+	}
+	if in.Now.IsZero() {
+		in.Now = s.now()
+	}
+	in.Now = in.Now.UTC()
+	if in.Level2After <= 0 {
+		in.Level2After = defaultSLA2After
+	}
+	if in.Level3After <= 0 {
+		in.Level3After = defaultSLA3After
+	}
+	if in.Level4After <= 0 {
+		in.Level4After = defaultSLA4After
+	}
+	if in.Level1After < 0 || in.Level2After < in.Level1After || in.Level3After < in.Level2After || in.Level4After < in.Level3After {
+		return 0, BadRequest("invalid_sla_thresholds", "SLA thresholds must be non-negative and increasing")
+	}
+	n, err := s.repo.SweepEscalations(ctx, in)
 	if err != nil {
 		return 0, mapRepoError(err)
 	}

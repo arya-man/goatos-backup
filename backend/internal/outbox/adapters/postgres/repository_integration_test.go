@@ -224,6 +224,50 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 		assertOutboxState(t, pool, dead.OutboxID, domain.StatusDeadLetter, 5, "max_attempts_exhausted", false, false)
 	})
 
+	t.Run("dead letters can be listed and replayed to pending", func(t *testing.T) {
+		repo := NewRepository(pool, 5*time.Second)
+		dead := insertOutboxMessage(t, pool, outboxRow{Suffix: 85, Status: domain.StatusDeadLetter, AttemptCount: 5, LastError: "max_attempts_exhausted"})
+		messages, err := repo.ListDeadLetters(ctx, ports.DeadLetterQuery{
+			TenantID: meshaTenant,
+			Status:   domain.StatusDeadLetter,
+			Limit:    10,
+		})
+		if err != nil {
+			t.Fatalf("ListDeadLetters: %v", err)
+		}
+		found := false
+		for _, message := range messages {
+			if message.OutboxID == dead.OutboxID {
+				found = true
+				if message.Status != domain.StatusDeadLetter || message.AttemptCount != 5 {
+					t.Fatalf("listed dead letter=%#v", message)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("dead letter %s not listed in %#v", dead.OutboxID, messages)
+		}
+		replayed, err := repo.ReplayDeadLetters(ctx, ports.ReplayDeadLettersParams{
+			TenantID:  meshaTenant,
+			OutboxIDs: []string{dead.OutboxID},
+			Reason:    "operator verified payload",
+			Now:       outboxTestNow,
+		})
+		if err != nil {
+			t.Fatalf("ReplayDeadLetters: %v", err)
+		}
+		if replayed != 1 {
+			t.Fatalf("replayed=%d want 1", replayed)
+		}
+		state := queryOutboxState(t, pool, dead.OutboxID)
+		if state.Status != domain.StatusPending || state.AttemptCount != 0 || !state.NextAttemptAt.Valid || state.PublishedAt.Valid {
+			t.Fatalf("replayed state=%#v", state)
+		}
+		if !strings.Contains(state.LastError, "replayed_from_dlq") {
+			t.Fatalf("replayed last_error=%q", state.LastError)
+		}
+	})
+
 	t.Run("batch limit respected", func(t *testing.T) {
 		insertOutboxMessage(t, pool, outboxRow{Suffix: 90, Status: domain.StatusPending})
 		insertOutboxMessage(t, pool, outboxRow{Suffix: 91, Status: domain.StatusPending})

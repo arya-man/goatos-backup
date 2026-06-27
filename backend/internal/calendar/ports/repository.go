@@ -24,6 +24,7 @@ type Repository interface {
 	SendNudge(ctx context.Context, in SendNudge) (domain.CalendarActionResponse, error)
 	Snooze(ctx context.Context, in Snooze) (domain.CalendarActionResponse, error)
 	SweepDueReminders(ctx context.Context, tenantID string, limit int) (int, error)
+	SweepEscalations(ctx context.Context, in SweepEscalations) (int, error)
 	RefreshVaccinationProjection(ctx context.Context, in RefreshVaccinationProjection) (int, error)
 }
 
@@ -56,4 +57,14 @@ type RefreshVaccinationProjection struct {
 	DateFrom time.Time
 	DateTo   time.Time
 	Limit    int
+}
+
+type SweepEscalations struct {
+	TenantID    string
+	Limit       int
+	Now         time.Time
+	Level1After time.Duration
+	Level2After time.Duration
+	Level3After time.Duration
+	Level4After time.Duration
 }
