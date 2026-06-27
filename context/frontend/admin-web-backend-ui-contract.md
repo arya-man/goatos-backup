@@ -35,6 +35,12 @@ tenant error.
 
 ## Config API and Cache Shape
 
+Implementation plan:
+
+```text
+context/frontend/admin-web-config-api-implementation-plan.md
+```
+
 `/admin-web/bootstrap` is the SSR contract for admin-web business UI. The
 frontend should block business rendering on this contract and may show only
 loading, auth, or contract-unavailable states before it succeeds. It must not
