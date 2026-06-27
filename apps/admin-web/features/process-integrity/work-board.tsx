@@ -42,10 +42,6 @@ function shortDueLabel(value: string): string {
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", timeZone: "Asia/Kolkata" }).format(date);
 }
 
-function parkChipLabel(value: string): string {
-  return value.toLowerCase() === "coimbatore" ? "CBE" : value;
-}
-
 function optionLabel(options: AdminUiOption[], key: string): string {
   const option = options.find((item) => item.key === key);
   if (!option) throw new Error(`Admin-web contract missing option ${key}`);
@@ -90,6 +86,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
   const showBlocker = blocker && !ownerMissing;
   const fallbackEvent = copy(pageContract, "label.vaccination");
   const openLabel = `${copy(pageContract, "label.open_work_item_for")} ${row.shed_name || copy(pageContract, "label.shed_fallback")}`;
+  const parkOptions = optionGroup(pageContract, "park_display_chips");
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const proofStateOptions = optionGroup(pageContract, "proof_state_chips");
@@ -118,7 +115,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       </div>
       <div className="row">
         <Tag tone="mut">{copy(pageContract, "label.vaccination")}</Tag>
-        <Tag tone="info">{parkChipLabel(row.park_name)}</Tag>
+        <Tag tone={optionTone(parkOptions, row.park_name)}>{optionLabel(parkOptions, row.park_name)}</Tag>
         <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
       </div>
       <div className="row" style={{ marginTop: 6 }}>

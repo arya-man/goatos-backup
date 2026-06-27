@@ -2266,6 +2266,12 @@ func genericOptionGroups() []domain.OptionGroup {
 			},
 		},
 		{
+			ID: "park_display_chips",
+			Options: []domain.Option{
+				option("Coimbatore", "CBE", "Coimbatore park short chip", "info"),
+			},
+		},
+		{
 			ID: "adverse_reaction",
 			Options: []domain.Option{
 				option("none", "None", "", "ok"),
