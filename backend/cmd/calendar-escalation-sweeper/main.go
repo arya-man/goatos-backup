@@ -13,6 +13,7 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 )
 
 func main() {
@@ -64,6 +65,11 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	if count > 0 {
+		if err := enqueueNotificationDispatcher(ctx, *tenantID, "calendar-escalation-sweeper"); err != nil {
+			return err
+		}
+	}
 	fmt.Printf("calendar escalation sweep queued=%d tenant=%s\n", count, *tenantID)
 	return nil
 }
@@ -82,4 +88,18 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string) error {
+	cfg, enabled, err := taskqueue.ConfigFromEnv()
+	if err != nil || !enabled {
+		return err
+	}
+	enqueuer, err := taskqueue.NewEnqueuer(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer enqueuer.Close()
+	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().UTC().Format("200601021504")))
+	return enqueuer.EnqueueJSONPost(ctx, taskID, map[string]any{}, time.Time{})
 }

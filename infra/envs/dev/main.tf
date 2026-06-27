@@ -24,6 +24,30 @@ locals {
       account_id   = "goatos-domain-consumer-dev"
       display_name = "Goat OS dev domain event consumer runtime"
     }
+    vaccination_generator = {
+      account_id   = "goatos-vaccination-generator-dev"
+      display_name = "Goat OS dev vaccination obligation generator runtime"
+    }
+    obligation_sweeper = {
+      account_id   = "goatos-obligation-sweeper-dev"
+      display_name = "Goat OS dev obligation sweeper runtime"
+    }
+    calendar_projector = {
+      account_id   = "goatos-calendar-projector-dev"
+      display_name = "Goat OS dev calendar projector runtime"
+    }
+    calendar_reminder_sweeper = {
+      account_id   = "goatos-calendar-reminder-dev"
+      display_name = "Goat OS dev calendar reminder sweeper runtime"
+    }
+    calendar_escalation_sweeper = {
+      account_id   = "goatos-calendar-escalation-dev"
+      display_name = "Goat OS dev calendar escalation sweeper runtime"
+    }
+    notification_dispatcher = {
+      account_id   = "goatos-notification-dispatcher-dev"
+      display_name = "Goat OS dev notification dispatcher runtime"
+    }
     migrate = {
       account_id   = "goatos-migrate-dev"
       display_name = "Goat OS dev migration job runtime"
@@ -42,6 +66,12 @@ locals {
     "api",
     "outbox_relay",
     "domain_consumer",
+    "vaccination_generator",
+    "obligation_sweeper",
+    "calendar_projector",
+    "calendar_reminder_sweeper",
+    "calendar_escalation_sweeper",
+    "notification_dispatcher",
     "migrate",
     "legacy_sync",
   ])
@@ -53,6 +83,12 @@ locals {
         "api",
         "outbox_relay",
         "domain_consumer",
+        "vaccination_generator",
+        "obligation_sweeper",
+        "calendar_projector",
+        "calendar_reminder_sweeper",
+        "calendar_escalation_sweeper",
+        "notification_dispatcher",
         "migrate",
         "legacy_sync",
       ]

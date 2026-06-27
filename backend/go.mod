@@ -3,10 +3,12 @@ module github.com/vgoats/goatos/backend
 go 1.23.0
 
 require (
+	cloud.google.com/go/cloudtasks v1.13.3
 	cloud.google.com/go/pubsub v1.49.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.1
 	google.golang.org/grpc v1.71.0
+	google.golang.org/protobuf v1.36.6
 )
 
 require (
@@ -44,5 +46,4 @@ require (
 	google.golang.org/genproto v0.0.0-20250303144028-a0af3efb3deb // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250313205543-e70fdf4c4cb4 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250313205543-e70fdf4c4cb4 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
 )

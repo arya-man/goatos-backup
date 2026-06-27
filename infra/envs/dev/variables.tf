@@ -101,3 +101,25 @@ variable "cloud_sql_tier" {
     error_message = "Use a small shared-core dev tier: db-f1-micro or db-g1-small."
   }
 }
+
+variable "dev_tenant_id" {
+  description = "Non-secret dev tenant id used by scheduled kernel workers."
+  type        = string
+  default     = "00000000-0000-4000-8000-000000000001"
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F-]{36}$", var.dev_tenant_id))
+    error_message = "dev_tenant_id must be a UUID string."
+  }
+}
+
+variable "backend_image_tag" {
+  description = "Backend image tag consumed by Cloud Run Jobs in dev."
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = length(trimspace(var.backend_image_tag)) > 0
+    error_message = "backend_image_tag is required."
+  }
+}
