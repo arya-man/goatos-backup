@@ -51,6 +51,35 @@ Is the vaccination process intact for each park/shed, and if not, who owns the
 next action?
 ```
 
+## Operational Kernel
+
+Goat OS is built around a shared operational kernel. PHC vaccination is the
+first reference slice, but the same kernel is the required architecture for feed,
+breeding, procurement, health follow-up, HR/people, farmer network, sales, and
+future modules.
+
+![Goat OS Operational Kernel](docs/assets/operational-kernel-system-design.svg)
+
+The kernel path is:
+
+```text
+business event
+  -> canonical transaction + audit + outbox
+  -> event fanout + DLQ/replay
+  -> trigger/rule evaluation
+  -> obligation/work/batch
+  -> sweeper/scheduler/Cloud Tasks
+  -> SOP execution + proof
+  -> verification/rework/completion
+  -> notification/escalation waterfall
+  -> acknowledgement/resolution
+  -> read models and generated APIs
+  -> admin web/mobile render backend-owned truth
+```
+
+Read the detailed system design before building any operational slice:
+`context/architecture/operational-kernel-system-design.md`.
+
 ## Current Progress
 
 ### Built

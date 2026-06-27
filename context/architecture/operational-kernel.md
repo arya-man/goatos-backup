@@ -38,6 +38,10 @@ This rule applies to PHC vaccination now and to future feed, breeding,
 procurement, parks, HR/people, farmer network, sales/commerce, and finance
 modules later.
 
+For the concrete backend, frontend, infra, DLQ, SLA waterfall, and vertical
+plug-in system design, read
+`context/architecture/operational-kernel-system-design.md`.
+
 ## Kernel Responsibilities
 
 The kernel owns these reusable capabilities. Feature modules plug into them; they

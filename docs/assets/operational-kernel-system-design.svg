@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1180" viewBox="0 0 1680 1180" role="img" aria-labelledby="title desc">
+  <title id="title">Goat OS Operational Kernel System Design</title>
+  <desc id="desc">Reusable Goat OS operational kernel showing canonical transaction, outbox, Pub/Sub, obligations, scheduler, SOP execution, notification escalation waterfall, read models, frontend contracts, infra, and future vertical plug-ins.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7faf8; }
+      .title { font: 700 38px Inter, Arial, sans-serif; fill: #10231b; }
+      .subtitle { font: 500 18px Inter, Arial, sans-serif; fill: #466052; }
+      .section { font: 700 18px Inter, Arial, sans-serif; fill: #183226; letter-spacing: 2px; }
+      .box { fill: #ffffff; stroke: #9bb5a6; stroke-width: 2; rx: 14; }
+      .box-strong { fill: #eef8ed; stroke: #52a83e; stroke-width: 3; rx: 16; }
+      .box-blue { fill: #eef6ff; stroke: #4c90d9; stroke-width: 2.5; rx: 14; }
+      .box-orange { fill: #fff5e8; stroke: #ee9b3a; stroke-width: 2.5; rx: 14; }
+      .box-purple { fill: #f6f0ff; stroke: #9166d8; stroke-width: 2.5; rx: 14; }
+      .box-red { fill: #fff0ef; stroke: #d45c52; stroke-width: 2.5; rx: 14; }
+      .box-gray { fill: #f0f3f2; stroke: #8a9992; stroke-width: 2; rx: 14; }
+      .label { font: 700 19px Inter, Arial, sans-serif; fill: #15271f; }
+      .small { font: 500 14px Inter, Arial, sans-serif; fill: #4c6055; }
+      .tiny { font: 500 12px Inter, Arial, sans-serif; fill: #5c6c64; }
+      .mono { font: 600 12px SFMono-Regular, Consolas, monospace; fill: #41564b; }
+      .arrow { stroke: #557265; stroke-width: 2.8; fill: none; marker-end: url(#arrowhead); }
+      .arrow-soft { stroke: #8da79a; stroke-width: 2; fill: none; marker-end: url(#arrowhead-soft); }
+      .rail { stroke: #2d493b; stroke-width: 3; stroke-dasharray: 9 9; fill: none; }
+      .lane { fill: none; stroke: #cddbd3; stroke-width: 2; rx: 22; }
+      .dot-green { fill: #74c947; }
+      .dot-blue { fill: #5ca9ff; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#557265"/>
+    </marker>
+    <marker id="arrowhead-soft" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#8da79a"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1680" height="1180"/>
+
+  <text class="title" x="72" y="70">Goat OS Operational Kernel</text>
+  <text class="subtitle" x="72" y="102">One reusable backend, frontend, and infra spine for PHC vaccination now and every future vertical later.</text>
+
+  <rect class="lane" x="48" y="128" width="1584" height="164"/>
+  <text class="section" x="72" y="166">1. CANONICAL INTAKE AND SOURCE OF TRUTH</text>
+
+  <rect class="box" x="72" y="188" width="210" height="72"/>
+  <text class="label" x="92" y="218">Inputs</text>
+  <text class="small" x="92" y="242">API, mobile, import, device</text>
+
+  <rect class="box-blue" x="330" y="178" width="250" height="92"/>
+  <text class="label" x="354" y="208">App command handler</text>
+  <text class="small" x="354" y="232">auth, RBAC, validation</text>
+  <text class="mono" x="354" y="252">idempotency key required</text>
+
+  <rect class="box-strong" x="628" y="168" width="350" height="112"/>
+  <text class="label" x="656" y="200">Postgres transaction</text>
+  <text class="small" x="656" y="225">canonical rows + audit + outbox</text>
+  <text class="mono" x="656" y="248">source of truth, atomic, replay-safe</text>
+
+  <rect class="box-blue" x="1030" y="178" width="230" height="92"/>
+  <text class="label" x="1054" y="208">Outbox relay</text>
+  <text class="small" x="1054" y="232">polls, publishes, retries</text>
+  <text class="mono" x="1054" y="252">oldest age is monitored</text>
+
+  <rect class="box-blue" x="1308" y="178" width="250" height="92"/>
+  <text class="label" x="1332" y="208">Pub/Sub fanout</text>
+  <text class="small" x="1332" y="232">domain subscribers</text>
+  <text class="mono" x="1332" y="252">at-least-once + DLQ</text>
+
+  <path class="arrow" d="M282 224 H330"/>
+  <path class="arrow" d="M580 224 H628"/>
+  <path class="arrow" d="M978 224 H1030"/>
+  <path class="arrow" d="M1260 224 H1308"/>
+
+  <rect class="lane" x="48" y="324" width="1584" height="290"/>
+  <text class="section" x="72" y="362">2. OPERATIONAL WORK KERNEL</text>
+
+  <rect class="box-strong" x="72" y="392" width="260" height="110"/>
+  <text class="label" x="98" y="425">Trigger engine</text>
+  <text class="small" x="98" y="450">rules, eligibility, suppressions</text>
+  <text class="mono" x="98" y="474">birth_age, arrival, calendar, event</text>
+
+  <rect class="box-strong" x="388" y="392" width="260" height="110"/>
+  <text class="label" x="414" y="425">Obligations</text>
+  <text class="small" x="414" y="450">future due rows in Postgres</text>
+  <text class="mono" x="414" y="474">status + reason + owner + scope</text>
+
+  <rect class="box-orange" x="704" y="392" width="260" height="110"/>
+  <text class="label" x="730" y="425">Sweeper and batches</text>
+  <text class="small" x="730" y="450">bounded indexed windows</text>
+  <text class="mono" x="730" y="474">shed drive, cohort, date range</text>
+
+  <rect class="box-orange" x="1020" y="392" width="260" height="110"/>
+  <text class="label" x="1046" y="425">Cloud Tasks</text>
+  <text class="small" x="1046" y="450">near-term reminders/retries</text>
+  <text class="mono" x="1046" y="474">reconstructable from Postgres</text>
+
+  <rect class="box-gray" x="1336" y="392" width="240" height="110"/>
+  <text class="label" x="1362" y="425">Cloud Scheduler</text>
+  <text class="small" x="1362" y="450">cron to Cloud Run jobs</text>
+  <text class="mono" x="1362" y="474">same binaries local/cloud</text>
+
+  <path class="arrow" d="M1504 270 C1504 318 202 318 202 392"/>
+  <path class="arrow" d="M332 447 H388"/>
+  <path class="arrow" d="M648 447 H704"/>
+  <path class="arrow" d="M964 447 H1020"/>
+  <path class="arrow-soft" d="M1456 392 C1456 352 842 352 834 392"/>
+
+  <rect class="box-blue" x="72" y="530" width="300" height="60"/>
+  <text class="small" x="98" y="552">Move, exit, lifecycle, stock, proof,</text>
+  <text class="small" x="98" y="572">verification, and protocol events update work.</text>
+  <circle class="dot-blue" cx="92" cy="552" r="6"/>
+
+  <rect class="box-gray" x="410" y="530" width="1166" height="60"/>
+  <text class="small" x="438" y="552">Every worker is idempotent, replay-safe, tenant/park/shed/date bounded, observable,</text>
+  <text class="small" x="438" y="572">and DLQ visible before production readiness.</text>
+  <circle class="dot-green" cx="430" cy="552" r="6"/>
+
+  <rect class="lane" x="48" y="646" width="1584" height="234"/>
+  <text class="section" x="72" y="684">3. EXECUTION, PROOF, VERIFICATION, AND ALERT WATERFALL</text>
+
+  <rect class="box-purple" x="72" y="714" width="255" height="112"/>
+  <text class="label" x="98" y="746">SOP execution</text>
+  <text class="small" x="98" y="771">operator follows task steps</text>
+  <text class="mono" x="98" y="794">forms, media, signatures</text>
+
+  <rect class="box-purple" x="373" y="714" width="255" height="112"/>
+  <text class="label" x="399" y="746">Proof storage</text>
+  <text class="small" x="399" y="771">GCS signed upload/download</text>
+  <text class="mono" x="399" y="794">hash, refs, retention</text>
+
+  <rect class="box-purple" x="674" y="714" width="255" height="112"/>
+  <text class="label" x="700" y="746">Verification</text>
+  <text class="small" x="700" y="771">accept, reject, rework</text>
+  <text class="mono" x="700" y="794">completion events fan out</text>
+
+  <rect class="box-red" x="975" y="714" width="255" height="112"/>
+  <text class="label" x="1001" y="746">SLA waterfall</text>
+  <text class="small" x="1001" y="771">owner -> manager -> director</text>
+  <text class="mono" x="1001" y="794">remind, nudge, escalate</text>
+
+  <rect class="box-red" x="1276" y="714" width="300" height="112"/>
+  <text class="label" x="1302" y="746">Notification adapters</text>
+  <text class="small" x="1302" y="771">Slack, FCM, email, webhook</text>
+  <text class="mono" x="1302" y="794">acknowledge + resolve</text>
+
+  <path class="arrow" d="M834 502 C834 650 199 650 199 714"/>
+  <path class="arrow" d="M327 770 H373"/>
+  <path class="arrow" d="M628 770 H674"/>
+  <path class="arrow" d="M929 770 H975"/>
+  <path class="arrow" d="M1230 770 H1276"/>
+
+  <rect class="lane" x="48" y="912" width="1584" height="184"/>
+  <text class="section" x="72" y="950">4. READ MODELS, FRONTENDS, AND FUTURE VERTICAL PLUG-INS</text>
+
+  <rect class="box-strong" x="72" y="980" width="300" height="80"/>
+  <text class="label" x="98" y="1012">Projection refreshers</text>
+  <text class="small" x="98" y="1036">Calendar, Action Center, Control Tower</text>
+
+  <rect class="box-blue" x="418" y="980" width="300" height="80"/>
+  <text class="label" x="444" y="1012">Generated API contracts</text>
+  <text class="small" x="444" y="1036">OpenAPI clients, JSON schemas</text>
+
+  <rect class="box-blue" x="764" y="980" width="300" height="80"/>
+  <text class="label" x="790" y="1012">Admin web and mobile</text>
+  <text class="small" x="790" y="1036">render backend-owned truth</text>
+
+  <rect class="box-orange" x="1110" y="980" width="466" height="80"/>
+  <text class="label" x="1136" y="1012">Vertical plug-ins</text>
+  <text class="small" x="1136" y="1036">PHC, feed, breeding, procurement, HR,</text>
+  <text class="small" x="1136" y="1054">farmer network, sales</text>
+
+  <path class="arrow" d="M802 826 C802 904 222 904 222 980"/>
+  <path class="arrow" d="M372 1020 H418"/>
+  <path class="arrow" d="M718 1020 H764"/>
+  <path class="arrow-soft" d="M1110 1020 H1064"/>
+  <path class="arrow-soft" d="M1343 980 C1343 900 202 900 202 502"/>
+
+  <path class="rail" d="M1504 270 C1596 438 1596 688 1426 714"/>
+  <text class="tiny" x="1402" y="646">DLQ, replay, lag, metrics, alerts</text>
+
+  <text class="tiny" x="72" y="1130">Invariant: Postgres canonical tables, audit, outbox, and domain ledgers are the only operational truth.</text>
+  <text class="tiny" x="72" y="1152">Pub/Sub, Cloud Tasks, Redis, and notifications are transport or execution layers. Future verticals plug in without rebuilding the kernel.</text>
+</svg>

@@ -76,7 +76,8 @@ No app reads or writes databases directly. Apps call APIs. APIs can compose read
 ## Operational Kernel
 
 Every feature plugs into the shared operational kernel described in
-`context/architecture/operational-kernel.md`.
+`context/architecture/operational-kernel.md`, with the concrete system design
+and diagram in `context/architecture/operational-kernel-system-design.md`.
 
 ```text
 business event

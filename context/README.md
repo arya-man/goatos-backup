@@ -41,6 +41,9 @@ Final architecture
 Operational kernel golden rule
   context/architecture/operational-kernel.md
 
+Operational kernel system design and diagram
+  context/architecture/operational-kernel-system-design.md
+
 Forms and SOP engine
   context/forms/final-forms-sop-engine.md
 
