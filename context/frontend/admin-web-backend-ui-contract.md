@@ -77,8 +77,10 @@ The bootstrap contract must not carry large or volatile data:
 Those values come from normal domain/read-model APIs. Business-managed config
 such as locations, animal stages, protocol versions/rules, SOP versions,
 permissions, tenant feature flags, and source-backed vocabularies must be
-canonical in Postgres. Backend code may still own stable product UI copy in the
-first implementation, but the ownership remains backend-side, not React-side.
+canonical in Postgres. Backend code may own only stable product contract shape
+while phase-0 config compilation is being built; it must not hardcode live
+tenant data such as UUIDs, park/location codes, person names, shed names, farm
+tabs, capacities, or DB-backed dropdown values.
 
 Caching rule: Postgres is canonical. Redis/Memorystore may cache compiled
 contract JSON only as acceleration, never as truth. A production bootstrap

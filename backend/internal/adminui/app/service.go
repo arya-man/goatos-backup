@@ -3,11 +3,6 @@ package app
 
 import "github.com/vgoats/goatos/backend/internal/adminui/domain"
 
-const (
-	phase1CoimbatoreParkID  = "00000000-0000-4000-8000-000000003001"
-	phase1ChannapatnaParkID = "00000000-0000-4000-8000-000000003002"
-)
-
 type Service struct{}
 
 func NewService() *Service {
@@ -116,7 +111,7 @@ func topBar() domain.TopBarContract {
 			},
 		},
 		Notifications: domain.TopBarControl{Label: "Notifications", Enabled: false, DisabledReason: "Notifications are not wired in this admin-web slice yet.", Options: []domain.TopBarOption{}},
-		RolePreview:   domain.RolePreviewActor{DisplayName: "R. Teja", Initials: "RT", Subtitle: "COO · Central Command · all parks"},
+		RolePreview:   domain.RolePreviewActor{DisplayName: "Signed-in admin", Initials: "AD", Subtitle: "Role and park scope resolved by backend RBAC"},
 	}
 }
 
@@ -124,9 +119,9 @@ func roleLenses() []domain.RoleLensContract {
 	return []domain.RoleLensContract{
 		{ID: "coo", Name: "Superadmin / CEO / COO", AuditShort: "COO", Scope: "all · deep", Description: "Central Command · all parks", Superadmin: true},
 		{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health vertical · all parks", Description: "PHC / health governance view"},
-		{ID: "park-head", Name: "Park Head · CBE", AuditShort: "Park Head · CBE", Scope: "all verticals · 1 park", Description: "CBE park leadership view"},
-		{ID: "health-manager", Name: "Health Mgr · CBE", AuditShort: "Health Mgr · CBE", Scope: "health vertical · 1 park", Description: "CBE PHC manager view"},
-		{ID: "ground", Name: "Assist / Ground · CBE", AuditShort: "Assist · CBE", Scope: "tasks · 1 park", Description: "field execution queue"},
+		{ID: "park-head", Name: "Park Head", AuditShort: "Park Head", Scope: "all verticals · assigned park", Description: "Assigned park leadership view"},
+		{ID: "health-manager", Name: "Health Manager", AuditShort: "Health Mgr", Scope: "health vertical · assigned park", Description: "Assigned-park PHC manager view"},
+		{ID: "ground", Name: "Assist / Ground", AuditShort: "Assist", Scope: "tasks · assigned park", Description: "field execution queue"},
 		{ID: "investor", Name: "Investor", AuditShort: "Investor", Scope: "read-only summary", Description: "summary-only lens"},
 	}
 }
@@ -1245,7 +1240,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"placeholder.temp_field_id":                "for untagged kids (2 IDs due 24h)",
 			"placeholder.breed":                        "e.g. Beetal",
 			"placeholder.weight_kg":                    "e.g. 22.0",
-			"placeholder.dam_id":                       "e.g. CBE-1043",
+			"placeholder.dam_id":                       "dam goat id",
 			"placeholder.sire_or_lot":                  "e.g. BUCK-07",
 			"placeholder.evidence_ref":                 "source doc / sheet row id (defaults to this registration's reference)",
 			"option.no_parks":                          "No parks available",
@@ -1995,8 +1990,6 @@ func configOptionGroups() []domain.OptionGroup {
 			ID: "rule_scopes",
 			Options: []domain.Option{
 				option("tenant", "tenant (company default)", "", ""),
-				option("park:CBE", "park: CBE", "", ""),
-				option("park:CPT", "park: CPT", "", ""),
 			},
 		},
 		{
@@ -2271,11 +2264,8 @@ func genericOptionGroups() []domain.OptionGroup {
 			},
 		},
 		{
-			ID: "park_display_chips",
-			Options: []domain.Option{
-				option(phase1CoimbatoreParkID, "CBE", "Coimbatore park short chip", "info"),
-				option(phase1ChannapatnaParkID, "CPT", "Channapatna park short chip", "info"),
-			},
+			ID:      "park_display_chips",
+			Options: []domain.Option{},
 		},
 		{
 			ID: "adverse_reaction",

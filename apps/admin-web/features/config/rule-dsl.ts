@@ -100,7 +100,6 @@ export interface ProtocolRuleDraft {
 // publishableSources). deworming/biosecurity/etc. are unbuilt and must not be shown as live
 // (context/frontend/current-admin-web-scope.md).
 export const CATEGORIES = ["vaccination", "feed_direction"];
-export const SCOPES = ["tenant", "park:CBE", "park:CPT"];
 // Stage bands (K0/K1/K2…) are NOT hardcoded here. They are backend reference data from
 // animal_stage_lookup, loaded via listAnimalStages and passed in as AnimalStageOption[] (PHC
 // vaccination TRD: stage bands live in the lookup). The only stage literal the UI owns is the

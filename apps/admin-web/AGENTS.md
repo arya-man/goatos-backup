@@ -232,6 +232,13 @@ or option arrays in page components. Extend
 the generated client instead, then consume through
 `apps/admin-web/lib/admin-ui-contract.ts`.
 
+For live tenant/business data, even backend code is not the source of truth.
+Locations, park codes/names, UUIDs, people, sheds, capacities, role/actor scope,
+permissions, and DB-backed dropdown values must be read from Postgres or
+source-backed config, then compiled into the admin-web contract. Never add CBE/
+CPT-style constants, seed UUIDs, person names, or farm/shed capacities in React
+or static backend contract code.
+
 The only current exceptions are pre-contract auth screens and the emergency
 contract-unavailable shell, documented in
 `context/frontend/admin-web-backend-ui-contract.md`. Run

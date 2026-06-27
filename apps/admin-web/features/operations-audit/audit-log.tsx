@@ -23,6 +23,7 @@ import {
   firstAuthRequiredError,
   getOperationsAuditSummary,
   listOperationsAudit,
+  type AdminWebBootstrapResponse,
   type OperationsAuditActorType,
   type OperationsAuditListParams,
   type OperationsAuditRow,
@@ -30,12 +31,12 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { copy, optionLabel, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { dash, fmtDateTime, joinParts, shortId } from "@/lib/format";
-import { ROLE_LENSES, roleLensById } from "@/lib/role-lens";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 
 const PATHNAME = "/operations/audit";
 const PAGE_SIZE = 25;
 const ACTOR_TYPES = ["human", "system", "worker", "service", "user"] as const;
+type RoleLens = AdminWebBootstrapResponse["role_lenses"][number];
 
 // Top-bar scope + role-preview state to keep when a user clears the page filters.
 const PRESERVE_ON_CLEAR = ["viewing_as", "scope_mode", "park", "as_of", "range", "from", "to"];
@@ -60,9 +61,11 @@ const STATUS_TABS: Array<{ key: string; status?: string; result?: string; proofG
 export async function OperationsAuditPage({
   searchParams,
   pageContract,
+  roleLenses,
 }: {
   searchParams?: RouteSearchParams;
   pageContract: AdminUiPageContract;
+  roleLenses: RoleLens[];
 }) {
   const sp = searchParams ?? {};
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
@@ -70,7 +73,7 @@ export async function OperationsAuditPage({
   const actorQ = one(sp, "actor_q")?.trim().toLowerCase() ?? "";
   // `viewing_as` is a CEO/admin role-PREVIEW lens, synced to the shared role-lens model used by the top bar.
   // It is label-only and never becomes a backend filter — backend RBAC governs the real audit span.
-  const lens = roleLensById(one(sp, "viewing_as"));
+  const lens = roleLensById(roleLenses, one(sp, "viewing_as"));
 
   const [listResult, summaryResult] = await Promise.all([
     listOperationsAudit({ ...filters, limit: PAGE_SIZE, cursor: one(sp, "cursor") }),
@@ -126,7 +129,7 @@ export async function OperationsAuditPage({
         <span className="muted small" style={{ padding: "7px 8px 7px 4px", display: "inline-flex", alignItems: "center", gap: 6 }}>
 	          <Eye className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "label.viewing_as")}
         </span>
-        {ROLE_LENSES.map((role) => (
+        {roleLenses.map((role) => (
           <Link
             key={role.id}
             href={hrefWithUpdates(sp, { viewing_as: role.superadmin ? null : role.id, cursor: null, page: null })}
@@ -135,7 +138,7 @@ export async function OperationsAuditPage({
             className={`${lens.id === role.id ? "on" : ""}`}
             title={`${role.name} · ${role.scope}`}
           >
-            {role.auditShort}
+            {role.audit_short}
           </Link>
         ))}
       </div>
@@ -547,6 +550,13 @@ function Pager({
       </span>
     </div>
   );
+}
+
+function roleLensById(roleLenses: RoleLens[], id?: string | null): RoleLens {
+  const [defaultLens] = roleLenses;
+  if (!defaultLens) throw new Error("admin-web bootstrap contract missing role_lenses");
+  if (!id) return defaultLens;
+  return roleLenses.find((lens) => lens.id === id) ?? defaultLens;
 }
 
 function parseFilters(params: RouteSearchParams): OperationsAuditListParams {

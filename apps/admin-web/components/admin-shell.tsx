@@ -4,7 +4,7 @@ import { getScopeParks } from "@/lib/api/scope-parks";
 import { getAdminWebBootstrap } from "@/lib/api/server";
 
 // Server component: fetch the parks list once for the top-bar scope control so the shell can render human
-// park labels (CBE) while the URL/API carry the backend-safe location UUID.
+// park labels from the locations API while the URL/API carry the backend-safe location UUID.
 export async function AdminShell({ children }: { children: React.ReactNode }) {
   const [parks, contract] = await Promise.all([getScopeParks(), getAdminWebBootstrap()]);
   if (!contract.ok) {

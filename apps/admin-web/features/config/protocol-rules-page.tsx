@@ -44,7 +44,7 @@ function scopeLabel(item: ProtocolConfigItem, parks: Park[], pageContract: Admin
   if (item.scope_type === "tenant") return copy(pageContract, "modal.rule_editor.label.tenant");
   if (item.scope_type === "park") {
     const park = parks.find((p) => p.id === item.scope_id);
-    const parkScope = optionGroup(pageContract, "rule_scopes").find((option) => option.key === `park:${park?.code}`)?.label;
+    const parkScope = optionGroup(pageContract, "rule_scopes").find((option) => option.key === `park:${item.scope_id}`)?.label;
     return parkScope ?? `park: ${park?.code ?? park?.name ?? shortId(item.scope_id, pageContract)}`;
   }
   return `${item.scope_type}: ${shortId(item.scope_id, pageContract)}`;

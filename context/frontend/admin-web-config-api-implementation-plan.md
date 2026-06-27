@@ -64,7 +64,7 @@ to render business UI.
 | `options:<family>` | bounded status/severity/proof/work-state chips, procurement state, calendar tabs, and optional live-entity display overrides | backend enums/config, DB lookup tables, locations |
 | `defaults:<route_id>` | default tab, default sort, default page size, default scope mode | backend product contract |
 | `permissions` | visible/hidden/enabled/disabled actions and disabled reasons for actor role/scope | permissions module, role grants |
-| `locations` | park display chips, location labels, scope selectors, aliases | `locations`, `location_aliases`, related location profile tables |
+| `locations` | park display chips, location labels, default park scope, scope selectors, aliases | `locations`, `location_aliases`, related location profile tables |
 | `protocols:<category>` | protocol rule option vocab, source/review statuses, publish gates | protocol tables and backend product contract |
 | `sops:<domain>` | SOP builder options, proof types, subject scopes, version states | SOP tables and backend product contract |
 
@@ -434,8 +434,10 @@ Backend unit tests:
 
 Backend integration tests:
 
-- seeded CBE and CPT park display overrides appear in `park_display_chips` keyed
-  by stable ID
+- no static seed UUIDs, CBE/CPT codes, or person names appear in
+  `/admin-web/bootstrap`
+- active park display overrides and park scope options are compiled from
+  `locations`/aliases keyed by stable location ID
 - an Action Center row for a third/unlisted park renders the backend row
   `park_name` without crashing
 - animal stages come from `animal_stage_lookup`
@@ -545,8 +547,9 @@ Implement this narrow slice first:
    - `locations`
    - `permissions`
 4. Add ETag header on `GET /admin-web/bootstrap`.
-5. Add tests for CBE/CPT park chip overrides keyed by `park_id`, plus an
-   unlisted active park row that renders from backend row data.
+5. Add tests that bootstrap has no static seed UUIDs/CBE/CPT/person names, then
+   wire DB-compiled location options keyed by `park_id` plus an unlisted active
+   park row that renders from backend row data.
 6. Regenerate OpenAPI client.
 7. Extend `check:ui-contract` to reject mutable option-key lookups.
 

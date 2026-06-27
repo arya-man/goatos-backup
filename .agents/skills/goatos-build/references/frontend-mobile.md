@@ -126,6 +126,12 @@ Calendar or dashboard label.
   open/closed or selected-row state. For admin-web, load
   `context/frontend/admin-web-backend-ui-contract.md` before changing shell,
   route bodies, tables, filters, chips, or drawers.
+- Backend-driven does not permit backend-code live-data constants. Tenant,
+  location/park, person, goat, shed, vendor/operator IDs, CBE/CPT-style codes,
+  capacities, role scope, permissions, and governed dropdown vocabularies must
+  come from Postgres/source-backed config and be compiled into the backend
+  contract. Static backend code may hold only stable product contract shape
+  while the DB config compiler is being built.
 - Do not reuse or recolor old admin-web UI, old `admin-primitives`, old chart
   components, old layout components, or old dashboard routes.
 - Run `npm --prefix apps/admin-web run check:mock-fidelity` before frontend

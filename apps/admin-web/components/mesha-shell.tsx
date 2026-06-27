@@ -159,7 +159,7 @@ export function MeshaShell({
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
-  const defaultPark = parks.find((p) => p.code === "CBE") ?? parks[0] ?? null;
+  const defaultPark = parks[0] ?? null;
   const explicitScopeMode = Boolean(searchParams?.has("scope_mode"));
   const activeParkId = scope.parkId ?? (!explicitScopeMode ? defaultPark?.id : undefined);
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
@@ -344,9 +344,9 @@ export function MeshaShell({
         {/* Topbar owns park/date scope only. The active module (PHC › Vaccination) is shown by the sidebar
             nav + the page crumb, so no module badge belongs here. Vaccination is a module under PHC, not
             an app-wide scope. */}
-        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). The mock defaults
-            to Park-wise CBE when a tenant park is available; the links write the same backend-safe scope
-            params as the park picker, so the top bar and every scope-aware screen stay in sync. */}
+        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). The shell defaults
+            to the first backend-returned tenant park when available; the links write the same backend-safe
+            scope params as the park picker, so the top bar and every scope-aware screen stay in sync. */}
         <div className="parkpick" style={{ marginRight: 6 }}>
           <Link
             href={scopeHref(pathname, scope, { park: null, mode: "company" })}

@@ -209,6 +209,12 @@ Do:
   frontend page, either move it into a backend contract plus OpenAPI/generated
   client, or document the temporary exception in `context/frontend/` before
   shipping.
+  Backend-owned does not mean backend-code hardcoded live data: tenant/location/
+  person/goat/shed/vendor/operator IDs, park codes/names, capacities, role/actor
+  scope, permissions, and business-managed dropdown vocabularies must come from
+  Postgres/source-backed config and be compiled into the contract by backend.
+  Static backend code may only hold stable product contract shape while the DB
+  config compiler is being built.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`
