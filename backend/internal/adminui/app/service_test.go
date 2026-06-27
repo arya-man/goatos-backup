@@ -90,6 +90,42 @@ func TestCalendarOptionGroupsCoverProjectionStates(t *testing.T) {
 	}
 }
 
+func TestCalendarOwnerTabsHaveFallbackPresentationGroups(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "calendar")
+	ownerTabs := optionGroupByID(t, page.OptionGroups, "calendar_owner_tabs")
+
+	if len(ownerTabs.Options) == 0 {
+		t.Fatal("calendar_owner_tabs must publish at least the all owner tab")
+	}
+
+	expectedWorkstreamGroups := map[string]bool{}
+	expectedRhythmGroups := map[string]bool{}
+	for _, owner := range ownerTabs.Options {
+		workstreamID := "calendar_workstream_tabs_" + owner.Key
+		rhythmID := "calendar_rhythm_days_" + owner.Key
+		expectedWorkstreamGroups[workstreamID] = true
+		expectedRhythmGroups[rhythmID] = true
+
+		workstreams := optionGroupByID(t, page.OptionGroups, workstreamID)
+		if len(workstreams.Options) == 0 {
+			t.Fatalf("%s must publish at least one fallback workstream tab", workstreamID)
+		}
+		rhythm := optionGroupByID(t, page.OptionGroups, rhythmID)
+		if len(rhythm.Options) != 7 {
+			t.Fatalf("%s must publish one rhythm entry per week day, got %d", rhythmID, len(rhythm.Options))
+		}
+	}
+
+	for _, group := range page.OptionGroups {
+		if strings.HasPrefix(group.ID, "calendar_workstream_tabs_") && !expectedWorkstreamGroups[group.ID] {
+			t.Fatalf("calendar workstream group %q has no matching calendar_owner_tabs option", group.ID)
+		}
+		if strings.HasPrefix(group.ID, "calendar_rhythm_days_") && !expectedRhythmGroups[group.ID] {
+			t.Fatalf("calendar rhythm group %q has no matching calendar_owner_tabs option", group.ID)
+		}
+	}
+}
+
 func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",

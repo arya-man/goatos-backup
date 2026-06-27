@@ -133,14 +133,13 @@ nested routes, redirects, tabs, or nav items. Do not create
 Admin-web is built around the vaccination process-integrity slice:
 
 - **Command-room (top-level)**: Control Tower `/`, Action Center
-  `/action-center`, Protocol Adherence
+  `/action-center`, Calendar `/calendar`, Protocol Adherence
   `/protocol-adherence`, and Workflows `/workflows` (+ drilldown
   `/workflows/{row_id}`). These read the canonical process-integrity contracts
   (Control Tower / Action Center / Adherence / Workflow), filtered to
-  vaccination data. Calendar `/calendar` is an approved/reopened build target
-  for the vaccination due-work slice, but it is not a current implemented app
-  route until the Calendar frontend slice adds the page, primary nav, and smoke
-  coverage.
+  vaccination data. Calendar is implemented as the top-level vaccination
+  due-work slice with its page, primary nav, mock-fidelity scan coverage, and
+  live-smoke script coverage path wired.
 - **PHC / Vaccination**: the module surface at `/vaccination` only. It must be
   mock-faithful: SOP / Import sheet / New drive actions, Target -> Group -> Route
   -> Execute chain, vaccination status matrix, per-cohort detail, drive/shed-event
@@ -468,14 +467,15 @@ Only these routes are current implemented product routes:
 /goats/{goat_id}
 ```
 
-Approved build target, not yet an implemented route:
+Implemented top-level command route:
 
 ```text
 /calendar                  Calendar           (top-level command, vaccination due-work slice only)
 ```
 
-When implementing `/calendar`, add `app/(admin)/calendar/page.tsx`, primary nav,
-mock-fidelity scan coverage, and `smoke:visual:live` coverage together.
+Keep `/calendar` tied to the PHC Vaccination due-work slice: route, primary nav,
+mock-fidelity scan coverage, and `smoke:visual:live` coverage must move
+together if the Calendar surface changes.
 
 No nested compatibility redirects are allowed for command-room, authority, or
 Vaccination execution screens. Use `/protocol-adherence`, `/workflows/{row_id}`,

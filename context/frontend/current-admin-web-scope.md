@@ -401,14 +401,15 @@ These are the only current implemented admin-web product routes:
 /goats/{goat_id}
 ```
 
-Approved build target, not yet an implemented route:
+Implemented top-level command route:
 
 ```text
 /calendar                  Calendar           (top-level command, vaccination due-work slice only)
 ```
 
-When implementing `/calendar`, add the app route, shell primary nav, mock
-fidelity scan coverage, and live visual smoke coverage together.
+Keep `/calendar` limited to the PHC Vaccination due-work slice. Its app route,
+shell primary nav, mock-fidelity scan coverage, and live visual smoke coverage
+must move together when the Calendar surface changes.
 
 Nested compatibility redirects are not allowed for command-room or authority
 screens. Link directly to `/protocol-adherence`, `/workflows/{row_id}`, and

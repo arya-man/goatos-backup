@@ -73,20 +73,15 @@ Current implemented admin-web product routes:
 /config
 /sops
 /goats/{goat_id}
-```
-
-Approved build target, not yet an implemented route:
-
-```text
 /calendar
 ```
 
 `/calendar` is reopened only for the PHC Vaccination due-work slice. It must use
 the generic `CalendarEvent` summary contract, vaccination-specific detail drawer,
 generated backend clients, active owner pills `all`, `phc`, `inventory`, and
-`admin_data_ops`, and the mock Calendar/drawer UI treatment. The frontend slice
-that adds `/calendar` must also add primary nav, mock-fidelity scan coverage,
-and `smoke:visual:live` coverage. Do not show live all-domain Calendar content.
+`admin_data_ops`, and the mock Calendar/drawer UI treatment. Keep primary nav,
+mock-fidelity scan coverage, and `smoke:visual:live` coverage in sync with the
+route. Do not show live all-domain Calendar content.
 
 Scope lock: do not turn shared engines into visible product breadth. For the
 current `/sops` route, the backend SOP engine can remain generic, but admin-web
