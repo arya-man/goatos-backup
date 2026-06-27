@@ -54,9 +54,11 @@ The bootstrap contract should carry small, stable UI contract data:
 - page titles, subtitles, section labels, table columns, filters, sort keys,
   page sizes, row-click rules, drawer anatomy, summary/detail fields, empty
   states, and action labels
-- small option groups for chips/dropdowns/tabs such as status, severity,
-  proof state, work state, procurement state, calendar bands, and park display
-  chips
+- small bounded option groups for chips/dropdowns/tabs such as status, severity,
+  proof state, work state, procurement state, and calendar bands
+- optional display overrides for live backend entities such as park display
+  chips, only when the row/object also carries the backend label to render on a
+  miss
 - default UI semantics such as default tab, default sort, default page size,
   default scope mode, and feature availability for the active tenant/role
 - icon, tone, density, and surface-kind tokens that the frontend maps to local
@@ -129,19 +131,27 @@ Frontend owns:
 ## Stable Option-Key Rule
 
 Option-group keys must match stable backend-emitted identifiers. Do not key a
-contract option by mutable display text. Examples:
+contract option by mutable display text. There are two classes:
+
+1. Bounded vocabularies are strict. Status, severity, proof state, work state,
+   and similar finite enum/config values must be present in the route contract.
+   If a row emits a valid key that is not in the option group, SSR/render should
+   fail during validation instead of inventing a frontend fallback.
+2. Live backend entities are not finite enums. Locations, operators, vendors,
+   goats, lots, and other tenant data must carry their display label on the
+   backend row/object. A contract option group may provide optional chip
+   overrides such as abbreviation/tone, but a missing live-entity option must
+   render the backend row label rather than crash the page.
+
+Examples:
 
 - park display chips must be keyed by `park_id` or canonical `location_code`,
-  not `park_name`
+  not `park_name`; if an active park has no optional chip override, render the
+  backend row's `park_name`
 - animal-stage chips must be keyed by stage code/id from `animal_stage_lookup`,
   not local text such as `Kid`
 - protocol/SOP/status chips must be keyed by the backend enum/config key that
   appears in the API row
-
-The frontend helpers should stay strict. If a row emits a valid key that is not
-present in the relevant backend option group, SSR/render should fail during
-validation instead of inventing a frontend fallback. The backend contract must
-cover every key its data APIs can emit for the active tenant/scope.
 
 ## Current Route Inventory
 

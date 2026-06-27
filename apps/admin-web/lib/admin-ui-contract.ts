@@ -45,6 +45,10 @@ export function optionGroup(page: AdminUiPageContract, groupId: string): AdminUi
   return value.options;
 }
 
+export function optionalOption(page: AdminUiPageContract, groupId: string, key: string): AdminUiOption | undefined {
+  return optionGroup(page, groupId).find((item) => item.key === key);
+}
+
 export function optionLabel(page: AdminUiPageContract, groupId: string, key: string): string {
   const value = optionGroup(page, groupId).find((item) => item.key === key);
   if (!value) {

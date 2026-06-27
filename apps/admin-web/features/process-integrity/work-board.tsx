@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Syringe } from "lucide-react";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
-import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   TONE_SWATCH,
   type Tone,
@@ -86,7 +86,9 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
   const showBlocker = blocker && !ownerMissing;
   const fallbackEvent = copy(pageContract, "label.vaccination");
   const openLabel = `${copy(pageContract, "label.open_work_item_for")} ${row.shed_name || copy(pageContract, "label.shed_fallback")}`;
-  const parkOptions = optionGroup(pageContract, "park_display_chips");
+  const parkDisplay = optionalOption(pageContract, "park_display_chips", row.park_id);
+  const parkLabel = parkDisplay?.label || row.park_name || row.park_id;
+  const parkTone = (parkDisplay?.tone || "info") as Tone;
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const proofStateOptions = optionGroup(pageContract, "proof_state_chips");
@@ -115,7 +117,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       </div>
       <div className="row">
         <Tag tone="mut">{copy(pageContract, "label.vaccination")}</Tag>
-        <Tag tone={optionTone(parkOptions, row.park_id)}>{optionLabel(parkOptions, row.park_id)}</Tag>
+        <Tag tone={parkTone}>{parkLabel}</Tag>
         <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
       </div>
       <div className="row" style={{ marginTop: 6 }}>

@@ -61,7 +61,7 @@ to render business UI.
 | `chrome` | product name, nav groups, route labels, top-bar labels, footer, icon tokens | backend product contract, permissions |
 | `page:<route_id>` | title, subtitle, sections, tables, filters, sort keys, page sizes, row-click rules, drawer anatomy | backend product contract, page metadata |
 | `copy:<route_id>` | empty states, action labels, disabled reasons, field labels, validation copy | backend product contract; later optional DB overrides only through governed workflow |
-| `options:<family>` | status chips, severity chips, proof state, work state, procurement state, calendar tabs, park display chips | backend enums/config, DB lookup tables, locations |
+| `options:<family>` | bounded status/severity/proof/work-state chips, procurement state, calendar tabs, and optional live-entity display overrides | backend enums/config, DB lookup tables, locations |
 | `defaults:<route_id>` | default tab, default sort, default page size, default scope mode | backend product contract |
 | `permissions` | visible/hidden/enabled/disabled actions and disabled reasons for actor role/scope | permissions module, role grants |
 | `locations` | park display chips, location labels, scope selectors, aliases | `locations`, `location_aliases`, related location profile tables |
@@ -69,11 +69,17 @@ to render business UI.
 | `sops:<domain>` | SOP builder options, proof types, subject scopes, version states | SOP tables and backend product contract |
 
 Option keys must be stable backend-emitted identifiers. Do not key options by
-mutable display text. Examples:
+mutable display text. Split option groups by cardinality:
 
-- Park chips key by `park_id` or canonical `location_code`, not `park_name`.
-- Animal stage chips key by `animal_stage_id` or `stage_code`, not local text.
-- Status chips key by backend enum/config value emitted by the data API.
+- Bounded vocabularies are strict. Status chips key by backend enum/config value
+  emitted by the data API; animal-stage chips key by `animal_stage_id` or
+  `stage_code`, not local text.
+- Live tenant entities are not strict enums. Park chip overrides key by
+  `park_id` or canonical `location_code`, not `park_name`, but the row/object
+  must carry the backend display label and render it if no optional override is
+  present.
+- Do not make the frontend own a fallback label for live data. The fallback is
+  backend row data, not a React constant.
 
 ## What Does Not Belong In The Config API
 
@@ -300,6 +306,13 @@ route_id optional
 
 and return deterministic JSON plus metadata.
 
+The current static `Bootstrap()` implementation is only a phase-0 product
+contract. Production bootstrap must accept request context, authenticate the
+actor, resolve tenant/role/capabilities, and compile only the nav, pages,
+actions, park scope controls, and disabled reasons valid for that actor. Static
+person names such as role-preview actors must be replaced by authenticated actor
+metadata or a generic role-lens label when no person is available.
+
 ## Cache Strategy
 
 ### In-Process Cache
@@ -380,6 +393,8 @@ Frontend guard updates:
 
 - Flag visible string literals in business route renderers.
 - Flag option lookups keyed by mutable label fields such as `park_name`.
+- Flag strict option lookups against live entity IDs unless the row/object label
+  is used as the backend-owned display path on miss.
 - Require every option group used by a page to exist in that route contract.
 - E2E should compare rendered labels/chips/columns to the fetched contract.
 
@@ -419,12 +434,16 @@ Backend unit tests:
 
 Backend integration tests:
 
-- active CBE and CPT parks appear in `park_display_chips` keyed by stable ID
+- seeded CBE and CPT park display overrides appear in `park_display_chips` keyed
+  by stable ID
+- an Action Center row for a third/unlisted park renders the backend row
+  `park_name` without crashing
 - animal stages come from `animal_stage_lookup`
 - protocol publish bumps `protocols:vaccination`
 - SOP publish bumps `sops:vaccination`
 - location alias/name change bumps `locations`
 - ETag returns 304 only for matching tenant/role/locale/revision
+- role/capability changes alter nav/action availability and disabled reasons
 
 Frontend checks:
 
@@ -526,7 +545,8 @@ Implement this narrow slice first:
    - `locations`
    - `permissions`
 4. Add ETag header on `GET /admin-web/bootstrap`.
-5. Add tests for CBE/CPT park chips keyed by `park_id`.
+5. Add tests for CBE/CPT park chip overrides keyed by `park_id`, plus an
+   unlisted active park row that renders from backend row data.
 6. Regenerate OpenAPI client.
 7. Extend `check:ui-contract` to reject mutable option-key lookups.
 

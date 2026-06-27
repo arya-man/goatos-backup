@@ -34,6 +34,9 @@ const JSX_TEXT = />\s*[A-Z][^<{}`]{2,}\s*</;
 const VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][A-Z][^"']{2,}["']/;
 const CAPITAL_STRING = /["'][A-Z][^"']{2,}["']/;
 const FORBIDDEN_RENDER_META = /\b(?:SEVERITY_META|WORK_STATE_META|PROC_[A-Z_]+_META)\b/;
+const STRICT_OPTION_LOOKUP = /\boption(?:Label|Tone|Title)\s*\(/;
+const LIVE_ENTITY_ID = /\.(?:park|location|vendor|operator|supplier|farm|shed|goat|lot)_id\b/;
+const LIVE_OPTION_HINT = /(?:park|location|vendor|operator|supplier|farm|shed|goat|lot)[A-Za-z]*Options|["'][^"']*(?:park|location|vendor|operator|supplier|farm|shed|goat|lot)[^"']*["']/i;
 const SERVER_ACTION_MESSAGE_VAR = /\blet\s+message\s*=/;
 const SERVER_ACTION_VISIBLE_ASSIGN = /\b(?:message|actionKey)\s*=\s*(?:`[^`]*[A-Z][^`]*`|["'][A-Z][^"']*["'])/;
 
@@ -73,6 +76,10 @@ for (const file of files) {
     if (ALLOW_LINE.some((pattern) => pattern.test(code))) return;
     if (/\.tsx$/.test(rel) && FORBIDDEN_RENDER_META.test(code)) {
       findings.push(`${rel}:${index + 1}  renderer must consume backend option_groups, not local *_META label/tone maps`);
+      return;
+    }
+    if (STRICT_OPTION_LOOKUP.test(code) && LIVE_ENTITY_ID.test(code) && LIVE_OPTION_HINT.test(code)) {
+      findings.push(`${rel}:${index + 1}  live entity IDs need backend row labels plus optionalOption overrides, not strict optionLabel/optionTone lookups`);
       return;
     }
     if (/\.ts$/.test(rel) && /(^|\/)(actions|.*-actions)\.ts$/.test(rel)) {
