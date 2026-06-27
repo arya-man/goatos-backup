@@ -1,4 +1,5 @@
 import { VaccinationCalendarPage } from "@/features/calendar";
+import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
@@ -7,5 +8,5 @@ export const dynamic = "force-dynamic";
 // The visible slice is PHC Vaccination due work; see
 // context/execution/calendar-vaccination-slice-parallel-handoff.md.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <VaccinationCalendarPage searchParams={await searchParams} />;
+  return <VaccinationCalendarPage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("calendar")} />;
 }

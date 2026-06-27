@@ -1,6 +1,6 @@
 // Pure derivation + DSL-builder helpers for the SOP Library. No React, no server — unit-friendly.
 //
-// The ONLY UI/UX source of truth is the mock (mock/goatos-dashboard-mock.html · SOP Library / New SOP).
+// The ONLY UI/UX source of truth is the committed dashboard mock (SOP Library / New SOP).
 // The ONLY data source is the real admin API (`/admin/sops*`). The list endpoint returns thin
 // SOPDefinition rows (no form_dsl); domain / trigger / steps / gates are derived from the real
 // `code`, `name`, `description`, and the latest version's `form_dsl` + `proof_policy` — never invented.

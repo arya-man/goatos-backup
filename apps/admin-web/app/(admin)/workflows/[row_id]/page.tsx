@@ -1,4 +1,5 @@
 import { VaccinationWorkflowDrilldownPage } from "@/features/process-integrity";
+import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +13,11 @@ export default async function Page({
   searchParams?: Promise<RouteSearchParams>;
 }) {
   const { row_id } = await params;
-  return <VaccinationWorkflowDrilldownPage rowId={decodeURIComponent(row_id)} searchParams={await searchParams} />;
+  return (
+    <VaccinationWorkflowDrilldownPage
+      rowId={decodeURIComponent(row_id)}
+      searchParams={await searchParams}
+      pageContract={await requireAdminWebPageContract("workflow-record")}
+    />
+  );
 }

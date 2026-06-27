@@ -10,27 +10,11 @@ import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Download, Plus, Upload, X } from "lucide-react";
 
-import { Tag } from "@/components/ui-primitives";
+import { Tag, type Tone } from "@/components/ui-primitives";
 import type { LocationOption } from "@/lib/api/herd-locations";
 import type { AdminGoatBulkResponse, AdminGoatBulkRowResult, CreateAdminGoatRequest } from "@/lib/api/server";
+import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { commitGoatsAction, createGoatAction, previewGoatsAction } from "./herd-actions";
-
-const BULK_COLUMNS = [
-  "Farm", "RFID", "Old tag", "Park", "Shed", "Breed", "Sex", "DOB", "Weight(kg)", "Dam ID", "Sire/lot", "Origin", "Photo URL",
-] as const;
-
-const SEX_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "female", label: "Female" },
-  { value: "male", label: "Male" },
-  { value: "unknown", label: "Unknown" },
-];
-
-const ORIGIN_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "birth", label: "Farm-born (birth)" },
-  { value: "procured", label: "Procured" },
-  { value: "imported", label: "Imported" },
-  { value: "unknown", label: "Unknown" },
-];
 
 function todayISO(): string {
   const now = new Date();
@@ -49,23 +33,19 @@ function fnv1aHex(input: string): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
-function decisionTone(decision: AdminGoatBulkRowResult["decision"]): "ok" | "warn" | "dng" | "mut" {
-  switch (decision) {
-    case "create":
-      return "ok";
-    case "requires_review":
-      return "warn";
-    case "conflict":
-      return "dng";
-    default:
-      return "mut";
-  }
+function contractTone(pageContract: AdminUiPageContract, groupId: string, key: string): Tone {
+  return optionTone(pageContract, groupId, key) as Tone;
+}
+
+function decisionLabel(pageContract: AdminUiPageContract, decision: AdminGoatBulkRowResult["decision"]): string {
+  return optionLabel(pageContract, "herd_bulk_decisions", String(decision));
 }
 
 // ---- Drawer shell (right panel; backdrop + Escape close; focus trap entry; body scroll lock) ----
 function Drawer({
   open,
   onClose,
+  closeLabel,
   title,
   subtitle,
   width = 560,
@@ -73,6 +53,7 @@ function Drawer({
 }: {
   open: boolean;
   onClose: () => void;
+  closeLabel: string;
   title: string;
   subtitle?: string;
   width?: number;
@@ -131,7 +112,7 @@ function Drawer({
             {subtitle ? <div className="muted small" style={{ marginTop: 2 }}>{subtitle}</div> : null}
           </div>
           <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="btn sm" onClick={onClose} aria-label="Close">
+          <button type="button" className="btn sm" onClick={onClose} aria-label={closeLabel}>
             <X className="ic" style={{ width: 14 }} aria-hidden="true" />
           </button>
         </div>
@@ -141,11 +122,11 @@ function Drawer({
   );
 }
 
-function SubmitButton({ children }: { children: React.ReactNode }) {
+function SubmitButton({ pageContract, children }: { pageContract: AdminUiPageContract; children: React.ReactNode }) {
   const { pending } = useFormStatus();
   return (
     <button type="submit" className="btn p" disabled={pending} aria-busy={pending}>
-      {pending ? "Working…" : children}
+      {pending ? copy(pageContract, "action.working") : children}
     </button>
   );
 }
@@ -164,6 +145,7 @@ function RegisterGoatDrawer({
   locationsAvailable,
   idempotencyKey,
   returnTo,
+  pageContract,
 }: {
   open: boolean;
   onClose: () => void;
@@ -173,21 +155,30 @@ function RegisterGoatDrawer({
   locationsAvailable: boolean;
   idempotencyKey: string;
   returnTo: string;
+  pageContract: AdminUiPageContract;
 }) {
   const [parkId, setParkId] = useState<string>(parks[0]?.id ?? "");
   const scopedSheds = sheds.filter((s) => s.parentId === parkId);
   const shedOptions = scopedSheds.length > 0 ? scopedSheds : sheds;
+  const sexOptions = optionGroup(pageContract, "herd_sex");
+  const originOptions = optionGroup(pageContract, "herd_origin");
 
   const canCreate = locationsAvailable && parks.length > 0 && shedOptions.length > 0;
 
   return (
-    <Drawer open={open} onClose={onClose} title="Register goat" subtitle="Creates one canonical goat → emits goat.created → vaccination obligations generate.">
+    <Drawer
+      open={open}
+      onClose={onClose}
+      closeLabel={copy(pageContract, "action.close")}
+      title={copy(pageContract, "drawer.register.title")}
+      subtitle={copy(pageContract, "drawer.register.subtitle")}
+    >
       {!canCreate ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <AlertTriangle className="ic" aria-hidden="true" />
           <div>
-            <b>Locations unavailable</b>
-            <div className="small">A clean create needs a real park and vaccination-usable shed from the locations master. Configure locations (or check the backend) before registering — no goat is created without a valid park/shed.</div>
+            <b>{copy(pageContract, "alert.locations.title")}</b>
+            <div className="small">{copy(pageContract, "alert.locations.body")}</div>
           </div>
         </div>
       ) : null}
@@ -202,36 +193,36 @@ function RegisterGoatDrawer({
 
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_rfid">RFID</label>
-            <input id="rg_rfid" name="rfid" placeholder="e.g. RF-9001" />
+            <label htmlFor="rg_rfid">{copy(pageContract, "field.rfid")}</label>
+            <input id="rg_rfid" name="rfid" placeholder={copy(pageContract, "placeholder.rfid")} />
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_oldtag">Old / ear tag</label>
-            <input id="rg_oldtag" name="old_tag" placeholder="e.g. CB-201" />
+            <label htmlFor="rg_oldtag">{copy(pageContract, "field.old_tag")}</label>
+            <input id="rg_oldtag" name="old_tag" placeholder={copy(pageContract, "placeholder.old_tag")} />
           </div>
         </Row>
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label htmlFor="rg_temp">Temporary field id</label>
-            <input id="rg_temp" name="temp_field_id" placeholder="for untagged kids (2 IDs due 24h)" />
+            <label htmlFor="rg_temp">{copy(pageContract, "field.temp_field_id")}</label>
+            <input id="rg_temp" name="temp_field_id" placeholder={copy(pageContract, "placeholder.temp_field_id")} />
           </div>
         </Row>
-        <div className="note" style={{ marginBottom: 12 }}>At least one identifier is required — RFID, old tag, or a temporary field id. A duplicate active RFID returns a conflict for review, not a silent merge.</div>
+        <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "note.identifier_required")}</div>
 
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_park">Park (required)</label>
+            <label htmlFor="rg_park">{copy(pageContract, "field.park_required")}</label>
             <select id="rg_park" name="park_id" value={parkId} onChange={(e) => setParkId(e.target.value)} required disabled={!canCreate}>
-              {parks.length === 0 ? <option value="">No parks available</option> : null}
+              {parks.length === 0 ? <option value="">{copy(pageContract, "option.no_parks")}</option> : null}
               {parks.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}{p.code ? ` · ${p.code}` : ""}</option>
               ))}
             </select>
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_shed">Shed (required)</label>
+            <label htmlFor="rg_shed">{copy(pageContract, "field.shed_required")}</label>
             <select id="rg_shed" name="shed_id" required disabled={!canCreate} defaultValue={shedOptions[0]?.id ?? ""}>
-              {shedOptions.length === 0 ? <option value="">No vaccination-usable sheds</option> : null}
+              {shedOptions.length === 0 ? <option value="">{copy(pageContract, "option.no_vaccination_sheds")}</option> : null}
               {shedOptions.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ""}</option>
               ))}
@@ -240,34 +231,34 @@ function RegisterGoatDrawer({
         </Row>
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_farm">Farm</label>
+            <label htmlFor="rg_farm">{copy(pageContract, "field.farm")}</label>
             <select id="rg_farm" name="farm_id" defaultValue="">
-              <option value="">— optional —</option>
+              <option value="">{copy(pageContract, "option.optional")}</option>
               {farms.map((f) => (
                 <option key={f.id} value={f.id}>{f.name}{f.code ? ` · ${f.code}` : ""}</option>
               ))}
             </select>
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_breed">Breed</label>
-            <input id="rg_breed" name="breed" placeholder="e.g. Beetal" />
+            <label htmlFor="rg_breed">{copy(pageContract, "field.breed")}</label>
+            <input id="rg_breed" name="breed" placeholder={copy(pageContract, "placeholder.breed")} />
           </div>
         </Row>
 
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 140 }}>
-            <label htmlFor="rg_sex">Sex</label>
+            <label htmlFor="rg_sex">{copy(pageContract, "field.sex")}</label>
             <select id="rg_sex" name="sex" defaultValue="female">
-              {SEX_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              {sexOptions.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
               ))}
             </select>
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_origin">Origin</label>
+            <label htmlFor="rg_origin">{copy(pageContract, "field.origin")}</label>
             <select id="rg_origin" name="origin_type" defaultValue="birth">
-              {ORIGIN_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              {originOptions.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
               ))}
             </select>
           </div>
@@ -275,47 +266,47 @@ function RegisterGoatDrawer({
 
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-            <label htmlFor="rg_dob">DOB</label>
+            <label htmlFor="rg_dob">{copy(pageContract, "field.dob")}</label>
             <input id="rg_dob" name="dob" type="date" />
           </div>
           <div className="fld" style={{ width: 140 }}>
-            <label htmlFor="rg_weight">Weight (kg)</label>
-            <input id="rg_weight" name="weight_kg" type="number" min={0} step="0.1" placeholder="e.g. 22.0" />
+            <label htmlFor="rg_weight">{copy(pageContract, "field.weight_kg")}</label>
+            <input id="rg_weight" name="weight_kg" type="number" min={0} step="0.1" placeholder={copy(pageContract, "placeholder.weight_kg")} />
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-            <label htmlFor="rg_entry">Entry date (required)</label>
+            <label htmlFor="rg_entry">{copy(pageContract, "field.entry_date_required")}</label>
             <input id="rg_entry" name="entry_date" type="date" defaultValue={todayISO()} required />
           </div>
         </Row>
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 12.5 }}>
-          <input name="dob_estimated" type="checkbox" style={{ width: "auto" }} /> DOB is estimated
+          <input name="dob_estimated" type="checkbox" style={{ width: "auto" }} /> {copy(pageContract, "field.dob_estimated")}
         </label>
 
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_dam">Dam (mother) id — lineage</label>
-            <input id="rg_dam" name="dam_id" placeholder="e.g. CBE-1043" />
+            <label htmlFor="rg_dam">{copy(pageContract, "field.dam_id")}</label>
+            <input id="rg_dam" name="dam_id" placeholder={copy(pageContract, "placeholder.dam_id")} />
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="rg_sire">Sire / semen lot</label>
-            <input id="rg_sire" name="sire_or_lot" placeholder="e.g. BUCK-07" />
+            <label htmlFor="rg_sire">{copy(pageContract, "field.sire_or_lot")}</label>
+            <input id="rg_sire" name="sire_or_lot" placeholder={copy(pageContract, "placeholder.sire_or_lot")} />
           </div>
         </Row>
 
         <div className="fld">
-          <label htmlFor="rg_evidence">Source / evidence reference</label>
-          <input id="rg_evidence" name="evidence_id" placeholder="source doc / sheet row id (defaults to this registration's reference)" />
+          <label htmlFor="rg_evidence">{copy(pageContract, "field.evidence_ref")}</label>
+          <input id="rg_evidence" name="evidence_id" placeholder={copy(pageContract, "placeholder.evidence_ref")} />
         </div>
         <div className="note" style={{ marginBottom: 12 }}>
-          Media capture is not in this slice. Provenance is recorded as a source-record evidence ref; photo upload happens via the field app / proof API.
+          {copy(pageContract, "note.media_capture")}
         </div>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 4 }}>
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn" onClick={onClose}>{copy(pageContract, "action.cancel")}</button>
           {canCreate ? (
-            <SubmitButton>Register goat</SubmitButton>
+            <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_goat")}</SubmitButton>
           ) : (
-            <button type="button" className="btn p" disabled aria-disabled="true" style={{ opacity: 0.5, cursor: "not-allowed" }}>Register goat</button>
+            <button type="button" className="btn p" disabled aria-disabled="true" style={{ opacity: 0.5, cursor: "not-allowed" }}>{copy(pageContract, "action.register_goat")}</button>
           )}
         </div>
       </form>
@@ -324,13 +315,14 @@ function RegisterGoatDrawer({
 }
 
 // ---- Bulk import drawer (download template -> paste/upload CSV -> preview -> commit) ----
-function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
   const router = useRouter();
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<AdminGoatBulkResponse | null>(null);
   const [committed, setCommitted] = useState<AdminGoatBulkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const bulkColumns = optionGroup(pageContract, "herd_import_columns").map((column) => column.label);
 
   function reset() {
     setCsv("");
@@ -345,12 +337,12 @@ function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => voi
   }
 
   function downloadTemplate() {
-    const header = BULK_COLUMNS.join(",");
+    const header = bulkColumns.join(",");
     const blob = new Blob([`${header}\n`], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "herd-register-template.csv";
+    a.download = copy(pageContract, "action.download_template");
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -397,40 +389,47 @@ function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => voi
   const committable = preview ? preview.rows.filter((r) => r.decision === "create" && r.normalized).length : 0;
 
   return (
-    <Drawer open={open} onClose={close} title="Import sheet" subtitle="Bulk register goats — download template, paste/upload CSV, preview, then commit." width={820}>
+    <Drawer
+      open={open}
+      onClose={close}
+      closeLabel={copy(pageContract, "action.close")}
+      title={copy(pageContract, "drawer.import.title")}
+      subtitle={copy(pageContract, "drawer.import.subtitle")}
+      width={820}
+    >
       {/* Step 1 — template + input. Hidden once a commit result is shown. */}
       {!committed ? (
         <>
           <div className="fld">
-            <label>1 · Download template <span className="muted small">({BULK_COLUMNS.length} columns)</span></label>
+            <label>{copy(pageContract, "field.bulk_template")} <span className="muted small">({bulkColumns.length} {copy(pageContract, "label.columns")})</span></label>
             <button type="button" className="btn sm" onClick={downloadTemplate}>
-              <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> herd-register-template.csv
+              <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.download_template")}
             </button>
-            <div className="muted small" style={{ marginTop: 6 }}>{BULK_COLUMNS.join(" · ")}</div>
+            <div className="muted small" style={{ marginTop: 6 }}>{bulkColumns.join(" · ")}</div>
             <div className="note" style={{ marginTop: 8 }}>
-              Each row needs at least one identifier (RFID or Old tag) plus Park and Shed (codes). Sex = female / male / unknown. Origin = birth / procured / imported / unknown. Bad rows return per-row errors below; they are never silently dropped.
+              {copy(pageContract, "note.bulk_template")}
             </div>
           </div>
           <div className="fld">
-            <label htmlFor="bulk_file">2 · Upload CSV</label>
+            <label htmlFor="bulk_file">{copy(pageContract, "field.bulk_upload")}</label>
             <input id="bulk_file" type="file" accept=".csv,text/csv" onChange={onFile} />
           </div>
           <div className="fld">
-            <label htmlFor="bulk_csv">…or paste CSV</label>
+            <label htmlFor="bulk_csv">{copy(pageContract, "field.bulk_paste")}</label>
             <textarea
               id="bulk_csv"
               rows={5}
               value={csv}
               onChange={(e) => setCsv(e.target.value)}
-              placeholder={BULK_COLUMNS.join(",")}
+              placeholder={bulkColumns.join(",")}
               style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
             />
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
             <button type="button" className="btn p" onClick={runPreview} disabled={pending || csv.trim() === ""} aria-busy={pending}>
-              {pending && !committed ? "Previewing…" : "Preview rows"}
+              {pending && !committed ? copy(pageContract, "action.previewing_rows") : copy(pageContract, "action.preview_rows")}
             </button>
-            {preview ? <span className="muted small">Previewed — review decisions below, then commit.</span> : null}
+            {preview ? <span className="muted small">{copy(pageContract, "note.preview_ready")}</span> : null}
           </div>
         </>
       ) : null}
@@ -438,13 +437,13 @@ function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => voi
       {error ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <AlertTriangle className="ic" aria-hidden="true" />
-          <div><b>{committed ? "Commit failed" : "Preview failed"}</b><div className="small">{error}</div></div>
+          <div><b>{committed ? copy(pageContract, "action.commit_failed") : copy(pageContract, "action.preview_failed")}</b><div className="small">{error}</div></div>
         </div>
       ) : null}
 
       {committed ? (
         <div className="note" style={{ marginBottom: 14 }}>
-          <Tag tone="ok">committed</Tag> Created {committed.summary.created} · failed {committed.summary.failed} · skipped {committed.summary.skipped} of {committed.summary.total} rows. The herd table has been refreshed.
+          <Tag tone="ok">{copy(pageContract, "label.committed")}</Tag> {copy(pageContract, "label.created")} {committed.summary.created} · {copy(pageContract, "label.failed")} {committed.summary.failed} · {copy(pageContract, "label.skip")} {committed.summary.skipped} {copy(pageContract, "label.of")} {committed.summary.total} {copy(pageContract, "label.rows")}. {copy(pageContract, "note.committed_suffix")}
         </div>
       ) : null}
 
@@ -452,27 +451,27 @@ function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => voi
       {view ? (
         <>
           <div className="chipset" style={{ marginBottom: 10 }}>
-            <Tag tone="mut">{view.summary.total} rows</Tag>
-            <Tag tone="ok">{view.summary.create_ready} create-ready</Tag>
-            <Tag tone="warn">{view.summary.requires_review} review</Tag>
-            <Tag tone="mut">{view.summary.skipped} skip</Tag>
-            {committed ? <Tag tone={view.summary.failed ? "dng" : "ok"}>{view.summary.created} created</Tag> : null}
+            <Tag tone="mut">{view.summary.total} {copy(pageContract, "label.rows")}</Tag>
+            <Tag tone="ok">{view.summary.create_ready} {copy(pageContract, "label.create_ready")}</Tag>
+            <Tag tone="warn">{view.summary.requires_review} {copy(pageContract, "label.review")}</Tag>
+            <Tag tone="mut">{view.summary.skipped} {copy(pageContract, "label.skip")}</Tag>
+            {committed ? <Tag tone={view.summary.failed ? "dng" : "ok"}>{view.summary.created} {copy(pageContract, "label.created")}</Tag> : null}
           </div>
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
               <table>
                 <thead>
                   <tr>
-                    <th>Row</th>
-                    <th>Decision</th>
-                    <th>Identity</th>
-                    <th>Notes</th>
-                    {committed ? <th>Result</th> : null}
+                    <th>{copy(pageContract, "field.import_row")}</th>
+                    <th>{copy(pageContract, "field.import_decision")}</th>
+                    <th>{copy(pageContract, "field.import_identity")}</th>
+                    <th>{copy(pageContract, "field.import_notes")}</th>
+                    {committed ? <th>{copy(pageContract, "field.import_result")}</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {view.rows.map((r) => {
-                    const ident = r.normalized?.rfid || r.normalized?.old_tag || r.normalized?.temp_field_id || "—";
+                    const ident = r.normalized?.rfid || r.normalized?.old_tag || r.normalized?.temp_field_id || copy(pageContract, "label.placeholder");
                     const notes = [
                       ...r.errors.map((e) => `${e.field}: ${e.message}`),
                       ...r.warnings.map((w) => w.message),
@@ -480,12 +479,12 @@ function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => voi
                     return (
                       <tr key={r.row_number}>
                         <td className="muted">{r.row_number}</td>
-                        <td><Tag tone={decisionTone(r.decision)}>{r.decision.replace(/_/g, " ")}</Tag></td>
+                        <td><Tag tone={contractTone(pageContract, "herd_bulk_decisions", String(r.decision))}>{decisionLabel(pageContract, r.decision)}</Tag></td>
                         <td>{ident}</td>
-                        <td className="muted small">{notes || "—"}</td>
+                        <td className="muted small">{notes || copy(pageContract, "label.placeholder")}</td>
                         {committed ? (
                           <td className="muted small">
-                            {r.result ? r.result.goat.display_id : r.errors.length ? "failed" : "—"}
+                            {r.result ? r.result.goat.display_id : r.errors.length ? copy(pageContract, "label.failed") : copy(pageContract, "label.placeholder")}
                           </td>
                         ) : null}
                       </tr>
@@ -497,10 +496,10 @@ function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             {committed ? (
-              <button type="button" className="btn p" onClick={close}>Done</button>
+              <button type="button" className="btn p" onClick={close}>{copy(pageContract, "action.done")}</button>
             ) : (
               <>
-                <button type="button" className="btn" onClick={() => { setPreview(null); setError(null); }}>Re-edit</button>
+                <button type="button" className="btn" onClick={() => { setPreview(null); setError(null); }}>{copy(pageContract, "action.re_edit")}</button>
                 <button
                   type="button"
                   className="btn p"
@@ -509,7 +508,7 @@ function BulkImportDrawer({ open, onClose }: { open: boolean; onClose: () => voi
                   aria-disabled={committable === 0}
                   aria-busy={pending}
                 >
-                  <Check className="ic" aria-hidden="true" /> {pending ? "Creating…" : `Create ${committable} record${committable === 1 ? "" : "s"}`}
+                  <Check className="ic" aria-hidden="true" /> {pending ? copy(pageContract, "action.creating_records") : `${copy(pageContract, "action.create_records")} (${committable})`}
                 </button>
               </>
             )}
@@ -528,6 +527,7 @@ export function HerdActions({
   locationsAvailable,
   idempotencyKey,
   returnTo,
+  pageContract,
 }: {
   parks: LocationOption[];
   sheds: LocationOption[];
@@ -535,16 +535,17 @@ export function HerdActions({
   locationsAvailable: boolean;
   idempotencyKey: string;
   returnTo: string;
+  pageContract: AdminUiPageContract;
 }) {
   const [openDrawer, setOpenDrawer] = useState<"register" | "bulk" | null>(null);
 
   return (
     <>
       <button type="button" className="btn" onClick={() => setOpenDrawer("bulk")}>
-        <Upload className="ic" style={{ width: 13 }} aria-hidden="true" /> Import sheet
+        <Upload className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.import_sheet")}
       </button>
       <button type="button" className="btn p" onClick={() => setOpenDrawer("register")}>
-        <Plus className="ic" aria-hidden="true" /> Register goat
+        <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.register_goat")}
       </button>
 
       <RegisterGoatDrawer
@@ -556,8 +557,9 @@ export function HerdActions({
         locationsAvailable={locationsAvailable}
         idempotencyKey={idempotencyKey}
         returnTo={returnTo}
+        pageContract={pageContract}
       />
-      <BulkImportDrawer open={openDrawer === "bulk"} onClose={() => setOpenDrawer(null)} />
+      <BulkImportDrawer open={openDrawer === "bulk"} onClose={() => setOpenDrawer(null)} pageContract={pageContract} />
     </>
   );
 }

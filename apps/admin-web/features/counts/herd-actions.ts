@@ -58,7 +58,7 @@ function evidenceRefs(formData: FormData, idempotencyKey: string): CreateAdminGo
 
 export async function createGoatAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.goat_registered_no_generation";
   try {
     const idempotencyKey = optionalString(formData, "idempotency_key") ?? randomUUID();
 
@@ -91,25 +91,24 @@ export async function createGoatAction(formData: FormData): Promise<void> {
     const result = await createAdminGoat(body, idempotencyKey);
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      const gen = result.data.generation_status;
-      const genCopy =
-        gen === "queued"
-          ? "vaccination generation queued"
-          : gen === "skipped_needs_review"
-            ? "held — identity needs review, no vaccination work yet"
-            : gen === "skipped_ineligible"
-              ? "no vaccination obligations (ineligible by published rules)"
-              : "no vaccination generation applicable";
-      message = `Goat ${result.data.goat.display_id} registered · ${genCopy}.`;
+      actionKey =
+        result.data.generation_status === "queued"
+          ? "action.goat_registered_generation_queued"
+          : result.data.generation_status === "skipped_needs_review"
+            ? "action.goat_registered_identity_review"
+            : result.data.generation_status === "skipped_ineligible"
+              ? "action.goat_registered_ineligible"
+              : "action.goat_registered_no_generation";
       revalidatePath(HERD_PATH);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to register goat.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 // Imperative server actions for the bulk drawer. They RETURN the backend response so the client drawer can

@@ -89,6 +89,9 @@ After implementing any phase:
 - One skill source, no duplicate copies.
 - `CLAUDE.md` and `CODEX.md` are shims to `AGENTS.md`.
 - Skill references point back to `context/` and active phase docs.
+- Admin-web/operator UI copy/options/navigation/table/filter/chip/drawer truth is
+  backend-contract owned; see `AGENTS.md`, `apps/admin-web/AGENTS.md`, and
+  `context/frontend/admin-web-backend-ui-contract.md` before frontend work.
 - Hooks call shared scripts in `tools/agent-hooks/`.
 - CI is the hard gate; hooks are fast feedback.
 - Do not create many skills up front. Add a new skill only when the trigger is

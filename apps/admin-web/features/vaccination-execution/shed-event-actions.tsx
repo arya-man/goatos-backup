@@ -9,11 +9,13 @@ import {
   type ActionResult,
 } from "@/lib/api/vaccination-actions";
 import { AlertCircle, Upload } from "lucide-react";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 interface ShedEventActionsProps {
   obligationId?: string | null;
   sopTaskId?: string | null;
   completionId?: string | null;
+  pageContract: AdminUiPageContract;
 }
 
 /**
@@ -26,19 +28,19 @@ interface ShedEventActionsProps {
  * All controls render disabled with exact reasons when their required ids are null, and surface a
  * visible error band when a server action fails (never a silent failure).
  */
-export function ShedEventActions({ obligationId, sopTaskId, completionId }: ShedEventActionsProps) {
+export function ShedEventActions({ obligationId, sopTaskId, completionId, pageContract }: ShedEventActionsProps) {
   const proofUploadEnabled = !!(sopTaskId && obligationId);
   const acceptRejectEnabled = !!completionId;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Proof upload section */}
-      <ProofUploadForm enabled={proofUploadEnabled} sopTaskId={sopTaskId} obligationId={obligationId} />
+      <ProofUploadForm enabled={proofUploadEnabled} sopTaskId={sopTaskId} obligationId={obligationId} pageContract={pageContract} />
 
       {/* Accept / Reject buttons section */}
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-        <AcceptButton enabled={acceptRejectEnabled} completionId={completionId} />
-        <RejectButton enabled={acceptRejectEnabled} completionId={completionId} />
+        <AcceptButton enabled={acceptRejectEnabled} completionId={completionId} pageContract={pageContract} />
+        <RejectButton enabled={acceptRejectEnabled} completionId={completionId} pageContract={pageContract} />
       </div>
     </div>
   );
@@ -72,21 +74,22 @@ interface ProofUploadFormProps {
   enabled: boolean;
   sopTaskId?: string | null;
   obligationId?: string | null;
+  pageContract: AdminUiPageContract;
 }
 
 /**
  * File upload form bound to submitVaccinationProof via useActionState, so a failed upload renders the
  * exact error inline. Disabled state displays the exact reason based on which id is missing.
  */
-function ProofUploadForm({ enabled, sopTaskId, obligationId }: ProofUploadFormProps) {
+function ProofUploadForm({ enabled, sopTaskId, obligationId, pageContract }: ProofUploadFormProps) {
   const [state, formAction] = useActionState<ActionResult | null, FormData>(submitVaccinationProof, null);
   const disabledReason = !enabled
-    ? "No SOP task on this shed-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced."
+    ? copy(pageContract, "form.proof_upload.reason")
     : undefined;
 
   return (
     <div className="fld" aria-disabled={!enabled}>
-      <label>Upload vaccination proof</label>
+      <label>{copy(pageContract, "form.proof_upload.label")}</label>
       <form action={formAction} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {/* Hidden inputs to pass IDs to server action */}
         {obligationId && <input type="hidden" name="obligationId" value={obligationId} />}
@@ -120,12 +123,12 @@ function ProofUploadForm({ enabled, sopTaskId, obligationId }: ProofUploadFormPr
               fontSize: 14,
               cursor: enabled ? "pointer" : "default",
             }}
-            title={enabled ? "Select a video or image file" : "Proof upload disabled"}
+            title={enabled ? copy(pageContract, "form.proof_upload.select") : copy(pageContract, "form.proof_upload.disabled")}
           />
         </div>
 
         {/* Submit button */}
-        <ProofUploadButton enabled={enabled} />
+        <ProofUploadButton enabled={enabled} pageContract={pageContract} />
       </form>
 
       {/* Disabled reason */}
@@ -137,7 +140,7 @@ function ProofUploadForm({ enabled, sopTaskId, obligationId }: ProofUploadFormPr
   );
 }
 
-function ProofUploadButton({ enabled }: { enabled: boolean }) {
+function ProofUploadButton({ enabled, pageContract }: { enabled: boolean; pageContract: AdminUiPageContract }) {
   const { pending } = useFormStatus();
 
   return (
@@ -151,7 +154,7 @@ function ProofUploadButton({ enabled }: { enabled: boolean }) {
       }}
       aria-disabled={!enabled}
     >
-      {pending ? "Uploading proof…" : "Submit proof"}
+      {pending ? copy(pageContract, "action.uploading_proof") : copy(pageContract, "action.submit_proof")}
     </button>
   );
 }
@@ -159,13 +162,14 @@ function ProofUploadButton({ enabled }: { enabled: boolean }) {
 interface CompletionButtonProps {
   enabled: boolean;
   completionId?: string | null;
+  pageContract: AdminUiPageContract;
 }
 
-function AcceptButton({ enabled, completionId }: CompletionButtonProps) {
+function AcceptButton({ enabled, completionId, pageContract }: CompletionButtonProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const disabledReason = !enabled
-    ? "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue."
+    ? copy(pageContract, "form.completion.reason")
     : undefined;
 
   return (
@@ -193,7 +197,7 @@ function AcceptButton({ enabled, completionId }: CompletionButtonProps) {
           }
         }}
       >
-        {isPending ? "Accepting…" : "Accept"}
+        {isPending ? copy(pageContract, "action.accepting") : copy(pageContract, "action.accept")}
       </button>
       {disabledReason && <DisabledReason reason={disabledReason} />}
       {error && <ActionError message={error} />}
@@ -201,13 +205,13 @@ function AcceptButton({ enabled, completionId }: CompletionButtonProps) {
   );
 }
 
-function RejectButton({ enabled, completionId }: CompletionButtonProps) {
+function RejectButton({ enabled, completionId, pageContract }: CompletionButtonProps) {
   const [isPending, startTransition] = useTransition();
   const [arming, setArming] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const disabledReason = !enabled
-    ? "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue."
+    ? copy(pageContract, "form.completion.reason")
     : undefined;
 
   function confirmReject() {
@@ -216,7 +220,7 @@ function RejectButton({ enabled, completionId }: CompletionButtonProps) {
     }
     const trimmed = reason.trim();
     if (trimmed.length === 0) {
-      setError("Rejection reason required — provide a reason for requiring rework.");
+      setError(copy(pageContract, "error.reject_reason"));
       return;
     }
     setError(null);
@@ -252,14 +256,14 @@ function RejectButton({ enabled, completionId }: CompletionButtonProps) {
             }
           }}
         >
-          Reject
+          {copy(pageContract, "action.reject")}
         </button>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason for rejection (required)"
+            placeholder={copy(pageContract, "form.reject.placeholder")}
             rows={2}
             autoFocus
             disabled={isPending}
@@ -281,7 +285,7 @@ function RejectButton({ enabled, completionId }: CompletionButtonProps) {
               onClick={confirmReject}
               style={{ flex: 1, cursor: isPending ? "default" : "pointer" }}
             >
-              {isPending ? "Rejecting…" : "Confirm reject"}
+              {isPending ? copy(pageContract, "action.rejecting") : copy(pageContract, "action.confirm_reject")}
             </button>
             <button
               type="button"
@@ -294,7 +298,7 @@ function RejectButton({ enabled, completionId }: CompletionButtonProps) {
               }}
               style={{ flex: 1, cursor: isPending ? "default" : "pointer" }}
             >
-              Cancel
+              {copy(pageContract, "action.cancel")}
             </button>
           </div>
         </div>

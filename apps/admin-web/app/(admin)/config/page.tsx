@@ -1,4 +1,5 @@
 import { ConfigProtocolRulesPage } from "@/features/config";
+import { requireAdminWebPageContract } from "@/lib/api/server";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
@@ -8,5 +9,5 @@ export const dynamic = "force-dynamic";
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const params = await searchParams;
   const category = one(params, "category") ?? "vaccination";
-  return <ConfigProtocolRulesPage category={category} />;
+  return <ConfigProtocolRulesPage category={category} pageContract={await requireAdminWebPageContract("config")} />;
 }

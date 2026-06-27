@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
 import { dash } from "@/lib/format";
+import { actionFeedbackCopy, copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   searchGoats,
@@ -34,13 +35,8 @@ import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 
 const DEFAULT_PAGE_SIZE = 10;
 const SUMMARY_LIMIT = 100;
-const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
 type GoatRow = GoatSearchResponse["items"][number];
-
-const REPORT_PENDING = "No herd report API exists in this slice. New report stays disabled.";
-
-const COLS = ["Goat ID", "Park", "Shed", "Breed", "Sex", "WT", "Lifecycle", "Health", "Breeding"];
 
 function hrefWithDrawerParam(pathname: string, params: RouteSearchParams, key: string, value: string | null): string {
   const next = new URLSearchParams();
@@ -124,22 +120,30 @@ function isUntagged(g: GoatRow): boolean {
   return !display || display.startsWith("TMP-") || g.identity_state !== "clean";
 }
 
-function buildHerdSummary(rows: GoatRow[], capped: boolean) {
+function buildHerdSummary(pageContract: AdminUiPageContract, rows: GoatRow[], capped: boolean) {
   const activeRows = rows.filter(isActiveGoat);
   const kidRows = activeRows.filter(isKidGoat);
   const adultRows = activeRows.filter((g) => !isKidGoat(g));
   const untaggedKids = kidRows.filter(isUntagged).length;
   const suffix = capped ? "+" : "";
-  const sub = capped ? `first ${rows.length} live rows` : `${rows.length} live rows`;
+  const sub = capped
+    ? `${copy(pageContract, "label.first_live_rows_prefix")} ${rows.length} ${copy(pageContract, "label.live_rows")}`
+    : `${rows.length} ${copy(pageContract, "label.live_rows")}`;
   return [
-    { label: "Active", value: `${activeRows.length}${suffix}`, sub },
-    { label: "Adults", value: `${adultRows.length}${suffix}`, sub: "live scoped register" },
-    { label: "Kids", value: `${kidRows.length}${suffix}`, sub: "stage/shed inferred" },
-    { label: "Untagged kids", value: `${untaggedKids}${suffix}`, sub: "identity review rows" },
+    { label: copy(pageContract, "label.active"), value: `${activeRows.length}${suffix}`, sub },
+    { label: copy(pageContract, "label.adults"), value: `${adultRows.length}${suffix}`, sub: copy(pageContract, "label.live_scoped_register") },
+    { label: copy(pageContract, "label.kids"), value: `${kidRows.length}${suffix}`, sub: copy(pageContract, "label.stage_shed_inferred") },
+    { label: copy(pageContract, "label.untagged_kids"), value: `${untaggedKids}${suffix}`, sub: copy(pageContract, "label.identity_review_rows") },
   ];
 }
 
-export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteSearchParams }) {
+export async function HerdRegisterPage({
+  searchParams,
+  pageContract,
+}: {
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
   const sp = searchParams ?? {};
   const pathname = "/counts/herd";
 
@@ -152,14 +156,14 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
   const q = one(sp, "q");
   const breed = one(sp, "breed");
   const sex = one(sp, "sex");
-  const pageSize = PAGE_SIZE_OPTIONS.includes(Number(one(sp, "limit")) as (typeof PAGE_SIZE_OPTIONS)[number])
-    ? (Number(one(sp, "limit")) as (typeof PAGE_SIZE_OPTIONS)[number])
-    : DEFAULT_PAGE_SIZE;
+  const pageSizeOptions = tablePageSizes(pageContract, "herd-register");
+  const requestedLimit = Number(one(sp, "limit"));
+  const pageSize = pageSizeOptions.includes(requestedLimit) ? requestedLimit : DEFAULT_PAGE_SIZE;
   const cursor = one(sp, "cursor");
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
   const hasFilter = Boolean(q || breed || sex);
   const actionStatus = one(sp, "action_status");
-  const actionMessage = one(sp, "action_message");
+  const actionKey = one(sp, "action_key");
   const returnTo = hrefWithoutAction(pathname, sp);
   const selectedGoatId = one(sp, "goat_passport");
 
@@ -178,12 +182,13 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
 
   const goats: GoatRow[] = result.ok ? result.data.items : [];
   const summaryRows: GoatRow[] = summaryResult.ok ? summaryResult.data.items : goats;
-  const summaryCards = buildHerdSummary(summaryRows, Boolean(summaryResult.ok && summaryResult.data.next_cursor));
+  const summaryCards = buildHerdSummary(pageContract, summaryRows, Boolean(summaryResult.ok && summaryResult.data.next_cursor));
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
   const prevHref = hrefPreviousCursor(pathname, sp);
   const scopedPark = parkId ? locations.parks.find((p) => p.id === parkId) : null;
-  const herdContext = scopedPark ? `${scopedPark.code ?? scopedPark.name} · all sheds` : "all parks";
+  const herdContext = scopedPark ? `${scopedPark.code ?? scopedPark.name} · ${copy(pageContract, "label.all_sheds")}` : copy(pageContract, "label.all_parks");
+  const cols = tableLabels(pageContract, "herd-register");
   const selectedGoat = selectedGoatId ? goats.find((g) => g.goat_id === selectedGoatId) : undefined;
   const closePassportHref = hrefWithDrawerParam(pathname, sp, "goat_passport", null);
 
@@ -191,11 +196,11 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
     <div className="screen on">
       <div className="phead">
         <div>
-          <div className="crumb">
-            Counts / <b>Herd</b>
-          </div>
-          <h1>Herd &amp; Lifecycle</h1>
-        </div>
+	          <div className="crumb">
+	            {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.herd.title")}</b>
+	          </div>
+	          <h1>{pageContract.title}</h1>
+	        </div>
         <div className="sp" style={{ flex: 1 }} />
         {/* Import sheet + Register goat open real drawers wired to the generated admin goat clients. */}
         <HerdActions
@@ -205,34 +210,35 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
           locationsAvailable={locations.available}
           idempotencyKey={registerIdempotencyKey}
           returnTo={returnTo}
+          pageContract={pageContract}
         />
         <button
           type="button"
           className="btn"
           disabled
           aria-disabled="true"
-          title={REPORT_PENDING}
+	          title={copy(pageContract, "reason.report_pending")}
           style={{ opacity: 0.5, cursor: "not-allowed" }}
         >
-          New report
+	          {copy(pageContract, "action.new_report")}
         </button>
       </div>
 
       {actionStatus ? (
         actionStatus === "success" ? (
           <div className="note" style={{ marginBottom: 12 }}>
-            <Tag tone="ok">done</Tag> {actionMessage ?? "Goat registered."}
+	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         ) : (
           <div className="alert" style={{ marginBottom: 12 }}>
-            <b>Registration failed</b>&nbsp;{actionMessage ?? actionStatus}
+	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         )
       ) : null}
 
       <div className="grid g4" style={{ marginBottom: 8 }}>
         {summaryCards.map((card) => (
-          <div key={card.label} className="kpi" title="Live scoped summary from /goats/search.">
+          <div key={card.label} className="kpi" title={copy(pageContract, "section.summary.tooltip")}>
             <div className="lab">{card.label}</div>
             <div className="val">{card.value}</div>
             <div className="dl">
@@ -242,7 +248,7 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
         ))}
       </div>
       <div className="note" style={{ marginBottom: 16 }}>
-        Herd summary and table read live goats from <b>/goats/search</b> under the top-bar scope.
+	        {copy(pageContract, "section.summary.note")}
       </div>
 
       {!result.ok ? (
@@ -253,31 +259,31 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
 
       <section className="card">
         <div className="hd">
-          <h3>Herd</h3>
-          <span className="small muted">{herdContext}</span>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="muted small">tap a row → Goat Passport</span>
+	          <h3>{copy(pageContract, "section.herd.title")}</h3>
+	          <span className="small muted">{herdContext}</span>
+	          <div className="sp" style={{ flex: 1 }} />
+	          <span className="muted small">{copy(pageContract, "section.herd.row_hint")}</span>
         </div>
-        <HerdFiltersModalClient rowCount={goats.length} pageSize={pageSize} hasFilters={hasFilter} />
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label="Herd">
+        <HerdFiltersModalClient rowCount={goats.length} pageSize={pageSize} pageSizeOptions={pageSizeOptions} hasFilters={hasFilter} pageContract={pageContract} />
+	        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.herd.aria")}>
           <table>
             <thead>
               <tr>
-                {COLS.map((c) => (
-                  <th key={c}>{c}</th>
+	                {cols.map((c) => (
+	                  <th key={c}>{c}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {goats.length === 0 ? (
                 <tr>
-                  <td colSpan={COLS.length}>
+	                  <td colSpan={cols.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {result.ok
-                        ? hasFilter
-                          ? "No goats match these filters for this scope."
-                          : "No goats for this scope yet. Use Register goat or Import sheet to add the first goats — each emits goat.created and generates vaccination obligations."
-                        : "Herd is unavailable until the goats read API responds."}
+	                      {result.ok
+	                        ? hasFilter
+	                          ? copy(pageContract, "empty.herd_filtered")
+	                          : copy(pageContract, "empty.herd")
+	                        : copy(pageContract, "empty.unavailable")}
                     </div>
                   </td>
                 </tr>
@@ -292,7 +298,7 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
                           {g.identity_state !== "clean" ? (
                             <>
                               {" "}
-                              <Tag tone={identityTone(g.identity_state)} title="Identity state from the goats read model">
+                              <Tag tone={identityTone(g.identity_state)} title={copy(pageContract, "tag.identity_title")}>
                                 {g.identity_state.replace("_", " ")}
                               </Tag>
                             </>
@@ -339,27 +345,27 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
           </table>
         </div>
         {goats.length > 0 || page > 1 ? (
-          <div className="pager2">
-            <span className="muted small">
-              Page {page} · {goats.length} row{goats.length === 1 ? "" : "s"}
-              {nextCursor ? " · server-paginated at scale" : " · end of results"}
+	          <div className="pager2">
+	            <span className="muted small">
+	              {copy(pageContract, "pager.page")} {page} · {goats.length} {copy(pageContract, goats.length === 1 ? "label.row_singular" : "label.row_plural")}
+	              {nextCursor ? ` · ${copy(pageContract, "pager.scale_note")}` : ` · ${copy(pageContract, "pager.end_note")}`}
             </span>
             {prevHref ? (
               <Link href={prevHref} scroll={false} className="btn sm">
-                <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> Previous
+	                <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
               </Link>
             ) : (
               <span className="btn sm" aria-disabled="true" style={{ opacity: 0.45, cursor: "not-allowed" }}>
-                <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> Previous
+	                <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
               </span>
             )}
             {nextHref ? (
               <Link href={nextHref} scroll={false} className="btn sm">
-                Next <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
+	                {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
               </Link>
             ) : (
               <span className="btn sm" aria-disabled="true" style={{ opacity: 0.45, cursor: "not-allowed" }}>
-                Next <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
+	                {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
               </span>
             )}
           </div>
@@ -369,8 +375,9 @@ export async function HerdRegisterPage({ searchParams }: { searchParams?: RouteS
         <HerdPassportDrawer
           goat={selectedGoat}
           closeHref={closePassportHref}
-          fullPassportHref={`/goats/${encodeURIComponent(selectedGoat.goat_id)}`}
-        />
+	          fullPassportHref={`/goats/${encodeURIComponent(selectedGoat.goat_id)}`}
+	          pageContract={pageContract}
+	        />
       ) : null}
     </div>
   );
@@ -380,66 +387,69 @@ function HerdPassportDrawer({
   goat,
   closeHref,
   fullPassportHref,
+  pageContract,
 }: {
   goat: GoatRow;
   closeHref: string;
   fullPassportHref: string;
+  pageContract: AdminUiPageContract;
 }) {
+  const cols = tableLabels(pageContract, "herd-register");
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label="Close goat passport drawer" scroll={false} />
-      <aside className="drawer on" aria-label="Goat Passport">
+      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false} />
+      <aside className="drawer on" aria-label={copy(pageContract, "drawer.passport.aria")}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)", fontWeight: 800 }}>
             G
           </span>
           <div>
             <div className="mt">{goat.display_id}</div>
-            <h2>Goat Passport</h2>
+            <h2>{copy(pageContract, "drawer.passport.aria")}</h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label="Close goat passport drawer" scroll={false}>
+          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false}>
             <X className="ic" />
           </Link>
         </div>
         <div className="dc">
           <div className="helpgrid">
-            <div className="hk">Park</div>
+            <div className="hk">{cols[1]}</div>
             <div>{locationLabel(goat, "park")}</div>
-            <div className="hk">Shed</div>
+            <div className="hk">{cols[2]}</div>
             <div>{locationLabel(goat, "shed")}</div>
-            <div className="hk">Breed</div>
+            <div className="hk">{cols[3]}</div>
             <div>{dash(goat.breed)}</div>
-            <div className="hk">Sex</div>
+            <div className="hk">{cols[4]}</div>
             <div>{dash(goat.sex)}</div>
-            <div className="hk">WT</div>
+            <div className="hk">{cols[5]}</div>
             <div>{weightLabel(goat.weight_kg)}{goat.weight_kg ? " kg" : ""}</div>
-            <div className="hk">Lifecycle</div>
+            <div className="hk">{cols[6]}</div>
             <div>
               <Tag tone={statusTone(goat.lifecycle_status, "lifecycle")}>{dash(goat.lifecycle_status)}</Tag>
             </div>
-            <div className="hk">Health</div>
+            <div className="hk">{cols[7]}</div>
             <div>
               <Tag tone={statusTone(goat.health_status, "health")}>{dash(goat.health_status)}</Tag>
             </div>
-            <div className="hk">Breeding</div>
+            <div className="hk">{cols[8]}</div>
             <div>
               <Tag tone={statusTone(goat.reproductive_status, "breeding")}>{dash(goat.reproductive_status)}</Tag>
             </div>
           </div>
           <div className="muted small" style={{ marginTop: 14, fontWeight: 700 }}>
-            Identifiers
+            {copy(pageContract, "label.identifiers")}
           </div>
           <div className="note" style={{ marginTop: 8 }}>
-            goat_id: {goat.goat_id} · display_id: {goat.display_id} · identity: {goat.identity_state.replace("_", " ")}
+            {copy(pageContract, "label.goat_id")}: {goat.goat_id} · {copy(pageContract, "label.display_id")}: {goat.display_id} · {copy(pageContract, "label.identity")}: {goat.identity_state.replace("_", " ")}
           </div>
         </div>
         <div className="df">
           <Link href={fullPassportHref} className="btn p">
-            Full change history
+            {copy(pageContract, "action.full_change_history")}
           </Link>
           <Link href={closeHref} replace className="btn" scroll={false}>
-            Close
+            {copy(pageContract, "action.close")}
           </Link>
         </div>
       </aside>

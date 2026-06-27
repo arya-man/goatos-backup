@@ -1,16 +1,20 @@
 import Link from "next/link";
-import { AlertTriangle, Workflow } from "lucide-react";
+import { Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
-import { CATEGORIES, isRfc3339Timestamp, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
+import { isRfc3339Timestamp, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
 import { listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
+import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { getScopeParks } from "@/lib/api/scope-parks";
+import type { Park } from "@/lib/scope";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
 // PUBLISHED, source-backed rules. Field / verifier / park users never reach this screen — they only
 // see generated obligations + SOP tasks.
 
-function resolveCategory(category: string): string {
-  return CATEGORIES.includes(category) ? category : "vaccination";
+function resolveCategory(category: string, pageContract: AdminUiPageContract): string {
+  const categories = optionGroup(pageContract, "rule_categories");
+  return categories.some((option) => option.key === category) ? category : categories[0]?.key ?? category;
 }
 
 // Mirrors the backend publish gate (protocol/app/publish.go publishableSources). A draft is
@@ -27,57 +31,83 @@ function isPublishableSource(item: ProtocolConfigItem): boolean {
   );
 }
 
-function fmtDate(iso?: string | null): string {
-  return iso ? iso.slice(0, 10) : "—";
+function fmtDate(iso: string | null | undefined, pageContract: AdminUiPageContract): string {
+  return iso ? iso.slice(0, 10) : copy(pageContract, "label.placeholder");
 }
 
-function shortId(id?: string): string {
-  if (!id) return "—";
+function shortId(id: string | null | undefined, pageContract: AdminUiPageContract): string {
+  if (!id) return copy(pageContract, "label.placeholder");
   return id.length > 10 ? `${id.slice(0, 8)}…` : id;
 }
 
-function statusOf(item: ProtocolConfigItem): { text: string; tone: ConfigRuleRow["statusTone"] } {
-  if (item.status === "published") return { text: "Published", tone: "ok" };
-  if (item.status === "retired") return { text: "Retired", tone: "mut" };
-  return isPublishableSource(item)
-    ? { text: "Draft · source-backed", tone: "info" }
-    : { text: "Draft · not source-backed", tone: "warn" };
+function scopeLabel(item: ProtocolConfigItem, parks: Park[], pageContract: AdminUiPageContract): string {
+  if (item.scope_type === "tenant") return copy(pageContract, "modal.rule_editor.label.tenant");
+  if (item.scope_type === "park") {
+    const park = parks.find((p) => p.id === item.scope_id);
+    const parkScope = optionGroup(pageContract, "rule_scopes").find((option) => option.key === `park:${park?.code}`)?.label;
+    return parkScope ?? `park: ${park?.code ?? park?.name ?? shortId(item.scope_id, pageContract)}`;
+  }
+  return `${item.scope_type}: ${shortId(item.scope_id, pageContract)}`;
+}
+
+function hasSourceEvidence(item: ProtocolConfigItem): boolean {
+  return PUBLISHABLE_SOURCES.has(item.source_system) && item.source_ref.trim() !== "";
+}
+
+function statusOf(item: ProtocolConfigItem, pageContract: AdminUiPageContract): { text: string; tone: ConfigRuleRow["statusTone"] } {
+  const key = item.status === "published"
+    ? "published"
+    : item.status === "retired"
+      ? "retired"
+      : isPublishableSource(item)
+        ? "draft_publishable"
+        : hasSourceEvidence(item)
+          ? "draft_pending_approval"
+          : "draft_not_publishable";
+  return {
+    text: optionLabel(pageContract, "protocol_rule_status", key),
+    tone: optionTone(pageContract, "protocol_rule_status", key) as ConfigRuleRow["statusTone"],
+  };
 }
 
 // Project a backend protocol-config version into a Config table row. No invented values: rule count,
 // status, scope, effective date, linked SOP, and publisher are backend truth ("—" when absent).
-function toRuleRow(item: ProtocolConfigItem): ConfigRuleRow {
-  const status = statusOf(item);
+function toRuleRow(item: ProtocolConfigItem, parks: Park[], pageContract: AdminUiPageContract): ConfigRuleRow {
+  const status = statusOf(item, pageContract);
   return {
     id: item.protocol_version_id,
     categoryLabel: item.name || item.code,
     ruleRows: item.rule_count,
-    ruleRowLabel: item.rule_count === 1 ? "rule" : "rules",
+    ruleRowLabel: item.rule_count === 1 ? copy(pageContract, "modal.rule_editor.label.rule_singular") : copy(pageContract, "modal.rule_editor.label.rule_plural"),
     version: item.version_label?.trim() || `v${item.version}`,
-    scope: item.scope_type === "tenant" ? "tenant" : `park:${item.scope_id ?? ""}`,
+    scope: scopeLabel(item, parks, pageContract),
     statusText: status.text,
     statusTone: status.tone,
-    effective: fmtDate(item.effective_from),
-    linkedSop: shortId(item.sop_version_id),
-    lastPublisher: shortId(item.published_by),
+    effective: fmtDate(item.effective_from, pageContract),
+    linkedSop: shortId(item.sop_version_id, pageContract),
+    lastPublisher: shortId(item.published_by, pageContract),
   };
 }
 
-// Rendered at Admin / Data Ops / Config. This is the generic protocol authority surface: PHC/
+// Shown at Admin / Data Ops / Config. This is the generic protocol authority surface: PHC/
 // Vaccination links here with category=vaccination, but no module owns the screen. Rules are read
 // from the real backend protocol list (B3, GET /protocols?category=…) through the generated client —
 // never fabricated. A failed read surfaces an error band, not a silent empty table.
-export async function ConfigProtocolRulesPage({ category }: { category: string }) {
-  const initialCategory = resolveCategory(category);
-  const res = await listProtocolConfigs(initialCategory);
-  const rules: ConfigRuleRow[] = res.ok ? res.data.items.map(toRuleRow) : [];
-  const loadError = res.ok ? null : (res.error.message ?? "could not load protocol rules");
+export async function ConfigProtocolRulesPage({ category, pageContract }: { category: string; pageContract: AdminUiPageContract }) {
+  const initialCategory = resolveCategory(category, pageContract);
+  const [res, sopRes, stagesRes, parks] = await Promise.all([
+    listProtocolConfigs(initialCategory),
+    listSops({ status: "active" }),
+    listAnimalStages(),
+    getScopeParks(),
+  ]);
+  const rules: ConfigRuleRow[] = res.ok ? res.data.items.map((item) => toRuleRow(item, parks, pageContract)) : [];
+  const loadError = res.ok ? null : (res.error.message ?? copy(pageContract, "error.rules_load"));
 
   // Real published SOP versions the author can bind to a protocol version. An active SOP exposes its
   // published version via active_sop_version_id; publish requires one (no hardcoded SOP labels). A
   // SUCCESSFUL empty list is honest (no published SOP yet); a FAILED read (403/500/backend-down) must
   // NOT masquerade as "no published SOP version" — it surfaces as an error band and blocks authoring.
-  const sopRes = await listSops({ status: "active" });
   const sopVersions: SopVersionOption[] = sopRes.ok
     ? sopRes.data.items
         .filter((s) => s.status === "active" && !!s.active_sop_version_id)
@@ -86,92 +116,38 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
           label: `${s.name || s.code} · ${(s.active_sop_version_id as string).slice(0, 8)}…`,
         }))
     : [];
-  const sopsError = sopRes.ok ? null : (sopRes.error.message ?? "could not load SOP versions");
+  const sopsError = sopRes.ok ? null : (sopRes.error.message ?? copy(pageContract, "error.sops_load"));
 
   // Backend-driven stage vocabulary (animal_stage_lookup). The Config stage picker uses these rows,
   // never hardcoded K0/K1/K2. A SUCCESSFUL empty list is honest (no stages seeded → seed-state); a
   // FAILED read (403/500/backend-down) must NOT masquerade as "no stages" — it surfaces as an error
   // band and blocks authoring, so an outage is never hidden as missing reference data.
-  const stagesRes = await listAnimalStages();
   const animalStages: AnimalStageOption[] = stagesRes.ok
     ? stagesRes.data.items.map((s) => ({
         code: s.stage_code,
         label: s.name ? `${s.stage_code} · ${s.name}` : s.stage_code,
       }))
     : [];
-  const stagesError = stagesRes.ok ? null : (stagesRes.error.message ?? "could not load animal stages");
+  const stagesError = stagesRes.ok ? null : (stagesRes.error.message ?? copy(pageContract, "error.stages_load"));
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            Admin · Data Ops · <b>Config</b>
-          </div>
-          <h1>Config — Protocol Rules</h1>
-          <div className="sub">
-            <b>What should happen.</b> CEO/COO author + publish the business/medical config. Obligations, SOP tasks
-            &amp; adherence gaps all flow from <b>published</b>, source-backed rules across categories.
-          </div>
-        </div>
-      </div>
-
-      <div className="alert warn" style={{ marginBottom: 14 }}>
-        <AlertTriangle className="ic" aria-hidden="true" />
-        <div>
-          Real business/medical config — <b>not public</b>. Only <b>CEO/COO publish</b> · Directors draft/propose if
-          granted the capability · <b>field / verifier / park never see raw config</b> (they get generated obligations
-          + SOP tasks only). The category dropdown drives the form and <span className="mono">rule_dsl</span>; no values
-          are invented, and a draft publishes only when source-backed, reviewed, and approved.
-        </div>
-      </div>
-
-      {loadError ? (
-        <div className="alert" role="alert" style={{ marginBottom: 14 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>
-            Could not load protocol rules from the backend ({loadError}). This is a real error, not an
-            empty config — fix the API/connection and reload rather than treating the table as empty.
-          </div>
-        </div>
-      ) : null}
-
-      {stagesError ? (
-        <div className="alert warn" role="alert" style={{ marginBottom: 14 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>
-            Could not load animal stages from the backend ({stagesError}). This is a real error, not
-            “no stages seeded” — authoring is blocked until the stage reference read succeeds, so an
-            outage is never mistaken for missing config. Fix the API/connection and reload.
-          </div>
-        </div>
-      ) : null}
-
-      {sopsError ? (
-        <div className="alert warn" role="alert" style={{ marginBottom: 14 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>
-            Could not load SOP versions from the backend ({sopsError}). This is a real error, not “no
-            published SOP version” — authoring is blocked until the SOP read succeeds, so an outage is
-            never mistaken for an empty SOP Library. Fix the API/connection and reload.
-          </div>
-        </div>
-      ) : null}
-
       <ConfigConsole
         rules={rules}
         initialCategory={initialCategory}
         sopVersions={sopVersions}
         animalStages={animalStages}
+        loadError={loadError}
         stagesError={stagesError}
         sopsError={sopsError}
+        pageContract={pageContract}
       />
 
       {/* How a published rule maps to live work */}
       <section className="card">
         <div className="hd">
           <Workflow className="ic" aria-hidden="true" />
-          <h3>How this rule maps to the process</h3>
+          <h3>{copy(pageContract, "section.process_map.title")}</h3>
         </div>
         <div className="bd">
           <div
@@ -185,15 +161,12 @@ export async function ConfigProtocolRulesPage({ category }: { category: string }
               color: "var(--muted)",
             }}
           >
-            published rule → <b style={{ color: "var(--ink)" }}>obligations</b> (per goat / dose) →{" "}
-            <b style={{ color: "var(--ink)" }}>shed-drive SOP task</b> → proof + verify →{" "}
-            <b style={{ color: "var(--ink)" }}>adherence</b> gap
+            {copy(pageContract, "process_map.text")}
           </div>
           <div className="note" style={{ marginTop: 10 }}>
-            After publish, every obligation, SOP task, and adherence gap is generated from <b>this config</b>. Review the
-            effect in{" "}
+            {copy(pageContract, "process_map.note")}{" "}
             <Link href="/protocol-adherence" className="lk">
-              Protocol Adherence
+              {copy(pageContract, "action.open_adherence")}
             </Link>
           </div>
         </div>

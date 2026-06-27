@@ -1576,10 +1576,10 @@ WITH history AS (
     'calendar_escalation_' || oe.status AS event_type,
     oe.status,
     'Escalation L' || oe.level::text || ' ' || oe.status AS title,
-    COALESCE(oe.resolved_by::text, oe.acknowledged_by::text, oe.escalated_to_user_id::text) AS actor_label,
+    COALESCE(NULLIF(to_jsonb(oe)->>'resolved_by', ''), NULLIF(to_jsonb(oe)->>'acknowledged_by', ''), oe.escalated_to_user_id::text) AS actor_label,
     COALESCE(oe.resolved_at, oe.acknowledged_at, oe.opened_at) AS occurred_at,
     NULL::text AS channel,
-    NULLIF(COALESCE(oe.resolution_note, oe.acknowledgement_note, oe.reason), '') AS reason,
+    NULLIF(COALESCE(NULLIF(to_jsonb(oe)->>'resolution_note', ''), NULLIF(to_jsonb(oe)->>'acknowledgement_note', ''), oe.reason), '') AS reason,
     NULL::text AS trace_id,
     'obligation_escalations' AS source_table,
     jsonb_build_object(
@@ -1587,6 +1587,8 @@ WITH history AS (
       'obligation_id', oe.obligation_id,
       'level', oe.level,
       'escalated_to_role', oe.escalated_to_role,
+      'acknowledged_by', to_jsonb(oe)->>'acknowledged_by',
+      'resolved_by', to_jsonb(oe)->>'resolved_by',
       'opened_at', oe.opened_at,
       'acknowledged_at', oe.acknowledged_at,
       'resolved_at', oe.resolved_at

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Plus, Upload, X } from "lucide-react";
 import { scopeHref, type Scope } from "@/lib/scope";
+import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // PHC · Vaccination header actions (mock: SOP · Import sheet · New drive).
 //
@@ -14,28 +15,17 @@ import { scopeHref, type Scope } from "@/lib/scope";
 // mock's shape but the drawers are READ-ONLY GUIDANCE that route to the real authoring surfaces — no editable
 // fields that discard input, no fake CSV preview-to-submit, and no green CTA implying a backend write.
 
-const IMPORT_REFERENCE_COLUMNS = [
-  "drive_code",
-  "protocol_code",
-  "park",
-  "cohort",
-  "shed",
-  "vaccine",
-  "due_date",
-  "animals",
-  "proof_type",
-  "owner_role",
-];
-
 function Drawer({
   open,
   onClose,
+  pageContract,
   title,
   subtitle,
   children,
 }: {
   open: boolean;
   onClose: () => void;
+  pageContract: AdminUiPageContract;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
@@ -76,12 +66,12 @@ function Drawer({
       >
         <div className="dh">
           <div>
-            <div className="mt">VACCINE</div>
+            <div className="mt">{copy(pageContract, "drawer.vaccination.eyebrow")}</div>
             <h2>{title}</h2>
             {subtitle ? <div className="muted small" style={{ marginTop: 2 }}>{subtitle}</div> : null}
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <button type="button" className="iconbtn" onClick={onClose} aria-label="Close">
+          <button type="button" className="iconbtn" onClick={onClose} aria-label={copy(pageContract, "action.close")}>
             <X className="ic" aria-hidden="true" />
           </button>
         </div>
@@ -91,65 +81,74 @@ function Drawer({
   );
 }
 
-export function VaccinationHeaderActions({ scope }: { scope: Scope }) {
+function splitOptionTitle(title: string): { title: string; detail: string } {
+  const [head, detail = ""] = title.split("|");
+  return { title: head, detail };
+}
+
+export function VaccinationHeaderActions({ scope, pageContract }: { scope: Scope; pageContract: AdminUiPageContract }) {
   const [openDrawer, setOpenDrawer] = useState<"import" | "new-drive" | null>(null);
   const configHref = scopeHref("/config", scope, {}, { category: "vaccination" });
   const sopsHref = scopeHref("/sops", scope);
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: "owner_missing" });
   const sourceEntryHref = scopeHref("/procurement/source-entry", scope);
+  const importColumns = optionGroup(pageContract, "vaccination_import_columns").map((column) => column.label);
+  const newDriveSteps = optionGroup(pageContract, "new_drive_steps").map((step) => ({
+    key: step.key,
+    step: step.label,
+    ...splitOptionTitle(step.title),
+  }));
 
   return (
     <>
       <button type="button" className="btn" onClick={() => setOpenDrawer("import")}>
-        <Upload className="ic" aria-hidden="true" /> Import sheet
+        <Upload className="ic" aria-hidden="true" /> {copy(pageContract, "action.import_sheet")}
       </button>
       <button type="button" className="btn p" onClick={() => setOpenDrawer("new-drive")}>
-        <Plus className="ic" aria-hidden="true" /> New drive
+        <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.new_drive")}
       </button>
 
       <Drawer
         open={openDrawer === "import"}
         onClose={() => setOpenDrawer(null)}
-        title="Import vaccination sheet"
-        subtitle="Where vaccination drives and dose history actually enter Goat OS."
+        pageContract={pageContract}
+        title={copy(pageContract, "drawer.import.title")}
+        subtitle={copy(pageContract, "drawer.import.subtitle")}
       >
         <div className="note" style={{ marginBottom: 14 }}>
-          There is <b>no in-app bulk drive importer</b> on this surface — admin-web never writes vaccination
-          state directly. Drives are generated from config, and supplier dose history is imported under Source
-          Entry. Use the real paths below; nothing on this drawer submits.
+          {copy(pageContract, "drawer.import.note")}
         </div>
 
         <div className="metagrid" style={{ marginBottom: 14 }}>
           <div>
-            <div className="k">New drives</div>
-            <div className="v">Publish a source-backed protocol rule in Config → obligations generate → the sweeper batches a shed drive.</div>
+            <div className="k">{copy(pageContract, "drawer.import.new_drives_title")}</div>
+            <div className="v">{copy(pageContract, "drawer.import.new_drives_body")}</div>
           </div>
           <div>
-            <div className="k">Supplier / HF dose history</div>
-            <div className="v">Import & review Holding-Farm vaccination evidence under Procurement · Source Entry.</div>
+            <div className="k">{copy(pageContract, "drawer.import.hf_history_title")}</div>
+            <div className="v">{copy(pageContract, "drawer.import.hf_history_body")}</div>
           </div>
         </div>
 
         <div className="fld" aria-disabled="true">
-          <label>Drive sheet columns (reference)</label>
+          <label>{copy(pageContract, "drawer.import.columns_label")}</label>
           <div className="note mono" style={{ overflowX: "auto" }}>
-            {IMPORT_REFERENCE_COLUMNS.join(", ")}
+            {importColumns.join(", ")}
           </div>
           <div className="muted small" style={{ marginTop: 4, lineHeight: 1.45 }}>
-            Reference only. The committed importer/contract is not built for this slice, so no upload control is
-            shown rather than a fake preview-to-submit.
+            {copy(pageContract, "drawer.import.reference_only")}
           </div>
         </div>
 
         <div className="df" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button type="button" className="btn" onClick={() => setOpenDrawer(null)}>
-            Close
+            {copy(pageContract, "action.close")}
           </button>
           <Link href={sourceEntryHref} className="btn">
-            Source Entry <ArrowUpRight className="ic" style={{ width: 14 }} aria-hidden="true" />
+            {copy(pageContract, "action.source_entry")} <ArrowUpRight className="ic" style={{ width: 14 }} aria-hidden="true" />
           </Link>
           <Link href={configHref} className="btn p">
-            Open Config <ArrowUpRight className="ic" style={{ width: 14 }} aria-hidden="true" />
+            {copy(pageContract, "action.open_config")} <ArrowUpRight className="ic" style={{ width: 14 }} aria-hidden="true" />
           </Link>
         </div>
       </Drawer>
@@ -157,23 +156,17 @@ export function VaccinationHeaderActions({ scope }: { scope: Scope }) {
       <Drawer
         open={openDrawer === "new-drive"}
         onClose={() => setOpenDrawer(null)}
-        title="New vaccination drive"
-        subtitle="A drive is generated from config — it is not hand-created here."
+        pageContract={pageContract}
+        title={copy(pageContract, "drawer.new_drive.title")}
+        subtitle={copy(pageContract, "drawer.new_drive.subtitle")}
       >
         <div className="note" style={{ marginBottom: 14 }}>
-          A vaccination drive is the downstream effect of a <b>published protocol rule</b>, not a form on this
-          screen. This drawer explains the mechanic and links to the real authoring surface; nothing here
-          submits or is saved.
+          {copy(pageContract, "drawer.new_drive.note")}
         </div>
 
-        <div className="chain" tabIndex={0} role="group" aria-label="How a new drive is generated" style={{ marginBottom: 14 }}>
-          {[
-            ["Target", "Drive cohort", "cohort · age · park"],
-            ["Group", "per-shed events", "all matching goats grouped by shed"],
-            ["Route", "shed owner", "manager / assistant assignment"],
-            ["Execute", "video per shed", "proof gates before consume"],
-          ].map(([step, title, detail]) => (
-            <div className="cstep" key={step}>
+        <div className="chain" tabIndex={0} role="group" aria-label={copy(pageContract, "drawer.new_drive.aria")} style={{ marginBottom: 14 }}>
+          {newDriveSteps.map(({ key, step, title, detail }) => (
+            <div className="cstep" key={key}>
               <div className="s">{step}</div>
               <b>{title}</b>
               <div className="d">{detail}</div>
@@ -183,31 +176,31 @@ export function VaccinationHeaderActions({ scope }: { scope: Scope }) {
 
         <div className="metagrid" style={{ marginBottom: 14 }}>
           <div>
-            <div className="k">1 · Publish rule</div>
-            <div className="v">Config → vaccination category → publish a source-backed protocol version.</div>
+            <div className="k">{copy(pageContract, "drawer.new_drive.publish_rule_title")}</div>
+            <div className="v">{copy(pageContract, "drawer.new_drive.publish_rule_body")}</div>
           </div>
           <div>
-            <div className="k">2 · Generation</div>
-            <div className="v">Obligations materialize per eligible goat; the sweeper batches them into a per-shed drive + SOP task.</div>
+            <div className="k">{copy(pageContract, "drawer.new_drive.generation_title")}</div>
+            <div className="v">{copy(pageContract, "drawer.new_drive.generation_body")}</div>
           </div>
           <div>
-            <div className="k">3 · Assign / act</div>
-            <div className="v">Owner gaps and execution work surface in the Action Center.</div>
+            <div className="k">{copy(pageContract, "drawer.new_drive.assign_title")}</div>
+            <div className="v">{copy(pageContract, "drawer.new_drive.assign_body")}</div>
           </div>
         </div>
 
         <div className="df" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button type="button" className="btn" onClick={() => setOpenDrawer(null)}>
-            Cancel
+            {copy(pageContract, "action.cancel")}
           </button>
           <Link href={sopsHref} className="btn">
-            SOP Library
+            {copy(pageContract, "action.sop_library")}
           </Link>
           <Link href={actionCenterHref} className="btn">
-            Action Center
+            {copy(pageContract, "action.action_center")}
           </Link>
           <Link href={configHref} className="btn p">
-            Open Config <ArrowUpRight className="ic" style={{ width: 14 }} aria-hidden="true" />
+            {copy(pageContract, "action.open_config")} <ArrowUpRight className="ic" style={{ width: 14 }} aria-hidden="true" />
           </Link>
         </div>
       </Drawer>

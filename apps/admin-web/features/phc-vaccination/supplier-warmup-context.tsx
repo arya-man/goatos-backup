@@ -5,37 +5,27 @@ import { firstAuthRequiredError } from "@/lib/api/server";
 import { getProcurementLoad, listProcurementLoads } from "@/lib/api/procurement-server";
 import type { ProcurementLoad, ProcurementLoadDetail, ProcurementLoadStatus } from "@/lib/api/procurement";
 import { fmtDate, shortId } from "@/lib/format";
-import { PROC_LOAD_STATUS_META, warmupMeta } from "@/features/procurement/work-state";
+import { warmupMeta } from "@/features/procurement";
+import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VisibleTableSearch } from "./vaccination-filter-modal";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { scopeHref, type Scope } from "@/lib/scope";
-
-const LOADS_COLS = [
-  "Load",
-  "Holding farm · supplier",
-  "Purpose",
-  "Animals",
-  "Warmup",
-  "Tagging",
-  "Vaccination · at HF",
-  "Health / Selection",
-  "Status",
-];
+import { paginateRows, VaccinationTablePager, type VaccinationPageSize } from "./table-pager";
 
 function sourcePartyLabel(load: ProcurementLoad): string {
   return load.source_party_name || shortId(load.source_party_id);
 }
 
-function sourceLocationLabel(load: ProcurementLoad): string {
-  return load.source_location_name || load.source_location_code || "Holding not set";
+function sourceLocationLabel(pageContract: AdminUiPageContract, load: ProcurementLoad): string {
+  return load.source_location_name || load.source_location_code || copy(pageContract, "label.holding_not_set");
 }
 
-function purposeLabel(detail: ProcurementLoadDetail | undefined): string {
+function purposeLabel(pageContract: AdminUiPageContract, detail: ProcurementLoadDetail | undefined): string {
   const purposes = Array.from(new Set((detail?.goats ?? []).map((g) => g.purpose).filter(Boolean)));
   const [first] = purposes;
-  if (!first) return "—";
+  if (!first) return copy(pageContract, "label.placeholder");
   if (purposes.length === 1) return first.replace(/_/g, " ");
-  return "mixed";
+  return copy(pageContract, "label.mixed");
 }
 
 function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: number): string {
@@ -44,32 +34,32 @@ function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: 
   return `${tagged}/${expectedCount}`;
 }
 
-function hfVaccinationLabel(detail: ProcurementLoadDetail | undefined): { label: string; tone: Tone } {
+function hfVaccinationLabel(pageContract: AdminUiPageContract, detail: ProcurementLoadDetail | undefined): { label: string; tone: Tone } {
   const evidence = detail?.hf_vaccination_evidence ?? [];
-  if (evidence.some((row) => row.review_status === "trusted")) return { label: "complete · evidence", tone: "ok" };
-  if (evidence.some((row) => row.review_status === "imported")) return { label: "evidence imported", tone: "info" };
+  if (evidence.some((row) => row.review_status === "trusted")) return { label: optionLabel(pageContract, "warmup_evidence_states", "trusted"), tone: optionTone(pageContract, "warmup_evidence_states", "trusted") as Tone };
+  if (evidence.some((row) => row.review_status === "imported")) return { label: optionLabel(pageContract, "warmup_evidence_states", "imported"), tone: optionTone(pageContract, "warmup_evidence_states", "imported") as Tone };
   if (evidence.some((row) => row.review_status === "rejected" || row.review_status === "conflicting")) {
-    return { label: "evidence flagged", tone: "dng" };
+    return { label: optionLabel(pageContract, "warmup_evidence_states", "flagged"), tone: optionTone(pageContract, "warmup_evidence_states", "flagged") as Tone };
   }
-  return { label: "HF evidence due", tone: "warn" };
+  return { label: optionLabel(pageContract, "warmup_evidence_states", "due"), tone: optionTone(pageContract, "warmup_evidence_states", "due") as Tone };
 }
 
-function healthSelectionLabel(status: ProcurementLoadStatus): { label: string; tone: Tone } {
+function healthSelectionLabel(pageContract: AdminUiPageContract, status: ProcurementLoadStatus): { label: string; tone: Tone } {
   switch (status) {
     case "source_warmup":
-      return { label: "warming", tone: "info" };
+      return { label: optionLabel(pageContract, "health_selection_states", "warming"), tone: optionTone(pageContract, "health_selection_states", "warming") as Tone };
     case "health_pending":
-      return { label: "health pending", tone: "warn" };
+      return { label: optionLabel(pageContract, "health_selection_states", "health_pending"), tone: optionTone(pageContract, "health_selection_states", "health_pending") as Tone };
     case "pre_dispatch_pending":
     case "dispatch_ready":
-      return { label: "selection ok", tone: "ok" };
+      return { label: optionLabel(pageContract, "health_selection_states", "selection_ok"), tone: optionTone(pageContract, "health_selection_states", "selection_ok") as Tone };
     case "rejected":
     case "blocked":
-      return { label: "blocked / rejected", tone: "dng" };
+      return { label: optionLabel(pageContract, "health_selection_states", "blocked_rejected"), tone: optionTone(pageContract, "health_selection_states", "blocked_rejected") as Tone };
     case "deferred":
-      return { label: "review", tone: "warn" };
+      return { label: optionLabel(pageContract, "health_selection_states", "review"), tone: optionTone(pageContract, "health_selection_states", "review") as Tone };
     default:
-      return { label: "cleared forward", tone: "ok" };
+      return { label: optionLabel(pageContract, "health_selection_states", "cleared_forward"), tone: optionTone(pageContract, "health_selection_states", "cleared_forward") as Tone };
   }
 }
 
@@ -89,20 +79,23 @@ function warmupCell(load: ProcurementLoad, detail: ProcurementLoadDetail | undef
   };
 }
 
-export async function SupplierWarmupContext({ scope, searchParams }: { scope: Scope; searchParams?: RouteSearchParams }) {
-  const loadsResult = await listProcurementLoads({ limit: 4 });
+export async function SupplierWarmupContext({ scope, searchParams, pageContract }: { scope: Scope; searchParams?: RouteSearchParams; pageContract: AdminUiPageContract }) {
+  const sp = searchParams ?? {};
+  const loadsResult = await listProcurementLoads({ limit: 50 });
   const authError = firstAuthRequiredError(loadsResult);
+  const labels = tableLabels(pageContract, "supplier-warmup");
+  const pageSizeOptions = tablePageSizes(pageContract, "supplier-warmup");
 
   if (authError) {
     return (
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>Supplier warmup — Holding Farm</h3>
-          <Tag tone="mut">source-entry auth required</Tag>
+          <h3>{copy(pageContract, "section.supplier_warmup.title")}</h3>
+          <Tag tone="mut">{copy(pageContract, "section.supplier_warmup.auth_tag")}</Tag>
         </div>
         <div className="bd">
-          <span className="muted small">Sign in again to view Holding-Farm vaccination evidence.</span>
+          <span className="muted small">{copy(pageContract, "section.supplier_warmup.auth_body")}</span>
         </div>
       </section>
     );
@@ -113,8 +106,8 @@ export async function SupplierWarmupContext({ scope, searchParams }: { scope: Sc
       <section className="card" style={{ marginBottom: 16, borderColor: "color-mix(in srgb,var(--info) 26%,var(--line))" }}>
         <div className="hd">
           <Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>Supplier warmup — Holding Farm</h3>
-          <Tag tone="warn">source-entry unavailable</Tag>
+          <h3>{copy(pageContract, "section.supplier_warmup.title")}</h3>
+          <Tag tone="warn">{copy(pageContract, "section.supplier_warmup.unavailable_tag")}</Tag>
         </div>
         <div className="bd">
           <span className="muted small">{loadsResult.error.message}</span>
@@ -124,45 +117,54 @@ export async function SupplierWarmupContext({ scope, searchParams }: { scope: Sc
   }
 
   const loads = loadsResult.data.items;
-  const detailResults = await Promise.all(loads.map(async (load) => [load.load_id, await getProcurementLoad(load.load_id)] as const));
+  const paged = paginateRows(loads, sp, "warmup", 5, pageSizeOptions);
+  const detailResults = await Promise.all(paged.items.map(async (load) => [load.load_id, await getProcurementLoad(load.load_id)] as const));
   const detailByLoad = new Map<string, ProcurementLoadDetail>();
   for (const [loadId, detailResult] of detailResults) {
     if (detailResult.ok) detailByLoad.set(loadId, detailResult.data.detail);
   }
-  const selectedLoad = loads.find((load) => load.load_id === one(searchParams ?? {}, "warmup_load"));
+  const selectedLoad = loads.find((load) => load.load_id === one(sp, "warmup_load"));
+  function pagerHref(page: number): string {
+    return scopeHref("/vaccination", scope, {}, { warmup_page: String(page), warmup_limit: String(paged.pageSize) });
+  }
+  function pageSizeHref(pageSize: VaccinationPageSize): string {
+    return scopeHref("/vaccination", scope, {}, { warmup_page: "1", warmup_limit: String(pageSize) });
+  }
 
   return (
     <>
     <section className="card" style={{ marginBottom: 16, borderColor: "color-mix(in srgb,var(--info) 26%,var(--line))" }}>
       <div className="hd">
         <Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>Supplier warmup — Holding Farm <span className="muted small" style={{ fontWeight: 600 }}>(pre-arrival)</span></h3>
+        <h3>{copy(pageContract, "section.supplier_warmup.title")} <span className="muted small" style={{ fontWeight: 600 }}>({copy(pageContract, "label.pre_arrival")})</span></h3>
         <div className="sp" style={{ flex: 1 }} />
-        <Tag tone="info">journey starts at purchase</Tag>
+        <Tag tone="info">{copy(pageContract, "section.supplier_warmup.badge")}</Tag>
       </div>
       <div className="note" style={{ margin: "12px 14px 6px" }}>
-        Purchased goats start at the supplier / holding farm. HF doses import as completion evidence so accepted-intake
-        goats do not double-dose on arrival. Source Entry owns the write actions; PHC reads the evidence here.
+        {copy(pageContract, "section.supplier_warmup.note")}
       </div>
       <div className="tbar">
-        <VisibleTableSearch label="Search supplier warmup loads" />
+        <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.supplier.search")} />
         <VaccinationFilterButton
-          title="Filter — Supplier warmup"
-          searchReason="Search holding farm, supplier, purpose, status..."
-          filterReason="Use visible-row search and quick facets here; open Source Entry for the full load workflow."
-          rowsLabel={`${loads.length} rows · source loads and HF evidence`}
+          pageContract={pageContract}
+          title={copy(pageContract, "filter.supplier.title")}
+          searchReason={copy(pageContract, "filter.supplier.reason")}
+          filterReason={copy(pageContract, "filter.supplier.filter_reason")}
+          rowsLabel={`${paged.start}-${paged.end} ${copy(pageContract, "pager.of")} ${loads.length} ${copy(pageContract, "pager.rows").toLowerCase()} · ${copy(pageContract, "filter.supplier.rows_suffix")}`}
           actionHref="/procurement/source-entry"
-          actionLabel="Open Source Entry"
-          facets={["Holding farm", "Supplier", "Purpose", "HF evidence", "Health / selection"]}
+          actionLabel={copy(pageContract, "action.open_source_entry")}
+          facets={optionGroup(pageContract, "supplier_warmup_facets").map((facet) => facet.label)}
         />
-        <span className="muted small">{loads.length} rows</span>
-        <span className="muted small">click a load → actions</span>
+        <span className="muted small">
+          {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {loads.length} {copy(pageContract, "pager.rows").toLowerCase()}
+        </span>
+        <span className="muted small">{copy(pageContract, "section.supplier_warmup.row_hint")}</span>
       </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Supplier warmup loads">
+      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.supplier_warmup.aria")}>
         <table>
           <thead>
             <tr>
-              {LOADS_COLS.map((c) => (
+              {labels.map((c) => (
                 <th key={c}>{c}</th>
               ))}
             </tr>
@@ -170,20 +172,20 @@ export async function SupplierWarmupContext({ scope, searchParams }: { scope: Sc
           <tbody>
             {loads.length === 0 ? (
               <tr>
-                <td colSpan={LOADS_COLS.length}>
+                <td colSpan={labels.length}>
                   <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
-                    No source-entry loads yet. Holding-Farm evidence appears after a procurement load is created.
+                    {copy(pageContract, "empty.supplier_warmup")}
                   </div>
                 </td>
               </tr>
             ) : (
-              loads.map((load) => {
+              paged.items.map((load) => {
                 const drawerHref = scopeHref("/vaccination", scope, {}, { warmup_load: load.load_id });
                 const detail = detailByLoad.get(load.load_id);
-                const purpose = purposeLabel(detail);
+                const purpose = purposeLabel(pageContract, detail);
                 const warmup = warmupCell(load, detail);
-                const hfVaccination = hfVaccinationLabel(detail);
-                const healthSelection = healthSelectionLabel(load.status);
+                const hfVaccination = hfVaccinationLabel(pageContract, detail);
+                const healthSelection = healthSelectionLabel(pageContract, load.status);
                 return (
                   <tr key={load.load_id}>
                     <td>
@@ -193,13 +195,13 @@ export async function SupplierWarmupContext({ scope, searchParams }: { scope: Sc
                     </td>
                     <td>
                       <Link href={drawerHref} className="celllink" scroll={false}>
-                        <b>{sourceLocationLabel(load)}</b>
-                        <div className="muted small">supplier {sourcePartyLabel(load)}</div>
+                        <b>{sourceLocationLabel(pageContract, load)}</b>
+                        <div className="muted small">{copy(pageContract, "label.supplier_prefix")} {sourcePartyLabel(load)}</div>
                       </Link>
                     </td>
                     <td>
                       <Link href={drawerHref} className="celllink" scroll={false}>
-                        <Tag tone={purpose === "—" ? "mut" : "ok"}>{purpose}</Tag>
+                        <Tag tone={purpose === copy(pageContract, "label.placeholder") ? "mut" : "ok"}>{purpose}</Tag>
                       </Link>
                     </td>
                     <td>
@@ -210,7 +212,7 @@ export async function SupplierWarmupContext({ scope, searchParams }: { scope: Sc
                     <td title={warmup.note}>
                       <Link href={drawerHref} className="celllink" scroll={false}>
                         <Tag tone={warmup.tone}>{warmup.label}</Tag>
-                        <div className="muted small">{load.purchase_date ? `from ${fmtDate(load.purchase_date)}` : "purchase date missing"}</div>
+                        <div className="muted small">{load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}</div>
                       </Link>
                     </td>
                     <td>
@@ -231,7 +233,7 @@ export async function SupplierWarmupContext({ scope, searchParams }: { scope: Sc
                     <td>
                       <Link href={drawerHref} className="celllink" scroll={false}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          <Tag tone={PROC_LOAD_STATUS_META[load.status].tone}>{PROC_LOAD_STATUS_META[load.status].label}</Tag>
+                          <Tag tone={optionTone(pageContract, "source_load_status", load.status) as Tone}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
                           <ArrowRight className="ic" style={{ width: 13, flexShrink: 0 }} aria-hidden="true" />
                         </span>
                       </Link>
@@ -244,15 +246,27 @@ export async function SupplierWarmupContext({ scope, searchParams }: { scope: Sc
         </table>
       </div>
       <div className="note" style={{ margin: "8px 14px 12px" }}>
-        Lifecycle: <b>purchase → supplier warmup (tag + vaccinate · rejectable) → load → arrival → accepted intake → PHC obligations</b>.
-        Rejected-before-truck goats never enter park count or active vaccination work.
+        {copy(pageContract, "section.supplier_warmup.lifecycle")}
       </div>
+      <VaccinationTablePager
+        pageContract={pageContract}
+        pageSizeOptions={pageSizeOptions}
+        page={paged.page}
+        pageSize={paged.pageSize}
+        total={paged.total}
+        start={paged.start}
+        end={paged.end}
+        noun={labels[0].toLowerCase()}
+        hrefForPage={pagerHref}
+        hrefForPageSize={pageSizeHref}
+      />
 	    </section>
       {selectedLoad ? (
         <WarmupLoadDrawer
           load={selectedLoad}
           detail={detailByLoad.get(selectedLoad.load_id)}
           closeHref={scopeHref("/vaccination", scope)}
+          pageContract={pageContract}
         />
       ) : null}
     </>
@@ -263,86 +277,88 @@ function WarmupLoadDrawer({
   load,
   detail,
   closeHref,
+  pageContract,
 }: {
   load: ProcurementLoad;
   detail?: ProcurementLoadDetail;
   closeHref: string;
+  pageContract: AdminUiPageContract;
 }) {
   const href = `/procurement/source-entry/loads/${encodeURIComponent(load.load_id)}`;
-  const purpose = purposeLabel(detail);
+  const purpose = purposeLabel(pageContract, detail);
   const warmup = warmupCell(load, detail);
-  const hfVaccination = hfVaccinationLabel(detail);
+  const hfVaccination = hfVaccinationLabel(pageContract, detail);
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label="Close Holding Farm load drawer" scroll={false} />
-      <aside className="drawer on" aria-label="Holding Farm load">
+      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.warmup.close_label")} scroll={false} />
+      <aside className="drawer on" aria-label={copy(pageContract, "drawer.warmup.aria")}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
             <Truck className="ic" aria-hidden="true" />
           </span>
           <div>
-            <div className="mt">WARMUP</div>
+            <div className="mt">{copy(pageContract, "drawer.warmup.eyebrow")}</div>
             <h2>
-              Holding-farm load — {shortId(load.load_id)} · {sourcePartyLabel(load)} · {purpose}
+              {copy(pageContract, "drawer.warmup.title_prefix")} — {shortId(load.load_id)} · {sourcePartyLabel(load)} · {purpose}
             </h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label="Close Holding Farm load drawer" scroll={false}>
+          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.warmup.close_label")} scroll={false}>
             <X className="ic" />
           </Link>
         </div>
         <div className="dc">
           <div className="note">
-            Source Entry owns Holding-Farm write actions. PHC reads HF dose evidence here so arrival vaccination never double-doses.
+            {copy(pageContract, "drawer.warmup.note")}
           </div>
           <div className="metagrid" style={{ marginTop: 14 }}>
             <div>
-              <div className="k">Animals in load</div>
+              <div className="k">{copy(pageContract, "drawer.warmup.animals")}</div>
               <div className="v">{load.expected_count}</div>
             </div>
             <div>
-              <div className="k">Holding farm</div>
-              <div className="v">{sourceLocationLabel(load)}</div>
+              <div className="k">{copy(pageContract, "drawer.warmup.holding_farm")}</div>
+              <div className="v">{sourceLocationLabel(pageContract, load)}</div>
             </div>
             <div>
-              <div className="k">Purpose</div>
+              <div className="k">{copy(pageContract, "drawer.warmup.purpose")}</div>
               <div className="v">{purpose}</div>
             </div>
             <div>
-              <div className="k">Warmup</div>
+              <div className="k">{copy(pageContract, "drawer.warmup.warmup")}</div>
               <div className="v">{warmup.label}</div>
             </div>
             <div>
-              <div className="k">HF vaccination</div>
+              <div className="k">{copy(pageContract, "drawer.warmup.hf_vaccination")}</div>
               <div className="v">
                 <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>
               </div>
             </div>
           </div>
           <div className="muted small" style={{ marginTop: 14, fontWeight: 700 }}>
-            Action
+            {copy(pageContract, "drawer.warmup.actions_label")}
           </div>
           <div className="chipset" style={{ marginTop: 8 }}>
             <Link href={`${href}#hf-evidence`} className="chip on">
-              Record HF dose
+              {copy(pageContract, "action.record_hf_dose")}
             </Link>
             <Link href={`${href}#hf-evidence`} className="chip">
-              Import vaccination evidence
+              {copy(pageContract, "action.import_vaccination_evidence")}
             </Link>
             <Link href={`${href}#review`} className="chip">
-              Reject before load
+              {copy(pageContract, "action.reject_before_load")}
             </Link>
             <Link href={`${href}#dispatch`} className="chip">
-              Clear to ship
+              {copy(pageContract, "action.clear_to_ship")}
             </Link>
           </div>
         </div>
         <div className="df">
           <Link href={`${href}#hf-evidence`} className="btn p">
-            Open Source Entry
+            {copy(pageContract, "action.open_source_entry")}
           </Link>
           <Link href={closeHref} replace className="btn" scroll={false}>
-            Cancel
+            {copy(pageContract, "action.cancel")}
           </Link>
         </div>
       </aside>

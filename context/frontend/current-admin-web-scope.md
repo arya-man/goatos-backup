@@ -391,7 +391,7 @@ These are the only current implemented admin-web product routes:
 /workflows                 Workflows          (top-level command)
 /workflows/{row_id}        Workflow drilldown
 /vaccination               PHC Vaccination module surface
-/vaccination/execution/sheds/{shed_id}
+/vaccination/execution/sheds/[shedId]
 /procurement/source-entry  Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd               Herd Register for vaccination trigger closure
@@ -415,7 +415,8 @@ screens. Link directly to `/protocol-adherence`, `/workflows/{row_id}`, and
 `/config?category=vaccination`.
 
 There is no sanctioned `/parks/vaccination` exception. Vaccination execution is a
-vaccination-owned physical context inside `/vaccination`; shed details use
+vaccination-owned physical context inside `/vaccination`; shed details use the
+UI route `/vaccination/execution/sheds/[shedId]`, backed by API
 `/vaccination/execution/sheds/{shed_id}`. Do not build generic Parks, and do not
 revive `/locations` or old Parks navigation.
 

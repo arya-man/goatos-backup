@@ -9,6 +9,7 @@ type BootstrapResponse struct {
 	TopBar        TopBarContract     `json:"top_bar"`
 	RoleLenses    []RoleLensContract `json:"role_lenses"`
 	Pages         []PageContract     `json:"pages"`
+	Copy          map[string]string  `json:"copy"`
 	DisplayRules  []DisplayRule      `json:"display_rules"`
 }
 
@@ -87,19 +88,21 @@ type RoleLensContract struct {
 }
 
 type PageContract struct {
-	RouteID         string           `json:"route_id"`
-	Href            string           `json:"href"`
-	PathPattern     string           `json:"path_pattern"`
-	Title           string           `json:"title"`
-	Subtitle        string           `json:"subtitle"`
-	SurfaceKind     string           `json:"surface_kind"`
-	SourceScope     []string         `json:"source_scope"`
-	Sections        []Section        `json:"sections"`
-	Tables          []TableContract  `json:"tables"`
-	Drawers         []DrawerContract `json:"drawers"`
-	Controls        []Control        `json:"controls"`
-	MigrationStatus string           `json:"migration_status"`
-	ValidationNotes []string         `json:"validation_notes"`
+	RouteID         string            `json:"route_id"`
+	Href            string            `json:"href"`
+	PathPattern     string            `json:"path_pattern"`
+	Title           string            `json:"title"`
+	Subtitle        string            `json:"subtitle"`
+	SurfaceKind     string            `json:"surface_kind"`
+	SourceScope     []string          `json:"source_scope"`
+	Sections        []Section         `json:"sections"`
+	Tables          []TableContract   `json:"tables"`
+	Drawers         []DrawerContract  `json:"drawers"`
+	Controls        []Control         `json:"controls"`
+	Copy            map[string]string `json:"copy"`
+	OptionGroups    []OptionGroup     `json:"option_groups"`
+	MigrationStatus string            `json:"migration_status"`
+	ValidationNotes []string          `json:"validation_notes"`
 }
 
 type Section struct {
@@ -169,6 +172,20 @@ type Control struct {
 	Enabled        bool   `json:"enabled"`
 	DisabledReason string `json:"disabled_reason"`
 	Action         string `json:"action"`
+}
+
+type OptionGroup struct {
+	ID      string   `json:"id"`
+	Options []Option `json:"options"`
+}
+
+type Option struct {
+	Key            string `json:"key"`
+	Label          string `json:"label"`
+	Title          string `json:"title"`
+	Enabled        bool   `json:"enabled"`
+	DisabledReason string `json:"disabled_reason"`
+	Tone           string `json:"tone"`
 }
 
 type DisplayRule struct {

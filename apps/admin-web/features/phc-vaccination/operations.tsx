@@ -2,6 +2,7 @@ import { getSop, getVaccinationOperations, isAuthRequiredError, listSops } from 
 import type { VaccinationOperationsResponse } from "@/lib/api/server";
 import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
 import { type RouteSearchParams } from "@/lib/search-params";
+import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { backendScope, parseScope } from "@/lib/scope";
 import { VaccinationExecutionSection } from "./execution-section";
 import { VaccinationStatusMatrix } from "./status-matrix";
@@ -40,15 +41,13 @@ async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
 // Center / Protocol Adherence / Workflows) stay top-level; this screen does not embed or shortcut them.
 // Park scope comes from the shell top bar (?park); the page passes it to the read models.
 
-// The drive mechanic, mock band: how a vaccination drive targets, groups, routes, and executes.
-const DRIVE_STEPS: Array<{ step: string; title: string; detail: string }> = [
-  { step: "Target", title: "Drive cohort", detail: "matching goats by cohort · age · park — never random individuals" },
-  { step: "Group", title: "→ per-shed events", detail: "all matching goats grouped by shed" },
-  { step: "Route", title: "→ shed owner", detail: "one batched notification per shed → its Manager, delegated to Asst" },
-  { step: "Execute", title: "video per shed", detail: "FEFO dose consumed, posted on verify" },
-];
-
-export async function VaccinationOperationsPage({ searchParams }: { searchParams?: RouteSearchParams }) {
+export async function VaccinationOperationsPage({
+  searchParams,
+  pageContract,
+}: {
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
   const sp = searchParams ?? {};
   // Top-bar scope contract: park (backend-safe UUID) + as_of are honored by /vaccination/operations.
   const scope = parseScope(sp);
@@ -59,23 +58,24 @@ export async function VaccinationOperationsPage({ searchParams }: { searchParams
     loadLinkedVaccinationSop(),
   ]);
   const ops: VaccinationOperationsResponse | null = operations.ok ? operations.data : null;
+  const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
+    const [title, detail] = (step.title || "").split("|");
+    return { key: step.key, step: step.label, title, detail };
+  });
 
   return (
     <div className="screen on">
       <div className="phead">
         <div>
-          <div className="crumb">
-            PHC · <b>Vaccination</b>
-          </div>
-          <h1>Vaccination</h1>
-          <div className="sub">
-            The live vaccination floor — the drive mechanic, the cohort × vaccine status matrix, per-cohort
-            detail, and the per-shed execution events. Exceptions and queues live in the top-level command screens.
-          </div>
+	          <div className="crumb">
+	            {copy(pageContract, "crumb")}
+	          </div>
+	          <h1>{pageContract.title}</h1>
+	          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} />
-        <VaccinationHeaderActions scope={scope} />
+        <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} pageContract={pageContract} />
+        <VaccinationHeaderActions scope={scope} pageContract={pageContract} />
       </div>
 
       {!operations.ok ? (
@@ -87,9 +87,9 @@ export async function VaccinationOperationsPage({ searchParams }: { searchParams
       {/* Drive mechanic — Target → Group → Route → Execute (mock band). */}
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="bd">
-          <div className="chain" tabIndex={0} role="group" aria-label="How a vaccination drive runs">
-            {DRIVE_STEPS.map((c) => (
-              <div className="cstep" key={c.step} style={{ cursor: "default" }}>
+	          <div className="chain" tabIndex={0} role="group" aria-label={copy(pageContract, "section.drive_flow.aria")}>
+            {driveSteps.map((c) => (
+              <div className="cstep" key={c.key} style={{ cursor: "default" }}>
                 <div className="s">{c.step}</div>
                 <b>{c.title}</b>
                 <div className="d">{c.detail}</div>
@@ -101,17 +101,17 @@ export async function VaccinationOperationsPage({ searchParams }: { searchParams
 
       {/* Supplier / Holding-Farm warmup — read-only PHC context for trusted pre-arrival vaccination evidence.
           Source Entry owns the write actions; PHC consumes evidence to avoid double-dosing. */}
-      <SupplierWarmupContext scope={scope} searchParams={sp} />
+      <SupplierWarmupContext scope={scope} searchParams={sp} pageContract={pageContract} />
 
       {/* Vaccination status matrix — cohort × vaccine protocol, from /vaccination/operations. */}
-      <VaccinationStatusMatrix operations={ops} ok={operations.ok} scope={scope} searchParams={sp} />
+      <VaccinationStatusMatrix operations={ops} ok={operations.ok} scope={scope} searchParams={sp} pageContract={pageContract} />
 
       {/* Per-cohort vaccination detail — animals, age band, real last dose, next due, status. */}
-      <VaccinationCohortDetail operations={ops} ok={operations.ok} scope={scope} searchParams={sp} />
+      <VaccinationCohortDetail operations={ops} ok={operations.ok} scope={scope} searchParams={sp} pageContract={pageContract} />
 
       {/* Shed-event execution — the per-shed drive events (park/shed/owner/stock/status/next action).
           A NORMAL stacked section (mock "drive — shed events"), not a tab. Anchor id for deep links. */}
-      <VaccinationExecutionSection searchParams={sp} />
+      <VaccinationExecutionSection searchParams={sp} pageContract={pageContract} />
     </div>
   );
 }

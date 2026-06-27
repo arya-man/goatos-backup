@@ -21,7 +21,7 @@ const identifierTypes: IdentifierType[] = ["old_tag", "rfid", "visual_tag", "she
 
 export async function addIdentifierAction(formData: FormData) {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.identifier_added";
   try {
     const identifierType = requiredString(formData, "identifier_type");
     if (!identifierTypes.includes(identifierType as IdentifierType)) {
@@ -38,20 +38,19 @@ export async function addIdentifierAction(formData: FormData) {
     const result = await addGoatIdentifier(requiredString(formData, "goat_id"), body, requiredString(formData, "idempotency_key"));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
-    } else {
-      message = `Identifier added for ${result.data.goat.display_id}.`;
+      actionKey = actionErrorMessage(result.error);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to add identifier.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function retireIdentifierAction(formData: FormData) {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.identifier_retired";
   try {
     const body: RetireIdentifierRequestBody = {
       reason: optionalString(formData, "reason") ?? "Retired from admin passport review.",
@@ -66,13 +65,12 @@ export async function retireIdentifierAction(formData: FormData) {
     );
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
-    } else {
-      message = `Identifier retired for ${result.data.goat.display_id}.`;
+      actionKey = actionErrorMessage(result.error);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to retire identifier.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }

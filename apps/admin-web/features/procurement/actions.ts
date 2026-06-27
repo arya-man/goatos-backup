@@ -127,7 +127,7 @@ function revalidateProcurement(loadId?: string): void {
 
 export async function createLoadAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.load_created";
   try {
     const body: CreateProcurementLoadRequest = {
       source_party_id: requiredString(formData, "source_party_id"),
@@ -140,21 +140,21 @@ export async function createLoadAction(formData: FormData): Promise<void> {
     const result = await createProcurementLoad(body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = `Load ${result.data.load.load_id.slice(0, 8)} created.`;
       revalidateProcurement(result.data.load.load_id);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to create load.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function addSourceGoatAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.source_goat_added";
   const loadId = requiredString(formData, "load_id");
   try {
     const body: AddProcurementLoadGoatRequest = {
@@ -183,21 +183,21 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
     const result = await addProcurementLoadGoat(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = "Source goat added to load.";
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to add source goat.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function recordHFVaccinationEvidenceAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.hf_evidence_imported";
   const loadId = requiredString(formData, "load_id");
   try {
     const body: RecordProcurementHFVaccinationEvidenceRequest = {
@@ -218,21 +218,21 @@ export async function recordHFVaccinationEvidenceAction(formData: FormData): Pro
     );
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = `HF vaccination evidence imported: ${result.data.evidence.dose_code}.`;
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to import HF vaccination evidence.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function reviewHFVaccinationEvidenceAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.hf_evidence_reviewed";
   const loadId = requiredString(formData, "load_id");
   try {
     const expectedRowVersion = optInt(formData, "expected_row_version");
@@ -254,21 +254,21 @@ export async function reviewHFVaccinationEvidenceAction(formData: FormData): Pro
     );
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = `HF evidence reviewed: ${result.data.evidence.review_status}.`;
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to review HF vaccination evidence.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function recordSourceHealthAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.source_health_recorded";
   const loadId = optionalString(formData, "load_id");
   try {
     const body: RecordProcurementSourceHealthRequest = {
@@ -279,21 +279,21 @@ export async function recordSourceHealthAction(formData: FormData): Promise<void
     const result = await recordProcurementSourceHealth(requiredString(formData, "goat_id"), body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = `Source health recorded: ${body.health_state}.`;
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to record source health.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function preDispatchDecisionAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.pre_dispatch_recorded";
   const loadId = optionalString(formData, "load_id");
   try {
     const body: RecordProcurementDecisionRequest = {
@@ -306,21 +306,21 @@ export async function preDispatchDecisionAction(formData: FormData): Promise<voi
     const result = await recordProcurementPreDispatchDecision(requiredString(formData, "goat_id"), body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = `Pre-dispatch decision recorded: ${body.decision_type}.`;
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to record decision.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function dispatchLoadAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.dispatch_recorded";
   const loadId = requiredString(formData, "load_id");
   try {
     const body: DispatchProcurementLoadRequest = {
@@ -333,21 +333,21 @@ export async function dispatchLoadAction(formData: FormData): Promise<void> {
     const result = await dispatchProcurementLoad(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = "Dispatch / transit recorded.";
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to record dispatch.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function arrivalReviewAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.arrival_review_recorded";
   const loadId = requiredString(formData, "load_id");
   try {
     const body: RecordProcurementArrivalReviewRequest = {
@@ -367,21 +367,21 @@ export async function arrivalReviewAction(formData: FormData): Promise<void> {
     const result = await recordProcurementArrivalReview(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = "Arrival review recorded.";
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to record arrival review.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 export async function acceptIntakeAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.accept_intake_recorded";
   const loadId = requiredString(formData, "load_id");
   try {
     const body: AcceptProcurementIntakeRequest = {
@@ -396,14 +396,14 @@ export async function acceptIntakeAction(formData: FormData): Promise<void> {
     const result = await acceptProcurementIntake(loadId, body, formIdempotencyKey(formData));
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = `Accepted intake — ${result.data.handoffs.length} PHC handoff${result.data.handoffs.length === 1 ? "" : "s"} created.`;
       revalidateProcurement(loadId);
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to accept intake.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }

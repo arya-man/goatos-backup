@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Search, X } from "lucide-react";
 import { parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // Herd Register filter modal — ports the mock's "Filter — Counts / Herd" dialog. Styling uses the shared
 // theme classes (.modal / .chip / .fld / .btn) and CSS variables ONLY — no hardcoded hex, so the light/dark
@@ -14,21 +15,6 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 // Backed facets wire to /goats/search (Gender→sex, Breed→breed, Search→q). Park scope is owned by the top
 // bar (Scope Chrome Rule), shown read-only here. Additional facets preserve their chosen values in the URL
 // and become active automatically when the goat-search contract starts consuming them.
-
-const BREEDS = ["Malai", "Beetal", "Sojat", "Osmanabadi", "Boer", "Anantapur", "Kenguri"];
-const GENDERS = ["Male", "Female"];
-
-const EXTRA_FACETS = [
-  ["age_cohort", "Age Cohort", "K0 / K1 / K2"],
-  ["shed", "Shed", "ICU-1 / K3 / Mother"],
-  ["repro_stage", "Pregnancy / Lactation Stage", "pregnant / milking / open"],
-  ["lifecycle", "Status", "active / under_treatment / sold"],
-  ["identity_review", "Identity Review Status", "needs review / clean"],
-  ["origin_farm", "Origin Farm", "source farm"],
-  ["days_in_stage", "Days in Stage (min/max)", "e.g. 7-30"],
-  ["weight_kg", "Weight (kg) (min/max)", "e.g. 20-35"],
-  ["adg", "ADG (g/day) (min/max)", "e.g. 80-140"],
-] as const;
 
 const groupLabelStyle: React.CSSProperties = {
   display: "block",
@@ -42,17 +28,21 @@ const groupLabelStyle: React.CSSProperties = {
 
 interface HerdFiltersModalProps {
   open: boolean;
+  pageContract: AdminUiPageContract;
   searchParams?: RouteSearchParams;
   onClose: () => void;
 }
 
-export function HerdFiltersModal({ open, searchParams = {}, onClose }: HerdFiltersModalProps) {
+export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClose }: HerdFiltersModalProps) {
   const router = useRouter();
   const pathname = "/counts/herd";
   const scope = parseScope(searchParams);
   const q = one(searchParams, "q");
   const breed = one(searchParams, "breed");
   const sex = one(searchParams, "sex");
+  const breeds = optionGroup(pageContract, "herd_filter_breeds");
+  const genders = optionGroup(pageContract, "herd_filter_genders");
+  const extraFacets = optionGroup(pageContract, "herd_filter_extra_facets");
 
   useEffect(() => {
     if (!open) return;
@@ -92,9 +82,9 @@ export function HerdFiltersModal({ open, searchParams = {}, onClose }: HerdFilte
     const selectedSex = form.querySelector(".chip[data-facet='sex'][data-on='true']") as HTMLElement | null;
     if (selectedSex?.dataset.value) params.set("sex", selectedSex.dataset.value);
 
-    for (const [name] of EXTRA_FACETS) {
-      const value = (form.querySelector(`input[name='${name}']`) as HTMLInputElement | null)?.value?.trim();
-      if (value) params.set(name, value);
+    for (const facet of extraFacets) {
+      const value = (form.querySelector(`input[name='${facet.key}']`) as HTMLInputElement | null)?.value?.trim();
+      if (value) params.set(facet.key, value);
     }
 
     const qs = params.toString();
@@ -121,14 +111,14 @@ export function HerdFiltersModal({ open, searchParams = {}, onClose }: HerdFilte
         className="modal on card"
         role="dialog"
         aria-modal="true"
-        aria-label="Filter — Counts / Herd"
+        aria-label={copy(pageContract, "filter.drawer.title")}
         style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}
       >
         <div className="hd" style={{ borderBottom: "1px solid var(--line2)", flex: "0 0 auto" }}>
           <Search className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <h3>Filter — Counts / Herd</h3>
+          <h3>{copy(pageContract, "filter.drawer.title")}</h3>
           <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="iconbtn" onClick={onClose} aria-label="Close filters">
+          <button type="button" className="iconbtn" onClick={onClose} aria-label={copy(pageContract, "filter.drawer.close_label")}>
             <X className="ic" />
           </button>
         </div>
@@ -137,43 +127,42 @@ export function HerdFiltersModal({ open, searchParams = {}, onClose }: HerdFilte
           <div style={{ display: "flex", flexDirection: "column", gap: 18, overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
           {/* Park is owned by the top-bar scope (Scope Chrome Rule) — read-only here, not a duplicate filter. */}
           <div>
-            <span style={groupLabelStyle}>Park</span>
-            <div className="muted small">Park scope is set in the top bar — this filter is read-only.</div>
+            <span style={groupLabelStyle}>{copy(pageContract, "filter.scope_label")}</span>
+            <div className="muted small">{copy(pageContract, "filter.scope_readonly")}</div>
           </div>
 
           <div className="fld" style={{ marginBottom: 0 }}>
-            <label htmlFor="filter-search">Search (RFID / old tag / id)</label>
-            <input id="filter-search" name="q" defaultValue={q ?? ""} placeholder="e.g. RF-9001 or CB-201" />
+            <label htmlFor="filter-search">{copy(pageContract, "filter.herd_search_label")}</label>
+            <input id="filter-search" name="q" defaultValue={q ?? ""} placeholder={copy(pageContract, "filter.herd_search_placeholder")} />
           </div>
 
           <div>
-            <span style={groupLabelStyle}>Gender</span>
+            <span style={groupLabelStyle}>{copy(pageContract, "filter.gender_label")}</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {GENDERS.map((g) => {
-                const value = g === "Male" ? "male" : "female";
-                return <ChipButton key={g} label={g} value={value} facet="sex" selected={sex === value} />;
-              })}
-            </div>
-          </div>
-
-          <div>
-            <span style={groupLabelStyle}>Breed</span>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {BREEDS.map((b) => (
-                <ChipButton key={b} label={b} value={b} facet="breed" selected={breed === b} />
+              {genders.map((g) => (
+                <ChipButton key={g.key} label={g.label} value={g.key} facet="sex" selected={sex === g.key} />
               ))}
             </div>
           </div>
 
-          {EXTRA_FACETS.map(([name, label, placeholder]) => (
-            <div key={name}>
-              <span style={groupLabelStyle}>{label}</span>
+          <div>
+            <span style={groupLabelStyle}>{copy(pageContract, "filter.breed_label")}</span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {breeds.map((b) => (
+                <ChipButton key={b.key} label={b.label} value={b.key} facet="breed" selected={breed === b.key} />
+              ))}
+            </div>
+          </div>
+
+          {extraFacets.map((facet) => (
+            <div key={facet.key}>
+              <span style={groupLabelStyle}>{facet.label}</span>
               <div className="fld" style={{ marginBottom: 0 }}>
                 <input
-                  name={name}
-                  defaultValue={one(searchParams, name) ?? ""}
-                  placeholder={placeholder}
-                  aria-label={label}
+                  name={facet.key}
+                  defaultValue={one(searchParams, facet.key) ?? ""}
+                  placeholder={facet.title}
+                  aria-label={facet.label}
                 />
               </div>
             </div>
@@ -195,11 +184,11 @@ export function HerdFiltersModal({ open, searchParams = {}, onClose }: HerdFilte
             }}
           >
             <Link href={clearAllUrl} replace scroll={false} className="btn" onClick={onClose}>
-              Clear all
+              {copy(pageContract, "filter.clear_all")}
             </Link>
             <div className="sp" style={{ flex: 1 }} />
             <button type="submit" className="btn p">
-              Apply filters
+              {copy(pageContract, "filter.apply_filters")}
             </button>
           </div>
         </form>

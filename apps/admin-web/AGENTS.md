@@ -214,6 +214,29 @@ Admin-web is built around the vaccination process-integrity slice:
 The status model underneath every screen is the same: due, overdue, blocked,
 proof-pending, verification-pending, rejected, deferred, and owner-missing.
 
+## Backend-Driven UI Contract Rule
+
+Admin-web is a renderer, not the product-truth owner. Visible navigation, route
+availability, page titles, section/table labels, filter/sort/page-size
+semantics, chips/tabs, row-click params, drawer/action labels, empty/error copy,
+disabled reasons, and summary/detail field sets must come from
+`GET /admin-web/bootstrap` and the generated `AdminWebBootstrapResponse` /
+`AdminWebPageContract`.
+
+Frontend code may own layout, CSS, responsive density, icon-token rendering,
+hover/focus state, and local open/closed or selected-row state. It may choose
+how much of a backend object to show in a compact row versus a drawer, but only
+from backend-declared summary/detail fields. Do not add local visible literals
+or option arrays in page components. Extend
+`backend/internal/adminui/app/service.go`, `contracts/openapi/app-api.yaml`, and
+the generated client instead, then consume through
+`apps/admin-web/lib/admin-ui-contract.ts`.
+
+The only current exceptions are pre-contract auth screens and the emergency
+contract-unavailable shell, documented in
+`context/frontend/admin-web-backend-ui-contract.md`. Run
+`npm --prefix apps/admin-web run check:ui-contract` before handoff or push.
+
 ## UI Source Of Truth
 
 `../../mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of
@@ -428,7 +451,7 @@ Only these routes are current implemented product routes:
 /workflows/{row_id}        Workflow drilldown
 /vaccination               PHC Vaccination module surface (NOT Action Center);
                            includes status matrix, cohort detail, and execution
-/vaccination/execution/sheds/{shed_id}
+/vaccination/execution/sheds/[shedId]
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd                 Herd Register for vaccination trigger closure
@@ -450,7 +473,7 @@ mock-fidelity scan coverage, and `smoke:visual:live` coverage together.
 No nested compatibility redirects are allowed for command-room, authority, or
 Vaccination execution screens. Use `/protocol-adherence`, `/workflows/{row_id}`,
 `/config?category=vaccination`, `/vaccination`, and
-`/vaccination/execution/sheds/{shed_id}` directly. `/parks/vaccination` is not an
+`/vaccination/execution/sheds/[shedId]` directly. `/parks/vaccination` is not an
 allowed product route or redirect.
 
 ## Hard Rules

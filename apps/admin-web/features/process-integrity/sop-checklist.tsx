@@ -1,6 +1,6 @@
 import { Check, Video } from "lucide-react";
 import { Tag } from "@/components/ui-primitives";
-import type { SopStep } from "@/features/phc-vaccination/vaccination-sop-steps";
+import type { SopStep } from "@/features/phc-vaccination";
 
 // SopChecklist renders an SOP's procedure steps as the mock's drawer checklist (numbered/checked circles,
 // step description, "video proof required" pill) — NOT the obligation lifecycle chain (that is the

@@ -1160,6 +1160,9 @@ export interface components {
             top_bar: components["schemas"]["AdminWebTopBarContract"];
             role_lenses: components["schemas"]["AdminWebRoleLens"][];
             pages: components["schemas"]["AdminWebPageContract"][];
+            copy: {
+                [key: string]: string;
+            };
             display_rules: components["schemas"]["AdminWebDisplayRule"][];
         };
         AdminWebNavigationContract: {
@@ -1242,6 +1245,10 @@ export interface components {
             tables: components["schemas"]["AdminWebTableContract"][];
             drawers: components["schemas"]["AdminWebDrawerContract"][];
             controls: components["schemas"]["AdminWebControl"][];
+            copy: {
+                [key: string]: string;
+            };
+            option_groups: components["schemas"]["AdminWebOptionGroup"][];
             migration_status: string;
             validation_notes: string[];
         };
@@ -1305,6 +1312,18 @@ export interface components {
             enabled: boolean;
             disabled_reason: string;
             action: string;
+        };
+        AdminWebOptionGroup: {
+            id: string;
+            options: components["schemas"]["AdminWebOption"][];
+        };
+        AdminWebOption: {
+            key: string;
+            label: string;
+            title: string;
+            enabled: boolean;
+            disabled_reason: string;
+            tone: string;
         };
         AdminWebDisplayRule: {
             id: string;

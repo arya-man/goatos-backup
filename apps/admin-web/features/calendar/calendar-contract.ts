@@ -6,6 +6,7 @@
 // the adapter layer the swap requires (it is NOT a 1:1 rename of the old local types).
 import type { AppApiComponents } from "@goatos/api-client";
 import type { Tone } from "@/components/ui-primitives";
+import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   Boxes,
   CalendarClock,
@@ -40,15 +41,7 @@ export type CalendarPresentationQuery = AppApiComponents["schemas"]["CalendarPre
 
 type FallbackOwnerConfig = {
   key: CalendarOwnerFilter;
-  label: string;
-  scopeLabel: string;
   color: string;
-  rhythmTitle: string;
-  rhythmNote: string;
-  rhythmDays: CalendarRhythmDay[];
-  workstreamTabs: CalendarPresentationTab[];
-  weekTitle: string;
-  scopeOnlyMessage: string;
 };
 
 export type OwnerPresentationMeta = {
@@ -59,169 +52,105 @@ export type OwnerPresentationMeta = {
 
 export type OwnerPresentationMap = Record<string, OwnerPresentationMeta>;
 
-const FALLBACK_OWNER_ORDER: CalendarOwnerFilter[] = ["all", "phc", "inventory", "admin_data_ops"];
-
 const FALLBACK_OWNER_CONFIG: Record<CalendarOwnerFilter, FallbackOwnerConfig> = {
   all: {
     key: "all",
-    label: "All",
-    scopeLabel: "All owner lanes",
     color: "var(--brand)",
-    rhythmTitle: "Vaccination operating rhythm",
-    rhythmNote: "from the SOP handbook - all owner lanes",
-    rhythmDays: [
-      rhythmDay("Mon", "PLAN", "plan"),
-      rhythmDay("Tue", "LOGISTICS", "log"),
-      rhythmDay("Wed", "EXECUTE", "exec"),
-      rhythmDay("Thu", "EXECUTE", "exec"),
-      rhythmDay("Fri", "EXECUTE", "exec"),
-      rhythmDay("Sat", "EXECUTE", "exec"),
-      rhythmDay("Sun", "REST", "rest"),
-    ],
-    workstreamTabs: [activeTab("vaccination", "Vaccination", "Calendar is currently showing the PHC vaccination module.")],
-    weekTitle: "This week",
-    scopeOnlyMessage: "",
   },
   phc: {
     key: "phc",
-    label: "PHC",
-    scopeLabel: "PHC",
     color: "var(--brand)",
-    rhythmTitle: "PHC vaccination rhythm",
-    rhythmNote: "plan drives - prepare teams - execute proof",
-    rhythmDays: [
-      rhythmDay("Mon", "PLAN", "plan"),
-      rhythmDay("Tue", "PREP", "log"),
-      rhythmDay("Wed", "DRIVE", "exec"),
-      rhythmDay("Thu", "DRIVE", "exec"),
-      rhythmDay("Fri", "VERIFY", "exec"),
-      rhythmDay("Sat", "CATCH-UP", "exec"),
-      rhythmDay("Sun", "REST", "rest"),
-    ],
-    workstreamTabs: [activeTab("vaccination", "Vaccination", "Calendar is currently showing the PHC vaccination module.")],
-    weekTitle: "PHC this week",
-    scopeOnlyMessage: "Showing PHC work only.",
   },
   inventory: {
     key: "inventory",
-    label: "Inventory / Stock",
-    scopeLabel: "Inventory / Stock",
     color: "var(--amber)",
-    rhythmTitle: "Vaccination stock readiness rhythm",
-    rhythmNote: "stock, FEFO, cold-chain, reorder, GRN",
-    rhythmDays: [
-      rhythmDay("Mon", "COUNT", "plan"),
-      rhythmDay("Tue", "FEFO", "log"),
-      rhythmDay("Wed", "ISSUE", "exec"),
-      rhythmDay("Thu", "MONITOR", "exec"),
-      rhythmDay("Fri", "REORDER", "log"),
-      rhythmDay("Sat", "CLOSE", "exec"),
-      rhythmDay("Sun", "REST", "rest"),
-    ],
-    workstreamTabs: [
-      activeTab("all_inventory_stock", "All Inventory / Stock"),
-      disabledTab("stock_readiness", "Stock readiness"),
-      disabledTab("cold_chain", "Cold chain"),
-      disabledTab("reorder_expiry", "Reorder / expiry"),
-      disabledTab("grn_fefo", "GRN / FEFO"),
-    ],
-    weekTitle: "Inventory / Stock this week",
-    scopeOnlyMessage: "Showing Inventory / Stock work only.",
   },
   admin_data_ops: {
     key: "admin_data_ops",
-    label: "Admin / Data Ops",
-    scopeLabel: "Admin / Data Ops",
     color: "var(--purple)",
-    rhythmTitle: "Vaccination governance rhythm",
-    rhythmNote: "source review, config approval, import, audit follow-up",
-    rhythmDays: [
-      rhythmDay("Mon", "REVIEW", "plan"),
-      rhythmDay("Tue", "CONFIG", "log"),
-      rhythmDay("Wed", "IMPORT", "exec"),
-      rhythmDay("Thu", "AUDIT", "exec"),
-      rhythmDay("Fri", "APPROVE", "log"),
-      rhythmDay("Sat", "FOLLOW-UP", "exec"),
-      rhythmDay("Sun", "REST", "rest"),
-    ],
-    workstreamTabs: [
-      activeTab("all_admin_data_ops", "All Admin / Data Ops"),
-      disabledTab("source_review", "Source review"),
-      disabledTab("config_approval", "Config approval"),
-      disabledTab("import_replay", "Import / replay"),
-      disabledTab("audit_follow_up", "Audit follow-up"),
-    ],
-    weekTitle: "Admin / Data Ops this week",
-    scopeOnlyMessage: "Showing Admin / Data Ops work only.",
   },
 };
-
-function rhythmDay(day: string, label: string, tone: string): CalendarRhythmDay {
-  return { day, label, tone, enabled: true, query: { day } };
-}
-
-function activeTab(key: string, label: string, disabledReason = ""): CalendarPresentationTab {
-  return { key, label, active: true, enabled: true, disabled_reason: disabledReason, query: {} };
-}
-
-function disabledTab(key: string, label: string): CalendarPresentationTab {
-  return {
-    key,
-    label,
-    active: false,
-    enabled: false,
-    disabled_reason: "Sub-workstream filters need backend event_type support; this row is the module context.",
-    query: { workstream_key: key },
-  };
-}
 
 function fallbackOwner(ownerKey: string): FallbackOwnerConfig {
   return FALLBACK_OWNER_CONFIG[(ownerKey || "all") as CalendarOwnerFilter] ?? FALLBACK_OWNER_CONFIG.all;
 }
 
-export function fallbackCalendarPresentation(ownerKey: string): CalendarPresentation {
+function calendarViewQuery(key: string): CalendarPresentationQuery {
+  if (key === "month") return { view: "month", day: "" };
+  return { view: "" };
+}
+
+function calendarWorkstreamQuery(key: string, index: number): CalendarPresentationQuery {
+  if (index === 0) return {};
+  return { workstream_key: key };
+}
+
+export function fallbackCalendarPresentation(pageContract: AdminUiPageContract, ownerKey: string): CalendarPresentation {
   const active = fallbackOwner(ownerKey);
+  const ownerTabs = optionGroup(pageContract, "calendar_owner_tabs");
+  const activeOwner = ownerTabs.find((tab) => tab.key === active.key) ?? ownerTabs[0];
+  const activeOwnerKey = (activeOwner?.key ?? "all") as CalendarOwnerFilter;
+  const activeOwnerLabel = activeOwner?.label ?? activeOwnerKey;
+  const activeOwnerScopeLabel = activeOwner?.title || activeOwnerLabel;
+  const viewTabs = optionGroup(pageContract, "calendar_view_tabs");
+  const workstreamTabs = optionGroup(pageContract, `calendar_workstream_tabs_${activeOwnerKey}`);
+  const rhythmDays = optionGroup(pageContract, `calendar_rhythm_days_${activeOwnerKey}`);
+  const eventTypes = optionGroup(pageContract, "calendar_event_types");
   return {
-    page_title: "Calendar",
-    page_subtitle:
-      "Vaccination due work by time - source-backed obligations, drives, boosters, proof/rework, defer reviews, and the stock / config tasks that gate them. Click an event for its rich detail and deep links.",
-    view_tabs: [
-      { key: "week", label: "Week", active: false, enabled: true, disabled_reason: "", query: { view: "" } },
-      { key: "month", label: "Month", active: false, enabled: true, disabled_reason: "", query: { view: "month", day: "" } },
-    ],
-    owner_tabs: FALLBACK_OWNER_ORDER.map((key) => {
-      const cfg = FALLBACK_OWNER_CONFIG[key];
+    page_title: pageContract.title,
+    page_subtitle: pageContract.subtitle,
+    view_tabs: viewTabs.map((tab) => ({
+      key: tab.key,
+      label: tab.label,
+      active: false,
+      enabled: true,
+      disabled_reason: "",
+      query: calendarViewQuery(tab.key),
+    })),
+    owner_tabs: ownerTabs.map((tab) => {
+      const cfg = fallbackOwner(tab.key);
       return {
-        key,
-        label: cfg.label,
-        scope_label: cfg.scopeLabel,
+        key: tab.key,
+        label: tab.label,
+        scope_label: tab.title || tab.label,
         color: cfg.color,
-        active: active.key === key,
+        active: activeOwnerKey === tab.key,
         enabled: true,
         disabled_reason: "",
-        query: { owner_key: key === "all" ? "" : key },
+        query: { owner_key: tab.key === "all" ? "" : tab.key },
       };
     }),
-    workstream_tabs: active.workstreamTabs,
-    rhythm: { title: active.rhythmTitle, note: active.rhythmNote, days: active.rhythmDays },
+    workstream_tabs: workstreamTabs.map((tab, index) => ({
+      key: tab.key,
+      label: tab.label,
+      active: index === 0,
+      enabled: index === 0,
+      disabled_reason: index === 0 ? tab.title || "" : tab.title || copy(pageContract, "reason.calendar_subworkstream_disabled"),
+      query: calendarWorkstreamQuery(tab.key, index),
+    })),
+    rhythm: {
+      title: copy(pageContract, `calendar.rhythm.title.${activeOwnerKey}`),
+      note: copy(pageContract, `calendar.rhythm.note.${activeOwnerKey}`),
+      days: rhythmDays.map((day) => ({ day: day.key, label: day.label, tone: day.tone || "exec", enabled: true, query: { day: day.key } })),
+    },
     week: {
-      title: active.weekTitle,
-      scope_label: active.scopeLabel,
-      scope_only_message: active.scopeOnlyMessage,
-      clear_scope_label: "all owner lanes",
-      whole_period_message: "Showing whole week.",
-      all_days_selected_label: "all days selected",
-      clear_day_label: "whole week",
-      empty_message: "No vaccination due work",
-      reminder_title: "Reminders & escalation",
-      reminder_empty_message: "No reminders scheduled in this scope.",
-      reminder_note: "Reminders, nudges, snoozes, and escalations are durable backend kernel state. Open an event to act.",
+      title: copy(pageContract, `calendar.week.title.${activeOwnerKey}`),
+      scope_label: activeOwnerScopeLabel,
+      scope_only_message: copy(pageContract, `calendar.week.scope_only.${activeOwnerKey}`),
+      clear_scope_label: copy(pageContract, "calendar.week.clear_scope"),
+      whole_period_message: copy(pageContract, "calendar.week.whole_period"),
+      all_days_selected_label: copy(pageContract, "calendar.week.all_days_selected"),
+      clear_day_label: copy(pageContract, "calendar.week.clear_day"),
+      empty_message: copy(pageContract, "calendar.week.empty"),
+      reminder_title: copy(pageContract, "calendar.week.reminder_title"),
+      reminder_empty_message: copy(pageContract, "calendar.week.reminder_empty"),
+      reminder_note: copy(pageContract, "calendar.week.reminder_note"),
       as_of_hint: "",
       cell_note: "",
     },
     month: {
       title: "",
-      scope_label: active.scopeLabel,
+      scope_label: activeOwnerScopeLabel,
       scope_only_message: "",
       clear_scope_label: "",
       whole_period_message: "",
@@ -231,28 +160,26 @@ export function fallbackCalendarPresentation(ownerKey: string): CalendarPresenta
       reminder_title: "",
       reminder_empty_message: "",
       reminder_note: "",
-      as_of_hint: "month follows the top-bar as-of date",
-      cell_note: "Each cell shows that day's source-backed vaccination due work. Tap an event for its rich detail.",
+      as_of_hint: copy(pageContract, "calendar.month.as_of_hint"),
+      cell_note: copy(pageContract, "calendar.month.cell_note"),
     },
     new_event: {
-      label: "New event",
+      label: copy(pageContract, "calendar.new_event.label"),
       enabled: false,
-      disabled_reason:
-        "Calendar events are generated from source-backed obligations. Create a campaign/catch-up via Config or the PHC catch-up path - not a free-form Calendar entry.",
+      disabled_reason: copy(pageContract, "calendar.new_event.disabled_reason"),
     },
     empty_state: {
-      ok_message:
-        "No vaccination due work for this scope and date window. Events appear once source-backed obligations, drives, boosters, proof/rework, or the stock/config tasks that gate them are due.",
-      error_message: "Calendar is unavailable - resolve the error above, then reload.",
-      primary_label: "Config",
-      secondary_label: "Vaccination",
+      ok_message: copy(pageContract, "calendar.empty.ok"),
+      error_message: copy(pageContract, "calendar.empty.error"),
+      primary_label: copy(pageContract, "calendar.empty.primary"),
+      secondary_label: copy(pageContract, "calendar.empty.secondary"),
     },
-    event_types: Object.entries(EVENT_TYPE_META).map(([key, meta]) => ({ key, label: meta.label })),
-    active_owner_key: active.key,
-    active_owner_label: active.label,
-    active_owner_scope_label: active.scopeLabel,
+    event_types: eventTypes.map((eventType) => ({ key: eventType.key, label: eventType.label })),
+    active_owner_key: activeOwnerKey,
+    active_owner_label: activeOwnerLabel,
+    active_owner_scope_label: activeOwnerScopeLabel,
     active_owner_color: active.color,
-    all_owners_selected_label: "all owner lanes",
+    all_owners_selected_label: copy(pageContract, "calendar.week.clear_scope"),
   };
 }
 
@@ -278,90 +205,46 @@ export function ownerMetaFromPresentation(presentation: CalendarPresentation): O
 }
 
 export function ownerLabel(ownerKey: string, ownerMeta: OwnerPresentationMap): string {
-  return ownerMeta[ownerKey]?.label ?? fallbackOwner(ownerKey).label ?? humanize(ownerKey);
+  return ownerMeta[ownerKey]?.label ?? ownerKey;
 }
 
 export function ownerScopeLabel(ownerKey: string, ownerMeta: OwnerPresentationMap): string {
-  return ownerMeta[ownerKey]?.scopeLabel ?? fallbackOwner(ownerKey).scopeLabel ?? humanize(ownerKey);
+  return ownerMeta[ownerKey]?.scopeLabel ?? ownerKey;
 }
 
 export function ownerColor(ownerKey: string, ownerMeta: OwnerPresentationMap): string {
   return ownerMeta[ownerKey]?.color ?? fallbackOwner(ownerKey).color ?? "var(--brand)";
 }
 
-// ── Status presentation (generated CalendarStatus union — identical members, so this stays exhaustive) ─
-
-export const STATUS_META: Record<CalendarStatus, { label: string; tone: Tone }> = {
-  scheduled: { label: "Scheduled", tone: "mut" },
-  due: { label: "Due", tone: "warn" },
-  overdue: { label: "Overdue", tone: "dng" },
-  in_progress: { label: "In progress", tone: "info" },
-  proof_pending: { label: "Proof pending", tone: "warn" },
-  verification_pending: { label: "Verification pending", tone: "warn" },
-  rejected: { label: "Rejected", tone: "dng" },
-  rework_due: { label: "Rework due", tone: "warn" },
-  deferred: { label: "Deferred", tone: "pur" },
-  blocked: { label: "Blocked", tone: "dng" },
-  completed: { label: "Completed", tone: "ok" },
-  canceled: { label: "Canceled", tone: "mut" },
-};
-
-// Backend severity is info | warning | critical (NOT the process-integrity broken/at_risk/watch/ok set).
-export const SEVERITY_META: Record<CalendarSeverity, { label: string; tone: Tone }> = {
-  info: { label: "Info", tone: "info" },
-  warning: { label: "Warning", tone: "warn" },
-  critical: { label: "Critical", tone: "dng" },
-};
-
-export function statusMeta(status: string): { label: string; tone: Tone } {
-  return STATUS_META[status as CalendarStatus] ?? { label: humanize(status), tone: "mut" };
-}
-
-export function severityMeta(severity: string): { label: string; tone: Tone } {
-  return SEVERITY_META[severity as CalendarSeverity] ?? { label: humanize(severity), tone: "mut" };
-}
-
-export const EVENT_TYPE_META: Record<CalendarEventType, { label: string; icon: LucideIcon }> = {
-  vaccination_dose_due: { label: "Dose due", icon: Syringe },
-  vaccination_drive: { label: "Shed / cohort drive", icon: Syringe },
-  vaccination_campaign: { label: "Campaign / catch-up", icon: CalendarClock },
-  vaccination_booster_due: { label: "Booster due", icon: Syringe },
-  vaccination_defer_review: { label: "Defer / waiver review", icon: ShieldAlert },
-  vaccination_evidence_review: { label: "HF / historical evidence review", icon: FileCheck2 },
-  vaccination_proof_verification: { label: "Proof verification", icon: ShieldCheck },
-  vaccination_rework_due: { label: "Rework due", icon: GitBranch },
-  vaccine_stock_readiness: { label: "Stock readiness", icon: PackageCheck },
-  vaccine_cold_chain_check: { label: "Cold-chain check", icon: Snowflake },
-  vaccine_reorder_expiry_grn: { label: "Reorder / expiry / GRN", icon: Boxes },
-  phc_stock_anti_misuse: { label: "Stock anti-misuse", icon: ShieldAlert },
-  vaccination_config_source_approval: { label: "Config / source approval", icon: FileCheck2 },
+export const EVENT_TYPE_ICON: Record<CalendarEventType, LucideIcon> = {
+  vaccination_dose_due: Syringe,
+  vaccination_drive: Syringe,
+  vaccination_campaign: CalendarClock,
+  vaccination_booster_due: Syringe,
+  vaccination_defer_review: ShieldAlert,
+  vaccination_evidence_review: FileCheck2,
+  vaccination_proof_verification: ShieldCheck,
+  vaccination_rework_due: GitBranch,
+  vaccine_stock_readiness: PackageCheck,
+  vaccine_cold_chain_check: Snowflake,
+  vaccine_reorder_expiry_grn: Boxes,
+  phc_stock_anti_misuse: ShieldAlert,
+  vaccination_config_source_approval: FileCheck2,
 };
 
 export function eventTypeMeta(eventType: string, presentation?: CalendarPresentation): { label: string; icon: LucideIcon } {
-  const fallback = EVENT_TYPE_META[eventType as CalendarEventType] ?? { label: humanize(eventType), icon: CalendarClock };
+  const fallback = { label: eventType, icon: EVENT_TYPE_ICON[eventType as CalendarEventType] ?? CalendarClock };
   const backendLabel = presentation?.event_types.find((item) => item.key === eventType)?.label;
   return { ...fallback, label: backendLabel ?? fallback.label };
 }
 
 // ── Mapping helpers ──────────────────────────────────────────────────────────────────────────────
 
-export function humanize(key: string): string {
-  if (!key) return "—";
-  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 // Backend reminder_state ∈ {not_scheduled, scheduled, queued, nudged, snoozed}; escalation_state ∈
 // {none, pending, …}. "not_scheduled"/"none" mean nothing is queued yet — they are NOT a live reminder.
-const NO_STATE = new Set(["", "none", "not_scheduled"]);
 // States that represent an ACTIVE reminder/escalation a CEO should see in the rail.
 const ACTIVE_REMINDER = new Set(["scheduled", "queued", "nudged", "snoozed", "sent"]);
 const ACTIVE_ESCALATION = new Set(["pending", "queued", "escalated"]);
-
-// Humanize a state for display; empty/none/not_scheduled fall back to the provided label.
-export function stateLabel(state: string | null | undefined, none = "None"): string {
-  if (!state || NO_STATE.has(state)) return none;
-  return humanize(state);
-}
 
 // True only when an actual reminder or escalation is live (drives the reminder rail + row badge). Excludes
 // not_scheduled/none so idle rows don't pollute the rail.
@@ -391,7 +274,7 @@ export function blockEntries(block: CalendarJSONBlock | undefined | null): { lab
     } else {
       value = String(v);
     }
-    out.push({ label: humanize(k), value });
+    out.push({ label: k, value });
   }
   return out;
 }
@@ -410,15 +293,21 @@ function linkPresent(links: CalendarEventLinks, key: string): boolean {
   return v !== undefined && v !== null && v !== false && v !== "";
 }
 
-export function parseLinks(event: CalendarEvent): CalendarLink[] {
+export function parseLinks(event: CalendarEvent, pageContract: AdminUiPageContract): CalendarLink[] {
   const links: CalendarEventLinks = event.links ?? {};
   const out: CalendarLink[] = [];
-  if (linkPresent(links, "vaccination")) out.push({ key: "vaccination", label: "vaccination", appPath: "/vaccination", tone: "teal" });
-  if (linkPresent(links, "drive") && event.shed_id) out.push({ key: "drive", label: "drive", appPath: `/vaccination/execution/sheds/${encodeURIComponent(event.shed_id)}`, tone: "teal" });
-  if (linkPresent(links, "workflow")) out.push({ key: "workflow", label: "workflow record", appPath: `/workflows/${encodeURIComponent(event.event_id)}`, tone: "info" });
-  if (linkPresent(links, "action_center")) out.push({ key: "action_center", label: "action center", appPath: "/action-center", tone: "info" });
-  if (linkPresent(links, "adherence")) out.push({ key: "adherence", label: "adherence", appPath: "/protocol-adherence", tone: "warn" });
-  if (linkPresent(links, "audit")) out.push({ key: "audit", label: "audit", appPath: "/operations/audit", tone: "mut" });
+  const link = (key: string, appPath: string) => ({
+    key,
+    label: optionLabel(pageContract, "calendar_links", key),
+    appPath,
+    tone: optionTone(pageContract, "calendar_links", key) as Tone,
+  });
+  if (linkPresent(links, "vaccination")) out.push(link("vaccination", "/vaccination"));
+  if (linkPresent(links, "drive") && event.shed_id) out.push(link("drive", `/vaccination/execution/sheds/${encodeURIComponent(event.shed_id)}`));
+  if (linkPresent(links, "workflow")) out.push(link("workflow", `/workflows/${encodeURIComponent(event.event_id)}`));
+  if (linkPresent(links, "action_center")) out.push(link("action_center", "/action-center"));
+  if (linkPresent(links, "adherence")) out.push(link("adherence", "/protocol-adherence"));
+  if (linkPresent(links, "audit")) out.push(link("audit", "/operations/audit"));
   return out;
 }
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info, Plus } from "lucide-react";
+import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref, type Scope } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
@@ -13,7 +14,6 @@ import {
   ownerScopeLabel,
   presentationQueryToSearch,
   rowReminderBadge,
-  statusMeta,
   type CalendarEvent,
   type CalendarOwnerFilter,
   type CalendarOwnerPresentationTab,
@@ -23,34 +23,8 @@ import {
 } from "./calendar-contract";
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
-import { CalendarBackButton } from "./calendar-back";
-
-type CalendarOriginCrumb = { label: string; href: string; params?: Record<string, string | undefined> };
-
-// Optional origin trail: a linking screen can pass ?from=<key> so the breadcrumb shows where Calendar was
-// opened from. Direct sidebar nav omits `from`, so the row shows only Back + Calendar. The crumb is a hint,
-// not the back mechanism; the Back button still uses real browser history.
-const FROM_MAP: Record<string, CalendarOriginCrumb[]> = {
-  "control-tower": [{ label: "Control Tower", href: "/" }],
-  "action-center": [{ label: "Action Center", href: "/action-center" }],
-  workflows: [{ label: "Workflows", href: "/workflows" }],
-  "protocol-adherence": [{ label: "Protocol Adherence", href: "/protocol-adherence" }],
-  vaccination: [{ label: "Vaccination", href: "/vaccination" }],
-  "medicines-vaccines": [
-    { label: "Control Tower", href: "/" },
-    { label: "Calendar", href: "/calendar" },
-    { label: "Medicines & vaccines", href: "/calendar", params: { owner_key: "inventory" } },
-  ],
-  "inventory-medicines-vaccines": [
-    { label: "Control Tower", href: "/" },
-    { label: "Calendar", href: "/calendar" },
-    { label: "Medicines & vaccines", href: "/calendar", params: { owner_key: "inventory" } },
-  ],
-};
 
 const PATH = "/calendar";
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // IST weekday short name for an arbitrary event instant (for the day filter).
 function weekdayOf(iso: string): string {
@@ -87,16 +61,16 @@ function dateKey(iso: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(d);
 }
 
-function dateHeading(key: string, today: string): string {
+function dateHeading(key: string, today: string, pageContract: AdminUiPageContract): string {
   const d = new Date(`${key}T00:00:00+05:30`);
   if (Number.isNaN(d.getTime())) return key;
-  const wd = WEEKDAYS[d.getDay()].toUpperCase();
-  if (key === today) return `${wd} · TODAY`;
-  return `${wd} · ${MONTHS[d.getMonth()].slice(0, 3).toUpperCase()} ${d.getDate()}`;
+  const wd = optionLabel(pageContract, "calendar_weekdays", String(d.getDay())).toUpperCase();
+  if (key === today) return `${wd} · ${copy(pageContract, "label.today")}`;
+  return `${wd} · ${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3).toUpperCase()} ${d.getDate()}`;
 }
 
-function EventRow({ event, href, ownerMeta }: { event: CalendarEvent; href: string; ownerMeta: OwnerPresentationMap }) {
-  const meta = [statusMeta(event.status).label, event.subtitle, event.park_code, event.shed_name, ownerLabel(event.owner_key, ownerMeta)]
+function EventRow({ event, href, ownerMeta, pageContract }: { event: CalendarEvent; href: string; ownerMeta: OwnerPresentationMap; pageContract: AdminUiPageContract }) {
+  const meta = [optionLabel(pageContract, "calendar_status", event.status), event.subtitle, event.park_code, event.shed_name, ownerLabel(event.owner_key, ownerMeta)]
     .filter(Boolean)
     .join(" · ");
   const badge = rowReminderBadge(event);
@@ -112,7 +86,13 @@ function EventRow({ event, href, ownerMeta }: { event: CalendarEvent; href: stri
   );
 }
 
-export async function VaccinationCalendarPage({ searchParams }: { searchParams?: RouteSearchParams }) {
+export async function VaccinationCalendarPage({
+  searchParams,
+  pageContract,
+}: {
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
@@ -121,10 +101,8 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
   const selectedEventId = one(sp, "event");
   const today = istToday();
   const dayFilter = one(sp, "day") || undefined;
-  const fromKey = one(sp, "from");
-  const originTrail = fromKey ? FROM_MAP[fromKey] : undefined;
   const actionStatus = one(sp, "action_status");
-  const actionMessage = one(sp, "action_message");
+  const actionKey = one(sp, "action_key");
 
   // Bound the list window to what the view actually renders. Month view must fetch the WHOLE anchor month
   // (else early/late days render empty); week view fetches from the as-of date and lets the backend default
@@ -138,7 +116,10 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
   ]);
 
   const events = list.ok ? list.data.items : [];
-  const presentation = list.ok && list.data.presentation ? list.data.presentation : fallbackCalendarPresentation(requestedOwnerKey);
+  if (list.ok && !list.data.presentation) {
+    throw new Error(copy(pageContract, "error.presentation_missing"));
+  }
+  const presentation = list.ok && list.data.presentation ? list.data.presentation : fallbackCalendarPresentation(pageContract, requestedOwnerKey);
   const ownerMeta = ownerMetaFromPresentation(presentation);
   const activeOwnerKey = presentation.active_owner_key as CalendarOwnerFilter;
 
@@ -153,31 +134,12 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
 
   return (
     <div className="screen on">
-      <div className="navback">
-        <CalendarBackButton />
-        {originTrail ? (
-          <div className="nbtrail">
-            {originTrail.map((crumb, index) => (
-              <span key={`${crumb.label}:${index}`} style={{ display: "contents" }}>
-                {index > 0 ? <ChevronRight className="ic nbsep" aria-hidden="true" /> : null}
-                <Link href={scopeHref(crumb.href, scope, {}, crumb.params ?? {})} className="nbc">
-                  {crumb.label}
-                </Link>
-              </span>
-            ))}
-            <ChevronRight className="ic nbsep" aria-hidden="true" />
-            <span className="nbc cur">{presentation.page_title}</span>
-          </div>
-        ) : (
-          <span className="nbtitle">{presentation.page_title}</span>
-        )}
-      </div>
-      <div className="phead">
-        <div>
-          <h1>{presentation.page_title}</h1>
-          <div className="sub">{presentation.page_subtitle}</div>
-        </div>
-      </div>
+	      <div className="phead">
+	        <div>
+	          <h1>{pageContract.title || presentation.page_title}</h1>
+	          <div className="sub">{pageContract.subtitle || presentation.page_subtitle}</div>
+	        </div>
+	      </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         <div className="subtabs" style={{ margin: 0 }}>
@@ -201,7 +163,7 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
         </button>
       </div>
 
-      <div className="subtabs" style={{ margin: "0 0 6px" }} aria-label="Owner">
+	      <div className="subtabs" style={{ margin: "0 0 6px" }} aria-label={copy(pageContract, "filter.owner.aria")}>
         {presentation.owner_tabs.map((tab) => (
           <Link
             key={tab.key}
@@ -217,7 +179,7 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
         ))}
       </div>
 
-      <div className="subtabs" style={{ margin: "0 0 14px" }} aria-label="Calendar workstream">
+	      <div className="subtabs" style={{ margin: "0 0 14px" }} aria-label={copy(pageContract, "filter.workstream.aria")}>
         {presentation.workstream_tabs.map((tab) =>
           tab.enabled && !tab.active ? (
             <Link key={tab.key} href={hrefForTab(tab)} replace scroll={false} title={tab.disabled_reason || undefined}>
@@ -263,13 +225,13 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
 
       {actionStatus ? (
         actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 14 }}>
-            <Tag tone="ok">done</Tag> {actionMessage ?? "Action completed."}
-          </div>
-        ) : (
-          <div className="alert" style={{ marginBottom: 14 }}>
-            <b>Action failed</b>&nbsp;{actionMessage ?? actionStatus}
-          </div>
+	          <div className="note" style={{ marginBottom: 14 }}>
+	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+	          </div>
+	        ) : (
+	          <div className="alert" style={{ marginBottom: 14 }}>
+	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+	          </div>
         )
       ) : null}
 
@@ -287,7 +249,7 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
       {events.length === 0 ? (
         <EmptyState scope={scope} ok={list.ok} presentation={presentation} />
       ) : view === "month" ? (
-        <MonthView events={events} asOf={asOf} today={today} eventHref={eventHref} ownerKey={activeOwnerKey} presentation={presentation} ownerMeta={ownerMeta} />
+        <MonthView events={events} asOf={asOf} today={today} eventHref={eventHref} ownerKey={activeOwnerKey} presentation={presentation} ownerMeta={ownerMeta} pageContract={pageContract} />
       ) : (
         <WeekView
           events={events}
@@ -299,10 +261,11 @@ export async function VaccinationCalendarPage({ searchParams }: { searchParams?:
           clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined })}
           dayFilter={dayFilter}
           clearDayHref={hrefWith({ day: undefined, event: undefined })}
+          pageContract={pageContract}
         />
       )}
 
-      {sel ? <CalendarEventDrawer detail={sel} closeHref={closeHref} returnTo={hrefWithoutAction(PATH, sp)} scope={scope} presentation={presentation} ownerMeta={ownerMeta} /> : null}
+      {sel ? <CalendarEventDrawer detail={sel} closeHref={closeHref} returnTo={hrefWithoutAction(PATH, sp)} scope={scope} presentation={presentation} ownerMeta={ownerMeta} pageContract={pageContract} /> : null}
     </div>
   );
 }
@@ -318,6 +281,7 @@ function WeekView({
   clearOwnerHref,
   dayFilter,
   clearDayHref,
+  pageContract,
 }: {
   events: CalendarEvent[];
   today: string;
@@ -328,6 +292,7 @@ function WeekView({
   clearOwnerHref: string;
   dayFilter?: string;
   clearDayHref: string;
+  pageContract: AdminUiPageContract;
 }) {
   // Rhythm day filter: when a weekday is selected, show only that weekday's due work.
   const scoped = dayFilter ? events.filter((e) => weekdayOf(e.due_at) === dayFilter) : events;
@@ -352,7 +317,7 @@ function WeekView({
           <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
           {dayFilter ? <Tag tone="info">{dayFilter}</Tag> : null}
           <div className="sp" style={{ flex: 1 }} />
-          <span className="legend" aria-label={ownerKey === "all" ? "All owner lanes" : `${selectedOwnerLabel} lane`}>
+          <span className="legend" aria-label={ownerKey === "all" ? copy(pageContract, "week.legend.all_owner_lanes") : `${selectedOwnerLabel} ${copy(pageContract, "week.legend.lane_suffix")}`}>
             {legendOwners.map((owner) => (
               <span key={owner.key}>
                 <span className="sw" style={{ background: owner.color }} /> {owner.label}
@@ -365,7 +330,7 @@ function WeekView({
             <div className="fchipsbar calband">
               {presentation.week.scope_only_message || (
                 <>
-                  Showing <b>{selectedOwnerLabel}</b> work only.
+                  {copy(pageContract, "week.showing_prefix")} <b>{selectedOwnerLabel}</b> {copy(pageContract, "week.work_only_suffix")}
                 </>
               )}
               <Link href={clearOwnerHref} replace scroll={false} className="lenslink">
@@ -376,7 +341,7 @@ function WeekView({
           <div className="fchipsbar calband">
             {dayFilter ? (
               <>
-                Showing <b>{dayFilter}</b> only.
+                {copy(pageContract, "week.showing_prefix")} <b>{dayFilter}</b> {copy(pageContract, "week.only_suffix")}
                 <Link href={clearDayHref} replace scroll={false} className="lenslink">
                   ↺ {presentation.week.clear_day_label}
                 </Link>
@@ -385,7 +350,7 @@ function WeekView({
               <>
                 {presentation.week.whole_period_message || (
                   <>
-                    Showing <b>whole week</b>.
+                    {copy(pageContract, "week.showing_prefix")} <b>{copy(pageContract, "week.whole_week")}</b>.
                   </>
                 )}
                 <span className="lenslink mutedlink" aria-disabled="true">
@@ -398,14 +363,14 @@ function WeekView({
             {byDate.size === 0 ? (
               <p className="muted small" style={{ margin: "4px 2px" }}>
                 {presentation.week.empty_message}
-                {dayFilter ? ` on ${dayFilter}` : ""} in this scope.
+                {dayFilter ? ` ${copy(pageContract, "week.empty_day_prefix")} ${dayFilter}` : ""} {copy(pageContract, "week.empty_scope_suffix")}
               </p>
             ) : (
               Array.from(byDate.entries()).map(([key, rows]) => (
                 <div key={key}>
-                  <div className="dh">{dateHeading(key, today)}</div>
+                  <div className="dh">{dateHeading(key, today, pageContract)}</div>
                   {rows.map((e) => (
-                    <EventRow key={e.event_id} event={e} href={eventHref(e.event_id)} ownerMeta={ownerMeta} />
+                    <EventRow key={e.event_id} event={e} href={eventHref(e.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
                   ))}
                 </div>
               ))
@@ -435,20 +400,20 @@ function WeekView({
                   <div className="mt">{[ownerLabel(e.owner_key, ownerMeta), e.park_code, e.shed_name].filter(Boolean).join(" · ")}</div>
                   <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
                     <span className="tag t-info" style={{ fontSize: 10 }}>
-                      {e.primary_notification_channel || "channel not configured"}
+                      {e.primary_notification_channel || copy(pageContract, "label.not_configured")}
                     </span>
                     {e.escalation_state === "pending" || e.escalation_state === "escalated" ? (
-                      <span className="tag t-dng" style={{ fontSize: 10 }}>
-                        {e.escalation_state === "pending" ? "escalation" : "escalated"}
+                      <span className={`tag t-${optionTone(pageContract, "calendar_escalation_state", e.escalation_state)}`} style={{ fontSize: 10 }}>
+                        {optionLabel(pageContract, "calendar_escalation_state", e.escalation_state)}
                       </span>
                     ) : null}
                     {e.reminder_state === "snoozed" ? (
-                      <span className="tag t-pur" style={{ fontSize: 10 }}>
-                        snoozed
+                      <span className={`tag t-${optionTone(pageContract, "calendar_reminder_state", e.reminder_state)}`} style={{ fontSize: 10 }}>
+                        {optionLabel(pageContract, "calendar_reminder_state", e.reminder_state)}
                       </span>
                     ) : e.reminder_state === "nudged" ? (
-                      <span className="tag t-info" style={{ fontSize: 10 }}>
-                        nudged
+                      <span className={`tag t-${optionTone(pageContract, "calendar_reminder_state", e.reminder_state)}`} style={{ fontSize: 10 }}>
+                        {optionLabel(pageContract, "calendar_reminder_state", e.reminder_state)}
                       </span>
                     ) : null}
                   </div>
@@ -474,6 +439,7 @@ function MonthView({
   ownerKey,
   presentation,
   ownerMeta,
+  pageContract,
 }: {
   events: CalendarEvent[];
   asOf?: string;
@@ -482,12 +448,14 @@ function MonthView({
   ownerKey: CalendarOwnerFilter;
   presentation: CalendarPresentation;
   ownerMeta: OwnerPresentationMap;
+  pageContract: AdminUiPageContract;
 }) {
   const anchorKey = asOf ? asOf.slice(0, 10) : today;
   const anchor = new Date(`${anchorKey}T00:00:00+05:30`);
   const year = Number.isNaN(anchor.getTime()) ? Number(today.slice(0, 4)) : anchor.getFullYear();
   const month = Number.isNaN(anchor.getTime()) ? Number(today.slice(5, 7)) - 1 : anchor.getMonth();
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
+  const weekdays = optionGroup(pageContract, "calendar_weekdays");
 
   const byDate = new Map<string, CalendarEvent[]>();
   for (const e of events) {
@@ -509,7 +477,7 @@ function MonthView({
     <div className="card" style={{ marginBottom: 16 }}>
       <div className="hd">
         <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <h3>{`${MONTHS[month]} ${year}`}</h3>
+        <h3>{`${optionLabel(pageContract, "calendar_months", String(month))} ${year}`}</h3>
         <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
         <div className="sp" style={{ flex: 1 }} />
         <span className="muted small">
@@ -520,9 +488,9 @@ function MonthView({
       </div>
       <div className="bd">
         <div className="mcal">
-          {WEEKDAYS.map((d) => (
-            <div key={d} className="mh">
-              {d}
+          {weekdays.map((d) => (
+            <div key={d.key} className="mh">
+              {d.label}
             </div>
           ))}
           {cells.map((cell, i) => {
@@ -539,14 +507,14 @@ function MonthView({
                     scroll={false}
                     className="mev"
                     style={{ background: `color-mix(in srgb, ${ownerColor(e.owner_key, ownerMeta)} 16%, var(--panel))`, borderLeftColor: ownerColor(e.owner_key, ownerMeta) }}
-                    title={`${e.title} · ${statusMeta(e.status).label}`}
+                    title={`${e.title} · ${optionLabel(pageContract, "calendar_status", e.status)}`}
                   >
                     {eventTypeMeta(e.event_type, presentation).label}
                   </Link>
                 ))}
                 {dayEvents.length > 3 ? (
                   <div className="muted" style={{ fontSize: 9 }}>
-                    +{dayEvents.length - 3} more
+                    +{dayEvents.length - 3} {copy(pageContract, "label.more")}
                   </div>
                 ) : null}
               </div>

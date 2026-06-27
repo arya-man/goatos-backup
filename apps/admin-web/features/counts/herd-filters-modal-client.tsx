@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { useState } from "react";
 import { HerdFiltersModal } from "./herd-filters-modal";
 import type { RouteSearchParams } from "@/lib/search-params";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // Filters button + modal. Reads the LIVE URL via useSearchParams (not a server-render snapshot) so the
 // modal's initial chip state and preserved scope always reflect the current address bar, even after a
@@ -12,11 +13,15 @@ import type { RouteSearchParams } from "@/lib/search-params";
 export function HerdFiltersModalClient({
   rowCount,
   pageSize,
+  pageSizeOptions,
   hasFilters,
+  pageContract,
 }: {
   rowCount?: number;
   pageSize?: number;
+  pageSizeOptions: number[];
   hasFilters?: boolean;
+  pageContract: AdminUiPageContract;
 }) {
   const router = useRouter();
   const routerSearchParams = useSearchParams();
@@ -62,26 +67,26 @@ export function HerdFiltersModalClient({
       <div className="tbar" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }}>
         <form onSubmit={onSearch} className="tsearch" style={{ margin: 0, minWidth: 260, flex: "1 1 280px" }}>
           <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-          <input name="q" defaultValue={searchValue} placeholder="Search rows..." aria-label="Search herd rows" />
+          <input name="q" defaultValue={searchValue} placeholder={copy(pageContract, "filter.toolbar_placeholder")} aria-label={copy(pageContract, "filter.toolbar_aria")} />
         </form>
         <button type="button" className="btn" onClick={() => setIsOpen(true)}>
           <Search className="ic" style={{ width: 14 }} aria-hidden="true" />
-          Filters
+          {copy(pageContract, "action.filters")}
           {hasFilters ? (
             <span className="fbadge" style={{ color: "var(--brand-d)", fontWeight: 700 }}>
-              on
+              {copy(pageContract, "filter.active_badge")}
             </span>
           ) : null}
         </button>
-        <span className="muted small">{rowCount ?? 0} rows</span>
-        <select className="tsize" value={pageSize ?? 10} onChange={onPageSize} aria-label="Rows per page">
-          <option value="10">10 / page</option>
-          <option value="25">25 / page</option>
-          <option value="50">50 / page</option>
+        <span className="muted small">{rowCount ?? 0} {copy(pageContract, "label.rows")}</span>
+        <select className="tsize" value={pageSize ?? pageSizeOptions[0]} onChange={onPageSize} aria-label={copy(pageContract, "filter.rows_per_page_aria")}>
+          {pageSizeOptions.map((size) => (
+            <option key={size} value={size}>{size} / {copy(pageContract, "pager.page")}</option>
+          ))}
         </select>
       </div>
 
-      <HerdFiltersModal open={isOpen} searchParams={params} onClose={() => setIsOpen(false)} />
+      <HerdFiltersModal open={isOpen} pageContract={pageContract} searchParams={params} onClose={() => setIsOpen(false)} />
     </>
   );
 }

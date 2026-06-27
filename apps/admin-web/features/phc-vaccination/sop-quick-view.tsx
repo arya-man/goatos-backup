@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, BookOpen, Check, Clock, Video, X } from "lucide-react";
 import type { SopCardView } from "@/features/sops";
-import { VACCINATION_DRIVE_SOP_STEPS } from "@/features/phc-vaccination/vaccination-sop-steps";
+import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 export interface VaccinationSopQuickViewProps {
   // The linked vaccination SOP, derived on the server from the real /admin/sops data. error/authRequired
@@ -12,6 +12,7 @@ export interface VaccinationSopQuickViewProps {
   view: SopCardView | null;
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
+  pageContract: AdminUiPageContract;
 }
 
 // The vaccination drive SOP step flow is the single shared source (also used by the Action Center
@@ -23,7 +24,7 @@ const DRIVE_PREVIEW_DONE = 1;
 // PHC · Vaccination header "SOP" CTA. Opens a compact, mock-faithful Vaccination Drive SOP quick-view in a
 // modal WITHOUT leaving /vaccination (local state, no navigation). The full library / versioning / authoring
 // lives at /sops, reached via the secondary "Open in SOP Library" link — this is the in-context preview.
-export function VaccinationSopButton({ view, error, authRequired }: VaccinationSopQuickViewProps) {
+export function VaccinationSopButton({ view, error, authRequired, pageContract }: VaccinationSopQuickViewProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -45,14 +46,14 @@ export function VaccinationSopButton({ view, error, authRequired }: VaccinationS
       <button
         type="button"
         className="btn"
-        title="Vaccination SOP policy"
+        title={copy(pageContract, "drawer.sop.button_title")}
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >
-        <BookOpen className="ic" aria-hidden="true" /> SOP
+        <BookOpen className="ic" aria-hidden="true" /> {copy(pageContract, "drawer.sop.button")}
       </button>
       {open ? (
-        <VaccinationSopModal view={view} error={error} authRequired={authRequired} onClose={() => setOpen(false)} />
+        <VaccinationSopModal view={view} error={error} authRequired={authRequired} pageContract={pageContract} onClose={() => setOpen(false)} />
       ) : null}
     </>
   );
@@ -62,13 +63,16 @@ function VaccinationSopModal({
   view,
   error,
   authRequired,
+  pageContract,
   onClose,
 }: {
   view: SopCardView | null;
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
+  pageContract: AdminUiPageContract;
   onClose: () => void;
 }) {
+  const steps = optionGroup(pageContract, "vaccination_drive_sop_steps");
   // .cmh / .cmb flex+grid are scoped to .cfgmodal in the theme, so this compact .modal lays out its own
   // header/body explicitly — otherwise the close button stacks under the title.
   return (
@@ -79,7 +83,7 @@ function VaccinationSopModal({
         style={{ width: "min(480px,94vw)" }}
         role="dialog"
         aria-modal="true"
-        aria-label="Vaccination Drive SOP"
+        aria-label={copy(pageContract, "drawer.sop.aria")}
       >
         <div
           style={{
@@ -98,15 +102,15 @@ function VaccinationSopModal({
           </span>
           <div style={{ minWidth: 0 }}>
             <div className="mono muted" style={{ fontSize: 11 }}>
-              PHC · VACCINATION
+              {copy(pageContract, "drawer.sop.eyebrow")}
             </div>
-            <div className="b700">Vaccination Drive SOP</div>
+            <div className="b700">{copy(pageContract, "drawer.sop.title")}</div>
           </div>
           <div className="sp" style={{ flex: 1 }} />
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={copy(pageContract, "action.close")}
             style={{
               cursor: "pointer",
               color: "var(--muted)",
@@ -128,42 +132,40 @@ function VaccinationSopModal({
           {authRequired ? (
             <div className="alert" style={{ margin: 0 }}>
               <AlertTriangle className="ic" aria-hidden="true" />
-              <div>Couldn’t load the vaccination SOP — sign in with Google to load it (the SOP engine is tenant-scoped).</div>
+              <div>{copy(pageContract, "drawer.sop.auth_error")}</div>
             </div>
           ) : error ? (
             <div className="alert" style={{ margin: 0 }}>
               <AlertTriangle className="ic" aria-hidden="true" />
               <div>
-                Couldn’t load the vaccination SOP.{error.code ? <> <b>{error.code}</b></> : null} {error.message}
+                {copy(pageContract, "drawer.sop.error_prefix")}{error.code ? <> <b>{error.code}</b></> : null} {error.message}
               </div>
             </div>
           ) : (
             <>
               {view === null ? (
                 <div className="note" style={{ marginBottom: 14 }}>
-                  No vaccination SOP is authored yet — the steps below are the standard drive flow. Author one in the
-                  SOP Library to attach proof gates and versioning.
+                  {copy(pageContract, "drawer.sop.empty")}
                 </div>
               ) : null}
               <div className="note" style={{ marginBottom: 14 }}>
-                <Clock className="ic" style={{ width: 14, verticalAlign: -2 }} aria-hidden="true" /> Per protocol window ·
-                booster intervals tracked
+                <Clock className="ic" style={{ width: 14, verticalAlign: -2 }} aria-hidden="true" /> {copy(pageContract, "drawer.sop.window_note")}
               </div>
 
               <div className="stepper">
-                {VACCINATION_DRIVE_SOP_STEPS.map((s, i) => (
-                  <div className={`step${i < DRIVE_PREVIEW_DONE ? " done" : ""}${i === DRIVE_PREVIEW_DONE ? " cur" : ""}`} key={s.title}>
+                {steps.map((s, i) => (
+                  <div className={`step${i < DRIVE_PREVIEW_DONE ? " done" : ""}${i === DRIVE_PREVIEW_DONE ? " cur" : ""}`} key={s.key}>
                     <div className="ln" />
                     <div className="no">
                       {i < DRIVE_PREVIEW_DONE ? <Check className="ic" style={{ width: 14, strokeWidth: 2.4 }} aria-hidden="true" /> : i + 1}
                     </div>
                     <div className="ct">
-                      <b>{s.title}</b>
-                      <div className="d">{s.detail}</div>
-                      {s.videoProof ? (
+                      <b>{s.label}</b>
+                      <div className="d">{s.title}</div>
+                      {s.tone === "pur" ? (
                         <div className="vp">
                           <span className="tag t-pur">
-                            <Video className="ic" style={{ width: 12 }} aria-hidden="true" /> video proof required
+                            <Video className="ic" style={{ width: 12 }} aria-hidden="true" /> {copy(pageContract, "drawer.sop.video_proof_required")}
                           </span>
                         </div>
                       ) : null}
@@ -177,11 +179,11 @@ function VaccinationSopModal({
 
         <div className="cfgmf">
           <button type="button" className="btn" onClick={onClose}>
-            Close
+            {copy(pageContract, "action.close")}
           </button>
           <div className="sp" style={{ flex: 1 }} />
-          <Link href="/sops" className="lk" title="Versions, change history, and authoring live in the SOP Library">
-            Open in SOP Library
+          <Link href="/sops" className="lk" title={copy(pageContract, "drawer.sop.library_title")}>
+            {copy(pageContract, "action.open_in_sop_library")}
           </Link>
         </div>
       </div>

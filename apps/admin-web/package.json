@@ -15,7 +15,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check:ia-guard": "node scripts/check-ia-guard.mjs",
-    "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-mock-fidelity.mjs"
+    "check:ui-contract": "node scripts/check-ui-contract-literals.mjs",
+    "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-ui-contract-literals.mjs && node scripts/check-mock-fidelity.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.5.0",

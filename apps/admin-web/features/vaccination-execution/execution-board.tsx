@@ -9,21 +9,30 @@ import type {
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import {
-  PROOF_META,
-  SEVERITY_META,
   SEVERITY_ORDER,
   SEVERITY_RANK,
-  SOP_META,
-  VERIFICATION_META,
-  WORK_STATE_META,
   WORK_STATE_ORDER,
 } from "./work-state";
-import { Tag } from "@/components/ui-primitives";
+import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
-import { VaccinationFilterButton, VisibleTableSearch } from "@/features/phc-vaccination/vaccination-filter-modal";
-import { VaccinationRecordFormFields } from "@/features/phc-vaccination/record-verify-drawer";
-import { vaccinationDriveDisplayName } from "@/features/phc-vaccination/vaccine-display";
-import { VaccinationTablePager } from "@/features/phc-vaccination/table-pager";
+import {
+  copy,
+  optionGroup,
+  optionLabel,
+  optionTone,
+  tableLabels,
+  tablePageSizes,
+  type AdminUiPageContract,
+} from "@/lib/admin-ui-contract";
+import {
+  VaccinationFilterButton,
+  VisibleTableSearch,
+  VaccinationRecordFormFields,
+  vaccinationDriveDisplayName,
+  paginateRows,
+  VaccinationTablePager,
+  type VaccinationPageSize,
+} from "@/features/phc-vaccination";
 import { ShedEventActions } from "./shed-event-actions";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
@@ -56,7 +65,7 @@ function groupByPark(rows: VaccinationExecutionRow[]): ParkGroup[] {
 }
 
 // Owner chain: operator (ground) -> park head -> verifier (Video Verification Team).
-function OwnerChain({ row }: { row: VaccinationExecutionRow }) {
+function OwnerChain({ row, pageContract }: { row: VaccinationExecutionRow; pageContract: AdminUiPageContract }) {
   const o = row.owner;
   const operatorMissing = !o?.operatorName;
   return (
@@ -64,30 +73,30 @@ function OwnerChain({ row }: { row: VaccinationExecutionRow }) {
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <UserRound className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
         {operatorMissing ? (
-          <Tag tone="dng" title="No operator assigned to this shed drive">operator: unassigned</Tag>
+          <Tag tone="dng" title={copy(pageContract, "reason.no_operator")}>{copy(pageContract, "label.operator_unassigned")}</Tag>
         ) : (
           <span className="small">{o?.operatorName}</span>
         )}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <MapPin className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-        <span className="small muted">{o?.parkHeadName ?? "park head: unassigned"}</span>
+        <span className="small muted">{o?.parkHeadName ?? copy(pageContract, "label.park_head_unassigned")}</span>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <ShieldCheck className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-        <span className="small muted">{o?.verifierName ?? "Video Verification Team"}</span>
+        <span className="small muted">{o?.verifierName ?? copy(pageContract, "label.verifier_default")}</span>
       </div>
     </div>
   );
 }
 
-function StatusChips({ row }: { row: VaccinationExecutionRow }) {
+function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; pageContract: AdminUiPageContract }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {row.sopStatus ? <Tag tone={SOP_META[row.sopStatus].tone}>{SOP_META[row.sopStatus].label}</Tag> : null}
-      {row.proofStatus ? <Tag tone={PROOF_META[row.proofStatus].tone}>{PROOF_META[row.proofStatus].label}</Tag> : null}
+      {row.sopStatus ? <Tag tone={optionTone(pageContract, "sop_state_chips", row.sopStatus) as Tone}>{optionLabel(pageContract, "sop_state_chips", row.sopStatus)}</Tag> : null}
+      {row.proofStatus ? <Tag tone={optionTone(pageContract, "proof_state_chips", row.proofStatus) as Tone}>{optionLabel(pageContract, "proof_state_chips", row.proofStatus)}</Tag> : null}
       {row.verificationStatus ? (
-        <Tag tone={VERIFICATION_META[row.verificationStatus].tone}>{VERIFICATION_META[row.verificationStatus].label}</Tag>
+        <Tag tone={optionTone(pageContract, "verification_state_chips", row.verificationStatus) as Tone}>{optionLabel(pageContract, "verification_state_chips", row.verificationStatus)}</Tag>
       ) : null}
     </div>
   );
@@ -99,38 +108,49 @@ function executionDriveLabel(row: VaccinationExecutionRow): string {
   return vaccinationDriveDisplayName(row.driveName);
 }
 
-function executionActionTitle(row: VaccinationExecutionRow): string {
-  if (row.workState === "owner_missing") return `Assign owner chain — ${row.shedName}`;
-  if (row.proofStatus === "missing") return `Capture vaccination proof — ${row.shedName}`;
-  if (row.verificationStatus === "pending") return `Verify vaccination proof — ${row.shedName}`;
-  if (row.workState === "overdue") return `${executionDriveLabel(row)} overdue — ${row.shedName}`;
+function executionActionTitle(pageContract: AdminUiPageContract, row: VaccinationExecutionRow): string {
+  if (row.workState === "owner_missing") return `${copy(pageContract, "action.assign_owner_chain")} — ${row.shedName}`;
+  if (row.proofStatus === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${row.shedName}`;
+  if (row.verificationStatus === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${row.shedName}`;
+  if (row.workState === "overdue") return `${executionDriveLabel(row)} ${copy(pageContract, "label.overdue")} — ${row.shedName}`;
   return `${executionDriveLabel(row)} — ${row.shedName}`;
 }
 
-function ExecutionRow({ row, drawerHref }: { row: VaccinationExecutionRow; drawerHref: string }) {
-  const meta = WORK_STATE_META[row.workState];
+function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract; labels: string[] }) {
   const driveLabel = executionDriveLabel(row);
   return (
-    <Link href={drawerHref} scroll={false} className="pexr" aria-label={`Open vaccination shed event for ${row.shedName}`}>
+    <Link
+      href={drawerHref}
+      scroll={false}
+      className="pexr"
+      aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${row.shedName}`}
+      title={`${row.shedName} · ${driveLabel} · ${row.nextAction}`}
+    >
       <div className="pexc">
-        <div className="pexc-h">Shed · stage</div>
+        <div className="pexc-h">{labels[0]}</div>
         <span className="lk small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <Warehouse className="ic" style={{ width: 14 }} aria-hidden="true" />
-          {row.shedName}
+          <ClipText title={row.shedName} className="inline">
+            {row.shedName}
+          </ClipText>
         </span>
-        <div className="muted small" style={{ marginTop: 2 }}>{row.animalStage}</div>
+        <ClipText title={row.animalStage} className="muted small" style={{ marginTop: 2 }}>
+          {row.animalStage}
+        </ClipText>
       </div>
       <div className="pexc">
-        <div className="pexc-h">Drive · due</div>
+        <div className="pexc-h">{labels[1]}</div>
         <span className="small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <Syringe className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-          {driveLabel}
+          <ClipText title={driveLabel} className="inline">
+            {driveLabel}
+          </ClipText>
         </span>
-        <div className="muted small" style={{ marginTop: 2 }}>due {fmtDate(row.dueDate)}</div>
+        <div className="muted small" style={{ marginTop: 2 }}>{copy(pageContract, "label.due_prefix")} {fmtDate(row.dueDate)}</div>
       </div>
       <div className="pexc">
-        <div className="pexc-h">Work state</div>
-        <Tag tone={meta.tone}>{meta.label}</Tag>
+        <div className="pexc-h">{labels[2]}</div>
+        <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
         {row.blockerReason ? (
           <div
             className="small"
@@ -146,20 +166,20 @@ function ExecutionRow({ row, drawerHref }: { row: VaccinationExecutionRow; drawe
         ) : null}
       </div>
       <div className="pexc">
-        <div className="pexc-h">Owner chain</div>
-        <OwnerChain row={row} />
+        <div className="pexc-h">{labels[3]}</div>
+        <OwnerChain row={row} pageContract={pageContract} />
       </div>
       <div className="pexc">
-        <div className="pexc-h">SOP · proof · verify</div>
-        <StatusChips row={row} />
+        <div className="pexc-h">{labels[4]}</div>
+        <StatusChips row={row} pageContract={pageContract} />
       </div>
       <div className="pexc">
-        <div className="pexc-h">Next action</div>
+        <div className="pexc-h">{labels[5]}</div>
         {/* Backend-suggested next step — a HINT, not a wired button. The row itself opens the drawer; owner
             assignment isn't actionable yet, so this must not masquerade as a CTA button. Plain muted text. */}
-        <span className="small muted" style={{ display: "block", maxWidth: 240, lineHeight: 1.3 }}>
+        <ClipText title={row.nextAction} className="small muted" style={{ display: "block", maxWidth: 240, lineHeight: 1.3 }}>
           {row.nextAction}
-        </span>
+        </ClipText>
       </div>
     </Link>
   );
@@ -173,11 +193,13 @@ export async function VaccinationExecutionBoard({
   searchParams,
   basePath = "/vaccination",
   baseParams = {},
+  pageContract,
 }: {
   searchParams?: RouteSearchParams;
   basePath?: string;
   // Query params always kept on filter/reset links (e.g. {section:"execution"}) so the embedding tab stays selected.
   baseParams?: Record<string, string>;
+  pageContract: AdminUiPageContract;
 }) {
   const sp = searchParams ?? {};
   const stateFilter = (WORK_STATE_ORDER.find((s) => s === one(sp, "state")) ?? "all") as VaccinationExecutionWorkState | "all";
@@ -204,7 +226,10 @@ export async function VaccinationExecutionBoard({
     sevCounts.set(r.severity, (sevCounts.get(r.severity) ?? 0) + 1);
   }
 
-  const parks = groupByPark(rows);
+  const labels = tableLabels(pageContract, "shed-events");
+  const pageSizeOptions = tablePageSizes(pageContract, "shed-events");
+  const paged = paginateRows(rows, sp, "exec", 10, pageSizeOptions);
+  const parks = groupByPark(paged.items);
   const selectedEventId = one(sp, "shed_event");
   const selectedEvent = selectedEventId ? rows.find((row) => shedEventId(row) === selectedEventId) : undefined;
 
@@ -219,13 +244,27 @@ export async function VaccinationExecutionBoard({
   // Filter hrefs preserve the FULL top-bar scope (scopeHref) + the page severity/state filters + any
   // embedding params — never hand-rolled, so park/range/as_of/date_from/date_to are never dropped.
   function hrefWith(overrides: Record<string, string | undefined>): string {
-    return scopeHref(basePath, scope, {}, { ...baseParams, severity: severityFilter, state: stateFilter, ...overrides });
+    return scopeHref(basePath, scope, {}, {
+      ...baseParams,
+      severity: severityFilter,
+      state: stateFilter,
+      exec_page: String(paged.page),
+      exec_limit: String(paged.pageSize),
+      ...overrides,
+    });
   }
   // Reset clears the page filters but keeps the full top-bar scope + embedding params.
-  const resetHref = scopeHref(basePath, scope, {}, baseParams);
+  const resetHref = scopeHref(basePath, scope, {}, { ...baseParams, exec_page: "1", exec_limit: String(paged.pageSize) });
+  function pagerHref(page: number): string {
+    return hrefWith({ exec_page: String(page) });
+  }
+  function pageSizeHref(pageSize: VaccinationPageSize): string {
+    return hrefWith({ exec_page: "1", exec_limit: String(pageSize) });
+  }
 
   return (
     <>
+    <div data-filter-scope>
       {!result.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
@@ -237,30 +276,33 @@ export async function VaccinationExecutionBoard({
       {!noWork && (
         <>
       <div className="tbar" style={{ marginBottom: 10, border: "1px solid var(--line2)", borderRadius: 10 }}>
-        <VisibleTableSearch label="Search vaccination shed events" />
+        <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.shed_events.search")} />
         <VaccinationFilterButton
-          title="Filter — Vaccination shed events"
-          searchReason="Search shed, owner, proof, status..."
-          filterReason="Use visible-row search, quick facets, severity chips, and work-state chips on this board."
-          rowsLabel={`${rows.length} rows · park, shed, owner, proof, verify`}
+          pageContract={pageContract}
+          title={copy(pageContract, "filter.shed_events.title")}
+          searchReason={copy(pageContract, "filter.shed_events.reason")}
+          filterReason={copy(pageContract, "filter.shed_events.filter_reason")}
+          rowsLabel={`${paged.start}-${paged.end} ${copy(pageContract, "pager.of")} ${rows.length} ${copy(pageContract, "pager.rows").toLowerCase()} · ${copy(pageContract, "filter.shed_events.rows_suffix")}`}
           actionHref={scopeHref("/action-center", scope)}
-          actionLabel="Open Action Center"
-          facets={["Owner", "Proof status", "Verification status", "SOP status", "Due window"]}
+          actionLabel={copy(pageContract, "action.open_action_center")}
+          facets={optionGroup(pageContract, "shed_event_facets").map((facet) => facet.label)}
         />
-        <span className="muted small">{rows.length} rows</span>
-        <span className="muted small">click a row → shed execution detail</span>
+        <span className="muted small">
+          {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {rows.length} {copy(pageContract, "pager.rows").toLowerCase()}
+        </span>
+        <span className="muted small">{copy(pageContract, "section.shed_events.row_hint")}</span>
       </div>
 
       {/* Severity filter */}
       <div className="chipset" style={{ marginBottom: 10 }}>
-        <Link href={hrefWith({ severity: "all" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
-          All severity
+        <Link href={hrefWith({ severity: "all", exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
+          {copy(pageContract, "label.all_severity")}
         </Link>
         {SEVERITY_ORDER.map((s) => {
           const count = sevCounts.get(s) ?? 0;
           return (
-            <Link key={s} href={hrefWith({ severity: s })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
-              {SEVERITY_META[s].label} <Tag tone={severityFilter === s ? SEVERITY_META[s].tone : "mut"}>{count}</Tag>
+            <Link key={s} href={hrefWith({ severity: s, exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
+              {optionLabel(pageContract, "severity_chips", s)} <Tag tone={severityFilter === s ? (optionTone(pageContract, "severity_chips", s) as Tone) : "mut"}>{count}</Tag>
             </Link>
           );
         })}
@@ -269,12 +311,12 @@ export async function VaccinationExecutionBoard({
       {/* Work-state filter board (most-broken first). Server-side filter: always render every state as
           navigation (so selecting one never collapses the board), count only in the unfiltered view. */}
       <div className="chipset" style={{ marginBottom: 8 }}>
-        <Link href={hrefWith({ state: "all" })} replace scroll={false} className={`chip${stateFilter === "all" ? " on" : ""}`}>
-          All states {showStateCounts ? <Tag tone={stateFilter === "all" ? "ok" : "mut"}>{allRows.length}</Tag> : null}
+        <Link href={hrefWith({ state: "all", exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === "all" ? " on" : ""}`}>
+          {copy(pageContract, "label.all_states")} {showStateCounts ? <Tag tone={stateFilter === "all" ? "ok" : "mut"}>{allRows.length}</Tag> : null}
         </Link>
         {(showStateCounts ? WORK_STATE_ORDER.filter((s) => (stateCounts.get(s) ?? 0) > 0) : WORK_STATE_ORDER).map((s) => (
-          <Link key={s} href={hrefWith({ state: s })} replace scroll={false} className={`chip${stateFilter === s ? " on" : ""}`}>
-            {WORK_STATE_META[s].label}
+          <Link key={s} href={hrefWith({ state: s, exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === s ? " on" : ""}`}>
+            {optionLabel(pageContract, "work_state_filter_chips", s)}
             {showStateCounts ? <> <Tag tone="mut">{stateCounts.get(s) ?? 0}</Tag></> : null}
           </Link>
         ))}
@@ -284,8 +326,8 @@ export async function VaccinationExecutionBoard({
       {result.ok ? (
         <div className="muted small" style={{ marginBottom: 16 }}>
           {showStateCounts
-            ? `Counts reflect the returned result set (max 500 rows), scoped by the top bar and filters${capped ? " — result is capped; narrow with Filters" : ""}.`
-            : "Work-state filters are applied server-side; counts are hidden while filtered. Severity narrows the returned rows in this view."}
+            ? `${copy(pageContract, "note.execution_counts")}${capped ? ` ${copy(pageContract, "note.execution_counts_capped")}` : ""}.`
+            : copy(pageContract, "note.execution_counts_filtered")}
         </div>
       ) : null}
         </>
@@ -297,31 +339,36 @@ export async function VaccinationExecutionBoard({
             <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <b style={{ fontSize: 14 }}>
-                {!result.ok ? "Park/shed execution is unavailable" : noWork ? "No park/shed execution rows yet" : "No shed work matches these filters"}
+                {!result.ok
+                  ? copy(pageContract, "section.shed_events.empty_unavailable_title")
+                  : noWork
+                    ? copy(pageContract, "section.shed_events.empty_none_title")
+                    : copy(pageContract, "section.shed_events.empty_filtered_title")}
               </b>
               <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
                 {!result.ok
-                  ? "The vaccination execution service did not return data. Resolve the error above, then reload."
+                  ? copy(pageContract, "section.shed_events.empty_unavailable_body")
                   : noWork
-                    ? "Rows appear once a published vaccination drive generates obligations against a park / shed cohort."
-                    : "Clear a filter to see other parks and sheds."}
+                    ? copy(pageContract, "section.shed_events.empty_none_body")
+                    : copy(pageContract, "section.shed_events.empty_filtered_body")}
               </span>
             </div>
             {result.ok && !noWork ? (
               <Link href={resetHref} replace scroll={false} className="btn sm">
-                Reset filters
+                {copy(pageContract, "action.reset_filters")}
               </Link>
             ) : null}
           </div>
         </section>
       ) : (
+        <>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {parks.map((park) => (
             <section className="card" key={park.parkId}>
               <div className="hd">
                 <MapPin className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
                 <h3>{park.parkName}</h3>
-                <Tag tone={SEVERITY_META[park.severity].tone}>{SEVERITY_META[park.severity].label}</Tag>
+                <Tag tone={optionTone(pageContract, "severity_chips", park.severity) as Tone}>{optionLabel(pageContract, "severity_chips", park.severity)}</Tag>
                 <div className="sp" style={{ flex: 1 }} />
                 {park.attention > 0 ? (
                   // Scope to this park (top-bar scope override, NOT a stray filter param) AND filter to the
@@ -333,45 +380,57 @@ export async function VaccinationExecutionBoard({
                     scroll={false}
                     className="btn gh sm"
                   >
-                    {park.attention} need attention
+                    {park.attention} {copy(pageContract, "label.need_attention")}
                   </Link>
                 ) : (
-                  <span className="muted small">on track</span>
+                  <span className="muted small">{copy(pageContract, "label.on_track")}</span>
                 )}
               </div>
-              <div className="pexec" role="group" aria-label={`${park.parkName} shed vaccination rows`}>
+              <div className="pexec" role="group" aria-label={`${park.parkName} ${copy(pageContract, "section.shed_events.aria")}`}>
                 <div className="pexh">
-                  <div>Shed · stage</div>
-                  <div>Drive · due</div>
-                  <div>Work state</div>
-                  <div>Owner chain</div>
-                  <div>SOP · proof · verify</div>
-                  <div>Next action</div>
+                  {labels.map((label) => (
+                    <div key={label}>{label}</div>
+                  ))}
                 </div>
                 {park.rows.map((row, idx) => (
                   <ExecutionRow
                     key={`${row.shedId}-${row.driveId ?? idx}`}
                     row={row}
                     drawerHref={hrefWith({ shed_event: shedEventId(row) })}
+                    pageContract={pageContract}
+                    labels={labels}
                   />
                 ))}
               </div>
-              <VaccinationTablePager rows={park.rows.length} noun="shed event" />
               <div className="bd" style={{ paddingTop: 12 }}>
                 <Link
                   href={scopeHref("/action-center", scope, { park: park.parkId, mode: "park" })}
                   className="lk small"
                   style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                 >
-                  Open {park.parkName} in the Action Center
+                  {copy(pageContract, "action.open_park_action_center")}
                   <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
                 </Link>
               </div>
             </section>
           ))}
         </div>
+        <VaccinationTablePager
+          pageContract={pageContract}
+          pageSizeOptions={pageSizeOptions}
+          page={paged.page}
+          pageSize={paged.pageSize}
+          total={paged.total}
+          start={paged.start}
+          end={paged.end}
+          noun={copy(pageContract, "label.shed_event_noun")}
+          hrefForPage={pagerHref}
+          hrefForPageSize={pageSizeHref}
+        />
+        </>
       )}
-      {selectedEvent ? <ShedEventDrawer row={selectedEvent} scope={scope} closeHref={hrefWith({ shed_event: undefined })} /> : null}
+      {selectedEvent ? <ShedEventDrawer row={selectedEvent} scope={scope} closeHref={hrefWith({ shed_event: undefined })} pageContract={pageContract} /> : null}
+    </div>
     </>
   );
 }
@@ -380,71 +439,71 @@ function shedEventId(row: VaccinationExecutionRow): string {
   return `${row.shedId}|${row.driveId ?? "drive"}|${row.animalStage}`;
 }
 
-function ShedEventDrawer({ row, scope, closeHref }: { row: VaccinationExecutionRow; scope: ReturnType<typeof parseScope>; closeHref: string }) {
-  const meta = WORK_STATE_META[row.workState];
+function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: VaccinationExecutionRow; scope: ReturnType<typeof parseScope>; closeHref: string; pageContract: AdminUiPageContract }) {
   const driveLabel = executionDriveLabel(row);
   const detailHref = `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`;
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label="Close shed event drawer" scroll={false} />
-      <aside className="drawer on" aria-label="Vaccination shed event">
+      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.shed_event.close_label")} scroll={false} />
+      <aside className="drawer on" aria-label={copy(pageContract, "drawer.shed_event.aria")}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
             <Syringe className="ic" aria-hidden="true" />
           </span>
           <div>
-            <div className="mt">RECORD</div>
-            <h2>{executionActionTitle(row)}</h2>
+            <div className="mt">{copy(pageContract, "drawer.shed_event.eyebrow")}</div>
+            <h2>{executionActionTitle(pageContract, row)}</h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label="Close shed event drawer" scroll={false}>
+          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.shed_event.close_label")} scroll={false}>
             <X className="ic" />
           </Link>
         </div>
         <div className="dc">
           <div className="metagrid">
             <div>
-              <div className="k">Shed event</div>
+              <div className="k">{copy(pageContract, "drawer.shed_event.shed_event")}</div>
               <div className="v">{driveLabel}</div>
             </div>
             <div>
-              <div className="k">Shed</div>
+              <div className="k">{copy(pageContract, "drawer.shed_event.shed")}</div>
               <div className="v">{row.shedName}</div>
             </div>
             <div>
-              <div className="k">Owner → assist</div>
-              <div className="v">{row.owner?.operatorName ?? "owner chain to assign"}</div>
+              <div className="k">{copy(pageContract, "drawer.shed_event.owner_assist")}</div>
+              <div className="v">{row.owner?.operatorName ?? copy(pageContract, "label.owner_chain_to_assign")}</div>
             </div>
             <div>
-              <div className="k">Stock (FEFO)</div>
-              <div className="v">resolved in Action Center</div>
+              <div className="k">{copy(pageContract, "drawer.shed_event.stock")}</div>
+              <div className="v">{copy(pageContract, "label.stock_resolved_action_center")}</div>
             </div>
             <div>
-              <div className="k">Status</div>
+              <div className="k">{copy(pageContract, "drawer.shed_event.status")}</div>
               <div className="v">
-                <Tag tone={meta.tone}>{meta.label}</Tag>
+                <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
               </div>
             </div>
           </div>
-          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${row.shedName}`} vaccineName={driveLabel} />
+          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${row.shedName}`} vaccineName={driveLabel} pageContract={pageContract} />
           <div style={{ marginTop: 16 }}>
             <ShedEventActions
               obligationId={row.obligationId}
               sopTaskId={row.sopTaskId}
               completionId={row.completionId}
+              pageContract={pageContract}
             />
           </div>
         </div>
         <div className="df">
           <Link href={actionCenterHref} className="btn" scroll={false}>
-            Open Action Center
+            {copy(pageContract, "action.open_action_center")}
           </Link>
           <Link href={detailHref} className="btn">
-            Shed detail
+            {copy(pageContract, "action.shed_detail")}
           </Link>
           <Link href={closeHref} replace className="btn" scroll={false}>
-            Close
+            {copy(pageContract, "action.close")}
           </Link>
         </div>
       </aside>

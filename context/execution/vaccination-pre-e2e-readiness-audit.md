@@ -371,18 +371,18 @@ Required:
 - Matrix links to Protocol Adherence and Action Center.
 - Execution section reads `/vaccination/execution`.
 - Execution filters preserve top-bar scope.
-- Shed rows navigate to `/vaccination/execution/sheds/{shed_id}`.
+- Shed rows navigate to the UI route `/vaccination/execution/sheds/[shedId]`.
 - Park attention links go to `/action-center?park={park_id}`.
 
 Missing before E2E:
 
 - Operator execution controls are not present here. If execution belongs to field app, the admin UI must link/label that clearly and E2E must cover the field-app/API path.
 
-### `/vaccination/execution/sheds/{shed_id}`
+### `/vaccination/execution/sheds/[shedId]`
 
 Required:
 
-- Read `/vaccination/execution/sheds/{shed_id}`.
+- Read backend API `/vaccination/execution/sheds/{shed_id}`.
 - Back links return to `/vaccination#execution`.
 - Show work-state summary, drives, owner chain, blockers/deferred reasons, SOP/proof/verification state, and next action.
 
@@ -725,4 +725,7 @@ captured live, see `docs/runbooks/vaccination-local-business-chain.md`):
   `-race` run.
 - Desktop and narrow visual screenshots are inspected only after the data chain is green.
 
-After the gate is green, run the E2E plan in `context/execution/procurement-vaccination-e2e-plan.md`.
+After the gate is green, run the E2E plan in
+`context/execution/procurement-vaccination-e2e-plan.md` and the broader
+admin-web click/contract checklist in
+`context/execution/admin-web-e2e-checklist.md`.

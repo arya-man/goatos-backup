@@ -34,7 +34,7 @@ Implemented admin-web routes:
 /login
 /
 /vaccination
-/vaccination/execution/sheds/{shed_id}
+/vaccination/execution/sheds/[shedId]
 /action-center
 /protocol-adherence
 /workflows

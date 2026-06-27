@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 // Mock palette tones — all defined in app/mesha-theme.css as `.t-<tone>`. Same literal set as the
 // per-domain `Tone` aliases in features/*/process-integrity.ts and features/*/work-state.ts; those
@@ -12,6 +12,25 @@ export type Tone = "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal";
 export function Tag({ tone, children, title }: { tone: Tone; children: ReactNode; title?: string }) {
   return (
     <span className={`tag t-${tone}`} title={title}>
+      {children}
+    </span>
+  );
+}
+
+export function ClipText({
+  children,
+  title,
+  className = "",
+  style,
+}: {
+  children: ReactNode;
+  title?: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const inferredTitle = typeof children === "string" || typeof children === "number" ? String(children) : undefined;
+  return (
+    <span className={`cliptext${className ? ` ${className}` : ""}`} title={title ?? inferredTitle} style={style} data-truncate>
       {children}
     </span>
   );

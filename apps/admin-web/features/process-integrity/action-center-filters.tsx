@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Search, Users, X } from "lucide-react";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 type FilterLink = {
   label: string;
@@ -12,14 +13,16 @@ type FilterLink = {
 };
 
 export function ActionCenterFiltersButton({
-  label = "Filters",
+  pageContract,
+  label,
   mode = "filters",
   rowsLabel,
   clearHref,
   stateLinks,
   severityLinks,
 }: {
-  label?: string;
+  pageContract: AdminUiPageContract;
+  label: string;
   mode?: "filters" | "my";
   rowsLabel: string;
   clearHref: string;
@@ -31,6 +34,7 @@ export function ActionCenterFiltersButton({
   const [owner, setOwner] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
   const Icon = mode === "my" ? Users : Search;
+  const title = mode === "my" ? copy(pageContract, "filter.my_tasks.title") : copy(pageContract, "filter.drawer.title");
 
   useEffect(() => {
     if (!open) return;
@@ -74,60 +78,57 @@ export function ActionCenterFiltersButton({
       </button>
       {open ? (
         <>
-          <button
-            type="button"
-            aria-label="Close Action Center filters"
-            onClick={() => setOpen(false)}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210, border: 0 }}
-          />
+	          <button
+	            type="button"
+	            aria-label={copy(pageContract, "filter.close_label")}
+	            onClick={() => setOpen(false)}
+	            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210, border: 0 }}
+	          />
           <div
             ref={modalRef}
             className="modal on card"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Action Center filters"
-            tabIndex={-1}
-            style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}
-          >
-            <div className="hd" style={{ borderBottom: "1px solid var(--line2)", flex: "0 0 auto" }}>
-              <Icon className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <h3>{mode === "my" ? "My tasks" : "Action Center filters"}</h3>
-              <div className="sp" style={{ flex: 1 }} />
-              <button type="button" className="iconbtn" onClick={() => setOpen(false)} aria-label="Close filters">
-                <X className="ic" />
-              </button>
-            </div>
+	            role="dialog"
+	            aria-modal="true"
+	            aria-label={title}
+	            tabIndex={-1}
+	            style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}
+	          >
+	            <div className="hd" style={{ borderBottom: "1px solid var(--line2)", flex: "0 0 auto" }}>
+	              <Icon className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+	              <h3>{title}</h3>
+	              <div className="sp" style={{ flex: 1 }} />
+	              <button type="button" className="iconbtn" onClick={() => setOpen(false)} aria-label={copy(pageContract, "filter.close_button_label")}>
+	                <X className="ic" />
+	              </button>
+	            </div>
             <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 14, overflow: "auto" }}>
-              <div className="muted small">{rowsLabel}</div>
-              <div className="fld" style={{ marginBottom: 0 }}>
-                <label>Search action, operator, ID</label>
-                <input
-                  value={query}
-                  placeholder="Search visible cards..."
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    applyLocalFilters(event.target.value, owner);
+	              <div className="muted small">{rowsLabel}</div>
+	              <div className="fld" style={{ marginBottom: 0 }}>
+	                <label>{copy(pageContract, "filter.search_label")}</label>
+	                <input
+	                  value={query}
+	                  placeholder={copy(pageContract, "filter.search_placeholder")}
+	                  onChange={(event) => {
+	                    setQuery(event.target.value);
+	                    applyLocalFilters(event.target.value, owner);
+	                  }}
+	                />
+	              </div>
+	              <Facet title={copy(pageContract, "filter.work_state.title")} links={stateLinks} onPick={() => setOpen(false)} />
+	              <Facet title={copy(pageContract, "filter.severity.title")} links={severityLinks} onPick={() => setOpen(false)} />
+	              <div className="fld" style={{ marginBottom: 0 }}>
+	                <label>{copy(pageContract, "filter.owner_label")}</label>
+	                <input
+	                  value={owner}
+	                  placeholder={copy(pageContract, "filter.owner_placeholder")}
+	                  onChange={(event) => {
+	                    setOwner(event.target.value);
+	                    applyLocalFilters(query, event.target.value);
                   }}
-                />
-              </div>
-              <Facet title="Work state" links={stateLinks} onPick={() => setOpen(false)} />
-              <Facet title="Severity" links={severityLinks} onPick={() => setOpen(false)} />
-              <div className="fld" style={{ marginBottom: 0 }}>
-                <label>Owner / operator</label>
-                <input
-                  value={owner}
-                  placeholder="Filter visible cards by owner..."
-                  onChange={(event) => {
-                    setOwner(event.target.value);
-                    applyLocalFilters(query, event.target.value);
-                  }}
-                />
-              </div>
-              <div className="note">
-                Park and date scope come from the top bar. Work-state and severity apply immediately because those
-                filters are backed by the Action Center API.
-              </div>
-            </div>
+	                />
+	              </div>
+	              <div className="note">{copy(pageContract, "filter.scope_note")}</div>
+	            </div>
             <div
               style={{
                 display: "flex",
@@ -138,23 +139,23 @@ export function ActionCenterFiltersButton({
                 padding: "14px 16px",
               }}
             >
-              <Link href={clearHref} replace scroll={false} className="btn" onClick={() => setOpen(false)}>
-                Clear all
-              </Link>
-              <button type="button" className="btn" onClick={clearLocalFilters}>
-                Clear visible
-              </button>
+	              <Link href={clearHref} replace scroll={false} className="btn" onClick={() => setOpen(false)}>
+	                {copy(pageContract, "filter.clear_all")}
+	              </Link>
+	              <button type="button" className="btn" onClick={clearLocalFilters}>
+	                {copy(pageContract, "filter.clear_local")}
+	              </button>
               <div className="sp" style={{ flex: 1 }} />
               <button
                 type="button"
                 className="btn p"
                 onClick={() => {
                   applyLocalFilters();
-                  setOpen(false);
-                }}
-              >
-                Done
-              </button>
+	                  setOpen(false);
+	                }}
+	              >
+	                {copy(pageContract, "filter.done")}
+	              </button>
             </div>
           </div>
         </>

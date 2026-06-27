@@ -18,7 +18,7 @@ export function ProcurementPager({
   noun: string;
 }) {
   return (
-    <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+    <div className="pager2">
       <span className="muted small">
         Page {page} · {count} {noun}
         {count === 1 ? "" : "s"} on this page

@@ -1,6 +1,6 @@
 SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
 
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans seed-calendar-vaccination-dev replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans seed-calendar-vaccination-dev admin-web-e2e-smoke replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 
 setup-crg:
 	@echo "Installing code-review-graph for structural code graph (Layer 1)..."
@@ -74,6 +74,9 @@ validate-sqlc-plans:
 
 seed-calendar-vaccination-dev:
 	cd backend && go run ./cmd/seed-calendar-vaccination-dev
+
+admin-web-e2e-smoke:
+	bash tools/dev/admin-web-e2e-smoke.sh
 
 replay-live:
 	bash tools/replay/live-replay.sh

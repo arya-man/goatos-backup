@@ -1,5 +1,5 @@
 import { SopLibrary, isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
-import { getSop, isAuthRequiredError, listSops } from "@/lib/api/server";
+import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
@@ -9,15 +9,16 @@ export const dynamic = "force-dynamic";
 // facets (domain / trigger / steps / gates) from real form_dsl + proof_policy. No mock rows.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const sp = await searchParams;
+  const pageContract = await requireAdminWebPageContract("sops");
   // `?new=1` (the vaccination SOP quick-view "Create SOP" action) opens the builder on arrival.
   const startCreating = sp.new === "1";
   const listed = await listSops({ limit: 200 });
 
   if (!listed.ok) {
     if (isAuthRequiredError(listed.error)) {
-      return <SopLibrary sops={[]} authRequired />;
+      return <SopLibrary sops={[]} authRequired pageContract={pageContract} />;
     }
-    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} />;
+    return <SopLibrary sops={[]} error={{ code: listed.error.code, message: listed.error.message }} pageContract={pageContract} />;
   }
 
   // SCOPE LOCK: the visible /sops slice is vaccination only. Filter the real API result to vaccination
@@ -34,5 +35,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
     return toSopView(def, version);
   });
 
-  return <SopLibrary sops={sops} initialCreating={startCreating} />;
+  return <SopLibrary sops={sops} initialCreating={startCreating} pageContract={pageContract} />;
 }

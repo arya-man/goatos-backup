@@ -62,13 +62,13 @@ export function affectedGoatIDs(formData: FormData): string[] {
     .filter(Boolean);
 }
 
-export function actionRedirect(formData: FormData, status: "success" | "error", message: string): never {
-  redirect(withActionMessage(safeReturnTo(formData), status, message));
+export function actionRedirect(formData: FormData, status: "success" | "error", actionKey: string): never {
+  redirect(withActionFeedback(safeReturnTo(formData), status, actionKey));
 }
 
 export function actionErrorMessage(error: ApiUiError): string {
-  const prefix = error.status ? `${error.status} ` : "";
-  return `${prefix}${error.code ?? error.kind}: ${error.message}`;
+  void error;
+  return "action.error_backend";
 }
 
 export function safeReturnTo(formData: FormData, fallback = "/"): string {
@@ -77,14 +77,15 @@ export function safeReturnTo(formData: FormData, fallback = "/"): string {
   return value;
 }
 
-function withActionMessage(path: string, status: "success" | "error", message: string): string {
+function withActionFeedback(path: string, status: "success" | "error", actionKey: string): string {
   const [pathWithoutHash, hash = ""] = path.split("#", 2);
   const [pathname, query = ""] = pathWithoutHash.split("?", 2);
   const params = new URLSearchParams(query);
   params.delete("action_status");
   params.delete("action_message");
+  params.delete("action_key");
   params.set("action_status", status);
-  params.set("action_message", message.slice(0, 240));
+  params.set("action_key", actionKey.startsWith("action.") ? actionKey : "action.error_form");
   const qs = params.toString();
   const next = qs ? `${pathname}?${qs}` : pathname;
   return hash ? `${next}#${hash}` : next;

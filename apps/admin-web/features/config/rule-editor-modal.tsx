@@ -6,58 +6,19 @@ import { publishVersion, runImpactPreview, saveDraft, type ActionResult } from "
 import {
   buildRuleDsl,
   hasProofRequirement,
-  newDose,
   sourceBadge,
   validatePublish,
   ALL_STAGES_VALUE,
-  BREEDS,
-  CATCH_UPS,
-  CATEGORIES,
-  DEFER_STATES,
-  FEED_CLASSES,
-  FEED_INVENTORY_POLICIES,
-  FEED_ITEMS,
-  FEED_UNITS,
-  HEALTHS,
-  LIFECYCLES,
-  MISSED_DOSE_POLICIES,
-  REPEATS,
-  REPRODUCTIVE,
-  REVIEW_STATUSES,
-  SCOPES,
-  SEXES,
-  SOP_VERSIONS,
-  SOURCE_SYSTEMS,
-  TRIGGER_TYPES,
   type AnimalStageOption,
   type DoseRow,
   type FeedFields,
   type RuleInput,
   type SopVersionOption,
-  newFeedFields,
 } from "./rule-dsl";
 import type { ImpactPreviewResult } from "@/lib/api/server";
+import { copy, optionGroup, optionLabel, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok" } as const;
-
-const DEFAULT_VACCINATION_ESCALATION = "miss -> Asst -> Park Head -> PHC Director; overdue -> escalate";
-const DEFAULT_FEED_ESCALATION = "missed session -> Park Head -> Feed Director; stock gap -> Data Ops review";
-
-function defaultEscalation(category: string): string {
-  return category === "feed_direction" ? DEFAULT_FEED_ESCALATION : DEFAULT_VACCINATION_ESCALATION;
-}
-
-function protocolCodePlaceholder(category: string): string {
-  if (category === "feed_direction") return "feed_direction.daily_ration";
-  if (category === "deworming") return "deworming.famacha";
-  return `${category}.enterotox`;
-}
-
-function protocolNamePlaceholder(category: string): string {
-  if (category === "feed_direction") return "Daily ration - stage plan";
-  if (category === "deworming") return "FAMACHA-triggered deworming";
-  return "Enterotoxaemia";
-}
 
 export function RuleEditorModal({
   open,
@@ -68,6 +29,7 @@ export function RuleEditorModal({
   stagesError = null,
   sopsError = null,
   canPublish = true,
+  pageContract,
 }: {
   open: boolean;
   onClose: () => void;
@@ -77,55 +39,130 @@ export function RuleEditorModal({
   stagesError?: string | null;
   sopsError?: string | null;
   canPublish?: boolean;
+  pageContract: AdminUiPageContract;
 }) {
+  const ruleCategories = optionGroup(pageContract, "rule_categories");
+  const ruleScopes = optionGroup(pageContract, "rule_scopes");
+  const protocolPlaceholders = optionGroup(pageContract, "protocol_placeholders");
+  const animalStageScope = optionGroup(pageContract, "animal_stage_scope");
+  const sexOptions = optionGroup(pageContract, "rule_sexes");
+  const breedOptions = optionGroup(pageContract, "rule_breeds");
+  const healthOptions = optionGroup(pageContract, "rule_healths");
+  const lifecycleOptions = optionGroup(pageContract, "rule_lifecycles");
+  const reproductiveOptions = optionGroup(pageContract, "rule_reproductive");
+  const deferOptions = optionGroup(pageContract, "defer_states");
+  const missedDoseOptions = optionGroup(pageContract, "missed_dose_policies");
+  const sourceSystemOptions = optionGroup(pageContract, "source_systems");
+  const reviewStatusOptions = optionGroup(pageContract, "review_statuses");
+  const triggerOptions = optionGroup(pageContract, "trigger_types");
+  const repeatOptions = optionGroup(pageContract, "repeat_policies");
+  const catchUpOptions = optionGroup(pageContract, "catch_up_policies");
+  const scheduleSopOptions = optionGroup(pageContract, "schedule_sop_labels");
+  const feedClassOptions = optionGroup(pageContract, "feed_classes");
+  const feedItemOptions = optionGroup(pageContract, "feed_items");
+  const feedUnitOptions = optionGroup(pageContract, "feed_units");
+  const feedInventoryOptions = optionGroup(pageContract, "feed_inventory_policies");
+
+  function firstKey(options: AdminUiOption[], groupId: string): string {
+    const [first] = options;
+    if (!first) throw new Error(`Admin-web page contract ${pageContract.route_id} has empty option group ${groupId}`);
+    return first.key;
+  }
+  function requireKey(options: AdminUiOption[], key: string, groupId: string): string {
+    if (!options.some((option) => option.key === key)) {
+      throw new Error(`Admin-web page contract ${pageContract.route_id} missing option ${groupId}.${key}`);
+    }
+    return key;
+  }
+  function categoryDefault(): string {
+    return ruleCategories.some((option) => option.key === initialCategory) ? initialCategory : firstKey(ruleCategories, "rule_categories");
+  }
+  function defaultEscalation(categoryKey: string): string {
+    return categoryKey === "feed_direction" ? copy(pageContract, "modal.rule_editor.default_feed_escalation") : copy(pageContract, "modal.rule_editor.default_vaccination_escalation");
+  }
+  function protocolPlaceholder(categoryKey: string, field: "code" | "name"): string {
+    const key = `${categoryKey}.${field}`;
+    const value = protocolPlaceholders.find((option) => option.key === key)?.label;
+    if (!value) throw new Error(`Admin-web page contract ${pageContract.route_id} missing option protocol_placeholders.${key}`);
+    return value;
+  }
+  function newContractDose(seq: number): DoseRow {
+    const isPrimary = seq === 1;
+    return {
+      doseCode: isPrimary ? copy(pageContract, "modal.rule_editor.default_dose_primary") : `${copy(pageContract, "modal.rule_editor.default_dose_prefix")}${seq}`,
+      trigger: isPrimary ? requireKey(triggerOptions, "birth_age", "trigger_types") : requireKey(triggerOptions, "after_previous_completion", "trigger_types"),
+      offsetDays: isPrimary ? 21 : 30,
+      dueWindowDays: 7,
+      repeat: firstKey(repeatOptions, "repeat_policies"),
+      repeatUntilAfterAge: copy(pageContract, "modal.rule_editor.default_repeat_until"),
+      minGapDays: isPrimary ? 0 : 14,
+      catchUp: requireKey(catchUpOptions, "phc_approval", "catch_up_policies"),
+      sopVersion: firstKey(scheduleSopOptions, "schedule_sop_labels"),
+      proofCsv: copy(pageContract, "modal.rule_editor.default_proof_policy"),
+    };
+  }
+  function newContractFeedFields(): FeedFields {
+    return {
+      animalStage: firstKey(animalStageScope, "animal_stage_scope"),
+      breedClass: firstKey(feedClassOptions, "feed_classes"),
+      feedItem: firstKey(feedItemOptions, "feed_items"),
+      quantity: 1,
+      unit: firstKey(feedUnitOptions, "feed_units"),
+      sessionTimes: copy(pageContract, "modal.rule_editor.placeholder.session_timing"),
+      packingProofCsv: copy(pageContract, "modal.rule_editor.placeholder.packing_proof"),
+      executionProofCsv: copy(pageContract, "modal.rule_editor.placeholder.execution_proof"),
+      inventoryPolicy: firstKey(feedInventoryOptions, "feed_inventory_policies"),
+    };
+  }
+
   // Stage bands come from the backend (animal_stage_lookup). Three states, kept distinct so an outage
   // never reads as "no config": (1) loaded + non-empty → normal picker; (2) loaded + empty → honest
   // seed-state (disabled-with-reason, all-stages draft still allowed); (3) READ FAILED (stagesError)
   // → we don't know the true stage set, so the picker is disabled and Save/Publish are blocked.
   const stagesSeeded = animalStages.length > 0;
-  const noStagesReason = "No animal stages configured — Data Ops must seed animal_stage_lookup to target a stage band";
+  const noStagesReason = copy(pageContract, "modal.rule_editor.no_stages_reason");
   const stagePickerDisabled = !stagesSeeded || !!stagesError;
   const stageBlockReason = stagesError
-    ? `Stage reference data failed to load (${stagesError}) — fix the API and reload before authoring`
+    ? `${copy(pageContract, "modal.rule_editor.stage_load_block_prefix")} (${stagesError}) — ${copy(pageContract, "modal.rule_editor.fix_reload_suffix")}`
     : "";
   // SOP versions follow the same three states. A FAILED read (sopsError) must not look like an empty
   // SOP Library: disable the picker and block Save/Publish until the read succeeds. A loaded-but-empty
   // list is the honest "no published SOP version" state (picker stays usable, publish gated on select).
   const sopReadFailed = !!sopsError;
   const sopBlockReason = sopsError
-    ? `SOP reference data failed to load (${sopsError}) — fix the API and reload before authoring`
+    ? `${copy(pageContract, "modal.rule_editor.sop_load_block_prefix")} (${sopsError}) — ${copy(pageContract, "modal.rule_editor.fix_reload_suffix")}`
     : "";
-  const [category, setCategory] = useState(initialCategory);
+  const [category, setCategory] = useState(categoryDefault());
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [scope, setScope] = useState("tenant");
+  const [scope, setScope] = useState(firstKey(ruleScopes, "rule_scopes"));
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [sopVersionId, setSopVersionId] = useState("");
 
   // Default to the first backend stage band (lowest sort_order) when seeded, else the ALL_STAGES UI
   // filter. No hardcoded K1 default — the stage vocabulary is owned by animal_stage_lookup.
-  const [stage, setStage] = useState(() => animalStages[0]?.code ?? ALL_STAGES_VALUE);
-  const [sex, setSex] = useState("all");
-  const [breed, setBreed] = useState("all");
-  const [health, setHealth] = useState("healthy");
-  const [lifecycle, setLifecycle] = useState("active");
-  const [reproductive, setReproductive] = useState("any");
-  const [deferStates, setDeferStates] = useState<string[]>([...DEFER_STATES]);
+  const [stage, setStage] = useState(() => animalStages[0]?.code ?? firstKey(animalStageScope, "animal_stage_scope"));
+  const [sex, setSex] = useState(firstKey(sexOptions, "rule_sexes"));
+  const [breed, setBreed] = useState(firstKey(breedOptions, "rule_breeds"));
+  const [health, setHealth] = useState(firstKey(healthOptions, "rule_healths"));
+  const [lifecycle, setLifecycle] = useState(firstKey(lifecycleOptions, "rule_lifecycles"));
+  const [reproductive, setReproductive] = useState(firstKey(reproductiveOptions, "rule_reproductive"));
+  const [deferStates, setDeferStates] = useState<string[]>(() => deferOptions.map((option) => option.key));
   const [individualOverride, setIndividualOverride] = useState(true);
-  const [vaccineLotPolicy, setVaccineLotPolicy] = useState("FEFO lot required; cold-chain and expiry checked before verification");
+  const [vaccineLotPolicy, setVaccineLotPolicy] = useState(copy(pageContract, "modal.rule_editor.default_vaccine_lot_policy"));
 
-  const [missedDosePolicy, setMissedDosePolicy] = useState("phc_approval");
+  const [missedDosePolicy, setMissedDosePolicy] = useState(requireKey(missedDoseOptions, "phc_approval", "missed_dose_policies"));
   const [escalation, setEscalation] = useState(() => defaultEscalation(initialCategory));
 
-  const [sourceSystem, setSourceSystem] = useState("manual_admin");
+  const [sourceSystem, setSourceSystem] = useState(firstKey(sourceSystemOptions, "source_systems"));
   const [sourceRef, setSourceRef] = useState("");
-  const [reviewStatus, setReviewStatus] = useState("extracted");
+  const [reviewStatus, setReviewStatus] = useState(firstKey(reviewStatusOptions, "review_statuses"));
   const [reviewedBy, setReviewedBy] = useState("");
   const [approvedBy, setApprovedBy] = useState("");
   const [approvedAt, setApprovedAt] = useState("");
 
-  const [doses, setDoses] = useState<DoseRow[]>([newDose(1)]);
-  const [feed, setFeed] = useState<FeedFields>(() => newFeedFields());
+  const [doses, setDoses] = useState<DoseRow[]>(() => [newContractDose(1)]);
+  const [feed, setFeed] = useState<FeedFields>(() => newContractFeedFields());
 
   const [versionId, setVersionId] = useState("");
   // savedSig is the input signature persisted by the last successful Save. The saved DRAFT version
@@ -176,15 +213,15 @@ export function RuleEditorModal({
     : sopBlockReason
     ? sopBlockReason
     : !canPublish
-    ? "Only CEO/COO can publish"
+    ? copy(pageContract, "modal.rule_editor.only_ceo_publish")
     : !versionId
-      ? "Save the draft first"
+      ? copy(pageContract, "modal.rule_editor.save_first")
       : dirty
-        ? "Inputs changed since the last save — save the draft again before publishing"
+        ? copy(pageContract, "modal.rule_editor.dirty_publish")
         : !sopVersionId
-          ? "Select an executable SOP version before publishing"
+          ? copy(pageContract, "modal.rule_editor.select_sop_publish")
           : !proofOk
-            ? "Add at least one proof token before publishing (an empty proof policy is not publishable)"
+            ? copy(pageContract, "modal.rule_editor.proof_publish")
             : !publishGate.ok
               ? publishGate.message
               : "";
@@ -216,7 +253,7 @@ export function RuleEditorModal({
         horizon_days: 30,
       });
       if (res.ok && res.data) setImpact(res.data);
-      else setNotice({ ok: false, message: res.message ?? "preview failed" });
+      else setNotice({ ok: false, message: res.message ?? copy(pageContract, "modal.rule_editor.message.preview_failed") });
     });
   }
 
@@ -245,19 +282,19 @@ export function RuleEditorModal({
   return (
     <>
       <div className="cfgback on" onClick={onClose} />
-      <div className="cfgmodal on" style={{ width: "min(1180px,96vw)" }} role="dialog" aria-modal="true" aria-label="Protocol rule editor">
+      <div className="cfgmodal on" style={{ width: "min(1180px,96vw)" }} role="dialog" aria-modal="true" aria-label={copy(pageContract, "modal.rule_editor.aria")}>
         <div className="cmh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
             <Pencil className="ic" />
           </span>
           <div>
-            <div className="b700">New draft rule</div>
+            <div className="b700">{copy(pageContract, "modal.rule_editor.title")}</div>
             <div className="muted small">
-              stored as rule_dsl (JSONB · JSON-Schema-validated · not YAML) · category changes fields and payload
+              {copy(pageContract, "modal.rule_editor.subtitle")}
             </div>
           </div>
           <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="x" onClick={onClose} aria-label="Close">
+          <button type="button" className="x" onClick={onClose} aria-label={copy(pageContract, "modal.rule_editor.close")}>
             <X className="ic" />
           </button>
         </div>
@@ -268,9 +305,7 @@ export function RuleEditorModal({
               <div className="alert warn" role="alert">
                 <AlertTriangle className="ic" />
                 <div>
-                  Animal stages failed to load ({stagesError}). This is a real backend error, not “no
-                  stages seeded” — the stage picker is disabled and Save/Publish are blocked until the
-                  stage reference read succeeds. Fix the API/connection and reopen.
+                  {copy(pageContract, "modal.rule_editor.stages_error_prefix")} ({stagesError}). {copy(pageContract, "modal.rule_editor.stages_error_body")}
                 </div>
               </div>
             ) : null}
@@ -278,16 +313,14 @@ export function RuleEditorModal({
               <div className="alert warn" role="alert">
                 <AlertTriangle className="ic" />
                 <div>
-                  SOP versions failed to load ({sopsError}). This is a real backend error, not “no
-                  published SOP version” — the SOP picker is disabled and Save/Publish are blocked until
-                  the SOP read succeeds. Fix the API/connection and reopen.
+                  {copy(pageContract, "modal.rule_editor.sops_error_prefix")} ({sopsError}). {copy(pageContract, "modal.rule_editor.sops_error_body")}
                 </div>
               </div>
             ) : null}
             {notice ? (
               notice.ok ? (
                 <div className="note">
-                  <span className="tag t-ok">ok</span> {notice.message}
+                  <span className="tag t-ok">{copy(pageContract, "modal.rule_editor.notice_ok")}</span> {notice.message}
                 </div>
               ) : (
                 <div className="alert warn">
@@ -297,36 +330,36 @@ export function RuleEditorModal({
               )
             ) : null}
 
-            <label>Module / category</label>
-            <select aria-label="Module / category" value={category} onChange={(e) => changeCategory(e.target.value)}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+            <label>{copy(pageContract, "modal.rule_editor.field.category")}</label>
+            <select aria-label={copy(pageContract, "modal.rule_editor.field.category")} value={category} onChange={(e) => changeCategory(e.target.value)}>
+              {ruleCategories.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
                 </option>
               ))}
             </select>
 
-            <label>Protocol code · name</label>
+            <label>{copy(pageContract, "modal.rule_editor.field.protocol")}</label>
             <div className="rowf">
-              <input aria-label="Protocol code" value={code} onChange={(e) => setCode(e.target.value)} placeholder={protocolCodePlaceholder(category)} />
-              <input aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder={protocolNamePlaceholder(category)} />
+              <input aria-label={copy(pageContract, "modal.rule_editor.field.protocol")} value={code} onChange={(e) => setCode(e.target.value)} placeholder={protocolPlaceholder(category, "code")} />
+              <input aria-label={copy(pageContract, "modal.rule_editor.field.protocol")} value={name} onChange={(e) => setName(e.target.value)} placeholder={protocolPlaceholder(category, "name")} />
             </div>
 
-            <label>Scope · effective from</label>
+            <label>{copy(pageContract, "modal.rule_editor.field.scope")}</label>
             <div className="rowf">
-              <select aria-label="Scope" value={scope} onChange={(e) => setScope(e.target.value)}>
-                {SCOPES.map((s) => (
-                  <option key={s} value={s}>
-                    {s === "tenant" ? "tenant (company default)" : s.replace(":", ": ")}
+              <select aria-label={copy(pageContract, "modal.rule_editor.field.scope")} value={scope} onChange={(e) => setScope(e.target.value)}>
+                {ruleScopes.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
                   </option>
                 ))}
               </select>
-              <input type="date" aria-label="Effective from" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+              <input type="date" aria-label={copy(pageContract, "modal.rule_editor.field.scope")} value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
             </div>
 
-            <label>Executable SOP version (required to publish)</label>
+            <label>{copy(pageContract, "modal.rule_editor.field.sop_version")}</label>
             <select
-              aria-label="Executable SOP version"
+              aria-label={copy(pageContract, "modal.rule_editor.field.sop_version")}
               value={sopVersionId}
               onChange={(e) => setSopVersionId(e.target.value)}
               disabled={sopReadFailed || sopVersions.length === 0}
@@ -334,10 +367,10 @@ export function RuleEditorModal({
             >
               <option value="">
                 {sopReadFailed
-                  ? "SOP versions failed to load — fix the API and reload"
+                  ? copy(pageContract, "modal.rule_editor.option.sops_failed")
                   : sopVersions.length === 0
-                    ? "no published SOP version — publish a SOP in the SOP Library first"
-                    : "select a published SOP version…"}
+                    ? copy(pageContract, "modal.rule_editor.option.no_sop")
+                    : copy(pageContract, "modal.rule_editor.option.select_sop")}
               </option>
               {sopVersions.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -346,210 +379,207 @@ export function RuleEditorModal({
               ))}
             </select>
             <div className="muted small" style={{ marginTop: 4, lineHeight: 1.45 }}>
-              Binds the obligation/SOP-task execution form. Publish requires a real published SOP version + a
-              non-empty proof policy (derived from the proof tokens below).
+              {copy(pageContract, "modal.rule_editor.hint.sop_version")}
             </div>
 
             {isFeedDirection ? (
               <>
-                <label>Feed Direction - animal stage / class</label>
+                <label>{copy(pageContract, "modal.rule_editor.field.feed_stage")}</label>
                 <div className="rowf">
                   <select
-                    aria-label="Feed animal stage"
+                    aria-label={copy(pageContract, "modal.rule_editor.field.feed_stage")}
                     value={feed.animalStage}
                     onChange={(e) => setFeedField({ animalStage: e.target.value })}
                     disabled={stagePickerDisabled}
                     title={stagesError ? stageBlockReason : stagesSeeded ? undefined : noStagesReason}
                   >
-                    <option value={ALL_STAGES_VALUE}>all (every stage)</option>
+                    <option value={ALL_STAGES_VALUE}>{optionLabel(pageContract, "animal_stage_scope", ALL_STAGES_VALUE)}</option>
                     {animalStages.map((s) => (
                       <option key={s.code} value={s.code}>
                         {s.label}
                       </option>
                     ))}
                   </select>
-                  <select aria-label="Breed or class" value={feed.breedClass} onChange={(e) => setFeedField({ breedClass: e.target.value })}>
-                    {FEED_CLASSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace(/_/g, " ")}
+                  <select aria-label={copy(pageContract, "modal.rule_editor.field.feed_stage")} value={feed.breedClass} onChange={(e) => setFeedField({ breedClass: e.target.value })}>
+                    {feedClassOptions.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                <label>Ration / feed item - quantity</label>
+                <label>{copy(pageContract, "modal.rule_editor.field.ration")}</label>
                 <div className="rowf">
-                  <select aria-label="Feed item" value={feed.feedItem} onChange={(e) => setFeedField({ feedItem: e.target.value })}>
-                    {FEED_ITEMS.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select aria-label={copy(pageContract, "modal.rule_editor.table.feed_item")} value={feed.feedItem} onChange={(e) => setFeedField({ feedItem: e.target.value })}>
+                    {feedItemOptions.map((s) => (
+                      <option key={s.key} value={s.key}>{s.label}</option>
                     ))}
                   </select>
-                  <input aria-label="Quantity" type="number" min="0" step="0.01" value={feed.quantity} onChange={(e) => setFeedField({ quantity: Number(e.target.value) })} />
-                  <select aria-label="Unit" value={feed.unit} onChange={(e) => setFeedField({ unit: e.target.value })}>
-                    {FEED_UNITS.map((s) => (
-                      <option key={s}>{s}</option>
+                  <input aria-label={copy(pageContract, "modal.rule_editor.table.quantity")} type="number" min="0" step="0.01" value={feed.quantity} onChange={(e) => setFeedField({ quantity: Number(e.target.value) })} />
+                  <select aria-label={copy(pageContract, "modal.rule_editor.table.quantity")} value={feed.unit} onChange={(e) => setFeedField({ unit: e.target.value })}>
+                    {feedUnitOptions.map((s) => (
+                      <option key={s.key} value={s.key}>{s.label}</option>
                     ))}
                   </select>
                 </div>
 
-                <label>Session timing</label>
+                <label>{copy(pageContract, "modal.rule_editor.field.session_timing")}</label>
                 <input
-                  aria-label="Session timing"
+                  aria-label={copy(pageContract, "modal.rule_editor.field.session_timing")}
                   value={feed.sessionTimes}
                   onChange={(e) => setFeedField({ sessionTimes: e.target.value })}
-                  placeholder="09:00,15:00"
+                  placeholder={copy(pageContract, "modal.rule_editor.placeholder.session_timing")}
                 />
 
-                <label>Packing / execution proof</label>
+                <label>{copy(pageContract, "modal.rule_editor.field.proof")}</label>
                 <div className="rowf">
                   <input
-                    aria-label="Packing proof policy"
+                    aria-label={copy(pageContract, "modal.rule_editor.field.proof")}
                     value={feed.packingProofCsv}
                     onChange={(e) => setFeedField({ packingProofCsv: e.target.value })}
-                    placeholder="pack_qty,feed_item,lot,video"
+                    placeholder={copy(pageContract, "modal.rule_editor.placeholder.packing_proof")}
                   />
                   <input
-                    aria-label="Execution proof policy"
+                    aria-label={copy(pageContract, "modal.rule_editor.field.proof")}
                     value={feed.executionProofCsv}
                     onChange={(e) => setFeedField({ executionProofCsv: e.target.value })}
-                    placeholder="distribution_video,consumed_qty,water_check"
+                    placeholder={copy(pageContract, "modal.rule_editor.placeholder.execution_proof")}
                   />
                 </div>
 
-                <label>Inventory reserve / consume / release</label>
-                <select aria-label="Inventory policy" value={feed.inventoryPolicy} onChange={(e) => setFeedField({ inventoryPolicy: e.target.value })}>
-                  {FEED_INVENTORY_POLICIES.map((p) => (
-                    <option key={p.value} value={p.value}>
+                <label>{copy(pageContract, "modal.rule_editor.field.inventory")}</label>
+                <select aria-label={copy(pageContract, "modal.rule_editor.field.inventory")} value={feed.inventoryPolicy} onChange={(e) => setFeedField({ inventoryPolicy: e.target.value })}>
+                  {feedInventoryOptions.map((p) => (
+                    <option key={p.key} value={p.key}>
                       {p.label}
                     </option>
                   ))}
                 </select>
 
-                <label>Escalation policy</label>
-                <input aria-label="Escalation policy" value={escalation} onChange={(e) => setEscalation(e.target.value)} />
+                <label>{copy(pageContract, "modal.rule_editor.field.escalation")}</label>
+                <input aria-label={copy(pageContract, "modal.rule_editor.field.escalation")} value={escalation} onChange={(e) => setEscalation(e.target.value)} />
               </>
             ) : (
               <>
-                <label>Vaccination eligibility - animal / shed stage + sex</label>
+                <label>{copy(pageContract, "modal.rule_editor.field.vaccination_eligibility")}</label>
                 <div className="rowf">
                   <select
-                    aria-label="Stage"
+                    aria-label={copy(pageContract, "modal.rule_editor.field.vaccination_eligibility")}
                     value={stage}
                     onChange={(e) => setStage(e.target.value)}
                     disabled={stagePickerDisabled}
                     title={stagesError ? stageBlockReason : stagesSeeded ? undefined : noStagesReason}
                   >
-                    <option value={ALL_STAGES_VALUE}>all (every stage)</option>
+                    <option value={ALL_STAGES_VALUE}>{optionLabel(pageContract, "animal_stage_scope", ALL_STAGES_VALUE)}</option>
                     {animalStages.map((s) => (
                       <option key={s.code} value={s.code}>
                         {s.label}
                       </option>
                     ))}
                   </select>
-                  <select aria-label="Sex" value={sex} onChange={(e) => setSex(e.target.value)}>
-                    {SEXES.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select aria-label={copy(pageContract, "modal.rule_editor.field.vaccination_eligibility")} value={sex} onChange={(e) => setSex(e.target.value)}>
+                    {sexOptions.map((s) => (
+                      <option key={s.key} value={s.key}>{s.label}</option>
                     ))}
                   </select>
                 </div>
                 {!stagesSeeded && !stagesError ? (
                   <div className="muted small" style={{ marginTop: 4, lineHeight: 1.45 }}>
-                    {noStagesReason}. Stage bands (e.g. K1, K2) are backend reference data from{" "}
-                    <span className="mono">animal_stage_lookup</span> — until they are seeded you can only author
-                    an all-stages rule, not target a specific band.
+                    {copy(pageContract, "modal.rule_editor.hint.no_stages")}
                   </div>
                 ) : null}
                 <div className="rowf" style={{ marginTop: 6 }}>
-                  <select aria-label="Breed" value={breed} onChange={(e) => setBreed(e.target.value)}>
-                    {BREEDS.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select aria-label={copy(pageContract, "modal.rule_editor.field.vaccination_eligibility")} value={breed} onChange={(e) => setBreed(e.target.value)}>
+                    {breedOptions.map((s) => (
+                      <option key={s.key} value={s.key}>{s.label}</option>
                     ))}
                   </select>
-                  <select aria-label="Health" value={health} onChange={(e) => setHealth(e.target.value)}>
-                    {HEALTHS.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select aria-label={copy(pageContract, "modal.rule_editor.field.vaccination_eligibility")} value={health} onChange={(e) => setHealth(e.target.value)}>
+                    {healthOptions.map((s) => (
+                      <option key={s.key} value={s.key}>{s.label}</option>
                     ))}
                   </select>
                 </div>
 
-                <label>Lifecycle / reproductive</label>
+                <label>{copy(pageContract, "modal.rule_editor.field.lifecycle")}</label>
                 <div className="rowf">
-                  <select aria-label="Lifecycle" value={lifecycle} onChange={(e) => setLifecycle(e.target.value)}>
-                    {LIFECYCLES.map((s) => (
-                      <option key={s}>{s}</option>
+                  <select aria-label={copy(pageContract, "modal.rule_editor.field.lifecycle")} value={lifecycle} onChange={(e) => setLifecycle(e.target.value)}>
+                    {lifecycleOptions.map((s) => (
+                      <option key={s.key} value={s.key}>{s.label}</option>
                     ))}
                   </select>
-                  <select aria-label="Reproductive" value={reproductive} onChange={(e) => setReproductive(e.target.value)}>
-                    {REPRODUCTIVE.map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace(/_/g, " ")}
+                  <select aria-label={copy(pageContract, "modal.rule_editor.field.lifecycle")} value={reproductive} onChange={(e) => setReproductive(e.target.value)}>
+                    {reproductiveOptions.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                <label>Defer when (obligation marked deferred + event; not hidden)</label>
+                <label>{copy(pageContract, "modal.rule_editor.field.defer")}</label>
                 <div className="cfgchk">
-                  {DEFER_STATES.map((d) => (
-                    <label key={d}>
-                      <input type="checkbox" checked={deferStates.includes(d)} onChange={() => toggleDefer(d)} /> {d === "sick" ? "sick / under_treatment" : d}
+                  {deferOptions.map((d) => (
+                    <label key={d.key}>
+                      <input type="checkbox" checked={deferStates.includes(d.key)} onChange={() => toggleDefer(d.key)} /> {d.label}
                     </label>
                   ))}
                 </div>
                 <div className="cfgchk" style={{ marginTop: 8 }}>
                   <label>
-                    <input type="checkbox" checked={individualOverride} onChange={(e) => setIndividualOverride(e.target.checked)} /> allow individual override / catch-up
+                    <input type="checkbox" checked={individualOverride} onChange={(e) => setIndividualOverride(e.target.checked)} /> {copy(pageContract, "modal.rule_editor.label.individual_override")}
                   </label>
                 </div>
 
-                <label>Booster / catch-up / missed-dose policy</label>
-                <select aria-label="Missed-dose policy" value={missedDosePolicy} onChange={(e) => setMissedDosePolicy(e.target.value)}>
-                  {MISSED_DOSE_POLICIES.map((m) => (
-                    <option key={m.value} value={m.value}>
+                <label>{copy(pageContract, "modal.rule_editor.field.missed_dose")}</label>
+                <select aria-label={copy(pageContract, "modal.rule_editor.field.missed_dose")} value={missedDosePolicy} onChange={(e) => setMissedDosePolicy(e.target.value)}>
+                  {missedDoseOptions.map((m) => (
+                    <option key={m.key} value={m.key}>
                       {m.label}
                     </option>
                   ))}
                 </select>
 
-                <label>Stock / vaccine lot requirements</label>
-                <input aria-label="Vaccine lot policy" value={vaccineLotPolicy} onChange={(e) => setVaccineLotPolicy(e.target.value)} />
+                <label>{copy(pageContract, "modal.rule_editor.field.vaccine_lot")}</label>
+                <input aria-label={copy(pageContract, "modal.rule_editor.field.vaccine_lot")} value={vaccineLotPolicy} onChange={(e) => setVaccineLotPolicy(e.target.value)} />
 
-                <label>Escalation policy</label>
-                <input aria-label="Escalation policy" value={escalation} onChange={(e) => setEscalation(e.target.value)} />
+                <label>{copy(pageContract, "modal.rule_editor.field.escalation")}</label>
+                <input aria-label={copy(pageContract, "modal.rule_editor.field.escalation")} value={escalation} onChange={(e) => setEscalation(e.target.value)} />
               </>
             )}
 
-            <label>Source &amp; review (publish needs a real source + approval)</label>
+            <label>{copy(pageContract, "modal.rule_editor.field.source_review")}</label>
             <div className="rowf">
-              <select aria-label="Source system" value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}>
-                {SOURCE_SYSTEMS.map((s) => (
-                  <option key={s.value} value={s.value}>
+              <select aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}>
+                {sourceSystemOptions.map((s) => (
+                  <option key={s.key} value={s.key}>
                     {s.label}
                   </option>
                 ))}
               </select>
-              <input aria-label="Source ref" value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder="source_ref (sheet / file id)" />
+              <input aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.source_ref")} />
             </div>
             <div className="rowf" style={{ marginTop: 6 }}>
-              <select aria-label="Review status" value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
-                {REVIEW_STATUSES.map((s) => (
-                  <option key={s}>{s}</option>
+              <select aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
+                {reviewStatusOptions.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
                 ))}
               </select>
-              <input aria-label="Reviewed by" value={reviewedBy} onChange={(e) => setReviewedBy(e.target.value)} placeholder="reviewed_by" />
+              <input aria-label={copy(pageContract, "modal.rule_editor.field.source_review")} value={reviewedBy} onChange={(e) => setReviewedBy(e.target.value)} placeholder={copy(pageContract, "modal.rule_editor.placeholder.reviewed_by")} />
             </div>
             <input
-              aria-label="Approved by"
+              aria-label={copy(pageContract, "modal.rule_editor.field.source_review")}
               value={approvedBy}
               onChange={(e) => setApprovedBy(e.target.value)}
-              placeholder="approved_by"
+              placeholder={copy(pageContract, "modal.rule_editor.placeholder.approved_by")}
               style={{ marginTop: 6, width: "100%", border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 13 }}
             />
             <input
-              aria-label="Approved at"
+              aria-label={copy(pageContract, "modal.rule_editor.field.source_review")}
               value={approvedAt}
               onChange={(e) => setApprovedAt(e.target.value)}
-              placeholder="approved_at RFC3339 from source"
+              placeholder={copy(pageContract, "modal.rule_editor.placeholder.approved_at")}
               style={{ marginTop: 6, width: "100%", border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 13 }}
             />
           </div>
@@ -557,26 +587,13 @@ export function RuleEditorModal({
           {/* Live rule_dsl JSONB preview */}
           <div>
             <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 5 }}>
-              Stored as rule_dsl (JSONB)
+              {copy(pageContract, "modal.rule_editor.label.rule_dsl")}
             </label>
-            <div className="cfgjson" aria-label="rule_dsl preview">
+            <div className="cfgjson" aria-label={copy(pageContract, "modal.rule_editor.rule_dsl_aria")}>
               {JSON.stringify(dsl, null, 2)}
             </div>
             <div className="muted small" style={{ marginTop: 9, lineHeight: 1.5 }}>
-              {isFeedDirection ? (
-                <>
-                  <b>Feed Direction uses ration + session_timing + inventory_policy</b>; no vaccination dose/lot fields
-                  are shown. Source is nested under <span className="mono">source</span>. JSON-Schema-validated ·
-                  versioned · not YAML.
-                </>
-              ) : (
-                <>
-                  <b>schedule = ARRAY of dose rows</b> (multi-dose / multi-phase). Canonical keys:{" "}
-                  <span className="mono">repeat_until_after_age</span>, <span className="mono">proof_policy</span>.
-                  Next due from <b>last accepted completion</b> (not DOB) when prior history exists. Source nested under{" "}
-                  <span className="mono">source</span>. JSON-Schema-validated · versioned · not YAML.
-                </>
-              )}
+              {isFeedDirection ? copy(pageContract, "modal.rule_editor.note.feed_dsl") : copy(pageContract, "modal.rule_editor.note.vaccination_dsl")}
             </div>
           </div>
         </div>
@@ -585,18 +602,18 @@ export function RuleEditorModal({
           <>
             <div className="cmh" style={{ borderTop: "1px solid var(--line2)", borderBottom: "1px solid var(--line2)", position: "static" }}>
               <CalendarDays className="ic" />
-              <h4 style={{ margin: 0 }}>Feed Direction rule rows</h4>
+              <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.table.feed_title")}</h4>
               <span className={`tag ${TONE_CLASS[badge.tone]}`}>{badge.text}</span>
             </div>
             <div style={{ overflowX: "auto", padding: "0 18px 6px" }}>
               <table>
                 <thead>
                   <tr>
-                    <th>Session</th>
-                    <th>Feed item</th>
-                    <th>Quantity</th>
-                    <th>Proof</th>
-                    <th>Inventory policy</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.session")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.feed_item")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.quantity")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.proof")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.inventory")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -611,8 +628,8 @@ export function RuleEditorModal({
                         <td>
                           {feed.quantity} {feed.unit}
                         </td>
-                        <td className="muted small">packing + execution proof</td>
-                        <td className="muted small">{feed.inventoryPolicy.replace(/_/g, " ")}</td>
+                        <td className="muted small">{copy(pageContract, "modal.rule_editor.table.packing_execution_proof")}</td>
+                        <td className="muted small">{optionLabel(pageContract, "feed_inventory_policies", feed.inventoryPolicy)}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -623,27 +640,27 @@ export function RuleEditorModal({
           <>
             <div className="cmh" style={{ borderTop: "1px solid var(--line2)", borderBottom: "1px solid var(--line2)", position: "static" }}>
               <CalendarDays className="ic" />
-              <h4 style={{ margin: 0 }}>Schedule builder - dose / phase rows</h4>
+              <h4 style={{ margin: 0 }}>{copy(pageContract, "modal.rule_editor.table.schedule_title")}</h4>
               <span className={`tag ${TONE_CLASS[badge.tone]}`}>{badge.text}</span>
               <div className="sp" style={{ flex: 1 }} />
-              <button type="button" className="btn sm" onClick={() => setDoses((r) => [...r, newDose(r.length + 1)])}>
-                <Plus className="ic" /> Add dose row
+              <button type="button" className="btn sm" onClick={() => setDoses((r) => [...r, newContractDose(r.length + 1)])}>
+                <Plus className="ic" /> {copy(pageContract, "modal.rule_editor.action.add_dose")}
               </button>
             </div>
             <div style={{ overflowX: "auto", padding: "0 18px 6px" }}>
               <table>
                 <thead>
                   <tr>
-                    <th>Dose / sequence</th>
-                    <th>Trigger</th>
-                    <th>Offset (d)</th>
-                    <th>Window (d)</th>
-                    <th>Repeat</th>
-                    <th>repeat_until_after_age</th>
-                    <th>Min gap (d)</th>
-                    <th>Catch-up</th>
-                    <th title="Display label only — the executable SOP binds at version level (the picker above), not per dose">SOP label</th>
-                    <th>proof_policy</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.dose")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.trigger")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.offset")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.window")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.repeat")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.repeat_until")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.min_gap")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.catch_up")}</th>
+                    <th title={copy(pageContract, "modal.rule_editor.table.sop_label_title")}>{copy(pageContract, "modal.rule_editor.table.sop_label")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.proof_policy")}</th>
                     <th />
                   </tr>
                 </thead>
@@ -651,60 +668,60 @@ export function RuleEditorModal({
                   {doses.map((d, i) => (
                     <tr key={i}>
                       <td style={{ minWidth: 120 }}>
-                        <input aria-label="Dose code" value={d.doseCode} onChange={(e) => setDose(i, { doseCode: e.target.value })} />
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.dose")} value={d.doseCode} onChange={(e) => setDose(i, { doseCode: e.target.value })} />
                       </td>
                       <td style={{ minWidth: 150 }}>
-                        <select aria-label="Trigger" value={d.trigger} onChange={(e) => setDose(i, { trigger: e.target.value })}>
-                          {TRIGGER_TYPES.map((t) => (
-                            <option key={t}>{t}</option>
+                        <select aria-label={copy(pageContract, "modal.rule_editor.table.trigger")} value={d.trigger} onChange={(e) => setDose(i, { trigger: e.target.value })}>
+                          {triggerOptions.map((t) => (
+                            <option key={t.key} value={t.key}>{t.label}</option>
                           ))}
                         </select>
                       </td>
                       <td>
-                        <input aria-label="Offset days" type="number" value={d.offsetDays} onChange={(e) => setDose(i, { offsetDays: Number(e.target.value) })} />
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.offset")} type="number" value={d.offsetDays} onChange={(e) => setDose(i, { offsetDays: Number(e.target.value) })} />
                       </td>
                       <td>
-                        <input aria-label="Due window days" type="number" value={d.dueWindowDays} onChange={(e) => setDose(i, { dueWindowDays: Number(e.target.value) })} />
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.window")} type="number" value={d.dueWindowDays} onChange={(e) => setDose(i, { dueWindowDays: Number(e.target.value) })} />
                       </td>
                       <td style={{ minWidth: 120 }}>
-                        <select aria-label="Repeat" value={d.repeat} onChange={(e) => setDose(i, { repeat: e.target.value })}>
-                          {REPEATS.map((t) => (
-                            <option key={t}>{t}</option>
+                        <select aria-label={copy(pageContract, "modal.rule_editor.table.repeat")} value={d.repeat} onChange={(e) => setDose(i, { repeat: e.target.value })}>
+                          {repeatOptions.map((t) => (
+                            <option key={t.key} value={t.key}>{t.label}</option>
                           ))}
                         </select>
                       </td>
                       <td style={{ minWidth: 110 }}>
-                        <input aria-label="Repeat until after age" value={d.repeatUntilAfterAge} onChange={(e) => setDose(i, { repeatUntilAfterAge: e.target.value })} />
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.repeat_until")} value={d.repeatUntilAfterAge} onChange={(e) => setDose(i, { repeatUntilAfterAge: e.target.value })} />
                       </td>
                       <td>
-                        <input aria-label="Min gap days" type="number" value={d.minGapDays} onChange={(e) => setDose(i, { minGapDays: Number(e.target.value) })} />
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.min_gap")} type="number" value={d.minGapDays} onChange={(e) => setDose(i, { minGapDays: Number(e.target.value) })} />
                       </td>
                       <td style={{ minWidth: 120 }}>
-                        <select aria-label="Catch up" value={d.catchUp} onChange={(e) => setDose(i, { catchUp: e.target.value })}>
-                          {CATCH_UPS.map((t) => (
-                            <option key={t}>{t}</option>
+                        <select aria-label={copy(pageContract, "modal.rule_editor.table.catch_up")} value={d.catchUp} onChange={(e) => setDose(i, { catchUp: e.target.value })}>
+                          {catchUpOptions.map((t) => (
+                            <option key={t.key} value={t.key}>{t.label}</option>
                           ))}
                         </select>
                       </td>
                       <td style={{ minWidth: 110 }}>
                         <select
-                          aria-label="SOP label (cosmetic)"
-                          title="Display label only — the executable SOP binds at version level (the picker above), not per dose"
+                          aria-label={copy(pageContract, "modal.rule_editor.table.sop_label")}
+                          title={copy(pageContract, "modal.rule_editor.table.sop_label_title")}
                           value={d.sopVersion}
                           onChange={(e) => setDose(i, { sopVersion: e.target.value })}
                         >
-                          {SOP_VERSIONS.map((t) => (
-                            <option key={t}>{t}</option>
+                          {scheduleSopOptions.map((t) => (
+                            <option key={t.key} value={t.key}>{t.label}</option>
                           ))}
                         </select>
                       </td>
                       <td style={{ minWidth: 150 }}>
-                        <input aria-label="Proof policy" value={d.proofCsv} onChange={(e) => setDose(i, { proofCsv: e.target.value })} />
+                        <input aria-label={copy(pageContract, "modal.rule_editor.table.proof_policy")} value={d.proofCsv} onChange={(e) => setDose(i, { proofCsv: e.target.value })} />
                       </td>
                       <td>
                         <button
                           type="button"
-                          aria-label="Remove dose"
+                          aria-label={copy(pageContract, "modal.rule_editor.action.remove_dose")}
                           className="btn sm"
                           onClick={() => setDoses((r) => r.filter((_, idx) => idx !== i))}
                           disabled={doses.length === 1}
@@ -724,15 +741,15 @@ export function RuleEditorModal({
         {/* Impact preview */}
         <div className="cmh" style={{ borderTop: "1px solid var(--line2)", position: "static" }}>
           <h4 style={{ margin: 0 }}>
-            Impact preview - computed from {isFeedDirection ? "ration/session rules" : "schedule[]"}
+            {copy(pageContract, isFeedDirection ? "modal.rule_editor.impact_title_feed" : "modal.rule_editor.impact_title_vaccination")}
           </h4>
           <div className="sp" style={{ flex: 1 }} />
           {category === "vaccination" ? (
             <button type="button" className="btn sm" onClick={preview} disabled={pending}>
-              {pending ? "Computing…" : "Preview impact"}
+              {pending ? copy(pageContract, "action.computing") : copy(pageContract, "action.preview_impact")}
             </button>
           ) : (
-            <span className="muted small">backend preview lands with the {category} domain</span>
+            <span className="muted small">{copy(pageContract, "modal.rule_editor.preview_feed_pending")}</span>
           )}
         </div>
         <div style={{ padding: "0 18px 12px" }}>
@@ -740,10 +757,10 @@ export function RuleEditorModal({
             <>
               <div className="grid g4">
                 {[
-                  ["Eligible goats", impact.eligible_goats],
-                  ["Obligations / cycle", impact.obligations],
-                  ["Batches (SOP tasks)", impact.batches],
-                  ["Doses required", impact.doses_required],
+                  [copy(pageContract, "modal.rule_editor.kpi.eligible_goats"), impact.eligible_goats],
+                  [copy(pageContract, "modal.rule_editor.kpi.obligations"), impact.obligations],
+                  [copy(pageContract, "modal.rule_editor.kpi.batches"), impact.batches],
+                  [copy(pageContract, "modal.rule_editor.kpi.doses_required"), impact.doses_required],
                 ].map(([l, v]) => (
                   <div key={String(l)} className="kpi">
                     <div className="lab">{l}</div>
@@ -752,8 +769,8 @@ export function RuleEditorModal({
                 ))}
               </div>
               <div className="muted small" style={{ marginTop: 10 }}>
-                doses available: <b>{impact.doses_available || "—"}</b>
-                {impact.earliest_expiry ? ` · earliest expiry ${impact.earliest_expiry.slice(0, 10)}` : ""}
+                {copy(pageContract, "modal.rule_editor.label.doses_available")}: <b>{impact.doses_available || copy(pageContract, "label.placeholder")}</b>
+                {impact.earliest_expiry ? ` · ${copy(pageContract, "modal.rule_editor.label.earliest_expiry")} ${impact.earliest_expiry.slice(0, 10)}` : ""}
               </div>
               {impact.warnings.length > 0
                 ? impact.warnings.map((w, i) => (
@@ -766,19 +783,17 @@ export function RuleEditorModal({
             </>
           ) : (
             <p className="muted small">
-              {isFeedDirection
-                ? "Feed preview will compute eligible sheds/classes, session obligations, packing batches, and reserve/consume/release inventory once the feed domain endpoint lands."
-                : "Run a preview to compute live eligible goats, obligations, drive batches, and doses-vs-stock from the schedule."}
+              {copy(pageContract, isFeedDirection ? "modal.rule_editor.preview_empty_feed" : "modal.rule_editor.preview_empty_vaccination")}
             </p>
           )}
         </div>
 
         <div className="cfgmf">
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {copy(pageContract, "action.cancel")}
           </button>
           <div className="sp" style={{ flex: 1 }} />
-          {versionId ? <span className="muted small">draft saved · {versionId.slice(0, 8)}</span> : null}
+          {versionId ? <span className="muted small">{copy(pageContract, "modal.rule_editor.label.draft_saved")} · {versionId.slice(0, 8)}</span> : null}
           <button
             type="button"
             className="btn"
@@ -787,7 +802,7 @@ export function RuleEditorModal({
             title={stageBlockReason || sopBlockReason || undefined}
             style={stageBlockReason || sopBlockReason ? { opacity: 0.45 } : undefined}
           >
-            {pending ? "Saving…" : "Save draft"}
+            {pending ? copy(pageContract, "action.saving") : copy(pageContract, "action.save_draft")}
           </button>
           <button
             type="button"
@@ -797,7 +812,7 @@ export function RuleEditorModal({
             title={publishBlock}
             style={publishDisabled ? { opacity: 0.45 } : undefined}
           >
-            {canPublish ? "Publish" : "Publish (CEO/COO)"}
+            {canPublish ? copy(pageContract, "action.publish") : copy(pageContract, "action.publish_ceo")}
           </button>
         </div>
       </div>

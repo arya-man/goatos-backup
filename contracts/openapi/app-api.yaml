@@ -2918,6 +2918,7 @@ components:
         - top_bar
         - role_lenses
         - pages
+        - copy
         - display_rules
       properties:
         source:
@@ -2941,6 +2942,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminWebPageContract"
+        copy:
+          type: object
+          additionalProperties:
+            type: string
         display_rules:
           type: array
           items:
@@ -3112,6 +3117,8 @@ components:
         - tables
         - drawers
         - controls
+        - copy
+        - option_groups
         - migration_status
         - validation_notes
       properties:
@@ -3147,6 +3154,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminWebControl"
+        copy:
+          type: object
+          additionalProperties:
+            type: string
+        option_groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebOptionGroup"
         migration_status:
           type: string
         validation_notes:
@@ -3316,6 +3331,34 @@ components:
         disabled_reason:
           type: string
         action:
+          type: string
+    AdminWebOptionGroup:
+      type: object
+      additionalProperties: false
+      required: [id, options]
+      properties:
+        id:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebOption"
+    AdminWebOption:
+      type: object
+      additionalProperties: false
+      required: [key, label, title, enabled, disabled_reason, tone]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        title:
+          type: string
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+        tone:
           type: string
     AdminWebDisplayRule:
       type: object

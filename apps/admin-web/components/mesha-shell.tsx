@@ -65,13 +65,21 @@ function todayIso(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 }
 
-function dateFreshnessLabel(asOf: string | undefined, today: string): string {
-  if (!asOf || asOf === today) return "fresh";
+function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
+  const value = contract.copy[key];
+  if (typeof value !== "string") {
+    throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);
+  }
+  return value;
+}
+
+function dateFreshnessLabel(asOf: string | undefined, today: string, contract: AdminWebBootstrapResponse): string {
+  if (!asOf || asOf === today) return shellCopy(contract, "state.fresh");
   const asOfTime = Date.parse(`${asOf}T00:00:00+05:30`);
   const todayTime = Date.parse(`${today}T00:00:00+05:30`);
-  if (!Number.isFinite(asOfTime) || !Number.isFinite(todayTime)) return "freshness pending";
+  if (!Number.isFinite(asOfTime) || !Number.isFinite(todayTime)) return shellCopy(contract, "state.freshness_pending");
   const days = Math.max(0, Math.round((todayTime - asOfTime) / 86_400_000));
-  return days === 0 ? "fresh" : `${days}d old`;
+  return days === 0 ? shellCopy(contract, "state.fresh") : `${days}${shellCopy(contract, "state.days_old_suffix")}`;
 }
 
 function enabledNavHrefs(contract: AdminWebBootstrapResponse): string[] {
@@ -103,7 +111,7 @@ function routeRuleMatches(rule: RouteLabelRule, pathname: string): boolean {
 }
 
 function labelForPath(pathname: string, contract: AdminWebBootstrapResponse): string {
-  return contract.route_labels.find((rule) => routeRuleMatches(rule, pathname))?.label ?? "Route unavailable";
+  return contract.route_labels.find((rule) => routeRuleMatches(rule, pathname))?.label ?? shellCopy(contract, "route.unavailable");
 }
 
 function hrefWithoutInternalFrom(pathname: string, search: string): string {
@@ -115,7 +123,7 @@ function hrefWithoutInternalFrom(pathname: string, search: string): string {
 
 function hrefPathname(href: string): string {
   try {
-    return new URL(href, "http://goatos.local").pathname;
+    return new URL(href, "http://admin.local").pathname;
   } catch {
     return href.split("?")[0] || "/";
   }
@@ -174,7 +182,7 @@ export function MeshaShell({
     return init;
   });
   const today = todayIso();
-  const freshness = dateFreshnessLabel(scope.asOf, today);
+  const freshness = dateFreshnessLabel(scope.asOf, today, contract);
   const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
   const actionCenterBadge = visibleBadge(navCounts.actionCenter);
   const phcBadge = visibleBadge(navCounts.phc);
@@ -322,8 +330,8 @@ export function MeshaShell({
           type="button"
           className="iconbtn hamb"
           onClick={toggleNav}
-          title={rail ? "Expand navigation" : "Collapse navigation"}
-          aria-label={rail ? "Expand navigation" : "Collapse navigation"}
+          title={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
+          aria-label={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
           aria-expanded={!rail}
         >
           <Menu className="ic" />
@@ -347,17 +355,17 @@ export function MeshaShell({
             className={renderedScope.mode === "company" ? "on" : ""}
             title={companyScopeOption?.title ?? ""}
           >
-            {companyScopeOption?.label ?? "Company-wide"}
+            {companyScopeOption?.label}
           </Link>
           <Link
             href={defaultPark ? scopeHref(pathname, scope, { park: activeParkId ?? defaultPark.id, mode: "park" }) : scopeHref(pathname, scope, { mode: "park" })}
             replace
             scroll={false}
             className={renderedScope.mode === "park" ? "on" : ""}
-            title={defaultPark ? (parkScopeOption?.title ?? "") : "No parks available for park-wise scope"}
+            title={defaultPark ? (parkScopeOption?.title ?? "") : shellCopy(contract, "scope.no_parks_for_park_scope")}
             aria-disabled={!defaultPark}
           >
-            {parkScopeOption?.label ?? "Park-wise"}
+            {parkScopeOption?.label}
           </Link>
         </div>
         {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
@@ -379,12 +387,12 @@ export function MeshaShell({
             <b>{activeParkLabel}</b>
             {activeParkId ? (
               <span className="muted" style={{ fontWeight: 400 }}>
-                · all sheds
+                · {shellCopy(contract, "scope.all_sheds")}
               </span>
             ) : null}
             <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
           </button>
-          <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="menu" aria-label="Park scope">
+          <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
             <div className="pm-label">{contract.top_bar.park_selector.label}</div>
             <div className="pm-list">
               <Link
@@ -395,7 +403,7 @@ export function MeshaShell({
                 className={`pm-item ${!activeParkId ? "on" : ""}`}
               >
                 <span className="pn">
-                  All parks <span className="muted" style={{ fontWeight: 400 }}>· company-wide</span>
+                  {shellCopy(contract, "scope.all_parks")} <span className="muted" style={{ fontWeight: 400 }}>· {shellCopy(contract, "scope.company_wide")}</span>
                 </span>
                 {!activeParkId ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
               </Link>
@@ -413,7 +421,7 @@ export function MeshaShell({
                   {activeParkId === p.id ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
                 </Link>
               ))}
-              {parks.length === 0 ? <div className="pm-hint">No parks available for this tenant.</div> : null}
+              {parks.length === 0 ? <div className="pm-hint">{shellCopy(contract, "scope.no_parks_for_tenant")}</div> : null}
             </div>
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
@@ -438,13 +446,13 @@ export function MeshaShell({
           >
             <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
             <span>{contract.top_bar.date_range_selector.label}:</span>
-            <b>{currentDateOption?.label ?? "As of"}</b>
+            <b>{currentDateOption?.label ?? shellCopy(contract, "date.as_of_fallback")}</b>
             <span className="muted small" style={{ marginLeft: 2 }}>
-              · data {scope.asOf ?? today} · {freshness}
+              · {shellCopy(contract, "date.data_prefix")} {scope.asOf ?? today} · {freshness}
             </span>
             <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
           </button>
-          <div className={`parkmenu ${rangeMenuOpen ? "on" : ""}`} role="menu" aria-label="As-of date scope">
+          <div className={`parkmenu ${rangeMenuOpen ? "on" : ""}`} role="menu" aria-label={shellCopy(contract, "date.menu_aria")}>
             <div className="pm-label">{contract.top_bar.date_range_selector.label}</div>
             <div className="pm-list">
               {dateOptions.map((option) => (
@@ -456,7 +464,7 @@ export function MeshaShell({
                   style={!option.enabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                 >
                   <span className="pn">{option.label}</span>
-                  {!option.enabled ? <span className="rl">soon</span> : null}
+                  {!option.enabled ? <span className="rl">{shellCopy(contract, "date.disabled_badge")}</span> : null}
                 </span>
               ))}
             </div>
@@ -467,8 +475,8 @@ export function MeshaShell({
           type="button"
           className="iconbtn"
           onClick={toggleTheme}
-          title={isLight ? "Switch to dark theme" : "Switch to light theme"}
-          aria-label={isLight ? "Switch to dark theme" : "Switch to light theme"}
+          title={isLight ? shellCopy(contract, "theme.switch_to_dark") : shellCopy(contract, "theme.switch_to_light")}
+          aria-label={isLight ? shellCopy(contract, "theme.switch_to_dark") : shellCopy(contract, "theme.switch_to_light")}
         >
           {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
         </button>
@@ -486,7 +494,7 @@ export function MeshaShell({
           <button
             type="button"
             className="me"
-            aria-label="Open admin role preview"
+            aria-label={shellCopy(contract, "role.open_preview")}
             aria-expanded={roleMenuOpen}
             onClick={() => {
               setRoleMenuOpen((open) => !open);
@@ -631,9 +639,9 @@ export function MeshaShell({
                   applyNavTrail(navTrail.slice(0, -1));
                   router.back();
                 }}
-                title={`Back to ${navTrail[navTrail.length - 1].label}`}
+                title={`${shellCopy(contract, "nav.back_to_prefix")} ${navTrail[navTrail.length - 1].label}`}
               >
-                <ChevronLeft className="ic" aria-hidden="true" /> Back
+                <ChevronLeft className="ic" aria-hidden="true" /> {shellCopy(contract, "nav.back")}
               </button>
               <div className="nbtrail">
                 {navTrail.map((crumb, index) => (

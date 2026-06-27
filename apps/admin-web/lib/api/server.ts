@@ -259,6 +259,18 @@ export async function getAdminWebPageContract(routeId: string): Promise<AdminWeb
   return contract.data.pages.find((page) => page.route_id === routeId) ?? null;
 }
 
+export async function requireAdminWebPageContract(routeId: string): Promise<AdminWebPageContract> {
+  const contract = await getAdminWebBootstrap();
+  if (!contract.ok) {
+    throw new Error(`Admin-web contract unavailable for ${routeId}: ${contract.error.code ?? contract.error.kind}`);
+  }
+  const page = contract.data.pages.find((item) => item.route_id === routeId);
+  if (!page) {
+    throw new Error(`Admin-web page contract missing route_id=${routeId}`);
+  }
+  return page;
+}
+
 export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<GoatSearchResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

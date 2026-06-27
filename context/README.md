@@ -218,7 +218,7 @@ frontend:
 
   There is no `/parks/vaccination` exception. Vaccination execution belongs under
   PHC/Vaccination: use `/vaccination` and
-  `/vaccination/execution/sheds/{shed_id}` directly. Scope chrome rule: keep
+  `/vaccination/execution/sheds/[shedId]` directly. Scope chrome rule: keep
   park/date/source scope in the top bar or behind Filters. Do not repeat
   "Scope", "All parks", source, or date chips inside page bodies.
   Android Field App owns conditional SOP form execution; Slack forms are legacy/migration input only.

@@ -85,7 +85,7 @@ compatibility redirects such as `/vaccination/adherence` or
 `/vaccination/workflows/{row}`; old nested command paths must disappear. Parks is
 NOT a vaccination product route. There is no `/parks/vaccination` exception:
 Vaccination execution is owned by PHC/Vaccination and must use `/vaccination`
-plus `/vaccination/execution/sheds/{shed_id}` for shed drilldown.
+plus `/vaccination/execution/sheds/[shedId]` for shed drilldown.
 
 ## Non-Negotiable Scope Rule
 
@@ -129,7 +129,7 @@ verticals below:
                        cohort detail, drive/shed-event execution, proof +
                        verification backlog, rejected/rework — links out, not the
                        Action Center, no tab strip.
-  /vaccination/execution/sheds/{shed_id}
+  /vaccination/execution/sheds/[shedId]
                        physical shed execution drilldown when needed.
   /config, /sops       Admin / Data Ops authoring + vaccination-only SOP Library.
 
@@ -400,7 +400,8 @@ empty states; it must not collapse into a generic KPI dashboard.
 
 Park/shed execution context renders inside `/vaccination`, scoped by the top-bar
 park dropdown. The read-model endpoint must be Vaccination-owned:
-`/vaccination/execution`. Shed detail uses
+`/vaccination/execution`. Shed detail uses UI route
+`/vaccination/execution/sheds/[shedId]` and backend API
 `/vaccination/execution/sheds/{shed_id}`. Do not keep `/parks/vaccination`
 routes, redirects, feature folders, or API contracts.
 
@@ -521,7 +522,7 @@ cursor/limit metadata
    matching the mock's vaccination screen structure.
 
 7. Keep park/shed execution as Vaccination-owned physical context inside
-   `/vaccination`; use `/vaccination/execution/sheds/{shed_id}` for deep detail.
+   `/vaccination`; use `/vaccination/execution/sheds/[shedId]` for deep detail.
 
 8. Wire execution actions only when backend endpoints are real:
    start SOP, submit proof, verify/reject/rework.
@@ -608,7 +609,7 @@ Click/visual coverage:
 /workflows                KPI tiles, domain chips, catalog, chain map
 /workflows/{row_id}       workflow nodes, links to goat/passport/action
 /vaccination              mock-faithful Vaccination module screen
-/vaccination/execution/sheds/{shed_id} shed drilldown
+/vaccination/execution/sheds/[shedId] shed drilldown
 /config?category=vaccination vaccination protocol config/publish path
 /sops                     vaccination-only SOP Library
 /sops New SOP modal       actual builder, defaults, proof policy, save/dry-run

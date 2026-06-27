@@ -15,7 +15,7 @@ Build and verify these implemented surfaces only:
 - `/workflows`
 - `/workflows/{row_id}`
 - `/vaccination`
-- `/vaccination/execution/sheds/{shed_id}`
+- `/vaccination/execution/sheds/[shedId]`
 - `/procurement/source-entry`
 - `/procurement/source-entry/loads/{load_id}`
 - `/counts/herd`

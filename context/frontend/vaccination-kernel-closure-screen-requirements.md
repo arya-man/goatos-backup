@@ -202,7 +202,7 @@ Routes:
 
 ```text
 /vaccination
-/vaccination/execution/sheds/{shed_id}
+/vaccination/execution/sheds/[shedId]
 /calendar
 /action-center
 ```
@@ -277,7 +277,7 @@ Routes:
 
 ```text
 /vaccination
-/vaccination/execution/sheds/{shed_id}
+/vaccination/execution/sheds/[shedId]
 /action-center
 /calendar
 ```
@@ -453,7 +453,7 @@ Acceptance:
 | --- | --- | --- | --- |
 | 1 | `/config` | Existing extension | Rule detail status card, generation runs table, retry drawer/action. |
 | 2 | none first | No product screen | Optional health DTO later; visible through item 7. |
-| 3 | `/vaccination`, `/vaccination/execution/sheds/{shed_id}` | Existing extension | Drive repair rows, moved-goat drawer, repair exception alert. |
+| 3 | `/vaccination`, `/vaccination/execution/sheds/[shedId]` | Existing extension | Drive repair rows, moved-goat drawer, repair exception alert. |
 | 4 | `/vaccination`, `/action-center`, `/calendar`, `/goats/{goat_id}` | Existing extension | Deferred/recovery tags, Action Center cards, Passport timeline, drawer. |
 | 5 | `/vaccination`, shed execution, `/action-center`, `/calendar` | Existing extension | Stock block alert, disabled execution actions, Inventory owner task, drawer. |
 | 6 | `/operations/dlq` or Operations/Data Ops section | New ops screen | KPI strip, filters, DLQ table, detail drawer, replay/discard actions. |

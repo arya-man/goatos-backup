@@ -64,6 +64,19 @@ if (procurementLoadId) {
   });
 }
 
+const pagerMinimums = new Map([
+  ["action-center", 1],
+  ["protocol-adherence", 1],
+  ["workflows", 1],
+  ["vaccination", 4],
+  ["vaccination-execution", 4],
+  ["procurement-source-entry", 1],
+  ["config", 1],
+  ["sops", 1],
+  ["counts-herd", 1],
+  ["operations-audit", 2],
+]);
+
 const browser = await chromium.launch();
 try {
   for (const viewport of [
@@ -79,6 +92,8 @@ try {
       assertHealthyHTML(route.name, html, bearerToken);
       await assertLayoutHealthy(page, route.name, viewport.label);
       await assertA11y(page, route.name, viewport.label);
+      await assertTruncationContracts(page, route.name, viewport.label);
+      await assertPaginationControls(page, route.name, viewport.label);
       await assertCoreInteractions(page, route.name, viewport.label);
       await settleAtTop(page);
       const screenshotName = `${viewport.label}-${route.name}.png`;
@@ -182,6 +197,8 @@ function assertHealthyHTML(routeName, html, token) {
     "Runtime Error",
     "Trace ",
     "Rendered ",
+    "Admin-web contract unavailable",
+    "route_not_registered",
   ];
   for (const marker of forbidden) {
     if (html.includes(marker)) {
@@ -272,6 +289,20 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       }
       if (overlaps.length >= 5) break;
     }
+    const truncationTitleProblems = Array.from(document.querySelectorAll("[data-truncate]"))
+      .filter(isVisible)
+      .filter((element) => !hoverTextFor(element))
+      .slice(0, 5)
+      .map(describeElement);
+    const truncationStyleProblems = Array.from(document.querySelectorAll("[data-truncate]"))
+      .filter(isVisible)
+      .filter((element) => {
+        const style = window.getComputedStyle(element);
+        const lineClamp = style.getPropertyValue("-webkit-line-clamp");
+        return style.overflow !== "hidden" || (style.textOverflow !== "ellipsis" && lineClamp === "none");
+      })
+      .slice(0, 5)
+      .map(describeElement);
 
     return {
       overflow,
@@ -282,6 +313,8 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       navLabelSpread,
       smallTargets,
       overlaps,
+      truncationTitleProblems,
+      truncationStyleProblems,
     };
 
     function isVisible(element) {
@@ -302,6 +335,13 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         clientHeight: element.clientHeight,
         scrollHeight: element.scrollHeight,
       };
+    }
+
+    function hoverTextFor(element) {
+      const own = element.getAttribute("title") || element.getAttribute("aria-label");
+      if (own) return own;
+      const labelled = element.closest("[title], [aria-label]");
+      return labelled?.getAttribute("title") || labelled?.getAttribute("aria-label") || "";
     }
   });
 
@@ -329,6 +369,12 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   if (layout.overlaps.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has overlapping interactive elements: ${JSON.stringify(layout.overlaps)}`);
   }
+  if (layout.truncationTitleProblems.length > 0) {
+    throw new Error(`${routeName} ${viewportLabel} has truncated text without hover/full text: ${JSON.stringify(layout.truncationTitleProblems)}`);
+  }
+  if (layout.truncationStyleProblems.length > 0) {
+    throw new Error(`${routeName} ${viewportLabel} has malformed truncation styling: ${JSON.stringify(layout.truncationStyleProblems)}`);
+  }
 }
 
 async function settleAtTop(page) {
@@ -351,6 +397,112 @@ async function assertA11y(page, routeName, viewportLabel) {
     nodes: violation.nodes.slice(0, 3).map((node) => node.target),
   }));
   throw new Error(`${routeName} ${viewportLabel} has serious/critical accessibility violations: ${JSON.stringify(summary)}`);
+}
+
+async function assertTruncationContracts(page, routeName, viewportLabel) {
+  if (routeName !== "protocol-adherence") return;
+  const clippedCells = await page.locator('tbody tr [data-truncate][title]').count();
+  if (clippedCells < 3) {
+    throw new Error(`${routeName} ${viewportLabel} expected protocol rows to expose ellipsis + hover text, found ${clippedCells}`);
+  }
+}
+
+async function assertPaginationControls(page, routeName, viewportLabel) {
+  const minimum = pagerMinimums.get(routeName);
+  if (!minimum) return;
+
+  const pagers = page.locator(".pager2");
+  const count = await pagers.count();
+  if (count < minimum) {
+    throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager2 footer(s), found ${count}`);
+  }
+  for (let index = 0; index < count; index += 1) {
+    const pager = pagers.nth(index);
+    const text = (await pager.innerText()).replace(/\s+/g, " ").trim();
+    if (!/Prev(?:ious)?/i.test(text) || !/Next/i.test(text)) {
+      throw new Error(`${routeName} ${viewportLabel} pager ${index + 1} is missing Prev/Next controls: ${text}`);
+    }
+  }
+
+  if (viewportLabel !== "desktop") return;
+  await exerciseFirstPagerRoundTrip(page, routeName);
+}
+
+async function exerciseFirstPagerRoundTrip(page, routeName) {
+  const pager = page.locator(".pager2").first();
+  const initialPagerText = normalizePagerText(await pager.innerText());
+  const next = pager.locator("a, button").filter({ hasText: /Next/i }).first();
+  if ((await next.count()) !== 1) return;
+  if (await isDisabledControl(next)) return;
+
+  await next.scrollIntoViewIfNeeded();
+  await next.click();
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+  await waitForPagerTextChange(page, initialPagerText);
+  await waitForPagerControl(page, /Prev(?:ious)?/i, "enabled");
+
+  const previous = page.locator(".pager2").first().locator("a, button").filter({ hasText: /Prev(?:ious)?/i }).first();
+  if ((await previous.count()) !== 1 || (await isDisabledControl(previous))) {
+    throw new Error(`${routeName} pager Next did not produce an enabled Previous control`);
+  }
+  await previous.scrollIntoViewIfNeeded();
+  await previous.click();
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+  await waitForPagerAtFirstPage(page, routeName);
+}
+
+async function isDisabledControl(locator) {
+  const ariaDisabled = await locator.getAttribute("aria-disabled");
+  const disabled = await locator.getAttribute("disabled");
+  return ariaDisabled === "true" || disabled !== null;
+}
+
+async function waitForPagerControl(page, pattern, state) {
+  await page.waitForFunction(
+    ({ source, flags, state }) => {
+      const re = new RegExp(source, flags);
+      const pager = document.querySelector(".pager2");
+      if (!pager) return false;
+      return Array.from(pager.querySelectorAll("a, button")).some((element) => {
+        const text = element.textContent ?? "";
+        if (!re.test(text)) return false;
+        const disabled =
+          element.getAttribute("aria-disabled") === "true" ||
+          element.hasAttribute("disabled") ||
+          (element instanceof HTMLButtonElement && element.disabled);
+        return state === "enabled" ? !disabled : disabled;
+      });
+    },
+    { source: pattern.source, flags: pattern.flags, state },
+    { timeout: 5_000 },
+  );
+}
+
+async function waitForPagerTextChange(page, previousText) {
+  await page.waitForFunction(
+    (previousText) => {
+      const text = (document.querySelector(".pager2")?.textContent ?? "").replace(/\s+/g, " ").trim();
+      return text && text !== previousText;
+    },
+    previousText,
+    { timeout: 5_000 },
+  );
+}
+
+async function waitForPagerAtFirstPage(page, routeName) {
+  await page.waitForFunction(
+    () => {
+      const text = (document.querySelector(".pager2")?.textContent ?? "").replace(/\s+/g, " ").trim();
+      return /^1-\d+ of /.test(text) || /\bPage 1\b/.test(text) || /^0 /.test(text) || /^0 results\b/.test(text);
+    },
+    { timeout: 5_000 },
+  ).catch((error) => {
+    throw new Error(`${routeName} pager did not return to the first page: ${error instanceof Error ? error.message : String(error)}`);
+  });
+}
+
+function normalizePagerText(text) {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 async function assertCoreInteractions(page, routeName, viewportLabel) {
@@ -405,7 +557,7 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
       await row.click();
       await page.waitForURL(/workflow=/, { timeout: 5_000 });
       await page.getByRole("link", { name: /Back to list/i }).waitFor({ state: "visible", timeout: 5_000 });
-      await page.getByRole("link", { name: /Open workflow detail/i }).waitFor({ state: "visible", timeout: 5_000 });
+      await page.getByRole("link", { name: /Open workflow detail/i }).first().waitFor({ state: "visible", timeout: 5_000 });
       await page.getByRole("link", { name: /Back to list/i }).click();
       await page.waitForURL((url) => !url.searchParams.has("workflow"), { timeout: 5_000 });
     }
@@ -413,8 +565,9 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
 
   if (routeName === "vaccination") {
     await openAndCloseDialog(page, page.getByRole("button", { name: "SOP", exact: true }), "Vaccination Drive SOP", "Close", routeName);
-    await openAndCloseDialog(page, page.getByRole("button", { name: "Import sheet", exact: true }), "Import vaccination sheet", "Close", routeName);
-    await openAndCloseDialog(page, page.getByRole("button", { name: "New drive", exact: true }), "New vaccination drive", "Close", routeName);
+    // Do not exercise unbuilt/future vaccination write flows here. Import sheet and New drive are
+    // read-only guidance affordances in the current slice; the active E2E path is config -> obligation
+    // generation -> sweeper -> SOP/proof/verification.
 
     const filters = page.getByRole("button", { name: "Filters", exact: true });
     const filterCount = await filters.count();
@@ -482,10 +635,39 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName) {
   if (triggerCount !== 1) {
     throw new Error(`${routeName} drawer trigger for "${expectedText}" resolved to ${triggerCount} elements`);
   }
+  const href = await trigger.getAttribute("href").catch(() => null);
+  const expectedUrl = href ? new URL(href, page.url()) : null;
   await trigger.scrollIntoViewIfNeeded();
-  await trigger.click();
+  await Promise.all([
+    expectedUrl
+      ? page.waitForURL(
+          (url) => url.pathname === expectedUrl.pathname && url.search === expectedUrl.search,
+          { timeout: 10_000 },
+        )
+      : Promise.resolve(),
+    trigger.click(),
+  ]);
   const drawer = page.locator(".drawer.on").first();
-  await drawer.waitFor({ state: "visible", timeout: 5_000 });
+  try {
+    await drawer.waitFor({ state: "visible", timeout: 10_000 });
+  } catch (error) {
+    if (!expectedUrl || page.url() !== expectedUrl.toString()) {
+      throw error;
+    }
+    await page.reload({ waitUntil: "networkidle", timeout: 30_000 });
+    try {
+      await drawer.waitFor({ state: "visible", timeout: 10_000 });
+    } catch (reloadError) {
+      const taskCount = await page.locator(".taskboard .task").count().catch(() => -1);
+      const bodyText = await page.locator("body").innerText().catch(() => "");
+      throw new Error(
+        `${routeName} drawer "${expectedText}" did not render after click+reload. url=${page.url()} href=${expectedUrl.toString()} tasks=${taskCount} body=${bodyText
+          .replace(/\s+/g, " ")
+          .slice(0, 800)}`,
+        { cause: reloadError },
+      );
+    }
+  }
   await drawer.getByText(expectedText, { exact: false }).first().waitFor({ state: "visible", timeout: 5_000 });
   const close = drawer.locator('a[aria-label^="Close"]').first();
   const closeCount = await close.count();

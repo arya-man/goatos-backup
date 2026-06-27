@@ -6,6 +6,7 @@ import {
 } from "@/lib/api/server";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 type Tone = "ok" | "warn" | "dng" | "info" | "mut";
 function statusTone(status: string): Tone {
@@ -14,17 +15,17 @@ function statusTone(status: string): Tone {
   if (status === "recorded") return "warn";
   return "mut";
 }
-function proofLabel(item: VaccinationPassportHistoryItem): React.ReactNode {
-  if (item.status === "accepted") return <Tag tone="ok">proof verified</Tag>;
-  if (item.status === "recorded") return <Tag tone="warn">awaiting verification</Tag>;
-  if (item.status === "rejected") return <Tag tone="dng">rework / rejected</Tag>;
+function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiPageContract): React.ReactNode {
+  if (item.status === "accepted") return <Tag tone="ok">{copy(pageContract, "vaccination.proof_verified")}</Tag>;
+  if (item.status === "recorded") return <Tag tone="warn">{copy(pageContract, "vaccination.awaiting_verify")}</Tag>;
+  if (item.status === "rejected") return <Tag tone="dng">{copy(pageContract, "vaccination.rework_rejected")}</Tag>;
   return <Tag tone="mut">{item.status}</Tag>;
 }
 
 // VaccinationPassportSection renders a goat's vaccination passport: next due, open obligations, last
 // accepted, and the administered/verified history with proof status. Read-only. Wrapped in `.screen`
 // so its table inherits the canonical table styling regardless of the host passport page.
-export async function VaccinationPassportSection({ goatId }: { goatId: string }) {
+export async function VaccinationPassportSection({ goatId, pageContract }: { goatId: string; pageContract: AdminUiPageContract }) {
   const res = await getGoatVaccinationPassport(goatId);
   if (!res.ok) {
     // Soft-fail: the rest of the identity passport still renders.
@@ -33,10 +34,10 @@ export async function VaccinationPassportSection({ goatId }: { goatId: string })
         <section className="card">
           <div className="hd">
             <Syringe className="ic" aria-hidden="true" />
-            <h3>Vaccination</h3>
+	            <h3>{copy(pageContract, "section.vaccination.title")}</h3>
           </div>
           <div className="bd">
-            <p className="muted small">Vaccination passport unavailable: {res.error.message ?? res.error.code}</p>
+            <p className="muted small">{copy(pageContract, "vaccination.unavailable_prefix")}: {res.error.message ?? res.error.code}</p>
           </div>
         </section>
       </div>
@@ -51,41 +52,41 @@ export async function VaccinationPassportSection({ goatId }: { goatId: string })
       <section className="card">
         <div className="hd">
           <Syringe className="ic" aria-hidden="true" />
-          <h3>Vaccination</h3>
+	          <h3>{copy(pageContract, "section.vaccination.title")}</h3>
           <Tag tone="mut">
-            {history.length} dose{history.length === 1 ? "" : "s"}
+            {history.length} {copy(pageContract, history.length === 1 ? "vaccination.dose_singular" : "vaccination.dose_plural")}
           </Tag>
           <div className="sp" />
           {p.next_due ? (
             <span className="muted small">
-              next due <b>{fmtDate(p.next_due.due_at)}</b> · dose {p.next_due.sequence}
+              {copy(pageContract, "vaccination.next_due_inline")} <b>{fmtDate(p.next_due.due_at)}</b> · {copy(pageContract, "vaccination.dose_singular")} {p.next_due.sequence}
             </span>
           ) : (
-            <span className="muted small">no upcoming dose</span>
+            <span className="muted small">{copy(pageContract, "vaccination.no_upcoming")}</span>
           )}
         </div>
 
         <div className="bd">
           <div className="metagrid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div>
-              <div className="k">Next due</div>
+              <div className="k">{copy(pageContract, "vaccination.next_due")}</div>
               <div className="v">
                 {p.next_due ? (
                   <>
                     {fmtDate(p.next_due.due_at)} <Tag tone="warn">{p.next_due.status}</Tag>
                   </>
                 ) : (
-                  "—"
+                  copy(pageContract, "label.placeholder")
                 )}
               </div>
             </div>
             <div>
-              <div className="k">Open obligations</div>
+              <div className="k">{copy(pageContract, "vaccination.open_obligations")}</div>
               <div className="v">{open.length}</div>
             </div>
             <div>
-              <div className="k">Last accepted</div>
-              <div className="v">{p.last_accepted ? fmtDate(p.last_accepted.administered_at) : "—"}</div>
+              <div className="k">{copy(pageContract, "vaccination.last_accepted")}</div>
+              <div className="v">{p.last_accepted ? fmtDate(p.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}</div>
             </div>
           </div>
         </div>
@@ -100,26 +101,22 @@ export async function VaccinationPassportSection({ goatId }: { goatId: string })
             letterSpacing: ".4px",
           }}
         >
-          History
+          {copy(pageContract, "vaccination.history")}
         </div>
-        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Vaccination history">
+	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
           {history.length === 0 ? (
             <div className="bd">
               <p className="muted small">
-                No vaccination history yet. Once a source-backed protocol is published and a dose is administered +
-                verified, it appears here with its proof/verification status and the source protocol version.
+                {copy(pageContract, "vaccination.empty_history")}
               </p>
             </div>
           ) : (
             <table>
               <thead>
                 <tr>
-                  <th>Administered</th>
-                  <th>Doses</th>
-                  <th>Route</th>
-                  <th>Status</th>
-                  <th>Proof</th>
-                  <th>Source obligation</th>
+	                  {tableLabels(pageContract, "vaccination-history").map((label) => (
+	                    <th key={label}>{label}</th>
+	                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -127,11 +124,11 @@ export async function VaccinationPassportSection({ goatId }: { goatId: string })
                   <tr key={h.completion_id}>
                     <td>{fmtDate(h.administered_at)}</td>
                     <td>{h.doses}</td>
-                    <td className="muted">{h.route_site || "—"}</td>
+                    <td className="muted">{h.route_site || copy(pageContract, "label.placeholder")}</td>
                     <td>
                       <Tag tone={statusTone(h.status)}>{h.status}</Tag>
                     </td>
-                    <td>{proofLabel(h)}</td>
+                    <td>{proofLabel(h, pageContract)}</td>
                     <td>
                       <span className="gid">{h.obligation_id.slice(0, 8)}</span>
                     </td>

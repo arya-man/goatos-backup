@@ -4,52 +4,30 @@ import type { VaccinationOperationsResponse, VaccinationOperationsCell } from "@
 import type { Tone } from "@/features/process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { scopeHref, type Scope } from "@/lib/scope";
 import { VaccinationFilterButton, VisibleTableSearch } from "./vaccination-filter-modal";
 import { VaccinationRecordVerifyDrawer } from "./record-verify-drawer";
-import { VaccinationTablePager } from "./table-pager";
+import { paginateRows, VaccinationTablePager, type VaccinationPageSize } from "./table-pager";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { sortVaccinationProtocols, vaccinationProtocolDisplayName } from "./vaccine-display";
 
 // Matrix chips use the mock's short operational language. The backend work_state stays canonical; this is only
 // display copy for the cohort x vaccine table.
-function matrixCellMeta(cell: VaccinationOperationsCell): { label: string; tone: Tone } {
-  switch (cell.workState) {
-    case "completed":
-      return { label: "done", tone: "ok" };
-    case "overdue":
-      return { label: "overdue", tone: "dng" };
-    case "due":
-      return { label: dueLabel(cell.nextDue), tone: "warn" };
-    case "proof_pending":
-      return { label: "video pending", tone: "warn" };
-    case "scheduled":
-      return { label: "scheduled", tone: "warn" };
-    case "in_progress":
-      return { label: "in progress", tone: "info" };
-    case "verification_pending":
-      return { label: "verify pending", tone: "warn" };
-    case "rejected":
-      return { label: "rework", tone: "dng" };
-    case "deferred":
-      return { label: "deferred", tone: "mut" };
-    case "blocked":
-      return { label: "blocked", tone: "dng" };
-    case "owner_missing":
-      return { label: "owner missing", tone: "dng" };
-    default:
-      return { label: String(cell.workState).replace(/_/g, " "), tone: "mut" };
-  }
+function matrixCellMeta(pageContract: AdminUiPageContract, cell: VaccinationOperationsCell): { label: string; tone: Tone } {
+  const label = cell.workState === "due" ? dueLabel(pageContract, cell.nextDue) : optionLabel(pageContract, "matrix_states", cell.workState);
+  return { label, tone: optionTone(pageContract, "matrix_states", cell.workState) as Tone };
 }
 
-function dueLabel(nextDue: string | undefined): string {
-  if (!nextDue) return "due";
+function dueLabel(pageContract: AdminUiPageContract, nextDue: string | undefined): string {
+  const base = optionLabel(pageContract, "matrix_states", "due");
+  if (!nextDue) return base;
   const due = new Date(nextDue);
-  if (Number.isNaN(due.getTime())) return "due";
+  if (Number.isNaN(due.getTime())) return base;
   const now = new Date();
   const dayMs = 24 * 60 * 60 * 1000;
   const days = Math.ceil((startOfDay(due).getTime() - startOfDay(now).getTime()) / dayMs);
-  return days > 0 ? `due ${days}d` : "due";
+  return days > 0 ? `${base} ${days}${copy(pageContract, "label.days_suffix")}` : base;
 }
 
 function startOfDay(value: Date): Date {
@@ -70,14 +48,19 @@ export function VaccinationStatusMatrix({
   ok,
   scope,
   searchParams,
+  pageContract,
 }: {
   operations: VaccinationOperationsResponse | null;
   ok: boolean;
   scope: Scope;
   searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
 }) {
   const protocols = sortVaccinationProtocols(operations?.protocols ?? []);
   const cohorts = operations?.cohorts ?? [];
+  const pageSizeOptions = tablePageSizes(pageContract, "status-matrix");
+  const labels = tableLabels(pageContract, "status-matrix");
+  const paged = paginateRows(cohorts, searchParams, "matrix", 10, pageSizeOptions);
   const empty = protocols.length === 0 || cohorts.length === 0;
   const selectedId = one(searchParams ?? {}, "vacc_record");
   let selected: { id: string; cohort: (typeof cohorts)[number]; protocol: (typeof protocols)[number]; cell: VaccinationOperationsCell } | null = null;
@@ -90,17 +73,23 @@ export function VaccinationStatusMatrix({
       }
     }
   }
+  function pagerHref(page: number): string {
+    return scopeHref("/vaccination", scope, {}, { matrix_page: String(page), matrix_limit: String(paged.pageSize) });
+  }
+  function pageSizeHref(pageSize: VaccinationPageSize): string {
+    return scopeHref("/vaccination", scope, {}, { matrix_page: "1", matrix_limit: String(pageSize) });
+  }
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <div className="hd">
         <Syringe className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>Vaccination status matrix</h3>
+        <h3>{copy(pageContract, "section.status_matrix.title")}</h3>
         <div className="sp" style={{ flex: 1 }} />
         <span className="legend">
-          <LegendSwatch varName="--brand" label="up to date" />
-          <LegendSwatch varName="--amber" label="due soon" />
-          <LegendSwatch varName="--danger" label="overdue" />
+          <LegendSwatch varName="--brand" label={copy(pageContract, "label.up_to_date")} />
+          <LegendSwatch varName="--amber" label={copy(pageContract, "label.due_soon")} />
+          <LegendSwatch varName="--danger" label={copy(pageContract, "label.overdue")} />
         </span>
       </div>
 
@@ -108,20 +97,20 @@ export function VaccinationStatusMatrix({
         <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", flexWrap: "wrap" }}>
           <Syringe className="ic" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} aria-hidden="true" />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <b style={{ fontSize: 14 }}>{ok ? "No cohort × vaccine status yet" : "Status matrix is unavailable"}</b>
+            <b style={{ fontSize: 14 }}>
+              {ok ? copy(pageContract, "section.status_matrix.empty_title") : copy(pageContract, "section.status_matrix.unavailable_title")}
+            </b>
             <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {ok
-                ? "Columns are the published vaccination protocols; rows are park/shed cohorts. Publish a source-backed protocol in Config and a vaccination SOP — obligations then generate against cohorts and fill this grid."
-                : "Operations are unavailable until the service responds; resolve the error above and reload."}
+              {ok ? copy(pageContract, "section.status_matrix.empty_body") : copy(pageContract, "section.status_matrix.unavailable_body")}
             </span>
           </div>
           {ok ? (
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <Link href={scopeHref("/config", scope, {}, { category: "vaccination" })} className="btn sm p">
-                Protocol Rules
+                {copy(pageContract, "action.open_protocol_rules")}
               </Link>
               <Link href={scopeHref("/sops", scope)} className="btn sm">
-                SOP Library
+                {copy(pageContract, "action.open_sop_library")}
               </Link>
             </div>
           ) : null}
@@ -129,31 +118,34 @@ export function VaccinationStatusMatrix({
       ) : (
         <div className="bd" style={{ padding: 0 }}>
           <div className="tbar">
-            <VisibleTableSearch label="Search vaccination matrix rows" />
+            <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.status_matrix.search")} />
             <VaccinationFilterButton
-              title="Filter — Vaccination status matrix"
-              searchReason="Search cohort, protocol, vaccine, status..."
-              filterReason="Use visible-row search and quick facets; click a cell to open the matching work context."
-              rowsLabel={`${cohorts.length} rows · cohort × protocol`}
+              pageContract={pageContract}
+              title={copy(pageContract, "filter.status_matrix.title")}
+              searchReason={copy(pageContract, "filter.status_matrix.reason")}
+              filterReason={copy(pageContract, "filter.status_matrix.filter_reason")}
+              rowsLabel={`${cohorts.length} ${copy(pageContract, "pager.rows")} · ${copy(pageContract, "filter.status_matrix.rows_suffix")}`}
               actionHref={scopeHref("/action-center", scope)}
-              actionLabel="Open Action Center"
-              facets={["Cohort", "Protocol", "Vaccine", "Due window", "Work state"]}
+              actionLabel={copy(pageContract, "action.open_action_center")}
+              facets={optionGroup(pageContract, "status_matrix_facets").map((facet) => facet.label)}
             />
-            <span className="muted small">{cohorts.length} rows</span>
-            <span className="muted small">click a cell → record / verify</span>
+            <span className="muted small">
+              {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {cohorts.length} {copy(pageContract, "pager.rows").toLowerCase()}
+            </span>
+            <span className="muted small">{copy(pageContract, "section.status_matrix.row_hint")}</span>
           </div>
-          <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Vaccination status matrix">
+          <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.status_matrix.aria")}>
             <table>
               <thead>
                 <tr>
-                  <th>Cohort</th>
+                  <th>{labels[0]}</th>
                   {protocols.map((p) => (
                     <th key={p.protocolId}>{vaccinationProtocolDisplayName(p)}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {cohorts.map((c) => {
+                {paged.items.map((c) => {
                   const byProtocol = new Map<string, VaccinationOperationsCell>();
                   for (const cell of c.cells) byProtocol.set(cell.protocolId, cell);
                   return (
@@ -171,9 +163,9 @@ export function VaccinationStatusMatrix({
                             </td>
                           );
                         }
-                        const meta = matrixCellMeta(cell);
+                        const meta = matrixCellMeta(pageContract, cell);
                         const protocolLabel = vaccinationProtocolDisplayName(p);
-                        const title = cell.lastDose ? `${protocolLabel} — ${meta.label} · last dose ${fmtDate(cell.lastDose)}` : `${protocolLabel} — ${meta.label}`;
+                        const title = cell.lastDose ? `${protocolLabel} — ${meta.label} · ${copy(pageContract, "label.last_dose")} ${fmtDate(cell.lastDose)}` : `${protocolLabel} — ${meta.label}`;
                         return (
                           <td key={p.protocolId}>
                             <Link
@@ -194,24 +186,33 @@ export function VaccinationStatusMatrix({
             </table>
           </div>
           <div className="note" style={{ margin: "12px 14px" }}>
-            Cells are keyed on each cohort&apos;s open obligations; <b>last dose</b> (hover) is the latest accepted
-            administered dose. Overdue cells escalate via{" "}
+            {copy(pageContract, "section.status_matrix.note")}{" "}
             <Link href={scopeHref("/protocol-adherence", scope)} className="lk">
-              Protocol Adherence
+              {copy(pageContract, "action.open_protocol_adherence")}
             </Link>
-            ; act on individual drives in the{" "}
             <Link href={scopeHref("/action-center", scope)} className="lk">
-              Action Center
+              {copy(pageContract, "action.open_action_center")}
             </Link>
-            .
           </div>
-          <VaccinationTablePager rows={cohorts.length} noun="cohort" />
+          <VaccinationTablePager
+            pageContract={pageContract}
+            pageSizeOptions={pageSizeOptions}
+            page={paged.page}
+            pageSize={paged.pageSize}
+            total={paged.total}
+            start={paged.start}
+            end={paged.end}
+            noun={copy(pageContract, "label.cohort").toLowerCase()}
+            hrefForPage={pagerHref}
+            hrefForPageSize={pageSizeHref}
+          />
         </div>
       )}
       {selected ? (
         <VaccinationRecordVerifyDrawer
           context={{ cohort: selected.cohort, protocol: selected.protocol, cell: selected.cell }}
           scope={scope}
+          pageContract={pageContract}
         />
       ) : null}
     </section>

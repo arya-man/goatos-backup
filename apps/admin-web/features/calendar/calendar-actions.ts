@@ -24,7 +24,7 @@ function requiredIdempotencyKey(formData: FormData): string {
 // in a hidden field, so an accidental double-submit of the same rendered form replays (no duplicate nudge).
 export async function sendNudgeAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.nudge_sent";
   try {
     const eventId = requiredString(formData, "event_id");
     const key = requiredIdempotencyKey(formData);
@@ -32,22 +32,23 @@ export async function sendNudgeAction(formData: FormData): Promise<void> {
     const result = await sendCalendarNudge(eventId, { reason }, key);
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = result.data.idempotent_replay ? "Nudge already sent (replay)." : "Nudge sent.";
+      actionKey = result.data.idempotent_replay ? "action.nudge_replay" : "action.nudge_sent";
       revalidateCalendarViews();
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to send nudge.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 // Snooze — durable snooze keyed to the underlying due-work target; does not mutate obligation truth.
 export async function snoozeAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.snooze_recorded";
   try {
     const eventId = requiredString(formData, "event_id");
     const key = requiredIdempotencyKey(formData);
@@ -57,14 +58,15 @@ export async function snoozeAction(formData: FormData): Promise<void> {
     const result = await snoozeCalendarEvent(eventId, { snooze_until: snoozeUntil, reason, replace_existing: false }, key);
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = result.data.idempotent_replay ? "Snooze already recorded (replay)." : "Event snoozed.";
+      actionKey = result.data.idempotent_replay ? "action.snooze_replay" : "action.snooze_recorded";
       revalidateCalendarViews();
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to snooze event.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }

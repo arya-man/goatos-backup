@@ -8,26 +8,11 @@ import type { ProcurementLoad, ProcurementLoadDetail, ProcurementLoadStatus } fr
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate, shortId } from "@/lib/format";
 import { Tag, type Tone } from "@/components/ui-primitives";
-import { PROC_LOAD_STATUS_META, PROC_LOAD_STATUS_ORDER, warmupMeta } from "./work-state";
+import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTitle, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { warmupMeta } from "./work-state";
 import { NewLoadForm } from "./load-forms";
 import { ProcurementPager } from "./pager";
-import { VaccinationFilterButton, VisibleTableSearch } from "@/features/phc-vaccination/vaccination-filter-modal";
-
-const LOADS_COLS = [
-  "Load",
-  "Holding farm · supplier",
-  "Purpose",
-  "Animals",
-  "Warmup",
-  "Tagging",
-  "Vaccination · at HF",
-  "Health / Selection",
-  "Status",
-];
-
-// The canonical source-entry journey, shown as IA so users learn that a goat journey starts at
-// purchase/source and that park arrival is only one gate near the end. Explanatory copy, not data.
-const JOURNEY_STAGES = ["Purchase / source", "Holding warmup", "Source health SOP", "Pre-dispatch", "Transit", "Arrival gate", "Accepted intake"];
+import { VaccinationFilterButton, VisibleTableSearch } from "@/features/phc-vaccination";
 
 function daysSince(date: string | null | undefined): number | null {
   if (!date) return null;
@@ -37,7 +22,16 @@ function daysSince(date: string | null | undefined): number | null {
   return Math.max(0, Math.floor(diff / 86_400_000));
 }
 
-function warmupCell(load: ProcurementLoad, detail: ProcurementLoadDetail | undefined): { label: string; tone: Tone; note: string } {
+function contractTone(pageContract: AdminUiPageContract, groupId: string, key: string): Tone {
+  return optionTone(pageContract, groupId, key) as Tone;
+}
+
+function warmupExpectationKey(purpose: string): string {
+  if (purpose === "fattening" || purpose === "non_breeding" || purpose === "breeding") return purpose;
+  return "unspecified";
+}
+
+function warmupCell(load: ProcurementLoad, detail: ProcurementLoadDetail | undefined, pageContract: AdminUiPageContract): { label: string; tone: Tone; note: string } {
   const goats = detail?.goats ?? [];
   const purposeValues = Array.from(new Set(goats.map((g) => g.purpose).filter(Boolean)));
   const goatDays = goats
@@ -47,46 +41,52 @@ function warmupCell(load: ProcurementLoad, detail: ProcurementLoadDetail | undef
 
   if (purposeValues.length > 1) {
     return {
-      label: days === null ? "mixed windows" : `${days}d · mixed`,
+      label: days === null ? copy(pageContract, "label.mixed_windows") : `${days}d · ${copy(pageContract, "label.mixed")}`,
       tone: "info",
-      note: "mixed purpose load — review per-goat warmup in load detail",
+      note: copy(pageContract, "warmup.mixed_note"),
     };
   }
 
   const purpose = purposeValues[0] ?? "unspecified";
   const warm = warmupMeta(days, purpose);
+  const expectationKey = warmupExpectationKey(purpose);
   return {
-    label: warm.label === "—" ? "—" : `${warm.label} / ${warm.expectation}`,
+    label: warm.label === "—" ? copy(pageContract, "label.placeholder") : `${warm.label} / ${optionLabel(pageContract, "warmup_expectations", expectationKey)}`,
     tone: warm.tone,
-    note: warm.note ?? warm.expectation,
+    note: optionTitle(pageContract, "warmup_expectations", expectationKey),
   };
 }
 
-function healthSelectionLabel(status: ProcurementLoadStatus): { label: string; tone: "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal" } {
+function healthSelectionLabel(status: ProcurementLoadStatus, pageContract: AdminUiPageContract): { label: string; tone: Tone } {
+  let key = "cleared_forward";
   switch (status) {
     case "source_warmup":
-      return { label: "warming", tone: "info" };
+      key = "warming";
+      break;
     case "health_pending":
-      return { label: "health pending", tone: "warn" };
+      key = "health_pending";
+      break;
     case "pre_dispatch_pending":
     case "dispatch_ready":
-      return { label: "selection ok", tone: "ok" };
+      key = "selection_ok";
+      break;
     case "rejected":
     case "blocked":
-      return { label: "blocked / rejected", tone: "dng" };
+      key = "blocked_rejected";
+      break;
     case "deferred":
-      return { label: "review", tone: "warn" };
-    default:
-      return { label: "cleared forward", tone: "ok" };
+      key = "review";
+      break;
   }
+  return { label: optionLabel(pageContract, "health_selection_states", key), tone: contractTone(pageContract, "health_selection_states", key) };
 }
 
 function sourcePartyLabel(load: ProcurementLoad): string {
   return load.source_party_name || shortId(load.source_party_id);
 }
 
-function sourceLocationLabel(load: ProcurementLoad): string {
-  return load.source_location_name || load.source_location_code || "Holding not set";
+function sourceLocationLabel(load: ProcurementLoad, pageContract: AdminUiPageContract): string {
+  return load.source_location_name || load.source_location_code || copy(pageContract, "label.holding_not_set");
 }
 
 function hrefWithQuery(pathname: string, params: RouteSearchParams, changes: Record<string, string | null | undefined>): string {
@@ -107,12 +107,12 @@ function hrefWithQuery(pathname: string, params: RouteSearchParams, changes: Rec
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-function purposeLabel(detail: ProcurementLoadDetail | undefined): string {
+function purposeLabel(detail: ProcurementLoadDetail | undefined, pageContract: AdminUiPageContract): string {
   const purposes = Array.from(new Set((detail?.goats ?? []).map((g) => g.purpose).filter(Boolean)));
   const [first] = purposes;
-  if (!first) return "—";
-  if (purposes.length === 1) return first.replace(/_/g, " ");
-  return "mixed";
+  if (!first) return copy(pageContract, "label.placeholder");
+  if (purposes.length === 1) return optionLabel(pageContract, "proc_purpose", first);
+  return copy(pageContract, "label.mixed");
 }
 
 function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: number): string {
@@ -121,25 +121,34 @@ function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: 
   return `${tagged}/${expectedCount}`;
 }
 
-function hfVaccinationLabel(detail: ProcurementLoadDetail | undefined): { label: string; tone: "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal" } {
+function hfVaccinationLabel(detail: ProcurementLoadDetail | undefined, pageContract: AdminUiPageContract): { label: string; tone: Tone } {
   const evidence = detail?.hf_vaccination_evidence ?? [];
-  if (evidence.some((row) => row.review_status === "trusted")) return { label: "complete · evidence", tone: "ok" };
-  if (evidence.some((row) => row.review_status === "imported")) return { label: "evidence imported", tone: "info" };
+  let key = "due";
+  if (evidence.some((row) => row.review_status === "trusted")) key = "trusted";
+  else if (evidence.some((row) => row.review_status === "imported")) key = "imported";
   if (evidence.some((row) => row.review_status === "rejected" || row.review_status === "conflicting")) {
-    return { label: "evidence flagged", tone: "dng" };
+    key = "flagged";
   }
-  return { label: "HF evidence due", tone: "warn" };
+  return { label: optionLabel(pageContract, "warmup_evidence_states", key), tone: contractTone(pageContract, "warmup_evidence_states", key) };
 }
 
-export async function SourceEntryBoardPage({ searchParams }: { searchParams?: RouteSearchParams }) {
+export async function SourceEntryBoardPage({
+  searchParams,
+  pageContract,
+}: {
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
   const sp = searchParams ?? {};
   const pathname = "/procurement/source-entry";
-  const statusFilter = (PROC_LOAD_STATUS_ORDER.find((s) => s === one(sp, "status")) ?? "all") as ProcurementLoadStatus | "all";
+  const sourceLoadStatuses = optionGroup(pageContract, "source_load_status");
+  const sourceLoadStatusOrder = sourceLoadStatuses.map((status) => status.key as ProcurementLoadStatus);
+  const statusFilter = (sourceLoadStatusOrder.find((s) => s === one(sp, "status")) ?? "all") as ProcurementLoadStatus | "all";
   const cursor = one(sp, "cursor");
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
   const PAGE_SIZE = 200;
   const actionStatus = one(sp, "action_status");
-  const actionMessage = one(sp, "action_message");
+  const actionKey = one(sp, "action_key");
   const selectedLoadId = one(sp, "source_load");
 
   const result = await listProcurementLoads({
@@ -152,7 +161,7 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
 
   // Sort the returned page by the canonical stage order so the board reads source-side -> intake.
   const loads: ProcurementLoad[] = result.ok
-    ? [...result.data.items].sort((a, b) => PROC_LOAD_STATUS_ORDER.indexOf(a.status) - PROC_LOAD_STATUS_ORDER.indexOf(b.status))
+    ? [...result.data.items].sort((a, b) => sourceLoadStatusOrder.indexOf(a.status) - sourceLoadStatusOrder.indexOf(b.status))
     : [];
   const detailResults = result.ok
     ? await Promise.all(loads.map(async (load) => [load.load_id, await getProcurementLoad(load.load_id)] as const))
@@ -166,6 +175,8 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
   const prevHref = hrefPreviousCursor(pathname, sp);
   const selectedLoad = selectedLoadId ? loads.find((load) => load.load_id === selectedLoadId) : undefined;
   const selectedDetail = selectedLoad ? detailByLoad.get(selectedLoad.load_id) : undefined;
+  const loadLabels = tableLabels(pageContract, "source-loads");
+  const journeyStages = optionGroup(pageContract, "journey_stages");
 
   // Status filter resets the cursor/page (a new filter starts a fresh first page).
   function statusHref(status: ProcurementLoadStatus | "all"): string {
@@ -182,44 +193,39 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
     <div className="screen on">
       <div className="phead">
         <div>
-          <div className="crumb">
-            <b>Procurement</b> · Source entry
-          </div>
-          <h1>Source Entry Board</h1>
-          <div className="sub">
-            <b>The goat journey starts at purchase/source</b> — not at park arrival. Loads move through supplier holding,
-            source health SOP, and a pre-dispatch decision before any truck. Warmup is purpose-specific:
-            <b> breeding 45–70 days</b>; <b>fattening / non-breeding 0–14 days</b>.
-            Rejected or unresolved goats stay procurement history; only accepted-intake goats flow to PHC / Parks.
-          </div>
+	          <div className="crumb">
+	            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
+	          </div>
+	          <h1>{pageContract.title}</h1>
+	          <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
       </div>
 
       {/* Journey IA — the full source-entry chain, so park arrival reads as one late gate, not the start. */}
-      <div className="fchipsbar" style={{ marginBottom: 14, flexWrap: "wrap" }} aria-label="Source-entry journey">
-        <Truck className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-        {JOURNEY_STAGES.map((stage, i) => (
-          <span key={stage} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <span className="muted small">{stage}</span>
-            {i < JOURNEY_STAGES.length - 1 ? <ArrowRight className="ic" style={{ width: 12, opacity: 0.5 }} aria-hidden="true" /> : null}
-          </span>
-        ))}
+	      <div className="fchipsbar" style={{ marginBottom: 14, flexWrap: "wrap" }} aria-label={copy(pageContract, "section.journey.aria")}>
+	        <Truck className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
+	        {journeyStages.map((stage, i) => (
+	          <span key={stage.key} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+	            <span className="muted small">{stage.label}</span>
+	            {i < journeyStages.length - 1 ? <ArrowRight className="ic" style={{ width: 12, opacity: 0.5 }} aria-hidden="true" /> : null}
+	          </span>
+	        ))}
       </div>
 
       {actionStatus ? (
         actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 14 }}>
-            <Tag tone="ok">done</Tag> {actionMessage ?? "Action completed."}
+	          <div className="note" style={{ marginBottom: 14 }}>
+	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         ) : (
           <div className="alert" style={{ marginBottom: 14 }}>
-            <b>Action failed</b>&nbsp;{actionMessage ?? actionStatus}
+	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         )
       ) : null}
 
-      <NewLoadForm returnTo={hrefWithQuery(pathname, sp, { source_load: null })} />
+      <NewLoadForm returnTo={hrefWithQuery(pathname, sp, { source_load: null })} pageContract={pageContract} />
 
       {!result.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
@@ -230,11 +236,11 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
       {/* Status filter (server-side ?status). Park/date scope stays in the top bar; this is a page control. */}
       <div className="chipset" style={{ marginBottom: 14 }}>
         <Link href={statusHref("all")} replace scroll={false} className={`chip${statusFilter === "all" ? " on" : ""}`}>
-          All states
+	          {copy(pageContract, "filter.all_states")}
         </Link>
-        {PROC_LOAD_STATUS_ORDER.map((s) => (
-          <Link key={s} href={statusHref(s)} replace scroll={false} className={`chip${statusFilter === s ? " on" : ""}`}>
-            {PROC_LOAD_STATUS_META[s].label}
+        {sourceLoadStatuses.map((status) => (
+          <Link key={status.key} href={statusHref(status.key as ProcurementLoadStatus)} replace scroll={false} className={`chip${statusFilter === status.key ? " on" : ""}`}>
+            {status.label}
           </Link>
         ))}
       </div>
@@ -242,28 +248,29 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
       <section className="card">
         <div className="hd">
           <PackageSearch className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>Supplier warmup — Holding Farm</h3>
-          <Tag tone={loads.length ? "info" : "mut"}>journey starts at purchase</Tag>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="muted small">purchase → tag + vaccinate → health select → pre-dispatch</span>
+	          <h3>{copy(pageContract, "section.loads.title")}</h3>
+	          <Tag tone={loads.length ? "info" : "mut"}>{copy(pageContract, "section.loads.badge")}</Tag>
+	          <div className="sp" style={{ flex: 1 }} />
+	          <span className="muted small">{copy(pageContract, "section.loads.note")}</span>
         </div>
         <div className="tbar">
-          <VisibleTableSearch label="Search source-entry loads" />
-          <VaccinationFilterButton
-            title="Filter — Source Entry loads"
-            searchReason="Search load, supplier, purpose, status..."
-            filterReason="Use visible-row search, quick facets, and live status chips on this board."
-            rowsLabel={`${loads.length} rows · source loads and HF evidence`}
-            facets={["Load", "Supplier", "Purpose", "HF evidence", "Status"]}
-          />
-          <span className="muted small">{loads.length} rows</span>
-          <span className="muted small">click a row → source-load actions</span>
-        </div>
-        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="Procurement loads">
+	          <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
+	          <VaccinationFilterButton
+	            pageContract={pageContract}
+	            title={copy(pageContract, "filter.drawer.title")}
+	            searchReason={copy(pageContract, "filter.search_reason")}
+	            filterReason={copy(pageContract, "filter.reason")}
+	            rowsLabel={`${loads.length} ${copy(pageContract, "label.rows")} · ${copy(pageContract, "filter.rows_suffix")}`}
+	            facets={loadLabels}
+	          />
+	          <span className="muted small">{loads.length} {copy(pageContract, "label.rows")}</span>
+	          <span className="muted small">{copy(pageContract, "section.loads.row_hint")}</span>
+	        </div>
+	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
           <table>
             <thead>
               <tr>
-                {LOADS_COLS.map((c) => (
+	                {loadLabels.map((c) => (
                   <th key={c}>{c}</th>
                 ))}
               </tr>
@@ -271,24 +278,24 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
             <tbody>
               {loads.length === 0 ? (
                 <tr>
-                  <td colSpan={LOADS_COLS.length}>
+	                  <td colSpan={loadLabels.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {result.ok
-                        ? statusFilter === "all"
-                          ? "No source-entry loads for this scope. Loads appear here once a purchase/source load is created in the procurement backend."
-                          : `No loads in “${PROC_LOAD_STATUS_META[statusFilter as ProcurementLoadStatus].label}” for this scope.`
-                        : "Loads are unavailable until the procurement service responds."}
+	                      {result.ok
+	                        ? statusFilter === "all"
+	                          ? copy(pageContract, "empty.loads_detail")
+	                          : `${copy(pageContract, "empty.loads_filtered_prefix")} “${optionLabel(pageContract, "source_load_status", statusFilter as ProcurementLoadStatus)}” ${copy(pageContract, "empty.loads_filtered_suffix")}`
+	                        : copy(pageContract, "empty.unavailable")}
                     </div>
                   </td>
                 </tr>
               ) : (
                 loads.map((load) => {
                   const drawerHref = hrefWithQuery(pathname, sp, { source_load: load.load_id });
-                  const healthSelection = healthSelectionLabel(load.status);
+                  const healthSelection = healthSelectionLabel(load.status, pageContract);
                   const detail = detailByLoad.get(load.load_id);
-                  const hfVaccination = hfVaccinationLabel(detail);
-                  const purpose = purposeLabel(detail);
-                  const warmup = warmupCell(load, detail);
+                  const hfVaccination = hfVaccinationLabel(detail, pageContract);
+                  const purpose = purposeLabel(detail, pageContract);
+                  const warmup = warmupCell(load, detail, pageContract);
                   return (
                     <tr key={load.load_id}>
                       <td>
@@ -298,13 +305,13 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
                       </td>
                       <td>
                         <Link href={drawerHref} className="celllink" scroll={false}>
-                          <b>{sourceLocationLabel(load)}</b>
-                          <div className="muted small">supplier {sourcePartyLabel(load)}</div>
+                          <b>{sourceLocationLabel(load, pageContract)}</b>
+                          <div className="muted small">{copy(pageContract, "label.supplier_prefix")} {sourcePartyLabel(load)}</div>
                         </Link>
                       </td>
                       <td>
                         <Link href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={purpose === "—" || purpose === "fattening" ? "mut" : "ok"}>{purpose}</Tag>
+                          <Tag tone={purpose === copy(pageContract, "label.placeholder") || purpose === optionLabel(pageContract, "proc_purpose", "fattening") ? "mut" : "ok"}>{purpose}</Tag>
                         </Link>
                       </td>
                       <td>
@@ -316,7 +323,7 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
                         <Link href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={warmup.tone}>{warmup.label}</Tag>
                           <div className="muted small" title={warmup.note}>
-                            {load.purchase_date ? `from ${fmtDate(load.purchase_date)}` : "purchase date missing"}
+                            {load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}
                           </div>
                         </Link>
                       </td>
@@ -337,7 +344,7 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
                       </td>
                       <td>
                         <Link href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={PROC_LOAD_STATUS_META[load.status].tone}>{PROC_LOAD_STATUS_META[load.status].label}</Tag>
+                          <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
                           <ArrowRight className="ic" style={{ width: 13, flexShrink: 0, marginLeft: 6 }} aria-hidden="true" />
                         </Link>
                       </td>
@@ -349,7 +356,7 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
           </table>
         </div>
         {loads.length > 0 || page > 1 ? (
-          <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun="load" />
+	          <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun={loadLabels[0].toLowerCase()} />
         ) : null}
       </section>
       {selectedLoad ? (
@@ -357,13 +364,14 @@ export async function SourceEntryBoardPage({ searchParams }: { searchParams?: Ro
           load={selectedLoad}
           detail={selectedDetail}
           closeHref={hrefWithQuery(pathname, sp, { source_load: null })}
-          detailHref={hrefWithQuery(`/procurement/source-entry/loads/${encodeURIComponent(selectedLoad.load_id)}`, sp, {
+	          detailHref={hrefWithQuery(`/procurement/source-entry/loads/${encodeURIComponent(selectedLoad.load_id)}`, sp, {
             source_load: null,
             cursor: null,
             cursor_stack: null,
             page: null,
-          })}
-        />
+	          })}
+	          pageContract={pageContract}
+	        />
       ) : null}
     </div>
   );
@@ -374,84 +382,84 @@ function SourceLoadDrawer({
   detail,
   closeHref,
   detailHref,
+  pageContract,
 }: {
   load: ProcurementLoad;
   detail: ProcurementLoadDetail | undefined;
   closeHref: string;
   detailHref: string;
+  pageContract: AdminUiPageContract;
 }) {
-  const healthSelection = healthSelectionLabel(load.status);
-  const hfVaccination = hfVaccinationLabel(detail);
-  const warmup = warmupCell(load, detail);
-  const purpose = purposeLabel(detail);
+  const healthSelection = healthSelectionLabel(load.status, pageContract);
+  const hfVaccination = hfVaccinationLabel(detail, pageContract);
+  const warmup = warmupCell(load, detail, pageContract);
+  const purpose = purposeLabel(detail, pageContract);
   const goatsInLoad = detail?.goats?.length ?? 0;
+  const loadLabels = tableLabels(pageContract, "source-loads");
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label="Close source load drawer" scroll={false} />
-      <aside className="drawer on" aria-label="Source load actions">
+      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.load.close_label")} scroll={false} />
+      <aside className="drawer on" aria-label={copy(pageContract, "drawer.load.aria")}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
             <PackageSearch className="ic" aria-hidden="true" />
           </span>
           <div>
-            <div className="mt">SOURCE LOAD</div>
-            <h2>Holding-farm load — {sourceLocationLabel(load)}</h2>
+            <div className="mt">{copy(pageContract, "drawer.load.eyebrow")}</div>
+            <h2>{copy(pageContract, "drawer.load.title_prefix")} — {sourceLocationLabel(load, pageContract)}</h2>
             <div className="muted small" style={{ marginTop: 3 }}>
               {sourcePartyLabel(load)} · {purpose}
             </div>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label="Close source load drawer" scroll={false}>
+          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.load.close_label")} scroll={false}>
             <X className="ic" />
           </Link>
         </div>
         <div className="dc">
           <div className="helpgrid">
-            <div className="hk">Load</div>
+            <div className="hk">{loadLabels[0]}</div>
             <div>{shortId(load.load_id)}</div>
-            <div className="hk">Supplier</div>
+            <div className="hk">{copy(pageContract, "drawer.load.supplier")}</div>
             <div>{sourcePartyLabel(load)}</div>
-            <div className="hk">Holding farm</div>
-            <div>{sourceLocationLabel(load)}</div>
-            <div className="hk">Expected animals</div>
+            <div className="hk">{copy(pageContract, "drawer.load.holding_farm")}</div>
+            <div>{sourceLocationLabel(load, pageContract)}</div>
+            <div className="hk">{copy(pageContract, "drawer.load.expected_animals")}</div>
             <div>{load.expected_count}</div>
-            <div className="hk">Goats in load</div>
+            <div className="hk">{copy(pageContract, "drawer.load.goats_in_load")}</div>
             <div>{goatsInLoad}</div>
-            <div className="hk">Warmup</div>
+            <div className="hk">{loadLabels[4]}</div>
             <div>
               <Tag tone={warmup.tone}>{warmup.label}</Tag>
             </div>
-            <div className="hk">Tagging</div>
+            <div className="hk">{loadLabels[5]}</div>
             <div>
               <Tag tone="mut">{taggingLabel(detail, load.expected_count)}</Tag>
             </div>
-            <div className="hk">Vaccination · HF</div>
+            <div className="hk">{loadLabels[6]}</div>
             <div>
               <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>
             </div>
-            <div className="hk">Health / selection</div>
+            <div className="hk">{loadLabels[7]}</div>
             <div>
               <Tag tone={healthSelection.tone}>{healthSelection.label}</Tag>
             </div>
-            <div className="hk">Status</div>
+            <div className="hk">{loadLabels[8]}</div>
             <div>
-              <Tag tone={PROC_LOAD_STATUS_META[load.status].tone}>{PROC_LOAD_STATUS_META[load.status].label}</Tag>
+              <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
             </div>
           </div>
-          <div className="note" style={{ marginTop: 14 }}>
-            This load starts before park arrival: purchase/source → holding warmup → HF vaccination evidence → health
-            selection → pre-dispatch. Accepted-intake goats then feed the PHC vaccination flow.
-          </div>
+	          <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.load.note")}</div>
         </div>
         <div className="df">
           <Link href={detailHref} className="btn p">
-            Open load actions
+	            {copy(pageContract, "action.open_load_actions")}
           </Link>
           <Link href={`${detailHref}#hf-evidence`} className="btn">
-            Record HF evidence
+	            {copy(pageContract, "action.record_hf_evidence")}
           </Link>
           <Link href={closeHref} replace className="btn" scroll={false}>
-            Close
+	            {copy(pageContract, "action.close")}
           </Link>
         </div>
       </aside>

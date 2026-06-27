@@ -1,4 +1,5 @@
 import { OperationsAuditPage } from "@/features/operations-audit";
+import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
@@ -7,5 +8,5 @@ export const dynamic = "force-dynamic";
 // places this business Audit Log under Admin / Data Ops, not under an "Operations" vertical. Cross-surface
 // read of every operator/admin/system action that produced built-surface state via the generated client.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  return <OperationsAuditPage searchParams={await searchParams} />;
+  return <OperationsAuditPage searchParams={await searchParams} pageContract={await requireAdminWebPageContract("audit-log")} />;
 }

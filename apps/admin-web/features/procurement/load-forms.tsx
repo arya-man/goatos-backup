@@ -3,6 +3,7 @@ import { ChevronDown, Flag, HeartPulse, PackageCheck, Plus, Truck } from "lucide
 import type { ProcurementHFVaccinationEvidence, ProcurementLoadGoat } from "@/lib/api/procurement";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { fmtDate } from "@/lib/format";
+import { copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { isAcceptedIntake, isProcurementHistoryOnly } from "./work-state";
 import {
   acceptIntakeAction,
@@ -21,18 +22,18 @@ import {
 // so proof is an optional ref-id field and the upload affordance is visibly disabled with a reason; proof
 // is optional on these contracts, so the actions still run without it.
 
-const SELECTION_OPTIONS = ["source_only", "candidate", "purchased"];
-const PURPOSE_OPTIONS = ["breeding", "fattening", "non_breeding", "unspecified"];
-const HEALTH_OPTIONS = ["pending", "passed", "failed", "deferred"];
-const OWNERSHIP_OPTIONS = ["pending", "shared_pending", "mesha_owned", "not_owned", "settled", "blocked"];
-const DECISION_OPTIONS = ["accepted", "rejected", "deferred", "blocked"];
-const HEALTH_RESULT_OPTIONS = ["passed", "failed", "deferred"];
-const ARRIVAL_STATUS_OPTIONS = ["pending", "mismatch", "accepted", "rejected", "deferred", "blocked"];
-const INTAKE_SIGNAL_OPTIONS = ["clear", "defer", "quarantine", "review"];
-const HF_REVIEW_OPTIONS = ["trusted", "rejected", "conflicting", "duplicate"];
-
 function goatLabel(goat: ProcurementLoadGoat): string {
   return goat.source_tag || goat.source_rfid || goat.temporary_id || (goat.goat_id ? goat.goat_id.slice(0, 8) : "—");
+}
+
+function SelectOptions({ pageContract, groupId }: { pageContract: AdminUiPageContract; groupId: string }) {
+  return (
+    <>
+      {optionGroup(pageContract, groupId).map((option) => (
+        <option key={option.key} value={option.key}>{option.label}</option>
+      ))}
+    </>
+  );
 }
 
 // A native disclosure that reads as a mock card header; no client JS needed in a server component.
@@ -62,15 +63,15 @@ function Disclosure({
   );
 }
 
-function DisabledMediaProof() {
+function DisabledMediaProof({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
     <span
       className="btn sm"
       aria-disabled
-      title="Media capture is not built in this frontend slice — enter a known proof ref id, or upload via the field app / proof API"
+      title={copy(pageContract, "reason.media_disabled")}
       style={{ opacity: 0.45, cursor: "not-allowed" }}
     >
-      Upload media proof (not in this slice)
+      {copy(pageContract, "action.upload_media_disabled")}
     </span>
   );
 }
@@ -83,42 +84,42 @@ function IdempotencyKeyField() {
   return <input type="hidden" name="idempotency_key" value={randomUUID()} />;
 }
 
-export function NewLoadForm({ returnTo }: { returnTo: string }) {
+export function NewLoadForm({ returnTo, pageContract }: { returnTo: string; pageContract: AdminUiPageContract }) {
   return (
-    <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title="New load">
+    <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title={copy(pageContract, "form.new_load.title")}>
       <form action={createLoadAction} style={{ maxWidth: 620 }}>
         <IdempotencyKeyField />
         <input type="hidden" name="return_to" value={returnTo} />
         <div className="fld">
-          <label>Source party id (required)</label>
-          <input name="source_party_id" required placeholder="uuid of supplier / source party" />
+          <label>{copy(pageContract, "field.source_party_id")}</label>
+          <input name="source_party_id" required placeholder={copy(pageContract, "placeholder.source_party_id")} />
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-            <label>Source / holding location id</label>
-            <input name="source_location_id" placeholder="holding farm location uuid (optional)" />
+            <label>{copy(pageContract, "field.source_location_id")}</label>
+            <input name="source_location_id" placeholder={copy(pageContract, "placeholder.source_location")} />
           </div>
           <div className="fld" style={{ width: 140 }}>
-            <label>Expected count</label>
-            <input name="expected_count" type="number" min={0} placeholder="0" />
+            <label>{copy(pageContract, "field.expected_count")}</label>
+            <input name="expected_count" type="number" min={0} placeholder={copy(pageContract, "placeholder.zero")} />
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-            <label>Purchase date</label>
+            <label>{copy(pageContract, "field.purchase_date")}</label>
             <input name="purchase_date" type="date" />
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-            <label>Planned dispatch</label>
+            <label>{copy(pageContract, "field.planned_dispatch")}</label>
             <input name="planned_dispatch_at" type="datetime-local" />
           </div>
         </div>
         <div className="fld">
-          <label>Notes</label>
-          <input name="notes" placeholder="optional" />
+          <label>{copy(pageContract, "field.notes")}</label>
+          <input name="notes" placeholder={copy(pageContract, "placeholder.optional")} />
         </div>
         <button type="submit" className="btn p">
-          Create load
+          {copy(pageContract, "action.create_load")}
         </button>
       </form>
     </Disclosure>
@@ -130,11 +131,13 @@ export function LoadWriteActions({
   goats,
   hfEvidence = [],
   returnTo,
+  pageContract,
 }: {
   loadId: string;
   goats: ProcurementLoadGoat[];
   hfEvidence?: ProcurementHFVaccinationEvidence[];
   returnTo: string;
+  pageContract: AdminUiPageContract;
 }) {
   // Per-goat source health + pre-dispatch decision belong to goats still inside source entry — not to
   // terminal (rejected/dead/sold/lost) or already-accepted-intake goats.
@@ -142,72 +145,64 @@ export function LoadWriteActions({
 
   return (
     <>
-      <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title="Add source goat">
+      <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title={copy(pageContract, "form.add_goat.title")}>
         <form action={addSourceGoatAction} style={{ maxWidth: 620 }}>
           <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>Source tag</label>
-              <input name="source_tag" placeholder="supplier tag" />
+              <label>{copy(pageContract, "field.source_tag")}</label>
+              <input name="source_tag" placeholder={copy(pageContract, "placeholder.source_tag")} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>Source RFID</label>
-              <input name="source_rfid" placeholder="rfid" />
+              <label>{copy(pageContract, "field.source_rfid")}</label>
+              <input name="source_rfid" placeholder={copy(pageContract, "placeholder.source_rfid")} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>Temporary id</label>
-              <input name="temporary_id" placeholder="temp id" />
+              <label>{copy(pageContract, "field.temporary_id")}</label>
+              <input name="temporary_id" placeholder={copy(pageContract, "placeholder.temporary_id")} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>Selection state</label>
+              <label>{copy(pageContract, "field.selection_state")}</label>
               <select name="selection_state" defaultValue="source_only">
-                {SELECTION_OPTIONS.map((o) => (
-                  <option key={o} value={o}>{o.replace(/_/g, " ")}</option>
-                ))}
+                <SelectOptions pageContract={pageContract} groupId="proc_selection_state" />
               </select>
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>Health state</label>
+              <label>{copy(pageContract, "field.health_state")}</label>
               <select name="health_state" defaultValue="pending">
-                {HEALTH_OPTIONS.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
+                <SelectOptions pageContract={pageContract} groupId="proc_health_state" />
               </select>
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>Ownership</label>
+              <label>{copy(pageContract, "field.ownership")}</label>
               <select name="ownership_state" defaultValue="pending">
-                {OWNERSHIP_OPTIONS.map((o) => (
-                  <option key={o} value={o}>{o.replace(/_/g, " ")}</option>
-                ))}
+                <SelectOptions pageContract={pageContract} groupId="proc_ownership_state" />
               </select>
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>Purpose</label>
+              <label>{copy(pageContract, "field.purpose")}</label>
               <select name="purpose" defaultValue="unspecified">
-                {PURPOSE_OPTIONS.map((o) => (
-                  <option key={o} value={o}>{o.replace(/_/g, " ")}</option>
-                ))}
+                <SelectOptions pageContract={pageContract} groupId="proc_purpose" />
               </select>
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ width: 140 }}>
-              <label>Warmup days</label>
-              <input name="warmup_days" type="number" min={0} placeholder="e.g. 52" />
+              <label>{copy(pageContract, "field.warmup_days")}</label>
+              <input name="warmup_days" type="number" min={0} placeholder={copy(pageContract, "placeholder.warmup_days")} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>Holding location id</label>
-              <input name="holding_location_id" placeholder="holding location uuid (optional)" />
+              <label>{copy(pageContract, "field.holding_location_id")}</label>
+              <input name="holding_location_id" placeholder={copy(pageContract, "placeholder.holding_location_id")} />
             </div>
           </div>
-          <div className="muted small" style={{ marginBottom: 8 }}>A source goat is procurement-only identity — not clean park/herd truth until accepted intake.</div>
+          <div className="muted small" style={{ marginBottom: 8 }}>{copy(pageContract, "note.source_goat_identity")}</div>
           <button type="submit" className="btn p">
-            Add source goat
+            {copy(pageContract, "action.add_source_goat")}
           </button>
         </form>
       </Disclosure>
@@ -219,11 +214,11 @@ export function LoadWriteActions({
         id="hf-evidence"
         defaultOpen
         icon={<HeartPulse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
-        title="Holding-farm vaccination evidence"
+        title={copy(pageContract, "form.hf_evidence.title")}
       >
         {goats.length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
-            Add source goats first. HF dose evidence must be keyed to a goat in this procurement load.
+            {copy(pageContract, "empty.add_goats_first")}
           </p>
         ) : (
           <div style={{ display: "grid", gap: 14 }}>
@@ -233,72 +228,72 @@ export function LoadWriteActions({
               <input type="hidden" name="load_id" value={loadId} />
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <div className="fld" style={{ flex: 1, minWidth: 190 }}>
-                  <label>Goat in load</label>
-                  <select name="goat_id" required aria-label="Goat in load">
+                  <label>{copy(pageContract, "field.goat_in_load")}</label>
+                  <select name="goat_id" required aria-label={copy(pageContract, "field.goat_in_load")}>
                     {goats.map((goat) => (
                       <option key={goat.load_goat_id} value={goat.goat_id}>
-                        {goatLabel(goat)} · {goat.purpose.replace(/_/g, " ")}
+                        {goatLabel(goat)} · {optionLabel(pageContract, "proc_purpose", goat.purpose)}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-                  <label>Dose code</label>
-                  <input name="dose_code" required placeholder="e.g. PPR" />
+                  <label>{copy(pageContract, "field.dose_code")}</label>
+                  <input name="dose_code" required placeholder={copy(pageContract, "placeholder.dose_code")} />
                 </div>
                 <div className="fld" style={{ flex: 1, minWidth: 190 }}>
-                  <label>Administered at HF</label>
-                  <input name="administered_at" type="datetime-local" required aria-label="Administered at HF" />
+                  <label>{copy(pageContract, "field.administered_at_hf")}</label>
+                  <input name="administered_at" type="datetime-local" required aria-label={copy(pageContract, "field.administered_at_hf")} />
                 </div>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <div className="fld" style={{ flex: 1, minWidth: 220 }}>
-                  <label>Protocol version id</label>
-                  <input name="protocol_version_id" required placeholder="vaccination protocol version uuid" />
+                  <label>{copy(pageContract, "field.protocol_version_id")}</label>
+                  <input name="protocol_version_id" required placeholder={copy(pageContract, "placeholder.protocol_version_id")} />
                 </div>
                 <div className="fld" style={{ flex: 1, minWidth: 220 }}>
-                  <label>Rule id</label>
-                  <input name="rule_id" required placeholder="protocol rule uuid" />
+                  <label>{copy(pageContract, "field.rule_id")}</label>
+                  <input name="rule_id" required placeholder={copy(pageContract, "placeholder.rule_id")} />
                 </div>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-                  <label>Vaccine name</label>
-                  <input name="vaccine_name" placeholder="optional" />
+                  <label>{copy(pageContract, "field.vaccine_name")}</label>
+                  <input name="vaccine_name" placeholder={copy(pageContract, "placeholder.optional")} />
                 </div>
                 <div className="fld" style={{ flex: 1, minWidth: 160 }}>
-                  <label>Lot number</label>
-                  <input name="lot_number" placeholder="optional" />
+                  <label>{copy(pageContract, "field.lot_number")}</label>
+                  <input name="lot_number" placeholder={copy(pageContract, "placeholder.optional")} />
                 </div>
                 <div className="fld" style={{ flex: 1, minWidth: 200 }}>
-                  <label>Proof ref id</label>
-                  <input name="proof_ref_id" placeholder="cold-chain / video proof uuid" />
+                  <label>{copy(pageContract, "field.proof_ref_id")}</label>
+                  <input name="proof_ref_id" placeholder={copy(pageContract, "placeholder.proof_ref_id")} />
                 </div>
               </div>
               <div className="fld">
-                <label>Source ref</label>
-                <input name="source_ref" placeholder="supplier bill / field-app ref / sheet row" />
+                <label>{copy(pageContract, "field.source_ref")}</label>
+                <input name="source_ref" placeholder={copy(pageContract, "placeholder.source_ref")} />
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <button type="submit" className="btn p">Import HF dose evidence</button>
-                <DisabledMediaProof />
+                <button type="submit" className="btn p">{copy(pageContract, "action.import_hf_evidence")}</button>
+                <DisabledMediaProof pageContract={pageContract} />
               </div>
             </form>
 
             {hfEvidence.length === 0 ? (
               <div className="note" style={{ margin: 0 }}>
-                No HF vaccination evidence imported for this load yet.
+                {copy(pageContract, "empty.hf_evidence")}
               </div>
             ) : (
-              <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label="HF vaccination evidence">
+              <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.hf_evidence.aria")}>
                 <table>
                   <thead>
                     <tr>
-                      <th>Goat</th>
-                      <th>Dose</th>
-                      <th>Administered</th>
-                      <th>Evidence</th>
-                      <th>Review</th>
+                      <th>{copy(pageContract, "table.hf_evidence.goat")}</th>
+                      <th>{copy(pageContract, "table.hf_evidence.dose")}</th>
+                      <th>{copy(pageContract, "table.hf_evidence.administered")}</th>
+                      <th>{copy(pageContract, "table.hf_evidence.evidence")}</th>
+                      <th>{copy(pageContract, "table.hf_evidence.review")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -309,15 +304,15 @@ export function LoadWriteActions({
                         </td>
                         <td>
                           <b>{evidence.dose_code}</b>
-                          <div className="muted small">{evidence.vaccine_name || "vaccine name not set"}</div>
+                          <div className="muted small">{evidence.vaccine_name || copy(pageContract, "label.vaccine_name_not_set")}</div>
                         </td>
                         <td className="muted">{fmtDate(evidence.administered_at)}</td>
                         <td className="muted small">
-                          {evidence.proof_ref_id ? `proof ${evidence.proof_ref_id.slice(0, 8)}` : "proof ref not set"}
+                          {evidence.proof_ref_id ? `${copy(pageContract, "label.proof")} ${evidence.proof_ref_id.slice(0, 8)}` : copy(pageContract, "label.proof_ref_not_set")}
                         </td>
                         <td>
                           {evidence.review_status === "trusted" ? (
-                            <span className="muted small">trusted · locked</span>
+                            <span className="muted small">{copy(pageContract, "label.trusted_locked")}</span>
                           ) : (
                             <form action={reviewHFVaccinationEvidenceAction} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                               <IdempotencyKeyField />
@@ -325,13 +320,11 @@ export function LoadWriteActions({
                               <input type="hidden" name="load_id" value={loadId} />
                               <input type="hidden" name="evidence_id" value={evidence.evidence_id} />
                               <input type="hidden" name="expected_row_version" value={evidence.row_version} />
-                              <select name="review_status" defaultValue="trusted" className="tsize" aria-label="HF evidence review status">
-                                {HF_REVIEW_OPTIONS.map((option) => (
-                                  <option key={option} value={option}>{option}</option>
-                                ))}
+                              <select name="review_status" defaultValue="trusted" className="tsize" aria-label={copy(pageContract, "field.review_status")}>
+                                <SelectOptions pageContract={pageContract} groupId="proc_hf_review_status" />
                               </select>
-                              <input name="review_reason" placeholder="reason" style={{ maxWidth: 170 }} />
-                              <button type="submit" className="btn sm">Review</button>
+                              <input name="review_reason" placeholder={copy(pageContract, "placeholder.reason")} style={{ maxWidth: 170 }} />
+                              <button type="submit" className="btn sm">{copy(pageContract, "action.review")}</button>
                             </form>
                           )}
                         </td>
@@ -346,11 +339,10 @@ export function LoadWriteActions({
       </Disclosure>
 
       {/* Pre-dispatch section — per-goat source health + accept/reject-before-truck/defer/block. */}
-      <Disclosure icon={<Flag className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />} title="Pre-dispatch decisions (per goat)">
+      <Disclosure icon={<Flag className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />} title={copy(pageContract, "form.pre_dispatch.title")}>
         {actionableGoats.length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
-            No goats currently awaiting source health or a pre-dispatch decision. Accepted-intake and terminal goats are
-            not shown here.
+            {copy(pageContract, "empty.pre_dispatch")}
           </p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -368,18 +360,16 @@ export function LoadWriteActions({
                     <input type="hidden" name="load_id" value={loadId} />
                     <input type="hidden" name="goat_id" value={goat.goat_id} />
                     <div className="fld" style={{ width: 130, marginBottom: 0 }}>
-                      <label>Source health</label>
+                      <label>{copy(pageContract, "field.source_health")}</label>
                       <select name="health_state" defaultValue="passed">
-                        {HEALTH_RESULT_OPTIONS.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
+                        <SelectOptions pageContract={pageContract} groupId="proc_health_state" />
                       </select>
                     </div>
                     <div className="fld" style={{ width: 160, marginBottom: 0 }}>
-                      <label>Reason</label>
-                      <input name="reason" placeholder="optional" />
+                      <label>{copy(pageContract, "field.reason")}</label>
+                      <input name="reason" placeholder={copy(pageContract, "placeholder.optional")} />
                     </div>
-                    <button type="submit" className="btn sm">Record health</button>
+                    <button type="submit" className="btn sm">{copy(pageContract, "action.record_health")}</button>
                   </form>
                   {/* Pre-dispatch decision */}
                   <form action={preDispatchDecisionAction} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
@@ -388,19 +378,17 @@ export function LoadWriteActions({
                     <input type="hidden" name="load_id" value={loadId} />
                     <input type="hidden" name="goat_id" value={goat.goat_id} />
                     <div className="fld" style={{ width: 150, marginBottom: 0 }}>
-                      <label>Pre-dispatch</label>
+                      <label>{copy(pageContract, "field.pre_dispatch")}</label>
                       <select name="decision_type" defaultValue="accepted">
-                        {DECISION_OPTIONS.map((o) => (
-                          <option key={o} value={o}>{o === "accepted" ? "accept for truck" : o === "rejected" ? "reject before truck" : o}</option>
-                        ))}
+                        <SelectOptions pageContract={pageContract} groupId="proc_decision_type" />
                       </select>
                     </div>
                     <div className="fld" style={{ width: 160, marginBottom: 0 }}>
-                      <label>Reason</label>
-                      <input name="reason" placeholder="optional" />
+                      <label>{copy(pageContract, "field.reason")}</label>
+                      <input name="reason" placeholder={copy(pageContract, "placeholder.optional")} />
                     </div>
-                    <ConfirmSubmitButton className="btn sm" message={`Record pre-dispatch decision for ${goatLabel(goat)}? Rejection before truck keeps the goat in procurement history (no PHC work).`}>
-                      Record decision
+                    <ConfirmSubmitButton className="btn sm" message={`${copy(pageContract, "confirm.pre_dispatch.prefix")} ${goatLabel(goat)}? ${copy(pageContract, "confirm.pre_dispatch.suffix")}`}>
+                      {copy(pageContract, "action.record_decision")}
                     </ConfirmSubmitButton>
                   </form>
                 </div>
@@ -411,135 +399,122 @@ export function LoadWriteActions({
       </Disclosure>
 
       {/* Dispatch / transit */}
-      <Disclosure icon={<Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />} title="Record dispatch / transit">
+      <Disclosure icon={<Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />} title={copy(pageContract, "form.dispatch.title")}>
         <form action={dispatchLoadAction} style={{ maxWidth: 620 }}>
           <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>To location id (required)</label>
-              <input name="to_location_id" required placeholder="destination park location uuid" />
+              <label>{copy(pageContract, "field.to_location_id")}</label>
+              <input name="to_location_id" required placeholder={copy(pageContract, "placeholder.to_location_id")} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>From location id</label>
-              <input name="from_location_id" placeholder="source location uuid (optional)" />
+              <label>{copy(pageContract, "field.from_location_id")}</label>
+              <input name="from_location_id" placeholder={copy(pageContract, "placeholder.from_location_id")} />
             </div>
           </div>
           <div className="fld">
-            <label>Goat ids (comma separated)</label>
-            <input name="goat_ids" placeholder="only accepted-for-truck goats" />
+            <label>{copy(pageContract, "field.goat_ids")}</label>
+            <input name="goat_ids" placeholder={copy(pageContract, "placeholder.goat_ids_dispatch")} />
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ maxWidth: 260 }}>
-              <label>Dispatched at</label>
+              <label>{copy(pageContract, "field.dispatched_at")}</label>
               <input name="dispatched_at" type="datetime-local" />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 220 }}>
-              <label>Dispatch proof ref id (required for real transit)</label>
-              <input name="proof_ref_id" placeholder="proof artifact uuid" />
+              <label>{copy(pageContract, "field.dispatch_proof_ref_id")}</label>
+              <input name="proof_ref_id" placeholder={copy(pageContract, "placeholder.dispatch_proof_ref_id")} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="submit" className="btn p">Record dispatch</button>
-            <DisabledMediaProof />
+            <button type="submit" className="btn p">{copy(pageContract, "action.record_dispatch")}</button>
+            <DisabledMediaProof pageContract={pageContract} />
           </div>
         </form>
       </Disclosure>
 
       {/* Arrival gate review */}
-      <Disclosure icon={<Flag className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />} title="Record arrival review">
+      <Disclosure icon={<Flag className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />} title={copy(pageContract, "form.arrival_review.title")}>
         <form action={arrivalReviewAction} style={{ maxWidth: 720 }}>
           <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div className="fld">
-            <label>Park location id (required)</label>
-            <input name="park_location_id" required placeholder="arrival park location uuid" />
+            <label>{copy(pageContract, "field.park_location_id")}</label>
+            <input name="park_location_id" required placeholder={copy(pageContract, "placeholder.park_location_id")} />
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {[
-              ["expected_count", "Expected"],
-              ["loaded_count", "Loaded"],
-              ["arrived_count", "Arrived"],
-              ["matched_count", "Matched"],
-              ["missing_count", "Missing"],
-              ["extra_count", "Extra"],
-              ["rejected_count", "Rejected"],
-            ].map(([name, label]) => (
-              <div className="fld" key={name} style={{ width: 96, marginBottom: 8 }}>
-                <label>{label}</label>
-                <input name={name} type="number" min={0} placeholder="0" />
+            {optionGroup(pageContract, "proc_arrival_counts").map((count) => (
+              <div className="fld" key={count.key} style={{ width: 96, marginBottom: 8 }}>
+                <label>{count.label}</label>
+                <input name={count.key} type="number" min={0} placeholder={copy(pageContract, "placeholder.zero")} />
               </div>
             ))}
           </div>
           <div className="fld" style={{ maxWidth: 220 }}>
-            <label>Review status</label>
+            <label>{copy(pageContract, "field.review_status")}</label>
             <select name="status" defaultValue="pending">
-              {ARRIVAL_STATUS_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
+              <SelectOptions pageContract={pageContract} groupId="proc_arrival_status" />
             </select>
           </div>
           <div className="fld">
-            <label>Per-goat arrival rows (one per line: goat_id, arrival_state)</label>
+            <label>{copy(pageContract, "field.arrival_rows")}</label>
             <textarea
               name="goats"
               rows={4}
-              placeholder={"goat_id, accepted\ngoat_id, rejected"}
+              placeholder={copy(pageContract, "placeholder.arrival_rows")}
               style={{ fontFamily: "var(--mono, monospace)" }}
             />
             <span className="muted small">
-              Only goats listed as <code>accepted</code> advance to arrival-accepted and become eligible for intake.
+              {copy(pageContract, "note.arrival_rows")}
             </span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="submit" className="btn p">Record arrival review</button>
-            <DisabledMediaProof />
+            <button type="submit" className="btn p">{copy(pageContract, "action.record_arrival_review")}</button>
+            <DisabledMediaProof pageContract={pageContract} />
           </div>
         </form>
       </Disclosure>
 
       {/* Accept intake (load-level) */}
-      <Disclosure icon={<PackageCheck className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />} title="Accept intake">
+      <Disclosure icon={<PackageCheck className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />} title={copy(pageContract, "form.accept_intake.title")}>
         <form action={acceptIntakeAction} style={{ maxWidth: 620 }}>
           <IdempotencyKeyField />
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div className="fld">
-            <label>Goat ids (comma separated)</label>
-            <input name="goat_ids" placeholder="only arrival-accepted, eligible goats" />
+            <label>{copy(pageContract, "field.goat_ids")}</label>
+            <input name="goat_ids" placeholder={copy(pageContract, "placeholder.goat_ids_intake")} />
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>Park location id (required)</label>
-              <input name="park_location_id" required placeholder="park location uuid" />
+              <label>{copy(pageContract, "field.park_location_id")}</label>
+              <input name="park_location_id" required placeholder={copy(pageContract, "placeholder.park_id")} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>Shed location id (required)</label>
-              <input name="shed_location_id" required placeholder="shed location uuid" />
+              <label>{copy(pageContract, "field.shed_location_id")}</label>
+              <input name="shed_location_id" required placeholder={copy(pageContract, "placeholder.shed_id")} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ width: 180 }}>
-              <label>Entry date</label>
+              <label>{copy(pageContract, "field.entry_date")}</label>
               <input name="entry_date" type="date" />
             </div>
             <div className="fld" style={{ width: 180 }}>
-              <label>Intake health signal</label>
+              <label>{copy(pageContract, "field.intake_health_signal")}</label>
               <select name="intake_health_signal" defaultValue="clear">
-                {INTAKE_SIGNAL_OPTIONS.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
+                <SelectOptions pageContract={pageContract} groupId="proc_intake_signal" />
               </select>
             </div>
           </div>
           <div className="muted small" style={{ marginBottom: 8 }}>
-            Accepting intake is the only handoff that makes a procured goat eligible for post-arrival PHC. It runs once
-            and is idempotent.
+            {copy(pageContract, "label.phc_handoff_note")}
           </div>
-          <ConfirmSubmitButton className="btn p" message="Accept these goats into the herd and create PHC handoffs? Only run after arrival reconciliation.">
-            Accept intake
+          <ConfirmSubmitButton className="btn p" message={copy(pageContract, "confirm.accept_intake")}>
+            {copy(pageContract, "action.accept_intake")}
           </ConfirmSubmitButton>
         </form>
       </Disclosure>

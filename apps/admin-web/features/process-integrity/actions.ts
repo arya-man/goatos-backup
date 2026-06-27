@@ -16,29 +16,30 @@ function revalidateVaccinationViews(): void {
 // consumes the reserved dose. Bound to the Verify button in the verification queue.
 export async function verifyCompletionAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.verify_accepted";
   try {
     const completionId = String(formData.get("completion_id") ?? "");
     if (!completionId) throw new Error("completion_id is required");
     const result = await acceptVaccinationCompletion(completionId);
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = result.data.applied ? "Verification accepted." : "Verification was already applied.";
+      actionKey = result.data.applied ? "action.verify_accepted" : "action.verify_replay";
       revalidateVaccinationViews();
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to verify completion.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }
 
 // rejectCompletionAction rejects (reason="rejected") or requests rework (reason="rework_requested").
 export async function rejectCompletionAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
-  let message = "";
+  let actionKey = "action.completion_rejected";
   try {
     const completionId = String(formData.get("completion_id") ?? "");
     const reason = String(formData.get("reason") ?? "rejected");
@@ -46,14 +47,15 @@ export async function rejectCompletionAction(formData: FormData): Promise<void> 
     const result = await rejectVaccinationCompletion(completionId, reason);
     if (!result.ok) {
       status = "error";
-      message = actionErrorMessage(result.error);
+      actionKey = actionErrorMessage(result.error);
     } else {
-      message = reason === "rework_requested" ? "Rework requested." : "Completion rejected.";
+      actionKey = reason === "rework_requested" ? "action.rework_requested" : "action.completion_rejected";
       revalidateVaccinationViews();
     }
   } catch (error) {
+    void error;
     status = "error";
-    message = error instanceof Error ? error.message : "Unable to reject completion.";
+    actionKey = "action.error_form";
   }
-  actionRedirect(formData, status, message);
+  actionRedirect(formData, status, actionKey);
 }

@@ -19,12 +19,14 @@ contracts/openapi/app-api.yaml#/components/schemas/AdminWebBootstrapResponse
 packages/api-client/src/generated/app-api.ts
 ```
 
-Current frontend consumer:
+Current frontend consumers:
 
 ```text
 apps/admin-web/components/admin-shell.tsx
 apps/admin-web/components/mesha-shell.tsx
+apps/admin-web/lib/admin-ui-contract.ts
 apps/admin-web/lib/api/server.ts#getAdminWebBootstrap
+apps/admin-web/features/**/*
 ```
 
 If this contract is unavailable, admin-web must not silently render a local
@@ -40,9 +42,12 @@ Backend owns:
 - route labels and breadcrumb page labels
 - top-bar product text, scope/range controls, notification disabled reason, and
   role-lens display text
+- global shell/chrome copy exposed as `AdminWebBootstrapResponse.copy`
 - page titles, subtitles, sections, tables, columns, filters, sort keys,
   page-size options, row-click rules, drawer anatomy, summary/detail field sets,
   empty/error copy, and action availability
+- page copy and option groups exposed as `AdminWebPageContract.copy` and
+  `AdminWebPageContract.option_groups`
 
 Frontend owns:
 
@@ -66,7 +71,7 @@ These are the active admin-web routes covered by the first backend contract:
 | `/workflows` | `workflows` | Workflow catalog | `/vaccination/action-center` | Catalog/drilldown split remains. |
 | `/workflows/{row_id}` | `workflow-record` | Workflow drilldown | `/vaccination/workflows/{row_id}` | Full chain record. |
 | `/vaccination` | `vaccination` | PHC Vaccination | `/vaccination/operations`, `/vaccination/execution` | Status matrix, cohort detail, shed execution, supplier warmup context. |
-| `/vaccination/execution/sheds/{shed_id}` | `shed-execution` | Shed execution detail | `/vaccination/execution/sheds/{shed_id}` | Full shed context. |
+| `/vaccination/execution/sheds/[shedId]` | `shed-execution` | Shed execution detail | `/vaccination/execution/sheds/{shed_id}` | UI route uses the Next.js `[shedId]` segment; backend API uses `{shed_id}`. |
 | `/procurement/source-entry` | `source-entry` | Source Entry Board | `/procurement/source-entry/loads` | Procurement bridge into PHC vaccination. |
 | `/procurement/source-entry/loads/{load_id}` | `source-load` | Source load detail | `/procurement/source-entry/loads/{load_id}` | Full source-entry journey. |
 | `/counts/herd` | `herd-register` | Herd Register | `/goats/search`, admin goat APIs | Vaccination trigger-closure entry point. |
@@ -87,41 +92,65 @@ Done in this pass:
 - The backend contract includes table/drawer/page metadata for every active
   route so page-body migration can be done route by route without inventing
   shapes.
+- Page contracts now include `copy` and `option_groups`, and the generated
+  OpenAPI client publishes those fields.
+- Page-body consumers now use strict helpers in `apps/admin-web/lib/admin-ui-contract.ts`.
+  Missing copy/table/option keys throw rather than silently falling back to
+  React-local labels.
+- Migrated high-risk page bodies include Control Tower, Action Center,
+  Calendar, Protocol Adherence, Workflows, PHC Vaccination, shed execution,
+  Source Entry, Source Load, Herd Register, Audit Log, Config, SOP Library, and
+  Goat Passport.
+- Config rule-editor vocabularies are backend-owned: categories, scopes,
+  placeholders, sex/breed/health/lifecycle/reproductive/defer values, missed-dose
+  policies, source/review statuses, schedule triggers/repeat/catch-up/SOP labels,
+  feed classes/items/units/inventory policies, status chips, modal labels, and
+  publish disabled reasons.
+- SOP builder vocabularies are backend-owned: trigger chips, seed steps, step
+  type labels, conditional action labels, proof types, subject scopes, validation
+  copy, dry-run copy, and publish/save/dry-run disabled reasons.
+- Procurement Source Entry consumes backend option groups for source-load status
+  order/labels/tones, warmup evidence labels, health-selection labels, purpose
+  labels, warmup expectation labels/tooltips, and journey stages.
+- Calendar consumes backend month/weekday labels and calendar-band copy; event
+  drawer/link/status/severity/reminder/escalation text is contract-driven.
 
-Still to migrate page bodies:
+Explicit exceptions:
 
-- `h1`/`h2`/`h3` text inside feature components.
-- table header arrays and local visible-row filter labels.
-- filter chip arrangement and enabled/disabled states.
-- local sort/page-size semantics where a backend endpoint can support them.
-- drawer title/copy/footer action labels.
-- Audit Log role-lens chips currently share the old frontend role-lens helper;
-  move them to the backend role-lens contract when that page is migrated.
+- `components/auth/google-login.tsx` and `components/auth/sign-out-button.tsx`
+  are pre-contract auth surfaces. They render before the user can reliably fetch
+  `/admin-web/bootstrap`, so their Google/session error text remains local until
+  an unauthenticated auth-copy endpoint exists.
+- `components/admin-shell.tsx` has a contract-unavailable emergency screen. It
+  is intentionally local because the contract request failed; using backend copy
+  there would create a circular dependency.
+- Locale/time-zone tokens (`en-CA`, `en-GB`, `Asia/Kolkata`) and keyboard event
+  strings (`Escape`, `Enter`) are technical implementation constants, not UI
+  product copy.
 
-## Page-Body Snapshot for E2E
+## Page-Body Contract Snapshot for E2E
 
-This is the current visible anatomy that must be preserved or intentionally
-changed when each page body starts consuming the backend page contract. E2E
-should snapshot the "before" shape, then assert the migrated title/columns/chips
-come from `/admin-web/bootstrap` instead of local constants.
+This is the visible anatomy that must be preserved or intentionally changed as
+page contracts evolve. E2E should assert the title/columns/chips come from
+`/admin-web/bootstrap` instead of local constants.
 
 | Route | Current body anatomy | Contract migration note |
 | --- | --- | --- |
-| `/` | `Control Tower`; critical vaccination alert cards; `Open vaccination gaps — gap, severity, owner, next action`; selected alert drawer. | Move page title, section titles, alert field labels, table columns, drawer title/action copy to `control-tower` page contract. |
-| `/action-center` | `Action Center`; mode/filter drawer (`My tasks` / `Action Center filters`); work board with `Awaiting verification`; selected work drawer. | Backend must own work-state lanes, filters, chip order, card summary fields, drawer fields, disabled action reasons. |
-| `/calendar` | `presentation.page_title`; view tabs, owner tabs, workstream tabs, rhythm day chips, week/month sections, event drawer. | Calendar already has backend presentation semantics; fold the visible tab/chip/table/drawer metadata into the shared admin-web contract for E2E parity. |
-| `/protocol-adherence` | `Protocol Adherence`; severity chips; `Vaccination` ledger; visible-row search/filter button; selected adherence record drawer. | Move severity chip order/labels, table columns, row-click param `adh_row`, drawer labels, and workflow/action links to `protocol-adherence` contract. |
-| `/workflows` | `Workflows`; workflow catalog/chips; selected `Vaccination workflow chain` / active drive chain. | Backend owns workflow status/stage labels, row summary fields, drilldown route params, and chain section labels. |
-| `/workflows/{row_id}` | `Workflow drilldown` fallback or selected workflow title; `Workflow chain`; fchipsbar context. | Backend owns the record title fallback, chain node labels, summary chips, and unavailable-state copy. |
-| `/vaccination` | `Vaccination`; `Vaccination status matrix`; `Per-cohort vaccination detail`; `Drive — shed events`; `Supplier warmup — Holding Farm`; record/verify and guidance drawers. | This is the highest-risk page body: backend must own status-matrix protocol cells, cohort table columns, shed-event columns, warmup table columns, filter modal labels, row-click params, and drawer action availability. |
-| `/vaccination/execution/sheds/{shed_id}` | Shed detail title; `Work state`; `Drives at this shed`; `Owner chain`; `Blocked / deferred`; `Drive rows`. | Backend object can be large; frontend may compact the summary panels but drawer/detail fields and disabled reasons must come from `shed-execution`. |
-| `/procurement/source-entry` | `Source Entry Board`; `Supplier warmup — Holding Farm`; source load rows; selected `Holding-farm load` drawer. | Backend owns load table columns, row summary fields, HF evidence/review/dispatch chips, drawer metagrid fields, and journey/action links. |
-| `/procurement/source-entry/loads/{load_id}` | `Load detail` fallback or selected load title; journey timeline; goats in load; pre-dispatch, arrival gate, transit, holding, source health, accepted intake sections. | Treat this as full-detail page for the same load object summarized on `/procurement/source-entry`; no frontend-only field invention. |
-| `/counts/herd` | Currently renders `Herd & Lifecycle`; `Herd`; filter modal; selected `Goat Passport` drawer. | Known current mismatch: backend contract title is `Herd Register`. Migration should intentionally replace local body title and table/filter labels with `herd-register` contract values. |
-| `/operations/audit` | `Audit Log`; `Span of control`; `Activity trail`; `Advanced (raw) filters`; selected business audit drawer. | Backend owns role-lens chips, filter labels, page-size/cursor rules, activity columns, business drawer labels, and raw metadata placement. |
-| `/config` | `Config — Protocol Rules`; `Protocol rules`; search, page-size chips, draft/publish controls; protocol-rule detail process map. | Backend owns section titles, search placeholder, page-size options, rule columns, draft/publish availability, and linked-SOP labels. |
-| `/sops` | `SOP Library`; search/domain chips; empty state; SOP cards; new SOP form-builder modal. | Backend owns SOP domain chips, trigger chips, status copy, form-builder vocab, proof/subject/action option labels, and disabled reasons. |
-| `/goats/{goat_id}` | `Goat Passport` fallback or goat display ID; summary, warnings, identifiers, evidence, timeline, vaccination passport. | Passport is full-detail for goat objects summarized in Herd Register; backend owns section labels, identifiers/actions availability, timeline labels, and vaccination history table metadata. |
+| `/` | `Control Tower`; critical vaccination alert cards; open vaccination gaps; selected alert drawer. | Contract route `control-tower` owns section/table/drawer labels, row actions, empty states, and status labels. |
+| `/action-center` | `Action Center`; filters; verification queue; work board; selected work drawer. | Contract route `action-center` owns work-state lanes, filter/chip labels, card/drawer labels, action labels, and disabled reasons. |
+| `/calendar` | View tabs, owner/workstream/rhythm chips, week/month sections, event drawer. | Contract route `calendar` owns page copy, month/week labels, status/severity/reminder/escalation labels, link/action copy, and drawer labels. |
+| `/protocol-adherence` | Severity chips; adherence ledger; visible-row search/filter; selected adherence drawer. | Contract route `protocol-adherence` owns severity labels, table columns, row-click param, drawer labels, links, and empty states. |
+| `/workflows` | Workflow catalog/chips; selected workflow chain / active drive chain. | Contract route `workflows` owns workflow status/stage labels, row summaries, chain labels, empty states, and route links. |
+| `/workflows/{row_id}` | Workflow drilldown fallback or selected workflow title; workflow chain; context chips. | Contract route `workflow-record` owns fallback title, chain nodes, action links, and unavailable-state copy. |
+| `/vaccination` | Status matrix, cohort detail, shed events, supplier warmup, record/verify and guidance drawers. | Contract route `vaccination` owns section titles, filter labels, table columns, supplier/warmup labels, drawer labels, and action availability. |
+| `/vaccination/execution/sheds/[shedId]` | Shed work-state, drives, owner chain, blocked/deferred, drive rows, action drawer. | Contract route `shed-execution` owns summary/detail labels and disabled reasons; frontend may compact the same backend object for layout. |
+| `/procurement/source-entry` | Source Entry Board, journey chips, source load rows, selected load drawer. | Contract route `source-entry` owns journey order, load table columns, status chip order/labels/tones, warmup/HF/health labels, drawer fields, and action links. |
+| `/procurement/source-entry/loads/{load_id}` | Full source-load detail: timeline, goats, pre-dispatch, arrival, transit, holding, source health, PHC handoff. | Contract route `source-load` owns the full-detail page for the same object summarized on `/procurement/source-entry`. |
+| `/counts/herd` | Herd Register summary cards, filter modal, herd table, selected Goat Passport drawer. | Contract route `herd-register` owns title/subtitle, summary/table/filter labels, import/register copy, and passport drawer labels. |
+| `/operations/audit` | Audit summary, role/status chips, activity trail, advanced filters, business drawer. | Contract route `audit-log` owns role-lens chips, filter labels, page-size/cursor text, columns, drawer labels, and raw metadata placement. |
+| `/config` | Protocol Rules, search/page-size controls, draft/publish modal, process map. | Contract route `config` owns rule columns, status chips, editor vocabularies, publish gates, preview copy, and linked-SOP labels. |
+| `/sops` | SOP Library search/domain chips, empty state, cards, new SOP form-builder modal. | Contract route `sops` owns domain/trigger/status/proof/subject/action option labels, seed steps, validation copy, and disabled reasons. |
+| `/goats/{goat_id}` | Goat Passport summary, warnings, identifiers, evidence, timeline, vaccination passport. | Contract route `goat-passport` owns section labels, identifier/evidence options, timeline labels, vaccination history labels, and action availability. |
 
 ## Summary vs Full Drawer Rule
 
@@ -179,13 +208,17 @@ GET /admin-web/bootstrap available through generated client
   -> visual smoke confirms mock-shaped anatomy
 ```
 
-## Migration Order
+## Ongoing Guard
 
-1. Shell/nav/top-bar/route labels. Done in this pass.
-2. Page title/subtitle helper consumed by each route feature.
-3. Table contract helper for columns, filters, page sizes, row-click params.
-4. Drawer contract helper for metagrid field lists and footer actions.
-5. Contract drift/E2E assertions that compare rendered text/actions against
-   `/admin-web/bootstrap`.
-6. Remove old frontend role-lens helper once Audit Log consumes backend
-   `role_lenses`.
+1. New admin-web pages must add or extend `AdminWebPageContract.copy`,
+   `tables`, `controls`, `drawers`, and `option_groups` before rendering visible
+   labels/options in React.
+2. Frontend changes should use `copy`, `table`, `tableLabels`,
+   `tablePageSizes`, `optionGroup`, `optionLabel`, `optionTitle`, and
+   `optionTone` from `apps/admin-web/lib/admin-ui-contract.ts`.
+3. Backend contract changes must update `contracts/openapi/app-api.yaml` and
+   regenerate `packages/api-client/src/generated/app-api.ts`.
+4. E2E should compare rendered nav/page/table/filter/chip/drawer text against
+   `/admin-web/bootstrap`, then separately run visual fidelity checks against
+   `mock/goatos-dashboard-mock.html`.
+5. Any temporary exception must be documented in this file before shipping.

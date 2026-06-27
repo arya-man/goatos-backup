@@ -4,6 +4,7 @@ import { Bell, X } from "lucide-react";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";
 import { scopeHref, type Scope } from "@/lib/scope";
+import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { sendNudgeAction, snoozeAction } from "./calendar-actions";
 import {
   blockEntries,
@@ -13,9 +14,6 @@ import {
   ownerColor,
   ownerLabel,
   parseLinks,
-  severityMeta,
-  stateLabel,
-  statusMeta,
   type CalendarEventDetail,
   type CalendarJSONBlock,
   type CalendarPresentation,
@@ -52,6 +50,11 @@ function BlockCard({ title, block, leading }: { title: string; block: CalendarJS
   );
 }
 
+function contractStateLabel(pageContract: AdminUiPageContract, groupId: string, state: string | null | undefined, noneKey = "label.placeholder"): string {
+  if (!state || state === "none" || state === "not_scheduled") return copy(pageContract, noneKey);
+  return optionLabel(pageContract, groupId, state);
+}
+
 export function CalendarEventDrawer({
   detail,
   closeHref,
@@ -59,6 +62,7 @@ export function CalendarEventDrawer({
   scope,
   presentation,
   ownerMeta,
+  pageContract,
 }: {
   detail: CalendarEventDetail;
   closeHref: string;
@@ -66,13 +70,20 @@ export function CalendarEventDrawer({
   scope: Scope;
   presentation: CalendarPresentation;
   ownerMeta: OwnerPresentationMap;
+  pageContract: AdminUiPageContract;
 }) {
   const event = detail.event;
   const typeMeta = eventTypeMeta(event.event_type, presentation);
   const TypeIcon = typeMeta.icon;
   const accent = ownerColor(event.owner_key, ownerMeta);
-  const status = statusMeta(event.status);
-  const severity = severityMeta(event.severity);
+  const status = {
+    label: optionLabel(pageContract, "calendar_status", event.status),
+    tone: optionTone(pageContract, "calendar_status", event.status) as "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal",
+  };
+  const severity = {
+    label: optionLabel(pageContract, "calendar_severity", event.severity),
+    tone: optionTone(pageContract, "calendar_severity", event.severity) as "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal",
+  };
   const channels = detail.notification_channels ?? [];
   const whenWindow = event.window_start && event.window_end ? `${fmtDateTime(event.window_start)} → ${fmtDateTime(event.window_end)}` : fmtDateTime(event.due_at);
 
@@ -80,8 +91,8 @@ export function CalendarEventDrawer({
   const shedId = driveShedId(event);
   const driveHref = shedId ? scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope) : undefined;
   const workflowHref = hasWorkflowLink(event) ? scopeHref(`/workflows/${encodeURIComponent(event.event_id)}`, scope, {}, { from: "calendar" }) : undefined;
-  const primaryOpen = driveHref ? { href: driveHref, label: "Open drive" } : workflowHref ? { href: workflowHref, label: "Open workflow" } : null;
-  const linkRow = parseLinks(event);
+  const primaryOpen = driveHref ? { href: driveHref, label: copy(pageContract, "action.open_drive") } : workflowHref ? { href: workflowHref, label: copy(pageContract, "action.open_workflow") } : null;
+  const linkRow = parseLinks(event, pageContract);
 
   // Per-render idempotency keys: a double-submit of the SAME rendered form replays (no duplicate action).
   const nudgeKey = randomUUID();
@@ -91,18 +102,18 @@ export function CalendarEventDrawer({
 
   return (
     <>
-      <Link href={closeHref} replace className="veil" aria-label="Close Calendar event drawer" scroll={false} />
-      <aside className="drawer on" aria-label="Calendar event">
+      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.event.close_label")} scroll={false} />
+      <aside className="drawer on" aria-label={copy(pageContract, "drawer.event.aria")}>
         <div className="dh">
           <span className="fic" style={{ background: `color-mix(in srgb, ${accent} 18%, var(--panel))`, color: accent }}>
             <TypeIcon className="ic" aria-hidden="true" />
           </span>
           <div>
-            <div className="mt">CALENDAR EVENT</div>
+            <div className="mt">{copy(pageContract, "drawer.event.eyebrow")}</div>
             <h2>{event.title}</h2>
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <Link href={closeHref} replace className="iconbtn" aria-label="Close Calendar event drawer" scroll={false}>
+          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.event.close_label")} scroll={false}>
             <X className="ic" />
           </Link>
         </div>
@@ -117,46 +128,46 @@ export function CalendarEventDrawer({
 
           {/* Mock metagrid: When / Reminder / Channel / Escalates. Channel from the API summary field. */}
           <div className="metagrid">
-            <MetaCell k="When" v={whenWindow} />
-            <MetaCell k="Reminder" v={stateLabel(event.reminder_state)} />
-            <MetaCell k="Channel" v={event.primary_notification_channel || <span className="muted">not configured</span>} />
-            <MetaCell k="Escalates" v={stateLabel(event.escalation_state, "—")} />
+            <MetaCell k={copy(pageContract, "label.when")} v={whenWindow} />
+            <MetaCell k={copy(pageContract, "label.reminder")} v={contractStateLabel(pageContract, "calendar_reminder_state", event.reminder_state, "label.not_configured")} />
+            <MetaCell k={copy(pageContract, "label.channel")} v={event.primary_notification_channel || <span className="muted">{copy(pageContract, "label.not_configured")}</span>} />
+            <MetaCell k={copy(pageContract, "label.escalates")} v={contractStateLabel(pageContract, "calendar_escalation_state", event.escalation_state)} />
           </div>
           {channels.length > 1 ? (
             <div className="note" style={{ marginTop: 10 }}>
-              Channels: {channels.join(" · ")}
+              {copy(pageContract, "label.channels")}: {channels.join(" · ")}
             </div>
           ) : null}
 
           {/* Scope card — from typed event fields (reliable). */}
           <div style={{ marginTop: 16 }}>
             <div className="b700" style={{ margin: "2px 0 8px" }}>
-              Scope
+              {copy(pageContract, "label.scope")}
             </div>
             <div className="metagrid">
-              <MetaCell k="Park · Shed" v={`${event.park_code ?? "—"} · ${event.shed_name ?? "all sheds"}`} />
-              <MetaCell k="Cohort · Target" v={`${event.cohort_name ?? "—"} · ${event.target_count}`} />
-              <MetaCell k="Vaccine · Dose" v={`${event.vaccine_name ?? "—"} · ${event.dose_code ?? "—"}`} />
-              <MetaCell k="Owner" v={event.assignee_label ?? ownerLabel(event.owner_key, ownerMeta)} />
+              <MetaCell k={copy(pageContract, "label.park_shed")} v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${event.shed_name ?? copy(pageContract, "label.all_sheds")}`} />
+              <MetaCell k={copy(pageContract, "label.cohort_target")} v={`${event.cohort_name ?? copy(pageContract, "label.placeholder")} · ${event.target_count}`} />
+              <MetaCell k={copy(pageContract, "label.vaccine_dose")} v={`${event.vaccine_name ?? copy(pageContract, "label.placeholder")} · ${event.dose_code ?? copy(pageContract, "label.placeholder")}`} />
+              <MetaCell k={copy(pageContract, "label.owner")} v={event.assignee_label ?? ownerLabel(event.owner_key, ownerMeta)} />
             </div>
           </div>
 
           {/* Detail blocks — rendered generically from the backend JSONBlocks (keys vary by event family). */}
           <BlockCard
-            title="Source-backed rule"
+            title={copy(pageContract, "label.source_backed_rule")}
             block={detail.source_and_rule}
-            leading={<Tag tone={event.source_backed ? "ok" : "warn"}>{event.source_backed ? "source-backed" : "not source-backed"}</Tag>}
+            leading={<Tag tone={event.source_backed ? "ok" : "warn"}>{event.source_backed ? copy(pageContract, "label.source_backed") : copy(pageContract, "label.not_source_backed")}</Tag>}
           />
-          <BlockCard title="Execution" block={detail.execution} />
-          <BlockCard title="Stock readiness" block={detail.stock} />
-          <BlockCard title="Proof" block={detail.proof} />
-          <BlockCard title="Verification" block={detail.verification} />
+          <BlockCard title={copy(pageContract, "label.execution")} block={detail.execution} />
+          <BlockCard title={copy(pageContract, "label.stock_readiness")} block={detail.stock} />
+          <BlockCard title={copy(pageContract, "label.proof")} block={detail.proof} />
+          <BlockCard title={copy(pageContract, "label.verification")} block={detail.verification} />
 
           {/* Recent activity — the event's audit/reminder/snooze/proof history timeline. */}
           {detail.recent_actions && detail.recent_actions.length ? (
             <div style={{ marginTop: 16 }}>
               <div className="b700" style={{ margin: "2px 0 8px" }}>
-                Recent activity
+                {copy(pageContract, "label.recent_activity")}
               </div>
               <div className="feed">
                 {detail.recent_actions.map((h) => (
@@ -164,7 +175,7 @@ export function CalendarEventDrawer({
                     <div className="tx">
                       <b>{h.title}</b>
                       <div className="mt">
-                        {[stateLabel(h.status), h.actor_label, h.channel].filter(Boolean).join(" · ")}
+                        {[optionLabel(pageContract, "calendar_history_status", h.status), h.actor_label, h.channel].filter(Boolean).join(" · ")}
                       </div>
                     </div>
                     <span className="tm">{dateTime(h.occurred_at)}</span>
@@ -178,7 +189,7 @@ export function CalendarEventDrawer({
           {linkRow.length ? (
             <div style={{ marginTop: 16 }}>
               <div className="b700" style={{ margin: "2px 0 8px" }}>
-                Linked
+                {copy(pageContract, "label.linked")}
               </div>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                 {linkRow.map((l) => (
@@ -199,7 +210,7 @@ export function CalendarEventDrawer({
             <input type="hidden" name="return_to" value={returnTo} />
             <button type="submit" className="btn p" style={{ flex: 1 }}>
               <Bell className="ic" aria-hidden="true" />
-              Send nudge
+              {copy(pageContract, "action.send_nudge")}
             </button>
           </form>
           <form action={snoozeAction}>
@@ -207,7 +218,7 @@ export function CalendarEventDrawer({
             <input type="hidden" name="idempotency_key" value={snoozeKey} />
             <input type="hidden" name="return_to" value={returnTo} />
             <button type="submit" className="btn">
-              Snooze
+              {copy(pageContract, "action.snooze")}
             </button>
           </form>
           {primaryOpen ? (
@@ -216,7 +227,7 @@ export function CalendarEventDrawer({
             </Link>
           ) : null}
           <Link href={closeHref} replace className="btn" scroll={false}>
-            Close
+            {copy(pageContract, "action.close")}
           </Link>
         </div>
       </aside>
