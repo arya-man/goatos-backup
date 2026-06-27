@@ -60,6 +60,13 @@ func run(args []string) error {
 	gateway := notificationgateway.New(notificationgateway.Config{
 		WebhookURL:      getenv("GOATOS_NOTIFICATION_WEBHOOK_URL"),
 		SlackWebhookURL: getenv("GOATOS_SLACK_WEBHOOK_URL"),
+		EmailWebhookURL: getenv("GOATOS_EMAIL_WEBHOOK_URL"),
+		EmailAuthToken:  getenv("GOATOS_EMAIL_WEBHOOK_AUTH_TOKEN"),
+		EmailDefaultTo:  getenv("GOATOS_EMAIL_DEFAULT_TO"),
+		FCMProjectID:    firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
+		FCMEndpoint:     getenv("GOATOS_FCM_ENDPOINT"),
+		FCMBearerToken:  getenv("GOATOS_FCM_BEARER_TOKEN"),
+		FCMDefaultTopic: getenv("GOATOS_FCM_DEFAULT_TOPIC"),
 		DryRun:          *dryRun,
 		HTTPTimeout:     envDuration("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
 	}, logger)
@@ -88,6 +95,15 @@ func run(args []string) error {
 
 func getenv(key string) string {
 	return strings.TrimSpace(os.Getenv(key))
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := getenv(key); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func envBool(key string) bool {

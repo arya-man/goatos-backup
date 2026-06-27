@@ -1,0 +1,154 @@
+package gateway
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/notification/domain"
+)
+
+func TestSendEmailPostsVendorPayload(t *testing.T) {
+	var gotAuth string
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{
+		EmailWebhookURL: server.URL,
+		EmailAuthToken:  "email-token",
+	}, nil)
+	err := gateway.Send(context.Background(), request("email", "phc@example.com"))
+	if err != nil {
+		t.Fatalf("Send email: %v", err)
+	}
+	if gotAuth != "Bearer email-token" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	to, _ := got["to"].([]any)
+	if len(to) != 1 || to[0] != "phc@example.com" {
+		t.Fatalf("to = %#v", got["to"])
+	}
+	if got["subject"] != "Vaccination overdue" || got["text"] != "Shed A vaccination is overdue." {
+		t.Fatalf("unexpected email body: %#v", got)
+	}
+}
+
+func TestSendEmailUsesDefaultRecipient(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{EmailWebhookURL: server.URL, EmailDefaultTo: "ops@example.com"}, nil)
+	err := gateway.Send(context.Background(), request("email", "park_head"))
+	if err != nil {
+		t.Fatalf("Send email: %v", err)
+	}
+	to, _ := got["to"].([]any)
+	if len(to) != 1 || to[0] != "ops@example.com" {
+		t.Fatalf("to = %#v", got["to"])
+	}
+}
+
+func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
+	var gotAuth string
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if !strings.HasSuffix(r.URL.Path, "/messages:send") {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{
+		FCMEndpoint:    server.URL + "/v1/projects/goatos-dev/messages:send",
+		FCMBearerToken: "fcm-token",
+	}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", "device-token-1"))
+	if err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+	if gotAuth != "Bearer fcm-token" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	message, _ := got["message"].(map[string]any)
+	if message["token"] != "device-token-1" {
+		t.Fatalf("message target = %#v", message)
+	}
+	notification, _ := message["notification"].(map[string]any)
+	if notification["title"] != "Vaccination overdue" {
+		t.Fatalf("notification = %#v", notification)
+	}
+}
+
+func TestSendFCMUsesDefaultTopic(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{
+		FCMEndpoint:     server.URL,
+		FCMBearerToken:  "fcm-token",
+		FCMDefaultTopic: "phc-dev",
+	}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", ""))
+	if err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+	message, _ := got["message"].(map[string]any)
+	if message["topic"] != "phc-dev" {
+		t.Fatalf("message target = %#v", message)
+	}
+}
+
+func TestSendFCMRequiresRecipientOrDefaultTopic(t *testing.T) {
+	gateway := New(Config{FCMEndpoint: "https://fcm.example/messages:send", FCMBearerToken: "token"}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", ""))
+	if err == nil || !strings.Contains(err.Error(), "push_fcm recipient") {
+		t.Fatalf("expected recipient error, got %v", err)
+	}
+}
+
+func request(channel, recipientRef string) domain.Request {
+	return domain.Request{
+		NotificationRequestID: "86000000-0000-4000-8000-000000000001",
+		TenantID:              "00000000-0000-4000-8000-000000000001",
+		CalendarEventID:       "calendar:86000000-0000-4000-8000-000000000001",
+		TargetType:            "shed",
+		TargetID:              "00000000-0000-4000-8000-000000004001",
+		NotificationType:      "escalation",
+		Channel:               channel,
+		RecipientRef:          recipientRef,
+		Title:                 "Vaccination overdue",
+		Body:                  "Shed A vaccination is overdue.",
+		TraceID:               "trace-test",
+		Context:               []byte(`{"escalation_level":2}`),
+	}
+}

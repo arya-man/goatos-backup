@@ -3,6 +3,7 @@ locals {
     "artifactregistry.googleapis.com",
     "cloudscheduler.googleapis.com",
     "cloudtasks.googleapis.com",
+    "fcm.googleapis.com",
     "pubsub.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",

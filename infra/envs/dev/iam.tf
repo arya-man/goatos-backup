@@ -25,6 +25,19 @@ resource "google_project_iam_member" "calendar_cloudtasks_enqueuer" {
   member  = "serviceAccount:${google_service_account.runtime[each.key].email}"
 }
 
+resource "google_project_iam_custom_role" "notification_fcm_sender" {
+  role_id     = "goatosNotificationFcmSenderDev"
+  title       = "Goat OS dev notification FCM sender"
+  description = "Allows the notification dispatcher to send Firebase Cloud Messaging messages."
+  permissions = ["cloudmessaging.messages.create"]
+}
+
+resource "google_project_iam_member" "notification_dispatcher_fcm_sender" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.notification_fcm_sender.name
+  member  = "serviceAccount:${google_service_account.runtime["notification_dispatcher"].email}"
+}
+
 resource "google_service_account_iam_member" "cloudscheduler_scheduler_token_creator" {
   service_account_id = google_service_account.runtime["scheduler"].name
   role               = "roles/iam.serviceAccountTokenCreator"

@@ -14,11 +14,19 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
+	"golang.org/x/oauth2/google"
 )
 
 type Config struct {
 	WebhookURL      string
 	SlackWebhookURL string
+	EmailWebhookURL string
+	EmailAuthToken  string
+	EmailDefaultTo  string
+	FCMProjectID    string
+	FCMEndpoint     string
+	FCMBearerToken  string
+	FCMDefaultTopic string
 	DryRun          bool
 	HTTPTimeout     time.Duration
 }
@@ -86,14 +94,20 @@ func (g *Gateway) Send(ctx context.Context, request domain.Request) error {
 			return fmt.Errorf("%w: webhook", ports.ErrChannelNotConfigured)
 		}
 		return g.postJSON(ctx, g.config.WebhookURL, requestPayload(request))
-	case "email", "push_fcm":
-		return fmt.Errorf("%w: %s", ports.ErrChannelNotConfigured, channel)
+	case "email":
+		return g.sendEmail(ctx, request)
+	case "push_fcm":
+		return g.sendFCM(ctx, request)
 	default:
 		return fmt.Errorf("unsupported notification channel: %s", channel)
 	}
 }
 
 func (g *Gateway) postJSON(ctx context.Context, url string, payload any) error {
+	return g.postJSONWithHeaders(ctx, url, payload, nil)
+}
+
+func (g *Gateway) postJSONWithHeaders(ctx context.Context, url string, payload any, headers map[string]string) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal notification payload: %w", err)
@@ -104,6 +118,11 @@ func (g *Gateway) postJSON(ctx context.Context, url string, payload any) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "goatos-notification-dispatcher/1.0")
+	for key, value := range headers {
+		if strings.TrimSpace(value) != "" {
+			req.Header.Set(key, value)
+		}
+	}
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("post notification webhook: %w", err)
@@ -114,6 +133,112 @@ func (g *Gateway) postJSON(ctx context.Context, url string, payload any) error {
 		return fmt.Errorf("notification webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 	return nil
+}
+
+func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
+	if strings.TrimSpace(g.config.EmailWebhookURL) == "" {
+		return fmt.Errorf("%w: email", ports.ErrChannelNotConfigured)
+	}
+	to := strings.TrimSpace(g.config.EmailDefaultTo)
+	if ref := strings.TrimSpace(request.RecipientRef); strings.Contains(ref, "@") {
+		to = ref
+	}
+	if to == "" {
+		return fmt.Errorf("%w: email recipient", ports.ErrChannelNotConfigured)
+	}
+	headers := map[string]string{}
+	if token := strings.TrimSpace(g.config.EmailAuthToken); token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
+	return g.postJSONWithHeaders(ctx, g.config.EmailWebhookURL, map[string]any{
+		"to":       []string{to},
+		"subject":  request.Title,
+		"text":     request.Body,
+		"metadata": requestPayload(request),
+	}, headers)
+}
+
+func (g *Gateway) sendFCM(ctx context.Context, request domain.Request) error {
+	projectID := strings.TrimSpace(g.config.FCMProjectID)
+	endpoint := strings.TrimSpace(g.config.FCMEndpoint)
+	if endpoint == "" {
+		if projectID == "" {
+			return fmt.Errorf("%w: push_fcm project", ports.ErrChannelNotConfigured)
+		}
+		endpoint = fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", projectID)
+	}
+	message := map[string]any{
+		"notification": map[string]string{
+			"title": request.Title,
+			"body":  request.Body,
+		},
+		"data": fcmData(request),
+	}
+	if err := setFCMTarget(message, request.RecipientRef, g.config.FCMDefaultTopic); err != nil {
+		return err
+	}
+	token, err := g.fcmBearer(ctx)
+	if err != nil {
+		return err
+	}
+	return g.postJSONWithHeaders(ctx, endpoint, map[string]any{"message": message}, map[string]string{
+		"Authorization": "Bearer " + token,
+	})
+}
+
+func setFCMTarget(message map[string]any, recipientRef, defaultTopic string) error {
+	ref := strings.TrimSpace(recipientRef)
+	switch {
+	case strings.HasPrefix(ref, "topic:"):
+		topic := strings.TrimSpace(strings.TrimPrefix(ref, "topic:"))
+		if topic != "" {
+			message["topic"] = topic
+			return nil
+		}
+	case strings.HasPrefix(ref, "condition:"):
+		condition := strings.TrimSpace(strings.TrimPrefix(ref, "condition:"))
+		if condition != "" {
+			message["condition"] = condition
+			return nil
+		}
+	case ref != "":
+		message["token"] = ref
+		return nil
+	}
+	topic := strings.TrimSpace(defaultTopic)
+	if topic == "" {
+		return fmt.Errorf("%w: push_fcm recipient", ports.ErrChannelNotConfigured)
+	}
+	message["topic"] = topic
+	return nil
+}
+
+func (g *Gateway) fcmBearer(ctx context.Context) (string, error) {
+	if token := strings.TrimSpace(g.config.FCMBearerToken); token != "" {
+		return token, nil
+	}
+	source, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/firebase.messaging")
+	if err != nil {
+		return "", fmt.Errorf("%w: push_fcm auth", ports.ErrChannelNotConfigured)
+	}
+	token, err := source.Token()
+	if err != nil {
+		return "", fmt.Errorf("fetch FCM access token: %w", err)
+	}
+	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
+		return "", fmt.Errorf("%w: push_fcm auth token", ports.ErrChannelNotConfigured)
+	}
+	return token.AccessToken, nil
+}
+
+func fcmData(request domain.Request) map[string]string {
+	return map[string]string{
+		"notification_request_id": request.NotificationRequestID,
+		"tenant_id":               request.TenantID,
+		"calendar_event_id":       request.CalendarEventID,
+		"notification_type":       request.NotificationType,
+		"trace_id":                request.TraceID,
+	}
 }
 
 func requestPayload(request domain.Request) map[string]any {

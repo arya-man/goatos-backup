@@ -121,7 +121,9 @@ locals {
       cpu                 = "1"
       schedule            = "* * * * *"
       env = {
-        GOATOS_TENANT_ID = var.dev_tenant_id
+        GOOGLE_CLOUD_PROJECT  = var.project_id
+        GOATOS_FCM_PROJECT_ID = var.project_id
+        GOATOS_TENANT_ID      = var.dev_tenant_id
       }
     }
   }
