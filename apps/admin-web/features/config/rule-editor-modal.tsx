@@ -17,6 +17,7 @@ import {
 } from "./rule-dsl";
 import type { ImpactPreviewResult } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { Park } from "@/lib/scope";
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok" } as const;
 
@@ -26,6 +27,7 @@ export function RuleEditorModal({
   initialCategory,
   sopVersions = [],
   animalStages = [],
+  parks = [],
   stagesError = null,
   sopsError = null,
   canPublish = true,
@@ -36,6 +38,7 @@ export function RuleEditorModal({
   initialCategory: string;
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
+  parks?: Park[];
   stagesError?: string | null;
   sopsError?: string | null;
   canPublish?: boolean;
@@ -43,6 +46,17 @@ export function RuleEditorModal({
 }) {
   const ruleCategories = optionGroup(pageContract, "rule_categories");
   const ruleScopes = optionGroup(pageContract, "rule_scopes");
+  const scopeOptions = [
+    ...ruleScopes.filter((option) => !option.key.startsWith("park:")),
+    ...parks.map((park) => ({
+      key: `park:${park.id}`,
+      label: `${copy(pageContract, "modal.rule_editor.label.park_scope_prefix")} ${park.code?.trim() || park.name || park.id}`,
+      title: park.name || park.id,
+      enabled: true,
+      disabled_reason: "",
+      tone: "info",
+    })),
+  ];
   const protocolPlaceholders = optionGroup(pageContract, "protocol_placeholders");
   const animalStageScope = optionGroup(pageContract, "animal_stage_scope");
   const sexOptions = optionGroup(pageContract, "rule_sexes");
@@ -135,7 +149,7 @@ export function RuleEditorModal({
   const [category, setCategory] = useState(categoryDefault());
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [scope, setScope] = useState(firstKey(ruleScopes, "rule_scopes"));
+  const [scope, setScope] = useState(firstKey(scopeOptions, "rule_scopes"));
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [sopVersionId, setSopVersionId] = useState("");
 
@@ -348,7 +362,7 @@ export function RuleEditorModal({
             <label>{copy(pageContract, "modal.rule_editor.field.scope")}</label>
             <div className="rowf">
               <select aria-label={copy(pageContract, "modal.rule_editor.field.scope")} value={scope} onChange={(e) => setScope(e.target.value)}>
-                {ruleScopes.map((s) => (
+                {scopeOptions.map((s) => (
                   <option key={s.key} value={s.key}>
                     {s.label}
                   </option>

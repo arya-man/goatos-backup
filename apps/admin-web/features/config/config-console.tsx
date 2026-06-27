@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, Plus, Search } from "
 import { RuleEditorModal } from "./rule-editor-modal";
 import type { AnimalStageOption, SopVersionOption } from "./rule-dsl";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { Park } from "@/lib/scope";
 
 export interface ConfigRuleRow {
   id: string;
@@ -29,6 +30,7 @@ export function ConfigConsole({
   initialCategory,
   sopVersions = [],
   animalStages = [],
+  parks = [],
   loadError = null,
 	  stagesError = null,
 	  sopsError = null,
@@ -39,6 +41,7 @@ export function ConfigConsole({
 	  initialCategory: string;
   sopVersions?: SopVersionOption[];
   animalStages?: AnimalStageOption[];
+  parks?: Park[];
   loadError?: string | null;
 	  stagesError?: string | null;
 	  sopsError?: string | null;
@@ -178,7 +181,7 @@ export function ConfigConsole({
                       </span>
                     </td>
                     <td className="mono">{r.version}</td>
-                    <td>{r.scope === "tenant" ? "tenant" : <span className="tag t-info">{r.scope.replace(":", ": ")}</span>}</td>
+                    <td>{r.scope}</td>
                     <td>
                       <span className={`tag ${TONE_CLASS[r.statusTone]}`}>{r.statusText}</span>
                     </td>
@@ -248,6 +251,7 @@ export function ConfigConsole({
         initialCategory={initialCategory}
         sopVersions={sopVersions}
         animalStages={animalStages}
+        parks={parks}
         stagesError={stagesError}
         sopsError={sopsError}
         canPublish={canPublish}

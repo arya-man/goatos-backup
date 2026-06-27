@@ -45,7 +45,7 @@ function scopeLabel(item: ProtocolConfigItem, parks: Park[], pageContract: Admin
   if (item.scope_type === "park") {
     const park = parks.find((p) => p.id === item.scope_id);
     const parkScope = optionGroup(pageContract, "rule_scopes").find((option) => option.key === `park:${item.scope_id}`)?.label;
-    return parkScope ?? `park: ${park?.code ?? park?.name ?? shortId(item.scope_id, pageContract)}`;
+    return parkScope ?? `${copy(pageContract, "modal.rule_editor.label.park_scope_prefix")} ${park?.code?.trim() || park?.name || shortId(item.scope_id, pageContract)}`;
   }
   return `${item.scope_type}: ${shortId(item.scope_id, pageContract)}`;
 }
@@ -140,6 +140,7 @@ export async function ConfigProtocolRulesPage({ category, pageContract }: { cate
         loadError={loadError}
         stagesError={stagesError}
         sopsError={sopsError}
+        parks={parks}
         pageContract={pageContract}
       />
 

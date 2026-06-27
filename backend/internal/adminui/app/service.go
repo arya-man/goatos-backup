@@ -1477,6 +1477,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.label.rule_singular":            "rule",
 			"modal.rule_editor.label.rule_plural":              "rules",
 			"modal.rule_editor.label.tenant":                   "tenant",
+			"modal.rule_editor.label.park_scope_prefix":        "park:",
 		}
 	case "sops":
 		return map[string]string{
