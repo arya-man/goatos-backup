@@ -115,7 +115,7 @@ func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptR
 	if pending.Status != "accepted" {
 		return AcceptResult{CompletionID: pending.CompletionID, Applied: false}, nil
 	}
-	if err := s.consume(ctx, in.Completion.TenantID, pending.BatchID, pending.LotID, pending.GoatID, &pending.Doses); err != nil {
+	if err := s.consume(ctx, in.Completion.TenantID, pending.BatchID, pending.LotID, pending.ObligationID, pending.GoatID, &pending.Doses); err != nil {
 		return AcceptResult{}, err
 	}
 	completed, err := s.obl.MarkCompleted(ctx, in.Completion.TenantID, pending.ObligationID)
@@ -167,7 +167,7 @@ func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistin
 	if pending.Status != "accepted" {
 		return AcceptResult{CompletionID: in.CompletionID, Applied: false}, nil
 	}
-	if err := s.consume(ctx, in.TenantID, pending.BatchID, pending.LotID, pending.GoatID, &pending.Doses); err != nil {
+	if err := s.consume(ctx, in.TenantID, pending.BatchID, pending.LotID, pending.ObligationID, pending.GoatID, &pending.Doses); err != nil {
 		return AcceptResult{}, err
 	}
 	completed, err := s.obl.MarkCompleted(ctx, in.TenantID, pending.ObligationID)
@@ -242,7 +242,7 @@ func (s *CompletionService) RejectExisting(ctx context.Context, tenantID, comple
 
 // consume consumes the goat's reserved dose for a drive batch. No-op when stock is not wired, the
 // completion was not part of a drive (no batch/lot), or doses is zero.
-func (s *CompletionService) consume(ctx context.Context, tenantID, batchID, lotID, goatID string, doses *int32) error {
+func (s *CompletionService) consume(ctx context.Context, tenantID, batchID, lotID, obligationID, goatID string, doses *int32) error {
 	if s.inv == nil || batchID == "" || lotID == "" {
 		return nil
 	}
@@ -250,7 +250,7 @@ func (s *CompletionService) consume(ctx context.Context, tenantID, batchID, lotI
 	if doses != nil && *doses > 0 {
 		q = int64(*doses)
 	}
-	return s.inv.ConsumeForBatch(ctx, tenantID, batchID, lotID, batchID+":consume:"+goatID, q)
+	return s.inv.ConsumeForBatch(ctx, tenantID, batchID, lotID, batchID+":consume:"+obligationID+":"+goatID, q)
 }
 
 // scheduleBooster runs SM-7 when a booster is wired and a protocol version is given.

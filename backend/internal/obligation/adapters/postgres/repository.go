@@ -682,6 +682,91 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	return true, nil
 }
 
+// MarkMissedBefore marks open obligations whose due window has crossed as missed and writes a
+// durable 'missed' status event per transition. It is safe for repeated/parallel sweepers: candidates
+// are locked with SKIP LOCKED and only scheduled/due rows can transition.
+func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, missedBefore time.Time, limit int32) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if missedBefore.IsZero() {
+		missedBefore = time.Now().UTC()
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin missed tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `
+WITH candidate AS (
+  SELECT obligation_id
+  FROM obligation_instances
+  WHERE tenant_id = $1
+    AND status IN ('scheduled', 'due')
+    AND COALESCE(window_end, due_at) < $2
+  ORDER BY due_at ASC, obligation_id ASC
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+)
+UPDATE obligation_instances oi
+SET status = 'missed',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM candidate c
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = c.obligation_id
+RETURNING oi.obligation_id::text`, tenant, pgconv.Timestamptz(missedBefore), limit)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: mark missed: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return 0, fmt.Errorf("obligation: scan missed id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("obligation: mark missed rows: %w", err)
+	}
+	rows.Close()
+
+	qtx := r.queries.WithTx(tx)
+	payload, _ := json.Marshal(map[string]string{"event": "missed"})
+	now := time.Now().UTC()
+	for _, id := range ids {
+		oid, err := pgconv.UUID(id)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: obligation id: %w", err)
+		}
+		if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oid,
+			EventType:      "missed",
+			OccurredAt:     pgconv.Timestamptz(now),
+			Payload:        payload,
+			IdempotencyKey: id + ":missed",
+		}); err != nil {
+			return 0, fmt.Errorf("obligation: missed event: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit missed: %w", err)
+	}
+	return len(ids), nil
+}
+
 // ListOpenByGoat returns a goat's still-open obligations, earliest due first (Goat Passport next-due).
 func (r *Repository) ListOpenByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]domain.OpenObligation, error) {
 	ctx, cancel := r.withTimeout(ctx)

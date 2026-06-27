@@ -66,7 +66,10 @@ INSERT INTO vaccination_generation_runs (
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET status = 'running',
-    started_at = vaccination_generation_runs.started_at,
+    started_at = CASE
+      WHEN vaccination_generation_runs.status = 'running' THEN EXCLUDED.started_at
+      ELSE vaccination_generation_runs.started_at
+    END,
     context = CASE
       WHEN COALESCE(vaccination_generation_runs.context->>'request_hash', '') = ''
         THEN EXCLUDED.context
@@ -81,7 +84,13 @@ SET status = 'running',
     last_error = NULL,
     updated_at = now(),
     row_version = vaccination_generation_runs.row_version + 1
-WHERE vaccination_generation_runs.status = 'failed'
+WHERE (
+    vaccination_generation_runs.status = 'failed'
+    OR (
+      vaccination_generation_runs.status = 'running'
+      AND vaccination_generation_runs.started_at < $5::timestamptz - interval '15 minutes'
+    )
+  )
   AND (
     COALESCE(vaccination_generation_runs.context->>'request_hash', '') = ''
     OR COALESCE(vaccination_generation_runs.context->>'request_hash', '') = $8
@@ -520,6 +529,7 @@ WHERE si.tenant_id = $1
   AND si.submission_id = $3
   AND si.goat_id IS NOT NULL
   AND si.state IN ('accepted', 'needs_review')
+  AND oi.status NOT IN ('completed', 'missed', 'waived', 'canceled', 'superseded')
   AND (
     oi.batch_id IS NULL
     OR (

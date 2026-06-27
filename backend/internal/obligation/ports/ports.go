@@ -40,6 +40,10 @@ type Repository interface {
 	// Returns false (no-op) when already terminal. Idempotent.
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
 
+	// MarkMissedBefore marks open obligations whose deadline/window has crossed as missed and
+	// writes one 'missed' event per transition. Idempotent and batch-limited for sweepers.
+	MarkMissedBefore(ctx context.Context, tenantID string, missedBefore time.Time, limit int32) (int, error)
+
 	// GetBoosterContext returns an obligation's protocol version, scope, and sequence (SM-7 basis on
 	// the verify path). Returns ErrNotFound when the obligation does not exist.
 	GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error)

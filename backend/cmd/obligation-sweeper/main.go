@@ -31,6 +31,8 @@ type config struct {
 	VaccineItemID string
 	DosesPerGoat  int
 	ActorID       string
+	MarkMissed    bool
+	MissedBefore  time.Time
 }
 
 func main() {
@@ -78,18 +80,25 @@ func run(args []string) error {
 	}
 	if len(versionIDs) == 0 {
 		fmt.Println("no published vaccination protocol versions to sweep")
-		return nil
-	}
-	for _, versionID := range versionIDs {
-		result, err := sweeper.SweepVersion(ctx, cfg.TenantID, versionID, obligationapp.SweepConfig{
-			SOPVersionID:  cfg.SOPVersionID,
-			VaccineItemID: cfg.VaccineItemID,
-			DosesPerGoat:  int32(cfg.DosesPerGoat),
-		}, cfg.DueBefore)
-		if err != nil {
-			return fmt.Errorf("sweep version %s: %w", versionID, err)
+	} else {
+		for _, versionID := range versionIDs {
+			result, err := sweeper.SweepVersion(ctx, cfg.TenantID, versionID, obligationapp.SweepConfig{
+				SOPVersionID:  cfg.SOPVersionID,
+				VaccineItemID: cfg.VaccineItemID,
+				DosesPerGoat:  int32(cfg.DosesPerGoat),
+			}, cfg.DueBefore)
+			if err != nil {
+				return fmt.Errorf("sweep version %s: %w", versionID, err)
+			}
+			fmt.Printf("swept version=%s batches=%d obligations=%d\n", versionID, result.Batches, result.Obligations)
 		}
-		fmt.Printf("swept version=%s batches=%d obligations=%d\n", versionID, result.Batches, result.Obligations)
+	}
+	if cfg.MarkMissed {
+		missed, err := sweeper.MarkMissed(ctx, cfg.TenantID, cfg.MissedBefore)
+		if err != nil {
+			return fmt.Errorf("mark missed obligations: %w", err)
+		}
+		fmt.Printf("marked missed obligations=%d before=%s\n", missed, cfg.MissedBefore.Format(time.RFC3339))
 	}
 	return nil
 }
@@ -104,6 +113,9 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.ActorID, "actor-id", getenv("GOATOS_SWEEPER_ACTOR_ID"), "actor id for SOP task creation")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_SWEEPER_TIMEOUT", 60*time.Second), "sweeper timeout")
 	dueBeforeRaw := fs.String("due-before", getenv("GOATOS_SWEEPER_DUE_BEFORE"), "RFC3339 due-before cutoff; default now")
+	missedBeforeRaw := fs.String("missed-before", getenv("GOATOS_SWEEPER_MISSED_BEFORE"), "RFC3339 missed cutoff; default now minus missed-grace")
+	missedGrace := fs.Duration("missed-grace", durationEnv("GOATOS_SWEEPER_MISSED_GRACE", 24*time.Hour), "grace period before due/window-crossed obligations become missed")
+	fs.BoolVar(&cfg.MarkMissed, "mark-missed", boolEnv("GOATOS_SWEEPER_MARK_MISSED", true), "materialize canonical missed status for overdue open obligations")
 	fs.IntVar(&cfg.DosesPerGoat, "doses-per-goat", intEnv("GOATOS_SWEEPER_DOSES_PER_GOAT", 1), "doses reserved per goat")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -111,13 +123,25 @@ func parseFlags(args []string) (config, error) {
 	if strings.TrimSpace(cfg.TenantID) == "" {
 		return config{}, errors.New("tenant-id is required")
 	}
-	cfg.DueBefore = time.Now().UTC()
+	now := time.Now().UTC()
+	cfg.DueBefore = now
 	if strings.TrimSpace(*dueBeforeRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*dueBeforeRaw))
 		if err != nil {
 			return config{}, errors.New("due-before must be RFC3339")
 		}
 		cfg.DueBefore = parsed.UTC()
+	}
+	if *missedGrace < 0 {
+		return config{}, errors.New("missed-grace must be non-negative")
+	}
+	cfg.MissedBefore = now.Add(-*missedGrace)
+	if strings.TrimSpace(*missedBeforeRaw) != "" {
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*missedBeforeRaw))
+		if err != nil {
+			return config{}, errors.New("missed-before must be RFC3339")
+		}
+		cfg.MissedBefore = parsed.UTC()
 	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")
@@ -163,6 +187,18 @@ func intEnv(key string, fallback int) int {
 		return fallback
 	}
 	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func boolEnv(key string, fallback bool) bool {
+	raw := getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseBool(raw)
 	if err != nil {
 		return fallback
 	}

@@ -74,6 +74,45 @@ func TestAcceptExistingResumesAcceptedCompletionSideEffects(t *testing.T) {
 	}
 }
 
+func TestAcceptExistingConsumesEachObligationForSameGoatBatch(t *testing.T) {
+	ctx := context.Background()
+	repo := newCompletionRepoFake()
+	obl := newObligationCompleterFake()
+	stock := newStockConsumerFake()
+	svc := NewCompletionService(NewService(repo), obl, stock)
+	doses := int32(1)
+	batchID, lotID := "batch-1", "lot-1"
+	for _, in := range []domain.NewCompletion{
+		{
+			TenantID: "tenant-1", ObligationID: "obligation-1", GoatID: "goat-1", BatchID: &batchID,
+			VaccineInventoryLotID: &lotID, Doses: &doses, ColdChainVerified: true,
+			AdministeredAt: time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC),
+			IdempotencyKey: "accept-existing-same-goat-1",
+		},
+		{
+			TenantID: "tenant-1", ObligationID: "obligation-2", GoatID: "goat-1", BatchID: &batchID,
+			VaccineInventoryLotID: &lotID, Doses: &doses, ColdChainVerified: true,
+			AdministeredAt: time.Date(2026, time.June, 27, 8, 5, 0, 0, time.UTC),
+			IdempotencyKey: "accept-existing-same-goat-2",
+		},
+	} {
+		cid, _, err := repo.RecordCompletion(ctx, in)
+		if err != nil {
+			t.Fatalf("record completion: %v", err)
+		}
+		if _, err := svc.AcceptExisting(ctx, AcceptExistingInput{TenantID: in.TenantID, CompletionID: cid}); err != nil {
+			t.Fatalf("accept existing %s: %v", cid, err)
+		}
+	}
+
+	if stock.consumeCalls != 2 {
+		t.Fatalf("consume calls = %d, want 2", stock.consumeCalls)
+	}
+	if !stock.seen["batch-1:consume:obligation-1:goat-1"] || !stock.seen["batch-1:consume:obligation-2:goat-1"] {
+		t.Fatalf("consume keys = %#v, want per-obligation keys", stock.seen)
+	}
+}
+
 func TestAcceptStopsWhenRecordedCompletionWasRejectedBeforeSideEffects(t *testing.T) {
 	ctx := context.Background()
 	repo := newCompletionRepoFake()

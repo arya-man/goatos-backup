@@ -220,6 +220,91 @@ func TestRecordCompletionsFromVaccinationSessionTask(t *testing.T) {
 	}
 }
 
+func TestRecordCompletionsFromSubmissionSkipsTerminalObligation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.terminal.fanout", Name: "Terminal Fanout", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	const goatID = "30000000-0000-4000-8000-0000000000c9"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+	obligationID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: impTenant,
+		DueAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Status: "completed", IdempotencyKey: "terminal-fanout-obligation", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("obligation: applied=%v err=%v", applied, err)
+	}
+
+	sopID := scanText(t, ctx, pool,
+		`INSERT INTO sop_definitions (tenant_id, code, name, description, status)
+		 VALUES ($1, 'vaccination.terminal', 'Vaccination Terminal', 'Terminal fanout regression', 'active')
+		 RETURNING sop_id::text`, impTenant)
+	sopVersionID := scanText(t, ctx, pool,
+		`INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1, $2, 1, 'terminal v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":false,"subject_scope":"batch","types":["video"],"minimum_count":0}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)
+		 RETURNING sop_version_id::text`, impTenant, sopID)
+	taskID := scanText(t, ctx, pool,
+		`INSERT INTO sop_tasks (tenant_id, sop_id, sop_version_id, task_type, title, scope_type, scope_id)
+		 VALUES ($1, $2, $3, 'vaccination_drive', 'Terminal Drive', 'park', $4)
+		 RETURNING task_id::text`, impTenant, sopID, sopVersionID, impCbe)
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`,
+		taskID, impTenant, obligationID); err != nil {
+		t.Fatalf("link obligation task: %v", err)
+	}
+	submissionID := scanText(t, ctx, pool,
+		`INSERT INTO sop_submissions (tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state)
+		 VALUES ($1, $2, $3, $4, 'terminal-fanout-submission',
+		   '{"dose_ml_given":1,"cold_chain_verified":true,"adverse_reaction":false,"administered_at":"2026-06-23T00:00:00Z"}'::jsonb,
+		   'accepted')
+		 RETURNING submission_id::text`, impTenant, taskID, sopVersionID, impParty)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO sop_submission_items (tenant_id, submission_id, task_id, goat_id, item_key, state)
+		 VALUES ($1, $2, $3, $4, 'dose', 'accepted')`,
+		impTenant, submissionID, taskID, goatID); err != nil {
+		t.Fatalf("submission item: %v", err)
+	}
+
+	count, err := vacc.RecordCompletionsFromSubmission(ctx, impTenant, taskID, submissionID, impParty)
+	if err == nil || !strings.Contains(err.Error(), "materialized 0 of 1") {
+		t.Fatalf("terminal fanout count=%d err=%v, want partial materialization error", count, err)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2`, impTenant, obligationID); got != 0 {
+		t.Fatalf("terminal obligation completion rows = %d, want 0", got)
+	}
+}
+
 func TestRecordCompletionsFromSubmissionFailsPartialMaterialization(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

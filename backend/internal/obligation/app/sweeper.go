@@ -120,3 +120,20 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 	}
 	return res, nil
 }
+
+// MarkMissed materializes the terminal missed state for obligations whose due window/deadline has
+// already crossed. This keeps the canonical obligation table aligned with Calendar/Action Center
+// late-state projections.
+func (s *SweeperService) MarkMissed(ctx context.Context, tenantID string, missedBefore time.Time) (int, error) {
+	total := 0
+	for {
+		n, err := s.repo.MarkMissedBefore(ctx, tenantID, missedBefore, s.page)
+		if err != nil {
+			return total, err
+		}
+		total += n
+		if int32(n) < s.page {
+			return total, nil
+		}
+	}
+}

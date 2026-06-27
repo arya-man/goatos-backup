@@ -154,6 +154,51 @@ func TestStartGenerationRunFailedReplayPreservesStartedAt(t *testing.T) {
 	}
 }
 
+func TestStartGenerationRunStaleRunningReplayRestarts(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.manual.stale_retry", Name: "Manual stale retry", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	firstAt := time.Date(2026, 6, 27, 8, 0, 0, 0, time.UTC)
+	staleRetryAt := firstAt.Add(16 * time.Minute)
+	run, started, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
+		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "stale@first",
+		StartedAt: firstAt, IdempotencyKey: "manual-campaign-stale-key", RequestHash: "request-hash",
+	})
+	if err != nil || !started {
+		t.Fatalf("start generation run started=%v err=%v run=%#v", started, err, run)
+	}
+
+	retry, restarted, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
+		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "stale@retry",
+		StartedAt: staleRetryAt, IdempotencyKey: "manual-campaign-stale-key", RequestHash: "request-hash",
+	})
+	if err != nil || !restarted {
+		t.Fatalf("restart stale generation run restarted=%v err=%v run=%#v", restarted, err, retry)
+	}
+	if !retry.StartedAt.Equal(staleRetryAt) || retry.Status != "running" || retry.RequestHash != "request-hash" {
+		t.Fatalf("stale retry run = %#v, want restarted running row", retry)
+	}
+}
+
 func TestGoatCreatedHandlerGeneratesViaBus(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

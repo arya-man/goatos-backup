@@ -96,6 +96,19 @@ func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
 	}
 }
 
+func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
+	repo := &fakeSweepRepo{missedPages: []int{1000, 2}}
+	svc := NewSweeperService(repo, nil, nil)
+
+	total, err := svc.MarkMissed(context.Background(), "tenant-1", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("MarkMissed: %v", err)
+	}
+	if total != 1002 || repo.missedCalls != 2 {
+		t.Fatalf("total=%d calls=%d, want 1002/2", total, repo.missedCalls)
+	}
+}
+
 type fakeSweepRepo struct {
 	rows                []domain.UnbatchedDue
 	createBatchID       string
@@ -104,6 +117,8 @@ type fakeSweepRepo struct {
 	setTaskCalls        int
 	stockBlockCalls     int
 	lastTaskID          string
+	missedPages         []int
+	missedCalls         int
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
@@ -154,6 +169,15 @@ func (f *fakeSweepRepo) AttachObligationsToBatch(context.Context, string, string
 
 func (f *fakeSweepRepo) MarkCompleted(context.Context, string, string) (bool, error) {
 	return false, nil
+}
+
+func (f *fakeSweepRepo) MarkMissedBefore(context.Context, string, time.Time, int32) (int, error) {
+	if f.missedCalls >= len(f.missedPages) {
+		return 0, nil
+	}
+	n := f.missedPages[f.missedCalls]
+	f.missedCalls++
+	return n, nil
 }
 
 func (f *fakeSweepRepo) GetBoosterContext(context.Context, string, string) (string, string, string, int32, error) {
