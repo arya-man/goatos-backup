@@ -47,6 +47,12 @@ func (r errRepo) AddGoatIdentifier(context.Context, ports.AddGoatIdentifierComma
 func (r errRepo) RetireGoatIdentifier(context.Context, ports.RetireGoatIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
 	return nil, r.err
 }
+func (r errRepo) MoveGoat(context.Context, ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	return nil, r.err
+}
+func (r errRepo) ExitGoat(context.Context, ports.ExitGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	return nil, r.err
+}
 func (r errRepo) Ping(context.Context) error { return r.err }
 
 // newFakeService constructs an app.Service backed by a fake repo.

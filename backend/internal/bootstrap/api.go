@@ -25,6 +25,7 @@ import (
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	operationsaudithttp "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/http"
 	operationsauditpg "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/postgres"
 	operationsauditapp "github.com/vgoats/goatos/backend/internal/operationsaudit/app"
@@ -246,6 +247,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	bus := eventbus.NewInProcessBus()
+	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
+	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	sopService.

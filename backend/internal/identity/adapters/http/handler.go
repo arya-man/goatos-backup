@@ -40,6 +40,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/goats", h.CreateAdminGoat)
 	mux.HandleFunc("POST /admin/goats/bulk-preview", h.PreviewAdminGoatBulkImport)
 	mux.HandleFunc("POST /admin/goats/bulk-commit", h.CommitAdminGoatBulkImport)
+	mux.HandleFunc("POST /admin/goats/{goat_id}/move", h.MoveGoat)
+	mux.HandleFunc("POST /admin/goats/{goat_id}/exit", h.ExitGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
 }
@@ -142,6 +144,38 @@ func (h *Handler) CommitAdminGoatBulkImport(w http.ResponseWriter, r *http.Reque
 		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		TraceID:        traceID(r),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) MoveGoat(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.MoveGoat(r.Context(), app.MoveGoatInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		GoatID:         r.PathValue("goat_id"),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) ExitGoat(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.ExitGoat(r.Context(), app.ExitGoatInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		GoatID:         r.PathValue("goat_id"),
 		RawBody:        body,
 	})
 	h.respond(w, r, result, err)

@@ -196,6 +196,24 @@ type AdminGoatBulkCommitRequest struct {
 	FileHash string                   `json:"file_hash,omitempty"`
 }
 
+type MoveGoatRequest struct {
+	ParkID       string        `json:"park_id"`
+	ShedID       string        `json:"shed_id"`
+	Reason       string        `json:"reason"`
+	OccurredAt   *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs []EvidenceRef `json:"evidence_refs"`
+	RowVersion   int           `json:"row_version"`
+}
+
+type ExitGoatRequest struct {
+	LifecycleStatus string        `json:"lifecycle_status"`
+	ExitReason      string        `json:"exit_reason"`
+	Reason          string        `json:"reason"`
+	OccurredAt      *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs    []EvidenceRef `json:"evidence_refs"`
+	RowVersion      int           `json:"row_version"`
+}
+
 type AdminGoatBulkRowResult struct {
 	RowNumber        int                     `json:"row_number"`
 	Decision         string                  `json:"decision"`

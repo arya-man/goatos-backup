@@ -83,6 +83,40 @@ type RetireGoatIdentifierCommand struct {
 	RowVersion           int
 }
 
+type MoveGoatCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	ToParkID             string
+	ToShedID             string
+	Reason               string
+	OccurredAt           time.Time
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
+type ExitGoatCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	LifecycleStatus      string
+	ExitReason           string
+	Reason               string
+	OccurredAt           time.Time
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
 type AdminGoatCreateIdentifier struct {
 	IdentifierType  string
 	IdentifierValue string
@@ -161,5 +195,7 @@ type Repository interface {
 	GetGoatTimeline(ctx context.Context, params GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
+	MoveGoat(ctx context.Context, cmd MoveGoatCommand) (*AdminGoatMutationResult, error)
+	ExitGoat(ctx context.Context, cmd ExitGoatCommand) (*AdminGoatMutationResult, error)
 	Ping(ctx context.Context) error
 }

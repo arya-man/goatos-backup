@@ -709,6 +709,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/{goat_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a goat to a new shed and queue goat.location.changed re-scoping. */
+        post: operations["moveGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/{goat_id}/exit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a goat exited and queue goat.exited cancellation. */
+        post: operations["exitGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/operations/audit": {
         parameters: {
             query?: never;
@@ -1563,6 +1597,28 @@ export interface components {
         AdminGoatBulkCommitRequest: {
             rows: components["schemas"]["CreateAdminGoatRequest"][];
             file_hash?: string;
+        };
+        MoveGoatRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        ExitGoatRequest: {
+            /** @enum {string} */
+            lifecycle_status: "dead" | "sold" | "culled" | "transferred" | "lost" | "merged" | "inactive";
+            /** @enum {string} */
+            exit_reason: "sold" | "died" | "culled" | "transferred" | "lost";
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
         };
         AdminGoatBulkSummary: {
             total: number;
@@ -4150,6 +4206,72 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    moveGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat moved or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    exitGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExitGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat exited or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
         };
     };

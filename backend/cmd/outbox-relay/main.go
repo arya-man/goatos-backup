@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	outboxpublisher "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher"
 	eventbuspublisher "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher/eventbus"
@@ -109,6 +110,8 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 		generation := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
+		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
+		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil

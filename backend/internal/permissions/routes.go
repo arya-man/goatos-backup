@@ -20,6 +20,8 @@ var protectedRoutes = []Route{
 	{OperationID: "createAdminGoat", Method: "POST", Pattern: "/admin/goats", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "previewAdminGoatBulkImport", Method: "POST", Pattern: "/admin/goats/bulk-preview", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "commitAdminGoatBulkImport", Method: "POST", Pattern: "/admin/goats/bulk-commit", Permissions: []string{GoatWriteIdentity}},
+	{OperationID: "moveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/move", Permissions: []string{GoatWriteIdentity}},
+	{OperationID: "exitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/exit", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "listOperationsAudit", Method: "GET", Pattern: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
 	{OperationID: "getOperationsAuditSummary", Method: "GET", Pattern: "/operations/audit/summary", Permissions: []string{OperatorsViewAudit}},
 

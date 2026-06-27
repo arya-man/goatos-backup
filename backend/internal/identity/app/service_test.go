@@ -398,6 +398,79 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestMoveGoatBuildsLifecycleCommand(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+	input := MoveGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-move-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"park_id":"00000000-0000-4000-8000-000000003001","shed_id":"00000000-0000-4000-8000-000000004001","reason":"shifted to target vaccination shed","evidence_refs":[{"evidence_type":"source_record","evidence_id":"move-ticket-1"}],"row_version":7}`),
+	}
+	result, err := svc.MoveGoat(context.Background(), input)
+	if err != nil {
+		t.Fatalf("MoveGoat error = %v", err)
+	}
+	if result.Events[0].EventType != "goat.location.changed" {
+		t.Fatalf("event type = %s", result.Events[0].EventType)
+	}
+	if repo.lastMoveGoatCmd.ToShedID != testShed || repo.lastMoveGoatCmd.RowVersion != 7 {
+		t.Fatalf("move command = %#v", repo.lastMoveGoatCmd)
+	}
+	if repo.lastMoveGoatCmd.StoredIdempotencyKey == "" || repo.lastMoveGoatCmd.RequestHash == "" {
+		t.Fatalf("expected idempotency and request hash, got %#v", repo.lastMoveGoatCmd)
+	}
+}
+
+func TestExitGoatBuildsLifecycleCommand(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+	input := ExitGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-exit-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"lifecycle_status":"sold","exit_reason":"sold","reason":"sold after approved disposal","evidence_refs":[{"evidence_type":"source_record","evidence_id":"exit-ticket-1"}],"row_version":8}`),
+	}
+	result, err := svc.ExitGoat(context.Background(), input)
+	if err != nil {
+		t.Fatalf("ExitGoat error = %v", err)
+	}
+	if result.Events[0].EventType != "goat.exited" {
+		t.Fatalf("event type = %s", result.Events[0].EventType)
+	}
+	if repo.lastExitGoatCmd.LifecycleStatus != "sold" || repo.lastExitGoatCmd.RowVersion != 8 {
+		t.Fatalf("exit command = %#v", repo.lastExitGoatCmd)
+	}
+}
+
+func TestMoveAndExitRequireEvidence(t *testing.T) {
+	svc := NewService(&fakeRepo{goats: map[string]*domain.GoatPassport{}})
+	_, err := svc.MoveGoat(context.Background(), MoveGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-move-0002",
+		GoatID:         goatA,
+		RawBody:        []byte(`{"park_id":"00000000-0000-4000-8000-000000003001","shed_id":"00000000-0000-4000-8000-000000004001","reason":"missing evidence","row_version":1}`),
+	})
+	if err == nil {
+		t.Fatal("MoveGoat expected evidence error")
+	}
+	_, err = svc.ExitGoat(context.Background(), ExitGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-exit-0002",
+		GoatID:         goatA,
+		RawBody:        []byte(`{"lifecycle_status":"sold","exit_reason":"sold","reason":"missing evidence","row_version":1}`),
+	})
+	if err == nil {
+		t.Fatal("ExitGoat expected evidence error")
+	}
+}
+
 func validAddIdentifierInput() AddGoatIdentifierInput {
 	return AddGoatIdentifierInput{
 		TenantID:       testTenant,
@@ -439,6 +512,8 @@ type fakeRepo struct {
 	retireIdentifierErr         error
 	lastAddIdentifierCmd        ports.AddGoatIdentifierCommand
 	lastRetireIdentifierCmd     ports.RetireGoatIdentifierCommand
+	lastMoveGoatCmd             ports.MoveGoatCommand
+	lastExitGoatCmd             ports.ExitGoatCommand
 	validateAdminGoatCreateFunc func(ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error)
 	validateAdminGoatCreateCmds []ports.ValidateAdminGoatCreateCommand
 	createAdminGoatResult       *ports.AdminGoatMutationResult
@@ -543,6 +618,42 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 			CreatedAt:      time.Now().UTC(),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+	}, nil
+}
+
+func (f *fakeRepo) MoveGoat(_ context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	f.lastMoveGoatCmd = cmd
+	return &ports.AdminGoatMutationResult{
+		Goat:        summary(cmd.GoatID, "G-000001", "clean"),
+		Identifiers: []domain.GoatIdentifier{},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000201",
+			DecisionType:   "move_goat",
+			DecisionResult: "goat_moved",
+			DecisionState:  "approved",
+			PolicyVersion:  "goat-lifecycle-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.location.changed"}},
+	}, nil
+}
+
+func (f *fakeRepo) ExitGoat(_ context.Context, cmd ports.ExitGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	f.lastExitGoatCmd = cmd
+	out := summary(cmd.GoatID, "G-000001", "clean")
+	out.LifecycleStatus = cmd.LifecycleStatus
+	return &ports.AdminGoatMutationResult{
+		Goat:        out,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000202",
+			DecisionType:   "exit_goat",
+			DecisionResult: "goat_exited",
+			DecisionState:  "approved",
+			PolicyVersion:  "goat-lifecycle-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000202", EventType: "goat.exited"}},
 	}, nil
 }
 

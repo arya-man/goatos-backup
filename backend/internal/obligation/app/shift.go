@@ -8,13 +8,19 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
 
-// EventGoatShifted is the event type (goat moved sheds/parks) that triggers SM-2 re-scoping.
+// EventGoatLocationChanged is the canonical contract event type (goat moved sheds/parks) that
+// triggers SM-2 re-scoping.
+const EventGoatLocationChanged = "goat.location.changed"
+
+// EventGoatShifted is the legacy in-process alias kept for replay/tests while producers migrate to
+// goat.location.changed.
 const EventGoatShifted = "goat.shifted"
 
 // ShiftPayload is the goat.shifted event body: the goat's new scope.
 type ShiftPayload struct {
 	ScopeType string `json:"scope_type"`
 	ScopeID   string `json:"scope_id"`
+	ToShedID  string `json:"to_shed_id"`
 }
 
 // GoatShiftedHandler runs SM-2 (minimal): on goat.shifted it re-scopes the goat's open, unbatched
@@ -34,6 +40,7 @@ var _ eventbus.Handler = (*GoatShiftedHandler)(nil)
 
 // Register subscribes the handler to goat.shifted on a bus.
 func (h *GoatShiftedHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventGoatLocationChanged, h)
 	bus.Subscribe(EventGoatShifted, h)
 }
 
@@ -47,7 +54,11 @@ func (h *GoatShiftedHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 		}
 	}
 	if p.ScopeType == "" || p.ScopeID == "" {
-		return nil
+		if p.ToShedID == "" {
+			return nil
+		}
+		p.ScopeType = "shed"
+		p.ScopeID = p.ToShedID
 	}
 	_, err := h.repo.ReScopeOpenForGoat(ctx, e.TenantID, e.Key, p.ScopeType, p.ScopeID)
 	return err

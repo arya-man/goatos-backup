@@ -403,6 +403,26 @@ func (h handlerRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoa
 	}, nil
 }
 
+func (h handlerRepo) MoveGoat(_ context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	return &ports.AdminGoatMutationResult{
+		Goat:        handlerPassport().Summary,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000201", "move_goat", "goat_moved"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.location.changed"}},
+	}, nil
+}
+
+func (h handlerRepo) ExitGoat(_ context.Context, cmd ports.ExitGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	goat := handlerPassport().Summary
+	goat.LifecycleStatus = cmd.LifecycleStatus
+	return &ports.AdminGoatMutationResult{
+		Goat:        goat,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000202", "exit_goat", "goat_exited"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000202", EventType: "goat.exited"}},
+	}, nil
+}
+
 func (handlerRepo) Ping(context.Context) error { return nil }
 
 func strPtr(value string) *string {

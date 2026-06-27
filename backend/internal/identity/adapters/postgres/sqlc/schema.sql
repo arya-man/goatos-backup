@@ -1894,7 +1894,7 @@ CREATE TABLE public.identity_decisions (
     CONSTRAINT identity_decisions_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT identity_decisions_decided_by_type_check CHECK ((decided_by_type = ANY (ARRAY['human'::text, 'system_rule'::text, 'import_policy'::text, 'ai_proposal'::text]))),
     CONSTRAINT identity_decisions_decision_state_check CHECK ((decision_state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text]))),
-    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text])))
+    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text])))
 );
 
 

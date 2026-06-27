@@ -24,6 +24,7 @@ const (
 	adminCreateShedLocation     = "00000000-0000-4000-8000-000000003902"
 	adminCreateOrphanShed       = "00000000-0000-4000-8000-000000003903"
 	adminCreateWrongParkShed    = "00000000-0000-4000-8000-000000003904"
+	adminMoveTargetShed         = "00000000-0000-4000-8000-000000003905"
 )
 
 func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
@@ -105,6 +106,40 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		if _, err := repo.CreateAdminGoat(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
 			t.Fatalf("expected idempotency conflict, got %v", err)
 		}
+	})
+
+	t.Run("admin goat move writes goat.location.changed outbox for obligation re-scope", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-move-0001", "rfid-admin-move-0001", "admin-move-oldtag-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for move: %v", err)
+		}
+		cmd := moveGoatCommand(t, "idem-move-goat-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		moved, err := repo.MoveGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("MoveGoat: %v", err)
+		}
+		if moved.Decision.DecisionType != "move_goat" || len(moved.Events) != 1 || moved.Events[0].EventType != "goat.location.changed" {
+			t.Fatalf("unexpected move result: %#v", moved)
+		}
+		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, moved.Events[0].EventID, created.Goat.GoatID, "goat.location.changed", adminMoveTargetShed)
+	})
+
+	t.Run("admin goat exit writes goat.exited outbox for obligation cancellation", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-exit-0001", "rfid-admin-exit-0001", "admin-exit-oldtag-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for exit: %v", err)
+		}
+		cmd := exitGoatCommand(t, "idem-exit-goat-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		exited, err := repo.ExitGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("ExitGoat: %v", err)
+		}
+		if exited.Goat.LifecycleStatus != "sold" || exited.Events[0].EventType != "goat.exited" {
+			t.Fatalf("unexpected exit result: %#v", exited)
+		}
+		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, exited.Events[0].EventID, created.Goat.GoatID, "goat.exited", created.Goat.GoatID)
 	})
 
 	t.Run("admin goat create duplicate rfid rolls back goat idempotency audit and outbox", func(t *testing.T) {
@@ -576,18 +611,20 @@ INSERT INTO locations (
 	($5::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_ORPHAN_SHED', 'Synthetic admin create orphan shed',
 	 NULL, 'IN', 'Asia/Kolkata', 'active'),
 	($6::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_WRONG_PARK_SHED', 'Synthetic admin create wrong-park shed',
-	 $7::uuid, 'IN', 'Asia/Kolkata', 'active')
+	 $7::uuid, 'IN', 'Asia/Kolkata', 'active'),
+	($8::uuid, $2::uuid, 'shed', 'ADMIN_MOVE_TARGET_SHED', 'Synthetic admin move target shed',
+	 $4::uuid, 'IN', 'Asia/Kolkata', 'active')
 ON CONFLICT (tenant_id, location_code) DO NOTHING`,
-		adminCreateFarmLocation, meshaTenant, adminCreateShedLocation, cbeLocation, adminCreateOrphanShed, adminCreateWrongParkShed, cptLocation); err != nil {
+		adminCreateFarmLocation, meshaTenant, adminCreateShedLocation, cbeLocation, adminCreateOrphanShed, adminCreateWrongParkShed, cptLocation, adminMoveTargetShed); err != nil {
 		t.Fatal(err)
 	}
 	if got := countRows(t, pool, `
 SELECT count(*)
 FROM locations
 WHERE tenant_id = $1
-  AND location_id IN ($2, $3, $4, $5)
-  AND status = 'active'`, meshaTenant, adminCreateFarmLocation, adminCreateShedLocation, adminCreateOrphanShed, adminCreateWrongParkShed); got != 4 {
-		t.Fatalf("admin create fixture locations = %d, want 4", got)
+  AND location_id IN ($2, $3, $4, $5, $6)
+  AND status = 'active'`, meshaTenant, adminCreateFarmLocation, adminCreateShedLocation, adminCreateOrphanShed, adminCreateWrongParkShed, adminMoveTargetShed); got != 5 {
+		t.Fatalf("admin create fixture locations = %d, want 5", got)
 	}
 }
 
@@ -671,6 +708,90 @@ func adminGoatCreateCommand(t *testing.T, key, rfid, oldTag string) ports.Create
 		HealthStatus:     &healthStatus,
 		SourceRecordID:   &sourceRecordID,
 		EvidenceRefs:     evidenceRefs,
+	}
+}
+
+func moveGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.MoveGoatCommand {
+	t.Helper()
+	reason := "Synthetic shed move for vaccination re-scope."
+	sourceSystem := "synthetic_admin_register"
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   "synthetic-move-" + key,
+		SourceSystem: &sourceSystem,
+	}}
+	body := map[string]any{
+		"park_id":       cbeLocation,
+		"shed_id":       adminMoveTargetShed,
+		"reason":        reason,
+		"evidence_refs": evidenceRefs,
+		"row_version":   rowVersion,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := app.CanonicalRequestHashWithSubject(meshaTenant, "moveGoat", "/admin/goats/{goat_id}/move", goatID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.MoveGoatCommand{
+		TenantID:             meshaTenant,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: meshaTenant + ":moveGoat:" + goatID + ":" + key,
+		IdempotencyScope:     "moveGoat",
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		GoatID:               goatID,
+		ToParkID:             cbeLocation,
+		ToShedID:             adminMoveTargetShed,
+		Reason:               reason,
+		OccurredAt:           time.Date(2026, time.June, 26, 9, 0, 0, 0, time.UTC),
+		EvidenceRefs:         evidenceRefs,
+		RowVersion:           rowVersion,
+	}
+}
+
+func exitGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.ExitGoatCommand {
+	t.Helper()
+	reason := "Synthetic sale exit for vaccination cancellation."
+	sourceSystem := "synthetic_admin_register"
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   "synthetic-exit-" + key,
+		SourceSystem: &sourceSystem,
+	}}
+	body := map[string]any{
+		"lifecycle_status": "sold",
+		"exit_reason":      "sold",
+		"reason":           reason,
+		"evidence_refs":    evidenceRefs,
+		"row_version":      rowVersion,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := app.CanonicalRequestHashWithSubject(meshaTenant, "exitGoat", "/admin/goats/{goat_id}/exit", goatID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.ExitGoatCommand{
+		TenantID:             meshaTenant,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: meshaTenant + ":exitGoat:" + goatID + ":" + key,
+		IdempotencyScope:     "exitGoat",
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		GoatID:               goatID,
+		LifecycleStatus:      "sold",
+		ExitReason:           "sold",
+		Reason:               reason,
+		OccurredAt:           time.Date(2026, time.June, 26, 10, 0, 0, 0, time.UTC),
+		EvidenceRefs:         evidenceRefs,
+		RowVersion:           rowVersion,
 	}
 }
 
@@ -791,6 +912,45 @@ WHERE trace_id = $1
 	eventPayload := envelope["payload"].(map[string]any)
 	if eventPayload["generation_status"] != "queued" {
 		t.Fatalf("unexpected generation status in payload: %#v", eventPayload)
+	}
+}
+
+func rowVersionForGoat(t *testing.T, pool *pgxpool.Pool, goatID string) int {
+	t.Helper()
+	var rowVersion int
+	if err := pool.QueryRow(context.Background(), `
+SELECT row_version
+FROM goats
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, goatID).Scan(&rowVersion); err != nil {
+		t.Fatal(err)
+	}
+	return rowVersion
+}
+
+func assertGoatLifecycleOutbox(t *testing.T, pool *pgxpool.Pool, idempotencyKey, eventID, goatID, eventType, scopeID string) {
+	t.Helper()
+	assertIdempotencyCompleted(t, pool, idempotencyKey, goatID)
+	payload := queryBytes(t, pool, "SELECT payload FROM outbox_messages WHERE idempotency_key = $1", idempotencyKey)
+	validateDomainEventEnvelope(t, payload)
+	var envelope map[string]any
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope["event_id"] != eventID || envelope["event_type"] != eventType || envelope["aggregate_id"] != goatID || envelope["subject_id"] != goatID {
+		t.Fatalf("unexpected lifecycle envelope: %#v", envelope)
+	}
+	eventPayload := envelope["payload"].(map[string]any)
+	if eventPayload["scope_id"] != scopeID {
+		t.Fatalf("payload scope_id = %#v want %s; payload=%#v", eventPayload["scope_id"], scopeID, eventPayload)
+	}
+	if got := countRows(t, pool, `
+SELECT count(*)
+FROM identity_decision_goats idg
+JOIN goat_identity_events gie ON gie.tenant_id = idg.tenant_id AND gie.decision_id = idg.decision_id
+WHERE gie.idempotency_key = $1
+  AND idg.goat_id = $2::uuid
+  AND idg.role = 'affected'`, idempotencyKey, goatID); got != 1 {
+		t.Fatalf("decision goat linkage rows = %d", got)
 	}
 }
 
