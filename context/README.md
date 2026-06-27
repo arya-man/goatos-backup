@@ -89,6 +89,12 @@ Procurement/source-entry frontend handoff
 Procurement source-entry -> vaccination E2E plan
   context/execution/procurement-vaccination-e2e-plan.md
 
+Admin-web full E2E checklist and contract-driven UI gap ledger
+  context/execution/admin-web-e2e-checklist.md
+
+Admin-web backend UI contract and current surface inventory
+  context/frontend/admin-web-backend-ui-contract.md
+
 Vaccination pre-E2E readiness audit
   context/execution/vaccination-pre-e2e-readiness-audit.md
 

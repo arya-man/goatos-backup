@@ -80,6 +80,36 @@ function stripComments(source) {
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function groupBodyFor(sourceFile, text, groupId) {
+  const idKey = sourceFile.endsWith(".go") ? "ID" : "id";
+  const idRe = new RegExp(`\\b${idKey}:\\s*["'\`]${escapeRegex(groupId)}["'\`]`);
+  const match = idRe.exec(text);
+  if (!match) return null;
+
+  const nextIdRe = new RegExp(`\\n\\s*${idKey}:\\s*["'\`]`, "g");
+  nextIdRe.lastIndex = match.index + match[0].length;
+  const next = nextIdRe.exec(text);
+  return text.slice(match.index, next?.index ?? text.length);
+}
+
+function navLeavesForGroup(sourceFile, text, groupId) {
+  const body = groupBodyFor(sourceFile, text, groupId);
+  if (!body) return null;
+
+  if (sourceFile.endsWith(".go")) {
+    return [...body.matchAll(/navLeaf\(\s*"[^"]+"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"/g)]
+      .map((m) => ({ label: m[1], href: m[2] }));
+  }
+
+  const labels = [...body.matchAll(/label:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+  const hrefs = [...body.matchAll(/href:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+  return labels.map((label, i) => ({ label, href: hrefs[i] ?? "" }));
+}
+
 const pageFiles = [];
 walk(APP_ROOT, pageFiles, (file) => file.endsWith("page.tsx"));
 
@@ -88,28 +118,30 @@ const findings = [];
 // Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
 // create new unsupported route trees. Herd Register is the only real Counts page in this slice; broad labels
 // must route into Herd Register or top-level command lenses.
-const shellFile = "components/mesha-shell.tsx";
-if (existsSync(shellFile)) {
-  const shellText = stripComments(readFileSync(shellFile, "utf8"));
-  const countsGroup = shellText.match(/id:\s*["'`]counts["'`][\s\S]*?leaves:\s*\[([\s\S]*?)\]\s*,?\s*\}/);
-  if (!countsGroup) {
+const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
+const legacyShellFile = "components/mesha-shell.tsx";
+const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;
+if (existsSync(visibleIaFile)) {
+  const visibleIaText = stripComments(readFileSync(visibleIaFile, "utf8"));
+  const countsLeaves = navLeavesForGroup(visibleIaFile, visibleIaText, "counts");
+  if (!countsLeaves) {
     findings.push(
-      `${shellFile} must define the Counts sidebar group explicitly. ` +
+      `${visibleIaFile} must define the backend Counts sidebar group explicitly. ` +
         "Current vaccination trigger scope exposes only Counts -> Herd Register.",
     );
   } else {
-    const labels = [...countsGroup[1].matchAll(/label:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
-    const hrefs = [...countsGroup[1].matchAll(/href:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+    const labels = countsLeaves.map((leaf) => leaf.label);
+    const hrefs = countsLeaves.map((leaf) => leaf.href);
     const unsupportedCountsHrefs = hrefs.filter((href) => href !== "/counts/herd" && href !== "/action-center");
     if (!labels.includes("Herd register") && !labels.includes("Herd Register")) {
       findings.push(
-        `${shellFile} must include the real Counts -> Herd Register leaf. ` +
+        `${visibleIaFile} must include the real Counts -> Herd Register leaf. ` +
           `Current Counts labels are [${labels.join(", ") || "none"}].`,
       );
     }
     if (unsupportedCountsHrefs.length > 0) {
       findings.push(
-        `${shellFile} routes Counts mock labels to unsupported paths [${unsupportedCountsHrefs.join(", ")}]. ` +
+        `${visibleIaFile} routes Counts mock labels to unsupported paths [${unsupportedCountsHrefs.join(", ")}]. ` +
           "Counts mock labels may appear, but this slice may only route them to /counts/herd or top-level Action Center.",
       );
     }
@@ -117,17 +149,17 @@ if (existsSync(shellFile)) {
     // Audit Log is a business surface under Admin / Data Ops — NOT its own "Operations" vertical. The
     // `/operations/audit` route is an implementation detail; the visible IA must place Audit Log beside
     // Config and SOP Library, and must not surface a separate Operations sidebar group.
-    if (/label:\s*["'`]Operations["'`]/.test(shellText)) {
+    if (/\bLabel:\s*["'`]Operations["'`]|\blabel:\s*["'`]Operations["'`]/.test(visibleIaText)) {
       findings.push(
-        `${shellFile} defines an "Operations" sidebar group. Audit Log belongs under Admin / Data Ops; ` +
+        `${visibleIaFile} defines an "Operations" sidebar group. Audit Log belongs under Admin / Data Ops; ` +
           "do not surface a separate Operations vertical.",
       );
     }
-    const adminGroup = shellText.match(/id:\s*["'`]admin-data["'`][\s\S]*?leaves:\s*\[([\s\S]*?)\]\s*,?\s*\}/);
-    const adminLabels = adminGroup ? [...adminGroup[1].matchAll(/label:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]) : [];
+    const adminLeaves = navLeavesForGroup(visibleIaFile, visibleIaText, "admin-data");
+    const adminLabels = adminLeaves?.map((leaf) => leaf.label) ?? [];
     if (!adminLabels.includes("Audit Log")) {
       findings.push(
-        `${shellFile} must list "Audit Log" under the Admin / Data Ops group (beside Config and SOP Library).`,
+        `${visibleIaFile} must list "Audit Log" under the Admin / Data Ops group (beside Config and SOP Library).`,
       );
     }
   }

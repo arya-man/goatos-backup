@@ -24,6 +24,7 @@ const (
 	OperatorsManageRoster     = "operators.manage_roster"
 	OperatorsViewAudit        = "operators.view_audit"
 	AppBootstrap              = "app.bootstrap"
+	AdminWebBootstrap         = "admin_web.bootstrap"
 	SOPRead                   = "sop.read"
 	SOPWrite                  = "sop.write"
 	SOPPublish                = "sop.publish"
@@ -50,7 +51,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
-		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
+		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 		CalendarRead: {}, CalendarAction: {},
@@ -82,7 +83,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
-		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {},
+		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 		CalendarRead: {}, CalendarAction: {},

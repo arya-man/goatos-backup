@@ -12,6 +12,7 @@ security:
   - bearerAuth: []
 tags:
   - name: Operator App Bootstrap
+  - name: Admin Web Bootstrap
   - name: Operator Tasks
   - name: SOP Admin
   - name: Goats
@@ -90,6 +91,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BootstrapResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin-web/bootstrap:
+    get:
+      tags:
+        - Admin Web Bootstrap
+      operationId: adminWebBootstrap
+      summary: Return the backend-owned admin-web UI contract.
+      description: >-
+        Read-only shell/page contract for admin-web IA, nav, route labels, top-bar controls,
+        role lenses, page/table/drawer metadata, disabled reasons, and summary-vs-detail
+        display rules. Frontend renders this contract and owns only layout/local UI state.
+      responses:
+        "200":
+          description: Admin-web UI contract.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminWebBootstrapResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2817,6 +2839,437 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    AdminWebBootstrapResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - schema_version
+        - navigation
+        - route_labels
+        - top_bar
+        - role_lenses
+        - pages
+        - display_rules
+      properties:
+        source:
+          type: string
+          const: api
+        schema_version:
+          type: string
+        navigation:
+          $ref: "#/components/schemas/AdminWebNavigationContract"
+        route_labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebRouteLabelRule"
+        top_bar:
+          $ref: "#/components/schemas/AdminWebTopBarContract"
+        role_lenses:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebRoleLens"
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebPageContract"
+        display_rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebDisplayRule"
+    AdminWebNavigationContract:
+      type: object
+      additionalProperties: false
+      required: [primary, groups, footer]
+      properties:
+        primary:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebNavigationItem"
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebNavigationGroup"
+        footer:
+          type: string
+    AdminWebNavigationItem:
+      type: object
+      additionalProperties: false
+      required: [id, label, href, icon, badge_key, enabled, disabled_reason, domain, extra]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        href:
+          type: string
+        icon:
+          type: string
+        badge_key:
+          type: string
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+        domain:
+          type: string
+        extra:
+          type: object
+          additionalProperties:
+            type: string
+    AdminWebNavigationGroup:
+      type: object
+      additionalProperties: false
+      required: [id, label, icon, default_open, badge_key, leaves]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        icon:
+          type: string
+        default_open:
+          type: boolean
+        badge_key:
+          type: string
+        leaves:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebNavigationItem"
+    AdminWebRouteLabelRule:
+      type: object
+      additionalProperties: false
+      required: [pattern, label, match]
+      properties:
+        pattern:
+          type: string
+        label:
+          type: string
+        match:
+          type: string
+          enum: [exact, prefix, pattern]
+    AdminWebTopBarContract:
+      type: object
+      additionalProperties: false
+      required: [product_name, logo_text, scope_mode_toggle, park_selector, date_range_selector, notifications, role_preview]
+      properties:
+        product_name:
+          type: string
+        logo_text:
+          type: string
+        scope_mode_toggle:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebTopBarOption"
+        park_selector:
+          $ref: "#/components/schemas/AdminWebTopBarControl"
+        date_range_selector:
+          $ref: "#/components/schemas/AdminWebTopBarControl"
+        notifications:
+          $ref: "#/components/schemas/AdminWebTopBarControl"
+        role_preview:
+          $ref: "#/components/schemas/AdminWebRolePreviewActor"
+    AdminWebTopBarOption:
+      type: object
+      additionalProperties: false
+      required: [key, label, title, enabled, disabled_reason]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        title:
+          type: string
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+    AdminWebTopBarControl:
+      type: object
+      additionalProperties: false
+      required: [label, enabled, disabled_reason, hint, options]
+      properties:
+        label:
+          type: string
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+        hint:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebTopBarOption"
+    AdminWebRolePreviewActor:
+      type: object
+      additionalProperties: false
+      required: [display_name, initials, subtitle]
+      properties:
+        display_name:
+          type: string
+        initials:
+          type: string
+        subtitle:
+          type: string
+    AdminWebRoleLens:
+      type: object
+      additionalProperties: false
+      required: [id, name, audit_short, scope, description, superadmin]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        audit_short:
+          type: string
+        scope:
+          type: string
+        description:
+          type: string
+        superadmin:
+          type: boolean
+    AdminWebPageContract:
+      type: object
+      additionalProperties: false
+      required:
+        - route_id
+        - href
+        - path_pattern
+        - title
+        - subtitle
+        - surface_kind
+        - source_scope
+        - sections
+        - tables
+        - drawers
+        - controls
+        - migration_status
+        - validation_notes
+      properties:
+        route_id:
+          type: string
+        href:
+          type: string
+        path_pattern:
+          type: string
+        title:
+          type: string
+        subtitle:
+          type: string
+        surface_kind:
+          type: string
+        source_scope:
+          type: array
+          items:
+            type: string
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebSectionContract"
+        tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebTableContract"
+        drawers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebDrawerContract"
+        controls:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebControl"
+        migration_status:
+          type: string
+        validation_notes:
+          type: array
+          items:
+            type: string
+    AdminWebSectionContract:
+      type: object
+      additionalProperties: false
+      required: [id, title, kind, chip_keys]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        kind:
+          type: string
+        chip_keys:
+          type: array
+          items:
+            type: string
+    AdminWebTableContract:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - data_source
+        - columns
+        - filters
+        - sort_keys
+        - page_size_options
+        - row_click
+        - summary_fields
+        - detail_fields
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        data_source:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebColumn"
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebFilter"
+        sort_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebSortKey"
+        page_size_options:
+          type: array
+          items:
+            type: integer
+        row_click:
+          $ref: "#/components/schemas/AdminWebRowClickRule"
+        summary_fields:
+          type: array
+          items:
+            type: string
+        detail_fields:
+          type: array
+          items:
+            type: string
+    AdminWebColumn:
+      type: object
+      additionalProperties: false
+      required: [key, label, sortable, visible]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        sortable:
+          type: boolean
+        visible:
+          type: boolean
+    AdminWebFilter:
+      type: object
+      additionalProperties: false
+      required: [key, label, kind, enabled, disabled_reason]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        kind:
+          type: string
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+    AdminWebSortKey:
+      type: object
+      additionalProperties: false
+      required: [key, label, direction]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        direction:
+          type: string
+    AdminWebRowClickRule:
+      type: object
+      additionalProperties: false
+      required: [enabled, param, target_drawer, summary_fields, detail_fields]
+      properties:
+        enabled:
+          type: boolean
+        param:
+          type: string
+        target_drawer:
+          type: string
+        summary_fields:
+          type: array
+          items:
+            type: string
+        detail_fields:
+          type: array
+          items:
+            type: string
+    AdminWebDrawerContract:
+      type: object
+      additionalProperties: false
+      required: [id, title_source, trigger_param, data_source, anatomy, summary_fields, detail_fields, footer_actions]
+      properties:
+        id:
+          type: string
+        title_source:
+          type: string
+        trigger_param:
+          type: string
+        data_source:
+          type: string
+        anatomy:
+          type: string
+        summary_fields:
+          type: array
+          items:
+            type: string
+        detail_fields:
+          type: array
+          items:
+            type: string
+        footer_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebControl"
+    AdminWebControl:
+      type: object
+      additionalProperties: false
+      required: [id, label, kind, enabled, disabled_reason, action]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        kind:
+          type: string
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+        action:
+          type: string
+    AdminWebDisplayRule:
+      type: object
+      additionalProperties: false
+      required: [id, applies_to, summary, frontend_owns, backend_owns]
+      properties:
+        id:
+          type: string
+        applies_to:
+          type: array
+          items:
+            type: string
+        summary:
+          type: string
+        frontend_owns:
+          type: array
+          items:
+            type: string
+        backend_owns:
+          type: array
+          items:
+            type: string
     BootstrapActor:
       type: object
       additionalProperties: false

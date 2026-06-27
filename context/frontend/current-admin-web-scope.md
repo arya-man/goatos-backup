@@ -545,8 +545,9 @@ is rendered inside /vaccination, not as a separate Parks nav item.
   no hand-written DTOs, and no local route-handler business mutations.
   `apps/investor-web-shadow` is a legacy/reference snapshot and must not be used
   as the architecture pattern for active admin-web. Large component SRP cleanup
-  is follow-up debt; extract shared role-lens data only when needed to keep the
-  top bar and Audit `Viewing as` in sync.
+  is follow-up debt; shared shell/page/role-lens text should come from
+  `GET /admin-web/bootstrap`, with Audit `Viewing as` migrated to that contract
+  when the Audit page body is migrated.
 - Until future domains are actually built, the visible Audit Log must show only
   events for current built surfaces: Herd Register, vaccination cascade,
   Config/SOP work, Procurement/Source Entry/HF evidence where backend contracts

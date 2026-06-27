@@ -117,6 +117,15 @@ Calendar or dashboard label.
 - `mock/goatos-dashboard-mock.html` is the only admin-web UI/UX source of truth.
 - Port the mock's layout, table shapes, empty states, icon system, spacing,
   density, and interaction model.
+- Backend-driven UI contract is mandatory. Frontend must not invent product
+  truth. Visible navigation, page titles, section/table labels, column labels,
+  filter/sort/page-size semantics, chips/tabs, row-click params, drawer/action
+  labels, disabled reasons, empty/error copy, and summary/detail field sets must
+  come from backend app/OpenAPI contracts. Frontend owns only layout, CSS,
+  responsive density, icon-token mapping, focus/hover behavior, and local
+  open/closed or selected-row state. For admin-web, load
+  `context/frontend/admin-web-backend-ui-contract.md` before changing shell,
+  route bodies, tables, filters, chips, or drawers.
 - Do not reuse or recolor old admin-web UI, old `admin-primitives`, old chart
   components, old layout components, or old dashboard routes.
 - Run `npm --prefix apps/admin-web run check:mock-fidelity` before frontend

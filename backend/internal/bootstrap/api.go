@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
+	adminuiapp "github.com/vgoats/goatos/backend/internal/adminui/app"
 	calendarhttp "github.com/vgoats/goatos/backend/internal/calendar/adapters/http"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
@@ -234,6 +236,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
+	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService())
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -290,6 +293,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	calendarhttp.Register(protectedMux, calendarHandler)
+	adminuihttp.Register(protectedMux, adminUIHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 
 	mux := http.NewServeMux()

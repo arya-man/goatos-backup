@@ -39,6 +39,11 @@ Rules:
 - Replay and DLQ repair are part of the contract, not afterthoughts.
 - Generated-client drift is active for `packages/api-client`: contract changes
   without regenerated OpenAPI TypeScript clients must fail CI.
+- UI presentation contracts are first-class app API contracts. When backend owns
+  admin-web/operator-mobile labels, navigation, filters, sort keys, chips,
+  drawers, actions, disabled reasons, or summary/detail field sets, publish the
+  shape in OpenAPI, regenerate clients, and validate contracts before frontend
+  handoff. Do not let React page constants become the source of product truth.
 
 Operational kernel contracts:
 

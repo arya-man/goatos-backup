@@ -65,6 +65,7 @@ docs/phc-vaccination/TRD.md
 docs/feed-direction/TRD.md
 docs/decisions/calendar-ownership.md
 context/execution/calendar-vaccination-slice-parallel-handoff.md
+context/execution/admin-web-e2e-checklist.md
 mock/goatos-dashboard-mock.html
 ```
 
@@ -139,6 +140,15 @@ one product; this skill is the navigation layer.
 - Keep AI as proposer/triage, never canonical authority.
 - Preserve module boundaries in the Go modular monolith.
 - Keep frontend/mobile behind app APIs and generated clients.
+- Treat backend-driven UI contracts as a golden rule. Admin-web/operator-mobile
+  must render backend-owned OpenAPI/app contracts for navigation, route labels,
+  page/section titles, table columns, filter/sort/page-size semantics, chips,
+  tabs, row-click params, drawer/action copy, disabled reasons, and
+  summary/detail field sets. Frontend may own only layout, CSS, responsive
+  density, icon-token mapping, focus/hover behavior, and local open/closed or
+  selected-row state. When a page still has hardcoded product text or control
+  semantics, migrate it into the backend contract or record the temporary gap in
+  `context/frontend/` before handoff.
 - Keep official analytics metrics behind Cube.
 - Keep Slack/Sheets/App Script as legacy reference/migration only.
 - When source artifacts add lasting facts, sync the relevant `context/` doc and

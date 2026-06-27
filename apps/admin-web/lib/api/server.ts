@@ -2,11 +2,14 @@ import "server-only";
 
 import { createAdminApiClient, createAppApiClient, GoatOSApiError } from "@goatos/api-client";
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents, AppApiPaths } from "@goatos/api-client";
+import { cache } from "react";
 import { getFirebaseIdTokenCookie } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 
+export type AdminWebBootstrapResponse = AppApiComponents["schemas"]["AdminWebBootstrapResponse"];
+export type AdminWebPageContract = AppApiComponents["schemas"]["AdminWebPageContract"];
 export type GoatPassportResponse = AppApiComponents["schemas"]["GoatPassportResponse"];
 export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
@@ -241,6 +244,19 @@ export function firstAuthRequiredError(
     }
   }
   return null;
+}
+
+export const getAdminWebBootstrap = cache(async (): Promise<ApiResult<AdminWebBootstrapResponse>> => {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() => client.request<AdminWebBootstrapResponse>("/admin-web/bootstrap", { cache: "no-store" }));
+});
+
+export async function getAdminWebPageContract(routeId: string): Promise<AdminWebPageContract | null> {
+  const contract = await getAdminWebBootstrap();
+  if (!contract.ok) return null;
+  return contract.data.pages.find((page) => page.route_id === routeId) ?? null;
 }
 
 export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<GoatSearchResponse>> {

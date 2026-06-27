@@ -198,6 +198,17 @@ Do:
 - Use JSON Schema for form DSL and event payload contracts.
 - Use protobuf/gRPC only behind the app API boundary when a real internal workload needs it.
 - Keep frontend/mobile data access behind generated clients and app APIs.
+- Golden frontend rule for Codex, Claude, and every developer using this repo:
+  admin-web/operator-mobile are renderers, not product-truth owners. Backend
+  OpenAPI/app contracts must own visible navigation, route availability, page
+  titles, section/table labels, filter/sort/page-size semantics, chips/tabs,
+  row-click params, drawer/action labels, empty/error copy, disabled reasons,
+  and summary-vs-detail field sets. Frontend may own layout, CSS, responsive
+  density, icon-token rendering, focus/hover state, and local open/closed or
+  selected-row state only. If a visible label/control/action is hardcoded in a
+  frontend page, either move it into a backend contract plus OpenAPI/generated
+  client, or document the temporary exception in `context/frontend/` before
+  shipping.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`

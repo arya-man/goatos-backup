@@ -55,6 +55,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin-web/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the backend-owned admin-web UI contract.
+         * @description Read-only shell/page contract for admin-web IA, nav, route labels, top-bar controls, role lenses, page/table/drawer metadata, disabled reasons, and summary-vs-detail display rules. Frontend renders this contract and owns only layout/local UI state.
+         */
+        get: operations["adminWebBootstrap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/devices/register": {
         parameters: {
             query?: never;
@@ -1096,6 +1116,168 @@ export interface components {
             /** Format: date-time */
             server_time: string;
             trace_id: string;
+        };
+        AdminWebBootstrapResponse: {
+            /** @constant */
+            source: "api";
+            schema_version: string;
+            navigation: components["schemas"]["AdminWebNavigationContract"];
+            route_labels: components["schemas"]["AdminWebRouteLabelRule"][];
+            top_bar: components["schemas"]["AdminWebTopBarContract"];
+            role_lenses: components["schemas"]["AdminWebRoleLens"][];
+            pages: components["schemas"]["AdminWebPageContract"][];
+            display_rules: components["schemas"]["AdminWebDisplayRule"][];
+        };
+        AdminWebNavigationContract: {
+            primary: components["schemas"]["AdminWebNavigationItem"][];
+            groups: components["schemas"]["AdminWebNavigationGroup"][];
+            footer: string;
+        };
+        AdminWebNavigationItem: {
+            id: string;
+            label: string;
+            href: string;
+            icon: string;
+            badge_key: string;
+            enabled: boolean;
+            disabled_reason: string;
+            domain: string;
+            extra: {
+                [key: string]: string;
+            };
+        };
+        AdminWebNavigationGroup: {
+            id: string;
+            label: string;
+            icon: string;
+            default_open: boolean;
+            badge_key: string;
+            leaves: components["schemas"]["AdminWebNavigationItem"][];
+        };
+        AdminWebRouteLabelRule: {
+            pattern: string;
+            label: string;
+            /** @enum {string} */
+            match: "exact" | "prefix" | "pattern";
+        };
+        AdminWebTopBarContract: {
+            product_name: string;
+            logo_text: string;
+            scope_mode_toggle: components["schemas"]["AdminWebTopBarOption"][];
+            park_selector: components["schemas"]["AdminWebTopBarControl"];
+            date_range_selector: components["schemas"]["AdminWebTopBarControl"];
+            notifications: components["schemas"]["AdminWebTopBarControl"];
+            role_preview: components["schemas"]["AdminWebRolePreviewActor"];
+        };
+        AdminWebTopBarOption: {
+            key: string;
+            label: string;
+            title: string;
+            enabled: boolean;
+            disabled_reason: string;
+        };
+        AdminWebTopBarControl: {
+            label: string;
+            enabled: boolean;
+            disabled_reason: string;
+            hint: string;
+            options: components["schemas"]["AdminWebTopBarOption"][];
+        };
+        AdminWebRolePreviewActor: {
+            display_name: string;
+            initials: string;
+            subtitle: string;
+        };
+        AdminWebRoleLens: {
+            id: string;
+            name: string;
+            audit_short: string;
+            scope: string;
+            description: string;
+            superadmin: boolean;
+        };
+        AdminWebPageContract: {
+            route_id: string;
+            href: string;
+            path_pattern: string;
+            title: string;
+            subtitle: string;
+            surface_kind: string;
+            source_scope: string[];
+            sections: components["schemas"]["AdminWebSectionContract"][];
+            tables: components["schemas"]["AdminWebTableContract"][];
+            drawers: components["schemas"]["AdminWebDrawerContract"][];
+            controls: components["schemas"]["AdminWebControl"][];
+            migration_status: string;
+            validation_notes: string[];
+        };
+        AdminWebSectionContract: {
+            id: string;
+            title: string;
+            kind: string;
+            chip_keys: string[];
+        };
+        AdminWebTableContract: {
+            id: string;
+            title: string;
+            data_source: string;
+            columns: components["schemas"]["AdminWebColumn"][];
+            filters: components["schemas"]["AdminWebFilter"][];
+            sort_keys: components["schemas"]["AdminWebSortKey"][];
+            page_size_options: number[];
+            row_click: components["schemas"]["AdminWebRowClickRule"];
+            summary_fields: string[];
+            detail_fields: string[];
+        };
+        AdminWebColumn: {
+            key: string;
+            label: string;
+            sortable: boolean;
+            visible: boolean;
+        };
+        AdminWebFilter: {
+            key: string;
+            label: string;
+            kind: string;
+            enabled: boolean;
+            disabled_reason: string;
+        };
+        AdminWebSortKey: {
+            key: string;
+            label: string;
+            direction: string;
+        };
+        AdminWebRowClickRule: {
+            enabled: boolean;
+            param: string;
+            target_drawer: string;
+            summary_fields: string[];
+            detail_fields: string[];
+        };
+        AdminWebDrawerContract: {
+            id: string;
+            title_source: string;
+            trigger_param: string;
+            data_source: string;
+            anatomy: string;
+            summary_fields: string[];
+            detail_fields: string[];
+            footer_actions: components["schemas"]["AdminWebControl"][];
+        };
+        AdminWebControl: {
+            id: string;
+            label: string;
+            kind: string;
+            enabled: boolean;
+            disabled_reason: string;
+            action: string;
+        };
+        AdminWebDisplayRule: {
+            id: string;
+            applies_to: string[];
+            summary: string;
+            frontend_owns: string[];
+            backend_owns: string[];
         };
         BootstrapActor: {
             /** Format: uuid */
@@ -2175,6 +2357,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BootstrapResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminWebBootstrap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Admin-web UI contract. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminWebBootstrapResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

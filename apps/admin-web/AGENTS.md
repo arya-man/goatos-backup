@@ -190,11 +190,10 @@ Admin-web is built around the vaccination process-integrity slice:
   metadata; any such contract change must be additive.
 - **Role preview**: the top-bar role preview is a CEO/COO/superadmin capability
   for previewing role-scoped navigation, permissions, and Audit Log span. It is
-  local preview state only and must never bypass backend RBAC. Keep Audit Log's
-  `Viewing as` roles in sync with the same role lens model: Superadmin/CEO/COO,
-  Health Director, Procurement Director, HR Director, Park Head, Health Manager,
-  Assist/Ground, and Investor. Extract or import a shared role-lens model if
-  needed; do not re-declare a separate Audit-only role list.
+  local preview state only and must never bypass backend RBAC. Shell role-lens
+  text now comes from `GET /admin-web/bootstrap`. Keep Audit Log's `Viewing as`
+  roles in sync by consuming that same backend `role_lenses` contract; do not
+  expand the old frontend-only helper or re-declare a separate Audit-only list.
 - **Audit ownership**: only one agent may edit `apps/admin-web/features/
   operations-audit`, `apps/admin-web/app/(admin)/operations/audit`,
   `backend/internal/operationsaudit`, and `/operations/audit` OpenAPI/generated
@@ -205,8 +204,8 @@ Admin-web is built around the vaccination process-integrity slice:
   mutations. `apps/investor-web-shadow` is a legacy/reference snapshot; never
   copy its direct BigQuery or local API-route patterns into active admin-web.
   Component SRP debt is follow-up work, not a reason to rewrite large surfaces
-  during Audit/Herd/Register pre-E2E closure. Extract shared role-lens data only
-  as needed to sync top-bar preview with Audit `Viewing as`.
+  during Audit/Herd/Register pre-E2E closure. Use the backend admin-web
+  bootstrap contract for shared shell/page/role-lens text.
 - **Procurement / Source Entry**: `/procurement/source-entry` and
   `/procurement/source-entry/loads/{load_id}` are active for the supplier
   Holding Farm warmup -> accepted-intake branch and the dependencies that branch

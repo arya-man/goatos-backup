@@ -31,6 +31,11 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleVerifier, CalendarRead, true},
 		{RoleVerifier, CalendarAction, false},
 		{RoleOperator, CalendarRead, false},
+		{RoleAdmin, AdminWebBootstrap, true},
+		{RoleCEOInternal, AdminWebBootstrap, true},
+		{RoleVerifier, AdminWebBootstrap, false},
+		{RoleParkHead, AdminWebBootstrap, false},
+		{RoleOperator, AdminWebBootstrap, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.role+"/"+tt.permission, func(t *testing.T) {
@@ -86,6 +91,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/admin/operators/90000000-0000-4000-8000-000000000001/devices/92000000-0000-4000-8000-000000000001/revoke"},
 		{"GET", "/app/me"},
 		{"GET", "/app/bootstrap"},
+		{"GET", "/admin-web/bootstrap"},
 		{"POST", "/app/devices/register"},
 		{"POST", "/app/devices/92000000-0000-4000-8000-000000000001/heartbeat"},
 		{"GET", "/admin/sops"},
