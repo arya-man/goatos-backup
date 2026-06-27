@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -264,6 +265,62 @@ func TestCalendarPostgresHidesSystemEventsFromDirectReads(t *testing.T) {
 	}
 }
 
+func TestCalendarListExcludesClosedEventsByDefault(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	dueAt := time.Now().UTC().Add(2 * time.Hour)
+	activeID := "obligation:86000000-0000-4000-8000-000000000791"
+	completedID := "obligation:86000000-0000-4000-8000-000000000792"
+	canceledID := "obligation:86000000-0000-4000-8000-000000000793"
+	seedCalendarProjection(t, ctx, pool, activeID, dueAt, "not_scheduled")
+	seedCalendarProjection(t, ctx, pool, completedID, dueAt.Add(time.Minute), "not_scheduled")
+	seedCalendarProjection(t, ctx, pool, canceledID, dueAt.Add(2*time.Minute), "not_scheduled")
+	if _, err := pool.Exec(ctx, `
+UPDATE calendar_event_projections
+SET status = CASE event_id
+  WHEN $2 THEN 'completed'
+  WHEN $3 THEN 'canceled'
+  ELSE status
+END
+WHERE tenant_id = $1::uuid AND event_id IN ($2, $3)`,
+		testTenantID, completedID, canceledID); err != nil {
+		t.Fatalf("close seeded projections: %v", err)
+	}
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents default: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].EventID != activeID {
+		t.Fatalf("default list items = %#v, want only active event", list.Items)
+	}
+	completed := domain.StatusCompleted
+	list, err = repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		Status:   &completed,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents completed: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].EventID != completedID {
+		t.Fatalf("completed list items = %#v, want completed event", list.Items)
+	}
+}
+
 func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -300,6 +357,112 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 	if gotEventID != "obligation:"+obligationID || !sourceBacked {
 		t.Fatalf("projection event_id=%s source_backed=%t", gotEventID, sourceBacked)
+	}
+}
+
+func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	dueAt := time.Now().UTC().Add(4 * time.Hour)
+	obligationIDs := []string{
+		"86000000-0000-4000-8000-000000000814",
+		"86000000-0000-4000-8000-000000000824",
+		"86000000-0000-4000-8000-000000000834",
+	}
+	for i, obligationID := range obligationIDs {
+		seedVaccinationObligation(t, ctx, pool,
+			fmt.Sprintf("86000000-0000-4000-8000-00000000081%d", i),
+			fmt.Sprintf("86000000-0000-4000-8000-00000000082%d", i),
+			fmt.Sprintf("86000000-0000-4000-8000-00000000083%d", i),
+			obligationID,
+			dueAt.Add(time.Duration(i)*time.Hour),
+		)
+	}
+	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    1,
+	})
+	if err != nil {
+		t.Fatalf("RefreshVaccinationProjection page size 1: %v", err)
+	}
+	if count != len(obligationIDs) {
+		t.Fatalf("projection count = %d, want %d", count, len(obligationIDs))
+	}
+	assertCount(t, ctx, pool, "projected obligations", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_id = ANY($2::text[])
+  AND status <> 'canceled'`, len(obligationIDs), testTenantID, []string{
+		"obligation:" + obligationIDs[0],
+		"obligation:" + obligationIDs[1],
+		"obligation:" + obligationIDs[2],
+	})
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'completed', updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationIDs[1]); err != nil {
+		t.Fatalf("complete obligation: %v", err)
+	}
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    1,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection tombstone: %v", err)
+	}
+	var status string
+	var tombstoneReason string
+	if err := pool.QueryRow(ctx, `
+SELECT status, COALESCE(detail -> 'tombstone' ->> 'reason', '')
+FROM calendar_event_projections
+WHERE tenant_id = $1::uuid AND event_id = $2`,
+		testTenantID, "obligation:"+obligationIDs[1]).Scan(&status, &tombstoneReason); err != nil {
+		t.Fatalf("query tombstoned projection: %v", err)
+	}
+	if status != domain.StatusCanceled || tombstoneReason != "source_no_longer_qualifies" {
+		t.Fatalf("tombstone status=%s reason=%s", status, tombstoneReason)
+	}
+}
+
+func TestCalendarConfigSourceApprovalNudgeIsActionable(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	eventID := "calendar:86000000-0000-4000-8000-000000000901"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO calendar_event_projections (
+  tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
+  due_at, window_start, window_end, timezone, timezone_source, target_type, target_count,
+  source_backed, source_label, source_target_type, source_target_id, assignee_label,
+  executor_role, reminder_state, primary_notification_channel, escalation_state,
+  system, cross_cutting, links, detail
+) VALUES (
+  $1::uuid, $2, 'vaccination', 'vaccination_config_source_approval', 'admin_data_ops',
+  'Approve source review', 'Protocol source review due', 'due', 'warning',
+  now() + interval '2 hours', now() + interval '2 hours', now() + interval '1 day',
+  'Asia/Kolkata', 'fallback', 'protocol_version', 1, false, 'draft protocol',
+  'protocol_version', '86000000-0000-4000-8000-000000000902',
+  'Admin Data Ops reviewer', 'admin_data_ops_reviewer', 'not_scheduled', 'local-stub',
+  'none', false, false, '{}'::jsonb,
+  '{"summary":{"owner":"Admin / Data Ops"},"source_and_rule":{"review_state":"approval_due"},"execution":{},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":true},"links":{}}'::jsonb
+)`, testTenantID, eventID); err != nil {
+		t.Fatalf("seed config approval event: %v", err)
+	}
+	if _, err := repo.SendNudge(ctx, ports.SendNudge{
+		TenantID: testTenantID, EventID: eventID, ActorID: testActorID,
+		IdempotencyKey: "calendar-config-nudge-key", Channel: "local-stub",
+		Message: "Please review the protocol source", Scope: domain.ScopeFilter{TenantWide: true},
+	}); err != nil {
+		t.Fatalf("SendNudge config approval: %v", err)
 	}
 }
 
@@ -375,7 +538,11 @@ func seedVaccinationObligation(t *testing.T, ctx context.Context, pool *pgxpool.
 	t.Helper()
 	_, err := pool.Exec(ctx, `
 INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
-VALUES ($1::uuid, $2::uuid, 'vaccination.calendar.projection_test', 'Projection Test Vaccine', 'vaccination', 'active')
+VALUES (
+  $1::uuid, $2::uuid,
+  'vaccination.calendar.projection_test.p' || right(replace(($1::uuid)::text, '-', ''), 12),
+  'Projection Test Vaccine', 'vaccination', 'active'
+)
 ON CONFLICT (protocol_id) DO UPDATE
 SET status = 'active',
     updated_at = now()`,

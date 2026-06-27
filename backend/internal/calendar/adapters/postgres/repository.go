@@ -549,10 +549,57 @@ WHERE tenant_id = $1::uuid AND event_id = $2`, tenantID, e.EventID, channel); er
 func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	total := 0
+	var cursor *domain.CalendarCursor
+	for {
+		page, err := r.refreshVaccinationProjectionPage(ctx, in, cursor)
+		if err != nil {
+			return total, err
+		}
+		total += page.upserted
+		if page.nextCursor == nil {
+			break
+		}
+		cursor = page.nextCursor
+	}
+	tombstoned, err := r.tombstoneVaccinationProjection(ctx, in)
+	if err != nil {
+		return total, err
+	}
+	return total + tombstoned, nil
+}
+
+type refreshProjectionPage struct {
+	upserted   int
+	nextCursor *domain.CalendarCursor
+}
+
+func (r *Repository) refreshVaccinationProjectionPage(ctx context.Context, in ports.RefreshVaccinationProjection, cursor *domain.CalendarCursor) (refreshProjectionPage, error) {
+	var cursorDue any
+	cursorEventID := ""
+	if cursor != nil {
+		cursorDue = cursor.DueAt
+		cursorEventID = cursor.EventID
+	}
 	var count int
+	var lastDue pgtype.Timestamptz
+	var lastEventID string
 	if err := r.pool.QueryRow(ctx, calendarVaccinationProjectionRefreshSQL,
-		in.TenantID, in.DateFrom, in.DateTo, in.Limit).Scan(&count); err != nil {
-		return 0, fmt.Errorf("calendar: refresh vaccination projection: %w", err)
+		in.TenantID, in.DateFrom, in.DateTo, in.Limit, cursorDue, cursorEventID).Scan(&count, &lastDue, &lastEventID); err != nil {
+		return refreshProjectionPage{}, fmt.Errorf("calendar: refresh vaccination projection: %w", err)
+	}
+	page := refreshProjectionPage{upserted: count}
+	if count == in.Limit && lastDue.Valid && lastEventID != "" {
+		page.nextCursor = &domain.CalendarCursor{DueAt: lastDue.Time, EventID: lastEventID}
+	}
+	return page, nil
+}
+
+func (r *Repository) tombstoneVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (int, error) {
+	var count int
+	if err := r.pool.QueryRow(ctx, calendarVaccinationProjectionTombstoneSQL,
+		in.TenantID, in.DateFrom, in.DateTo).Scan(&count); err != nil {
+		return 0, fmt.Errorf("calendar: tombstone vaccination projection: %w", err)
 	}
 	return count, nil
 }
@@ -612,6 +659,7 @@ WHERE tenant_id = $1::uuid AND calendar_event_id = $2 AND snooze_id = $3::uuid`,
 
 type actionTarget struct {
 	EventID        string
+	EventType      string
 	Title          string
 	TargetType     string
 	TargetID       string
@@ -637,7 +685,7 @@ func loadActionTarget(ctx context.Context, tx pgx.Tx, tenantID, eventID string, 
 	var sourceBacked, system bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
 	err := tx.QueryRow(ctx, `
-SELECT event_id, title, source_target_type, COALESCE(source_target_id::text, ''),
+SELECT event_id, event_type, title, source_target_type, COALESCE(source_target_id::text, ''),
        primary_notification_channel, COALESCE(assignee_label, ''), COALESCE(executor_role, ''),
        COALESCE(verifier_label, ''), source_backed, system
 FROM calendar_event_projections
@@ -645,7 +693,7 @@ WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
   AND system = false
   AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))
 FOR UPDATE`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(
-		&out.EventID, &out.Title, &out.TargetType, &targetID, &out.PrimaryChannel,
+		&out.EventID, &out.EventType, &out.Title, &out.TargetType, &targetID, &out.PrimaryChannel,
 		&assignee, &executor, &verifier, &sourceBacked, &system,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -663,7 +711,7 @@ FOR UPDATE`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(
 	case verifier.String != "":
 		out.RecipientRef = verifier.String
 	}
-	if system || !sourceBacked || out.RecipientRef == "" {
+	if system || (!sourceBacked && out.EventType != domain.EventVaccinationConfigSourceApproval) || out.RecipientRef == "" {
 		return actionTarget{}, ports.ErrEventNotActionable
 	}
 	return out, nil
@@ -728,6 +776,7 @@ WHERE tenant_id = $1::uuid
   AND due_at < $7::timestamptz
   AND ($2::text = '' OR owner_key = $2::text)
   AND ($3::text = '' OR status = $3::text)
+  AND ($3::text <> '' OR status NOT IN ('completed', 'canceled'))
   AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
   AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
   AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
@@ -935,6 +984,7 @@ WITH obligation_events AS (
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
+    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
 ),
 batch_events AS (
   SELECT DISTINCT ON (ob.batch_id, pr.rule_id)
@@ -1022,6 +1072,7 @@ batch_events AS (
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
+    AND ob.status NOT IN ('completed', 'superseded', 'canceled')
   ORDER BY ob.batch_id, pr.rule_id, COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)
 ),
 sop_events AS (
@@ -1226,7 +1277,8 @@ limited AS (
   WHERE due_at IS NOT NULL
     AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending',
                    'verification_pending', 'rejected', 'rework_due', 'deferred',
-                   'blocked', 'completed', 'canceled')
+                   'blocked')
+    AND ($5::timestamptz IS NULL OR (due_at, event_id) > ($5::timestamptz, $6::text))
   ORDER BY due_at ASC, event_id ASC
   LIMIT $4
 ),
@@ -1286,9 +1338,113 @@ upserted AS (
       links = EXCLUDED.links,
       detail = EXCLUDED.detail,
       updated_at = now()
+  RETURNING event_id, due_at
+)
+SELECT
+  count(*)::int AS upserted_count,
+  (array_agg(due_at ORDER BY due_at DESC, event_id DESC))[1] AS last_due_at,
+  COALESCE((array_agg(event_id ORDER BY due_at DESC, event_id DESC))[1], '') AS last_event_id
+FROM upserted`
+
+const calendarVaccinationProjectionTombstoneSQL = `
+WITH source_event_ids AS (
+  SELECT 'obligation:' || oi.obligation_id::text AS event_id
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.due_at >= $2::timestamptz
+    AND oi.due_at < $3::timestamptz
+    AND pd.category = 'vaccination'
+    AND pv.status = 'published'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
+    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+
+  UNION ALL
+
+  SELECT 'batch:' || ob.batch_id::text || ':rule:' || oi.rule_id::text || ':shed:' || ob.scope_id::text AS event_id
+  FROM obligation_batches ob
+  JOIN obligation_instances oi
+    ON oi.tenant_id = ob.tenant_id AND oi.batch_id = ob.batch_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = ob.tenant_id AND pv.protocol_version_id = ob.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  WHERE ob.tenant_id = $1::uuid
+    AND ob.scope_type = 'shed'
+    AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
+    AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
+    AND pd.category = 'vaccination'
+    AND pv.status = 'published'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
+    AND ob.status NOT IN ('completed', 'superseded', 'canceled')
+
+  UNION ALL
+
+  SELECT 'calendar:' || st.task_id::text AS event_id
+  FROM sop_tasks st
+  JOIN obligation_instances oi
+    ON oi.tenant_id = st.tenant_id AND oi.sop_task_id = st.task_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  WHERE st.tenant_id = $1::uuid
+    AND st.due_at >= $2::timestamptz
+    AND st.due_at < $3::timestamptz
+    AND pd.category = 'vaccination'
+    AND pv.status = 'published'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
+    AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
+    AND st.state IN ('assigned', 'in_progress', 'submitted', 'needs_review', 'rework_requested', 'rejected')
+
+  UNION ALL
+
+  SELECT 'calendar:' || protocol_version_id::text AS event_id
+  FROM (
+    SELECT
+      pv.protocol_version_id,
+      NULLIF(pv.rule_dsl -> 'source' ->> 'review_due_at', '') AS raw_due_at
+    FROM protocol_versions pv
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+    WHERE pv.tenant_id = $1::uuid
+      AND pd.category = 'vaccination'
+      AND pv.status = 'draft'
+  ) config_due
+  WHERE raw_due_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+    AND raw_due_at::timestamptz >= $2::timestamptz
+    AND raw_due_at::timestamptz < $3::timestamptz
+),
+tombstoned AS (
+  UPDATE calendar_event_projections cep
+  SET status = 'canceled',
+      escalation_state = 'none',
+      detail = jsonb_set(
+        COALESCE(cep.detail, '{}'::jsonb),
+        '{tombstone}',
+        jsonb_build_object('reason', 'source_no_longer_qualifies', 'refreshed_at', now()),
+        true
+      ),
+      updated_at = now()
+  WHERE cep.tenant_id = $1::uuid
+    AND cep.slice_key = 'vaccination'
+    AND cep.system = false
+    AND cep.due_at >= $2::timestamptz
+    AND cep.due_at < $3::timestamptz
+    AND cep.source_target_type IN ('obligation', 'batch', 'sop_task', 'protocol_version')
+    AND cep.status NOT IN ('completed', 'canceled')
+    AND NOT EXISTS (
+      SELECT 1 FROM source_event_ids source
+      WHERE source.event_id = cep.event_id
+    )
   RETURNING 1
 )
-SELECT count(*) FROM upserted`
+SELECT count(*)::int FROM tombstoned`
 
 type eventScanner interface {
 	Scan(dest ...any) error

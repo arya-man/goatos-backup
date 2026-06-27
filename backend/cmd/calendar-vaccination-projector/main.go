@@ -43,7 +43,7 @@ func run(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	service := calendarapp.NewService(calendarpg.NewRepository(pool, pgCfg.QueryTimeout))
+	service := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Timeout))
 	count, err := service.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
 		TenantID: cfg.TenantID,
 		DateFrom: cfg.DateFrom,
