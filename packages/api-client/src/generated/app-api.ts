@@ -2186,6 +2186,7 @@ export interface components {
             version_label: string;
             scope_type: string;
             scope_id?: string;
+            scope_label: string;
             /** @description draft | published | retired */
             status: string;
             /** Format: date-time */

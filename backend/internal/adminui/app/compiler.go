@@ -147,7 +147,7 @@ func compileRequestContext(resp domain.BootstrapResponse, input BootstrapInput, 
 	resp.TopBar = compileTopBar(resp.TopBar, input, families)
 	resp.RoleLenses = compileRoleLenses(input)
 	resp.Navigation = compileNavigation(resp.Navigation, input)
-	resp.Pages = compilePages(resp.Pages, families)
+	resp.Pages = compilePages(resp.Pages, families, input)
 	return resp
 }
 
@@ -221,7 +221,7 @@ func compileNavItems(items []domain.NavigationItem, input BootstrapInput) []doma
 	return out
 }
 
-func compilePages(pages []domain.PageContract, families ReferenceFamilies) []domain.PageContract {
+func compilePages(pages []domain.PageContract, families ReferenceFamilies, input BootstrapInput) []domain.PageContract {
 	out := make([]domain.PageContract, len(pages))
 	copy(out, pages)
 	for i := range out {
@@ -230,6 +230,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies) []dom
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "park_display_chips", optionsFromReferences(families.Parks, "info"))
 		case "config":
 			out[i].OptionGroups = compileConfigOptionGroups(out[i].OptionGroups, families)
+		case "dlq-center":
+			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
 		}
 	}
 	return out
@@ -237,24 +239,33 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies) []dom
 
 func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
 	out := groups
-	if len(families.RuleCategories) > 0 {
-		out = replaceOptionGroup(out, "rule_categories", optionsFromReferences(families.RuleCategories, ""))
-	}
+	out = replaceOptionGroup(out, "rule_categories", optionsFromReferences(families.RuleCategories, ""))
 	out = replaceOptionGroup(out, "rule_scopes", ruleScopeOptions(families.Parks))
-	if len(families.Breeds) > 0 {
-		out = replaceOptionGroup(out, "rule_breeds", prependOption("all", "all", "", "", optionsFromReferences(families.Breeds, "")))
+	out = replaceOptionGroup(out, "rule_breeds", prependOption("all", "all", "", "", optionsFromReferences(families.Breeds, "")))
+	out = replaceOptionGroup(out, "rule_healths", append(optionsFromReferences(families.HealthStatuses, ""), option("any", "any", "", "")))
+	out = replaceOptionGroup(out, "rule_reproductive", prependOption("any", "any", "", "", optionsFromReferences(families.ReproductiveStates, "")))
+	out = replaceOptionGroup(out, "defer_states", optionsFromReferences(deferableStates(families.DeferStates), ""))
+	out = replaceOptionGroup(out, "schedule_sop_labels", optionsFromReferences(families.SOPLabels, ""))
+	return out
+}
+
+func compileDLQOptionGroups(groups []domain.OptionGroup, input BootstrapInput) []domain.OptionGroup {
+	if len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.OperationsRepair}) {
+		return groups
 	}
-	if len(families.HealthStatuses) > 0 {
-		out = replaceOptionGroup(out, "rule_healths", append(optionsFromReferences(families.HealthStatuses, ""), option("any", "any", "", "")))
-	}
-	if len(families.ReproductiveStates) > 0 {
-		out = replaceOptionGroup(out, "rule_reproductive", prependOption("any", "any", "", "", optionsFromReferences(families.ReproductiveStates, "")))
-	}
-	if deferStates := deferableStates(families.DeferStates); len(deferStates) > 0 {
-		out = replaceOptionGroup(out, "defer_states", optionsFromReferences(deferStates, ""))
-	}
-	if len(families.SOPLabels) > 0 {
-		out = replaceOptionGroup(out, "schedule_sop_labels", optionsFromReferences(families.SOPLabels, ""))
+	out := make([]domain.OptionGroup, len(groups))
+	copy(out, groups)
+	for i := range out {
+		if out[i].ID != "dlq_repair_actions" {
+			continue
+		}
+		options := make([]domain.Option, len(out[i].Options))
+		copy(options, out[i].Options)
+		for j := range options {
+			options[j].Enabled = false
+			options[j].DisabledReason = "Your current role can inspect DLQ events but cannot replay or discard them."
+		}
+		out[i].Options = options
 	}
 	return out
 }
@@ -435,6 +446,8 @@ func permissionsForNav(id string) []string {
 	case "counts-herd":
 		return []string{permissions.GoatRead}
 	case "audit-log":
+		return []string{permissions.OperatorsViewAudit}
+	case "dlq-center":
 		return []string{permissions.OperatorsViewAudit}
 	case "config":
 		return []string{permissions.ProtocolRead}

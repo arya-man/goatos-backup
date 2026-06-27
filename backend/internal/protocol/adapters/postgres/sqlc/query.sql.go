@@ -169,6 +169,10 @@ SELECT
   pv.version_label                                              AS version_label,
   pv.scope_type                                                 AS scope_type,
   COALESCE(pv.scope_id::text, '')::text                         AS scope_id,
+  CASE
+    WHEN pv.scope_type = 'tenant' THEN 'tenant'
+    ELSE COALESCE(NULLIF(scope_loc.location_code, ''), scope_loc.name, COALESCE(pv.scope_id::text, ''))
+  END                                                           AS scope_label,
   pv.status                                                     AS status,
   pv.effective_from                                             AS effective_from,
   pv.effective_to                                               AS effective_to,
@@ -190,6 +194,8 @@ SELECT
 FROM protocol_versions pv
 JOIN protocol_definitions pd
   ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+LEFT JOIN locations scope_loc
+  ON scope_loc.tenant_id = pv.tenant_id AND scope_loc.location_id = pv.scope_id
 WHERE pv.tenant_id = $1 AND pd.category = $2
 ORDER BY pd.code ASC, pv.version DESC, pv.protocol_version_id DESC
 LIMIT $3::int
@@ -211,6 +217,7 @@ type ListProtocolConfigsForCategoryRow struct {
 	VersionLabel      string
 	ScopeType         string
 	ScopeID           string
+	ScopeLabel        string
 	Status            string
 	EffectiveFrom     pgtype.Date
 	EffectiveTo       pgtype.Date
@@ -249,6 +256,7 @@ func (q *Queries) ListProtocolConfigsForCategory(ctx context.Context, arg ListPr
 			&i.VersionLabel,
 			&i.ScopeType,
 			&i.ScopeID,
+			&i.ScopeLabel,
 			&i.Status,
 			&i.EffectiveFrom,
 			&i.EffectiveTo,

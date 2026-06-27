@@ -16,6 +16,7 @@ import {
   recordSourceHealthAction,
   reviewHFVaccinationEvidenceAction,
 } from "./actions";
+import { OptionalLocationSelect, ParkLocationSelect, ParkShedLocationSelects, type ProcurementLocations } from "./location-selects";
 
 // Operator write surface for a load. Every control submits a real server action against a generated
 // backend endpoint (idempotency-keyed) — none are display-only. Media capture is not built in this slice,
@@ -132,19 +133,36 @@ export function LoadWriteActions({
   hfEvidence = [],
   returnTo,
   pageContract,
+  locations,
+  defaultFromLocationId = "",
 }: {
   loadId: string;
   goats: ProcurementLoadGoat[];
   hfEvidence?: ProcurementHFVaccinationEvidence[];
   returnTo: string;
   pageContract: AdminUiPageContract;
+  locations: ProcurementLocations;
+  defaultFromLocationId?: string;
 }) {
   // Per-goat source health + pre-dispatch decision belong to goats still inside source entry — not to
   // terminal (rejected/dead/sold/lost) or already-accepted-intake goats.
   const actionableGoats = goats.filter((g) => !isProcurementHistoryOnly(g.current_state) && !isAcceptedIntake(g.current_state));
+  const locationBlockReason = !locations.available
+    ? copy(pageContract, "location.locations_unavailable")
+    : locations.parks.length === 0
+      ? copy(pageContract, "location.no_parks")
+      : "";
+  const parkActionDisabled = locationBlockReason !== "";
+  const intakeBlockReason = locationBlockReason || (locations.sheds.length === 0 ? copy(pageContract, "location.no_sheds") : "");
+  const intakeDisabled = intakeBlockReason !== "";
 
   return (
     <>
+      {locationBlockReason ? (
+        <div className="alert warn" role="alert" style={{ marginBottom: 12 }}>
+          {locationBlockReason}
+        </div>
+      ) : null}
       <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title={copy(pageContract, "form.add_goat.title")}>
         <form action={addSourceGoatAction} style={{ maxWidth: 620 }}>
           <IdempotencyKeyField />
@@ -407,11 +425,11 @@ export function LoadWriteActions({
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
               <label>{copy(pageContract, "field.to_location_id")}</label>
-              <input name="to_location_id" required placeholder={copy(pageContract, "placeholder.to_location_id")} />
+              <ParkLocationSelect name="to_location_id" parks={locations.parks} pageContract={pageContract} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
               <label>{copy(pageContract, "field.from_location_id")}</label>
-              <input name="from_location_id" placeholder={copy(pageContract, "placeholder.from_location_id")} />
+              <OptionalLocationSelect name="from_location_id" locations={locations.origins} pageContract={pageContract} defaultValue={defaultFromLocationId} />
             </div>
           </div>
           <div className="fld">
@@ -429,7 +447,7 @@ export function LoadWriteActions({
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="submit" className="btn p">{copy(pageContract, "action.record_dispatch")}</button>
+            <button type="submit" className="btn p" disabled={parkActionDisabled} title={locationBlockReason || undefined}>{copy(pageContract, "action.record_dispatch")}</button>
             <DisabledMediaProof pageContract={pageContract} />
           </div>
         </form>
@@ -443,7 +461,7 @@ export function LoadWriteActions({
           <input type="hidden" name="load_id" value={loadId} />
           <div className="fld">
             <label>{copy(pageContract, "field.park_location_id")}</label>
-            <input name="park_location_id" required placeholder={copy(pageContract, "placeholder.park_location_id")} />
+            <ParkLocationSelect name="park_location_id" parks={locations.parks} pageContract={pageContract} />
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {optionGroup(pageContract, "proc_arrival_counts").map((count) => (
@@ -472,7 +490,7 @@ export function LoadWriteActions({
             </span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="submit" className="btn p">{copy(pageContract, "action.record_arrival_review")}</button>
+            <button type="submit" className="btn p" disabled={parkActionDisabled} title={locationBlockReason || undefined}>{copy(pageContract, "action.record_arrival_review")}</button>
             <DisabledMediaProof pageContract={pageContract} />
           </div>
         </form>
@@ -489,14 +507,7 @@ export function LoadWriteActions({
             <input name="goat_ids" placeholder={copy(pageContract, "placeholder.goat_ids_intake")} />
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>{copy(pageContract, "field.park_location_id")}</label>
-              <input name="park_location_id" required placeholder={copy(pageContract, "placeholder.park_id")} />
-            </div>
-            <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>{copy(pageContract, "field.shed_location_id")}</label>
-              <input name="shed_location_id" required placeholder={copy(pageContract, "placeholder.shed_id")} />
-            </div>
+            <ParkShedLocationSelects parks={locations.parks} sheds={locations.sheds} pageContract={pageContract} />
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ width: 180 }}>
@@ -513,7 +524,7 @@ export function LoadWriteActions({
           <div className="muted small" style={{ marginBottom: 8 }}>
             {copy(pageContract, "label.phc_handoff_note")}
           </div>
-          <ConfirmSubmitButton className="btn p" message={copy(pageContract, "confirm.accept_intake")}>
+          <ConfirmSubmitButton className="btn p" message={copy(pageContract, "confirm.accept_intake")} disabled={intakeDisabled} title={intakeBlockReason || undefined}>
             {copy(pageContract, "action.accept_intake")}
           </ConfirmSubmitButton>
         </form>

@@ -69,6 +69,9 @@ export function RuleEditorModal({
     if (!first) throw new Error(`Admin-web page contract ${pageContract.route_id} has empty option group ${groupId}`);
     return first.key;
   }
+  function firstKeyOrEmpty(options: AdminUiOption[]): string {
+    return options[0]?.key ?? "";
+  }
   function requireKey(options: AdminUiOption[], key: string, groupId: string): string {
     if (!options.some((option) => option.key === key)) {
       throw new Error(`Admin-web page contract ${pageContract.route_id} missing option ${groupId}.${key}`);
@@ -76,7 +79,7 @@ export function RuleEditorModal({
     return key;
   }
   function categoryDefault(): string {
-    return ruleCategories.some((option) => option.key === initialCategory) ? initialCategory : firstKey(ruleCategories, "rule_categories");
+    return ruleCategories.some((option) => option.key === initialCategory) ? initialCategory : (ruleCategories[0]?.key ?? initialCategory);
   }
   function defaultEscalation(categoryKey: string): string {
     return categoryKey === "feed_direction" ? copy(pageContract, "modal.rule_editor.default_feed_escalation") : copy(pageContract, "modal.rule_editor.default_vaccination_escalation");
@@ -98,7 +101,7 @@ export function RuleEditorModal({
       repeatUntilAfterAge: copy(pageContract, "modal.rule_editor.default_repeat_until"),
       minGapDays: isPrimary ? 0 : 14,
       catchUp: requireKey(catchUpOptions, "phc_approval", "catch_up_policies"),
-      sopVersion: firstKey(scheduleSopOptions, "schedule_sop_labels"),
+      sopVersion: firstKeyOrEmpty(scheduleSopOptions),
       proofCsv: copy(pageContract, "modal.rule_editor.default_proof_policy"),
     };
   }
@@ -121,7 +124,13 @@ export function RuleEditorModal({
   // seed-state (disabled-with-reason, all-stages draft still allowed); (3) READ FAILED (stagesError)
   // → we don't know the true stage set, so the picker is disabled and Save/Publish are blocked.
   const stagesSeeded = animalStages.length > 0;
+  const categoriesSeeded = ruleCategories.length > 0;
+  const categoryBlockReason = categoriesSeeded
+    ? ""
+    : `${copy(pageContract, "modal.rule_editor.category_seed_block_prefix")} — ${copy(pageContract, "modal.rule_editor.categories_empty")}`;
+  const scheduleSopLabelsSeeded = scheduleSopOptions.length > 0;
   const noStagesReason = copy(pageContract, "modal.rule_editor.no_stages_reason");
+  const noSopLabelsReason = copy(pageContract, "modal.rule_editor.no_sop_labels_reason");
   const stagePickerDisabled = !stagesSeeded || !!stagesError;
   const stageBlockReason = stagesError
     ? `${copy(pageContract, "modal.rule_editor.stage_load_block_prefix")} (${stagesError}) — ${copy(pageContract, "modal.rule_editor.fix_reload_suffix")}`
@@ -223,7 +232,9 @@ export function RuleEditorModal({
   const proofOk = hasProofRequirement(input);
   // The Publish gate, in priority order, so the title explains the first blocking reason. A failed
   // stage-reference read blocks first: we cannot trust eligibility authoring if the stage set is unknown.
-  const publishBlock = stageBlockReason
+  const publishBlock = categoryBlockReason
+    ? categoryBlockReason
+    : stageBlockReason
     ? stageBlockReason
     : sopBlockReason
     ? sopBlockReason
@@ -273,7 +284,7 @@ export function RuleEditorModal({
   }
 
   function save() {
-    const readBlock = stageBlockReason || sopBlockReason;
+    const readBlock = categoryBlockReason || stageBlockReason || sopBlockReason;
     if (readBlock) {
       setNotice({ ok: false, message: readBlock });
       return;
@@ -332,6 +343,12 @@ export function RuleEditorModal({
                 </div>
               </div>
             ) : null}
+            {categoryBlockReason ? (
+              <div className="alert warn" role="alert">
+                <AlertTriangle className="ic" />
+                <div>{categoryBlockReason}</div>
+              </div>
+            ) : null}
             {notice ? (
               notice.ok ? (
                 <div className="note">
@@ -346,12 +363,22 @@ export function RuleEditorModal({
             ) : null}
 
             <label>{copy(pageContract, "modal.rule_editor.field.category")}</label>
-            <select aria-label={copy(pageContract, "modal.rule_editor.field.category")} value={category} onChange={(e) => changeCategory(e.target.value)}>
-              {ruleCategories.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.label}
-                </option>
-              ))}
+            <select
+              aria-label={copy(pageContract, "modal.rule_editor.field.category")}
+              value={category}
+              onChange={(e) => changeCategory(e.target.value)}
+              disabled={!categoriesSeeded}
+              title={categoryBlockReason || undefined}
+            >
+              {!categoriesSeeded ? (
+                <option value={category}>{copy(pageContract, "modal.rule_editor.option.no_categories")}</option>
+              ) : (
+                ruleCategories.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
+                ))
+              )}
             </select>
 
             <label>{copy(pageContract, "modal.rule_editor.field.protocol")}</label>
@@ -721,10 +748,12 @@ export function RuleEditorModal({
                       <td style={{ minWidth: 110 }}>
                         <select
                           aria-label={copy(pageContract, "modal.rule_editor.table.sop_label")}
-                          title={copy(pageContract, "modal.rule_editor.table.sop_label_title")}
+                          title={scheduleSopLabelsSeeded ? copy(pageContract, "modal.rule_editor.table.sop_label_title") : noSopLabelsReason}
                           value={d.sopVersion}
                           onChange={(e) => setDose(i, { sopVersion: e.target.value })}
+                          disabled={!scheduleSopLabelsSeeded}
                         >
+                          {!scheduleSopLabelsSeeded ? <option value="">{copy(pageContract, "modal.rule_editor.table.no_sop_label")}</option> : null}
                           {scheduleSopOptions.map((t) => (
                             <option key={t.key} value={t.key}>{t.label}</option>
                           ))}

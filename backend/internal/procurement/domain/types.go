@@ -185,44 +185,47 @@ type Decision struct {
 }
 
 type TransitHandoff struct {
-	HandoffID        string     `json:"handoff_id"`
-	TenantID         string     `json:"tenant_id"`
-	LoadID           string     `json:"load_id"`
-	FromLocationID   *string    `json:"from_location_id,omitempty"`
-	ToLocationID     string     `json:"to_location_id"`
-	LoadedCount      int        `json:"loaded_count"`
-	DispatchedAt     time.Time  `json:"dispatched_at"`
-	ArrivedAt        *time.Time `json:"arrived_at,omitempty"`
-	ProofRefID       *string    `json:"proof_ref_id,omitempty"`
-	DiscrepancyState string     `json:"discrepancy_state"`
-	Status           string     `json:"status"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	RowVersion       int        `json:"row_version"`
+	HandoffID         string     `json:"handoff_id"`
+	TenantID          string     `json:"tenant_id"`
+	LoadID            string     `json:"load_id"`
+	FromLocationID    *string    `json:"from_location_id,omitempty"`
+	FromLocationLabel string     `json:"from_location_label,omitempty"`
+	ToLocationID      string     `json:"to_location_id"`
+	ToLocationLabel   string     `json:"to_location_label,omitempty"`
+	LoadedCount       int        `json:"loaded_count"`
+	DispatchedAt      time.Time  `json:"dispatched_at"`
+	ArrivedAt         *time.Time `json:"arrived_at,omitempty"`
+	ProofRefID        *string    `json:"proof_ref_id,omitempty"`
+	DiscrepancyState  string     `json:"discrepancy_state"`
+	Status            string     `json:"status"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	RowVersion        int        `json:"row_version"`
 }
 
 type ArrivalReview struct {
-	ReviewID       string          `json:"review_id"`
-	TenantID       string          `json:"tenant_id"`
-	LoadID         string          `json:"load_id"`
-	ParkLocationID string          `json:"park_location_id"`
-	ExpectedCount  int             `json:"expected_count"`
-	LoadedCount    int             `json:"loaded_count"`
-	ArrivedCount   int             `json:"arrived_count"`
-	MatchedCount   int             `json:"matched_count"`
-	MissingCount   int             `json:"missing_count"`
-	ExtraCount     int             `json:"extra_count"`
-	RejectedCount  int             `json:"rejected_count"`
-	HealthFlags    json.RawMessage `json:"health_flags"`
-	WeightFlags    json.RawMessage `json:"weight_flags"`
-	MediaProofID   *string         `json:"media_proof_id,omitempty"`
-	Status         string          `json:"status"`
-	ReviewedBy     *string         `json:"reviewed_by,omitempty"`
-	ReviewedAt     time.Time       `json:"reviewed_at"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	RowVersion     int             `json:"row_version"`
-	Goats          []ArrivalGoat   `json:"goats,omitempty"`
+	ReviewID          string          `json:"review_id"`
+	TenantID          string          `json:"tenant_id"`
+	LoadID            string          `json:"load_id"`
+	ParkLocationID    string          `json:"park_location_id"`
+	ParkLocationLabel string          `json:"park_location_label,omitempty"`
+	ExpectedCount     int             `json:"expected_count"`
+	LoadedCount       int             `json:"loaded_count"`
+	ArrivedCount      int             `json:"arrived_count"`
+	MatchedCount      int             `json:"matched_count"`
+	MissingCount      int             `json:"missing_count"`
+	ExtraCount        int             `json:"extra_count"`
+	RejectedCount     int             `json:"rejected_count"`
+	HealthFlags       json.RawMessage `json:"health_flags"`
+	WeightFlags       json.RawMessage `json:"weight_flags"`
+	MediaProofID      *string         `json:"media_proof_id,omitempty"`
+	Status            string          `json:"status"`
+	ReviewedBy        *string         `json:"reviewed_by,omitempty"`
+	ReviewedAt        time.Time       `json:"reviewed_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	RowVersion        int             `json:"row_version"`
+	Goats             []ArrivalGoat   `json:"goats,omitempty"`
 	// Replayed is a transient response flag (never persisted/scanned/serialized) — see SourceHealthCheck.
 	Replayed bool `json:"-"`
 }
@@ -250,7 +253,9 @@ type PHCHandoff struct {
 	GoatID                    string          `json:"goat_id"`
 	AcceptedAt                time.Time       `json:"accepted_at"`
 	ParkLocationID            string          `json:"park_location_id"`
+	ParkLocationLabel         string          `json:"park_location_label,omitempty"`
 	ShedLocationID            string          `json:"shed_location_id"`
+	ShedLocationLabel         string          `json:"shed_location_label,omitempty"`
 	EntryDate                 time.Time       `json:"entry_date"`
 	TrustedVaccinationHistory json.RawMessage `json:"trusted_vaccination_history"`
 	IntakeHealthSignal        *string         `json:"intake_health_signal,omitempty"`

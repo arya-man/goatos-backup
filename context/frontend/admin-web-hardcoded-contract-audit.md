@@ -42,6 +42,14 @@ config compiler is being built, but must not hardcode live data:
 - Stopped publishing static `park:CBE` / `park:CPT` Config scopes. The
   compiler now fills `rule_scopes` from active DB `locations`, keyed as
   `park:<location_id>`, and the rule editor renders those contract options.
+- Stopped falling back to static Config authoring vocab when DB-backed families
+  are empty. `rule_categories`, breeds, health/reproductive statuses,
+  defer-states, and SOP labels are always replaced by DB-compiled options; empty
+  families now render as empty or sentinel-only states (`all`/`any`) instead of
+  fake values such as sample breeds or SOP labels.
+- Removed static feed-item names from the Config contract. Until feed items have
+  a governed DB family, the authoring contract exposes only the intentional
+  `custom` sentinel rather than live-looking ration names.
 - Replaced CBE-specific role-lens labels and hardcoded person preview; role
   preview/lenses are now compiled from request grants.
 - Removed frontend CBE defaulting in `MeshaShell`; default park now follows the

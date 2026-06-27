@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Bell,
   BarChart3,
   CalendarDays,
@@ -192,6 +193,7 @@ export function MeshaShell({
   const dateOptions = contract.top_bar.date_range_selector.options;
   const currentDateOption = dateOptions.find((option) => option.key === "last_30_days") ?? dateOptions[0];
   const actor = contract.top_bar.role_preview;
+  const alertDisplayRules = contract.display_rules.filter((rule) => rule.id.includes("error"));
 
   useEffect(() => {
     trailRef.current = navTrail;
@@ -657,7 +659,15 @@ export function MeshaShell({
               </div>
             </div>
           ) : null}
-          <div className="wrap">{children}</div>
+          <div className="wrap">
+            {alertDisplayRules.map((rule) => (
+              <div key={rule.id} className="alert warn" role="alert" style={{ marginBottom: 14 }}>
+                <AlertTriangle className="ic" aria-hidden="true" />
+                <div>{rule.summary}</div>
+              </div>
+            ))}
+            {children}
+          </div>
         </main>
       </div>
     </>

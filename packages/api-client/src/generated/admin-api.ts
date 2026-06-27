@@ -2745,6 +2745,12 @@ export interface components {
             handoff_id?: string;
             /** Format: uuid */
             load_id?: string;
+            /** Format: uuid */
+            from_location_id?: string | null;
+            from_location_label?: string;
+            /** Format: uuid */
+            to_location_id?: string;
+            to_location_label?: string;
             loaded_count?: number;
             /** Format: date-time */
             dispatched_at?: string;
@@ -2762,6 +2768,7 @@ export interface components {
             load_id?: string;
             /** Format: uuid */
             park_location_id?: string;
+            park_location_label?: string;
             /** @enum {unknown} */
             status?: "pending" | "mismatch" | "accepted" | "rejected" | "deferred" | "blocked";
             goats?: components["schemas"]["ProcurementArrivalGoat"][];
@@ -2788,8 +2795,10 @@ export interface components {
             accepted_at?: string;
             /** Format: uuid */
             park_location_id?: string;
+            park_location_label?: string;
             /** Format: uuid */
             shed_location_id?: string;
+            shed_location_label?: string;
             /** Format: date */
             entry_date?: string;
             /** @enum {unknown} */

@@ -106,6 +106,7 @@ type ConfigListItem struct {
 	VersionLabel      string
 	ScopeType         string
 	ScopeID           string
+	ScopeLabel        string
 	Status            string // draft | published | retired
 	EffectiveFrom     *time.Time
 	EffectiveTo       *time.Time

@@ -7460,6 +7460,18 @@ components:
         load_id:
           type: string
           format: uuid
+        from_location_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        from_location_label:
+          type: string
+        to_location_id:
+          type: string
+          format: uuid
+        to_location_label:
+          type: string
         loaded_count:
           type: integer
           minimum: 0
@@ -7494,6 +7506,8 @@ components:
         park_location_id:
           type: string
           format: uuid
+        park_location_label:
+          type: string
         status:
           enum:
             - pending
@@ -7540,9 +7554,13 @@ components:
         park_location_id:
           type: string
           format: uuid
+        park_location_label:
+          type: string
         shed_location_id:
           type: string
           format: uuid
+        shed_location_label:
+          type: string
         entry_date:
           type: string
           format: date

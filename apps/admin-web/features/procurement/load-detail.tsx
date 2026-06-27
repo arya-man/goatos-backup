@@ -10,7 +10,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError } from "@/lib/api/server";
+import { firstAuthRequiredError, listLocations, type LocationSummary } from "@/lib/api/server";
 import { getProcurementLoad } from "@/lib/api/procurement-server";
 import type {
   ProcurementArrivalReview,
@@ -29,6 +29,7 @@ import { actionFeedbackCopy, copy, optionLabel, optionTitle, optionTone, table, 
 import { Tag } from "@/components/ui-primitives";
 import type { Tone } from "@/components/ui-primitives";
 import { LoadWriteActions } from "./load-forms";
+import type { ProcurementLocationOption, ProcurementLocations } from "./location-selects";
 import {
   TONE_SWATCH,
   isAcceptedIntake,
@@ -46,6 +47,55 @@ function contractTone(pageContract: AdminUiPageContract, groupId: string, key: s
 
 function ContractTag({ pageContract, groupId, value }: { pageContract: AdminUiPageContract; groupId: string; value: string }) {
   return <Tag tone={contractTone(pageContract, groupId, value)}>{optionLabel(pageContract, groupId, value)}</Tag>;
+}
+
+function toLocationOption(location: LocationSummary): ProcurementLocationOption {
+  return {
+    id: location.location_id,
+    code: location.location_code,
+    name: location.name,
+    parentId: location.parent_location_id,
+  };
+}
+
+function addLocationOption(options: ProcurementLocationOption[], option: ProcurementLocationOption | null): ProcurementLocationOption[] {
+  if (!option || options.some((item) => item.id === option.id)) return options;
+  return [option, ...options];
+}
+
+function sourceLocationOption(load: ProcurementLoadDetail["load"]): ProcurementLocationOption | null {
+  if (!load.source_location_id) return null;
+  const name = load.source_location_name || load.source_location_code || shortId(load.source_location_id);
+  return {
+    id: load.source_location_id,
+    code: load.source_location_code ?? null,
+    name,
+    parentId: null,
+  };
+}
+
+function shedUsable(location: LocationSummary): boolean {
+  return location.operational.usable_for_vaccination && !location.operational.is_holding;
+}
+
+async function getProcurementLocations(): Promise<ProcurementLocations> {
+  const [parksResult, farmsResult] = await Promise.all([
+    listLocations({ type: "park", status: "active" }),
+    listLocations({ type: "farm", status: "active" }),
+  ]);
+  const parks = parksResult.ok ? parksResult.data.items.map(toLocationOption) : [];
+  const shedResults = await Promise.all(
+    parks.map((park) => listLocations({ type: "shed", status: "active", parentLocationId: park.id })),
+  );
+  const shedsAvailable = shedResults.every((result) => result.ok);
+  const sheds = shedResults.flatMap((result) => (result.ok ? result.data.items.filter(shedUsable).map(toLocationOption) : []));
+  const farms = farmsResult.ok ? farmsResult.data.items.map(toLocationOption) : [];
+  return {
+    parks,
+    origins: [...farms, ...parks],
+    sheds,
+    available: parksResult.ok && shedsAvailable,
+  };
 }
 
 function warmupExpectationKey(purpose: string | null | undefined): string {
@@ -263,7 +313,7 @@ function ArrivalGateCard({ reviews, pageContract }: { reviews: ProcurementArriva
               <div key={review.review_id ?? idx} style={{ marginBottom: idx < reviews.length - 1 ? 14 : 0 }}>
                 <div className="fchipsbar" style={{ marginBottom: 8, flexWrap: "wrap" }}>
                   {review.status ? <Tag tone={contractTone(pageContract, "proc_arrival_status", review.status)}>{copy(pageContract, "label.arrival_prefix")}: {optionLabel(pageContract, "proc_arrival_status", review.status)}</Tag> : null}
-                  <span className="muted small">{copy(pageContract, "label.park_prefix")} {review.park_location_id ? shortId(review.park_location_id) : copy(pageContract, "label.placeholder")}</span>
+                  <span className="muted small">{copy(pageContract, "label.park_prefix")} {review.park_location_label || (review.park_location_id ? shortId(review.park_location_id) : copy(pageContract, "label.placeholder"))}</span>
                   <div className="sp" style={{ flex: 1 }} />
                   <span className="muted small">
                     {matched} {copy(pageContract, "label.matched")} · {missing} {copy(pageContract, "label.missing")} · {extra} {copy(pageContract, "label.extra_unknown")} · {goats.length} {copy(pageContract, "label.reviewed")}
@@ -325,6 +375,8 @@ function TransitCard({ handoffs, pageContract }: { handoffs: ProcurementTransitH
             {handoffs.map((h, idx) => (
               <tr key={h.handoff_id ?? idx}>
                 <td>{h.loaded_count ?? copy(pageContract, "label.placeholder")}</td>
+                <td className="muted">{h.from_location_label || (h.from_location_id ? shortId(h.from_location_id) : copy(pageContract, "label.placeholder"))}</td>
+                <td className="muted">{h.to_location_label || (h.to_location_id ? shortId(h.to_location_id) : copy(pageContract, "label.placeholder"))}</td>
                 <td className="muted">{fmtDateTime(h.dispatched_at) || copy(pageContract, "label.placeholder")}</td>
                 <td>{h.status ? <ContractTag pageContract={pageContract} groupId="proc_transit_status" value={h.status} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</td>
                 <td>{h.discrepancy_state ? <ContractTag pageContract={pageContract} groupId="proc_discrepancy_state" value={h.discrepancy_state} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</td>
@@ -451,8 +503,8 @@ function HandoffCard({ handoffs, pageContract }: { handoffs: ProcurementPHCHando
                     <span className="gid">{copy(pageContract, "label.placeholder")}</span>
                   )}
                 </td>
-                <td className="muted">{h.park_location_id ? shortId(h.park_location_id) : copy(pageContract, "label.placeholder")}</td>
-                <td className="muted">{h.shed_location_id ? shortId(h.shed_location_id) : copy(pageContract, "label.placeholder")}</td>
+                <td className="muted">{h.park_location_label || (h.park_location_id ? shortId(h.park_location_id) : copy(pageContract, "label.placeholder"))}</td>
+                <td className="muted">{h.shed_location_label || (h.shed_location_id ? shortId(h.shed_location_id) : copy(pageContract, "label.placeholder"))}</td>
                 <td className="muted">{fmtDate(h.entry_date) || copy(pageContract, "label.placeholder")}</td>
                 <td className="muted">{fmtDateTime(h.accepted_at) || copy(pageContract, "label.placeholder")}</td>
                 <td>{h.event_status ? <ContractTag pageContract={pageContract} groupId="proc_handoff_status" value={h.event_status} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</td>
@@ -474,7 +526,7 @@ export async function ProcurementLoadDetailPage({
   searchParams?: RouteSearchParams;
   pageContract: AdminUiPageContract;
 }) {
-  const result = await getProcurementLoad(loadId);
+  const [result, locations] = await Promise.all([getProcurementLoad(loadId), getProcurementLocations()]);
   const authError = firstAuthRequiredError(result);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
@@ -519,6 +571,10 @@ export async function ProcurementLoadDetailPage({
   const sourceParty = load.source_party_name || shortId(load.source_party_id);
   const sourceLocation = load.source_location_name || load.source_location_code || null;
   const title = `${sourceLocation ?? copy(pageContract, "label.holding_farm")} · ${sourceParty}`;
+  const loadLocations = {
+    ...locations,
+    origins: addLocationOption(locations.origins, sourceLocationOption(load)),
+  };
 
   return (
     <div className="screen on">
@@ -574,6 +630,8 @@ export async function ProcurementLoadDetailPage({
           hfEvidence={hfEvidence}
           returnTo={returnTo}
           pageContract={pageContract}
+          locations={loadLocations}
+          defaultFromLocationId={load.source_location_id ?? ""}
         />
       </section>
 

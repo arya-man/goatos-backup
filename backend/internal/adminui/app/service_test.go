@@ -126,6 +126,46 @@ func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	}
 }
 
+func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T) {
+	resp := NewService(fakeEmptyFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	config := pageByRouteID(t, resp.Pages, "config")
+
+	categories := optionGroupByID(t, config.OptionGroups, "rule_categories")
+	if len(categories.Options) != 0 {
+		t.Fatalf("empty DB rule_categories must stay empty, got %#v", categories.Options)
+	}
+	breeds := optionGroupByID(t, config.OptionGroups, "rule_breeds")
+	if got := optionKeys(breeds); len(got) != 1 || !got["all"] || got["Beetal"] || got["Sirohi"] {
+		t.Fatalf("empty DB rule_breeds must expose only the all sentinel, got %#v", breeds.Options)
+	}
+	health := optionGroupByID(t, config.OptionGroups, "rule_healths")
+	if got := optionKeys(health); len(got) != 1 || !got["any"] || got["healthy"] {
+		t.Fatalf("empty DB rule_healths must expose only the any sentinel, got %#v", health.Options)
+	}
+	repro := optionGroupByID(t, config.OptionGroups, "rule_reproductive")
+	if got := optionKeys(repro); len(got) != 1 || !got["any"] || got["pregnant_only"] {
+		t.Fatalf("empty DB rule_reproductive must expose only the any sentinel, got %#v", repro.Options)
+	}
+	deferStates := optionGroupByID(t, config.OptionGroups, "defer_states")
+	if len(deferStates.Options) != 0 {
+		t.Fatalf("empty DB defer_states must stay empty, got %#v", deferStates.Options)
+	}
+	sopLabels := optionGroupByID(t, config.OptionGroups, "schedule_sop_labels")
+	if len(sopLabels.Options) != 0 {
+		t.Fatalf("empty DB schedule_sop_labels must stay empty, got %#v", sopLabels.Options)
+	}
+	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
+	if got := optionKeys(feedItems); len(got) != 1 || !got["custom"] || got["Mesha concentrate"] {
+		t.Fatalf("feed_items must expose only the custom sentinel until a DB family exists, got %#v", feedItems.Options)
+	}
+}
+
 func TestBootstrapDisablesUnauthorizedNavFromRequestGrants(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
@@ -143,6 +183,30 @@ func TestBootstrapDisablesUnauthorizedNavFromRequestGrants(t *testing.T) {
 	}
 }
 
+func TestDLQCenterSeparatesReadNavFromRepairActions(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RolePHCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	item := navLeafByID(t, resp.Navigation.Groups, "dlq-center")
+	if !item.Enabled {
+		t.Fatalf("dlq-center should remain visible to DLQ read users: %#v", item)
+	}
+	page := pageByRouteID(t, resp.Pages, "dlq-center")
+	actions := optionGroupByID(t, page.OptionGroups, "dlq_repair_actions")
+	for _, action := range actions.Options {
+		if action.Enabled {
+			t.Fatalf("repair action %q should be disabled without operations.repair: %#v", action.Key, actions.Options)
+		}
+		if action.DisabledReason == "" {
+			t.Fatalf("disabled repair action must explain the RBAC gate: %#v", action)
+		}
+	}
+}
+
 type fakeFamilies struct{}
 
 func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
@@ -156,6 +220,12 @@ func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFami
 		SOPLabels:          []ReferenceOption{{Key: "sop-v1", Label: "SOP v1"}},
 		RevisionInputs:     map[string]string{"locations": "park-1"},
 	}, nil
+}
+
+type fakeEmptyFamilies struct{}
+
+func (fakeEmptyFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
+	return ReferenceFamilies{RevisionInputs: map[string]string{}}, nil
 }
 
 func pageByRouteID(t *testing.T, pages []domain.PageContract, routeID string) domain.PageContract {
@@ -177,6 +247,19 @@ func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) doma
 		}
 	}
 	t.Fatalf("missing primary nav item %q", id)
+	return domain.NavigationItem{}
+}
+
+func navLeafByID(t *testing.T, groups []domain.NavigationGroup, id string) domain.NavigationItem {
+	t.Helper()
+	for _, group := range groups {
+		for _, item := range group.Leaves {
+			if item.ID == id {
+				return item
+			}
+		}
+	}
+	t.Fatalf("missing nav leaf %q", id)
 	return domain.NavigationItem{}
 }
 

@@ -5887,6 +5887,7 @@ components:
         - version
         - version_label
         - scope_type
+        - scope_label
         - status
         - source_system
         - source_ref
@@ -5912,6 +5913,8 @@ components:
         scope_type:
           type: string
         scope_id:
+          type: string
+        scope_label:
           type: string
         status:
           type: string

@@ -177,7 +177,11 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 		}
 		return run, generationResultFromRun(run), fmt.Errorf("vaccination: generation run %s is already %s", run.RunID, run.Status)
 	}
-	res, genErr := s.generateForVersion(ctx, tenantID, versionID, asOf, opts)
+	effectiveAsOf := asOf
+	if !run.StartedAt.IsZero() {
+		effectiveAsOf = run.StartedAt.UTC()
+	}
+	res, genErr := s.generateForVersion(ctx, tenantID, versionID, effectiveAsOf, opts)
 	lastError := ""
 	if genErr != nil {
 		lastError = genErr.Error()

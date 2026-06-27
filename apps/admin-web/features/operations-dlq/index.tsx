@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, DatabaseZap, Filter, RotateCcw, Search, Sh
 import type { ReactNode } from "react";
 
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
-import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, optionLabel, optionTone, tableLabels, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listOutboxDLQ, type OutboxDLQMessage, type OutboxDLQStatus } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dash, fmtDateTime, shortId } from "@/lib/format";
@@ -193,7 +193,13 @@ function DLQDrawer({
 }) {
   const closeHref = hrefWithUpdates(searchParams, { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null });
   const statusTone = toneForStatus(row.status, pageContract);
-  const repairDisabled = row.status === "discarded";
+  const replayAction = repairAction(pageContract, "replay");
+  const discardAction = repairAction(pageContract, "discard");
+  const replayDisabledReason = row.status === "discarded" ? copy(pageContract, "reason.repair_discarded") : replayAction.disabled_reason;
+  const discardDisabledReason = row.status === "discarded" ? copy(pageContract, "reason.repair_discarded") : discardAction.disabled_reason;
+  const replayDisabled = row.status === "discarded" || !replayAction.enabled;
+  const discardDisabled = row.status === "discarded" || !discardAction.enabled;
+  const repairDisabledReason = replayDisabledReason || discardDisabledReason;
   return (
     <>
       <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.record.close_label")} scroll={false} style={{ opacity: 1, pointerEvents: "auto" }} />
@@ -247,12 +253,12 @@ function DLQDrawer({
                 <input type="hidden" name="return_to" value={returnTo} />
                 <label className="fld" style={{ marginBottom: 0 }}>
                   <span>{copy(pageContract, "form.reason_label")}</span>
-                  <textarea name="reason" rows={2} placeholder={copy(pageContract, "form.reason_placeholder")} disabled={repairDisabled} />
+                  <textarea name="reason" rows={2} placeholder={copy(pageContract, "form.reason_placeholder")} disabled={replayDisabled} />
                 </label>
-                <div className="note">{copy(pageContract, "reason.replay")}</div>
-                <button type="submit" className="btn p" disabled={repairDisabled} aria-disabled={repairDisabled}>
+                <div className="note">{replayDisabledReason || copy(pageContract, "reason.replay")}</div>
+                <button type="submit" className="btn p" disabled={replayDisabled} aria-disabled={replayDisabled} title={replayDisabledReason}>
                   <CheckCircle2 className="ic" aria-hidden="true" />
-                  {copy(pageContract, "action.replay")}
+                  {replayAction.label}
                 </button>
               </form>
               <form action={discardDLQAction} style={{ display: "grid", gap: 8 }}>
@@ -260,14 +266,15 @@ function DLQDrawer({
                 <input type="hidden" name="return_to" value={returnTo} />
                 <label className="fld" style={{ marginBottom: 0 }}>
                   <span>{copy(pageContract, "form.reason_label")}</span>
-                  <textarea name="reason" rows={2} placeholder={copy(pageContract, "form.reason_placeholder")} disabled={repairDisabled} />
+                  <textarea name="reason" rows={2} placeholder={copy(pageContract, "form.reason_placeholder")} disabled={discardDisabled} />
                 </label>
-                <div className="note">{copy(pageContract, "reason.discard")}</div>
-                <button type="submit" className="btn" disabled={repairDisabled} aria-disabled={repairDisabled}>
+                <div className="note">{discardDisabledReason || copy(pageContract, "reason.discard")}</div>
+                <button type="submit" className="btn" disabled={discardDisabled} aria-disabled={discardDisabled} title={discardDisabledReason}>
                   <Trash2 className="ic" aria-hidden="true" />
-                  {copy(pageContract, "action.discard")}
+                  {discardAction.label}
                 </button>
               </form>
+              {repairDisabledReason ? <div className="note" style={{ marginTop: 10 }}>{repairDisabledReason}</div> : null}
             </div>
           </section>
         </div>
@@ -279,6 +286,14 @@ function DLQDrawer({
       </aside>
     </>
   );
+}
+
+function repairAction(pageContract: AdminUiPageContract, key: string): AdminUiOption {
+  const action = optionGroup(pageContract, "dlq_repair_actions").find((item) => item.key === key);
+  if (!action) {
+    throw new Error(`Admin-web page contract ${pageContract.route_id} missing option dlq_repair_actions.${key}`);
+  }
+  return action;
 }
 
 function KPI({ label, value, tone, icon: Icon }: { label: string; value: string; tone: Tone; icon: typeof DatabaseZap }) {

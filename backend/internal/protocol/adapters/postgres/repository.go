@@ -346,6 +346,7 @@ func (r *Repository) ListConfigs(ctx context.Context, tenantID, category string)
 			VersionLabel:      row.VersionLabel,
 			ScopeType:         row.ScopeType,
 			ScopeID:           row.ScopeID,
+			ScopeLabel:        row.ScopeLabel,
 			Status:            row.Status,
 			EffectiveFrom:     pgconv.DateValue(row.EffectiveFrom),
 			EffectiveTo:       pgconv.DateValue(row.EffectiveTo),

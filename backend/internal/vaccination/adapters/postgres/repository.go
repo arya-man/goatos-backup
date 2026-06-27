@@ -66,8 +66,12 @@ INSERT INTO vaccination_generation_runs (
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET status = 'running',
-    started_at = EXCLUDED.started_at,
-    context = EXCLUDED.context,
+    started_at = vaccination_generation_runs.started_at,
+    context = CASE
+      WHEN COALESCE(vaccination_generation_runs.context->>'request_hash', '') = ''
+        THEN EXCLUDED.context
+      ELSE vaccination_generation_runs.context
+    END,
     completed_at = NULL,
     generated_count = 0,
     deferred_count = 0,

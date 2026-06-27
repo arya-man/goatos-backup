@@ -137,7 +137,7 @@ export function newDose(seq: number): DoseRow {
     repeatUntilAfterAge: "-",
     minGapDays: seq === 1 ? 0 : 14,
     catchUp: "phc_approval",
-    sopVersion: "vacc-sop v2",
+    sopVersion: "",
     proofCsv: "shed,vial,dose,lot,qty",
   };
 }
@@ -146,7 +146,7 @@ export function newFeedFields(): FeedFields {
   return {
     animalStage: "all",
     breedClass: "all",
-    feedItem: "Mesha concentrate",
+    feedItem: "custom",
     quantity: 1,
     unit: "kg",
     sessionTimes: "09:00,15:00",
@@ -222,7 +222,7 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       // sop_label is a DISPLAY label only. The executable SOP binds at version level
       // (sop_version_id). It is deliberately NOT emitted as schedule[].sop_version, because the
       // backend execution contract (publish.go) treats a non-empty row sop_version as a valid
-      // executable fallback — a fake label like "vacc-sop v2" must never satisfy that gate.
+      // executable fallback — a display-only label must never satisfy that gate.
       sop_label: d.sopVersion,
       proof_policy: csvToArr(d.proofCsv),
     })),
@@ -308,7 +308,7 @@ export function buildProtocolRuleRows(input: RuleInput): ProtocolRuleDraft[] {
       repeat: "every_n_days",
       repeatUntilAfterAge: "-",
       catchUp: "next_cycle",
-      sopVersion: "feed-sop v1",
+      sopVersion: "",
       proofPolicy,
       sortOrder: i + 1,
     }));

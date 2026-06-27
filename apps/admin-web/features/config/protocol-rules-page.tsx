@@ -42,6 +42,7 @@ function shortId(id: string | null | undefined, pageContract: AdminUiPageContrac
 }
 
 function scopeLabel(item: ProtocolConfigItem, pageContract: AdminUiPageContract): string {
+  if (item.scope_label?.trim()) return item.scope_label;
   if (item.scope_type === "tenant") return copy(pageContract, "modal.rule_editor.label.tenant");
   if (item.scope_type === "park") {
     const parkScope = optionGroup(pageContract, "rule_scopes").find((option) => option.key === `park:${item.scope_id}`)?.label;

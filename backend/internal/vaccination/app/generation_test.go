@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -40,19 +41,58 @@ func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	}
 }
 
-type generationProtoFake struct{}
+func TestManualCampaignHTTPRunFailedRetryReusesOriginalAsOf(t *testing.T) {
+	ctx := context.Background()
+	proto := &generationProtoFake{rules: []protodomain.Rule{
+		{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "manual_campaign"},
+		{RuleID: "rule-2", DoseCode: "dose-2", Sequence: 2, TriggerType: "manual_campaign"},
+	}}
+	goats := &generationGoatFake{}
+	obl := &generationObligationFake{seen: map[string]bool{}, failOnceAfterInserted: 1}
+	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
+	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
 
-func (generationProtoFake) GetVersion(context.Context, string, string) (protodomain.Version, error) {
+	firstAt := time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC)
+	secondAt := firstAt.Add(5 * time.Minute)
+	if _, _, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", firstAt, "manual-key-failed", "hash-1"); err == nil {
+		t.Fatalf("first manual campaign should fail after partial insert")
+	}
+	if len(obl.inserted) != 1 || !runs.byKey["manual-key-failed"].StartedAt.Equal(firstAt) || runs.byKey["manual-key-failed"].Status != "failed" {
+		t.Fatalf("first failed state inserted=%#v run=%#v", obl.inserted, runs.byKey["manual-key-failed"])
+	}
+
+	_, result, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", secondAt, "manual-key-failed", "hash-1")
+	if err != nil {
+		t.Fatalf("retry manual campaign: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 2 {
+		t.Fatalf("retry result=%#v inserted=%#v, want one remaining insert only", result, obl.inserted)
+	}
+	for i, obligation := range obl.inserted {
+		if !obligation.DueAt.Equal(firstAt) {
+			t.Fatalf("inserted[%d].DueAt = %s, want original as_of %s", i, obligation.DueAt, firstAt)
+		}
+	}
+}
+
+type generationProtoFake struct {
+	rules []protodomain.Rule
+}
+
+func (*generationProtoFake) GetVersion(context.Context, string, string) (protodomain.Version, error) {
 	return protodomain.Version{ProtocolVersionID: "version-1", Status: "published", ScopeType: "tenant"}, nil
 }
 
-func (generationProtoFake) ListRules(context.Context, string, string) ([]protodomain.Rule, error) {
+func (p *generationProtoFake) ListRules(context.Context, string, string) ([]protodomain.Rule, error) {
+	if len(p.rules) > 0 {
+		return p.rules, nil
+	}
 	return []protodomain.Rule{{
 		RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "manual_campaign",
 	}}, nil
 }
 
-func (generationProtoFake) ListPublishedVaccinationVersions(context.Context, string) ([]string, error) {
+func (*generationProtoFake) ListPublishedVaccinationVersions(context.Context, string) ([]string, error) {
 	return []string{"version-1"}, nil
 }
 
@@ -71,13 +111,19 @@ func (generationGoatFake) HasTrustedCompletionEvidence(context.Context, string, 
 }
 
 type generationObligationFake struct {
-	seen     map[string]bool
-	inserted []obldomain.NewObligation
+	seen                  map[string]bool
+	inserted              []obldomain.NewObligation
+	failOnceAfterInserted int
+	failed                bool
 }
 
 func (o *generationObligationFake) InsertObligation(_ context.Context, in obldomain.NewObligation) (string, bool, error) {
 	if o.seen[in.IdempotencyKey] {
 		return "obligation-1", false, nil
+	}
+	if o.failOnceAfterInserted > 0 && len(o.inserted) >= o.failOnceAfterInserted && !o.failed {
+		o.failed = true
+		return "", false, errors.New("forced partial failure")
 	}
 	o.seen[in.IdempotencyKey] = true
 	o.inserted = append(o.inserted, in)
@@ -96,6 +142,17 @@ type generationRunRecorderFake struct {
 func (r *generationRunRecorderFake) StartGenerationRun(_ context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error) {
 	r.startInputs = append(r.startInputs, in)
 	if run, ok := r.byKey[in.IdempotencyKey]; ok {
+		if run.Status == "failed" {
+			run.Status = "running"
+			run.CompletedAt = nil
+			run.Generated = 0
+			run.Deferred = 0
+			run.SkippedNoDueDate = 0
+			run.SuppressedByTrustedHistory = 0
+			run.LastError = ""
+			r.byKey[in.IdempotencyKey] = run
+			return run, true, nil
+		}
 		return run, false, nil
 	}
 	run := domain.GenerationRun{
@@ -114,6 +171,9 @@ func (r *generationRunRecorderFake) FinishGenerationRun(_ context.Context, tenan
 		}
 		run.TenantID = tenantID
 		run.Status = "completed"
+		if lastError != "" {
+			run.Status = "failed"
+		}
 		run.CompletedAt = &completedAt
 		run.Generated = result.Generated
 		run.Deferred = result.Deferred

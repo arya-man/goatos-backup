@@ -174,6 +174,7 @@ type configItemResponse struct {
 	VersionLabel      string     `json:"version_label"`
 	ScopeType         string     `json:"scope_type"`
 	ScopeID           string     `json:"scope_id,omitempty"`
+	ScopeLabel        string     `json:"scope_label"`
 	Status            string     `json:"status"`
 	EffectiveFrom     *time.Time `json:"effective_from,omitempty"`
 	EffectiveTo       *time.Time `json:"effective_to,omitempty"`
@@ -212,7 +213,7 @@ func (h *Handler) ListConfigs(w http.ResponseWriter, r *http.Request) {
 		resp.Items = append(resp.Items, configItemResponse{
 			ProtocolID: it.ProtocolID, Code: it.Code, Name: it.Name, Category: it.Category,
 			ProtocolVersionID: it.ProtocolVersionID, Version: it.Version, VersionLabel: it.VersionLabel,
-			ScopeType: it.ScopeType, ScopeID: it.ScopeID, Status: it.Status,
+			ScopeType: it.ScopeType, ScopeID: it.ScopeID, ScopeLabel: it.ScopeLabel, Status: it.Status,
 			EffectiveFrom: it.EffectiveFrom, EffectiveTo: it.EffectiveTo,
 			SopVersionID: it.SopVersionID, PublishedBy: it.PublishedBy,
 			PublishedAt: it.PublishedAt, UpdatedAt: it.UpdatedAt,

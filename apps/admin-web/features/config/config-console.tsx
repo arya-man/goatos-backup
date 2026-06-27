@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, Plus, Search } from "lucide-react";
 import { RuleEditorModal } from "./rule-editor-modal";
 import type { AnimalStageOption, SopVersionOption } from "./rule-dsl";
-import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 export interface ConfigRuleRow {
   id: string;
@@ -52,6 +52,9 @@ export function ConfigConsole({
   const defaultPageSize = pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10);
   const [pageSize, setPageSize] = useState<number>(defaultPageSize);
   const labels = tableLabels(pageContract, "protocol-rules");
+  const categoryOptions = optionGroup(pageContract, "rule_categories");
+  const authoringDisabled = categoryOptions.length === 0;
+  const authoringDisabledReason = authoringDisabled ? copy(pageContract, "modal.rule_editor.categories_empty") : undefined;
   const filteredRules = rules.filter((rule) => {
     const q = query.trim().toLowerCase();
     if (!q) return true;
@@ -84,7 +87,14 @@ export function ConfigConsole({
 	          </div>
 	        </div>
 	        <div className="sp" />
-	        <button type="button" className="btn p" onClick={() => setOpen(true)}>
+	        <button
+	          type="button"
+	          className="btn p"
+	          onClick={() => setOpen(true)}
+	          disabled={authoringDisabled}
+	          title={authoringDisabledReason}
+	          style={authoringDisabled ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
+	        >
 	          <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.new_draft_rule")}
 	        </button>
       </div>
@@ -120,6 +130,13 @@ export function ConfigConsole({
 	          <div>
 	            {copy(pageContract, "error.sops_load")} ({sopsError})
 	          </div>
+        </div>
+      ) : null}
+
+      {authoringDisabledReason ? (
+        <div className="alert warn" role="alert" style={{ marginBottom: 14 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>{authoringDisabledReason}</div>
         </div>
       ) : null}
 

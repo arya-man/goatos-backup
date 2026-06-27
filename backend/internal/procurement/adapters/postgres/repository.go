@@ -1043,9 +1043,12 @@ INSERT INTO transit_handoffs (
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET idempotency_key = EXCLUDED.idempotency_key
-RETURNING handoff_id::text, tenant_id::text, load_id::text, from_location_id::text,
-          to_location_id::text, loaded_count, dispatched_at, arrived_at,
-          proof_ref_id::text, discrepancy_state, status, created_at, updated_at, row_version`,
+	RETURNING handoff_id::text, tenant_id::text, load_id::text, from_location_id::text,
+	          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = transit_handoffs.tenant_id AND location_id = transit_handoffs.from_location_id), from_location_id::text),
+	          to_location_id::text,
+	          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = transit_handoffs.tenant_id AND location_id = transit_handoffs.to_location_id), to_location_id::text),
+	          loaded_count, dispatched_at, arrived_at,
+	          proof_ref_id::text, discrepancy_state, status, created_at, updated_at, row_version`,
 		in.TenantID, in.LoadID, stringPtrValue(in.FromLocationID), in.ToLocationID,
 		loadedCount, in.DispatchedAt, timeArg(in.ArrivedAt), stringPtrValue(in.ProofRefID),
 		discrepancy, status, in.IdempotencyKey, stringPtrValue(in.ActorID)))
@@ -1126,6 +1129,7 @@ INSERT INTO arrival_intake_reviews (
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET idempotency_key = EXCLUDED.idempotency_key
 RETURNING review_id::text, tenant_id::text, load_id::text, park_location_id::text,
+          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = arrival_intake_reviews.tenant_id AND location_id = arrival_intake_reviews.park_location_id), park_location_id::text),
           expected_count, loaded_count, arrived_count, matched_count, missing_count,
           extra_count, rejected_count, health_flags, weight_flags, media_proof_id::text,
           status, reviewed_by::text, reviewed_at, created_at, updated_at, row_version`,
@@ -1390,7 +1394,11 @@ SET accepted_at = EXCLUDED.accepted_at,
     intake_health_signal = EXCLUDED.intake_health_signal,
     updated_at = now()
 RETURNING handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
-          accepted_at, park_location_id::text, shed_location_id::text, entry_date,
+          accepted_at, park_location_id::text,
+          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.park_location_id), park_location_id::text),
+          shed_location_id::text,
+          COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.shed_location_id), shed_location_id::text),
+          entry_date,
           trusted_vaccination_history, intake_health_signal, event_status, created_at, updated_at`,
 			in.TenantID, in.LoadID, acceptedGoatID, in.AcceptedAt, in.ParkLocationID, in.ShedLocationID,
 			in.EntryDate, jsonArrayArg(in.TrustedVaccinationHistory), stringPtrValue(in.IntakeHealthSignal),
@@ -1762,14 +1770,16 @@ func scanDecision(row scanner) (domain.Decision, error) {
 
 func scanTransit(row scanner) (domain.TransitHandoff, error) {
 	var out domain.TransitHandoff
-	var from, proof pgtype.Text
+	var from, fromLabel, toLabel, proof pgtype.Text
 	var arrivedAt pgtype.Timestamptz
-	if err := row.Scan(&out.HandoffID, &out.TenantID, &out.LoadID, &from, &out.ToLocationID,
+	if err := row.Scan(&out.HandoffID, &out.TenantID, &out.LoadID, &from, &fromLabel, &out.ToLocationID, &toLabel,
 		&out.LoadedCount, &out.DispatchedAt, &arrivedAt, &proof, &out.DiscrepancyState,
 		&out.Status, &out.CreatedAt, &out.UpdatedAt, &out.RowVersion); err != nil {
 		return domain.TransitHandoff{}, err
 	}
 	out.FromLocationID = textPtr(from)
+	out.FromLocationLabel = textValue(fromLabel)
+	out.ToLocationLabel = textValue(toLabel)
 	out.ArrivedAt = timePtr(arrivedAt)
 	out.ProofRefID = textPtr(proof)
 	return out, nil
@@ -1778,18 +1788,21 @@ func scanTransit(row scanner) (domain.TransitHandoff, error) {
 // getTransitHandoffByID re-reads a previously created transit handoff for an idempotent DispatchLoad replay.
 func (r *Repository) getTransitHandoffByID(ctx context.Context, tenantID, handoffID string) (domain.TransitHandoff, error) {
 	return scanTransit(r.pool.QueryRow(ctx, `
-SELECT handoff_id::text, tenant_id::text, load_id::text, from_location_id::text,
-       to_location_id::text, loaded_count, dispatched_at, arrived_at, proof_ref_id::text,
-       discrepancy_state, status, created_at, updated_at, row_version
-FROM transit_handoffs
-WHERE tenant_id = $1::uuid AND handoff_id = nullif($2::text, '')::uuid`, tenantID, handoffID))
+	SELECT handoff_id::text, tenant_id::text, load_id::text, from_location_id::text,
+	       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = transit_handoffs.tenant_id AND location_id = transit_handoffs.from_location_id), from_location_id::text),
+	       to_location_id::text,
+	       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = transit_handoffs.tenant_id AND location_id = transit_handoffs.to_location_id), to_location_id::text),
+	       loaded_count, dispatched_at, arrived_at, proof_ref_id::text,
+	       discrepancy_state, status, created_at, updated_at, row_version
+	FROM transit_handoffs
+	WHERE tenant_id = $1::uuid AND handoff_id = nullif($2::text, '')::uuid`, tenantID, handoffID))
 }
 
 func scanArrivalReview(row scanner) (domain.ArrivalReview, error) {
 	var out domain.ArrivalReview
-	var mediaProof, reviewedBy pgtype.Text
+	var parkLabel, mediaProof, reviewedBy pgtype.Text
 	var healthFlags, weightFlags []byte
-	if err := row.Scan(&out.ReviewID, &out.TenantID, &out.LoadID, &out.ParkLocationID,
+	if err := row.Scan(&out.ReviewID, &out.TenantID, &out.LoadID, &out.ParkLocationID, &parkLabel,
 		&out.ExpectedCount, &out.LoadedCount, &out.ArrivedCount, &out.MatchedCount,
 		&out.MissingCount, &out.ExtraCount, &out.RejectedCount, &healthFlags, &weightFlags,
 		&mediaProof, &out.Status, &reviewedBy, &out.ReviewedAt, &out.CreatedAt,
@@ -1798,6 +1811,7 @@ func scanArrivalReview(row scanner) (domain.ArrivalReview, error) {
 	}
 	out.HealthFlags = rawJSON(healthFlags, `[]`)
 	out.WeightFlags = rawJSON(weightFlags, `[]`)
+	out.ParkLocationLabel = textValue(parkLabel)
 	out.MediaProofID = textPtr(mediaProof)
 	out.ReviewedBy = textPtr(reviewedBy)
 	return out, nil
@@ -1823,16 +1837,18 @@ func scanArrivalGoat(row scanner) (domain.ArrivalGoat, error) {
 func scanPHCHandoff(row scanner) (domain.PHCHandoff, error) {
 	var out domain.PHCHandoff
 	var history []byte
-	var signal pgtype.Text
+	var parkLabel, shedLabel, signal pgtype.Text
 	var entryDate pgtype.Date
 	if err := row.Scan(&out.HandoffID, &out.TenantID, &out.LoadID, &out.GoatID,
-		&out.AcceptedAt, &out.ParkLocationID, &out.ShedLocationID, &entryDate,
+		&out.AcceptedAt, &out.ParkLocationID, &parkLabel, &out.ShedLocationID, &shedLabel, &entryDate,
 		&history, &signal, &out.EventStatus, &out.CreatedAt, &out.UpdatedAt); err != nil {
 		return domain.PHCHandoff{}, err
 	}
 	if entryDate.Valid {
 		out.EntryDate = entryDate.Time
 	}
+	out.ParkLocationLabel = textValue(parkLabel)
+	out.ShedLocationLabel = textValue(shedLabel)
 	out.TrustedVaccinationHistory = rawJSON(history, `[]`)
 	out.IntakeHealthSignal = textPtr(signal)
 	return out, nil
@@ -2159,10 +2175,13 @@ ORDER BY decided_at ASC, decision_id ASC`, tenantID, loadID)
 
 func (r *Repository) listTransit(ctx context.Context, tenantID, loadID string) ([]domain.TransitHandoff, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT handoff_id::text, tenant_id::text, load_id::text, from_location_id::text,
-       to_location_id::text, loaded_count, dispatched_at, arrived_at, proof_ref_id::text,
-       discrepancy_state, status, created_at, updated_at, row_version
-FROM transit_handoffs
+	SELECT handoff_id::text, tenant_id::text, load_id::text, from_location_id::text,
+	       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = transit_handoffs.tenant_id AND location_id = transit_handoffs.from_location_id), from_location_id::text),
+	       to_location_id::text,
+	       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = transit_handoffs.tenant_id AND location_id = transit_handoffs.to_location_id), to_location_id::text),
+	       loaded_count, dispatched_at, arrived_at, proof_ref_id::text,
+	       discrepancy_state, status, created_at, updated_at, row_version
+	FROM transit_handoffs
 WHERE tenant_id = $1::uuid AND load_id = $2::uuid
 ORDER BY dispatched_at ASC, handoff_id ASC`, tenantID, loadID)
 	if err != nil {
@@ -2248,6 +2267,7 @@ WHERE tenant_id = $1::uuid AND decision_id = nullif($2::text, '')::uuid`, tenant
 func (r *Repository) getArrivalReviewByID(ctx context.Context, tenantID, reviewID string) (domain.ArrivalReview, error) {
 	review, err := scanArrivalReview(r.pool.QueryRow(ctx, `
 SELECT review_id::text, tenant_id::text, load_id::text, park_location_id::text,
+       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = arrival_intake_reviews.tenant_id AND location_id = arrival_intake_reviews.park_location_id), park_location_id::text),
        expected_count, loaded_count, arrived_count, matched_count, missing_count,
        extra_count, rejected_count, health_flags, weight_flags, media_proof_id::text,
        status, reviewed_by::text, reviewed_at, created_at, updated_at, row_version
@@ -2267,6 +2287,7 @@ WHERE tenant_id = $1::uuid AND review_id = nullif($2::text, '')::uuid`, tenantID
 func (r *Repository) listArrivalReviews(ctx context.Context, tenantID, loadID string) ([]domain.ArrivalReview, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT review_id::text, tenant_id::text, load_id::text, park_location_id::text,
+       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = arrival_intake_reviews.tenant_id AND location_id = arrival_intake_reviews.park_location_id), park_location_id::text),
        expected_count, loaded_count, arrived_count, matched_count, missing_count,
        extra_count, rejected_count, health_flags, weight_flags, media_proof_id::text,
        status, reviewed_by::text, reviewed_at, created_at, updated_at, row_version
@@ -2324,7 +2345,11 @@ ORDER BY arrival_state ASC, review_goat_id ASC`, tenantID, reviewID)
 func (r *Repository) listPHCHandoffs(ctx context.Context, tenantID, loadID string) ([]domain.PHCHandoff, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
-       accepted_at, park_location_id::text, shed_location_id::text, entry_date,
+       accepted_at, park_location_id::text,
+       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.park_location_id), park_location_id::text),
+       shed_location_id::text,
+       COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_phc_handoffs.tenant_id AND location_id = procurement_phc_handoffs.shed_location_id), shed_location_id::text),
+       entry_date,
        trusted_vaccination_history, intake_health_signal, event_status, created_at, updated_at
 FROM procurement_phc_handoffs
 WHERE tenant_id = $1::uuid AND load_id = $2::uuid

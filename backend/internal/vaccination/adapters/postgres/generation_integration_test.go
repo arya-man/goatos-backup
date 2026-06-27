@@ -13,6 +13,7 @@ import (
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 func seedGenGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle string) {
@@ -102,6 +103,54 @@ func TestSM1GenerationIdempotentAndDeferVisible(t *testing.T) {
 		 WHERE e.tenant_id=$1 AND e.event_type='deferred' AND o.target_id=$2`,
 		impTenant, "30000000-0000-4000-8000-0000000000d1"); got != 1 {
 		t.Fatalf("expected 1 deferred event for quarantine goat, got %d", got)
+	}
+}
+
+func TestStartGenerationRunFailedReplayPreservesStartedAt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.manual.retry", Name: "Manual retry", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	firstAt := time.Date(2026, 6, 27, 8, 0, 0, 0, time.UTC)
+	secondAt := firstAt.Add(5 * time.Minute)
+	run, started, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
+		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "catchup@first",
+		StartedAt: firstAt, IdempotencyKey: "manual-campaign-retry-key", RequestHash: "request-hash",
+	})
+	if err != nil || !started {
+		t.Fatalf("start generation run started=%v err=%v run=%#v", started, err, run)
+	}
+	if err := vacc.FinishGenerationRun(ctx, impTenant, run.RunID, vaccdomain.GenerateResult{Generated: 1}, "", "forced partial failure", firstAt.Add(time.Minute)); err != nil {
+		t.Fatalf("finish failed run: %v", err)
+	}
+
+	retry, restarted, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
+		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "catchup@second",
+		StartedAt: secondAt, IdempotencyKey: "manual-campaign-retry-key", RequestHash: "request-hash",
+	})
+	if err != nil || !restarted {
+		t.Fatalf("restart generation run restarted=%v err=%v run=%#v", restarted, err, retry)
+	}
+	if !retry.StartedAt.Equal(firstAt) || retry.Status != "running" || retry.CompletedAt != nil || retry.Generated != 0 || retry.RequestHash != "request-hash" {
+		t.Fatalf("retry run = %#v, want original started_at, reset counts, running", retry)
 	}
 }
 
