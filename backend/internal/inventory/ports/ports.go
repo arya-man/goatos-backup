@@ -30,6 +30,11 @@ type Repository interface {
 	// applied is false when the movement was already recorded (replay).
 	RecordMovement(ctx context.Context, m domain.Movement) (movementID string, applied bool, err error)
 
+	// RecordMovementAndAdjustBalances appends an idempotent ledger movement and applies stock
+	// balance deltas in the same transaction. If the movement idempotency key already exists,
+	// applied is false and balances are not adjusted again.
+	RecordMovementAndAdjustBalances(ctx context.Context, m domain.Movement, inDelta, reservedDelta string) (movementID string, applied bool, err error)
+
 	// AdjustBalances applies signed deltas to a lot's on-hand and reserved quantities.
 	AdjustBalances(ctx context.Context, tenantID, stockID, inDelta, reservedDelta string) error
 }

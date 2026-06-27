@@ -156,6 +156,7 @@ func (r *Repository) GetVersion(ctx context.Context, tenantID, versionID string)
 	return domain.Version{
 		ProtocolVersionID: row.ProtocolVersionID,
 		ProtocolID:        row.ProtocolID,
+		Category:          row.Category,
 		ScopeType:         row.ScopeType,
 		ScopeID:           row.ScopeID,
 		Version:           row.Version,
@@ -213,12 +214,16 @@ func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID str
 	if err != nil {
 		return fmt.Errorf("protocol: version id: %w", err)
 	}
-	if err := r.queries.PublishProtocolVersion(ctx, protocoldb.PublishProtocolVersionParams{
+	rows, err := r.queries.PublishProtocolVersion(ctx, protocoldb.PublishProtocolVersionParams{
 		PublishedBy:       pgconv.NullableUUID(publishedBy),
 		TenantID:          tenant,
 		ProtocolVersionID: vid,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("protocol: publish version: %w", err)
+	}
+	if rows == 0 {
+		return ports.ErrVersionNotDraft
 	}
 	return nil
 }
@@ -268,6 +273,9 @@ func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string,
 		WithdrawalDays:      pgconv.Int4(in.WithdrawalDays),
 		SortOrder:           in.SortOrder,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrVersionNotDraft
+	}
 	if err != nil {
 		return "", fmt.Errorf("protocol: create rule: %w", err)
 	}
@@ -419,6 +427,9 @@ func (r *Repository) CreateTrigger(ctx context.Context, in domain.NewTrigger) (s
 		TriggerConfig:     pgconv.JSONB(in.TriggerConfig),
 		IsActive:          in.IsActive,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrVersionNotDraft
+	}
 	if err != nil {
 		return "", fmt.Errorf("protocol: create trigger: %w", err)
 	}

@@ -45,6 +45,7 @@ type NewVersion struct {
 type Version struct {
 	ProtocolVersionID string
 	ProtocolID        string
+	Category          string
 	ScopeType         string
 	ScopeID           string
 	Version           int32

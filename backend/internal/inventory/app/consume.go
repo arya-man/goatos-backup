@@ -46,7 +46,11 @@ func (s *Service) settle(ctx context.Context, tenantID, batchID, lotID, key, mov
 	}
 	qstr := strconv.FormatInt(qty, 10)
 	batch := batchID
-	_, applied, err := s.repo.RecordMovement(ctx, domain.Movement{
+	inDelta := "0"
+	if consumeOnHand {
+		inDelta = "-" + qstr
+	}
+	_, _, err = s.repo.RecordMovementAndAdjustBalances(ctx, domain.Movement{
 		TenantID:       tenantID,
 		LotID:          lotID,
 		ItemID:         lot.ItemID,
@@ -57,16 +61,6 @@ func (s *Service) settle(ctx context.Context, tenantID, batchID, lotID, key, mov
 		BatchID:        &batch,
 		Reason:         "batch " + movementType,
 		IdempotencyKey: key,
-	})
-	if err != nil {
-		return err
-	}
-	if !applied {
-		return nil // already settled for this key
-	}
-	inDelta := "0"
-	if consumeOnHand {
-		inDelta = "-" + qstr
-	}
-	return s.repo.AdjustBalances(ctx, tenantID, lotID, inDelta, "-"+qstr)
+	}, inDelta, "-"+qstr)
+	return err
 }

@@ -743,6 +743,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/{goat_id}/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change a goat management stage and queue goat.stage_changed rule rechecks. */
+        post: operations["stageGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/manual-campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a deliberate manual vaccination campaign from a published protocol version. */
+        post: operations["runVaccinationManualCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/operations/audit": {
         parameters: {
             query?: never;
@@ -771,6 +805,86 @@ export interface paths {
         get: operations["getOperationsAuditSummary"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/kernel-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get operational-kernel health signals.
+         * @description Tenant-scoped health summary for outbox delivery and DLQ state. Used by ops surfaces to highlight degraded event delivery without scanning raw events.
+         */
+        get: operations["getOperationsKernelHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/dlq": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List dead-lettered outbox messages for guarded repair.
+         * @description Tenant-scoped DLQ read model for at-least-once domain events. Used by operations/admin users to inspect poison messages before replay or discard.
+         */
+        get: operations["listOutboxDLQ"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/dlq/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replay selected outbox DLQ messages.
+         * @description Resets selected failed/dead-letter messages to pending with a bounded replay count. The action is audited per outbox message.
+         */
+        post: operations["replayOutboxDLQ"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/dlq/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard selected outbox DLQ messages.
+         * @description Marks selected failed/dead-letter messages as operator-discarded after investigation. The action is audited per outbox message.
+         */
+        post: operations["discardOutboxDLQ"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1609,6 +1723,47 @@ export interface components {
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
         };
+        StageGoatRequest: {
+            management_stage: string;
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        RunVaccinationManualCampaignRequest: {
+            /** Format: uuid */
+            protocol_version_id: string;
+            campaign_id: string;
+            /** Format: date-time */
+            as_of?: string;
+        };
+        VaccinationGenerationRunResponse: {
+            /** Format: uuid */
+            run_id: string;
+            /** Format: uuid */
+            protocol_version_id: string;
+            /** @enum {string} */
+            trigger_type: "manual_campaign";
+            trigger_ref: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "completed" | "failed";
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            completed_at?: string;
+            generated: number;
+            deferred: number;
+            skipped_no_due_date: number;
+            suppressed_by_trusted_history: number;
+            /** Format: uuid */
+            cursor_goat_id?: string;
+            last_error?: string;
+            result_generated: number;
+            result_deferred: number;
+            result_skipped_no_due_date: number;
+            result_suppressed_by_trusted_history: number;
+        };
         ExitGoatRequest: components["schemas"]["ExitGoatDeadRequest"] | components["schemas"]["ExitGoatSoldRequest"] | components["schemas"]["ExitGoatCulledRequest"] | components["schemas"]["ExitGoatTransferredRequest"] | components["schemas"]["ExitGoatLostRequest"];
         ExitGoatDeadRequest: {
             /** @constant */
@@ -1735,6 +1890,70 @@ export interface components {
             to: string;
             /** Format: date-time */
             as_of: string;
+            trace_id: string;
+        };
+        OutboxHealth: {
+            /** @enum {string} */
+            status: "healthy" | "degraded";
+            pending_count: number;
+            publishing_count: number;
+            failed_count: number;
+            dead_letter_count: number;
+            /** Format: date-time */
+            oldest_pending_at?: string;
+            /** Format: date-time */
+            oldest_failure_at?: string;
+            /** Format: date-time */
+            last_published_at?: string;
+        };
+        OperationsKernelHealthResponse: {
+            outbox: components["schemas"]["OutboxHealth"];
+            trace_id: string;
+        };
+        OutboxDLQMessage: {
+            /** Format: uuid */
+            outbox_id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            event_id: string;
+            event_type: string;
+            schema_version: string;
+            aggregate_type: string;
+            /** Format: uuid */
+            aggregate_id: string;
+            topic: string;
+            /** @enum {string} */
+            status: "dead_letter" | "failed" | "discarded";
+            attempt_count: number;
+            replay_count: number;
+            last_error: string;
+            idempotency_key: string;
+            trace_id?: string;
+            headers: {
+                [key: string]: unknown;
+            };
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OutboxDLQListResponse: {
+            items: components["schemas"]["OutboxDLQMessage"][];
+            trace_id: string;
+        };
+        OutboxDLQActionRequest: {
+            outbox_ids: string[];
+            reason: string;
+        };
+        OutboxDLQActionResponse: {
+            /** @enum {string} */
+            action: "replay" | "discard";
+            updated: number;
+            outbox_ids: string[];
             trace_id: string;
         };
         AddIdentifierRequest: {
@@ -2742,6 +2961,10 @@ export interface components {
         OperationsAuditResult: string;
         OperationsAuditStatus: string;
         OperationsAuditAnomaliesOnly: boolean;
+        OutboxDLQStatus: "dead_letter" | "failed" | "discarded";
+        OutboxDLQEventType: string;
+        OutboxDLQTopic: string;
+        OutboxDLQLimit: number;
     };
     requestBodies: never;
     headers: never;
@@ -4320,6 +4543,69 @@ export interface operations {
             409: components["responses"]["WriteConflict"];
         };
     };
+    stageGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat stage changed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    runVaccinationManualCampaign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunVaccinationManualCampaignRequest"];
+            };
+        };
+        responses: {
+            /** @description Manual campaign generation accepted or idempotently replayed. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationGenerationRunResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     listOperationsAudit: {
         parameters: {
             query?: {
@@ -4398,6 +4684,116 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getOperationsKernelHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kernel health summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsKernelHealthResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listOutboxDLQ: {
+        parameters: {
+            query?: {
+                status?: components["parameters"]["OutboxDLQStatus"];
+                event_type?: components["parameters"]["OutboxDLQEventType"];
+                topic?: components["parameters"]["OutboxDLQTopic"];
+                limit?: components["parameters"]["OutboxDLQLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dead-letter messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxDLQListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    replayOutboxDLQ: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutboxDLQActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Replay action result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxDLQActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    discardOutboxDLQ: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutboxDLQActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Discard action result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxDLQActionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     addGoatIdentifier: {

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "crypto";
 import { createAdminApiClient, createAppApiClient, GoatOSApiError } from "@goatos/api-client";
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents, AppApiPaths } from "@goatos/api-client";
 import { cache } from "react";
@@ -74,6 +75,7 @@ export type AdminGoatBulkResponse = AdminApiComponents["schemas"]["AdminGoatBulk
 export type AdminGoatBulkRowResult = AdminApiComponents["schemas"]["AdminGoatBulkRowResult"];
 export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkSummary"];
 export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
+export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
 export type LocationSummary = AdminApiComponents["schemas"]["LocationSummary"];
 export type LocationListResponse = AdminApiComponents["schemas"]["LocationListResponse"];
 export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentifierRequest"];
@@ -82,6 +84,14 @@ export type OperationsAuditRow = AdminApiComponents["schemas"]["OperationsAuditR
 export type OperationsAuditListResponse = AdminApiComponents["schemas"]["OperationsAuditListResponse"];
 export type OperationsAuditSummaryResponse = AdminApiComponents["schemas"]["OperationsAuditSummaryResponse"];
 export type OperationsAuditActorType = AdminApiComponents["parameters"]["OperationsAuditActorType"];
+export type OutboxDLQMessage = AdminApiComponents["schemas"]["OutboxDLQMessage"];
+export type OutboxDLQListResponse = AdminApiComponents["schemas"]["OutboxDLQListResponse"];
+export type OutboxDLQActionRequest = AdminApiComponents["schemas"]["OutboxDLQActionRequest"];
+export type OutboxDLQActionResponse = AdminApiComponents["schemas"]["OutboxDLQActionResponse"];
+export type OperationsKernelHealthResponse = AdminApiComponents["schemas"]["OperationsKernelHealthResponse"];
+export type RunVaccinationManualCampaignRequest = AdminApiComponents["schemas"]["RunVaccinationManualCampaignRequest"];
+export type VaccinationGenerationRunResponse = AdminApiComponents["schemas"]["VaccinationGenerationRunResponse"];
+export type OutboxDLQStatus = AdminApiComponents["parameters"]["OutboxDLQStatus"];
 
 // SOP Library (Admin / Data Ops) — real generated admin-api types, no hand-rolled shapes.
 export type SOPDefinition = AdminApiComponents["schemas"]["SOPDefinition"];
@@ -165,6 +175,13 @@ export type OperationsAuditListParams = {
   q?: string;
   anomaliesOnly?: boolean;
   proofGaps?: boolean;
+};
+
+export type OutboxDLQListParams = {
+  status?: OutboxDLQStatus;
+  eventType?: string;
+  topic?: string;
+  limit?: number;
 };
 
 export async function getServerConfig(requireTenant = false): Promise<ApiResult<ServerConfig>> {
@@ -764,6 +781,25 @@ export async function retireGoatIdentifier(
   );
 }
 
+export async function stageGoat(
+  goatId: string,
+  body: StageGoatRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<AdminGoatResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/goats/${encodeURIComponent(goatId)}/stage` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<AdminGoatResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 // Counts -> Herd Register write path. Each create/commit carries an Idempotency-Key so a double-submit or
 // retry replays the original result instead of writing a second goat. The backend derives the actor from the
 // auth token; the body carries only operator-entered identity. preview is a pure read (no key, no writes).
@@ -895,6 +931,81 @@ export async function getOperationsAuditSummary(
         anomalies_only: params.anomaliesOnly,
         proof_gaps: params.proofGaps,
       }),
+    }),
+  );
+}
+
+export async function listOutboxDLQ(params: OutboxDLQListParams = {}): Promise<ApiResult<OutboxDLQListResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<OutboxDLQListResponse>("/operations/dlq", {
+      cache: "no-store",
+      query: compactQuery({
+        status: params.status,
+        event_type: params.eventType,
+        topic: params.topic,
+        limit: params.limit ?? 100,
+      }),
+    }),
+  );
+}
+
+export async function getOperationsKernelHealth(): Promise<ApiResult<OperationsKernelHealthResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() => client.request<OperationsKernelHealthResponse>("/operations/kernel-health", { cache: "no-store" }));
+}
+
+export async function runVaccinationManualCampaign(
+  body: RunVaccinationManualCampaignRequest,
+  idempotencyKey = `vaccination-manual-${randomUUID()}`,
+): Promise<ApiResult<VaccinationGenerationRunResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationGenerationRunResponse>("/vaccination/manual-campaigns", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function replayOutboxDLQ(
+  body: OutboxDLQActionRequest,
+  idempotencyKey = `dlq-replay-${randomUUID()}`,
+): Promise<ApiResult<OutboxDLQActionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<OutboxDLQActionResponse>("/operations/dlq/replay", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+export async function discardOutboxDLQ(
+  body: OutboxDLQActionRequest,
+  idempotencyKey = `dlq-discard-${randomUUID()}`,
+): Promise<ApiResult<OutboxDLQActionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<OutboxDLQActionResponse>("/operations/dlq/discard", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
     }),
   );
 }

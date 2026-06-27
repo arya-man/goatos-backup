@@ -18,6 +18,7 @@ tags:
   - name: SOP Builder
   - name: Tasks
   - name: Procurement Source Entry
+  - name: Operations Audit
 paths:
   /auth/session-events:
     post:
@@ -1592,6 +1593,67 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats/{goat_id}/stage:
+    post:
+      tags:
+        - Admin Goats
+      operationId: stageGoat
+      summary: Change a goat management stage and queue goat.stage_changed rule rechecks.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StageGoatRequest"
+      responses:
+        "200":
+          description: Goat stage changed or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /vaccination/manual-campaigns:
+    post:
+      tags:
+        - Vaccination
+      operationId: runVaccinationManualCampaign
+      summary: Run a deliberate manual vaccination campaign from a published protocol version.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunVaccinationManualCampaignRequest"
+      responses:
+        "202":
+          description: Manual campaign generation accepted or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationGenerationRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /operations/audit:
     get:
       tags:
@@ -1660,6 +1722,109 @@ paths:
                 $ref: "#/components/schemas/OperationsAuditSummaryResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /operations/kernel-health:
+    get:
+      tags:
+        - Operations Audit
+      operationId: getOperationsKernelHealth
+      summary: Get operational-kernel health signals.
+      description: Tenant-scoped health summary for outbox delivery and DLQ state. Used by ops surfaces to highlight degraded event delivery without scanning raw events.
+      responses:
+        "200":
+          description: Kernel health summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationsKernelHealthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /operations/dlq:
+    get:
+      tags:
+        - Operations Audit
+      operationId: listOutboxDLQ
+      summary: List dead-lettered outbox messages for guarded repair.
+      description: Tenant-scoped DLQ read model for at-least-once domain events. Used by operations/admin users to inspect poison messages before replay or discard.
+      parameters:
+        - $ref: "#/components/parameters/OutboxDLQStatus"
+        - $ref: "#/components/parameters/OutboxDLQEventType"
+        - $ref: "#/components/parameters/OutboxDLQTopic"
+        - $ref: "#/components/parameters/OutboxDLQLimit"
+      responses:
+        "200":
+          description: Dead-letter messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboxDLQListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /operations/dlq/replay:
+    post:
+      tags:
+        - Operations Audit
+      operationId: replayOutboxDLQ
+      summary: Replay selected outbox DLQ messages.
+      description: Resets selected failed/dead-letter messages to pending with a bounded replay count. The action is audited per outbox message.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutboxDLQActionRequest"
+      responses:
+        "200":
+          description: Replay action result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboxDLQActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /operations/dlq/discard:
+    post:
+      tags:
+        - Operations Audit
+      operationId: discardOutboxDLQ
+      summary: Discard selected outbox DLQ messages.
+      description: Marks selected failed/dead-letter messages as operator-discarded after investigation. The action is audited per outbox message.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutboxDLQActionRequest"
+      responses:
+        "200":
+          description: Discard action result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboxDLQActionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2292,6 +2457,39 @@ components:
       required: false
       schema:
         type: boolean
+    OutboxDLQStatus:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+        enum:
+          - dead_letter
+          - failed
+          - discarded
+        default: dead_letter
+    OutboxDLQEventType:
+      name: event_type
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 160
+    OutboxDLQTopic:
+      name: topic
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 160
+    OutboxDLQLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
   responses:
     BadRequest:
       description: Validation error.
@@ -4192,6 +4390,125 @@ components:
         row_version:
           type: integer
           minimum: 1
+    StageGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - management_stage
+        - reason
+        - evidence_refs
+        - row_version
+      properties:
+        management_stage:
+          type: string
+          minLength: 1
+          maxLength: 80
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+        occurred_at:
+          type: string
+          format: date-time
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
+    RunVaccinationManualCampaignRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version_id
+        - campaign_id
+      properties:
+        protocol_version_id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          minLength: 3
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_.:-]+$"
+        as_of:
+          type: string
+          format: date-time
+    VaccinationGenerationRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - run_id
+        - protocol_version_id
+        - trigger_type
+        - trigger_ref
+        - status
+        - started_at
+        - generated
+        - deferred
+        - skipped_no_due_date
+        - suppressed_by_trusted_history
+        - result_generated
+        - result_deferred
+        - result_skipped_no_due_date
+        - result_suppressed_by_trusted_history
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        protocol_version_id:
+          type: string
+          format: uuid
+        trigger_type:
+          type: string
+          enum:
+            - manual_campaign
+        trigger_ref:
+          type: string
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - completed
+            - failed
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        generated:
+          type: integer
+          minimum: 0
+        deferred:
+          type: integer
+          minimum: 0
+        skipped_no_due_date:
+          type: integer
+          minimum: 0
+        suppressed_by_trusted_history:
+          type: integer
+          minimum: 0
+        cursor_goat_id:
+          type: string
+          format: uuid
+        last_error:
+          type: string
+        result_generated:
+          type: integer
+          minimum: 0
+        result_deferred:
+          type: integer
+          minimum: 0
+        result_skipped_no_due_date:
+          type: integer
+          minimum: 0
+        result_suppressed_by_trusted_history:
+          type: integer
+          minimum: 0
     ExitGoatRequest:
       oneOf:
         - $ref: "#/components/schemas/ExitGoatDeadRequest"
@@ -4568,6 +4885,198 @@ components:
         as_of:
           type: string
           format: date-time
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OutboxHealth:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - pending_count
+        - publishing_count
+        - failed_count
+        - dead_letter_count
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+            - degraded
+        pending_count:
+          type: integer
+          minimum: 0
+        publishing_count:
+          type: integer
+          minimum: 0
+        failed_count:
+          type: integer
+          minimum: 0
+        dead_letter_count:
+          type: integer
+          minimum: 0
+        oldest_pending_at:
+          type: string
+          format: date-time
+        oldest_failure_at:
+          type: string
+          format: date-time
+        last_published_at:
+          type: string
+          format: date-time
+    OperationsKernelHealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - outbox
+        - trace_id
+      properties:
+        outbox:
+          $ref: "#/components/schemas/OutboxHealth"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OutboxDLQMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - outbox_id
+        - tenant_id
+        - event_id
+        - event_type
+        - schema_version
+        - aggregate_type
+        - aggregate_id
+        - topic
+        - status
+        - attempt_count
+        - replay_count
+        - last_error
+        - idempotency_key
+        - headers
+        - payload
+        - created_at
+        - updated_at
+      properties:
+        outbox_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          minLength: 1
+          maxLength: 160
+        schema_version:
+          type: string
+          minLength: 1
+          maxLength: 40
+        aggregate_type:
+          type: string
+          minLength: 1
+          maxLength: 120
+        aggregate_id:
+          type: string
+          format: uuid
+        topic:
+          type: string
+          minLength: 1
+          maxLength: 160
+        status:
+          type: string
+          enum:
+            - dead_letter
+            - failed
+            - discarded
+        attempt_count:
+          type: integer
+          minimum: 0
+        replay_count:
+          type: integer
+          minimum: 0
+        last_error:
+          type: string
+          maxLength: 4000
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 240
+        trace_id:
+          type: string
+          maxLength: 200
+        headers:
+          type: object
+          additionalProperties: true
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OutboxDLQListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OutboxDLQMessage"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OutboxDLQActionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - outbox_ids
+        - reason
+      properties:
+        outbox_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    OutboxDLQActionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+        - updated
+        - outbox_ids
+        - trace_id
+      properties:
+        action:
+          type: string
+          enum:
+            - replay
+            - discard
+        updated:
+          type: integer
+          minimum: 0
+        outbox_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
         trace_id:
           type: string
           minLength: 1

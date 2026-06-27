@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -34,6 +35,13 @@ type ObligationWriter interface {
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 }
 
+// GenerationRunRecorder persists operator-visible generation status. It is optional for unit
+// tests, but production wires it so publish-triggered generation is not only a log line.
+type GenerationRunRecorder interface {
+	StartGenerationRun(ctx context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error)
+	FinishGenerationRun(ctx context.Context, tenantID, runID string, result domain.GenerateResult, cursorGoatID, lastError string, completedAt time.Time) error
+}
+
 // CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
 // a matching post-arrival obligation. Only trusted evidence may suppress due work.
 type CompletionEvidenceReader interface {
@@ -47,6 +55,7 @@ type GenerationService struct {
 	goats    GoatLister
 	obl      ObligationWriter
 	evidence CompletionEvidenceReader
+	runs     GenerationRunRecorder
 	page     int32
 }
 
@@ -58,6 +67,15 @@ func NewGenerationService(proto ProtocolReader, goats GoatLister, obl Obligation
 	if reader, ok := goats.(CompletionEvidenceReader); ok {
 		s.evidence = reader
 	}
+	if recorder, ok := goats.(GenerationRunRecorder); ok {
+		s.runs = recorder
+	}
+	return s
+}
+
+// WithGenerationRunRecorder overrides the optional durable generation-run recorder.
+func (s *GenerationService) WithGenerationRunRecorder(rec GenerationRunRecorder) *GenerationService {
+	s.runs = rec
 	return s
 }
 
@@ -96,6 +114,70 @@ func normDim(v string) string {
 // GenerateForVersion generates obligations for every applicable rule of a PUBLISHED version across
 // the eligible in-care cohort. Idempotent (deterministic key → ON CONFLICT no-op). Returns counts.
 func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time) (domain.GenerateResult, error) {
+	return s.generateForVersion(ctx, tenantID, versionID, asOf, generationOptions{})
+}
+
+// GenerateManualCampaignForVersion materializes a deliberate campaign trigger. It is separate from
+// normal publish/backfill generation so manual_campaign rules cannot fire accidentally.
+func (s *GenerationService) GenerateManualCampaignForVersion(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerateResult, error) {
+	return s.generateForVersion(ctx, tenantID, versionID, asOf, generationOptions{
+		ManualCampaignID: campaignID,
+	})
+}
+
+// GenerateForVersionWithRun wraps an existing-cohort generation pass in a durable status row. If
+// the same idempotency key has already completed, it returns the persisted counts without replaying
+// the whole herd scan.
+func (s *GenerationService) GenerateForVersionWithRun(ctx context.Context, tenantID, versionID string, asOf time.Time, triggerType, triggerRef string) (domain.GenerationRun, domain.GenerateResult, error) {
+	return s.generateForVersionWithRun(ctx, tenantID, versionID, asOf, triggerType, triggerRef, generationOptions{})
+}
+
+// GenerateManualCampaignForVersionWithRun wraps manual campaign generation in a durable run row.
+func (s *GenerationService) GenerateManualCampaignForVersionWithRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerationRun, domain.GenerateResult, error) {
+	return s.generateForVersionWithRun(ctx, tenantID, versionID, asOf, "manual_campaign", manualCampaignTriggerRef(campaignID, asOf), generationOptions{
+		ManualCampaignID: campaignID,
+	})
+}
+
+func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenantID, versionID string, asOf time.Time, triggerType, triggerRef string, opts generationOptions) (domain.GenerationRun, domain.GenerateResult, error) {
+	if s.runs == nil {
+		res, err := s.generateForVersion(ctx, tenantID, versionID, asOf, opts)
+		return domain.GenerationRun{}, res, err
+	}
+	key := generationRunKey(tenantID, versionID, triggerType, triggerRef)
+	run, started, err := s.runs.StartGenerationRun(ctx, domain.GenerationRunInput{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		TriggerType:       triggerType,
+		TriggerRef:        triggerRef,
+		StartedAt:         asOf,
+		IdempotencyKey:    key,
+	})
+	if err != nil {
+		return run, domain.GenerateResult{}, err
+	}
+	if !started {
+		if run.Status == "completed" {
+			return run, generationResultFromRun(run), nil
+		}
+		return run, generationResultFromRun(run), fmt.Errorf("vaccination: generation run %s is already %s", run.RunID, run.Status)
+	}
+	res, genErr := s.generateForVersion(ctx, tenantID, versionID, asOf, opts)
+	lastError := ""
+	if genErr != nil {
+		lastError = genErr.Error()
+	}
+	if err := s.runs.FinishGenerationRun(ctx, tenantID, run.RunID, res, "", lastError, time.Now().UTC()); err != nil && genErr == nil {
+		genErr = err
+	}
+	return run, res, genErr
+}
+
+type generationOptions struct {
+	ManualCampaignID string
+}
+
+func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
 	var res domain.GenerateResult
 	if err := s.requireEvidenceReader(); err != nil {
 		return res, err
@@ -140,7 +222,7 @@ func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		for _, g := range goats {
-			if err := s.genOneGoat(ctx, tenantID, versionID, rules, defersEnabled, g, asOf, &res); err != nil {
+			if err := s.genOneGoat(ctx, tenantID, versionID, rules, defersEnabled, g, asOf, opts, &res); err != nil {
 				return res, err
 			}
 		}
@@ -154,9 +236,9 @@ func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, ve
 
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // visible deferred event when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, defersEnabled bool, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, defersEnabled bool, g domain.EligibleGoat, asOf time.Time, opts generationOptions, res *domain.GenerateResult) error {
 	for _, rule := range rules {
-		due, ok, skip := dueAt(rule, g, asOf)
+		due, ok, skip := dueAt(rule, g, asOf, opts)
 		if skip {
 			res.SkippedNoDueDate++
 			continue
@@ -253,7 +335,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		if err != nil {
 			return res, err
 		}
-		if err := s.genOneGoat(ctx, tenantID, versionID, rules, len(dsl.Eligibility.DeferStates) > 0, g, asOf, &res); err != nil {
+		if err := s.genOneGoat(ctx, tenantID, versionID, rules, len(dsl.Eligibility.DeferStates) > 0, g, asOf, generationOptions{}, &res); err != nil {
 			return res, err
 		}
 	}
@@ -285,7 +367,7 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility) bool {
 // dueAt computes a rule's due date for a goat. ok=false with skip=false means the trigger is not an
 // SM-1 trigger (after_previous_completion → SM-7, manual_campaign). skip=true means an SM-1 trigger
 // that cannot be scheduled for this goat (missing dob/entry_date).
-func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time) (due time.Time, ok bool, skip bool) {
+func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, opts generationOptions) (due time.Time, ok bool, skip bool) {
 	off := time.Duration(rule.OffsetDays) * 24 * time.Hour
 	switch rule.TriggerType {
 	case "birth_age":
@@ -300,7 +382,12 @@ func dueAt(rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time) (due ti
 		return g.EntryDate.Add(off), true, false
 	case "calendar":
 		return asOf.Add(off), true, false
-	default: // after_previous_completion (SM-7), manual_campaign
+	case "manual_campaign":
+		if opts.ManualCampaignID == "" {
+			return time.Time{}, false, false
+		}
+		return asOf.Add(off), true, false
+	default: // after_previous_completion (SM-7)
 		return time.Time{}, false, false
 	}
 }
@@ -312,4 +399,24 @@ func obligationKey(parts ...string) string {
 		_, _ = h.Write([]byte("|"))
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func generationRunKey(tenantID, versionID, triggerType, triggerRef string) string {
+	if triggerType == "" {
+		triggerType = "manual"
+	}
+	return obligationKey("vaccination_generation_run", tenantID, versionID, triggerType, triggerRef)
+}
+
+func manualCampaignTriggerRef(campaignID string, asOf time.Time) string {
+	return strings.TrimSpace(campaignID) + "@" + asOf.UTC().Format(time.RFC3339Nano)
+}
+
+func generationResultFromRun(run domain.GenerationRun) domain.GenerateResult {
+	return domain.GenerateResult{
+		Generated:                  run.Generated,
+		Deferred:                   run.Deferred,
+		SkippedNoDueDate:           run.SkippedNoDueDate,
+		SuppressedByTrustedHistory: run.SuppressedByTrustedHistory,
+	}
 }

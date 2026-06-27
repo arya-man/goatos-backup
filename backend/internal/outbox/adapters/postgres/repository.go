@@ -2,7 +2,12 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -219,8 +224,8 @@ func (r *Repository) ListDeadLetters(ctx context.Context, q ports.DeadLetterQuer
 	if status == "" {
 		status = domain.StatusDeadLetter
 	}
-	if status != domain.StatusDeadLetter && status != domain.StatusFailed {
-		return nil, fmt.Errorf("outbox: dead letter status must be %q or %q", domain.StatusDeadLetter, domain.StatusFailed)
+	if status != domain.StatusDeadLetter && status != domain.StatusFailed && status != domain.StatusDiscarded {
+		return nil, fmt.Errorf("outbox: dead letter status must be %q, %q, or %q", domain.StatusDeadLetter, domain.StatusFailed, domain.StatusDiscarded)
 	}
 	rows, err := r.pool.Query(ctx, `
 SELECT
@@ -228,12 +233,18 @@ SELECT
   tenant_id::text,
   event_id::text,
   event_type,
+  schema_version,
   aggregate_type,
   aggregate_id::text,
   topic,
   status,
   attempt_count,
+  replay_count,
   COALESCE(last_error, ''),
+  idempotency_key,
+  trace_id,
+  headers,
+  payload,
   created_at,
   updated_at
 FROM outbox_messages
@@ -255,12 +266,18 @@ LIMIT $5`, q.TenantID, status, q.EventType, q.Topic, q.Limit)
 			&message.TenantID,
 			&message.EventID,
 			&message.EventType,
+			&message.SchemaVersion,
 			&message.AggregateType,
 			&message.AggregateID,
 			&message.Topic,
 			&message.Status,
 			&message.AttemptCount,
+			&message.ReplayCount,
 			&message.LastError,
+			&message.IdempotencyKey,
+			&message.TraceID,
+			&message.Headers,
+			&message.Payload,
 			&message.CreatedAt,
 			&message.UpdatedAt,
 		); err != nil {
@@ -274,13 +291,60 @@ LIMIT $5`, q.TenantID, status, q.EventType, q.Topic, q.Limit)
 	return messages, nil
 }
 
+func (r *Repository) Health(ctx context.Context, tenantID string, now time.Time) (domain.Health, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	var health domain.Health
+	err := r.pool.QueryRow(ctx, `
+SELECT
+  COUNT(*) FILTER (WHERE status = 'pending')::bigint AS pending_count,
+  COUNT(*) FILTER (WHERE status = 'publishing')::bigint AS publishing_count,
+  COUNT(*) FILTER (WHERE status = 'failed')::bigint AS failed_count,
+  COUNT(*) FILTER (WHERE status = 'dead_letter')::bigint AS dead_letter_count,
+  MIN(created_at) FILTER (WHERE status = 'pending') AS oldest_pending_at,
+  MIN(updated_at) FILTER (WHERE status IN ('failed', 'dead_letter')) AS oldest_failure_at,
+  MAX(published_at) FILTER (WHERE status = 'published') AS last_published_at
+FROM outbox_messages
+WHERE tenant_id = $1::uuid`, tenantID).Scan(
+		&health.PendingCount,
+		&health.PublishingCount,
+		&health.FailedCount,
+		&health.DeadLetterCount,
+		&health.OldestPendingAt,
+		&health.OldestFailureAt,
+		&health.LastPublishedAt,
+	)
+	if err != nil {
+		return domain.Health{}, fmt.Errorf("outbox: health: %w", err)
+	}
+	health.Status = "healthy"
+	if health.FailedCount > 0 || health.DeadLetterCount > 0 {
+		health.Status = "degraded"
+	}
+	if health.OldestPendingAt != nil && now.Sub(*health.OldestPendingAt) > 15*time.Minute {
+		health.Status = "degraded"
+	}
+	return health, nil
+}
+
 func (r *Repository) ReplayDeadLetters(ctx context.Context, params ports.ReplayDeadLettersParams) (int64, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	if params.Now.IsZero() {
 		params.Now = time.Now().UTC()
 	}
-	tag, err := r.pool.Exec(ctx, `
+	return r.runDLQAction(ctx, dlqActionParams{
+		TenantID:       params.TenantID,
+		OutboxIDs:      params.OutboxIDs,
+		Reason:         params.Reason,
+		Now:            params.Now,
+		IdempotencyKey: params.IdempotencyKey,
+		RequestHash:    params.RequestHash,
+		Action:         "replay",
+		UpdateSQL: `
 UPDATE outbox_messages
 SET status = 'pending',
     attempt_count = 0,
@@ -293,11 +357,159 @@ WHERE tenant_id = $1::uuid
   AND outbox_id::text = ANY($2::text[])
   AND status IN ('dead_letter', 'failed')
   AND replay_count < $5`,
-		params.TenantID, params.OutboxIDs, replayReason(params.Reason), params.Now, maxDeadLetterReplays)
-	if err != nil {
-		return 0, fmt.Errorf("outbox: replay dead letters: %w", err)
+		MaxReplays: maxDeadLetterReplays,
+	})
+}
+
+func (r *Repository) DiscardDeadLetters(ctx context.Context, params ports.DiscardDeadLettersParams) (int64, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if params.Now.IsZero() {
+		params.Now = time.Now().UTC()
 	}
-	return tag.RowsAffected(), nil
+	return r.runDLQAction(ctx, dlqActionParams{
+		TenantID:       params.TenantID,
+		OutboxIDs:      params.OutboxIDs,
+		Reason:         params.Reason,
+		Now:            params.Now,
+		IdempotencyKey: params.IdempotencyKey,
+		RequestHash:    params.RequestHash,
+		Action:         "discard",
+		UpdateSQL: `
+UPDATE outbox_messages
+SET status = 'discarded',
+    next_attempt_at = NULL,
+    published_at = NULL,
+    last_error = $3,
+    updated_at = $4::timestamptz
+WHERE tenant_id = $1::uuid
+  AND outbox_id::text = ANY($2::text[])
+  AND status IN ('dead_letter', 'failed')`,
+	})
+}
+
+type dlqActionParams struct {
+	TenantID       string
+	OutboxIDs      []string
+	Reason         string
+	Now            time.Time
+	IdempotencyKey string
+	RequestHash    string
+	Action         string
+	UpdateSQL      string
+	MaxReplays     int
+}
+
+func (r *Repository) runDLQAction(ctx context.Context, params dlqActionParams) (int64, error) {
+	if params.RequestHash == "" {
+		params.RequestHash = dlqRepoActionHash(params.Action, params.OutboxIDs, params.Reason)
+	}
+	if params.IdempotencyKey == "" {
+		params.IdempotencyKey = params.Action + ":" + params.RequestHash
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("outbox: begin dlq action: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var actionID, status, requestHash string
+	var updatedCount int64
+	err = tx.QueryRow(ctx, `
+INSERT INTO outbox_dlq_actions (
+  tenant_id, idempotency_key, action, request_hash, reason, outbox_ids, status, created_at, updated_at
+) VALUES (
+  $1::uuid, $2, $3, $4, $5, $6::text[], 'running', $7::timestamptz, $7::timestamptz
+)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+RETURNING action_id::text, status, request_hash, updated_count`,
+		params.TenantID, params.IdempotencyKey, params.Action, params.RequestHash, params.Reason, params.OutboxIDs, params.Now).Scan(
+		&actionID, &status, &requestHash, &updatedCount,
+	)
+	fresh := true
+	if errors.Is(err, pgx.ErrNoRows) {
+		fresh = false
+		err = tx.QueryRow(ctx, `
+SELECT action_id::text, status, request_hash, updated_count
+FROM outbox_dlq_actions
+WHERE tenant_id = $1::uuid
+  AND idempotency_key = $2
+FOR UPDATE`, params.TenantID, params.IdempotencyKey).Scan(&actionID, &status, &requestHash, &updatedCount)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("outbox: record dlq action: %w", err)
+	}
+	if requestHash != params.RequestHash {
+		return 0, ports.ErrDLQActionConflict
+	}
+	if !fresh {
+		if status == "completed" {
+			if err := tx.Commit(ctx); err != nil {
+				return 0, err
+			}
+			committed = true
+			return updatedCount, nil
+		}
+		return 0, ports.ErrDLQActionPending
+	}
+
+	reason := replayReason(params.Reason)
+	if params.Action == "discard" {
+		reason = discardReason(params.Reason)
+	}
+	if params.MaxReplays > 0 {
+		tag, execErr := tx.Exec(ctx, params.UpdateSQL, params.TenantID, params.OutboxIDs, reason, params.Now, params.MaxReplays)
+		err = execErr
+		if err == nil {
+			updatedCount = tag.RowsAffected()
+		}
+	} else {
+		tag, execErr := tx.Exec(ctx, params.UpdateSQL, params.TenantID, params.OutboxIDs, reason, params.Now)
+		err = execErr
+		if err == nil {
+			updatedCount = tag.RowsAffected()
+		}
+	}
+	if err != nil {
+		return 0, fmt.Errorf("outbox: %s dead letters: %w", params.Action, err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE outbox_dlq_actions
+SET status = 'completed',
+    updated_count = $3,
+    completed_at = $4::timestamptz,
+    updated_at = $4::timestamptz
+WHERE tenant_id = $1::uuid
+  AND action_id = $2::uuid`,
+		params.TenantID, actionID, updatedCount, params.Now); err != nil {
+		return 0, fmt.Errorf("outbox: finish dlq action: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	committed = true
+	return updatedCount, nil
+}
+
+func dlqRepoActionHash(action string, outboxIDs []string, reason string) string {
+	ids := append([]string(nil), outboxIDs...)
+	sort.Strings(ids)
+	raw, _ := json.Marshal(struct {
+		Action    string   `json:"action"`
+		OutboxIDs []string `json:"outbox_ids"`
+		Reason    string   `json:"reason"`
+	}{
+		Action:    action,
+		OutboxIDs: ids,
+		Reason:    reason,
+	})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func (r *Repository) execStatusUpdate(ctx context.Context, sql string, args ...any) error {
@@ -321,6 +533,16 @@ func replayReason(reason string) string {
 		reason = reason[:180]
 	}
 	return "replayed_from_dlq: " + reason
+}
+
+func discardReason(reason string) string {
+	if reason == "" {
+		return "discarded_from_dlq"
+	}
+	if len(reason) > 180 {
+		reason = reason[:180]
+	}
+	return "discarded_from_dlq: " + reason
 }
 
 func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

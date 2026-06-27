@@ -156,6 +156,77 @@ $$;
 
 
 --
+-- Name: ensure_protocol_child_version_is_draft(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ensure_protocol_child_version_is_draft() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  parent_status text;
+BEGIN
+  SELECT status
+  INTO parent_status
+  FROM protocol_versions
+  WHERE tenant_id = NEW.tenant_id
+    AND protocol_version_id = NEW.protocol_version_id;
+
+  IF parent_status IS NULL THEN
+    RAISE EXCEPTION 'protocol version % does not exist for tenant %', NEW.protocol_version_id, NEW.tenant_id
+      USING ERRCODE = '23503';
+  END IF;
+
+  IF parent_status <> 'draft' THEN
+    RAISE EXCEPTION 'protocol version % is %, not draft; published config is immutable',
+      NEW.protocol_version_id, parent_status
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: ensure_published_protocol_version_is_immutable(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ensure_published_protocol_version_is_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF OLD.status = 'published' THEN
+    IF NEW.status NOT IN ('published', 'retired') THEN
+      RAISE EXCEPTION 'published protocol version % cannot move back to status %',
+        OLD.protocol_version_id, NEW.status
+        USING ERRCODE = '23514';
+    END IF;
+
+    IF NEW.protocol_id IS DISTINCT FROM OLD.protocol_id
+      OR NEW.scope_type IS DISTINCT FROM OLD.scope_type
+      OR NEW.scope_id IS DISTINCT FROM OLD.scope_id
+      OR NEW.version IS DISTINCT FROM OLD.version
+      OR NEW.version_label IS DISTINCT FROM OLD.version_label
+      OR NEW.effective_from IS DISTINCT FROM OLD.effective_from
+      OR NEW.effective_to IS DISTINCT FROM OLD.effective_to
+      OR NEW.rule_dsl IS DISTINCT FROM OLD.rule_dsl
+      OR NEW.proof_policy IS DISTINCT FROM OLD.proof_policy
+      OR NEW.sop_version_id IS DISTINCT FROM OLD.sop_version_id
+      OR NEW.drafted_by IS DISTINCT FROM OLD.drafted_by
+      OR NEW.published_by IS DISTINCT FROM OLD.published_by
+      OR NEW.published_at IS DISTINCT FROM OLD.published_at THEN
+      RAISE EXCEPTION 'published protocol version % is immutable; create a new version for config changes',
+        OLD.protocol_version_id
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: location_seeded_scope_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1149,6 +1220,30 @@ CREATE TABLE public.counts_sync_runs (
 
 
 --
+-- Name: domain_event_processed_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.domain_event_processed_events (
+    tenant_id uuid NOT NULL,
+    subscription_id text NOT NULL,
+    event_id text NOT NULL,
+    event_type text NOT NULL,
+    message_id text DEFAULT ''::text NOT NULL,
+    delivery_attempt integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'processing'::text NOT NULL,
+    attempt_count integer DEFAULT 1 NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    processed_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT domain_event_processed_events_attempt_check CHECK ((attempt_count >= 1)),
+    CONSTRAINT domain_event_processed_events_delivery_attempt_check CHECK ((delivery_attempt >= 0)),
+    CONSTRAINT domain_event_processed_events_status_check CHECK ((status = ANY (ARRAY['processing'::text, 'processed'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: farm_profiles; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2022,7 +2117,7 @@ CREATE TABLE public.identity_decisions (
     CONSTRAINT identity_decisions_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT identity_decisions_decided_by_type_check CHECK ((decided_by_type = ANY (ARRAY['human'::text, 'system_rule'::text, 'import_policy'::text, 'ai_proposal'::text]))),
     CONSTRAINT identity_decisions_decision_state_check CHECK ((decision_state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text]))),
-    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text])))
+    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text, 'stage_goat'::text])))
 );
 
 
@@ -3079,6 +3174,29 @@ CREATE TABLE public.orgs (
 
 
 --
+-- Name: outbox_dlq_actions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.outbox_dlq_actions (
+    action_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    action text NOT NULL,
+    request_hash text NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    outbox_ids text[] NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    updated_count bigint DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT outbox_dlq_actions_action_check CHECK ((action = ANY (ARRAY['replay'::text, 'discard'::text]))),
+    CONSTRAINT outbox_dlq_actions_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text]))),
+    CONSTRAINT outbox_dlq_actions_updated_count_check CHECK ((updated_count >= 0))
+);
+
+
+--
 -- Name: outbox_messages; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3102,8 +3220,10 @@ CREATE TABLE public.outbox_messages (
     published_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    replay_count integer DEFAULT 0 NOT NULL,
     CONSTRAINT outbox_messages_attempt_count_check CHECK ((attempt_count >= 0)),
-    CONSTRAINT outbox_messages_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'publishing'::text, 'published'::text, 'failed'::text, 'dead_letter'::text])))
+    CONSTRAINT outbox_messages_replay_count_check CHECK ((replay_count >= 0)),
+    CONSTRAINT outbox_messages_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'publishing'::text, 'published'::text, 'failed'::text, 'dead_letter'::text, 'discarded'::text])))
 );
 
 
@@ -3844,6 +3964,37 @@ CREATE TABLE public.vaccination_completions (
 
 
 --
+-- Name: vaccination_generation_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_generation_runs (
+    run_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    protocol_version_id uuid NOT NULL,
+    trigger_type text NOT NULL,
+    trigger_ref text,
+    status text DEFAULT 'running'::text NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    generated_count integer DEFAULT 0 NOT NULL,
+    deferred_count integer DEFAULT 0 NOT NULL,
+    skipped_no_due_date_count integer DEFAULT 0 NOT NULL,
+    suppressed_trusted_history_count integer DEFAULT 0 NOT NULL,
+    cursor_goat_id uuid,
+    last_error text,
+    idempotency_key text NOT NULL,
+    context jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT vaccination_generation_runs_counts_check CHECK (((generated_count >= 0) AND (deferred_count >= 0) AND (skipped_no_due_date_count >= 0) AND (suppressed_trusted_history_count >= 0))),
+    CONSTRAINT vaccination_generation_runs_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT vaccination_generation_runs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT vaccination_generation_runs_trigger_check CHECK ((trigger_type = ANY (ARRAY['publish'::text, 'cli'::text, 'goat_created'::text, 'stage_changed'::text, 'manual_campaign'::text, 'retry'::text])))
+);
+
+
+--
 -- Name: vaccines; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4452,6 +4603,14 @@ ALTER TABLE ONLY public.counts_source_rows
 
 ALTER TABLE ONLY public.counts_sync_runs
     ADD CONSTRAINT counts_sync_runs_pkey PRIMARY KEY (sync_run_id);
+
+
+--
+-- Name: domain_event_processed_events domain_event_processed_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.domain_event_processed_events
+    ADD CONSTRAINT domain_event_processed_events_pkey PRIMARY KEY (tenant_id, subscription_id, event_id);
 
 
 --
@@ -5279,6 +5438,22 @@ ALTER TABLE ONLY public.orgs
 
 
 --
+-- Name: outbox_dlq_actions outbox_dlq_actions_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbox_dlq_actions
+    ADD CONSTRAINT outbox_dlq_actions_key_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: outbox_dlq_actions outbox_dlq_actions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbox_dlq_actions
+    ADD CONSTRAINT outbox_dlq_actions_pkey PRIMARY KEY (action_id);
+
+
+--
 -- Name: outbox_messages outbox_messages_event_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5724,6 +5899,22 @@ ALTER TABLE ONLY public.vaccination_completions
 
 ALTER TABLE ONLY public.vaccination_completions
     ADD CONSTRAINT vaccination_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: vaccination_generation_runs vaccination_generation_runs_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_generation_runs
+    ADD CONSTRAINT vaccination_generation_runs_idempotency_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: vaccination_generation_runs vaccination_generation_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_generation_runs
+    ADD CONSTRAINT vaccination_generation_runs_pkey PRIMARY KEY (run_id);
 
 
 --
@@ -6511,6 +6702,13 @@ CREATE INDEX counts_source_rows_watermark_idx ON public.counts_source_rows USING
 --
 
 CREATE INDEX counts_sync_runs_tenant_created_idx ON public.counts_sync_runs USING btree (tenant_id, created_at DESC, sync_run_id DESC);
+
+
+--
+-- Name: domain_event_processed_events_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX domain_event_processed_events_status_idx ON public.domain_event_processed_events USING btree (tenant_id, subscription_id, status, updated_at);
 
 
 --
@@ -7872,6 +8070,13 @@ CREATE INDEX obligation_status_events_default_tenant_id_idempotency_key_idx ON p
 
 
 --
+-- Name: outbox_dlq_actions_tenant_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX outbox_dlq_actions_tenant_created_idx ON public.outbox_dlq_actions USING btree (tenant_id, created_at DESC, action_id DESC);
+
+
+--
 -- Name: outbox_messages_aggregate_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7883,6 +8088,20 @@ CREATE INDEX outbox_messages_aggregate_idx ON public.outbox_messages USING btree
 --
 
 CREATE INDEX outbox_messages_created_at_idx ON public.outbox_messages USING btree (created_at);
+
+
+--
+-- Name: outbox_messages_discarded_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX outbox_messages_discarded_idx ON public.outbox_messages USING btree (tenant_id, status, updated_at DESC, outbox_id DESC) WHERE (status = 'discarded'::text);
+
+
+--
+-- Name: outbox_messages_replay_guard_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX outbox_messages_replay_guard_idx ON public.outbox_messages USING btree (tenant_id, status, replay_count, updated_at) WHERE (status = ANY (ARRAY['dead_letter'::text, 'failed'::text]));
 
 
 --
@@ -8310,6 +8529,20 @@ CREATE INDEX vaccination_completions_review_idx ON public.vaccination_completion
 --
 
 CREATE INDEX vaccination_completions_submission_item_idx ON public.vaccination_completions USING btree (tenant_id, sop_submission_item_id) WHERE (sop_submission_item_id IS NOT NULL);
+
+
+--
+-- Name: vaccination_generation_runs_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_generation_runs_status_idx ON public.vaccination_generation_runs USING btree (tenant_id, status, updated_at DESC);
+
+
+--
+-- Name: vaccination_generation_runs_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_generation_runs_version_idx ON public.vaccination_generation_runs USING btree (tenant_id, protocol_version_id, started_at DESC);
 
 
 --
@@ -9545,6 +9778,27 @@ CREATE TRIGGER park_profiles_validate_type_trg BEFORE INSERT OR UPDATE OF tenant
 
 
 --
+-- Name: protocol_rules protocol_rules_require_draft_version_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER protocol_rules_require_draft_version_trg BEFORE INSERT OR UPDATE ON public.protocol_rules FOR EACH ROW EXECUTE FUNCTION public.ensure_protocol_child_version_is_draft();
+
+
+--
+-- Name: protocol_triggers protocol_triggers_require_draft_version_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER protocol_triggers_require_draft_version_trg BEFORE INSERT OR UPDATE ON public.protocol_triggers FOR EACH ROW EXECUTE FUNCTION public.ensure_protocol_child_version_is_draft();
+
+
+--
+-- Name: protocol_versions protocol_versions_published_immutable_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER protocol_versions_published_immutable_trg BEFORE UPDATE ON public.protocol_versions FOR EACH ROW EXECUTE FUNCTION public.ensure_published_protocol_version_is_immutable();
+
+
+--
 -- Name: protocol_versions protocol_versions_validate_scope_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -9875,6 +10129,14 @@ ALTER TABLE ONLY public.counts_source_rows
 
 ALTER TABLE ONLY public.counts_sync_runs
     ADD CONSTRAINT counts_sync_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: domain_event_processed_events domain_event_processed_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.domain_event_processed_events
+    ADD CONSTRAINT domain_event_processed_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -11558,6 +11820,14 @@ ALTER TABLE ONLY public.orgs
 
 
 --
+-- Name: outbox_dlq_actions outbox_dlq_actions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbox_dlq_actions
+    ADD CONSTRAINT outbox_dlq_actions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: outbox_messages outbox_messages_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12227,6 +12497,30 @@ ALTER TABLE ONLY public.vaccination_completions
 
 ALTER TABLE ONLY public.vaccination_completions
     ADD CONSTRAINT vaccination_completions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_generation_runs vaccination_generation_runs_cursor_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_generation_runs
+    ADD CONSTRAINT vaccination_generation_runs_cursor_goat_fk FOREIGN KEY (tenant_id, cursor_goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: vaccination_generation_runs vaccination_generation_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_generation_runs
+    ADD CONSTRAINT vaccination_generation_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_generation_runs vaccination_generation_runs_version_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_generation_runs
+    ADD CONSTRAINT vaccination_generation_runs_version_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
 
 
 --

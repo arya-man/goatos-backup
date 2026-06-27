@@ -1199,8 +1199,11 @@ ON CONFLICT (tenant_id, code) DO NOTHING`, protocolID, testTenant, "vaccination.
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
-VALUES ($1, $2, $3, 'tenant', 1, 'published', DATE '2026-01-01', '{}'::jsonb, '{}'::jsonb)
-ON CONFLICT (tenant_id, protocol_version_id) DO NOTHING`, versionID, testTenant, protocolID)
+VALUES ($1, $2, $3, 'tenant', 1, 'draft', DATE '2026-01-01', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (tenant_id, protocol_version_id) DO UPDATE
+SET status = 'draft',
+    published_at = NULL,
+    updated_at = now()`, versionID, testTenant, protocolID)
 	if err != nil {
 		t.Fatalf("seed protocol version: %v", err)
 	}
@@ -1210,6 +1213,15 @@ VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::
 ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
 	if err != nil {
 		t.Fatalf("seed protocol rule: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+UPDATE protocol_versions
+SET status = 'published',
+    published_at = COALESCE(published_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1 AND protocol_version_id = $2`, testTenant, versionID)
+	if err != nil {
+		t.Fatalf("publish protocol version: %v", err)
 	}
 	return versionID, ruleID
 }
@@ -1228,8 +1240,11 @@ ON CONFLICT (tenant_id, code) DO NOTHING`, protocolID, testTenant)
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
-VALUES ($1, $2, $3, 'tenant', 1, 'published', DATE '2026-01-01', '{}'::jsonb, '{}'::jsonb)
-ON CONFLICT (tenant_id, protocol_version_id) DO NOTHING`, versionID, testTenant, protocolID)
+VALUES ($1, $2, $3, 'tenant', 1, 'draft', DATE '2026-01-01', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (tenant_id, protocol_version_id) DO UPDATE
+SET status = 'draft',
+    published_at = NULL,
+    updated_at = now()`, versionID, testTenant, protocolID)
 	if err != nil {
 		t.Fatalf("seed HF protocol version: %v", err)
 	}
@@ -1239,6 +1254,15 @@ VALUES ($1, $2, $3, 'primary', 1, 'post_arrival', 'none', 'phc_approval', '{}'::
 ON CONFLICT (tenant_id, rule_id) DO NOTHING`, ruleID, testTenant, versionID)
 	if err != nil {
 		t.Fatalf("seed HF protocol rule: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+UPDATE protocol_versions
+SET status = 'published',
+    published_at = COALESCE(published_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1 AND protocol_version_id = $2`, testTenant, versionID)
+	if err != nil {
+		t.Fatalf("publish HF protocol version: %v", err)
 	}
 	return versionID, ruleID
 }

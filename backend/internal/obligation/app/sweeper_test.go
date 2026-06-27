@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -36,6 +37,29 @@ func TestSweeperSkipsSideEffectsWhenAttachClaimsNoRows(t *testing.T) {
 	}
 	if repo.setTaskCalls != 0 {
 		t.Fatalf("batch task links = %d, want 0", repo.setTaskCalls)
+	}
+}
+
+func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", ScopeType: "park", ScopeID: "park-1"},
+		},
+		createBatchID:       "batch-1",
+		createBatchAttached: 1,
+	}
+	reserver := &fakeSweepStockReserver{err: errors.New("inventory: stock unavailable")}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Now())
+	if err == nil {
+		t.Fatal("SweepVersion expected stock error")
+	}
+	if repo.stockBlockCalls != 1 {
+		t.Fatalf("stock block calls = %d, want 1", repo.stockBlockCalls)
 	}
 }
 
@@ -78,6 +102,7 @@ type fakeSweepRepo struct {
 	createBatchAttached int64
 	createBatchCalls    int
 	setTaskCalls        int
+	stockBlockCalls     int
 	lastTaskID          string
 }
 
@@ -111,6 +136,11 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, _ domain.N
 func (f *fakeSweepRepo) SetBatchSOPTask(_ context.Context, _, _, taskID string) error {
 	f.setTaskCalls++
 	f.lastTaskID = taskID
+	return nil
+}
+
+func (f *fakeSweepRepo) MarkBatchStockBlocked(context.Context, string, string, string, int64, string) error {
+	f.stockBlockCalls++
 	return nil
 }
 
@@ -163,11 +193,12 @@ type fakeSweepStockReserver struct {
 	calls       int
 	lastBatchID string
 	lastQty     int64
+	err         error
 }
 
 func (f *fakeSweepStockReserver) ReserveForBatch(_ context.Context, _, batchID, _, _ string, qty int64) error {
 	f.calls++
 	f.lastBatchID = batchID
 	f.lastQty = qty
-	return nil
+	return f.err
 }

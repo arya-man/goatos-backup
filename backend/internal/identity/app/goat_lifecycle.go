@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	moveGoatCommand = "moveGoat"
-	exitGoatCommand = "exitGoat"
+	moveGoatCommand  = "moveGoat"
+	exitGoatCommand  = "exitGoat"
+	stageGoatCommand = "stageGoat"
 )
 
 type MoveGoatInput struct {
@@ -28,6 +29,15 @@ type MoveGoatInput struct {
 }
 
 type ExitGoatInput struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+	GoatID         string
+	RawBody        []byte
+}
+
+type StageGoatInput struct {
 	TenantID       string
 	ActorID        string
 	IdempotencyKey string
@@ -138,6 +148,56 @@ func (s *Service) ExitGoat(ctx context.Context, input ExitGoatInput) (*domain.Ad
 	return adminGoatResponse(result, clientKey, input.TraceID), nil
 }
 
+func (s *Service) StageGoat(ctx context.Context, input StageGoatInput) (*domain.AdminGoatResponse, error) {
+	tenantID, actorID, clientKey, err := validateWriteHeaders(input.TenantID, input.ActorID, input.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	goatID := strings.TrimSpace(input.GoatID)
+	if !uuidPattern.MatchString(goatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a valid UUID")
+	}
+	body, err := decodeStageGoat(input.RawBody)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateStageGoat(body); err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, Internal("stage goat request normalization failed")
+	}
+	route := "/admin/goats/{goat_id}/stage"
+	requestHash, err := CanonicalRequestHashWithSubject(tenantID, stageGoatCommand, route, goatID, raw)
+	if err != nil {
+		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+	}
+	occurredAt := time.Now().UTC()
+	if body.OccurredAt != nil {
+		occurredAt = body.OccurredAt.UTC()
+	}
+	result, err := s.repo.StageGoat(ctx, ports.StageGoatCommand{
+		TenantID:             tenantID,
+		ActorID:              actorID,
+		ClientIdempotencyKey: clientKey,
+		StoredIdempotencyKey: fmt.Sprintf("%s:%s:%s:%s", tenantID, stageGoatCommand, goatID, clientKey),
+		IdempotencyScope:     stageGoatCommand,
+		RequestHash:          requestHash,
+		TraceID:              input.TraceID,
+		GoatID:               goatID,
+		ManagementStage:      strings.TrimSpace(body.ManagementStage),
+		Reason:               strings.TrimSpace(body.Reason),
+		OccurredAt:           occurredAt,
+		EvidenceRefs:         body.EvidenceRefs,
+		RowVersion:           body.RowVersion,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return adminGoatResponse(result, clientKey, input.TraceID), nil
+}
+
 func decodeMoveGoat(raw []byte) (*domain.MoveGoatRequest, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, BadRequest("invalid_json", "request body is required")
@@ -164,6 +224,23 @@ func decodeExitGoat(raw []byte) (*domain.ExitGoatRequest, error) {
 	var body domain.ExitGoatRequest
 	if err := decoder.Decode(&body); err != nil {
 		return nil, BadRequest("invalid_json", "request body must match ExitGoatRequest")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return &body, nil
+}
+
+func decodeStageGoat(raw []byte) (*domain.StageGoatRequest, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var body domain.StageGoatRequest
+	if err := decoder.Decode(&body); err != nil {
+		return nil, BadRequest("invalid_json", "request body must match StageGoatRequest")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
@@ -204,6 +281,24 @@ func validateExitGoat(body *domain.ExitGoatRequest) error {
 	}
 	if body.ExitReason != expectedReason {
 		return BadRequest("invalid_exit_reason", "exit_reason must match lifecycle_status")
+	}
+	if len(body.Reason) < 3 || len(body.Reason) > 500 {
+		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
+	}
+	if body.RowVersion < 1 {
+		return BadRequest("invalid_row_version", "row_version must be positive")
+	}
+	return validateEvidenceRefs(body.EvidenceRefs, true)
+}
+
+func validateStageGoat(body *domain.StageGoatRequest) error {
+	body.ManagementStage = strings.TrimSpace(body.ManagementStage)
+	body.Reason = strings.TrimSpace(body.Reason)
+	if len(body.ManagementStage) < 1 || len(body.ManagementStage) > 80 {
+		return BadRequest("invalid_management_stage", "management_stage must be between 1 and 80 characters")
+	}
+	if strings.ContainsAny(body.ManagementStage, "\n\r\t") {
+		return BadRequest("invalid_management_stage", "management_stage must be a single line value")
 	}
 	if len(body.Reason) < 3 || len(body.Reason) > 500 {
 		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")

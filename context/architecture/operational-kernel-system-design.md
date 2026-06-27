@@ -141,8 +141,9 @@ Scale rules:
   tables are partition-aware where needed.
 - Workers use bounded batch sizes, leases or idempotent claims, cancellation,
   retry budgets, and dead-letter visibility.
-- Rule generation uses deterministic idempotency keys and upserts so replay does
-  not duplicate obligations.
+- Rule generation uses deterministic idempotency keys, durable run rows, and
+  upserts so retry/replay does not duplicate obligations or leave publish
+  failures unrecoverable.
 - Far-future due work stays in Postgres. Cloud Tasks is not a calendar database.
 - Query-plan gates are required for widest allowed API list requests and worker
   scans.
@@ -188,7 +189,7 @@ kernel.
 | Booster is prepared after completion. | Booster/follow-up obligations are created from accepted completion events, not from unverified proof. |
 | Missed vaccination is highlighted. | Due/overdue/missed/blocked/proof-pending/verification-pending states feed projections and command lenses. |
 | Reminder and escalation happen. | Durable notification and escalation rows support role-based waterfall delivery, acknowledgement, and resolution. |
-| Shift and exit are handled. | Goat location-change and exit events must re-scope or cancel open work through the same event spine. Current PHC shift handling covers open, unbatched obligations; already-batched drive migration/replanning needs an explicit batch repair policy before claiming every scheduled drive moves automatically. |
+| Shift and exit are handled. | Goat location-change and exit events re-scope or cancel open work through the same event spine. Current PHC shift handling covers open unbatched work and planned batched work by detaching/re-scoping with stock reconciliation markers; in-progress/completed drive migration remains an explicit exception/rework policy. |
 
 The vaccination slice should remain the proving ground for future domains: when
 an edge case is fixed for vaccination, the kernel contract should capture the
@@ -210,7 +211,7 @@ Production-complete DLQ rules:
 - Poison messages go to DLQ with event name, source, payload hash, error, first
   seen, last seen, attempts, tenant/scope when available, and trace identifiers.
 - DLQ replay must be an explicit operator action or guarded repair job with
-  audit/history.
+  idempotency, audit/history, and replay-safe repair rows.
 - Alerts fire on DLQ count, outbox oldest-unsent age, Pub/Sub lag, worker error
   rate, and repeated notification delivery failure.
 - A replayed event must not duplicate obligations, notifications,
@@ -218,8 +219,9 @@ Production-complete DLQ rules:
 
 Current PHC/kernel status is tracked in
 `context/execution/vaccination-edge-case-code-coverage.md`. That ledger should
-distinguish the already-wired outbox DLQ/error/replay mechanics from richer DLQ
-triage metadata, triage UI, and automatic alerting when those are still pending.
+distinguish the wired outbox DLQ/error/replay/discard UI from Pub/Sub DLQ import,
+environment monitoring alerts, and vendor-specific incident sync when those are
+still environment or integration work.
 
 ## SLA Waterfall
 

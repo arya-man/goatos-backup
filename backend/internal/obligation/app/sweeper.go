@@ -106,6 +106,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 				}
 				qty := n * int64(dosesPer)
 				if err := s.reserver.ReserveForBatch(ctx, tenantID, batchID, g.scopeID, cfg.VaccineItemID, qty); err != nil {
+					_ = s.repo.MarkBatchStockBlocked(ctx, tenantID, batchID, cfg.VaccineItemID, qty, err.Error())
 					return res, err
 				}
 			}

@@ -11,6 +11,10 @@ import (
 // ErrNotFound is returned when a requested protocol row does not exist.
 var ErrNotFound = errors.New("protocol: not found")
 
+// ErrVersionNotDraft is returned when a caller tries to mutate or publish a
+// protocol version that is no longer draft. Published config is immutable.
+var ErrVersionNotDraft = errors.New("protocol: version is not draft")
+
 // Repository is the persistence boundary for protocol config. Implementations wrap generated
 // sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {

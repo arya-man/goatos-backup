@@ -10,7 +10,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/outbox/domain"
 )
 
-var ErrPublishPermanent = errors.New("permanent publish failure")
+var (
+	ErrPublishPermanent  = errors.New("permanent publish failure")
+	ErrDLQActionConflict = errors.New("dlq action idempotency key reused with different request")
+	ErrDLQActionPending  = errors.New("dlq action is still running")
+)
 
 type ClaimParams struct {
 	Limit       int
@@ -32,10 +36,21 @@ type DeadLetterQuery struct {
 }
 
 type ReplayDeadLettersParams struct {
-	TenantID  string
-	OutboxIDs []string
-	Reason    string
-	Now       time.Time
+	TenantID       string
+	OutboxIDs      []string
+	Reason         string
+	Now            time.Time
+	IdempotencyKey string
+	RequestHash    string
+}
+
+type DiscardDeadLettersParams struct {
+	TenantID       string
+	OutboxIDs      []string
+	Reason         string
+	Now            time.Time
+	IdempotencyKey string
+	RequestHash    string
 }
 
 type Repository interface {
@@ -46,7 +61,9 @@ type Repository interface {
 	MarkFailed(ctx context.Context, outboxID string, lastError string, now time.Time) error
 	MarkDeadLetter(ctx context.Context, outboxID string, lastError string, now time.Time) error
 	ListDeadLetters(ctx context.Context, q DeadLetterQuery) ([]domain.DeadLetterMessage, error)
+	Health(ctx context.Context, tenantID string, now time.Time) (domain.Health, error)
 	ReplayDeadLetters(ctx context.Context, params ReplayDeadLettersParams) (int64, error)
+	DiscardDeadLetters(ctx context.Context, params DiscardDeadLettersParams) (int64, error)
 	Ping(ctx context.Context) error
 }
 

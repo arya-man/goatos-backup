@@ -1,8 +1,8 @@
 # Local Full-Stack Rehearsal
 
 Status: replaced for the current Admin Config + PHC Vaccination + Parks
-vaccination execution slice. Calendar vaccination due-work is an approved build
-target and joins this runbook when the route/nav/smoke implementation lands.
+vaccination execution slice, including Calendar due-work and Operations DLQ
+repair visibility.
 
 The old local rehearsal used deleted RFID/BQ/import-review tooling and must not
 be followed.
@@ -33,6 +33,7 @@ Implemented admin-web routes:
 ```text
 /login
 /
+/calendar
 /vaccination
 /vaccination/execution/sheds/[shedId]
 /action-center
@@ -43,19 +44,11 @@ Implemented admin-web routes:
 /procurement/source-entry/loads/{load_id}
 /counts/herd
 /operations/audit
+/operations/dlq
 /config
 /sops
 /goats/{goat_id}
 ```
-
-Approved build target, not yet part of live smoke:
-
-```text
-/calendar
-```
-
-When `/calendar` is implemented, add the page, primary nav, mock-fidelity scan
-coverage, and `smoke:visual:live` route coverage in the same frontend PR.
 
 Do not use this runbook to revive `rfid-import`, `rfid-apply`,
 `bq-reconcile`, Import Review, Data Quality, Legacy Sync, old generic Counts

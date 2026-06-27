@@ -169,42 +169,44 @@ INSERT INTO protocol_versions (
   sop_version_id, published_at
 	) VALUES (
 	  '` + localVersionID + `', $1::uuid, '` + localProtocolID + `', 'park', '` + localParkID + `', 1,
-	  'Source-derived dev baseline', 'published', DATE '2026-01-01', DATE '2028-01-01',
+	  'Source-derived dev baseline', 'draft', DATE '2026-01-01', DATE '2028-01-01',
 	  '{"eligibility":{"stage":"K1","sex":"all","breed":"all","defer_states":["sick","quarantine","icu"]},"schedule":[{"dose_code":"ET-PRIMARY-1","trigger_type":"birth_age","offset_days":21,"due_window_days":7,"min_gap_days":14,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}],"source":{"source_system":"phc","source_ref":"docs/phc-vaccination/PRD.md:60; context/source-findings/phc-vaccination-roster-stage-proposal.md","imported_at":"2026-06-26T00:00:00Z","reviewed_by":"source-findings","review_status":"approved","approved_by":"source-derived-dev-baseline","approved_at":"2026-06-26T00:00:00Z"}}'::jsonb,
 	  '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-source-derived-dev-baseline"}'::jsonb,
-	  '` + localSOPVersionID + `', now()
+	  '` + localSOPVersionID + `', NULL
 	)
 ON CONFLICT (protocol_version_id) DO UPDATE
-SET status = 'published',
-    version_label = EXCLUDED.version_label,
+SET version_label = EXCLUDED.version_label,
     effective_from = EXCLUDED.effective_from,
     effective_to = EXCLUDED.effective_to,
     rule_dsl = EXCLUDED.rule_dsl,
     proof_policy = EXCLUDED.proof_policy,
     sop_version_id = EXCLUDED.sop_version_id,
-    published_at = now(),
-    updated_at = now();
+    updated_at = now()
+WHERE protocol_versions.status = 'draft';
 
 INSERT INTO protocol_rules (
   rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
   offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
   sop_version_id, proof_policy, sort_order
-	) VALUES (
-	  '` + localRuleID + `', $1::uuid, '` + localVersionID + `', 'ET-PRIMARY-1', 1, 'birth_age',
-	  21, 7, 14, 'none', 'immediate', '{"stage":"K1","source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb,
-	  '` + localSOPVersionID + `', '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
 	)
-	ON CONFLICT (rule_id) DO UPDATE
-	SET dose_code = EXCLUDED.dose_code,
-	    "sequence" = EXCLUDED."sequence",
-	    trigger_type = EXCLUDED.trigger_type,
-	    offset_days = EXCLUDED.offset_days,
-	    due_window_days = EXCLUDED.due_window_days,
-	    min_gap_days = EXCLUDED.min_gap_days,
-	    repeat = EXCLUDED.repeat,
-	    catch_up = EXCLUDED.catch_up,
-	    eligibility_json = EXCLUDED.eligibility_json,
-	    sop_version_id = EXCLUDED.sop_version_id,
-	    proof_policy = EXCLUDED.proof_policy,
-	    sort_order = EXCLUDED.sort_order;
+	SELECT
+	  '` + localRuleID + `'::uuid, $1::uuid, '` + localVersionID + `'::uuid, 'ET-PRIMARY-1', 1, 'birth_age',
+	  21, 7, 14, 'none', 'immediate', '{"stage":"K1","source_ref":"docs/phc-vaccination/PRD.md:60"}'::jsonb,
+	  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
+	WHERE EXISTS (
+	  SELECT 1
+	  FROM protocol_versions pv
+	  WHERE pv.tenant_id = $1::uuid
+	    AND pv.protocol_version_id = '` + localVersionID + `'
+	    AND pv.status = 'draft'
+	)
+	ON CONFLICT (rule_id) DO NOTHING;
+
+UPDATE protocol_versions
+SET status = 'published',
+    published_at = COALESCE(published_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND protocol_version_id = '` + localVersionID + `'
+  AND status = 'draft';
 	`

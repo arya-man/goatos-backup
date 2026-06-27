@@ -76,7 +76,7 @@
   <rect class="box-strong" x="72" y="392" width="260" height="110"/>
   <text class="label" x="98" y="425">Trigger engine</text>
   <text class="small" x="98" y="450">rules, eligibility, suppressions</text>
-  <text class="mono" x="98" y="474">birth_age, arrival, calendar, event</text>
+  <text class="mono" x="98" y="474">birth_age, arrival, calendar, event, manual</text>
 
   <rect class="box-strong" x="388" y="392" width="260" height="110"/>
   <text class="label" x="414" y="425">Obligations</text>
@@ -111,7 +111,7 @@
 
   <rect class="box-gray" x="410" y="530" width="1166" height="60"/>
   <text class="small" x="438" y="552">Every worker is idempotent, replay-safe, tenant/park/shed/date bounded, observable,</text>
-  <text class="small" x="438" y="572">and DLQ visible before production readiness.</text>
+  <text class="small" x="438" y="572">and visible through health, DLQ ops, and alerts.</text>
   <circle class="dot-green" cx="430" cy="552" r="6"/>
 
   <rect class="lane" x="48" y="646" width="1584" height="234"/>
@@ -139,7 +139,7 @@
 
   <rect class="box-red" x="1276" y="714" width="300" height="112"/>
   <text class="label" x="1302" y="746">Notification adapters</text>
-  <text class="small" x="1302" y="771">Slack, FCM, email, webhook</text>
+  <text class="small" x="1302" y="771">Slack, FCM, email, incident</text>
   <text class="mono" x="1302" y="794">acknowledge + resolve</text>
 
   <path class="arrow" d="M834 502 C834 650 199 650 199 714"/>

@@ -1,0 +1,236 @@
+package http
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	outboxdomain "github.com/vgoats/goatos/backend/internal/outbox/domain"
+	"github.com/vgoats/goatos/backend/internal/outbox/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+)
+
+const (
+	testTenantID = "00000000-0000-4000-8000-000000000001"
+	testActorID  = "00000000-0000-4000-8000-000000000002"
+	testOutboxID = "10000000-0000-4000-8000-000000000001"
+)
+
+func TestListDeadLetters(t *testing.T) {
+	repo := &fakeDLQRepo{
+		items: []outboxdomain.DeadLetterMessage{{
+			OutboxID:       testOutboxID,
+			TenantID:       testTenantID,
+			EventID:        "20000000-0000-4000-8000-000000000001",
+			EventType:      "goat.created",
+			SchemaVersion:  "1.0.0",
+			AggregateType:  "goat",
+			AggregateID:    "30000000-0000-4000-8000-000000000001",
+			Topic:          "identity.events",
+			Status:         outboxdomain.StatusDeadLetter,
+			AttemptCount:   5,
+			ReplayCount:    0,
+			LastError:      "max_attempts_exhausted",
+			IdempotencyKey: "test-key",
+			Headers:        json.RawMessage(`{}`),
+			Payload:        json.RawMessage(`{"event_type":"goat.created"}`),
+			CreatedAt:      time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:      time.Date(2026, 6, 27, 10, 1, 0, 0, time.UTC),
+		}},
+	}
+	handler := NewHandler(repo, nil)
+	req := request(t, http.MethodGet, "/operations/dlq?status=failed&event_type=goat.created&topic=identity.events&limit=12", nil)
+	rec := httptest.NewRecorder()
+
+	handler.List(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.query.TenantID != testTenantID || repo.query.Status != outboxdomain.StatusFailed || repo.query.EventType != "goat.created" || repo.query.Topic != "identity.events" || repo.query.Limit != 12 {
+		t.Fatalf("query=%#v", repo.query)
+	}
+	var resp listResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].OutboxID != testOutboxID || resp.TraceID != "missing-trace" {
+		t.Fatalf("resp=%#v", resp)
+	}
+}
+
+func TestKernelHealth(t *testing.T) {
+	repo := &fakeDLQRepo{health: outboxdomain.Health{Status: "degraded", DeadLetterCount: 2}}
+	rec := httptest.NewRecorder()
+	NewHandler(repo, nil).Health(rec, request(t, http.MethodGet, "/operations/kernel-health", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.healthTenant != testTenantID {
+		t.Fatalf("tenant = %q", repo.healthTenant)
+	}
+	if !strings.Contains(rec.Body.String(), `"dead_letter_count":2`) {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestListRejectsInvalidStatus(t *testing.T) {
+	handler := NewHandler(&fakeDLQRepo{}, nil)
+	req := request(t, http.MethodGet, "/operations/dlq?status=published", nil)
+	rec := httptest.NewRecorder()
+
+	handler.List(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReplayDeadLettersRecordsAudit(t *testing.T) {
+	repo := &fakeDLQRepo{replayUpdated: 1}
+	auditRecorder := &fakeDLQAudit{}
+	handler := NewHandler(repo, auditRecorder)
+	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"operator fixed poison payload"}`)
+	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
+	req.Header.Set("Idempotency-Key", "dlq-replay-test-0001")
+	rec := httptest.NewRecorder()
+
+	handler.Replay(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.replayParams.TenantID != testTenantID || len(repo.replayParams.OutboxIDs) != 1 || repo.replayParams.OutboxIDs[0] != testOutboxID {
+		t.Fatalf("replay params=%#v", repo.replayParams)
+	}
+	if repo.replayParams.IdempotencyKey != "dlq-replay-test-0001" || repo.replayParams.RequestHash == "" {
+		t.Fatalf("replay idempotency params=%#v", repo.replayParams)
+	}
+	if len(auditRecorder.events) != 1 {
+		t.Fatalf("audit events=%#v", auditRecorder.events)
+	}
+	event := auditRecorder.events[0]
+	if event.Action != "operations.dlq.replay" || event.ResourceID != testOutboxID || event.ActorID != testActorID || event.Metadata["result"] != "updated" {
+		t.Fatalf("audit event=%#v", event)
+	}
+	if event.Metadata["idempotency_key"] != "dlq-replay-test-0001" || event.Metadata["request_hash"] == "" {
+		t.Fatalf("audit idempotency metadata=%#v", event.Metadata)
+	}
+}
+
+func TestDiscardDeadLettersRecordsAudit(t *testing.T) {
+	repo := &fakeDLQRepo{discardUpdated: 1}
+	auditRecorder := &fakeDLQAudit{}
+	handler := NewHandler(repo, auditRecorder)
+	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"poison message obsolete after schema repair"}`)
+	req := request(t, http.MethodPost, "/operations/dlq/discard", body)
+	req.Header.Set("Idempotency-Key", "dlq-discard-test-0001")
+	rec := httptest.NewRecorder()
+
+	handler.Discard(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.discardParams.TenantID != testTenantID || len(repo.discardParams.OutboxIDs) != 1 || repo.discardParams.OutboxIDs[0] != testOutboxID {
+		t.Fatalf("discard params=%#v", repo.discardParams)
+	}
+	if repo.discardParams.IdempotencyKey != "dlq-discard-test-0001" || repo.discardParams.RequestHash == "" {
+		t.Fatalf("discard idempotency params=%#v", repo.discardParams)
+	}
+	if len(auditRecorder.events) != 1 || auditRecorder.events[0].Action != "operations.dlq.discard" {
+		t.Fatalf("audit events=%#v", auditRecorder.events)
+	}
+}
+
+func TestActionRejectsMissingReason(t *testing.T) {
+	handler := NewHandler(&fakeDLQRepo{}, &fakeDLQAudit{})
+	body := []byte(`{"outbox_ids":["` + testOutboxID + `"]}`)
+	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
+	req.Header.Set("Idempotency-Key", "dlq-replay-test-0002")
+	rec := httptest.NewRecorder()
+
+	handler.Replay(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestActionRejectsMissingIdempotencyKey(t *testing.T) {
+	handler := NewHandler(&fakeDLQRepo{}, &fakeDLQAudit{})
+	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"operator fixed poison payload"}`)
+	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
+	rec := httptest.NewRecorder()
+
+	handler.Replay(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "missing_idempotency_key") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func request(t *testing.T, method, target string, body []byte) *http.Request {
+	t.Helper()
+	var reader *bytes.Reader
+	if body == nil {
+		reader = bytes.NewReader(nil)
+	} else {
+		reader = bytes.NewReader(body)
+	}
+	req := httptest.NewRequest(method, target, reader)
+	ctx := req.Context()
+	ctx = httpmiddleware.WithTenantID(ctx, testTenantID)
+	ctx = httpmiddleware.WithActorID(ctx, testActorID)
+	return req.WithContext(ctx)
+}
+
+type fakeDLQRepo struct {
+	query          ports.DeadLetterQuery
+	items          []outboxdomain.DeadLetterMessage
+	replayParams   ports.ReplayDeadLettersParams
+	replayUpdated  int64
+	discardParams  ports.DiscardDeadLettersParams
+	discardUpdated int64
+	health         outboxdomain.Health
+	healthTenant   string
+}
+
+func (r *fakeDLQRepo) ListDeadLetters(_ context.Context, q ports.DeadLetterQuery) ([]outboxdomain.DeadLetterMessage, error) {
+	r.query = q
+	return r.items, nil
+}
+
+func (r *fakeDLQRepo) ReplayDeadLetters(_ context.Context, params ports.ReplayDeadLettersParams) (int64, error) {
+	r.replayParams = params
+	return r.replayUpdated, nil
+}
+
+func (r *fakeDLQRepo) Health(_ context.Context, tenantID string, _ time.Time) (outboxdomain.Health, error) {
+	r.healthTenant = tenantID
+	return r.health, nil
+}
+
+func (r *fakeDLQRepo) DiscardDeadLetters(_ context.Context, params ports.DiscardDeadLettersParams) (int64, error) {
+	r.discardParams = params
+	return r.discardUpdated, nil
+}
+
+type fakeDLQAudit struct {
+	events []audit.Event
+}
+
+func (a *fakeDLQAudit) Record(_ context.Context, event audit.Event) error {
+	a.events = append(a.events, event)
+	return nil
+}

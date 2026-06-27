@@ -103,7 +103,7 @@ func TestSM5cCompletionFlow(t *testing.T) {
 		return vaccdomain.NewCompletion{
 			TenantID: impTenant, ObligationID: ob, GoatID: goat, BatchID: &batch,
 			VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: asOf,
-			IdempotencyKey: key,
+			ColdChainVerified: true, IdempotencyKey: key,
 		}
 	}
 

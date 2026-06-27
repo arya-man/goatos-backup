@@ -43,24 +43,25 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 
 const routes = [
   { name: "login", path: "/login" },
-  { name: "control-tower", path: "/" },
-  { name: "action-center", path: "/action-center" },
-  { name: "calendar", path: "/calendar" },
-  { name: "protocol-adherence", path: "/protocol-adherence" },
-  { name: "workflows", path: "/workflows" },
-  { name: "vaccination", path: "/vaccination" },
-  { name: "vaccination-execution", path: "/vaccination#execution" },
-  { name: "procurement-source-entry", path: "/procurement/source-entry" },
-  { name: "config", path: "/config?category=vaccination" },
-  { name: "sops", path: "/sops" },
-  { name: "counts-herd", path: "/counts/herd" },
-  { name: "operations-audit", path: "/operations/audit" },
+  { name: "control-tower", path: "/?scope_mode=company" },
+  { name: "action-center", path: "/action-center?scope_mode=company" },
+  { name: "calendar", path: "/calendar?scope_mode=company" },
+  { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
+  { name: "workflows", path: "/workflows?scope_mode=company" },
+  { name: "vaccination", path: "/vaccination?scope_mode=company" },
+  { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
+  { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
+  { name: "config", path: "/config?scope_mode=company&category=vaccination" },
+  { name: "sops", path: "/sops?scope_mode=company" },
+  { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
+  { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
+  { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },
   { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
 ];
 if (procurementLoadId) {
   routes.push({
     name: "procurement-load-detail",
-    path: `/procurement/source-entry/loads/${encodeURIComponent(procurementLoadId)}`,
+    path: `/procurement/source-entry/loads/${encodeURIComponent(procurementLoadId)}?scope_mode=company`,
   });
 }
 
@@ -87,7 +88,15 @@ try {
     const page = await context.newPage();
     for (const route of routes) {
       const url = `${appBaseUrl}${appPath(route.path)}`;
-      await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+      const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+      if (!response) {
+        await page.waitForURL(url, { timeout: 5_000 }).catch(() => undefined);
+        if (page.url() !== url) {
+          throw new Error(`${route.name} returned HTTP no-response for ${appPath(route.path)}`);
+        }
+      } else if (!response.ok()) {
+        throw new Error(`${route.name} returned HTTP ${response.status()} for ${appPath(route.path)}`);
+      }
       const html = await page.content();
       assertHealthyHTML(route.name, html, bearerToken);
       await assertLayoutHealthy(page, route.name, viewport.label);
@@ -631,6 +640,7 @@ async function openAndCloseDialog(page, trigger, dialogLabel, closeName, routeNa
 }
 
 async function openAndCloseDrawer(page, trigger, expectedText, routeName) {
+  await trigger.first().waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
   const triggerCount = await trigger.count();
   if (triggerCount !== 1) {
     throw new Error(`${routeName} drawer trigger for "${expectedText}" resolved to ${triggerCount} elements`);

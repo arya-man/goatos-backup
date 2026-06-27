@@ -95,6 +95,8 @@ WHERE tenant_id = $1
   AND item_id = $3
   AND quantity_in_stock > 0
   AND quantity_in_stock > quantity_reserved
+  AND status = 'active'
+  AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
 ORDER BY expiry_date ASC NULLS LAST, stock_id ASC
 LIMIT 1
 `
@@ -119,6 +121,8 @@ type PickFEFOLotRow struct {
 // Keeps an explicit quantity_in_stock > 0 so the partial index inventory_stock_fefo_idx
 // (tenant_id, location_id, item_id, expiry_date) WHERE quantity_in_stock > 0 is used; the
 // quantity_in_stock > quantity_reserved guard skips fully-reserved lots; returns available qty.
+// Expired/quarantined/depleted lots are excluded so vaccination drives cannot silently proceed on
+// bad stock.
 func (q *Queries) PickFEFOLot(ctx context.Context, arg PickFEFOLotParams) (PickFEFOLotRow, error) {
 	row := q.db.QueryRow(ctx, pickFEFOLot, arg.TenantID, arg.LocationID, arg.ItemID)
 	var i PickFEFOLotRow

@@ -46,12 +46,15 @@ func (q *Queries) GetProtocolDefinitionByCode(ctx context.Context, arg GetProtoc
 }
 
 const getProtocolVersion = `-- name: GetProtocolVersion :one
-SELECT protocol_version_id::text AS protocol_version_id, protocol_id::text AS protocol_id,
-       scope_type, COALESCE(scope_id::text, '')::text AS scope_id, version, status,
+SELECT pv.protocol_version_id::text AS protocol_version_id, pv.protocol_id::text AS protocol_id,
+       pd.category AS category,
+       scope_type, COALESCE(scope_id::text, '')::text AS scope_id, version, pv.status,
        effective_from, effective_to, rule_dsl, proof_policy,
-       COALESCE(sop_version_id::text, '')::text AS sop_version_id, row_version
-FROM protocol_versions
-WHERE tenant_id = $1 AND protocol_version_id = $2
+       COALESCE(sop_version_id::text, '')::text AS sop_version_id, pv.row_version
+FROM protocol_versions pv
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = $1 AND pv.protocol_version_id = $2
 `
 
 type GetProtocolVersionParams struct {
@@ -62,6 +65,7 @@ type GetProtocolVersionParams struct {
 type GetProtocolVersionRow struct {
 	ProtocolVersionID string
 	ProtocolID        string
+	Category          string
 	ScopeType         string
 	ScopeID           string
 	Version           int32
@@ -80,6 +84,7 @@ func (q *Queries) GetProtocolVersion(ctx context.Context, arg GetProtocolVersion
 	err := row.Scan(
 		&i.ProtocolVersionID,
 		&i.ProtocolID,
+		&i.Category,
 		&i.ScopeType,
 		&i.ScopeID,
 		&i.Version,

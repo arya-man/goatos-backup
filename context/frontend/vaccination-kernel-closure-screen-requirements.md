@@ -184,7 +184,7 @@ UI pattern if surfaced:
 
 - Control Tower kernel-health strip using `.alert` / `.alert.warn` and compact
   KPI cards.
-- Link to DLQ Operation Center once item 6 exists.
+- Link to the implemented DLQ Operation Center at `/operations/dlq`.
 - Do not create a fake live event dashboard before backend metrics exist.
 
 Backend contract needed:
@@ -456,7 +456,7 @@ Acceptance:
 | 3 | `/vaccination`, `/vaccination/execution/sheds/[shedId]` | Existing extension | Drive repair rows, moved-goat drawer, repair exception alert. |
 | 4 | `/vaccination`, `/action-center`, `/calendar`, `/goats/{goat_id}` | Existing extension | Deferred/recovery tags, Action Center cards, Passport timeline, drawer. |
 | 5 | `/vaccination`, shed execution, `/action-center`, `/calendar` | Existing extension | Stock block alert, disabled execution actions, Inventory owner task, drawer. |
-| 6 | `/operations/dlq` or Operations/Data Ops section | New ops screen | KPI strip, filters, DLQ table, detail drawer, replay/discard actions. |
+| 6 | `/operations/dlq` or Operations/Data Ops section | Implemented ops screen | KPI strip, filters, DLQ table, detail drawer, replay/discard actions. |
 | 7 | `/` or `/operations/audit` | Existing/minimal extension | Kernel health KPI strip, alert, metric drawer, DLQ link. |
 | 8 | `/calendar`, `/action-center`, `/workflows/{row_id}` | Existing extension | Incident block in escalation drawer, external ID/status. |
 | 9 | `/goats/{goat_id}`, `/config`, `/vaccination` | Existing extension plus modal | Stage timeline, manual campaign modal, preview, campaign rows. |

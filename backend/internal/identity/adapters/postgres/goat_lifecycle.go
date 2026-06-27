@@ -15,23 +15,27 @@ import (
 )
 
 const (
-	goatLifecycleResultType       = "goat"
-	goatLifecyclePolicyVersion    = "goat-lifecycle-v1"
-	goatMovedEventType            = "goat.location.changed"
-	goatExitedEventType           = "goat.exited"
-	goatLifecycleAggregate        = "goat"
-	goatLifecycleSubject          = "goat"
-	goatLifecycleTopic            = "identity.events"
-	goatMovedDecisionType         = "move_goat"
-	goatMovedDecisionResult       = "goat_moved"
-	goatExitedDecisionType        = "exit_goat"
-	goatExitedDecisionResult      = "goat_exited"
-	goatLocationHistoryReasonMove = "admin_goat_move"
+	goatLifecycleResultType        = "goat"
+	goatLifecyclePolicyVersion     = "goat-lifecycle-v1"
+	goatMovedEventType             = "goat.location.changed"
+	goatExitedEventType            = "goat.exited"
+	goatStageChangedEventType      = "goat.stage_changed"
+	goatLifecycleAggregate         = "goat"
+	goatLifecycleSubject           = "goat"
+	goatLifecycleTopic             = "identity.events"
+	goatMovedDecisionType          = "move_goat"
+	goatMovedDecisionResult        = "goat_moved"
+	goatExitedDecisionType         = "exit_goat"
+	goatExitedDecisionResult       = "goat_exited"
+	goatStageChangedDecisionType   = "stage_goat"
+	goatStageChangedDecisionResult = "goat_stage_changed"
+	goatLocationHistoryReasonMove  = "admin_goat_move"
 )
 
 type goatMutationState struct {
 	LifecycleStatus string
 	IdentityState   string
+	ManagementStage string
 	RowVersion      int
 	CurrentLocation *string
 	FarmID          *string
@@ -245,6 +249,106 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 	})
 }
 
+func (r *Repository) StageGoat(ctx context.Context, cmd ports.StageGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := uuidParam(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	goatUUID, err := uuidParam(cmd.GoatID)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+	if _, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+		TenantID:       tenantUUID,
+		Scope:          cmd.IdempotencyScope,
+		RequestHash:    cmd.RequestHash,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return r.replayGoatLifecycleMutation(ctx, tx, qtx, tenantUUID, goatUUID, cmd.StoredIdempotencyKey, cmd.RequestHash)
+	} else if err != nil {
+		return nil, err
+	}
+
+	state, err := lockGoatForLifecycleMutation(ctx, tx, cmd.TenantID, cmd.GoatID)
+	if err != nil {
+		return nil, err
+	}
+	stageOK, err := activeManagementStageExists(ctx, tx, cmd.TenantID, cmd.ManagementStage)
+	if err != nil {
+		return nil, err
+	}
+	if !stageOK {
+		return nil, ports.ErrInvalidReference
+	}
+	if state.RowVersion != cmd.RowVersion || state.IdentityState == "merged" || exitedLifecycleStatus(state.LifecycleStatus) {
+		return nil, ports.ErrWriteConflict
+	}
+	if state.ManagementStage == cmd.ManagementStage {
+		return nil, ports.ErrWriteConflict
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE goats
+SET management_stage = $3,
+    updated_at = $4::timestamptz,
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		cmd.TenantID, cmd.GoatID, cmd.ManagementStage, cmd.OccurredAt); err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"goat_id":                   cmd.GoatID,
+		"previous_management_stage": state.ManagementStage,
+		"management_stage":          cmd.ManagementStage,
+		"reason":                    cmd.Reason,
+		"row_version_from":          cmd.RowVersion,
+		"current_location_id":       stringValue(state.CurrentLocation),
+		"current_park_id":           stringValue(state.ParkID),
+		"current_shed_id":           stringValue(state.ShedID),
+		"scope_type":                "goat",
+		"scope_id":                  cmd.GoatID,
+	}
+	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
+		TenantUUID:     tenantUUID,
+		ActorUUID:      actorUUID,
+		GoatUUID:       goatUUID,
+		AggregateUUID:  goatUUID,
+		Command:        goatLifecycleCommandFromStage(cmd),
+		DecisionType:   goatStageChangedDecisionType,
+		DecisionResult: goatStageChangedDecisionResult,
+		EventType:      goatStageChangedEventType,
+		OccurredAt:     cmd.OccurredAt,
+		Payload:        payload,
+		Scope: domain.LocationScope{
+			FarmID: state.FarmID,
+			ParkID: state.ParkID,
+			ShedID: state.ShedID,
+		},
+		AggregateType: goatLifecycleAggregate,
+		SubjectType:   goatLifecycleSubject,
+		SubjectID:     cmd.GoatID,
+	})
+}
+
 type goatLifecycleCommand struct {
 	TenantID             string
 	ActorID              string
@@ -300,6 +404,36 @@ func goatLifecycleCommandFromExit(cmd ports.ExitGoatCommand) goatLifecycleComman
 		Reason:               cmd.Reason,
 		EvidenceRefs:         cmd.EvidenceRefs,
 	}
+}
+
+func goatLifecycleCommandFromStage(cmd ports.StageGoatCommand) goatLifecycleCommand {
+	return goatLifecycleCommand{
+		TenantID:             cmd.TenantID,
+		ActorID:              cmd.ActorID,
+		ClientIdempotencyKey: cmd.ClientIdempotencyKey,
+		StoredIdempotencyKey: cmd.StoredIdempotencyKey,
+		IdempotencyScope:     cmd.IdempotencyScope,
+		TraceID:              cmd.TraceID,
+		GoatID:               cmd.GoatID,
+		Reason:               cmd.Reason,
+		EvidenceRefs:         cmd.EvidenceRefs,
+	}
+}
+
+func activeManagementStageExists(ctx context.Context, tx pgx.Tx, tenantID, stageCode string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM animal_stage_lookup
+  WHERE tenant_id = $1::uuid
+    AND stage_code = $2
+    AND status = 'active'
+)`, tenantID, stageCode).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (r *Repository) finishGoatLifecycleMutation(ctx context.Context, tx pgx.Tx, qtx *identitydb.Queries, committed *bool, finish goatLifecycleFinish) (*ports.AdminGoatMutationResult, error) {
@@ -470,13 +604,14 @@ func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goat
 	var state goatMutationState
 	var currentLocation, farmID, parkID, shedID pgtype.UUID
 	err := tx.QueryRow(ctx, `
-SELECT lifecycle_status, identity_state, row_version,
+SELECT lifecycle_status, identity_state, COALESCE(management_stage, ''), row_version,
        current_location_id, farm_id, park_id, shed_id
 FROM goats
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
 FOR UPDATE`, tenantID, goatID).Scan(
 		&state.LifecycleStatus,
 		&state.IdentityState,
+		&state.ManagementStage,
 		&state.RowVersion,
 		&currentLocation,
 		&farmID,

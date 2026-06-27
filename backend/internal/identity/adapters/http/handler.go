@@ -42,6 +42,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/goats/bulk-commit", h.CommitAdminGoatBulkImport)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/move", h.MoveGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/exit", h.ExitGoat)
+	mux.HandleFunc("POST /admin/goats/{goat_id}/stage", h.StageGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers", h.AddGoatIdentifier)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/identifiers/{identifier_id}/retire", h.RetireGoatIdentifier)
 }
@@ -171,6 +172,22 @@ func (h *Handler) ExitGoat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.service.ExitGoat(r.Context(), app.ExitGoatInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		GoatID:         r.PathValue("goat_id"),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) StageGoat(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.StageGoat(r.Context(), app.StageGoatInput{
 		TenantID:       tenantID(r),
 		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),

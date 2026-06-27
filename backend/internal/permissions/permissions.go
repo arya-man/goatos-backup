@@ -24,6 +24,7 @@ const (
 	OperatorsManageCapability = "operators.manage_capability"
 	OperatorsManageRoster     = "operators.manage_roster"
 	OperatorsViewAudit        = "operators.view_audit"
+	OperationsRepair          = "operations.repair"
 	AppBootstrap              = "app.bootstrap"
 	AdminWebBootstrap         = "admin_web.bootstrap"
 	SOPRead                   = "sop.read"
@@ -39,6 +40,7 @@ const (
 	ObligationRead            = "obligation.read"
 	VaccinationRead           = "vaccination.read"
 	VaccinationVerify         = "vaccination.verify"
+	VaccinationCampaign       = "vaccination.campaign"
 	CalendarRead              = "calendar.read"
 	CalendarAction            = "calendar.action"
 	ProcurementRead           = "procurement.read"
@@ -52,9 +54,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
-		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
+		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
-		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
@@ -81,7 +83,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
-		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {},
 	},
@@ -93,9 +95,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
-		OperatorsManageRoster: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
+		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
-		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
+		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},

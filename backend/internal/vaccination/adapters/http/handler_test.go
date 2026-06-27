@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -27,6 +29,85 @@ func (f *fakeImpact) ImpactPreview(_ context.Context, req domain.ImpactRequest) 
 func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, _ string, limit int32) ([]domain.RecordedCompletion, error) {
 	f.gotLimit = limit
 	return f.queue, nil
+}
+
+type fakeCampaign struct {
+	tenantID   string
+	versionID  string
+	campaignID string
+	asOf       time.Time
+}
+
+func (f *fakeCampaign) GenerateManualCampaignForVersionWithRun(_ context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerationRun, domain.GenerateResult, error) {
+	f.tenantID = tenantID
+	f.versionID = versionID
+	f.campaignID = campaignID
+	f.asOf = asOf
+	completedAt := time.Date(2026, time.June, 27, 9, 0, 0, 0, time.UTC)
+	return domain.GenerationRun{
+			RunID:                      "70000000-0000-4000-8000-000000000001",
+			ProtocolVersionID:          versionID,
+			TriggerType:                "manual_campaign",
+			TriggerRef:                 campaignID,
+			Status:                     "completed",
+			StartedAt:                  completedAt.Add(-time.Minute),
+			CompletedAt:                &completedAt,
+			Generated:                  4,
+			Deferred:                   1,
+			SuppressedByTrustedHistory: 2,
+		}, domain.GenerateResult{
+			Generated:                  4,
+			Deferred:                   1,
+			SuppressedByTrustedHistory: 2,
+		}, nil
+}
+
+func TestRunManualCampaignCallsGenerator(t *testing.T) {
+	campaign := &fakeCampaign{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithManualCampaignGenerator(campaign))
+
+	body := `{"protocol_version_id":"65000000-0000-4000-8000-000000000001","campaign_id":"catchup:2026-06-27","as_of":"2026-06-27T08:00:00Z"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/manual-campaigns", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "manual-campaign-test-0001")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if campaign.tenantID != "00000000-0000-4000-8000-000000000001" || campaign.versionID != "65000000-0000-4000-8000-000000000001" || campaign.campaignID != "catchup:2026-06-27" {
+		t.Fatalf("campaign generator got tenant=%s version=%s campaign=%s", campaign.tenantID, campaign.versionID, campaign.campaignID)
+	}
+	if campaign.asOf.Format(time.RFC3339) != "2026-06-27T08:00:00Z" {
+		t.Fatalf("as_of = %s", campaign.asOf.Format(time.RFC3339))
+	}
+	var resp manualCampaignRunResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response json: %v", err)
+	}
+	if resp.RunID == "" || resp.TriggerType != "manual_campaign" || resp.ResultGenerated != 4 || resp.ResultSuppressedByTrustedHistory != 2 {
+		t.Fatalf("response body: %+v", resp)
+	}
+}
+
+func TestRunManualCampaignRequiresIdempotencyKey(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithManualCampaignGenerator(&fakeCampaign{}))
+
+	body := `{"protocol_version_id":"65000000-0000-4000-8000-000000000001","campaign_id":"catchup:2026-06-27"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/manual-campaigns", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "missing_idempotency_key") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
 }
 
 func TestImpactPreviewParsesFilterAndReturnsJSON(t *testing.T) {

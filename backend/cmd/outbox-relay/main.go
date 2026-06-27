@@ -113,6 +113,8 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
+		vaccinationapp.NewGoatRecheckHandler(generation).Register(bus)
+		vaccinationapp.NewManualCampaignHandler(generation).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

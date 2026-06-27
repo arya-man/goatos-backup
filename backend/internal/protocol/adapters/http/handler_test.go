@@ -16,6 +16,7 @@ import (
 type fakeConfig struct {
 	gotVersion  domain.NewVersion
 	getErr      error
+	addRuleErr  error
 	publishErr  error
 	listItems   []domain.ConfigListItem
 	listErr     error
@@ -32,7 +33,9 @@ func (f *fakeConfig) CreateVersion(_ context.Context, in domain.NewVersion) (str
 	f.gotVersion = in
 	return "ver-1", nil
 }
-func (f *fakeConfig) AddRule(context.Context, domain.NewRule) (string, error) { return "rule-1", nil }
+func (f *fakeConfig) AddRule(context.Context, domain.NewRule) (string, error) {
+	return "rule-1", f.addRuleErr
+}
 func (f *fakeConfig) GetVersion(context.Context, string, string) (domain.Version, error) {
 	return domain.Version{}, f.getErr
 }
@@ -99,6 +102,29 @@ func TestPublishSurfacesSourceGate(t *testing.T) {
 	rec = serve(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols/versions/v1/publish", "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("publish ok: want 204, got %d", rec.Code)
+	}
+}
+
+func TestPublishSurfacesVersionNotDraft(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{publishErr: ports.ErrVersionNotDraft}), http.MethodPost, "/protocols/versions/v1/publish", "")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("publish conflict: want 409, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "version_not_draft" {
+		t.Fatalf("publish conflict envelope: %+v err=%v", env, err)
+	}
+}
+
+func TestAddRuleSurfacesPublishedVersionImmutable(t *testing.T) {
+	body := `{"dose_code":"primary","sequence":1,"trigger_type":"post_arrival","repeat":"none","catch_up":"immediate","eligibility_json":{},"proof_policy":{}}`
+	rec := serve(NewHandler(&fakeConfig{addRuleErr: ports.ErrVersionNotDraft}), http.MethodPost, "/protocols/versions/v1/rules", body)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("add rule conflict: want 409, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "version_not_draft" {
+		t.Fatalf("add rule conflict envelope: %+v err=%v", env, err)
 	}
 }
 

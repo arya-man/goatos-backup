@@ -29,6 +29,7 @@ type Repository interface {
 	CreateBatch(ctx context.Context, in domain.NewBatch) (batchID string, err error)
 	CreateBatchWithObligations(ctx context.Context, in domain.NewBatch, obligationIDs []string) (batchID string, attached int64, err error)
 	SetBatchSOPTask(ctx context.Context, tenantID, batchID, taskID string) error
+	MarkBatchStockBlocked(ctx context.Context, tenantID, batchID, itemID string, requiredQty int64, reason string) error
 
 	// SM-4 sweeper: list unbatched due obligations for a version (idempotent input) + attach a set
 	// to a batch (only still-unbatched rows; returns count attached).

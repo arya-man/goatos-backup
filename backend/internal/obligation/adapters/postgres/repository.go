@@ -399,6 +399,35 @@ WHERE tenant_id = $2
 	return nil
 }
 
+// MarkBatchStockBlocked records an explicit stock-block context on a batch after hard reservation
+// failure. The batch remains planned and visible; execution surfaces can show the reason/action.
+func (r *Repository) MarkBatchStockBlocked(ctx context.Context, tenantID, batchID, itemID string, requiredQty int64, reason string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE obligation_batches
+SET context = context || jsonb_build_object(
+      'stock_block', jsonb_build_object(
+        'state', 'blocked',
+        'item_id', $3,
+        'required_qty', $4,
+        'reason', $5,
+        'blocked_at', now()
+      )
+    ),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND batch_id = $2::uuid`, tenantID, batchID, itemID, requiredQty, reason)
+	if err != nil {
+		return fmt.Errorf("obligation: mark batch stock blocked: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 	ids := make([]pgtype.UUID, 0, len(values))
 	for _, id := range values {
@@ -464,10 +493,12 @@ func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, re
 	return len(ids), nil
 }
 
-// ReScopeOpenForGoat moves a shifted goat's still-open, unbatched obligations to a new scope (SM-2)
-// and writes a 'rescoped' status event per moved obligation, in one txn. Completed/in-progress/
-// batched obligations are untouched. Idempotent: a shift to the same scope moves nothing and writes
-// no events. Returns the count re-scoped.
+// ReScopeOpenForGoat moves a shifted goat's still-open obligations to a new scope (SM-2) and writes
+// a 'rescoped' status event per moved obligation, in one txn. Unbatched rows are re-scoped in place.
+// Rows already attached to a still-planned batch are detached from the old batch, the old batch count
+// is reduced, and the obligation is left unbatched for the destination-shed sweeper to merge/create
+// the target drive. In-progress/completed batches are not touched; those require an execution repair
+// exception because field work may already have started.
 func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, scopeType, scopeID string) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -475,12 +506,10 @@ func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, s
 	if err != nil {
 		return 0, fmt.Errorf("obligation: tenant id: %w", err)
 	}
-	goat, err := pgconv.UUID(goatID)
-	if err != nil {
+	if _, err := pgconv.UUID(goatID); err != nil {
 		return 0, fmt.Errorf("obligation: goat id: %w", err)
 	}
-	scope, err := pgconv.UUID(scopeID)
-	if err != nil {
+	if _, err := pgconv.UUID(scopeID); err != nil {
 		return 0, fmt.Errorf("obligation: scope id: %w", err)
 	}
 
@@ -491,14 +520,31 @@ func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, s
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 
-	ids, err := qtx.ReScopeOpenObligationsForGoat(ctx, obligationdb.ReScopeOpenObligationsForGoatParams{
-		TenantID:  tenant,
-		TargetID:  goat,
-		ScopeType: scopeType,
-		ScopeID:   scope,
-	})
+	ids, oldBatches, err := reScopeOpenObligationsForGoat(ctx, tx, tenantID, goatID, scopeType, scopeID)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: re-scope open for goat: %w", err)
+	}
+	for batchID, count := range oldBatches {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+    context = CASE
+      WHEN reserved_quantity > 0 THEN context || jsonb_build_object(
+        'shift_repair', jsonb_build_object(
+          'state', 'stock_reconcile_required',
+          'moved_target_id', $4,
+          'reason', 'goat_shifted_after_batch_planned',
+          'recorded_at', now()
+        )
+      )
+      ELSE context
+    END,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND batch_id = $2::uuid`, tenantID, batchID, count, goatID); err != nil {
+			return 0, fmt.Errorf("obligation: update old shift batch: %w", err)
+		}
 	}
 	payload, _ := json.Marshal(map[string]string{"scope_type": scopeType, "scope_id": scopeID})
 	now := time.Now()
@@ -522,6 +568,72 @@ func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, s
 		return 0, fmt.Errorf("obligation: commit re-scope: %w", err)
 	}
 	return len(ids), nil
+}
+
+func reScopeOpenObligationsForGoat(ctx context.Context, tx pgx.Tx, tenantID, goatID, scopeType, scopeID string) ([]string, map[string]int, error) {
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_instances
+SET scope_type = $3,
+    scope_id = $4::uuid,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND target_type = 'goat'
+  AND target_id = $2::uuid
+  AND status IN ('scheduled', 'due')
+  AND batch_id IS NULL
+  AND (scope_type IS DISTINCT FROM $3 OR scope_id IS DISTINCT FROM $4::uuid)
+RETURNING obligation_id::text`, tenantID, goatID, scopeType, scopeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	rows, err = tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET scope_type = $3,
+    scope_id = $4::uuid,
+    batch_id = NULL,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM obligation_batches ob
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = $2::uuid
+  AND oi.status IN ('scheduled', 'due')
+  AND oi.batch_id = ob.batch_id
+  AND ob.tenant_id = oi.tenant_id
+  AND ob.status = 'planned'
+  AND (oi.scope_type IS DISTINCT FROM $3 OR oi.scope_id IS DISTINCT FROM $4::uuid)
+RETURNING oi.obligation_id::text, ob.batch_id::text`, tenantID, goatID, scopeType, scopeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	oldBatches := make(map[string]int)
+	for rows.Next() {
+		var id, batchID string
+		if err := rows.Scan(&id, &batchID); err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		oldBatches[batchID]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return ids, oldBatches, nil
 }
 
 // MarkCompleted marks an obligation completed (SM-5) and writes a 'completed' status event, in one

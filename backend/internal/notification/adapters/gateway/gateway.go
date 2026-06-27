@@ -20,17 +20,19 @@ import (
 )
 
 type Config struct {
-	WebhookURL      string
-	SlackWebhookURL string
-	EmailWebhookURL string
-	EmailAuthToken  string
-	EmailDefaultTo  string
-	FCMProjectID    string
-	FCMEndpoint     string
-	FCMBearerToken  string
-	FCMDefaultTopic string
-	DryRun          bool
-	HTTPTimeout     time.Duration
+	WebhookURL         string
+	SlackWebhookURL    string
+	EmailWebhookURL    string
+	EmailAuthToken     string
+	EmailDefaultTo     string
+	IncidentWebhookURL string
+	IncidentAuthToken  string
+	FCMProjectID       string
+	FCMEndpoint        string
+	FCMBearerToken     string
+	FCMDefaultTopic    string
+	DryRun             bool
+	HTTPTimeout        time.Duration
 }
 
 type Gateway struct {
@@ -98,12 +100,48 @@ func (g *Gateway) Send(ctx context.Context, request domain.Request) error {
 			return fmt.Errorf("%w: webhook", ports.ErrChannelNotConfigured)
 		}
 		return g.postJSON(ctx, g.config.WebhookURL, requestPayload(request))
+	case "incident", "opsgenie", "pagerduty":
+		return g.sendIncident(ctx, channel, request)
 	case "email":
 		return g.sendEmail(ctx, request)
 	case "push_fcm":
 		return g.sendFCM(ctx, request)
 	default:
 		return fmt.Errorf("unsupported notification channel: %s", channel)
+	}
+}
+
+func (g *Gateway) sendIncident(ctx context.Context, channel string, request domain.Request) error {
+	if strings.TrimSpace(g.config.IncidentWebhookURL) == "" {
+		return fmt.Errorf("%w: incident", ports.ErrChannelNotConfigured)
+	}
+	headers := map[string]string{}
+	if token := strings.TrimSpace(g.config.IncidentAuthToken); token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
+	payload := map[string]any{
+		"routing_key": channel,
+		"dedupe_key":  request.NotificationRequestID,
+		"severity":    incidentSeverity(request),
+		"title":       request.Title,
+		"body":        request.Body,
+		"source":      "goatos-notification-dispatcher",
+		"metadata":    requestPayload(request),
+	}
+	return g.postJSONWithHeaders(ctx, g.config.IncidentWebhookURL, payload, headers)
+}
+
+func incidentSeverity(request domain.Request) string {
+	body := strings.ToLower(request.Title + " " + request.Body + " " + string(request.Context))
+	switch {
+	case strings.Contains(body, "critical"), strings.Contains(body, "level\":4"), strings.Contains(body, "level_4"):
+		return "critical"
+	case strings.Contains(body, "level\":3"), strings.Contains(body, "level_3"):
+		return "high"
+	case strings.Contains(body, "warning"), strings.Contains(body, "level\":2"), strings.Contains(body, "level_2"):
+		return "medium"
+	default:
+		return "low"
 	}
 }
 

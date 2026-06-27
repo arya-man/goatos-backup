@@ -142,6 +142,23 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, exited.Events[0].EventID, created.Goat.GoatID, "goat.exited", created.Goat.GoatID)
 	})
 
+	t.Run("admin goat stage writes goat.stage_changed outbox for rule recheck", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-stage-0001", "rfid-admin-stage-0001", "admin-stage-oldtag-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for stage: %v", err)
+		}
+		cmd := stageGoatCommand(t, "idem-stage-goat-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		staged, err := repo.StageGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("StageGoat: %v", err)
+		}
+		if staged.Goat.ManagementStage == nil || *staged.Goat.ManagementStage != "weaner" || staged.Events[0].EventType != "goat.stage_changed" {
+			t.Fatalf("unexpected stage result: %#v", staged)
+		}
+		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, staged.Events[0].EventID, created.Goat.GoatID, "goat.stage_changed", created.Goat.GoatID)
+	})
+
 	t.Run("admin goat create duplicate rfid rolls back goat idempotency audit and outbox", func(t *testing.T) {
 		first := adminGoatCreateCommand(t, "idem-create-goat-dupe-0001", "rfid-admin-create-dupe", "admin-create-oldtag-dupe-0001")
 		if _, err := repo.CreateAdminGoat(ctx, first); err != nil {
@@ -618,6 +635,18 @@ ON CONFLICT (tenant_id, location_code) DO NOTHING`,
 		adminCreateFarmLocation, meshaTenant, adminCreateShedLocation, cbeLocation, adminCreateOrphanShed, adminCreateWrongParkShed, cptLocation, adminMoveTargetShed); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order, status)
+VALUES
+  ($1::uuid, 'adult', 'Adult', 10, 'active'),
+  ($1::uuid, 'weaner', 'Weaner', 20, 'active')
+ON CONFLICT (tenant_id, stage_code) DO UPDATE
+SET name = EXCLUDED.name,
+    sort_order = EXCLUDED.sort_order,
+    status = EXCLUDED.status,
+    updated_at = now()`, meshaTenant); err != nil {
+		t.Fatal(err)
+	}
 	if got := countRows(t, pool, `
 SELECT count(*)
 FROM locations
@@ -790,6 +819,46 @@ func exitGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.Exi
 		ExitReason:           "sold",
 		Reason:               reason,
 		OccurredAt:           time.Date(2026, time.June, 26, 10, 0, 0, 0, time.UTC),
+		EvidenceRefs:         evidenceRefs,
+		RowVersion:           rowVersion,
+	}
+}
+
+func stageGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.StageGoatCommand {
+	t.Helper()
+	reason := "Synthetic stage change for vaccination rule recheck."
+	sourceSystem := "synthetic_admin_register"
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   "synthetic-stage-" + key,
+		SourceSystem: &sourceSystem,
+	}}
+	body := map[string]any{
+		"management_stage": "weaner",
+		"reason":           reason,
+		"evidence_refs":    evidenceRefs,
+		"row_version":      rowVersion,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := app.CanonicalRequestHashWithSubject(meshaTenant, "stageGoat", "/admin/goats/{goat_id}/stage", goatID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.StageGoatCommand{
+		TenantID:             meshaTenant,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: meshaTenant + ":stageGoat:" + goatID + ":" + key,
+		IdempotencyScope:     "stageGoat",
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		GoatID:               goatID,
+		ManagementStage:      "weaner",
+		Reason:               reason,
+		OccurredAt:           time.Date(2026, time.June, 26, 11, 0, 0, 0, time.UTC),
 		EvidenceRefs:         evidenceRefs,
 		RowVersion:           rowVersion,
 	}

@@ -112,6 +112,37 @@ type GenerateResult struct {
 	SuppressedByTrustedHistory int
 }
 
+// GenerationRun is the durable operator-visible status row for an existing-cohort
+// vaccination generation pass. The row lets Config/Data Ops see publish-triggered
+// generation without reading worker logs.
+type GenerationRun struct {
+	RunID                      string
+	TenantID                   string
+	ProtocolVersionID          string
+	TriggerType                string
+	TriggerRef                 string
+	Status                     string
+	StartedAt                  time.Time
+	CompletedAt                *time.Time
+	Generated                  int
+	Deferred                   int
+	SkippedNoDueDate           int
+	SuppressedByTrustedHistory int
+	CursorGoatID               string
+	LastError                  string
+	IdempotencyKey             string
+}
+
+// GenerationRunInput starts one durable generation run.
+type GenerationRunInput struct {
+	TenantID          string
+	ProtocolVersionID string
+	TriggerType       string
+	TriggerRef        string
+	StartedAt         time.Time
+	IdempotencyKey    string
+}
+
 // ImpactPreview is the computed live impact (eligible goats, catch-up, obligations, batches,
 // doses required vs available, warnings). Mock math is replaced by these real counts.
 type ImpactPreview struct {

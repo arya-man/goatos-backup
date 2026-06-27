@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -9,6 +10,17 @@ import (
 
 // EventGoatCreated is the event type that triggers per-goat SM-1 generation.
 const EventGoatCreated = "goat.created"
+
+// EventGoatStageChanged re-evaluates rules when age/stage classification changes.
+const EventGoatStageChanged = "goat.stage_changed"
+
+// EventGoatLocationChanged re-evaluates rules after a shed/park move because the goat's stage
+// can be location-derived. Obligation re-scoping remains owned by the obligation handler.
+const EventGoatLocationChanged = "goat.location.changed"
+
+// EventManualCampaignRequested intentionally fires manual_campaign schedule rows for one published
+// vaccination version. It is not part of normal publish/backfill generation.
+const EventManualCampaignRequested = "vaccination.manual_campaign.requested"
 
 // GoatCreatedHandler runs event-driven SM-1: on goat.created it generates obligations for that goat
 // across published vaccination versions. Idempotent (safe under at-least-once delivery). It is an
@@ -36,5 +48,70 @@ func (h *GoatCreatedHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 		asOf = time.Now()
 	}
 	_, err := h.gen.GenerateForGoat(ctx, e.TenantID, e.Key, asOf)
+	return err
+}
+
+// GoatRecheckHandler runs the same per-goat generation after stage/location changes. It keeps
+// goat.created, goat.stage_changed, and location-derived stage changes on one idempotent path.
+type GoatRecheckHandler struct {
+	gen *GenerationService
+}
+
+func NewGoatRecheckHandler(gen *GenerationService) *GoatRecheckHandler {
+	return &GoatRecheckHandler{gen: gen}
+}
+
+var _ eventbus.Handler = (*GoatRecheckHandler)(nil)
+
+func (h *GoatRecheckHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventGoatStageChanged, h)
+	bus.Subscribe(EventGoatLocationChanged, h)
+}
+
+func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	asOf := e.OccurredAt
+	if asOf.IsZero() {
+		asOf = time.Now()
+	}
+	_, err := h.gen.GenerateForGoat(ctx, e.TenantID, e.Key, asOf)
+	return err
+}
+
+type manualCampaignPayload struct {
+	ProtocolVersionID string `json:"protocol_version_id"`
+	CampaignID        string `json:"campaign_id"`
+}
+
+// ManualCampaignHandler materializes manual_campaign rules only when a campaign request event is
+// delivered. Payload must name the published protocol_version_id and campaign_id.
+type ManualCampaignHandler struct {
+	gen *GenerationService
+}
+
+func NewManualCampaignHandler(gen *GenerationService) *ManualCampaignHandler {
+	return &ManualCampaignHandler{gen: gen}
+}
+
+var _ eventbus.Handler = (*ManualCampaignHandler)(nil)
+
+func (h *ManualCampaignHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventManualCampaignRequested, h)
+}
+
+func (h *ManualCampaignHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	var p manualCampaignPayload
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+	}
+	if p.ProtocolVersionID == "" || p.CampaignID == "" {
+		return nil
+	}
+	asOf := e.OccurredAt
+	if asOf.IsZero() {
+		asOf = time.Now()
+	}
+	_, _, err := h.gen.GenerateManualCampaignForVersionWithRun(ctx, e.TenantID, p.ProtocolVersionID, p.CampaignID, asOf)
 	return err
 }

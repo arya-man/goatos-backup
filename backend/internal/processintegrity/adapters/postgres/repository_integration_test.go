@@ -508,10 +508,10 @@ func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	res, err := repo.ListRows(ctx, domain.Query{
-		TenantID: piTenant,
-		AsOf:     time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC),
-		Limit:    50,
+		Limit:     50,
 	})
 	if err != nil {
 		t.Fatalf("ListRows: %v", err)
@@ -625,7 +625,7 @@ func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgx
 		piProtocol, piTenant)
 	execPI(t, ctx, pool, "protocol version",
 		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy, sop_version_id)
-		 VALUES ($1, $2, $3, 'tenant', 1, 'published', DATE '2026-06-01', '{}'::jsonb,
+		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', DATE '2026-06-01', '{}'::jsonb,
 		   '{"required":true,"subject_scope":"batch","types":["video"],"minimum_count":1}'::jsonb, $4)`,
 		piVersion, piTenant, piProtocol, piSOPVersion)
 	execPI(t, ctx, pool, "protocol rule",
@@ -633,6 +633,11 @@ func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgx
 		 VALUES ($1, $2, $3, 'D1', 1, 'birth_age', '{}'::jsonb,
 		   '{"required":true,"subject_scope":"batch","types":["video"],"minimum_count":1}'::jsonb, $4)`,
 		piRule, piTenant, piVersion, piSOPVersion)
+	execPI(t, ctx, pool, "publish protocol version",
+		`UPDATE protocol_versions
+		 SET status = 'published', published_at = COALESCE(published_at, now()), updated_at = now()
+		 WHERE tenant_id = $1 AND protocol_version_id = $2`,
+		piTenant, piVersion)
 	execPI(t, ctx, pool, "sop task",
 		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, assigned_to, scope_type, scope_id, due_at)
 		 VALUES ($1, $2, $3, $4, 'vaccination_drive', 'Vaccination PI drive', 'submitted', $5, 'shed', $6, TIMESTAMPTZ '2026-06-24 00:00:00+00')`,

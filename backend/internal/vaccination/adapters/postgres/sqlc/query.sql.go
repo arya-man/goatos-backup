@@ -196,6 +196,49 @@ func (q *Queries) GetLastAcceptedCompletionForGoat(ctx context.Context, arg GetL
 	return i, err
 }
 
+const getRecordedVaccinationCompletion = `-- name: GetRecordedVaccinationCompletion :one
+SELECT obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id,
+       COALESCE(batch_id::text, '')::text AS batch_id,
+       COALESCE(vaccine_inventory_lot_id::text, '')::text AS vaccine_inventory_lot_id,
+       COALESCE(doses, 0)::int AS doses,
+       administered_at
+FROM vaccination_completions
+WHERE tenant_id = $1
+  AND completion_id = $2
+  AND status = 'recorded'
+`
+
+type GetRecordedVaccinationCompletionParams struct {
+	TenantID     pgtype.UUID
+	CompletionID pgtype.UUID
+}
+
+type GetRecordedVaccinationCompletionRow struct {
+	ObligationID          string
+	GoatID                string
+	BatchID               string
+	VaccineInventoryLotID string
+	Doses                 int32
+	AdministeredAt        pgtype.Timestamptz
+}
+
+// Verification preflight: read the stock/obligation context while the completion is still pending
+// review, so stock consumption can happen before the row flips to accepted.
+func (q *Queries) GetRecordedVaccinationCompletion(ctx context.Context, arg GetRecordedVaccinationCompletionParams) (GetRecordedVaccinationCompletionRow, error) {
+	row := q.db.QueryRow(ctx, getRecordedVaccinationCompletion, arg.TenantID, arg.CompletionID)
+	var i GetRecordedVaccinationCompletionRow
+	err := row.Scan(
+		&i.ObligationID,
+		&i.GoatID,
+		&i.BatchID,
+		&i.VaccineInventoryLotID,
+		&i.Doses,
+		&i.AdministeredAt,
+	)
+	return i, err
+}
+
 const listEligibleGoatsForGeneration = `-- name: ListEligibleGoatsForGeneration :many
 SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
        COALESCE(shed_id::text, '')::text AS shed_id,
@@ -434,6 +477,8 @@ FROM inventory_stock
 WHERE tenant_id = $1
   AND item_id = $2
   AND quantity_in_stock > quantity_reserved
+  AND status = 'active'
+  AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
   AND ($3::uuid IS NULL OR location_id = $3::uuid)
 `
 

@@ -77,12 +77,12 @@ func run(args []string) error {
 	}
 
 	for _, versionID := range versionIDs {
-		res, err := gen.GenerateForVersion(ctx, cfg.TenantID, versionID, cfg.AsOf)
+		run, res, err := gen.GenerateForVersionWithRun(ctx, cfg.TenantID, versionID, cfg.AsOf, "cli", versionID+":"+cfg.AsOf.Format(time.RFC3339))
 		if err != nil {
 			return fmt.Errorf("generate version %s: %w", versionID, err)
 		}
-		fmt.Printf("generated version=%s generated=%d deferred=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-			versionID, res.Generated, res.Deferred, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		fmt.Printf("generated run=%s version=%s generated=%d deferred=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+			run.RunID, versionID, res.Generated, res.Deferred, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
 	}
 	return nil
 }

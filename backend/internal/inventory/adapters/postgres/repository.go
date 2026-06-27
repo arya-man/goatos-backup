@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	inventorydb "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres/sqlc"
@@ -248,6 +249,96 @@ func (r *Repository) RecordMovement(ctx context.Context, m domain.Movement) (str
 		return "", false, fmt.Errorf("inventory: record movement: %w", err)
 	}
 	return id, true, nil
+}
+
+// RecordMovementAndAdjustBalances records a movement and applies its balance impact atomically.
+func (r *Repository) RecordMovementAndAdjustBalances(ctx context.Context, m domain.Movement, inDelta, reservedDelta string) (string, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, lot, item, location, qty, err := movementParams(m)
+	if err != nil {
+		return "", false, err
+	}
+	in, err := pgconv.Numeric(inDelta)
+	if err != nil {
+		return "", false, fmt.Errorf("inventory: in_delta: %w", err)
+	}
+	reserved, err := pgconv.Numeric(reservedDelta)
+	if err != nil {
+		return "", false, fmt.Errorf("inventory: reserved_delta: %w", err)
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return "", false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+	id, err := qtx.InsertStockMovement(ctx, inventorydb.InsertStockMovementParams{
+		TenantID:       tenant,
+		LotID:          lot,
+		ItemID:         item,
+		LocationID:     location,
+		MovementType:   m.MovementType,
+		Quantity:       qty,
+		QuantityUnit:   m.QuantityUnit,
+		BatchID:        pgconv.NullableUUID(m.BatchID),
+		ActorID:        pgconv.NullableUUID(m.ActorID),
+		Reason:         pgconv.Text(m.Reason),
+		IdempotencyKey: m.IdempotencyKey,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("inventory: record movement: %w", err)
+	}
+	if err := qtx.AdjustStockBalances(ctx, inventorydb.AdjustStockBalancesParams{
+		InDelta:       in,
+		ReservedDelta: reserved,
+		TenantID:      tenant,
+		StockID:       lot,
+	}); err != nil {
+		return "", false, fmt.Errorf("inventory: adjust balances: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, err
+	}
+	committed = true
+	return id, true, nil
+}
+
+func movementParams(m domain.Movement) (tenant, lot, item, location pgtype.UUID, qty pgtype.Numeric, err error) {
+	tenant, err = pgconv.UUID(m.TenantID)
+	if err != nil {
+		err = fmt.Errorf("inventory: tenant id: %w", err)
+		return
+	}
+	lot, err = pgconv.UUID(m.LotID)
+	if err != nil {
+		err = fmt.Errorf("inventory: lot id: %w", err)
+		return
+	}
+	item, err = pgconv.UUID(m.ItemID)
+	if err != nil {
+		err = fmt.Errorf("inventory: item id: %w", err)
+		return
+	}
+	location, err = pgconv.UUID(m.LocationID)
+	if err != nil {
+		err = fmt.Errorf("inventory: location id: %w", err)
+		return
+	}
+	qty, err = pgconv.Numeric(m.Quantity)
+	if err != nil {
+		err = fmt.Errorf("inventory: quantity: %w", err)
+		return
+	}
+	return
 }
 
 // AdjustBalances applies signed numeric deltas to a lot.

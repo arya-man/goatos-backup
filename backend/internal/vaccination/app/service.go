@@ -31,6 +31,12 @@ func (s *Service) AcceptCompletion(ctx context.Context, tenantID, completionID s
 	return s.repo.AcceptCompletion(ctx, tenantID, completionID, verifiedBy, withdrawalUntil)
 }
 
+// GetRecordedCompletion returns the stock/obligation context for a completion still awaiting
+// verification. It lets SM-5 consume stock before flipping the completion accepted.
+func (s *Service) GetRecordedCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error) {
+	return s.repo.GetRecordedCompletion(ctx, tenantID, completionID)
+}
+
 // RejectCompletion rejects a recorded completion (rework). applied is false on replay.
 func (s *Service) RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (bool, error) {
 	return s.repo.RejectCompletion(ctx, tenantID, completionID, reason, verifiedBy)

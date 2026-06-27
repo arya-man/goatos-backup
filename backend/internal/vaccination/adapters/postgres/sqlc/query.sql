@@ -44,6 +44,20 @@ WHERE tenant_id = @tenant_id AND goat_id = @goat_id AND status = 'accepted'
 ORDER BY administered_at DESC
 LIMIT 1;
 
+-- name: GetRecordedVaccinationCompletion :one
+-- Verification preflight: read the stock/obligation context while the completion is still pending
+-- review, so stock consumption can happen before the row flips to accepted.
+SELECT obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id,
+       COALESCE(batch_id::text, '')::text AS batch_id,
+       COALESCE(vaccine_inventory_lot_id::text, '')::text AS vaccine_inventory_lot_id,
+       COALESCE(doses, 0)::int AS doses,
+       administered_at
+FROM vaccination_completions
+WHERE tenant_id = @tenant_id
+  AND completion_id = @completion_id
+  AND status = 'recorded';
+
 -- name: CountEligibleGoats :one
 -- Live impact: alive goats matching a rule's eligibility dims within an optional park scope.
 -- Optional text dims use the ('' OR col = @x) idiom; park scope via a nullable narg uuid.
@@ -121,4 +135,6 @@ FROM inventory_stock
 WHERE tenant_id = @tenant_id
   AND item_id = @item_id
   AND quantity_in_stock > quantity_reserved
+  AND status = 'active'
+  AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
   AND (sqlc.narg('location_id')::uuid IS NULL OR location_id = sqlc.narg('location_id')::uuid);

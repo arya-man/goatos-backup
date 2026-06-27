@@ -94,9 +94,15 @@ The local foundation is built and tested against Postgres:
 - Local outbox relay foundation.
 - Protocol definitions, protocol versions, source-backed publish gate, and SOP
   proof-policy skeletons.
-- Vaccination obligation generation, due-window Action Center rows,
-  verification queue, accept/reject verification, stock reserve/consume hooks,
-  and goat vaccination passport aggregation.
+- Vaccination publish/backfill generation with durable run rows, due-window
+  Action Center rows, verification queue, accept/reject verification, hard
+  stock reservation/blocking for drive work, atomic stock movement/balance
+  updates, booster scheduling, and goat
+  vaccination passport aggregation.
+- Canonical goat move/exit/stage events, outbox relay, Pub/Sub domain consumer,
+  obligation re-scope/cancel/recheck handlers, manual campaign trigger,
+  notification/incident adapters, escalation ack/resolve, kernel health, and
+  Operations DLQ list/replay/discard UI with idempotent repair actions.
 - Admin-web current surface: Control Tower shell, PHC/Vaccination, Admin Config,
   Protocol Adherence, contextual Goat Passport, and mock-fidelity checks.
 - Bootstrap bearer auth plus tenant-scope RBAC from `user_scope_grants`.
@@ -135,22 +141,24 @@ vaccination module are built and green against local Postgres (full
 APIs only — not shipped** (see pending list below).
 
 - Generic obligation engine: protocol definitions/versions/rules, a
-  source-backed publish gate (only `vaccinations_db`/`phc`/`vet`
+  source-backed publish gate plus DB immutability for published versions (only `vaccinations_db`/`phc`/`vet`
   approved values can be published — manual/unsourced values stay draft), and
   per-goat obligation generation (SM-1), cancel-on-exit (SM-3), shed-shift
-  re-scope (SM-2, minimal), drive sweep → batch → SOP task → FEFO stock reserve
-  (SM-4), completion + verification + stock consume/release (SM-5), and booster
-  scheduling (SM-7). Idempotent throughout; in-process event dispatch behind
-  Pub/Sub-ready handler interfaces.
+  re-scope/repair for open and planned work (SM-2), drive sweep → batch → SOP
+  task → hard FEFO stock reserve/block (SM-4), completion + verification +
+  stock consume/release (SM-5), booster scheduling (SM-7), stage-change
+  recheck, and deliberate manual-campaign generation. Idempotent throughout;
+  outbox/local-eventbus and Pub/Sub domain-consumer paths are wired.
 - Two-phase SOP verification: dose recorded at submit, verified at review; a
   task-level SOP verify/rework fans out to one vaccination outcome per recorded
   completion.
 - Live impact preview: real eligible/catch-up/obligation/batch counts and doses
   required-vs-available with stock/expiry warnings (no mock math).
 - HTTP APIs behind the app boundary (tenant-scoped, paginated, indexed,
-  query-plan-checked): protocol config + publish, vaccination impact-preview,
-  Action Center (due obligations), Verification queue (awaiting-review
-  completions), and the Goat Passport read (history + next-due + last dose).
+  query-plan-checked): protocol config + publish, goat move/exit/stage,
+  vaccination manual campaign, vaccination impact-preview, Action Center,
+  Verification queue, DLQ operations, kernel health, and the Goat Passport read
+  (history + next-due + last dose).
 
 No production vaccine schedule values exist yet — the module ships the engine
 and a SOP execution/proof skeleton only; real rules require source-backed PHC
@@ -166,17 +174,17 @@ Still pending for the current vaccination slice:
 - Production identity-provider provisioning behind the JWKS mode: real IdP
   endpoint, signing keys, sessions, key rotation, revocation, and secret
   management.
-- Vaccination execution context: park/shed/stage/defer context, owner
-  chain, blockers, and SOP/proof state around each vaccination drive, rendered
-  inside PHC/Vaccination. Deep shed detail belongs under
-  /vaccination/execution/sheds/{shed_id}.
-- Action Center computed work-state model below the UI: due, overdue, blocked,
-  proof-pending, verification-pending, rejected, deferred, owner-missing, and
-  completed/recent states from real workflow sources.
+- Richer vaccination execution context: park/shed/stage/defer context, owner
+  chain, repair exceptions, stock-block details, and SOP/proof state around each
+  vaccination drive. Deep shed detail belongs under
+  `/vaccination/execution/sheds/{shedId}`.
+- Richer Action Center/Control Tower rendering for kernel health, DLQ links,
+  repair exceptions, manual campaign runs, and incident status from backend
+  contracts.
 - Real source-backed PHC vaccine rule values before any production publish.
-- Real Pub/Sub verification/booster egress (today the local path is in-process).
-- Real production event publishing (Pub/Sub egress) and the outbox publisher
-  worker deploy.
+- Applying/dev-verifying Pub/Sub, Cloud Tasks, Scheduler, notification secrets,
+  FCM/email/Slack/webhook/incident channels, and continuously running workers in
+  the target Google projects.
 - Applying the approved `goatos-dev` Layer 1 foundation Terraform plan, then
   pushing images, populating secrets out-of-band, deploying Cloud Run
   services/jobs, running migrations, and importing real legacy data under

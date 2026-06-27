@@ -137,6 +137,34 @@ func TestSendFCMRequiresRecipientOrDefaultTopic(t *testing.T) {
 	}
 }
 
+func TestSendIncidentPostsDedupePayload(t *testing.T) {
+	var gotAuth string
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{IncidentWebhookURL: server.URL, IncidentAuthToken: "incident-token"}, nil)
+	err := gateway.Send(context.Background(), request("incident", "phc_director"))
+	if err != nil {
+		t.Fatalf("Send incident: %v", err)
+	}
+	if gotAuth != "Bearer incident-token" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if got["dedupe_key"] != "86000000-0000-4000-8000-000000000001" {
+		t.Fatalf("dedupe payload = %#v", got)
+	}
+	if got["routing_key"] != "incident" || got["title"] != "Vaccination overdue" {
+		t.Fatalf("incident payload = %#v", got)
+	}
+}
+
 func TestSendFCMUsesCachedTokenSource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer adc-token" {

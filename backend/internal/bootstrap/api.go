@@ -30,10 +30,13 @@ import (
 	operationsaudithttp "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/http"
 	operationsauditpg "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/postgres"
 	operationsauditapp "github.com/vgoats/goatos/backend/internal/operationsaudit/app"
+	outboxhttp "github.com/vgoats/goatos/backend/internal/outbox/adapters/http"
+	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
+	platformaudit "github.com/vgoats/goatos/backend/internal/platform/audit"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
@@ -56,6 +59,7 @@ import (
 	protocolhttp "github.com/vgoats/goatos/backend/internal/protocol/adapters/http"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
@@ -227,9 +231,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	protocolService := protocolapp.NewService(protocolRepo)
-	protocolHandler := protocolhttp.NewHandler(protocolService, log)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	businessAuditRecorder := platformaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
+	outboxRepo := outboxpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	outboxHandler := outboxhttp.NewHandler(outboxRepo, businessAuditRecorder, log)
 	operationsAuditService := operationsauditapp.NewService(operationsauditpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	operationsAuditHandler := operationsaudithttp.NewHandler(operationsAuditService, log)
 	processIntegrityService := processintegrityapp.NewService(processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
@@ -247,16 +252,29 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService).
 		WithBooster(vaccinationapp.NewBoosterService(protocolRepo, obligationRepo))
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
+	protocolService := protocolapp.NewService(protocolRepo).WithAfterPublishHook(protocolapp.AfterPublishFunc(
+		func(ctx context.Context, tenantID string, version protocoldomain.Version, publishedAt time.Time) error {
+			if version.Category != "vaccination" {
+				return nil
+			}
+			_, _, err := vaccinationGeneration.GenerateForVersionWithRun(ctx, tenantID, version.ProtocolVersionID, publishedAt, "publish", version.ProtocolVersionID)
+			return err
+		},
+	))
+	protocolHandler := protocolhttp.NewHandler(protocolService, log)
 	bus := eventbus.NewInProcessBus()
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
+	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
+	vaccinationapp.NewManualCampaignHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
 	sopHandler := sophttp.NewHandler(sopService, log)
-	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log)
+	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).
+		WithManualCampaignGenerator(vaccinationGeneration)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
@@ -291,6 +309,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
+	outboxhttp.Register(protectedMux, outboxHandler)
 	operationsaudithttp.Register(protectedMux, operationsAuditHandler)
 	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
 	procurementhttp.Register(protectedMux, procurementHandler)

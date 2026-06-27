@@ -58,17 +58,19 @@ func run(args []string) error {
 	logger := observability.New(observability.Config{Service: "notification-dispatcher"})
 	repo := notificationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gateway := notificationgateway.New(notificationgateway.Config{
-		WebhookURL:      getenv("GOATOS_NOTIFICATION_WEBHOOK_URL"),
-		SlackWebhookURL: getenv("GOATOS_SLACK_WEBHOOK_URL"),
-		EmailWebhookURL: getenv("GOATOS_EMAIL_WEBHOOK_URL"),
-		EmailAuthToken:  getenv("GOATOS_EMAIL_WEBHOOK_AUTH_TOKEN"),
-		EmailDefaultTo:  getenv("GOATOS_EMAIL_DEFAULT_TO"),
-		FCMProjectID:    firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
-		FCMEndpoint:     getenv("GOATOS_FCM_ENDPOINT"),
-		FCMBearerToken:  getenv("GOATOS_FCM_BEARER_TOKEN"),
-		FCMDefaultTopic: getenv("GOATOS_FCM_DEFAULT_TOPIC"),
-		DryRun:          *dryRun,
-		HTTPTimeout:     envDuration("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
+		WebhookURL:         getenv("GOATOS_NOTIFICATION_WEBHOOK_URL"),
+		SlackWebhookURL:    getenv("GOATOS_SLACK_WEBHOOK_URL"),
+		EmailWebhookURL:    getenv("GOATOS_EMAIL_WEBHOOK_URL"),
+		EmailAuthToken:     getenv("GOATOS_EMAIL_WEBHOOK_AUTH_TOKEN"),
+		EmailDefaultTo:     getenv("GOATOS_EMAIL_DEFAULT_TO"),
+		IncidentWebhookURL: getenv("GOATOS_INCIDENT_WEBHOOK_URL"),
+		IncidentAuthToken:  getenv("GOATOS_INCIDENT_WEBHOOK_AUTH_TOKEN"),
+		FCMProjectID:       firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
+		FCMEndpoint:        getenv("GOATOS_FCM_ENDPOINT"),
+		FCMBearerToken:     getenv("GOATOS_FCM_BEARER_TOKEN"),
+		FCMDefaultTopic:    getenv("GOATOS_FCM_DEFAULT_TOPIC"),
+		DryRun:             *dryRun,
+		HTTPTimeout:        envDuration("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
 	}, logger)
 	service := notificationapp.NewService(repo, gateway, notificationapp.Config{
 		Limit:        *limit,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
+	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
 
 // ErrNotPublishable is returned when a protocol version fails the source-backed approval gate.
@@ -172,11 +173,27 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 	if err != nil {
 		return err
 	}
+	if v.Status == "published" {
+		if s.afterPublishHook != nil {
+			return s.afterPublishHook.AfterProtocolVersionPublished(ctx, tenantID, v, time.Now().UTC())
+		}
+		return nil
+	}
+	if v.Status != "draft" {
+		return fmt.Errorf("%w: status=%q", ports.ErrVersionNotDraft, v.Status)
+	}
 	if err := ValidatePublishable(v.RuleDsl); err != nil {
 		return err
 	}
 	if err := ValidateExecutionContract(v); err != nil {
 		return err
 	}
-	return s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy)
+	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy); err != nil {
+		return err
+	}
+	if s.afterPublishHook != nil {
+		v.Status = "published"
+		return s.afterPublishHook.AfterProtocolVersionPublished(ctx, tenantID, v, time.Now().UTC())
+	}
+	return nil
 }

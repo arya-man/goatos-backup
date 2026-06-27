@@ -150,6 +150,11 @@ func (h *Handler) AddRule(w http.ResponseWriter, r *http.Request) {
 		EligibilityJSON: rawOrEmpty(req.EligibilityJSON), ProofPolicy: rawOrEmpty(req.ProofPolicy),
 		WithdrawalDays: req.WithdrawalDays, SortOrder: req.SortOrder,
 	})
+	if errors.Is(err, ports.ErrVersionNotDraft) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "version_not_draft", Message: "published protocol versions are immutable; create a new draft version", TraceID: traceID(r)}, nil)
+		return
+	}
 	if err != nil {
 		h.internal(w, r, err)
 		return
@@ -298,6 +303,11 @@ func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, app.ErrNotPublishable) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			errorEnvelope{Code: "not_publishable", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrVersionNotDraft) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "version_not_draft", Message: "only draft protocol versions can be published", TraceID: traceID(r)}, nil)
 		return
 	}
 	if errors.Is(err, ports.ErrNotFound) {

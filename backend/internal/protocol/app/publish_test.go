@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
+	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
 
 func TestValidatePublishable(t *testing.T) {
@@ -163,4 +166,150 @@ func TestValidateExecutionContract(t *testing.T) {
 	if err := ValidateExecutionContract(rowOmittedProof); err != nil {
 		t.Fatalf("row omitting proof should inherit version proof, got %v", err)
 	}
+}
+
+func TestPublishVersionReplaysHookForAlreadyPublishedVersion(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("published"),
+	}
+	called := false
+	service := NewService(repo).WithAfterPublishHook(AfterPublishFunc(func(context.Context, string, domain.Version, time.Time) error {
+		called = true
+		return nil
+	}))
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if err != nil {
+		t.Fatalf("publish already-published retry: %v", err)
+	}
+	if repo.publishCalled {
+		t.Fatalf("repo publish must not run for already-published retry")
+	}
+	if !called {
+		t.Fatalf("after-publish hook must replay for already-published vaccination version")
+	}
+}
+
+func TestPublishVersionRejectsRetiredVersion(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("retired"),
+	}
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ports.ErrVersionNotDraft) {
+		t.Fatalf("publish retired err=%v, want ErrVersionNotDraft", err)
+	}
+}
+
+func TestPublishVersionRunsAfterPublishHookForDraft(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	var gotVersion domain.Version
+	var gotAt time.Time
+	service := NewService(repo).WithAfterPublishHook(AfterPublishFunc(func(_ context.Context, tenantID string, version domain.Version, publishedAt time.Time) error {
+		if tenantID != "tenant-1" {
+			t.Fatalf("tenantID=%q", tenantID)
+		}
+		gotVersion = version
+		gotAt = publishedAt
+		return nil
+	}))
+
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if !repo.publishCalled {
+		t.Fatalf("repo publish was not called")
+	}
+	if gotVersion.ProtocolVersionID != "version-1" || gotVersion.Status != "published" || gotVersion.Category != "vaccination" {
+		t.Fatalf("hook version=%+v", gotVersion)
+	}
+	if gotAt.IsZero() {
+		t.Fatalf("hook publishedAt was zero")
+	}
+}
+
+func TestPublishVersionRetryAfterHookFailureDoesNotRepublish(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	hookCalls := 0
+	service := NewService(repo).WithAfterPublishHook(AfterPublishFunc(func(context.Context, string, domain.Version, time.Time) error {
+		hookCalls++
+		if hookCalls == 1 {
+			return errors.New("generation worker temporarily failed")
+		}
+		return nil
+	}))
+
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err == nil {
+		t.Fatal("first publish should surface hook failure")
+	}
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("retry after hook failure: %v", err)
+	}
+	if repo.publishCalls != 1 {
+		t.Fatalf("repo publish calls = %d, want 1", repo.publishCalls)
+	}
+	if hookCalls != 2 {
+		t.Fatalf("hook calls = %d, want 2", hookCalls)
+	}
+}
+
+func validPublishVersion(status string) domain.Version {
+	return domain.Version{
+		ProtocolVersionID: "version-1",
+		ProtocolID:        "protocol-1",
+		Category:          "vaccination",
+		Status:            status,
+		SopVersionID:      "62000000-0000-4000-8000-000000000001",
+		ProofPolicy:       []byte(`{"required_proofs":["administration_video"]}`),
+		RuleDsl:           []byte(`{"source":{"source_system":"vaccinations_db","source_ref":"VaccDB ref","review_status":"approved","approved_by":"R. Teja","approved_at":"2026-06-26T00:00:00Z"},"schedule":[{"dose_code":"primary"}]}`),
+	}
+}
+
+type fakeProtocolRepo struct {
+	version       domain.Version
+	publishCalled bool
+	publishCalls  int
+}
+
+func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
+func (f *fakeProtocolRepo) CreateDefinition(context.Context, domain.NewDefinition) (string, error) {
+	return "", nil
+}
+func (f *fakeProtocolRepo) GetDefinitionByCode(context.Context, string, string) (domain.Definition, error) {
+	return domain.Definition{}, nil
+}
+func (f *fakeProtocolRepo) CreateVersion(context.Context, domain.NewVersion) (string, error) {
+	return "", nil
+}
+func (f *fakeProtocolRepo) GetVersion(context.Context, string, string) (domain.Version, error) {
+	return f.version, nil
+}
+func (f *fakeProtocolRepo) ListPublishedVersions(context.Context, string, string) ([]domain.Version, error) {
+	return nil, nil
+}
+func (f *fakeProtocolRepo) ListConfigs(context.Context, string, string) ([]domain.ConfigListItem, error) {
+	return nil, nil
+}
+func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *string) error {
+	f.publishCalled = true
+	f.publishCalls++
+	f.version.Status = "published"
+	return nil
+}
+func (f *fakeProtocolRepo) CreateRule(context.Context, domain.NewRule) (string, error) {
+	return "", nil
+}
+func (f *fakeProtocolRepo) ListRules(context.Context, string, string) ([]domain.Rule, error) {
+	return nil, nil
+}
+func (f *fakeProtocolRepo) ListActiveAnimalStages(context.Context, string) ([]domain.AnimalStage, error) {
+	return nil, nil
+}
+func (f *fakeProtocolRepo) CreateTrigger(context.Context, domain.NewTrigger) (string, error) {
+	return "", nil
 }

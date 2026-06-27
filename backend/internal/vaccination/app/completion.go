@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
+
+var ErrStockGateBlocked = errors.New("vaccination: stock gate blocked")
 
 // ObligationCompleter is the slice of the obligation repo SM-5 needs: flip the obligation to
 // completed (+ 'completed' event) on accept, and (for SM-7 on the verify path) read its protocol
@@ -78,6 +81,9 @@ type AcceptResult struct {
 // Accept records the dose, accepts it on verification, completes the obligation, and consumes the
 // reserved dose. A double-submit (same tenant/obligation/goat or idempotency key) is a no-op.
 func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptResult, error) {
+	if err := s.validateStockGate(in.Completion); err != nil {
+		return AcceptResult{}, err
+	}
 	in.Completion.Status = "recorded"
 	cid, applied, err := s.vacc.RecordCompletion(ctx, in.Completion)
 	if err != nil {
@@ -120,6 +126,16 @@ type AcceptExistingInput struct {
 // next booster (deriving the protocol version + scope + sequence from the obligation). Idempotent: a
 // completion no longer in 'recorded' state is a no-op.
 func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistingInput) (AcceptResult, error) {
+	pending, found, err := s.vacc.GetRecordedCompletion(ctx, in.TenantID, in.CompletionID)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	if !found {
+		return AcceptResult{Applied: false}, nil
+	}
+	if err := s.consume(ctx, in.TenantID, pending.BatchID, pending.LotID, pending.GoatID, &pending.Doses); err != nil {
+		return AcceptResult{}, err
+	}
 	acc, applied, err := s.vacc.AcceptCompletion(ctx, in.TenantID, in.CompletionID, in.VerifiedBy, in.WithdrawalUntil)
 	if err != nil {
 		return AcceptResult{}, err
@@ -129,9 +145,6 @@ func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistin
 	}
 	completed, err := s.obl.MarkCompleted(ctx, in.TenantID, acc.ObligationID)
 	if err != nil {
-		return AcceptResult{}, err
-	}
-	if err := s.consume(ctx, in.TenantID, acc.BatchID, acc.LotID, acc.GoatID, &acc.Doses); err != nil {
 		return AcceptResult{}, err
 	}
 	next := false
@@ -145,6 +158,19 @@ func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistin
 		}
 	}
 	return AcceptResult{CompletionID: in.CompletionID, Applied: true, Completed: completed, NextScheduled: next}, nil
+}
+
+func (s *CompletionService) validateStockGate(in domain.NewCompletion) error {
+	if s.inv == nil || in.BatchID == nil || *in.BatchID == "" {
+		return nil
+	}
+	if in.VaccineInventoryLotID == nil || *in.VaccineInventoryLotID == "" {
+		return ErrStockGateBlocked
+	}
+	if !in.ColdChainVerified {
+		return ErrStockGateBlocked
+	}
+	return nil
 }
 
 // RejectInput carries the dose record + the rejection reason. No obligation completion, no consume.

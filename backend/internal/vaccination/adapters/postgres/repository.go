@@ -47,6 +47,151 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
+// StartGenerationRun creates or returns the durable status row for an existing-cohort generation
+// pass. The idempotency key prevents replayed publish hooks from launching duplicate herd scans.
+func (r *Repository) StartGenerationRun(ctx context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if in.StartedAt.IsZero() {
+		in.StartedAt = time.Now().UTC()
+	}
+	rows, err := r.pool.Query(ctx, `
+INSERT INTO vaccination_generation_runs (
+  tenant_id, protocol_version_id, trigger_type, trigger_ref, status,
+  started_at, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'running', $5::timestamptz, $6
+)
+ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
+SET status = 'running',
+    started_at = EXCLUDED.started_at,
+    completed_at = NULL,
+    generated_count = 0,
+    deferred_count = 0,
+    skipped_no_due_date_count = 0,
+    suppressed_trusted_history_count = 0,
+    cursor_goat_id = NULL,
+    last_error = NULL,
+    updated_at = now(),
+    row_version = vaccination_generation_runs.row_version + 1
+WHERE vaccination_generation_runs.status = 'failed'
+RETURNING run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
+          COALESCE(trigger_ref, ''), status, started_at, completed_at,
+          generated_count, deferred_count, skipped_no_due_date_count,
+          suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
+          COALESCE(last_error, ''), idempotency_key`,
+		in.TenantID, in.ProtocolVersionID, in.TriggerType, in.TriggerRef, in.StartedAt, in.IdempotencyKey)
+	if err != nil {
+		return domain.GenerationRun{}, false, fmt.Errorf("vaccination: start generation run: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		run, scanErr := scanGenerationRun(rows)
+		return run, true, scanErr
+	}
+	if err := rows.Err(); err != nil {
+		return domain.GenerationRun{}, false, fmt.Errorf("vaccination: start generation run rows: %w", err)
+	}
+	run, err := r.getGenerationRunByKey(ctx, in.TenantID, in.IdempotencyKey)
+	return run, false, err
+}
+
+// FinishGenerationRun records the terminal counts and error, if any. Empty lastError means success.
+func (r *Repository) FinishGenerationRun(ctx context.Context, tenantID, runID string, result domain.GenerateResult, cursorGoatID, lastError string, completedAt time.Time) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if completedAt.IsZero() {
+		completedAt = time.Now().UTC()
+	}
+	status := "completed"
+	if lastError != "" {
+		status = "failed"
+	}
+	_, err := r.pool.Exec(ctx, `
+UPDATE vaccination_generation_runs
+SET status = $3,
+    completed_at = $4::timestamptz,
+    generated_count = $5,
+    deferred_count = $6,
+    skipped_no_due_date_count = $7,
+    suppressed_trusted_history_count = $8,
+    cursor_goat_id = nullif($9::text, '')::uuid,
+    last_error = nullif($10, ''),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND run_id = $2::uuid`,
+		tenantID, runID, status, completedAt, result.Generated, result.Deferred,
+		result.SkippedNoDueDate, result.SuppressedByTrustedHistory, cursorGoatID, lastError)
+	if err != nil {
+		return fmt.Errorf("vaccination: finish generation run: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) getGenerationRunByKey(ctx context.Context, tenantID, key string) (domain.GenerationRun, error) {
+	var run domain.GenerationRun
+	err := r.pool.QueryRow(ctx, `
+SELECT run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
+       COALESCE(trigger_ref, ''), status, started_at, completed_at,
+       generated_count, deferred_count, skipped_no_due_date_count,
+       suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
+       COALESCE(last_error, ''), idempotency_key
+FROM vaccination_generation_runs
+WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, key).Scan(
+		&run.RunID,
+		&run.TenantID,
+		&run.ProtocolVersionID,
+		&run.TriggerType,
+		&run.TriggerRef,
+		&run.Status,
+		&run.StartedAt,
+		&run.CompletedAt,
+		&run.Generated,
+		&run.Deferred,
+		&run.SkippedNoDueDate,
+		&run.SuppressedByTrustedHistory,
+		&run.CursorGoatID,
+		&run.LastError,
+		&run.IdempotencyKey,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.GenerationRun{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.GenerationRun{}, fmt.Errorf("vaccination: get generation run: %w", err)
+	}
+	return run, nil
+}
+
+type generationRunScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanGenerationRun(row generationRunScanner) (domain.GenerationRun, error) {
+	var run domain.GenerationRun
+	if err := row.Scan(
+		&run.RunID,
+		&run.TenantID,
+		&run.ProtocolVersionID,
+		&run.TriggerType,
+		&run.TriggerRef,
+		&run.Status,
+		&run.StartedAt,
+		&run.CompletedAt,
+		&run.Generated,
+		&run.Deferred,
+		&run.SkippedNoDueDate,
+		&run.SuppressedByTrustedHistory,
+		&run.CursorGoatID,
+		&run.LastError,
+		&run.IdempotencyKey,
+	); err != nil {
+		return domain.GenerationRun{}, fmt.Errorf("vaccination: scan generation run: %w", err)
+	}
+	return run, nil
+}
+
 // RecordCompletion appends an idempotent dose-administered record.
 func (r *Repository) RecordCompletion(ctx context.Context, in domain.NewCompletion) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -124,6 +269,38 @@ func (r *Repository) AcceptCompletion(ctx context.Context, tenantID, completionI
 		return domain.AcceptedCompletion{}, false, nil // already accepted/rejected → no-op
 	}
 	row := rows[0]
+	return domain.AcceptedCompletion{
+		ObligationID:   row.ObligationID,
+		GoatID:         row.GoatID,
+		BatchID:        row.BatchID,
+		LotID:          row.VaccineInventoryLotID,
+		Doses:          row.Doses,
+		AdministeredAt: row.AdministeredAt.Time,
+	}, true, nil
+}
+
+// GetRecordedCompletion returns the SM-5 context before a recorded completion is accepted.
+func (r *Repository) GetRecordedCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	cid, err := pgconv.UUID(completionID)
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: completion id: %w", err)
+	}
+	row, err := r.queries.GetRecordedVaccinationCompletion(ctx, vaccinationdb.GetRecordedVaccinationCompletionParams{
+		TenantID:     tenant,
+		CompletionID: cid,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.AcceptedCompletion{}, false, nil
+	}
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: get recorded completion: %w", err)
+	}
 	return domain.AcceptedCompletion{
 		ObligationID:   row.ObligationID,
 		GoatID:         row.GoatID,
@@ -257,6 +434,13 @@ WHERE si.tenant_id = $1
   AND si.submission_id = $3
   AND si.goat_id IS NOT NULL
   AND si.state IN ('accepted', 'needs_review')
+  AND (
+    oi.batch_id IS NULL
+    OR (
+      nullif(ss.answers ->> 'vaccine_lot_id', '') IS NOT NULL
+      AND COALESCE((ss.answers ->> 'cold_chain_verified')::boolean, false)
+    )
+  )
 	  AND (
 	    sd.code IN ('vaccination.drive', 'vaccination.session')
 	    OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')

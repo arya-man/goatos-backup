@@ -45,11 +45,14 @@ INSERT INTO protocol_rules (
   tenant_id, protocol_version_id, dose_code, "sequence", trigger_type, offset_days,
   due_window_days, min_gap_days, "repeat", repeat_until_after_age, catch_up,
   eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order
-) VALUES (
+) SELECT
   $1, $2, $3, $4, $5, $6,
   $7, $8, $9, $10, $11,
   $12, $13, $14, $15, $16
-)
+FROM protocol_versions pv
+WHERE pv.tenant_id = $1
+  AND pv.protocol_version_id = $2
+  AND pv.status = 'draft'
 RETURNING rule_id::text AS rule_id
 `
 
@@ -98,7 +101,11 @@ func (q *Queries) CreateProtocolRule(ctx context.Context, arg CreateProtocolRule
 
 const createProtocolTrigger = `-- name: CreateProtocolTrigger :one
 INSERT INTO protocol_triggers (tenant_id, protocol_version_id, trigger_type, trigger_config, is_active)
-VALUES ($1, $2, $3, $4, $5)
+SELECT $1, $2, $3, $4, $5
+FROM protocol_versions pv
+WHERE pv.tenant_id = $1
+  AND pv.protocol_version_id = $2
+  AND pv.status = 'draft'
 RETURNING trigger_id::text AS trigger_id
 `
 
@@ -171,7 +178,7 @@ func (q *Queries) CreateProtocolVersion(ctx context.Context, arg CreateProtocolV
 	return protocol_version_id, err
 }
 
-const publishProtocolVersion = `-- name: PublishProtocolVersion :exec
+const publishProtocolVersion = `-- name: PublishProtocolVersion :execrows
 UPDATE protocol_versions
 SET status = 'published',
     published_by = $1,
@@ -190,7 +197,10 @@ type PublishProtocolVersionParams struct {
 }
 
 // Status flip only; the source-backed approval gate is enforced in the app layer.
-func (q *Queries) PublishProtocolVersion(ctx context.Context, arg PublishProtocolVersionParams) error {
-	_, err := q.db.Exec(ctx, publishProtocolVersion, arg.PublishedBy, arg.TenantID, arg.ProtocolVersionID)
-	return err
+func (q *Queries) PublishProtocolVersion(ctx context.Context, arg PublishProtocolVersionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, publishProtocolVersion, arg.PublishedBy, arg.TenantID, arg.ProtocolVersionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

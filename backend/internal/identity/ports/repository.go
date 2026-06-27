@@ -13,6 +13,7 @@ var (
 	ErrIdempotencyConflict = errors.New("idempotency key reused with different request")
 	ErrIdempotencyPending  = errors.New("idempotency key is not completed")
 	ErrWriteConflict       = errors.New("identity write conflict")
+	ErrInvalidReference    = errors.New("identity referenced record is invalid")
 	ErrInvalidCursor       = errors.New("invalid pagination cursor")
 )
 
@@ -117,6 +118,22 @@ type ExitGoatCommand struct {
 	RowVersion           int
 }
 
+type StageGoatCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	ManagementStage      string
+	Reason               string
+	OccurredAt           time.Time
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
 type AdminGoatCreateIdentifier struct {
 	IdentifierType  string
 	IdentifierValue string
@@ -197,5 +214,6 @@ type Repository interface {
 	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	MoveGoat(ctx context.Context, cmd MoveGoatCommand) (*AdminGoatMutationResult, error)
 	ExitGoat(ctx context.Context, cmd ExitGoatCommand) (*AdminGoatMutationResult, error)
+	StageGoat(ctx context.Context, cmd StageGoatCommand) (*AdminGoatMutationResult, error)
 	Ping(ctx context.Context) error
 }

@@ -25,6 +25,7 @@ type Repository interface {
 	// completion still in 'recorded' state (idempotent: applied is false on replay). AcceptCompletion
 	// returns the verification context (obligation/goat/batch/lot/doses) so the caller can complete
 	// the obligation and consume the reserved dose.
+	GetRecordedCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error)
 	AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptedCompletion, bool, error)
 	RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (bool, error)
 

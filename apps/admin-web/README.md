@@ -10,6 +10,7 @@ Build and verify these implemented surfaces only:
 
 - `/login`
 - `/` Control Tower
+- `/calendar`
 - `/action-center`
 - `/protocol-adherence`
 - `/workflows`
@@ -20,17 +21,10 @@ Build and verify these implemented surfaces only:
 - `/procurement/source-entry/loads/{load_id}`
 - `/counts/herd`
 - `/operations/audit`
+- `/operations/dlq`
 - `/config`
 - `/sops`
 - `/goats/{goat_id}`
-
-Approved next build target:
-
-- `/calendar` vaccination due-work slice only. This route is approved/reopened
-  by `context/execution/calendar-vaccination-slice-parallel-handoff.md`, but it
-  is not an implemented app route until the frontend slice adds
-  `app/(admin)/calendar/page.tsx`, primary nav, mock-fidelity coverage, and live
-  smoke coverage in the same PR.
 
 The working product model is:
 
@@ -39,9 +33,8 @@ The working product model is:
   Vaccination execution context (park, shed, stage, defer/blocker, owner, SOP/proof
   status) renders INSIDE /vaccination#execution, not as a separate Parks route.
 - **Command lenses** are top-level screens over the same backend truth: Control
-  Tower, Action Center, Protocol Adherence, and Workflows today, plus the
-  approved Calendar build target. Calendar is reopened only for
-  vaccination-related due work, not all-domain mock content.
+  Tower, Action Center, Calendar, Protocol Adherence, and Workflows. Calendar
+  is reopened only for vaccination-related due work, not all-domain mock content.
 - **Control Tower** summarizes only broken or at-risk process. Do not build
   generic KPIs there.
 
@@ -72,8 +65,8 @@ When a local backend and admin-web are running, also run:
 npm run smoke:visual:live
 ```
 
-`smoke:visual:live` covers implemented routes only. Add `/calendar` to that
-script when the Calendar page/nav implementation lands.
+`smoke:visual:live` covers implemented routes only, including Calendar and the
+Operations DLQ repair lane.
 
 Open the generated screenshots under
 `.codex-goatos-render/admin-web-screenshots/` before claiming visual QA.

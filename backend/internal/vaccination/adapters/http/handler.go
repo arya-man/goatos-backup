@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -29,11 +30,19 @@ type Verifier interface {
 	RejectExisting(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (app.RejectResult, error)
 }
 
+// ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
+// vaccination protocol version. It is separate from publish/backfill generation so campaigns cannot
+// fire accidentally.
+type ManualCampaignGenerator interface {
+	GenerateManualCampaignForVersionWithRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerationRun, domain.GenerateResult, error)
+}
+
 // Handler serves vaccination endpoints.
 type Handler struct {
-	svc    Reads
-	verify Verifier
-	log    *slog.Logger
+	svc      Reads
+	verify   Verifier
+	campaign ManualCampaignGenerator
+	log      *slog.Logger
 }
 
 // NewHandler constructs the handler. verify may be nil (verification routes 503 until wired).
@@ -47,9 +56,16 @@ func NewHandler(svc Reads, verify Verifier, log ...*slog.Logger) *Handler {
 	return &Handler{svc: svc, verify: verify, log: l}
 }
 
+// WithManualCampaignGenerator enables the manual campaign command route.
+func (h *Handler) WithManualCampaignGenerator(gen ManualCampaignGenerator) *Handler {
+	h.campaign = gen
+	return h
+}
+
 // Register mounts the vaccination routes.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
+	mux.HandleFunc("POST /vaccination/manual-campaigns", h.RunManualCampaign)
 	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
 	mux.HandleFunc("POST /vaccination/completions/{completion_id}/accept", h.AcceptCompletion)
 	mux.HandleFunc("POST /vaccination/completions/{completion_id}/reject", h.RejectCompletion)
@@ -89,6 +105,97 @@ type impactPreviewResponse struct {
 	DosesAvailable string     `json:"doses_available"`
 	EarliestExpiry *time.Time `json:"earliest_expiry,omitempty"`
 	Warnings       []string   `json:"warnings"`
+}
+
+type manualCampaignRequest struct {
+	ProtocolVersionID string     `json:"protocol_version_id"`
+	CampaignID        string     `json:"campaign_id"`
+	AsOf              *time.Time `json:"as_of,omitempty"`
+}
+
+type manualCampaignRunResponse struct {
+	RunID                            string     `json:"run_id"`
+	ProtocolVersionID                string     `json:"protocol_version_id"`
+	TriggerType                      string     `json:"trigger_type"`
+	TriggerRef                       string     `json:"trigger_ref"`
+	Status                           string     `json:"status"`
+	StartedAt                        time.Time  `json:"started_at"`
+	CompletedAt                      *time.Time `json:"completed_at,omitempty"`
+	Generated                        int        `json:"generated"`
+	Deferred                         int        `json:"deferred"`
+	SkippedNoDueDate                 int        `json:"skipped_no_due_date"`
+	SuppressedByTrustedHistory       int        `json:"suppressed_by_trusted_history"`
+	CursorGoatID                     string     `json:"cursor_goat_id,omitempty"`
+	LastError                        string     `json:"last_error,omitempty"`
+	ResultGenerated                  int        `json:"result_generated"`
+	ResultDeferred                   int        `json:"result_deferred"`
+	ResultSkippedNoDueDate           int        `json:"result_skipped_no_due_date"`
+	ResultSuppressedByTrustedHistory int        `json:"result_suppressed_by_trusted_history"`
+}
+
+// RunManualCampaign deliberately fires manual_campaign rows for a published vaccination protocol
+// version. The durable run key combines campaign_id and as_of, while the HTTP Idempotency-Key gives
+// operators a retry-safe command boundary.
+func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
+	if h.campaign == nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "manual_campaign_unavailable", Message: "manual campaign generation is not wired", TraceID: traceID(r)}, nil)
+		return
+	}
+	if _, ok := h.manualCampaignIdempotencyKey(w, r); !ok {
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		h.badRequest(w, r, "invalid_body", "request body could not be read")
+		return
+	}
+	var req manualCampaignRequest
+	if len(body) == 0 {
+		h.badRequest(w, r, "invalid_json", "request body is required")
+		return
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+		return
+	}
+	if !uuidutil.IsUUIDString(req.ProtocolVersionID) {
+		h.badRequest(w, r, "invalid_protocol_version_id", "protocol_version_id must be a UUID")
+		return
+	}
+	req.CampaignID = strings.TrimSpace(req.CampaignID)
+	if !validCampaignID(req.CampaignID) {
+		h.badRequest(w, r, "invalid_campaign_id", "campaign_id must be 3-128 characters using letters, numbers, dash, underscore, colon, or dot")
+		return
+	}
+	asOf := time.Now().UTC()
+	if req.AsOf != nil {
+		asOf = req.AsOf.UTC()
+	}
+	run, result, err := h.campaign.GenerateManualCampaignForVersionWithRun(r.Context(), tenantID(r), req.ProtocolVersionID, req.CampaignID, asOf)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusAccepted, manualCampaignRunResponse{
+		RunID:                            run.RunID,
+		ProtocolVersionID:                run.ProtocolVersionID,
+		TriggerType:                      run.TriggerType,
+		TriggerRef:                       run.TriggerRef,
+		Status:                           run.Status,
+		StartedAt:                        run.StartedAt,
+		CompletedAt:                      run.CompletedAt,
+		Generated:                        run.Generated,
+		Deferred:                         run.Deferred,
+		SkippedNoDueDate:                 run.SkippedNoDueDate,
+		SuppressedByTrustedHistory:       run.SuppressedByTrustedHistory,
+		CursorGoatID:                     run.CursorGoatID,
+		LastError:                        run.LastError,
+		ResultGenerated:                  result.Generated,
+		ResultDeferred:                   result.Deferred,
+		ResultSkippedNoDueDate:           result.SkippedNoDueDate,
+		ResultSuppressedByTrustedHistory: result.SuppressedByTrustedHistory,
+	})
 }
 
 // ImpactPreview computes a live impact preview for a vaccination rule/version (eligible goats,
@@ -264,6 +371,38 @@ func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
+}
+
+func validCampaignID(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) < 3 || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '-', '_', ':', '.':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (h *Handler) manualCampaignIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.badRequest(w, r, "missing_idempotency_key", "Idempotency-Key header is required")
+		return "", false
+	}
+	if len(key) < 8 || len(key) > 200 {
+		h.badRequest(w, r, "invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
+		return "", false
+	}
+	return key, true
 }
 
 func tenantID(r *http.Request) string {

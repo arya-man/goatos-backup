@@ -214,6 +214,14 @@ type ExitGoatRequest struct {
 	RowVersion      int           `json:"row_version"`
 }
 
+type StageGoatRequest struct {
+	ManagementStage string        `json:"management_stage"`
+	Reason          string        `json:"reason"`
+	OccurredAt      *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs    []EvidenceRef `json:"evidence_refs"`
+	RowVersion      int           `json:"row_version"`
+}
+
 type AdminGoatBulkRowResult struct {
 	RowNumber        int                     `json:"row_number"`
 	Decision         string                  `json:"decision"`

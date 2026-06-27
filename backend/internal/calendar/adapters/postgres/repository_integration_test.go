@@ -988,13 +988,14 @@ INSERT INTO protocol_versions (
   version_label, status, effective_from, effective_to, rule_dsl, proof_policy, published_at
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 1,
-  'Projection source-backed published test', 'published', DATE '2026-01-01', DATE '2028-01-01',
+  'Projection source-backed published test', 'draft', DATE '2026-01-01', DATE '2028-01-01',
   '{"source":{"review_status":"approved","source_ref":"docs/phc-vaccination/PRD.md","source_system":"phc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
-  '{"required_proofs":["administration"]}'::jsonb, now()
+  '{"required_proofs":["administration"]}'::jsonb, NULL
 )
 ON CONFLICT (protocol_version_id) DO UPDATE
-SET status = 'published',
+SET status = 'draft',
     rule_dsl = EXCLUDED.rule_dsl,
+    published_at = NULL,
     updated_at = now()`,
 		versionID, testTenantID, protocolID)
 	if err != nil {
@@ -1014,6 +1015,16 @@ SET dose_code = EXCLUDED.dose_code`,
 		ruleID, testTenantID, versionID)
 	if err != nil {
 		t.Fatalf("seed protocol rule: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+UPDATE protocol_versions
+SET status = 'published',
+    published_at = COALESCE(published_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid`,
+		testTenantID, versionID)
+	if err != nil {
+		t.Fatalf("publish seeded protocol version: %v", err)
 	}
 	_, err = pool.Exec(ctx, `
 INSERT INTO obligation_instances (

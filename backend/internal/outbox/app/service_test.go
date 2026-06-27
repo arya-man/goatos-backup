@@ -157,7 +157,15 @@ func (r *serviceFakeRepo) ListDeadLetters(context.Context, ports.DeadLetterQuery
 	return nil, nil
 }
 
+func (r *serviceFakeRepo) Health(context.Context, string, time.Time) (domain.Health, error) {
+	return domain.Health{Status: "healthy"}, nil
+}
+
 func (r *serviceFakeRepo) ReplayDeadLetters(context.Context, ports.ReplayDeadLettersParams) (int64, error) {
+	return 0, nil
+}
+
+func (r *serviceFakeRepo) DiscardDeadLetters(context.Context, ports.DiscardDeadLettersParams) (int64, error) {
 	return 0, nil
 }
 
