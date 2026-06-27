@@ -114,6 +114,7 @@ type EligibleGoat struct {
 type GenerateResult struct {
 	Generated                  int
 	Deferred                   int
+	Reopened                   int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int
 }

@@ -224,7 +224,9 @@ WHERE tenant_id = $1
 	}
 
 	qtx := r.queries.WithTx(tx)
-	eventKey := obligationID + ":deferred"
+	// occurredAt suffix lets repeated defer cycles (defer -> recover -> defer) each record an event,
+	// symmetric with the reopen event key.
+	eventKey := obligationID + ":deferred:" + occurredAt.UTC().Format(time.RFC3339)
 	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
 		IdempotencyKey: eventKey,
 		TenantID:       tenant,
@@ -266,6 +268,89 @@ WHERE tenant_id = $1
 
 	if err := tx.Commit(ctx); err != nil {
 		return "", false, fmt.Errorf("obligation: commit defer: %w", err)
+	}
+	return obligationID, true, nil
+}
+
+// ReopenDeferredObligationByIdempotencyKey flips a still-'deferred' obligation back to 'scheduled'
+// when a goat recovers from its defer state (sick/ICU/quarantine), and records a 'scheduled' status
+// event in the same transaction. changed is false (a safe recovery-recheck replay) when no deferred
+// row matches the key — already schedulable, terminal, or absent. Deferred rows are unbatched
+// (DeferOpenObligationByIdempotencyKey detaches planned batches), so no batch repair is needed here.
+func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time) (string, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: begin reopen tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	obligationID, err := qtx.ReopenDeferredObligationForKey(ctx, obligationdb.ReopenDeferredObligationForKeyParams{
+		TenantID:       tenant,
+		IdempotencyKey: idempotencyKey,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return "", false, fmt.Errorf("obligation: commit reopen noop: %w", cerr)
+		}
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: reopen deferred obligation: %w", err)
+	}
+
+	eventKey := obligationID + ":reopened:" + occurredAt.UTC().Format(time.RFC3339)
+	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+		IdempotencyKey: eventKey,
+		TenantID:       tenant,
+		Scope:          "obligation.status_event",
+		RequestHash:    "reopen:recovered",
+	})
+	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("obligation: reserve reopen event key: %w", reserveErr)
+	}
+	if reserveErr == nil {
+		oblUUID, err := pgconv.UUID(obligationID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: reopened obligation id: %w", err)
+		}
+		payload, _ := json.Marshal(map[string]string{"reason": "recovered_from_defer_state"})
+		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oblUUID,
+			EventType:      "scheduled",
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
+			Payload:        pgconv.JSONB(payload),
+			IdempotencyKey: eventKey,
+		})
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: insert reopen event: %w", err)
+		}
+		eventUUID, err := pgconv.UUID(eventID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: reopen event id: %w", err)
+		}
+		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+			ResultType:     pgconv.Text("obligation_status_event"),
+			ResultID:       eventUUID,
+			IdempotencyKey: eventKey,
+		}); err != nil {
+			return "", false, fmt.Errorf("obligation: complete reopen event key: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("obligation: commit reopen: %w", err)
 	}
 	return obligationID, true, nil
 }
@@ -804,6 +889,10 @@ WHERE tenant_id = $1::uuid
 	return len(ids), nil
 }
 
+// reScopeOpenObligationsForGoat moves a goat's open obligations to a new scope on SM-2 shift. 'deferred'
+// (held sick/ICU/quarantine) work is re-scoped alongside scheduled/due — symmetric with SM-3
+// CancelOpenObligationsForGoat — so a goat that shifts while held later reopens (on recovery) at its
+// CURRENT shed, not the stale pre-move one (otherwise SM-4 would batch the drive under the wrong shed).
 func reScopeOpenObligationsForGoat(ctx context.Context, tx pgx.Tx, tenantID, goatID, scopeType, scopeID string) ([]string, map[string]int, error) {
 	rows, err := tx.Query(ctx, `
 UPDATE obligation_instances
@@ -814,7 +903,7 @@ SET scope_type = $3,
 WHERE tenant_id = $1::uuid
   AND target_type = 'goat'
   AND target_id = $2::uuid
-  AND status IN ('scheduled', 'due')
+  AND status IN ('scheduled', 'due', 'deferred')
   AND batch_id IS NULL
   AND (scope_type IS DISTINCT FROM $3 OR scope_id IS DISTINCT FROM $4::uuid)
 RETURNING obligation_id::text`, tenantID, goatID, scopeType, scopeID)
@@ -845,7 +934,7 @@ FROM obligation_batches ob
 WHERE oi.tenant_id = $1::uuid
   AND oi.target_type = 'goat'
   AND oi.target_id = $2::uuid
-  AND oi.status IN ('scheduled', 'due')
+  AND oi.status IN ('scheduled', 'due', 'deferred')
   AND oi.batch_id = ob.batch_id
   AND ob.tenant_id = oi.tenant_id
   AND ob.status = 'planned'

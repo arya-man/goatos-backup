@@ -77,7 +77,9 @@ Manual equivalent of the script's steps (when running by hand):
 
 ```text
 1. POST /admin/goats (park CBE + shed, K1 day-21 ET goat)  -> goat + goat.created outbox row
-2. GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay   -> generation -> obligation_instances
+2. GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay   -> generation -> obligation_instances
+   (the relay now fails closed: non-durable publishers like `eventbus`/`logging` require
+    GOATOS_OUTBOX_ALLOW_NONDURABLE=1; staging/production must set GOATOS_OUTBOX_PUBLISHER=pubsub)
 3. go run ./cmd/obligation-sweeper -version-id <b011> -sop-version-id <b0..0002> \
      -vaccine-item-id <b001> -actor-id <user>              -> obligation_batch + SOP task
 4. POST /app/proofs/uploads (x3: shed/vial_lot/administration, scope_type=task) + PUT bytes

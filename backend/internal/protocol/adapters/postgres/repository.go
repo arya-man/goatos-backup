@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	protocoldb "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -267,11 +269,55 @@ RETURNING pv.protocol_version_id::text,
 	if err != nil {
 		return fmt.Errorf("protocol: publish version: %w", err)
 	}
+	if err := recordProtocolPublishedAudit(ctx, tx, tenantID, published, publishedBy); err != nil {
+		return err
+	}
 	if err := insertProtocolPublishedOutbox(ctx, tx, tenantID, published, publishedBy); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit publish: %w", err)
+	}
+	return nil
+}
+
+// recordProtocolPublishedAudit writes the canonical {domain row + audit + outbox} audit_log entry for
+// a publish, in the same transaction as the status flip and outbox insert, so the operational kernel
+// invariant holds: every published version leaves a durable audit trail alongside its event.
+func recordProtocolPublishedAudit(ctx context.Context, tx pgx.Tx, tenantID string, published protocolPublishedRow, publishedBy *string) error {
+	actorType := "system_rule"
+	actorID := ""
+	if publishedBy != nil && strings.TrimSpace(*publishedBy) != "" {
+		actorType = "human"
+		actorID = strings.TrimSpace(*publishedBy)
+	}
+	scopeID := published.ScopeID
+	if published.ScopeType == "tenant" {
+		scopeID = ""
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    actorType,
+		Action:       protocolPublishedEventType,
+		ResourceType: protocolPublishedAggregateType,
+		ResourceID:   published.VersionID,
+		ScopeType:    published.ScopeType,
+		ScopeID:      scopeID,
+		AfterState: map[string]any{
+			"status":      "published",
+			"category":    published.Category,
+			"protocol_id": published.ProtocolID,
+			"scope_type":  published.ScopeType,
+		},
+		Metadata: map[string]any{
+			"protocol_id":  published.ProtocolID,
+			"category":     published.Category,
+			"published_at": published.PublishedAt.UTC().Format(time.RFC3339Nano),
+		},
+		TraceID: "protocol:version:published:" + published.VersionID,
+	}); err != nil {
+		return fmt.Errorf("protocol: audit version published: %w", err)
 	}
 	return nil
 }
@@ -377,7 +423,8 @@ func nullableString(value string) any {
 	return value
 }
 
-// ListPublishedVaccinationVersions returns the ids of published vaccination protocol versions.
+// ListPublishedVaccinationVersions returns the ids of ALL published vaccination protocol versions
+// (sweeper/backfill: open obligations may have been generated under any published version).
 func (r *Repository) ListPublishedVaccinationVersions(ctx context.Context, tenantID string) ([]string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -388,6 +435,36 @@ func (r *Repository) ListPublishedVaccinationVersions(ctx context.Context, tenan
 	ids, err := r.queries.ListPublishedVaccinationVersions(ctx, tenant)
 	if err != nil {
 		return nil, fmt.Errorf("protocol: list published vaccination versions: %w", err)
+	}
+	return ids, nil
+}
+
+// ListEffectiveVaccinationVersionsForGoat returns one published vaccination version id per protocol —
+// the version effective as of asOf that covers a goat in parkID (its park-scoped override when one is
+// effective, else the tenant default). Per-goat SM-1 (goat.created) uses this so a new goat is generated
+// only against each protocol's currently-active version for its scope, never a superseded version and
+// never two coexisting scopes. parkID is empty for a goat with no park (matches tenant-default only).
+func (r *Repository) ListEffectiveVaccinationVersionsForGoat(ctx context.Context, tenantID, parkID string, asOf time.Time) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	park := pgtype.UUID{} // NULL → only tenant-default versions match
+	if parkID != "" {
+		park, err = pgconv.UUID(parkID)
+		if err != nil {
+			return nil, fmt.Errorf("protocol: park id: %w", err)
+		}
+	}
+	ids, err := r.queries.ListEffectiveVaccinationVersionsForGoat(ctx, protocoldb.ListEffectiveVaccinationVersionsForGoatParams{
+		TenantID: tenant,
+		AsOf:     pgconv.Timestamptz(asOf),
+		ParkID:   park,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("protocol: list effective vaccination versions for goat: %w", err)
 	}
 	return ids, nil
 }

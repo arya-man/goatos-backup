@@ -59,29 +59,46 @@ WHERE tenant_id = @tenant_id
   AND status IN ('scheduled', 'due', 'in_progress', 'missed');
 
 -- name: ReScopeOpenObligationsForGoat :many
--- SM-2: on a goat shift, move the goat's still-open, unbatched obligations to the new scope. The
--- IS DISTINCT FROM guard makes a same-scope replay match nothing (no row_version churn → idempotent).
--- Completed/in-progress/missed/canceled and already-batched obligations are never touched. Uses
--- obligation_instances_target_idx.
+-- SM-2: on a goat shift, move the goat's still-open, unbatched obligations to the new scope. 'deferred'
+-- (held sick/ICU/quarantine) work is re-scoped too — symmetric with SM-3 CancelOpenObligationsForGoat —
+-- so when the goat later recovers, ReopenDeferredObligationForKey surfaces the obligation at the goat's
+-- CURRENT shed and the SM-4 sweeper batches it under the right drive ("one shed = one drive"); without
+-- this a deferred row would reopen at the stale pre-move shed. The IS DISTINCT FROM guard makes a
+-- same-scope replay match nothing (no row_version churn → idempotent). Completed/in-progress/missed/
+-- canceled and already-batched obligations are never touched (a batched deferred row is mid-drive and
+-- must stay with its batch). Uses obligation_instances_target_idx.
 UPDATE obligation_instances
 SET scope_type = @scope_type, scope_id = @scope_id, row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = @tenant_id
   AND target_type = 'goat'
   AND target_id = @target_id
-  AND status IN ('scheduled', 'due')
+  AND status IN ('scheduled', 'due', 'deferred')
   AND batch_id IS NULL
   AND (scope_type IS DISTINCT FROM @scope_type OR scope_id IS DISTINCT FROM @scope_id)
 RETURNING obligation_id::text AS obligation_id;
 
 -- name: CancelOpenObligationsForGoat :many
--- SM-3: cancel a goat's still-open obligations on death/sale. Idempotent — completed/accepted/
--- missed/already-canceled rows are not matched. Uses obligation_instances_target_idx.
+-- SM-3: cancel a goat's still-open obligations on death/sale/exit. 'deferred' (held sick/ICU/
+-- quarantine) work is included so a goat that exits while on hold does not strand open obligations.
+-- Idempotent — completed/accepted/missed/already-canceled rows are not matched. Uses
+-- obligation_instances_target_idx.
 UPDATE obligation_instances
 SET status = 'canceled', row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = @tenant_id
   AND target_type = 'goat'
   AND target_id = @target_id
-  AND status IN ('scheduled', 'due', 'in_progress')
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+RETURNING obligation_id::text AS obligation_id;
+
+-- name: ReopenDeferredObligationForKey :one
+-- Recovery recheck: a previously-deferred (held) obligation becomes schedulable again once the goat
+-- is no longer in a defer state (recovered from sick/ICU/quarantine). Idempotent: only rows still
+-- 'deferred' match, so a replay after the goat is already schedulable is a no-op.
+UPDATE obligation_instances
+SET status = 'scheduled', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = @tenant_id
+  AND idempotency_key = @idempotency_key
+  AND status = 'deferred'
 RETURNING obligation_id::text AS obligation_id;
 
 -- name: CompleteIdempotencyKey :exec

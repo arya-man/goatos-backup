@@ -40,7 +40,7 @@ SET status = 'canceled', row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $1
   AND target_type = 'goat'
   AND target_id = $2
-  AND status IN ('scheduled', 'due', 'in_progress')
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
 RETURNING obligation_id::text AS obligation_id
 `
 
@@ -49,8 +49,10 @@ type CancelOpenObligationsForGoatParams struct {
 	TargetID pgtype.UUID
 }
 
-// SM-3: cancel a goat's still-open obligations on death/sale. Idempotent — completed/accepted/
-// missed/already-canceled rows are not matched. Uses obligation_instances_target_idx.
+// SM-3: cancel a goat's still-open obligations on death/sale/exit. 'deferred' (held sick/ICU/
+// quarantine) work is included so a goat that exits while on hold does not strand open obligations.
+// Idempotent — completed/accepted/missed/already-canceled rows are not matched. Uses
+// obligation_instances_target_idx.
 func (q *Queries) CancelOpenObligationsForGoat(ctx context.Context, arg CancelOpenObligationsForGoatParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, cancelOpenObligationsForGoat, arg.TenantID, arg.TargetID)
 	if err != nil {
@@ -262,7 +264,7 @@ SET scope_type = $1, scope_id = $2, row_version = row_version + 1, updated_at = 
 WHERE tenant_id = $3
   AND target_type = 'goat'
   AND target_id = $4
-  AND status IN ('scheduled', 'due')
+  AND status IN ('scheduled', 'due', 'deferred')
   AND batch_id IS NULL
   AND (scope_type IS DISTINCT FROM $1 OR scope_id IS DISTINCT FROM $2)
 RETURNING obligation_id::text AS obligation_id
@@ -275,10 +277,14 @@ type ReScopeOpenObligationsForGoatParams struct {
 	TargetID  pgtype.UUID
 }
 
-// SM-2: on a goat shift, move the goat's still-open, unbatched obligations to the new scope. The
-// IS DISTINCT FROM guard makes a same-scope replay match nothing (no row_version churn → idempotent).
-// Completed/in-progress/missed/canceled and already-batched obligations are never touched. Uses
-// obligation_instances_target_idx.
+// SM-2: on a goat shift, move the goat's still-open, unbatched obligations to the new scope. 'deferred'
+// (held sick/ICU/quarantine) work is re-scoped too — symmetric with SM-3 CancelOpenObligationsForGoat —
+// so when the goat later recovers, ReopenDeferredObligationForKey surfaces the obligation at the goat's
+// CURRENT shed and the SM-4 sweeper batches it under the right drive ("one shed = one drive"); without
+// this a deferred row would reopen at the stale pre-move shed. The IS DISTINCT FROM guard makes a
+// same-scope replay match nothing (no row_version churn → idempotent). Completed/in-progress/missed/
+// canceled and already-batched obligations are never touched (a batched deferred row is mid-drive and
+// must stay with its batch). Uses obligation_instances_target_idx.
 func (q *Queries) ReScopeOpenObligationsForGoat(ctx context.Context, arg ReScopeOpenObligationsForGoatParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, reScopeOpenObligationsForGoat,
 		arg.ScopeType,
@@ -302,6 +308,30 @@ func (q *Queries) ReScopeOpenObligationsForGoat(ctx context.Context, arg ReScope
 		return nil, err
 	}
 	return items, nil
+}
+
+const reopenDeferredObligationForKey = `-- name: ReopenDeferredObligationForKey :one
+UPDATE obligation_instances
+SET status = 'scheduled', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1
+  AND idempotency_key = $2
+  AND status = 'deferred'
+RETURNING obligation_id::text AS obligation_id
+`
+
+type ReopenDeferredObligationForKeyParams struct {
+	TenantID       pgtype.UUID
+	IdempotencyKey string
+}
+
+// Recovery recheck: a previously-deferred (held) obligation becomes schedulable again once the goat
+// is no longer in a defer state (recovered from sick/ICU/quarantine). Idempotent: only rows still
+// 'deferred' match, so a replay after the goat is already schedulable is a no-op.
+func (q *Queries) ReopenDeferredObligationForKey(ctx context.Context, arg ReopenDeferredObligationForKeyParams) (string, error) {
+	row := q.db.QueryRow(ctx, reopenDeferredObligationForKey, arg.TenantID, arg.IdempotencyKey)
+	var obligation_id string
+	err := row.Scan(&obligation_id)
+	return obligation_id, err
 }
 
 const reserveIdempotencyKey = `-- name: ReserveIdempotencyKey :one

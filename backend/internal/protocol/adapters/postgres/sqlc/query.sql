@@ -22,12 +22,39 @@ WHERE tenant_id = @tenant_id AND protocol_id = @protocol_id AND status = 'publis
 ORDER BY effective_from DESC, protocol_version_id DESC;
 
 -- name: ListPublishedVaccinationVersions :many
--- Published vaccination protocol versions for a tenant (drives per-goat SM-1 on goat.created).
+-- ALL published vaccination protocol versions for a tenant. Used by the sweeper/backfill, which must
+-- process open obligations generated under any published version (including superseded ones).
 SELECT pv.protocol_version_id::text AS protocol_version_id
 FROM protocol_versions pv
 JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
 WHERE pv.tenant_id = @tenant_id AND pv.status = 'published' AND pd.category = 'vaccination'
 ORDER BY pv.protocol_version_id;
+
+-- name: ListEffectiveVaccinationVersionsForGoat :many
+-- The published vaccination version EFFECTIVE as of @as_of for ONE goat, one row per protocol. SM-1 on
+-- goat.created uses this so a new goat is generated only against its currently-active version, never a
+-- superseded one (which would double-issue doses).
+-- protocol_versions enforces non-overlap per (protocol, scope), NOT per protocol — a tenant-default and
+-- a @park_id-scoped "park calendar" version of the same protocol can BOTH be effective at once. The
+-- DISTINCT ON precedence picks the MOST SPECIFIC scope that covers this goat (its park override when one
+-- exists and is effective, else the tenant default), so the goat is issued doses from exactly one scope
+-- — never both, and never another park's calendar. A goat with no park (@park_id IS NULL) only matches
+-- tenant-default versions.
+SELECT DISTINCT ON (pv.protocol_id)
+       pv.protocol_version_id::text AS protocol_version_id
+FROM protocol_versions pv
+JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = @tenant_id
+  AND pv.status = 'published'
+  AND pd.category = 'vaccination'
+  AND pv.effective_from <= (@as_of::timestamptz)::date
+  AND (pv.effective_to IS NULL OR pv.effective_to > (@as_of::timestamptz)::date)
+  AND (pv.scope_type = 'tenant'
+       OR (pv.scope_type = 'park' AND pv.scope_id = sqlc.narg('park_id')))
+ORDER BY pv.protocol_id,
+         (pv.scope_type = 'park') DESC,
+         pv.effective_from DESC,
+         pv.protocol_version_id DESC;
 
 -- name: ListRulesForVersion :many
 SELECT rule_id::text AS rule_id, dose_code, "sequence", trigger_type, offset_days,

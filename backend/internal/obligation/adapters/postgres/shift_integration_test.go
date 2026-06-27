@@ -66,3 +66,50 @@ func TestSM2ShiftReScopesOpenObligations(t *testing.T) {
 		t.Fatalf("re-shift to same scope must not add an event, got %d", got)
 	}
 }
+
+// TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed guards the MF-2 fix: ReScopeOpenObligationsForGoat
+// must move 'deferred' (held) work too — symmetric with SM-3 cancel — so when a goat that shifted while
+// held later recovers, ReopenDeferredObligationByIdempotencyKey surfaces the obligation at the goat's
+// CURRENT scope, not the stale pre-move one (otherwise SM-4 would batch the drive under the wrong shed).
+func TestSM2ShiftReScopesDeferredThenReopensAtCurrentShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	_ = seed(t, ctx, pool) // goat + protocol version + rule; obl-1 scheduled at CBE
+	repo := NewRepository(pool, 5*time.Second)
+
+	// A held (deferred), unbatched obligation at the old scope (CBE).
+	obDef, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: mustVersionOf(t, ctx, pool), RuleID: mustRuleOf(t, ctx, pool),
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Status: "deferred",
+		IdempotencyKey: "obl-deferred", Sequence: 2,
+	})
+	if err != nil || !applied {
+		t.Fatalf("seed deferred obligation: applied=%v err=%v", applied, err)
+	}
+
+	// Goat shifts to CPT while still held → the deferred row must re-scope (stays deferred).
+	bus := eventbus.NewInProcessBus()
+	oblapp.NewGoatShiftedHandler(repo).Register(bus)
+	payload, _ := json.Marshal(oblapp.ShiftPayload{ScopeType: "park", ScopeID: cptPark})
+	if err := bus.Publish(ctx, eventbus.Event{Type: oblapp.EventGoatShifted, TenantID: tenantID, Key: testGoatID, Payload: payload}); err != nil {
+		t.Fatalf("publish goat.shifted: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND status='deferred'`, obDef, cptPark); got != 1 {
+		t.Fatalf("deferred obligation should re-scope to CPT and stay deferred, got %d", got)
+	}
+
+	// Goat recovers → reopen flips it to scheduled AT THE NEW shed, not stale CBE.
+	if _, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-deferred", time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)); err != nil || !changed {
+		t.Fatalf("reopen deferred: changed=%v err=%v", changed, err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2 AND status='scheduled'`, obDef, cptPark); got != 1 {
+		t.Fatalf("reopened obligation must be scheduled at CPT (current shed), got %d", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE obligation_id=$1 AND scope_id=$2`, obDef, cbePark); got != 0 {
+		t.Fatalf("reopened obligation must NOT remain at stale CBE")
+	}
+}

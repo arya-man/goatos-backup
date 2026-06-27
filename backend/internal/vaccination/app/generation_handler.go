@@ -15,8 +15,17 @@ const EventGoatCreated = "goat.created"
 const EventGoatStageChanged = "goat.stage_changed"
 
 // EventGoatLocationChanged re-evaluates rules after a shed/park move because the goat's stage
-// can be location-derived. Obligation re-scoping remains owned by the obligation handler.
+// can be location-derived. Obligation re-scoping remains owned by the obligation handler. It also
+// covers ICU/quarantine recovery: a goat leaving an ICU/quarantine location fires this event, so its
+// held (deferred) obligations are reopened on recheck.
 const EventGoatLocationChanged = "goat.location.changed"
+
+// EventGoatHealthChanged re-evaluates rules after a goat's health status changes (e.g. sick →
+// recovered) WITHOUT a stage/location move. Pure health recovery is not covered by stage/location
+// events, so the recheck must consume this dedicated signal to reopen health-deferred obligations.
+// The consumer is wired here; the producer (a health-status mutation command) is emitted by whichever
+// module owns health writes — until then this subscription is harmless (no producer → never fires).
+const EventGoatHealthChanged = "goat.health.changed"
 
 // EventManualCampaignRequested intentionally fires manual_campaign schedule rows for one published
 // vaccination version. It is not part of normal publish/backfill generation.
@@ -70,6 +79,7 @@ var _ eventbus.Handler = (*GoatRecheckHandler)(nil)
 func (h *GoatRecheckHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventGoatStageChanged, h)
 	bus.Subscribe(EventGoatLocationChanged, h)
+	bus.Subscribe(EventGoatHealthChanged, h)
 }
 
 func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {

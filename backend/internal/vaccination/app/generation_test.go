@@ -169,9 +169,125 @@ func TestGenerateForGoatRecheckDefersExistingOpenObligation(t *testing.T) {
 	}
 }
 
+func TestGenerateForGoatRecheckReopensRecoveredObligation(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick","quarantine","ICU"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{
+		goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	first, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	if first.Deferred != 1 || obl.inserted[0].Status != "deferred" {
+		t.Fatalf("initial result=%#v inserted=%#v, want one deferred obligation", first, obl.inserted)
+	}
+
+	goats.goat.HealthStatus = "healthy"
+	recheck, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("recovery recheck: %v", err)
+	}
+	if recheck.Reopened != 1 || recheck.Generated != 0 {
+		t.Fatalf("recheck result=%#v, want recovered obligation reopened", recheck)
+	}
+	if obl.inserted[0].Status != "scheduled" || len(obl.reopenedKeys) != 1 {
+		t.Fatalf("reopen state inserted=%#v reopened=%#v", obl.inserted, obl.reopenedKeys)
+	}
+}
+
+func TestGoatRecheckHandlerReopensOnHealthRecovery(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1","defer_states":["sick","quarantine","ICU"]}}`),
+		rules:   []protodomain.Rule{{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21}},
+	}
+	goats := &generationGoatFake{goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "sick", Stage: "K1", DOB: &dob}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	if obl.inserted[0].Status != "deferred" {
+		t.Fatalf("precondition: want held obligation, got %s", obl.inserted[0].Status)
+	}
+
+	// Pure health recovery (no stage/location change) must reopen via the dedicated health event.
+	goats.goat.HealthStatus = "healthy"
+	bus := eventbus.NewInProcessBus()
+	NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type: EventGoatHealthChanged, TenantID: "tenant-1", Key: "goat-1",
+		OccurredAt: time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("publish goat.health.changed: %v", err)
+	}
+	if obl.inserted[0].Status != "scheduled" || len(obl.reopenedKeys) != 1 {
+		t.Fatalf("health recovery must reopen the held obligation via the bus, inserted=%#v reopened=%#v", obl.inserted, obl.reopenedKeys)
+	}
+}
+
+func TestGenerateScopesObligationToShed(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", Stage: "K1", DOB: &dob, ParkID: "park-1", ShedID: "shed-1"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(obl.inserted) != 1 || obl.inserted[0].ScopeType != "shed" || obl.inserted[0].ScopeID != "shed-1" {
+		t.Fatalf("inserted=%#v, want shed scope so the sweeper batches one drive per shed", obl.inserted)
+	}
+}
+
+func TestGenerateForGoatUsesEffectiveVersionsAsOf(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{goat: domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	asOf := time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC)
+	if _, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", asOf); err != nil {
+		t.Fatalf("generate for goat: %v", err)
+	}
+	if len(proto.effectiveAsOf) != 1 || !proto.effectiveAsOf[0].Equal(asOf) {
+		t.Fatalf("effectiveAsOf=%#v, want per-goat generation to select the version effective at asOf", proto.effectiveAsOf)
+	}
+}
+
 type generationProtoFake struct {
-	rules   []protodomain.Rule
-	ruleDSL []byte
+	rules           []protodomain.Rule
+	ruleDSL         []byte
+	effectiveAsOf   []time.Time
+	effectiveParkID []string
 }
 
 func (p *generationProtoFake) GetVersion(context.Context, string, string) (protodomain.Version, error) {
@@ -187,7 +303,9 @@ func (p *generationProtoFake) ListRules(context.Context, string, string) ([]prot
 	}}, nil
 }
 
-func (*generationProtoFake) ListPublishedVaccinationVersions(context.Context, string) ([]string, error) {
+func (p *generationProtoFake) ListEffectiveVaccinationVersionsForGoat(_ context.Context, _ string, parkID string, asOf time.Time) ([]string, error) {
+	p.effectiveAsOf = append(p.effectiveAsOf, asOf)
+	p.effectiveParkID = append(p.effectiveParkID, parkID)
 	return []string{"version-1"}, nil
 }
 
@@ -222,6 +340,7 @@ type generationObligationFake struct {
 	inserted              []obldomain.NewObligation
 	deferredKeys          []string
 	deferReasons          []string
+	reopenedKeys          []string
 	failOnceAfterInserted int
 	failed                bool
 }
@@ -261,6 +380,19 @@ func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context
 	return "obligation-1", true, nil
 }
 
+func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ context.Context, _, idempotencyKey string, _ time.Time) (string, bool, error) {
+	idx, ok := o.keyIndex[idempotencyKey]
+	if !ok {
+		return "", false, nil
+	}
+	if o.inserted[idx].Status != "deferred" {
+		return "", false, nil
+	}
+	o.inserted[idx].Status = "scheduled"
+	o.reopenedKeys = append(o.reopenedKeys, idempotencyKey)
+	return "obligation-1", true, nil
+}
+
 func (o *generationObligationFake) RecordStatusEvent(context.Context, obldomain.NewStatusEvent) (string, bool, error) {
 	return "event-1", true, nil
 }
@@ -293,6 +425,10 @@ func (r *generationRunRecorderFake) StartGenerationRun(_ context.Context, in dom
 	}
 	r.byKey[in.IdempotencyKey] = run
 	return run, true, nil
+}
+
+func (r *generationRunRecorderFake) HeartbeatGenerationRun(_ context.Context, _, _ string) error {
+	return nil
 }
 
 func (r *generationRunRecorderFake) FinishGenerationRun(_ context.Context, tenantID, runID string, result domain.GenerateResult, _ string, lastError string, completedAt time.Time) error {

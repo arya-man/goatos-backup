@@ -226,7 +226,7 @@ const getGoatForGeneration = `-- name: GetGoatForGeneration :one
 SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
-       COALESCE(g.shed_id::text, '')::text AS shed_id,
+       COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(g.park_id::text, '')::text AS park_id,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
@@ -237,6 +237,10 @@ FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
 WHERE g.tenant_id = $1 AND g.goat_id = $2::uuid
 `
 
@@ -357,7 +361,7 @@ const listEligibleGoatsForGeneration = `-- name: ListEligibleGoatsForGeneration 
 SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
-       COALESCE(g.shed_id::text, '')::text AS shed_id,
+       COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(g.park_id::text, '')::text AS park_id,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
@@ -368,6 +372,10 @@ FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
 WHERE g.tenant_id = $1
   AND (
     g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')

@@ -19,7 +19,10 @@ import (
 type ProtocolReader interface {
 	GetVersion(ctx context.Context, tenantID, versionID string) (protodomain.Version, error)
 	ListRules(ctx context.Context, tenantID, versionID string) ([]protodomain.Rule, error)
-	ListPublishedVaccinationVersions(ctx context.Context, tenantID string) ([]string, error)
+	// ListEffectiveVaccinationVersionsForGoat returns one published version id per protocol — the
+	// version effective as of asOf for the goat's park scope. Per-goat generation never issues doses
+	// from a superseded version.
+	ListEffectiveVaccinationVersionsForGoat(ctx context.Context, tenantID, parkID string, asOf time.Time) ([]string, error)
 }
 
 // GoatLister is the eligible-goat source (the vaccination repo): chunked for backfill, single for
@@ -33,6 +36,7 @@ type GoatLister interface {
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
+	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 }
 
@@ -41,6 +45,9 @@ type ObligationWriter interface {
 type GenerationRunRecorder interface {
 	StartGenerationRun(ctx context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error)
 	FinishGenerationRun(ctx context.Context, tenantID, runID string, result domain.GenerateResult, cursorGoatID, lastError string, completedAt time.Time) error
+	// HeartbeatGenerationRun keeps a long (1M-goat) run from being reclaimed mid-flight by the
+	// stale-run detector. Called per page; best-effort (errors are non-fatal to the run).
+	HeartbeatGenerationRun(ctx context.Context, tenantID, runID string) error
 }
 
 // CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
@@ -185,6 +192,10 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 	if !run.StartedAt.IsZero() {
 		effectiveAsOf = run.StartedAt.UTC()
 	}
+	runID := run.RunID
+	opts.heartbeat = func(ctx context.Context) {
+		_ = s.runs.HeartbeatGenerationRun(ctx, tenantID, runID)
+	}
 	res, genErr := s.generateForVersion(ctx, tenantID, versionID, effectiveAsOf, opts)
 	lastError := ""
 	if genErr != nil {
@@ -200,6 +211,10 @@ type generationOptions struct {
 	ManualCampaignID  string
 	RunIDempotencyKey string
 	RunRequestHash    string
+	// heartbeat, when set, is invoked once per cohort page so a long run keeps its generation-run row
+	// fresh and is not reclaimed mid-flight. Best-effort: errors are intentionally swallowed by the
+	// caller closure so a transient heartbeat failure never aborts a multi-minute generation pass.
+	heartbeat func(ctx context.Context)
 }
 
 func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
@@ -254,6 +269,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				return res, err
 			}
 		}
+		if opts.heartbeat != nil {
+			opts.heartbeat(ctx)
+		}
 		if int32(len(goats)) < s.page {
 			break
 		}
@@ -283,9 +301,16 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			res.SuppressedByTrustedHistory++
 			continue
 		}
+		// Scope to the goat's shed so the SM-4 sweeper batches one vaccination drive per shed (the
+		// operational "one shed = one drive" rule), falling back to park then tenant when the goat
+		// has no shed/park location. The obligation-shift handler already re-scopes to shed, so
+		// generation must stamp shed scope to stay consistent across the goat's lifecycle.
 		scopeType, scopeID := "tenant", tenantID
 		if g.ParkID != "" {
 			scopeType, scopeID = "park", g.ParkID
+		}
+		if g.ShedID != "" {
+			scopeType, scopeID = "shed", g.ShedID
 		}
 		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, due.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
 		status := "scheduled"
@@ -319,20 +344,34 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if changed {
 					res.Deferred++
 				}
+			} else {
+				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
+				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
+				// when the row is already schedulable/terminal (safe recovery-recheck replay).
+				_, changed, err := s.obl.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, asOf)
+				if err != nil {
+					return err
+				}
+				if changed {
+					res.Reopened++
+				}
 			}
 			continue // replay no-op
 		}
 		res.Generated++
 
 		if deferred {
-			payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason, "lifecycle_status": g.LifecycleStatus})
+			// Same payload shape as DeferOpenObligationByIdempotencyKey's 'deferred' event (no drift):
+			// {reason, defer_status}. The event key carries occurredAt so repeated defer cycles each
+			// record an event (symmetric with the reopen event key).
+			payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason})
 			if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
 				TenantID:       tenantID,
 				ObligationID:   obID,
 				EventType:      "deferred",
 				OccurredAt:     asOf,
 				Payload:        payload,
-				IdempotencyKey: obID + ":deferred",
+				IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339),
 				Scope:          "obligation.status_event",
 				RequestHash:    "defer:" + deferReason,
 			}); err != nil {
@@ -358,7 +397,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 	if !found || !inCare(g.LifecycleStatus) {
 		return res, nil // exited/unknown goats get no obligations
 	}
-	versionIDs, err := s.proto.ListPublishedVaccinationVersions(ctx, tenantID)
+	versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, g.ParkID, asOf)
 	if err != nil {
 		return res, err
 	}

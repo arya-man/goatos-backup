@@ -158,6 +158,59 @@ func (q *Queries) ListActiveAnimalStages(ctx context.Context, arg ListActiveAnim
 	return items, nil
 }
 
+const listEffectiveVaccinationVersionsForGoat = `-- name: ListEffectiveVaccinationVersionsForGoat :many
+SELECT DISTINCT ON (pv.protocol_id)
+       pv.protocol_version_id::text AS protocol_version_id
+FROM protocol_versions pv
+JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = $1
+  AND pv.status = 'published'
+  AND pd.category = 'vaccination'
+  AND pv.effective_from <= ($2::timestamptz)::date
+  AND (pv.effective_to IS NULL OR pv.effective_to > ($2::timestamptz)::date)
+  AND (pv.scope_type = 'tenant'
+       OR (pv.scope_type = 'park' AND pv.scope_id = $3))
+ORDER BY pv.protocol_id,
+         (pv.scope_type = 'park') DESC,
+         pv.effective_from DESC,
+         pv.protocol_version_id DESC
+`
+
+type ListEffectiveVaccinationVersionsForGoatParams struct {
+	TenantID pgtype.UUID
+	AsOf     pgtype.Timestamptz
+	ParkID   pgtype.UUID
+}
+
+// The published vaccination version EFFECTIVE as of @as_of for ONE goat, one row per protocol. SM-1 on
+// goat.created uses this so a new goat is generated only against its currently-active version, never a
+// superseded one (which would double-issue doses).
+// protocol_versions enforces non-overlap per (protocol, scope), NOT per protocol — a tenant-default and
+// a @park_id-scoped "park calendar" version of the same protocol can BOTH be effective at once. The
+// DISTINCT ON precedence picks the MOST SPECIFIC scope that covers this goat (its park override when one
+// exists and is effective, else the tenant default), so the goat is issued doses from exactly one scope
+// — never both, and never another park's calendar. A goat with no park (@park_id IS NULL) only matches
+// tenant-default versions.
+func (q *Queries) ListEffectiveVaccinationVersionsForGoat(ctx context.Context, arg ListEffectiveVaccinationVersionsForGoatParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listEffectiveVaccinationVersionsForGoat, arg.TenantID, arg.AsOf, arg.ParkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var protocol_version_id string
+		if err := rows.Scan(&protocol_version_id); err != nil {
+			return nil, err
+		}
+		items = append(items, protocol_version_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProtocolConfigsForCategory = `-- name: ListProtocolConfigsForCategory :many
 SELECT
   pd.protocol_id::text                                          AS protocol_id,
@@ -289,7 +342,8 @@ WHERE pv.tenant_id = $1 AND pv.status = 'published' AND pd.category = 'vaccinati
 ORDER BY pv.protocol_version_id
 `
 
-// Published vaccination protocol versions for a tenant (drives per-goat SM-1 on goat.created).
+// ALL published vaccination protocol versions for a tenant. Used by the sweeper/backfill, which must
+// process open obligations generated under any published version (including superseded ones).
 func (q *Queries) ListPublishedVaccinationVersions(ctx context.Context, tenantID pgtype.UUID) ([]string, error) {
 	rows, err := q.db.Query(ctx, listPublishedVaccinationVersions, tenantID)
 	if err != nil {

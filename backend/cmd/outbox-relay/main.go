@@ -103,10 +103,23 @@ func run(args []string) error {
 
 func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Logger) (outboxports.Publisher, func() error, error) {
 	normalized := strings.ToLower(strings.TrimSpace(kind))
+	if normalized == "" {
+		return nil, nil, fmt.Errorf("GOATOS_OUTBOX_PUBLISHER must be set: use 'pubsub' for staging/production; 'eventbus' or 'logging' require GOATOS_OUTBOX_ALLOW_NONDURABLE=1 and are for local/dev only")
+	}
 	switch normalized {
-	case "", "logging", "log":
+	case "logging", "log":
+		// Logging publisher marks outbox rows published with no fanout at all — a silent event-loss
+		// footgun in production. Fail closed unless explicitly opted into for local/dev.
+		if err := requireNonDurablePublisherAllowed(normalized); err != nil {
+			return nil, nil, err
+		}
 		return outboxpublisher.Select(kind, logger, nil), nil, nil
 	case "eventbus", "local", "inprocess":
+		// In-process fanout delivers to handlers in THIS process only — not the durable Pub/Sub topic
+		// other services consume. Allowed for the local business-chain rehearsal, never silently in prod.
+		if err := requireNonDurablePublisherAllowed(normalized); err != nil {
+			return nil, nil, err
+		}
 		bus := eventbus.NewInProcessBus()
 		protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
 		vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
@@ -180,6 +193,26 @@ func firstNonEmptyEnv(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// requireNonDurablePublisherAllowed fails closed for non-Pub/Sub publishers (logging, eventbus, ...):
+// they mark outbox rows published without durable cross-service Pub/Sub egress, so staging/production
+// must use GOATOS_OUTBOX_PUBLISHER=pubsub. Local/dev runs opt in explicitly via
+// GOATOS_OUTBOX_ALLOW_NONDURABLE.
+func requireNonDurablePublisherAllowed(kind string) error {
+	if envTruthy("GOATOS_OUTBOX_ALLOW_NONDURABLE") {
+		return nil
+	}
+	return fmt.Errorf("GOATOS_OUTBOX_PUBLISHER=%q is a non-durable publisher (no Pub/Sub egress); set GOATOS_OUTBOX_ALLOW_NONDURABLE=1 to permit it for local/dev, or use GOATOS_OUTBOX_PUBLISHER=pubsub for staging/production", kind)
+}
+
+func envTruthy(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func findDomainEventEnvelopeSchema() (string, error) {

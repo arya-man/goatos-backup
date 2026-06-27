@@ -66,7 +66,7 @@ psql "$PGURL" -c "select event_id,event_type,status from outbox_messages where a
 EVENT=$(psqlq "select event_id from outbox_messages where aggregate_id='$GOAT' limit 1")
 
 echo; echo "### 3. outbox-relay eventbus delivery -> generation"
-( cd "$BACKEND" && GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
+( cd "$BACKEND" && GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
 OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")
 [ -n "$OBL" ] || { echo "FAIL step3 (no obligation generated)"; exit 1; }
 psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'"
@@ -127,7 +127,7 @@ echo "Operations (API):         my-shed accepted=$(curl -s "${A[@]}" "$API/vacci
 
 echo; echo "### 9. replay / idempotency (no duplicates)"
 psql "$PGURL" -tAc "update outbox_messages set status='pending', published_at=null, next_attempt_at=null where aggregate_id='$GOAT'" >/dev/null
-( cd "$BACKEND" && GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
+( cd "$BACKEND" && GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay -limit 50 2>&1 | tail -1 )
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
 echo "obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")"
 echo "completions for goat after replay (expect 1): $(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")"

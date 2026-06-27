@@ -201,6 +201,14 @@ func TestStartGenerationRunStaleRunningReplayRestarts(t *testing.T) {
 		t.Fatalf("start generation run started=%v err=%v run=%#v", started, err, run)
 	}
 
+	// Model a DEAD run: no heartbeat since it started, so updated_at is as old as started_at. Only
+	// then is GREATEST(started_at, updated_at) stale enough to reclaim.
+	if _, err := pool.Exec(ctx, `
+UPDATE vaccination_generation_runs SET updated_at = $2::timestamptz
+WHERE tenant_id = $1::uuid AND idempotency_key = 'manual-campaign-stale-key'`, impTenant, firstAt); err != nil {
+		t.Fatalf("age dead generation run: %v", err)
+	}
+
 	retry, restarted, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
 		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "stale@retry",
 		StartedAt: staleRetryAt, IdempotencyKey: "manual-campaign-stale-key", RequestHash: "request-hash",
@@ -210,6 +218,63 @@ func TestStartGenerationRunStaleRunningReplayRestarts(t *testing.T) {
 	}
 	if !retry.StartedAt.Equal(staleRetryAt) || retry.Status != "running" || retry.RequestHash != "request-hash" {
 		t.Fatalf("stale retry run = %#v, want restarted running row", retry)
+	}
+}
+
+// TestStartGenerationRunHeartbeatPreventsReclaim proves a long but LIVE run (recent heartbeat) is not
+// reclaimed/duplicated by the stale-run detector, even past the 15-minute started_at window.
+func TestStartGenerationRunHeartbeatPreventsReclaim(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.manual.heartbeat", Name: "Manual heartbeat", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+
+	firstAt := time.Date(2026, 6, 27, 8, 0, 0, 0, time.UTC)
+	retryAt := firstAt.Add(16 * time.Minute)
+	run, started, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
+		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "live@first",
+		StartedAt: firstAt, IdempotencyKey: "manual-campaign-live-key", RequestHash: "request-hash",
+	})
+	if err != nil || !started {
+		t.Fatalf("start generation run started=%v err=%v run=%#v", started, err, run)
+	}
+
+	// Recent heartbeat at 08:10 (within 15m of the 08:16 retry) keeps the live run from being reclaimed.
+	if _, err := pool.Exec(ctx, `
+UPDATE vaccination_generation_runs SET updated_at = $2::timestamptz
+WHERE tenant_id = $1::uuid AND idempotency_key = 'manual-campaign-live-key'`, impTenant, firstAt.Add(10*time.Minute)); err != nil {
+		t.Fatalf("heartbeat generation run: %v", err)
+	}
+
+	retry, restarted, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
+		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "live@retry",
+		StartedAt: retryAt, IdempotencyKey: "manual-campaign-live-key", RequestHash: "request-hash",
+	})
+	if err != nil {
+		t.Fatalf("retry live run: %v", err)
+	}
+	if restarted {
+		t.Fatalf("live (recently heartbeated) run must NOT be reclaimed; got restarted=true run=%#v", retry)
+	}
+	if retry.RunID != run.RunID || retry.Status != "running" {
+		t.Fatalf("retry should return the original live run, got %#v", retry)
 	}
 }
 
@@ -493,4 +558,173 @@ func countRowsVacc(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql st
 		t.Fatalf("count: %v", err)
 	}
 	return n
+}
+
+// TestGoatCreatedAcceptedCompletionSuppressesMatchingObligation proves that an ACCEPTED Goat OS
+// administration (vaccination_completions.status='accepted') for the same protocol+dose suppresses
+// re-generation of that dose, while a merely RECORDED (not yet verified) completion does NOT — so
+// version changes / catch-up cannot double-issue a dose the goat already received, without
+// over-suppressing un-accepted work.
+func TestGoatCreatedAcceptedCompletionSuppressesMatchingObligation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.goatos.suppress", Name: "GoatOS Suppress", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1"}}`)
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	acceptedGoat := "30000000-0000-4000-8000-0000000000e1"
+	recordedGoat := "30000000-0000-4000-8000-0000000000e2"
+	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	for _, g := range []string{acceptedGoat, recordedGoat} {
+		seedGenGoat(t, ctx, pool, g, "alive")
+		if _, err := pool.Exec(ctx, `
+UPDATE goats SET entry_date=$3::date, origin_type='procured', shed_id=$4::uuid, current_location_id=$4::uuid
+WHERE tenant_id=$1 AND goat_id=$2`, impTenant, g, entryDate, impCbe); err != nil {
+			t.Fatalf("set entry/shed: %v", err)
+		}
+	}
+
+	administered := time.Date(2026, 6, 12, 8, 0, 0, 0, time.UTC)
+	seedGoatOSCompletion(t, ctx, pool, obl, versionID, ruleID, acceptedGoat, "accepted", administered)
+	seedGoatOSCompletion(t, ctx, pool, obl, versionID, ruleID, recordedGoat, "recorded", administered)
+
+	gen := vaccapp.NewGenerationService(proto, vacc, obl)
+	asOf := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+
+	acceptedRes, err := gen.GenerateForGoat(ctx, impTenant, acceptedGoat, asOf)
+	if err != nil {
+		t.Fatalf("generate accepted goat: %v", err)
+	}
+	if acceptedRes.Generated != 0 || acceptedRes.SuppressedByTrustedHistory != 1 {
+		t.Fatalf("accepted result = %#v, want generated 0 suppressed 1", acceptedRes)
+	}
+
+	recordedRes, err := gen.GenerateForGoat(ctx, impTenant, recordedGoat, asOf)
+	if err != nil {
+		t.Fatalf("generate recorded goat: %v", err)
+	}
+	if recordedRes.Generated != 1 || recordedRes.SuppressedByTrustedHistory != 0 {
+		t.Fatalf("recorded result = %#v, want generated 1 suppressed 0 (only accepted history suppresses)", recordedRes)
+	}
+}
+
+// TestGenerateScopesObligationToShedLocation proves a goat assigned to a real shed location gets a
+// shed-scoped obligation, so the SM-4 sweeper batches one vaccination drive per shed.
+func TestGenerateScopesObligationToShedLocation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.shed.scope", Name: "Shed Scope", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	shedID := "00000000-0000-4000-8000-00000000f001"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1, $2, 'shed', 'SHEDT1', 'Test Shed 1', 'active')`, shedID, impTenant); err != nil {
+		t.Fatalf("shed location: %v", err)
+	}
+	goatID := "30000000-0000-4000-8000-0000000000f1"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+	if _, err := pool.Exec(ctx,
+		`UPDATE goats SET entry_date=DATE '2026-06-10', shed_id=$3::uuid, current_location_id=$3::uuid
+		 WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID, shedID); err != nil {
+		t.Fatalf("set shed: %v", err)
+	}
+
+	gen := vaccapp.NewGenerationService(proto, vacc, obl)
+	res, err := gen.GenerateForGoat(ctx, impTenant, goatID, time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if res.Generated != 1 {
+		t.Fatalf("want 1 generated, got %#v", res)
+	}
+
+	var scopeType, scopeID string
+	if err := pool.QueryRow(ctx,
+		`SELECT scope_type, scope_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`,
+		impTenant, goatID).Scan(&scopeType, &scopeID); err != nil {
+		t.Fatalf("scan scope: %v", err)
+	}
+	if scopeType != "shed" || scopeID != shedID {
+		t.Fatalf("obligation scope = %s/%s, want shed/%s (one drive per shed)", scopeType, scopeID, shedID)
+	}
+}
+
+// seedGoatOSCompletion creates a prior obligation (tenant-scoped, scope irrelevant to suppression)
+// and a vaccination_completions row for it in the given status, simulating a goat's Goat OS
+// administration history.
+func seedGoatOSCompletion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obl *oblpg.Repository, versionID, ruleID, goatID, status string, administered time.Time) {
+	t.Helper()
+	obID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: impTenant,
+		DueAt: administered.Add(48 * time.Hour), Status: "completed", IdempotencyKey: "prior:" + goatID, Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("seed prior obligation: applied=%v err=%v", applied, err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, doses, administered_at, status, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, $5, $6)`,
+		impTenant, obID, goatID, administered, status, "compl:"+goatID); err != nil {
+		t.Fatalf("seed completion: %v", err)
+	}
 }

@@ -88,7 +88,10 @@ WHERE (
     vaccination_generation_runs.status = 'failed'
     OR (
       vaccination_generation_runs.status = 'running'
-      AND vaccination_generation_runs.started_at < $5::timestamptz - interval '15 minutes'
+      -- Reclaim only runs with no recent heartbeat. A live long run (1M-goat scale) bumps updated_at
+      -- via HeartbeatGenerationRun every page, so GREATEST(started_at, updated_at) stays fresh and the
+      -- run is NOT reclaimed/duplicated while it is still making progress.
+      AND GREATEST(vaccination_generation_runs.started_at, vaccination_generation_runs.updated_at) < $5::timestamptz - interval '15 minutes'
     )
   )
   AND (
@@ -148,6 +151,22 @@ WHERE tenant_id = $1::uuid
 		result.SkippedNoDueDate, result.SuppressedByTrustedHistory, cursorGoatID, lastError)
 	if err != nil {
 		return fmt.Errorf("vaccination: finish generation run: %w", err)
+	}
+	return nil
+}
+
+// HeartbeatGenerationRun bumps updated_at on a running generation run so a long (1M-goat) pass is not
+// reclaimed/duplicated by the stale-run detector in StartGenerationRun. Best-effort liveness: callers
+// ignore the error rather than abort a multi-minute run on a transient blip.
+func (r *Repository) HeartbeatGenerationRun(ctx context.Context, tenantID, runID string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+UPDATE vaccination_generation_runs
+SET updated_at = now()
+WHERE tenant_id = $1::uuid AND run_id = $2::uuid AND status = 'running'`, tenantID, runID)
+	if err != nil {
+		return fmt.Errorf("vaccination: heartbeat generation run: %w", err)
 	}
 	return nil
 }
@@ -841,9 +860,17 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 	}, true, nil
 }
 
-// HasTrustedCompletionEvidence returns true when reviewed supplier/HF evidence already satisfies
-// the matching protocol rule for this goat as of this generation run. Imported/rejected/conflicting/
-// duplicate rows, future administrations, and future reviews never suppress due work.
+// HasTrustedCompletionEvidence returns true when prior trusted evidence already satisfies the
+// matching protocol rule for this goat as of this generation run, so SM-1 must not re-issue the dose.
+// Two trusted sources suppress due work:
+//  1. Reviewed supplier/HF evidence (procurement_hf_vaccination_evidence, review_status='trusted').
+//  2. Accepted Goat OS administrations (vaccination_completions, status='accepted') for the SAME
+//     protocol (protocol_id) and dose_code — matched across protocol versions so that publishing a
+//     new version of a protocol the goat already completed does not duplicate the dose (version
+//     change / catch-up dedupe).
+//
+// Imported/rejected/conflicting/duplicate rows, future administrations, and future reviews never
+// suppress due work.
 func (r *Repository) HasTrustedCompletionEvidence(ctx context.Context, tenantID, goatID, protocolVersionID, ruleID, doseCode string, dueAt, generationAt time.Time) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -865,34 +892,60 @@ func (r *Repository) HasTrustedCompletionEvidence(ctx context.Context, tenantID,
 	}
 	var exists bool
 	if err := r.pool.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1
-  FROM procurement_hf_vaccination_evidence ev
-  JOIN goats g
-    ON g.tenant_id = ev.tenant_id
-   AND g.goat_id = ev.goat_id
-  LEFT JOIN procurement_load_goats plg
-    ON plg.tenant_id = ev.tenant_id
-   AND plg.load_id = ev.load_id
-   AND plg.goat_id = ev.goat_id
-  WHERE ev.tenant_id = $1
-    AND ev.goat_id = $2
-    AND ev.protocol_version_id = $3
-    AND ev.rule_id = $4
-    AND ev.dose_code = $5
-    AND ev.review_status = 'trusted'
-    AND ev.reviewed_at IS NOT NULL
-    AND ev.administered_at <= $6::timestamptz
-    AND ev.administered_at <= $7::timestamptz
-    AND ev.reviewed_at <= $7::timestamptz
-    AND (
-      plg.intake_accepted_at IS NULL
-      OR ev.administered_at <= plg.intake_accepted_at
-    )
-    AND (
-      g.entry_date IS NULL
-      OR ev.administered_at < (g.entry_date::timestamptz + interval '1 day')
-    )
+SELECT (
+  EXISTS (
+    SELECT 1
+    FROM procurement_hf_vaccination_evidence ev
+    JOIN goats g
+      ON g.tenant_id = ev.tenant_id
+     AND g.goat_id = ev.goat_id
+    LEFT JOIN procurement_load_goats plg
+      ON plg.tenant_id = ev.tenant_id
+     AND plg.load_id = ev.load_id
+     AND plg.goat_id = ev.goat_id
+    WHERE ev.tenant_id = $1
+      AND ev.goat_id = $2
+      AND ev.protocol_version_id = $3
+      AND ev.rule_id = $4
+      AND ev.dose_code = $5
+      AND ev.review_status = 'trusted'
+      AND ev.reviewed_at IS NOT NULL
+      AND ev.administered_at <= $6::timestamptz
+      AND ev.administered_at <= $7::timestamptz
+      AND ev.reviewed_at <= $7::timestamptz
+      AND (
+        plg.intake_accepted_at IS NULL
+        OR ev.administered_at <= plg.intake_accepted_at
+      )
+      AND (
+        g.entry_date IS NULL
+        OR ev.administered_at < (g.entry_date::timestamptz + interval '1 day')
+      )
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM vaccination_completions vc
+    JOIN obligation_instances oi
+      ON oi.tenant_id = vc.tenant_id
+     AND oi.obligation_id = vc.obligation_id
+    JOIN protocol_rules cpr
+      ON cpr.tenant_id = oi.tenant_id
+     AND cpr.rule_id = oi.rule_id
+    JOIN protocol_versions cpv
+      ON cpv.tenant_id = oi.tenant_id
+     AND cpv.protocol_version_id = oi.protocol_version_id
+    WHERE vc.tenant_id = $1
+      AND vc.goat_id = $2
+      AND vc.status = 'accepted'
+      AND cpr.dose_code = $5
+      AND cpv.protocol_id = (
+        SELECT protocol_id
+        FROM protocol_versions
+        WHERE tenant_id = $1 AND protocol_version_id = $3
+      )
+      AND vc.administered_at <= $6::timestamptz
+      AND vc.administered_at <= $7::timestamptz
+  )
 )`, tenant, goat, version, rule, doseCode, dueAt, generationAt).Scan(&exists); err != nil {
 		return false, fmt.Errorf("vaccination: trusted completion evidence: %w", err)
 	}
