@@ -30,6 +30,43 @@ Frontend is required for some items, but not all.
 | Incident escalation adapter | Minimal frontend. | Mostly adapter/config; UI should show incident reference/status when created. |
 | Stage-change and manual-campaign triggers | Yes. | Stage changes must be visible in goat/process history; manual campaigns need a creation/approval/execution surface. |
 
+Minimal frontend does not mean local/hardcoded UI. Any visible Control Tower,
+Ops, incident, or campaign surface must still use backend-owned contracts for
+labels, chips, actions, disabled reasons, and field sets.
+
+## Final Done Gate
+
+Do not call the vaccination kernel done until all of these are true in code,
+contracts, infra, UI, tests, and docs:
+
+This is a target-state gate, not a current-state claim. As of 2026-06-27,
+several items below are intentionally false in runtime and remain backlog work.
+
+1. Published protocol/config and SOP versions are immutable. Any change creates a
+   new version.
+2. Existing obligations, batches, SOP tasks, submissions, proof, completions,
+   boosters, calendar rows, Action Center rows, and audit history keep the
+   protocol/rule/SOP version they were created from.
+3. A new published config version has an explicit migration decision for open
+   work: continue old work, cancel it, supersede it, or regenerate it. Silent
+   mutation of old work is not allowed.
+4. Replay, retry, duplicate event delivery, worker restart, and DLQ replay are
+   idempotent and audited.
+5. Sick/ICU/quarantine, goat shift, goat exit, stock block, proof missing,
+   proof rejected, overdue/missed, booster, stage-change, manual campaign, and
+   rule/SOP version-change cases all have visible read-model state and E2E
+   coverage.
+6. Backend UI contracts own every visible title, label, table column, chip,
+   filter, action, disabled reason, drawer field, and empty/error message.
+7. Million-goat scale is preserved: tenant/scope bounded queries, cursor or
+   keyset pagination for large lists, indexed status scans, chunked workers,
+   bounded memory, and no unbounded frontend lists.
+8. A 5.5 extra-high review pass has checked architecture, permissions,
+   idempotency, replay safety, scale, edge cases, frontend contract ownership,
+   and docs. All blocker findings are fixed.
+9. The final kernel diagram, README links, backlog, screen requirements, and E2E
+   checklist match the code that was actually pushed to `main`.
+
 ## Business Source Anchors
 
 These are the cross-checked business anchors from wiki/source graphs, visual
@@ -46,11 +83,17 @@ handbook graphs, legacy repo graphs, and Goat OS architecture docs.
 | `procurement_app/AGENTS.md` | Field/mobile work depends on task, form, media, camera, and upload-queue APIs behind adapters. |
 | `context/architecture/operational-kernel.md` | Every operational feature must pass through event, transaction, audit/outbox, trigger, obligation, scheduler, alert, proof, verification, and read-model layers. |
 | `context/architecture/operational-kernel-system-design.md` | Frontend/mobile render backend-owned truth; future verticals plug in through events, rules, SOP/proof, projections, permissions, SLA, and analytics facts. |
+| `docs/protocol-engine/obligation-engine.md` | Protocol versions are the immutable/effective-dated config truth; rules generate obligations that retain version/rule identity. |
 | `context/execution/vaccination-edge-case-code-coverage.md` | Current exact implementation caveats for vaccination: publish/generation, shift repair, defer gating, stock gates, DLQ ops, stage/manual triggers, and incident integration. |
 
 ## Priority Backlog
 
 Priority order: 1, 2, 3, 5, 4, 6, 7, 9, 8.
+
+Sections are numbered by stable backlog ID, not execution order. Execute in the
+priority order above unless a later planning doc explicitly supersedes it.
+Dependency edge: item 2 is the event-delivery prerequisite for the runtime
+automation in items 3, 4, and 9.
 
 ### 1. Auto Generation After Rule Publish
 
@@ -65,15 +108,23 @@ Current gap:
 - `PublishVersion` publishes the rule/version.
 - Existing-goat due-list generation exists as a job/CLI path.
 - The publish action does not itself enqueue or run existing-goat generation.
+- Protocol versions are intended to be immutable/effective-dated, but the
+  runtime must enforce draft-only mutation for rules/triggers and must expose a
+  controlled supersede/regenerate decision for open work when a new version is
+  published.
+- Verified current code state: `PublishProtocolVersion` only flips
+  `status='draft'` rows to published, but `CreateRule` and `CreateTrigger` do
+  not yet enforce draft-only mutation in the repository or database. Final Done
+  Gate item 1 is therefore currently false.
 
 Build required:
 
 | Layer | Work |
 | --- | --- |
-| Backend | Emit `protocol.version.published` or enqueue a durable generation command after publish. Add idempotent generation run rows with status, cursor, counts, failures, and retry. |
+| Backend | Emit `protocol.version.published` or enqueue a durable generation command after publish. Add idempotent generation run rows with status, cursor, counts, failures, and retry. Enforce published-version immutability: rules/triggers can only be added to draft versions. Add explicit open-work policy for config changes: continue, cancel, supersede, or regenerate. |
 | Infra | Ensure the generation worker/job is scheduled or triggered in each target environment. |
 | Frontend | Add publish/generation status in Admin/Data Ops: queued, running, completed, failed, last run, affected goat count, retry action. |
-| Tests | Publish replay must not duplicate obligations. Failed generation must be retryable from the same run/cursor. |
+| Tests | Publish replay must not duplicate obligations. Failed generation must be retryable from the same run/cursor. Published versions reject later rule/trigger mutation. V2 publish does not silently rewrite V1 work; every open-work transition is explicit and audited. |
 
 Done means:
 
@@ -81,6 +132,12 @@ Done means:
   evaluation.
 - Admin can see generation status and retry failures.
 - Duplicate publish/replay does not duplicate obligations.
+- Published config history remains explainable: every old due/completed row can
+  still answer which protocol version, rule, SOP version, approval, and proof
+  policy created it.
+- If V2 replaces V1, old open V1 work is either left intact or moved through an
+  explicit `canceled`/`superseded`/regenerated transition with audit. It is
+  never modified silently.
 
 ### 2. Always-Running Event Delivery
 
@@ -122,6 +179,8 @@ Current gap:
 
 - Open, unbatched obligations re-scope to the new shed.
 - Already-batched shed drives do not automatically move/replan.
+- Runtime repair depends on item 2 event delivery for reliable
+  `goat.location.changed` delivery.
 
 Build required:
 
@@ -150,6 +209,8 @@ Current gap:
 - Defer can work when the published rule DSL includes `eligibility.defer_states`.
 - A rule without defer states can schedule a sick/ICU/quarantine goat normally.
 - Recovery re-check is not fully proven as a runtime trigger.
+- Recovery automation depends on item 2 event delivery for health/lifecycle
+  recovery events.
 
 Build required:
 
@@ -211,8 +272,8 @@ Build required:
 
 | Layer | Work |
 | --- | --- |
-| Backend | Add DLQ/read API: list dead-letter/failed events, filters, payload summary, error, attempts, trace, source, tenant/scope, replay, discard/ack, and audit. |
-| Frontend | Build Operations/Data Ops DLQ screen: list, detail drawer, replay button, discard/ack, copied trace IDs, status history, permission gates. |
+| Backend | Add DLQ/read API: cursor-paginated tenant/scope-bounded list of dead-letter/failed events, filters, payload summary, error, attempts, trace, source, replay, discard/ack, and audit. |
+| Frontend | Build Operations/Data Ops DLQ screen: cursor-paginated tenant/scope-bounded list, detail drawer, replay button, discard/ack, copied trace IDs, status history, permission gates. |
 | Infra | Wire Pub/Sub DLQ redrive/inspection path or import Pub/Sub DLQ messages into the same ops surface. |
 | Tests | Replay safe event, replay poison event, discard/ack, permission denied, duplicate replay, audit trail. |
 
@@ -240,7 +301,7 @@ Build required:
 | --- | --- |
 | Backend | Emit metrics for oldest outbox age, failed/dead-letter count, Pub/Sub lag, consumer failure, scheduler failure, Cloud Tasks failure, notification failure, projection lag. |
 | Infra | Cloud Monitoring alert policies and notification channels per dev/stg/prod. |
-| Frontend | Minimal kernel health panel in Control Tower or Ops surface: green/yellow/red, last failure, link to DLQ. |
+| Frontend | Minimal kernel health panel in Control Tower or Ops surface: green/yellow/red, last failure, link to DLQ. Minimal frontend still means backend-contract-owned visible labels, states, disabled reasons, and links. |
 | Tests | Force failed outbox, stopped consumer, stuck scheduler, notification failure, and verify alert/health state. |
 
 Done means:
@@ -267,7 +328,7 @@ Build required:
 | --- | --- |
 | Backend | Add incident gateway port and adapter; create/update/resolve incident from critical escalation level; store external incident ID/status. |
 | Infra | Secrets, IAM, webhook/vendor config, retry policy, environment-specific routing. |
-| Frontend | Show incident reference/status in escalation detail; do not make vendor UI the source of truth. |
+| Frontend | Show incident reference/status in escalation detail; do not make vendor UI the source of truth. Minimal frontend still means backend-contract-owned visible labels, states, disabled reasons, and links. |
 | Tests | Create incident, retry create failure, idempotent duplicate escalation, resolve incident, missing secret/config disabled state. |
 
 Done means:
@@ -287,14 +348,18 @@ Current gap:
 
 - `goat.stage_changed` is referenced in docs/config concepts but has no live
   runtime trigger/handler.
-- `manual_campaign` exists in schema/config options, but generation skips it.
+- `manual_campaign` exists in schema/config options, but SM-1 generation skips
+  it today (`dueAt` returns `ok=false` for non-SM-1 trigger types). Manual
+  campaign needs its own command path.
+- Stage-change runtime automation depends on item 2 event delivery before it can
+  be called live.
 
 Build required:
 
 | Layer | Work |
 | --- | --- |
 | Backend | Emit `goat.stage_changed` when stage changes; add handler to re-evaluate stage-based rules. Implement manual campaign command that creates campaign obligations/batches with approval, scope, reason, and idempotency. |
-| Frontend | Show stage-change history on goat/process detail. Add manual campaign creation/approval UI in Admin/Data Ops or PHC according to authority model. |
+| Frontend | Show stage-change history on goat/process detail. Add cursor-paginated tenant/scope-bounded manual campaign creation/approval UI in Admin/Data Ops or PHC according to authority model. |
 | Infra | Event delivery through same outbox/Pub/Sub/domain consumer path. |
 | Tests | Stage K1->K2, duplicate stage event, campaign by shed/cohort, campaign cancel, campaign re-run, permissions and source/approval gates. |
 
@@ -325,7 +390,11 @@ Done means:
   truth in the new workflow UI.
 - Mobile field execution must use Goat OS task/form/media APIs with upload
   adapters, not Firebase-only direct coupling.
+- Published config/SOP truth is append-only by version. Drafts may change;
+  published versions may only be retired/superseded by explicit workflow.
 - Every action that changes work state needs permissions, idempotency, audit,
   and event/outbox behavior where downstream work depends on it.
 - Every item above needs tests for replay and duplicate delivery before it can
   be called kernel-complete.
+- The final answer may say "done" only after the Final Done Gate in this file is
+  satisfied and the extra-high review plus E2E pass have no blockers.
