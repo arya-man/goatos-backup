@@ -16,7 +16,6 @@ import (
 
 	outboxdomain "github.com/vgoats/goatos/backend/internal/outbox/domain"
 	"github.com/vgoats/goatos/backend/internal/outbox/ports"
-	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -32,27 +31,23 @@ const (
 type Repository interface {
 	ListDeadLetters(ctx context.Context, q ports.DeadLetterQuery) ([]outboxdomain.DeadLetterMessage, error)
 	Health(ctx context.Context, tenantID string, now time.Time) (outboxdomain.Health, error)
-	ReplayDeadLetters(ctx context.Context, params ports.ReplayDeadLettersParams) (int64, error)
-	DiscardDeadLetters(ctx context.Context, params ports.DiscardDeadLettersParams) (int64, error)
-}
-
-type AuditRecorder interface {
-	Record(ctx context.Context, event audit.Event) error
+	ReplayDeadLetters(ctx context.Context, params ports.ReplayDeadLettersParams) (ports.DLQActionResult, error)
+	DiscardDeadLetters(ctx context.Context, params ports.DiscardDeadLettersParams) (ports.DLQActionResult, error)
+	RecordDLQActionAudit(ctx context.Context, params ports.RecordDLQActionAuditParams) error
 }
 
 type Handler struct {
-	repo  Repository
-	audit AuditRecorder
-	log   *slog.Logger
-	now   func() time.Time
+	repo Repository
+	log  *slog.Logger
+	now  func() time.Time
 }
 
-func NewHandler(repo Repository, auditRecorder AuditRecorder, log ...*slog.Logger) *Handler {
+func NewHandler(repo Repository, _ any, log ...*slog.Logger) *Handler {
 	l := slog.Default()
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	}
-	return &Handler{repo: repo, audit: auditRecorder, log: l, now: func() time.Time { return time.Now().UTC() }}
+	return &Handler{repo: repo, log: l, now: func() time.Time { return time.Now().UTC() }}
 }
 
 func Register(mux *http.ServeMux, h *Handler) {
@@ -131,11 +126,11 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request, action string) 
 	}
 	now := h.now()
 	requestHash := dlqActionRequestHash(action, req)
-	var updated int64
+	var result ports.DLQActionResult
 	var err error
 	switch action {
 	case "replay":
-		updated, err = h.repo.ReplayDeadLetters(r.Context(), ports.ReplayDeadLettersParams{
+		result, err = h.repo.ReplayDeadLetters(r.Context(), ports.ReplayDeadLettersParams{
 			TenantID:       tenantID(r),
 			OutboxIDs:      req.OutboxIDs,
 			Reason:         req.Reason,
@@ -144,7 +139,7 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request, action string) 
 			RequestHash:    requestHash,
 		})
 	case "discard":
-		updated, err = h.repo.DiscardDeadLetters(r.Context(), ports.DiscardDeadLettersParams{
+		result, err = h.repo.DiscardDeadLetters(r.Context(), ports.DiscardDeadLettersParams{
 			TenantID:       tenantID(r),
 			OutboxIDs:      req.OutboxIDs,
 			Reason:         req.Reason,
@@ -167,13 +162,31 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request, action string) 
 		h.internal(w, r, err)
 		return
 	}
-	if err := h.auditAction(r.Context(), r, action, req, updated, idempotencyKey, requestHash); err != nil {
+	if err := h.repo.RecordDLQActionAudit(r.Context(), ports.RecordDLQActionAuditParams{
+		TenantID:       tenantID(r),
+		Action:         action,
+		OutboxIDs:      req.OutboxIDs,
+		Reason:         req.Reason,
+		Updated:        result.Updated,
+		ActorID:        actorID(r),
+		TraceID:        traceID(r),
+		IdempotencyKey: idempotencyKey,
+		RequestHash:    requestHash,
+	}); err != nil {
+		if errors.Is(err, ports.ErrDLQActionConflict) {
+			h.conflict(w, r, "idempotency_conflict", "Idempotency-Key was reused with a different DLQ repair request")
+			return
+		}
+		if errors.Is(err, ports.ErrDLQActionPending) {
+			h.conflict(w, r, "idempotency_pending", "Idempotency-Key is already processing")
+			return
+		}
 		h.internal(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, actionResponse{
 		Action:    action,
-		Updated:   updated,
+		Updated:   result.Updated,
 		OutboxIDs: req.OutboxIDs,
 		TraceID:   traceID(r),
 	})
@@ -286,42 +299,6 @@ func dlqActionRequestHash(action string, req actionRequest) string {
 	})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
-}
-
-func (h *Handler) auditAction(ctx context.Context, r *http.Request, action string, req actionRequest, updated int64, idempotencyKey, requestHash string) error {
-	if h.audit == nil {
-		return nil
-	}
-	result := "no_rows"
-	if updated > 0 {
-		result = "updated"
-	}
-	for _, outboxID := range req.OutboxIDs {
-		if err := h.audit.Record(ctx, audit.Event{
-			TenantID:     tenantID(r),
-			ActorID:      actorID(r),
-			ActorType:    "human",
-			Action:       "operations.dlq." + action,
-			ResourceType: "outbox_message",
-			ResourceID:   outboxID,
-			Metadata: map[string]any{
-				"domain":          "operations",
-				"module":          "dlq",
-				"category":        "outbox",
-				"status":          action,
-				"result":          result,
-				"reason":          req.Reason,
-				"updated_count":   updated,
-				"requested_count": len(req.OutboxIDs),
-				"idempotency_key": idempotencyKey,
-				"request_hash":    requestHash,
-			},
-			TraceID: traceID(r),
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func validStatus(status string) bool {

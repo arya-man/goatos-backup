@@ -53,6 +53,23 @@ type DiscardDeadLettersParams struct {
 	RequestHash    string
 }
 
+type DLQActionResult struct {
+	Updated  int64
+	Replayed bool
+}
+
+type RecordDLQActionAuditParams struct {
+	TenantID       string
+	Action         string
+	OutboxIDs      []string
+	Reason         string
+	Updated        int64
+	ActorID        string
+	TraceID        string
+	IdempotencyKey string
+	RequestHash    string
+}
+
 type Repository interface {
 	ReclaimStalePublishing(ctx context.Context, now time.Time, leaseTimeout time.Duration) (int64, error)
 	ClaimPending(ctx context.Context, params ClaimParams) (*ClaimResult, error)
@@ -62,8 +79,8 @@ type Repository interface {
 	MarkDeadLetter(ctx context.Context, outboxID string, lastError string, now time.Time) error
 	ListDeadLetters(ctx context.Context, q DeadLetterQuery) ([]domain.DeadLetterMessage, error)
 	Health(ctx context.Context, tenantID string, now time.Time) (domain.Health, error)
-	ReplayDeadLetters(ctx context.Context, params ReplayDeadLettersParams) (int64, error)
-	DiscardDeadLetters(ctx context.Context, params DiscardDeadLettersParams) (int64, error)
+	ReplayDeadLetters(ctx context.Context, params ReplayDeadLettersParams) (DLQActionResult, error)
+	DiscardDeadLetters(ctx context.Context, params DiscardDeadLettersParams) (DLQActionResult, error)
 	Ping(ctx context.Context) error
 }
 

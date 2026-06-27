@@ -15,6 +15,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/outbox/domain"
 	"github.com/vgoats/goatos/backend/internal/outbox/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -330,7 +331,7 @@ WHERE tenant_id = $1::uuid`, tenantID).Scan(
 	return health, nil
 }
 
-func (r *Repository) ReplayDeadLetters(ctx context.Context, params ports.ReplayDeadLettersParams) (int64, error) {
+func (r *Repository) ReplayDeadLetters(ctx context.Context, params ports.ReplayDeadLettersParams) (ports.DLQActionResult, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	if params.Now.IsZero() {
@@ -361,7 +362,7 @@ WHERE tenant_id = $1::uuid
 	})
 }
 
-func (r *Repository) DiscardDeadLetters(ctx context.Context, params ports.DiscardDeadLettersParams) (int64, error) {
+func (r *Repository) DiscardDeadLetters(ctx context.Context, params ports.DiscardDeadLettersParams) (ports.DLQActionResult, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	if params.Now.IsZero() {
@@ -400,7 +401,7 @@ type dlqActionParams struct {
 	MaxReplays     int
 }
 
-func (r *Repository) runDLQAction(ctx context.Context, params dlqActionParams) (int64, error) {
+func (r *Repository) runDLQAction(ctx context.Context, params dlqActionParams) (ports.DLQActionResult, error) {
 	if params.RequestHash == "" {
 		params.RequestHash = dlqRepoActionHash(params.Action, params.OutboxIDs, params.Reason)
 	}
@@ -409,7 +410,7 @@ func (r *Repository) runDLQAction(ctx context.Context, params dlqActionParams) (
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return 0, fmt.Errorf("outbox: begin dlq action: %w", err)
+		return ports.DLQActionResult{}, fmt.Errorf("outbox: begin dlq action: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -442,20 +443,20 @@ WHERE tenant_id = $1::uuid
 FOR UPDATE`, params.TenantID, params.IdempotencyKey).Scan(&actionID, &status, &requestHash, &updatedCount)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("outbox: record dlq action: %w", err)
+		return ports.DLQActionResult{}, fmt.Errorf("outbox: record dlq action: %w", err)
 	}
 	if requestHash != params.RequestHash {
-		return 0, ports.ErrDLQActionConflict
+		return ports.DLQActionResult{}, ports.ErrDLQActionConflict
 	}
 	if !fresh {
 		if status == "completed" {
 			if err := tx.Commit(ctx); err != nil {
-				return 0, err
+				return ports.DLQActionResult{}, err
 			}
 			committed = true
-			return updatedCount, nil
+			return ports.DLQActionResult{Updated: updatedCount, Replayed: true}, nil
 		}
-		return 0, ports.ErrDLQActionPending
+		return ports.DLQActionResult{}, ports.ErrDLQActionPending
 	}
 
 	reason := replayReason(params.Reason)
@@ -476,7 +477,7 @@ FOR UPDATE`, params.TenantID, params.IdempotencyKey).Scan(&actionID, &status, &r
 		}
 	}
 	if err != nil {
-		return 0, fmt.Errorf("outbox: %s dead letters: %w", params.Action, err)
+		return ports.DLQActionResult{}, fmt.Errorf("outbox: %s dead letters: %w", params.Action, err)
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE outbox_dlq_actions
@@ -487,13 +488,105 @@ SET status = 'completed',
 WHERE tenant_id = $1::uuid
   AND action_id = $2::uuid`,
 		params.TenantID, actionID, updatedCount, params.Now); err != nil {
-		return 0, fmt.Errorf("outbox: finish dlq action: %w", err)
+		return ports.DLQActionResult{}, fmt.Errorf("outbox: finish dlq action: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return ports.DLQActionResult{}, err
 	}
 	committed = true
-	return updatedCount, nil
+	return ports.DLQActionResult{Updated: updatedCount}, nil
+}
+
+func (r *Repository) RecordDLQActionAudit(ctx context.Context, params ports.RecordDLQActionAuditParams) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(params.OutboxIDs) == 0 {
+		return nil
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("outbox: begin dlq audit: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var actionID, action, status, requestHash, reason string
+	var updatedCount int64
+	if err := tx.QueryRow(ctx, `
+SELECT action_id::text, action, status, request_hash, reason, updated_count
+FROM outbox_dlq_actions
+WHERE tenant_id = $1::uuid
+  AND idempotency_key = $2
+FOR UPDATE`, params.TenantID, params.IdempotencyKey).Scan(&actionID, &action, &status, &requestHash, &reason, &updatedCount); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.ErrDLQActionPending
+		}
+		return fmt.Errorf("outbox: load dlq action for audit: %w", err)
+	}
+	if requestHash != params.RequestHash || action != params.Action {
+		return ports.ErrDLQActionConflict
+	}
+	if status != "completed" {
+		return ports.ErrDLQActionPending
+	}
+
+	recorder := audit.NewTxRecorder(tx)
+	result := "no_rows"
+	if updatedCount > 0 {
+		result = "updated"
+	}
+	for _, outboxID := range params.OutboxIDs {
+		var exists bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM audit_log
+  WHERE tenant_id = $1::uuid
+    AND action = $2
+    AND resource_type = 'outbox_message'
+    AND resource_id = $3::uuid
+    AND metadata->>'idempotency_key' = $4
+    AND metadata->>'request_hash' = $5
+)`, params.TenantID, "operations.dlq."+action, outboxID, params.IdempotencyKey, requestHash).Scan(&exists); err != nil {
+			return fmt.Errorf("outbox: check dlq audit: %w", err)
+		}
+		if exists {
+			continue
+		}
+		if err := recorder.Record(ctx, audit.Event{
+			TenantID:     params.TenantID,
+			ActorID:      params.ActorID,
+			ActorType:    "human",
+			Action:       "operations.dlq." + action,
+			ResourceType: "outbox_message",
+			ResourceID:   outboxID,
+			Metadata: map[string]any{
+				"domain":          "operations",
+				"module":          "dlq",
+				"category":        "outbox",
+				"status":          action,
+				"result":          result,
+				"reason":          reason,
+				"updated_count":   updatedCount,
+				"requested_count": len(params.OutboxIDs),
+				"idempotency_key": params.IdempotencyKey,
+				"request_hash":    requestHash,
+				"dlq_action_id":   actionID,
+			},
+			TraceID: params.TraceID,
+		}); err != nil {
+			return fmt.Errorf("outbox: record dlq audit: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func dlqRepoActionHash(action string, outboxIDs []string, reason string) string {

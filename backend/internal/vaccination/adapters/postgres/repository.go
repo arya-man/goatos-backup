@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -55,16 +56,18 @@ func (r *Repository) StartGenerationRun(ctx context.Context, in domain.Generatio
 	if in.StartedAt.IsZero() {
 		in.StartedAt = time.Now().UTC()
 	}
+	runContext, _ := json.Marshal(map[string]string{"request_hash": in.RequestHash})
 	rows, err := r.pool.Query(ctx, `
 INSERT INTO vaccination_generation_runs (
   tenant_id, protocol_version_id, trigger_type, trigger_ref, status,
-  started_at, idempotency_key
+  started_at, idempotency_key, context
 ) VALUES (
-  $1::uuid, $2::uuid, $3, $4, 'running', $5::timestamptz, $6
+  $1::uuid, $2::uuid, $3, $4, 'running', $5::timestamptz, $6, $7::jsonb
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET status = 'running',
     started_at = EXCLUDED.started_at,
+    context = EXCLUDED.context,
     completed_at = NULL,
     generated_count = 0,
     deferred_count = 0,
@@ -75,12 +78,16 @@ SET status = 'running',
     updated_at = now(),
     row_version = vaccination_generation_runs.row_version + 1
 WHERE vaccination_generation_runs.status = 'failed'
+  AND (
+    COALESCE(vaccination_generation_runs.context->>'request_hash', '') = ''
+    OR COALESCE(vaccination_generation_runs.context->>'request_hash', '') = $8
+  )
 RETURNING run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
           COALESCE(trigger_ref, ''), status, started_at, completed_at,
           generated_count, deferred_count, skipped_no_due_date_count,
           suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
-          COALESCE(last_error, ''), idempotency_key`,
-		in.TenantID, in.ProtocolVersionID, in.TriggerType, in.TriggerRef, in.StartedAt, in.IdempotencyKey)
+          COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')`,
+		in.TenantID, in.ProtocolVersionID, in.TriggerType, in.TriggerRef, in.StartedAt, in.IdempotencyKey, string(runContext), in.RequestHash)
 	if err != nil {
 		return domain.GenerationRun{}, false, fmt.Errorf("vaccination: start generation run: %w", err)
 	}
@@ -93,6 +100,9 @@ RETURNING run_id::text, tenant_id::text, protocol_version_id::text, trigger_type
 		return domain.GenerationRun{}, false, fmt.Errorf("vaccination: start generation run rows: %w", err)
 	}
 	run, err := r.getGenerationRunByKey(ctx, in.TenantID, in.IdempotencyKey)
+	if err == nil && in.RequestHash != "" && run.RequestHash != "" && run.RequestHash != in.RequestHash {
+		return domain.GenerationRun{}, false, ports.ErrIdempotencyConflict
+	}
 	return run, false, err
 }
 
@@ -136,7 +146,7 @@ SELECT run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
        COALESCE(trigger_ref, ''), status, started_at, completed_at,
        generated_count, deferred_count, skipped_no_due_date_count,
        suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
-       COALESCE(last_error, ''), idempotency_key
+       COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')
 FROM vaccination_generation_runs
 WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, key).Scan(
 		&run.RunID,
@@ -154,6 +164,7 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, key).Scan(
 		&run.CursorGoatID,
 		&run.LastError,
 		&run.IdempotencyKey,
+		&run.RequestHash,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.GenerationRun{}, ports.ErrNotFound
@@ -186,6 +197,7 @@ func scanGenerationRun(row generationRunScanner) (domain.GenerationRun, error) {
 		&run.CursorGoatID,
 		&run.LastError,
 		&run.IdempotencyKey,
+		&run.RequestHash,
 	); err != nil {
 		return domain.GenerationRun{}, fmt.Errorf("vaccination: scan generation run: %w", err)
 	}
@@ -270,6 +282,8 @@ func (r *Repository) AcceptCompletion(ctx context.Context, tenantID, completionI
 	}
 	row := rows[0]
 	return domain.AcceptedCompletion{
+		CompletionID:   completionID,
+		Status:         "accepted",
 		ObligationID:   row.ObligationID,
 		GoatID:         row.GoatID,
 		BatchID:        row.BatchID,
@@ -302,6 +316,74 @@ func (r *Repository) GetRecordedCompletion(ctx context.Context, tenantID, comple
 		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: get recorded completion: %w", err)
 	}
 	return domain.AcceptedCompletion{
+		CompletionID:   completionID,
+		Status:         "recorded",
+		ObligationID:   row.ObligationID,
+		GoatID:         row.GoatID,
+		BatchID:        row.BatchID,
+		LotID:          row.VaccineInventoryLotID,
+		Doses:          row.Doses,
+		AdministeredAt: row.AdministeredAt.Time,
+	}, true, nil
+}
+
+// GetAcceptableCompletion returns context for a recorded or already-accepted completion so SM-5
+// retries can resume idempotent side effects after a partial failure.
+func (r *Repository) GetAcceptableCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	cid, err := pgconv.UUID(completionID)
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: completion id: %w", err)
+	}
+	row, err := r.queries.GetAcceptableVaccinationCompletion(ctx, vaccinationdb.GetAcceptableVaccinationCompletionParams{
+		TenantID:     tenant,
+		CompletionID: cid,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.AcceptedCompletion{}, false, nil
+	}
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: get acceptable completion: %w", err)
+	}
+	return domain.AcceptedCompletion{
+		CompletionID:   row.CompletionID,
+		Status:         row.Status,
+		ObligationID:   row.ObligationID,
+		GoatID:         row.GoatID,
+		BatchID:        row.BatchID,
+		LotID:          row.VaccineInventoryLotID,
+		Doses:          row.Doses,
+		AdministeredAt: row.AdministeredAt.Time,
+	}, true, nil
+}
+
+// GetAcceptableCompletionByIdempotency returns context for a recorded or already-accepted direct
+// completion keyed by idempotency key.
+func (r *Repository) GetAcceptableCompletionByIdempotency(ctx context.Context, tenantID, idempotencyKey string) (domain.AcceptedCompletion, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	row, err := r.queries.GetAcceptableVaccinationCompletionByIdempotency(ctx, vaccinationdb.GetAcceptableVaccinationCompletionByIdempotencyParams{
+		TenantID:       tenant,
+		IdempotencyKey: idempotencyKey,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.AcceptedCompletion{}, false, nil
+	}
+	if err != nil {
+		return domain.AcceptedCompletion{}, false, fmt.Errorf("vaccination: get acceptable completion by idempotency: %w", err)
+	}
+	return domain.AcceptedCompletion{
+		CompletionID:   row.CompletionID,
+		Status:         row.Status,
 		ObligationID:   row.ObligationID,
 		GoatID:         row.GoatID,
 		BatchID:        row.BatchID,

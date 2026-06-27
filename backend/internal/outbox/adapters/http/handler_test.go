@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,7 +13,6 @@ import (
 
 	outboxdomain "github.com/vgoats/goatos/backend/internal/outbox/domain"
 	"github.com/vgoats/goatos/backend/internal/outbox/ports"
-	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
@@ -95,8 +95,7 @@ func TestListRejectsInvalidStatus(t *testing.T) {
 
 func TestReplayDeadLettersRecordsAudit(t *testing.T) {
 	repo := &fakeDLQRepo{replayUpdated: 1}
-	auditRecorder := &fakeDLQAudit{}
-	handler := NewHandler(repo, auditRecorder)
+	handler := NewHandler(repo, nil)
 	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"operator fixed poison payload"}`)
 	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
 	req.Header.Set("Idempotency-Key", "dlq-replay-test-0001")
@@ -113,22 +112,35 @@ func TestReplayDeadLettersRecordsAudit(t *testing.T) {
 	if repo.replayParams.IdempotencyKey != "dlq-replay-test-0001" || repo.replayParams.RequestHash == "" {
 		t.Fatalf("replay idempotency params=%#v", repo.replayParams)
 	}
-	if len(auditRecorder.events) != 1 {
-		t.Fatalf("audit events=%#v", auditRecorder.events)
+	if repo.auditParams.Action != "replay" || repo.auditParams.ActorID != testActorID || repo.auditParams.Updated != 1 {
+		t.Fatalf("audit params=%#v", repo.auditParams)
 	}
-	event := auditRecorder.events[0]
-	if event.Action != "operations.dlq.replay" || event.ResourceID != testOutboxID || event.ActorID != testActorID || event.Metadata["result"] != "updated" {
-		t.Fatalf("audit event=%#v", event)
+	if repo.auditParams.IdempotencyKey != "dlq-replay-test-0001" || repo.auditParams.RequestHash == "" {
+		t.Fatalf("audit idempotency params=%#v", repo.auditParams)
 	}
-	if event.Metadata["idempotency_key"] != "dlq-replay-test-0001" || event.Metadata["request_hash"] == "" {
-		t.Fatalf("audit idempotency metadata=%#v", event.Metadata)
+}
+
+func TestReplayDeadLettersRecordsAuditOnStoredIdempotencyReplay(t *testing.T) {
+	repo := &fakeDLQRepo{replayResult: ports.DLQActionResult{Updated: 1, Replayed: true}}
+	handler := NewHandler(repo, nil)
+	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"operator fixed poison payload"}`)
+	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
+	req.Header.Set("Idempotency-Key", "dlq-replay-test-0001")
+	rec := httptest.NewRecorder()
+
+	handler.Replay(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.auditCalls != 1 || repo.auditParams.Action != "replay" || repo.auditParams.Updated != 1 {
+		t.Fatalf("audit retry params calls=%d params=%#v", repo.auditCalls, repo.auditParams)
 	}
 }
 
 func TestDiscardDeadLettersRecordsAudit(t *testing.T) {
 	repo := &fakeDLQRepo{discardUpdated: 1}
-	auditRecorder := &fakeDLQAudit{}
-	handler := NewHandler(repo, auditRecorder)
+	handler := NewHandler(repo, nil)
 	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"poison message obsolete after schema repair"}`)
 	req := request(t, http.MethodPost, "/operations/dlq/discard", body)
 	req.Header.Set("Idempotency-Key", "dlq-discard-test-0001")
@@ -145,13 +157,31 @@ func TestDiscardDeadLettersRecordsAudit(t *testing.T) {
 	if repo.discardParams.IdempotencyKey != "dlq-discard-test-0001" || repo.discardParams.RequestHash == "" {
 		t.Fatalf("discard idempotency params=%#v", repo.discardParams)
 	}
-	if len(auditRecorder.events) != 1 || auditRecorder.events[0].Action != "operations.dlq.discard" {
-		t.Fatalf("audit events=%#v", auditRecorder.events)
+	if repo.auditParams.Action != "discard" || repo.auditParams.IdempotencyKey != "dlq-discard-test-0001" {
+		t.Fatalf("audit params=%#v", repo.auditParams)
+	}
+}
+
+func TestReplayDeadLettersReturnsErrorWhenAuditRecoveryFails(t *testing.T) {
+	repo := &fakeDLQRepo{replayResult: ports.DLQActionResult{Updated: 1, Replayed: true}, auditErr: errors.New("synthetic audit unavailable")}
+	handler := NewHandler(repo, nil)
+	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"operator fixed poison payload"}`)
+	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
+	req.Header.Set("Idempotency-Key", "dlq-replay-test-0001")
+	rec := httptest.NewRecorder()
+
+	handler.Replay(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.auditCalls != 1 {
+		t.Fatalf("audit calls=%d want 1", repo.auditCalls)
 	}
 }
 
 func TestActionRejectsMissingReason(t *testing.T) {
-	handler := NewHandler(&fakeDLQRepo{}, &fakeDLQAudit{})
+	handler := NewHandler(&fakeDLQRepo{}, nil)
 	body := []byte(`{"outbox_ids":["` + testOutboxID + `"]}`)
 	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
 	req.Header.Set("Idempotency-Key", "dlq-replay-test-0002")
@@ -165,7 +195,7 @@ func TestActionRejectsMissingReason(t *testing.T) {
 }
 
 func TestActionRejectsMissingIdempotencyKey(t *testing.T) {
-	handler := NewHandler(&fakeDLQRepo{}, &fakeDLQAudit{})
+	handler := NewHandler(&fakeDLQRepo{}, nil)
 	body := []byte(`{"outbox_ids":["` + testOutboxID + `"],"reason":"operator fixed poison payload"}`)
 	req := request(t, http.MethodPost, "/operations/dlq/replay", body)
 	rec := httptest.NewRecorder()
@@ -200,8 +230,13 @@ type fakeDLQRepo struct {
 	items          []outboxdomain.DeadLetterMessage
 	replayParams   ports.ReplayDeadLettersParams
 	replayUpdated  int64
+	replayResult   ports.DLQActionResult
 	discardParams  ports.DiscardDeadLettersParams
 	discardUpdated int64
+	discardResult  ports.DLQActionResult
+	auditParams    ports.RecordDLQActionAuditParams
+	auditCalls     int
+	auditErr       error
 	health         outboxdomain.Health
 	healthTenant   string
 }
@@ -211,9 +246,12 @@ func (r *fakeDLQRepo) ListDeadLetters(_ context.Context, q ports.DeadLetterQuery
 	return r.items, nil
 }
 
-func (r *fakeDLQRepo) ReplayDeadLetters(_ context.Context, params ports.ReplayDeadLettersParams) (int64, error) {
+func (r *fakeDLQRepo) ReplayDeadLetters(_ context.Context, params ports.ReplayDeadLettersParams) (ports.DLQActionResult, error) {
 	r.replayParams = params
-	return r.replayUpdated, nil
+	if r.replayResult.Updated != 0 || r.replayResult.Replayed {
+		return r.replayResult, nil
+	}
+	return ports.DLQActionResult{Updated: r.replayUpdated}, nil
 }
 
 func (r *fakeDLQRepo) Health(_ context.Context, tenantID string, _ time.Time) (outboxdomain.Health, error) {
@@ -221,16 +259,16 @@ func (r *fakeDLQRepo) Health(_ context.Context, tenantID string, _ time.Time) (o
 	return r.health, nil
 }
 
-func (r *fakeDLQRepo) DiscardDeadLetters(_ context.Context, params ports.DiscardDeadLettersParams) (int64, error) {
+func (r *fakeDLQRepo) DiscardDeadLetters(_ context.Context, params ports.DiscardDeadLettersParams) (ports.DLQActionResult, error) {
 	r.discardParams = params
-	return r.discardUpdated, nil
+	if r.discardResult.Updated != 0 || r.discardResult.Replayed {
+		return r.discardResult, nil
+	}
+	return ports.DLQActionResult{Updated: r.discardUpdated}, nil
 }
 
-type fakeDLQAudit struct {
-	events []audit.Event
-}
-
-func (a *fakeDLQAudit) Record(_ context.Context, event audit.Event) error {
-	a.events = append(a.events, event)
-	return nil
+func (r *fakeDLQRepo) RecordDLQActionAudit(_ context.Context, params ports.RecordDLQActionAuditParams) error {
+	r.auditCalls++
+	r.auditParams = params
+	return r.auditErr
 }

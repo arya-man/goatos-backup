@@ -123,6 +123,105 @@ func (q *Queries) CountEligibleShedScopes(ctx context.Context, arg CountEligible
 	return total, err
 }
 
+const getAcceptableVaccinationCompletion = `-- name: GetAcceptableVaccinationCompletion :one
+SELECT completion_id::text AS completion_id,
+       status,
+       obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id,
+       COALESCE(batch_id::text, '')::text AS batch_id,
+       COALESCE(vaccine_inventory_lot_id::text, '')::text AS vaccine_inventory_lot_id,
+       COALESCE(doses, 0)::int AS doses,
+       administered_at
+FROM vaccination_completions
+WHERE tenant_id = $1
+  AND completion_id = $2
+  AND status IN ('recorded', 'accepted')
+`
+
+type GetAcceptableVaccinationCompletionParams struct {
+	TenantID     pgtype.UUID
+	CompletionID pgtype.UUID
+}
+
+type GetAcceptableVaccinationCompletionRow struct {
+	CompletionID          string
+	Status                string
+	ObligationID          string
+	GoatID                string
+	BatchID               string
+	VaccineInventoryLotID string
+	Doses                 int32
+	AdministeredAt        pgtype.Timestamptz
+}
+
+// Recovery/resume read for SM-5: a retry after the completion row was already accepted must still
+// be able to finish idempotent side effects such as obligation completion, stock consumption, and
+// booster scheduling.
+func (q *Queries) GetAcceptableVaccinationCompletion(ctx context.Context, arg GetAcceptableVaccinationCompletionParams) (GetAcceptableVaccinationCompletionRow, error) {
+	row := q.db.QueryRow(ctx, getAcceptableVaccinationCompletion, arg.TenantID, arg.CompletionID)
+	var i GetAcceptableVaccinationCompletionRow
+	err := row.Scan(
+		&i.CompletionID,
+		&i.Status,
+		&i.ObligationID,
+		&i.GoatID,
+		&i.BatchID,
+		&i.VaccineInventoryLotID,
+		&i.Doses,
+		&i.AdministeredAt,
+	)
+	return i, err
+}
+
+const getAcceptableVaccinationCompletionByIdempotency = `-- name: GetAcceptableVaccinationCompletionByIdempotency :one
+SELECT completion_id::text AS completion_id,
+       status,
+       obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id,
+       COALESCE(batch_id::text, '')::text AS batch_id,
+       COALESCE(vaccine_inventory_lot_id::text, '')::text AS vaccine_inventory_lot_id,
+       COALESCE(doses, 0)::int AS doses,
+       administered_at
+FROM vaccination_completions
+WHERE tenant_id = $1
+  AND idempotency_key = $2
+  AND status IN ('recorded', 'accepted')
+`
+
+type GetAcceptableVaccinationCompletionByIdempotencyParams struct {
+	TenantID       pgtype.UUID
+	IdempotencyKey string
+}
+
+type GetAcceptableVaccinationCompletionByIdempotencyRow struct {
+	CompletionID          string
+	Status                string
+	ObligationID          string
+	GoatID                string
+	BatchID               string
+	VaccineInventoryLotID string
+	Doses                 int32
+	AdministeredAt        pgtype.Timestamptz
+}
+
+// Direct Accept recovery: if the record step succeeded but a later side effect failed, the same
+// idempotency key must resume the existing completion instead of no-oping.
+func (q *Queries) GetAcceptableVaccinationCompletionByIdempotency(ctx context.Context, arg GetAcceptableVaccinationCompletionByIdempotencyParams) (GetAcceptableVaccinationCompletionByIdempotencyRow, error) {
+	row := q.db.QueryRow(ctx, getAcceptableVaccinationCompletionByIdempotency, arg.TenantID, arg.IdempotencyKey)
+	var i GetAcceptableVaccinationCompletionByIdempotencyRow
+	err := row.Scan(
+		&i.CompletionID,
+		&i.Status,
+		&i.ObligationID,
+		&i.GoatID,
+		&i.BatchID,
+		&i.VaccineInventoryLotID,
+		&i.Doses,
+		&i.AdministeredAt,
+	)
+	return i, err
+}
+
 const getGoatForGeneration = `-- name: GetGoatForGeneration :one
 SELECT goat_id::text AS goat_id, dob, entry_date, lifecycle_status,
        COALESCE(shed_id::text, '')::text AS shed_id,

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
+	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
 
 type fakeImpact struct {
@@ -36,13 +38,21 @@ type fakeCampaign struct {
 	versionID  string
 	campaignID string
 	asOf       time.Time
+	key        string
+	hash       string
+	err        error
 }
 
-func (f *fakeCampaign) GenerateManualCampaignForVersionWithRun(_ context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerationRun, domain.GenerateResult, error) {
+func (f *fakeCampaign) GenerateManualCampaignForVersionWithHTTPRun(_ context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error) {
 	f.tenantID = tenantID
 	f.versionID = versionID
 	f.campaignID = campaignID
 	f.asOf = asOf
+	f.key = idempotencyKey
+	f.hash = requestHash
+	if f.err != nil {
+		return domain.GenerationRun{}, domain.GenerateResult{}, f.err
+	}
 	completedAt := time.Date(2026, time.June, 27, 9, 0, 0, 0, time.UTC)
 	return domain.GenerationRun{
 			RunID:                      "70000000-0000-4000-8000-000000000001",
@@ -83,12 +93,50 @@ func TestRunManualCampaignCallsGenerator(t *testing.T) {
 	if campaign.asOf.Format(time.RFC3339) != "2026-06-27T08:00:00Z" {
 		t.Fatalf("as_of = %s", campaign.asOf.Format(time.RFC3339))
 	}
+	if campaign.key != "manual-campaign-test-0001" || campaign.hash == "" {
+		t.Fatalf("idempotency not passed key=%q hash=%q", campaign.key, campaign.hash)
+	}
 	var resp manualCampaignRunResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("response json: %v", err)
 	}
 	if resp.RunID == "" || resp.TriggerType != "manual_campaign" || resp.ResultGenerated != 4 || resp.ResultSuppressedByTrustedHistory != 2 {
 		t.Fatalf("response body: %+v", resp)
+	}
+}
+
+func TestRunManualCampaignIdempotencyConflictReturns409(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithManualCampaignGenerator(&fakeCampaign{err: vaccports.ErrIdempotencyConflict}))
+
+	body := `{"protocol_version_id":"65000000-0000-4000-8000-000000000001","campaign_id":"catchup:2026-06-27"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/manual-campaigns", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "manual-campaign-test-0001")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("want 409, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "idempotency_conflict") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestRunManualCampaignDoesNotTreatWrappedConflictAsInternal(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithManualCampaignGenerator(&fakeCampaign{err: errors.Join(vaccports.ErrIdempotencyConflict)}))
+
+	body := `{"protocol_version_id":"65000000-0000-4000-8000-000000000001","campaign_id":"catchup:2026-06-27"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/manual-campaigns", strings.NewReader(body))
+	req.Header.Set("Idempotency-Key", "manual-campaign-test-0002")
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("want 409, got %d (%s)", rec.Code, rec.Body.String())
 	}
 }
 

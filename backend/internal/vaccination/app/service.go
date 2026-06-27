@@ -37,6 +37,18 @@ func (s *Service) GetRecordedCompletion(ctx context.Context, tenantID, completio
 	return s.repo.GetRecordedCompletion(ctx, tenantID, completionID)
 }
 
+// GetAcceptableCompletion returns the verification context for a completion that is either still
+// recorded or already accepted. It is used only for retry/resume of idempotent accept side effects.
+func (s *Service) GetAcceptableCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error) {
+	return s.repo.GetAcceptableCompletion(ctx, tenantID, completionID)
+}
+
+// GetAcceptableCompletionByIdempotency returns the existing direct-accept completion for a replayed
+// idempotency key so later side effects can be resumed.
+func (s *Service) GetAcceptableCompletionByIdempotency(ctx context.Context, tenantID, idempotencyKey string) (domain.AcceptedCompletion, bool, error) {
+	return s.repo.GetAcceptableCompletionByIdempotency(ctx, tenantID, idempotencyKey)
+}
+
 // RejectCompletion rejects a recorded completion (rework). applied is false on replay.
 func (s *Service) RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (bool, error) {
 	return s.repo.RejectCompletion(ctx, tenantID, completionID, reason, verifiedBy)

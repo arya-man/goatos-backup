@@ -89,26 +89,45 @@ func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptR
 	if err != nil {
 		return AcceptResult{}, err
 	}
+	pending := domain.AcceptedCompletion{CompletionID: cid, Status: "recorded", ObligationID: in.Completion.ObligationID, GoatID: in.Completion.GoatID, BatchID: deref(in.Completion.BatchID), LotID: deref(in.Completion.VaccineInventoryLotID), Doses: derefDose(in.Completion.Doses), AdministeredAt: in.Completion.AdministeredAt}
 	if !applied {
-		return AcceptResult{Applied: false}, nil // replay / double-submit
+		found := false
+		pending, found, err = s.vacc.GetAcceptableCompletionByIdempotency(ctx, in.Completion.TenantID, in.Completion.IdempotencyKey)
+		if err != nil {
+			return AcceptResult{}, err
+		}
+		if !found {
+			return AcceptResult{Applied: false}, nil // rejected/reversed replay or unknown key
+		}
 	}
-	if _, _, err := s.vacc.AcceptCompletion(ctx, in.Completion.TenantID, cid, in.VerifiedBy, in.WithdrawalUntil); err != nil {
+	acceptApplied := false
+	if pending.Status == "recorded" {
+		acc, accepted, err := s.vacc.AcceptCompletion(ctx, in.Completion.TenantID, pending.CompletionID, in.VerifiedBy, in.WithdrawalUntil)
+		if err != nil {
+			return AcceptResult{}, err
+		}
+		if !accepted {
+			return AcceptResult{CompletionID: pending.CompletionID, Applied: false}, nil
+		}
+		pending = acc
+		acceptApplied = true
+	}
+	if pending.Status != "accepted" {
+		return AcceptResult{CompletionID: pending.CompletionID, Applied: false}, nil
+	}
+	if err := s.consume(ctx, in.Completion.TenantID, pending.BatchID, pending.LotID, pending.GoatID, &pending.Doses); err != nil {
 		return AcceptResult{}, err
 	}
-	completed, err := s.obl.MarkCompleted(ctx, in.Completion.TenantID, in.Completion.ObligationID)
+	completed, err := s.obl.MarkCompleted(ctx, in.Completion.TenantID, pending.ObligationID)
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	if err := s.consume(ctx, in.Completion.TenantID, deref(in.Completion.BatchID),
-		deref(in.Completion.VaccineInventoryLotID), in.Completion.GoatID, in.Completion.Doses); err != nil {
-		return AcceptResult{}, err
-	}
-	next, err := s.scheduleBooster(ctx, in.Completion.TenantID, in.ProtocolVersionID, in.Completion.GoatID,
-		in.ScopeType, in.ScopeID, in.RuleSequence, in.Completion.AdministeredAt)
+	next, err := s.scheduleBooster(ctx, in.Completion.TenantID, in.ProtocolVersionID, pending.GoatID,
+		in.ScopeType, in.ScopeID, in.RuleSequence, pending.AdministeredAt)
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	return AcceptResult{CompletionID: cid, Applied: true, Completed: completed, NextScheduled: next}, nil
+	return AcceptResult{CompletionID: pending.CompletionID, Applied: applied || acceptApplied || completed || next, Completed: completed, NextScheduled: next}, nil
 }
 
 // AcceptExistingInput verifies a completion already recorded (at SOP-submit time) by its id. The
@@ -126,38 +145,46 @@ type AcceptExistingInput struct {
 // next booster (deriving the protocol version + scope + sequence from the obligation). Idempotent: a
 // completion no longer in 'recorded' state is a no-op.
 func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistingInput) (AcceptResult, error) {
-	pending, found, err := s.vacc.GetRecordedCompletion(ctx, in.TenantID, in.CompletionID)
+	pending, found, err := s.vacc.GetAcceptableCompletion(ctx, in.TenantID, in.CompletionID)
 	if err != nil {
 		return AcceptResult{}, err
 	}
 	if !found {
 		return AcceptResult{Applied: false}, nil
 	}
+	applied := false
+	if pending.Status == "recorded" {
+		acc, accepted, err := s.vacc.AcceptCompletion(ctx, in.TenantID, in.CompletionID, in.VerifiedBy, in.WithdrawalUntil)
+		if err != nil {
+			return AcceptResult{}, err
+		}
+		if !accepted {
+			return AcceptResult{CompletionID: in.CompletionID, Applied: false}, nil
+		}
+		pending = acc
+		applied = true
+	}
+	if pending.Status != "accepted" {
+		return AcceptResult{CompletionID: in.CompletionID, Applied: false}, nil
+	}
 	if err := s.consume(ctx, in.TenantID, pending.BatchID, pending.LotID, pending.GoatID, &pending.Doses); err != nil {
 		return AcceptResult{}, err
 	}
-	acc, applied, err := s.vacc.AcceptCompletion(ctx, in.TenantID, in.CompletionID, in.VerifiedBy, in.WithdrawalUntil)
-	if err != nil {
-		return AcceptResult{}, err
-	}
-	if !applied {
-		return AcceptResult{Applied: false}, nil // already verified
-	}
-	completed, err := s.obl.MarkCompleted(ctx, in.TenantID, acc.ObligationID)
+	completed, err := s.obl.MarkCompleted(ctx, in.TenantID, pending.ObligationID)
 	if err != nil {
 		return AcceptResult{}, err
 	}
 	next := false
 	if s.booster != nil {
-		versionID, scopeType, scopeID, seq, gerr := s.obl.GetBoosterContext(ctx, in.TenantID, acc.ObligationID)
+		versionID, scopeType, scopeID, seq, gerr := s.obl.GetBoosterContext(ctx, in.TenantID, pending.ObligationID)
 		if gerr != nil {
 			return AcceptResult{}, gerr
 		}
-		if next, err = s.scheduleBooster(ctx, in.TenantID, versionID, acc.GoatID, scopeType, scopeID, seq, acc.AdministeredAt); err != nil {
+		if next, err = s.scheduleBooster(ctx, in.TenantID, versionID, pending.GoatID, scopeType, scopeID, seq, pending.AdministeredAt); err != nil {
 			return AcceptResult{}, err
 		}
 	}
-	return AcceptResult{CompletionID: in.CompletionID, Applied: true, Completed: completed, NextScheduled: next}, nil
+	return AcceptResult{CompletionID: in.CompletionID, Applied: applied || completed || next, Completed: completed, NextScheduled: next}, nil
 }
 
 func (s *CompletionService) validateStockGate(in domain.NewCompletion) error {
@@ -245,6 +272,13 @@ func (s *CompletionService) scheduleBooster(ctx context.Context, tenantID, versi
 func deref(p *string) string {
 	if p == nil {
 		return ""
+	}
+	return *p
+}
+
+func derefDose(p *int32) int32 {
+	if p == nil || *p <= 0 {
+		return 1
 	}
 	return *p
 }

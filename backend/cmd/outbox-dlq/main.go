@@ -70,7 +70,7 @@ func run(args []string) error {
 	case "list":
 		return list(ctx, repo, *tenantID, normalizedStatus, *eventType, *topic, *limit)
 	case "replay":
-		n, err := repo.ReplayDeadLetters(ctx, outboxports.ReplayDeadLettersParams{
+		result, err := repo.ReplayDeadLetters(ctx, outboxports.ReplayDeadLettersParams{
 			TenantID:  *tenantID,
 			OutboxIDs: replayIDs,
 			Reason:    *reason,
@@ -79,7 +79,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("outbox dlq replayed=%d tenant=%s\n", n, *tenantID)
+		fmt.Printf("outbox dlq replayed=%d tenant=%s\n", result.Updated, *tenantID)
 		return nil
 	default:
 		return errors.New("mode must be list or replay")

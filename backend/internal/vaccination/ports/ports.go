@@ -10,7 +10,10 @@ import (
 )
 
 // ErrNotFound is returned when a requested vaccination row does not exist.
-var ErrNotFound = errors.New("vaccination: not found")
+var (
+	ErrNotFound            = errors.New("vaccination: not found")
+	ErrIdempotencyConflict = errors.New("vaccination: idempotency key reused with different request")
+)
 
 // Repository is the persistence boundary for the vaccination module. Implementations wrap
 // generated sqlc queries; no hand-written SQL leaks above this interface.
@@ -26,6 +29,8 @@ type Repository interface {
 	// returns the verification context (obligation/goat/batch/lot/doses) so the caller can complete
 	// the obligation and consume the reserved dose.
 	GetRecordedCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error)
+	GetAcceptableCompletion(ctx context.Context, tenantID, completionID string) (domain.AcceptedCompletion, bool, error)
+	GetAcceptableCompletionByIdempotency(ctx context.Context, tenantID, idempotencyKey string) (domain.AcceptedCompletion, bool, error)
 	AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptedCompletion, bool, error)
 	RejectCompletion(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (bool, error)
 

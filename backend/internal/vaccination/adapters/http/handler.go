@@ -3,7 +3,10 @@ package http
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +19,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	app "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
+	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
 
 // Reads is the slice of the vaccination service this handler needs.
@@ -34,7 +38,7 @@ type Verifier interface {
 // vaccination protocol version. It is separate from publish/backfill generation so campaigns cannot
 // fire accidentally.
 type ManualCampaignGenerator interface {
-	GenerateManualCampaignForVersionWithRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerationRun, domain.GenerateResult, error)
+	GenerateManualCampaignForVersionWithHTTPRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error)
 }
 
 // Handler serves vaccination endpoints.
@@ -142,7 +146,8 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 			errorEnvelope{Code: "manual_campaign_unavailable", Message: "manual campaign generation is not wired", TraceID: traceID(r)}, nil)
 		return
 	}
-	if _, ok := h.manualCampaignIdempotencyKey(w, r); !ok {
+	idempotencyKey, ok := h.manualCampaignIdempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -169,11 +174,17 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asOf := time.Now().UTC()
+	asOfProvided := req.AsOf != nil
 	if req.AsOf != nil {
 		asOf = req.AsOf.UTC()
 	}
-	run, result, err := h.campaign.GenerateManualCampaignForVersionWithRun(r.Context(), tenantID(r), req.ProtocolVersionID, req.CampaignID, asOf)
+	requestHash := manualCampaignRequestHash(req, asOfProvided)
+	run, result, err := h.campaign.GenerateManualCampaignForVersionWithHTTPRun(r.Context(), tenantID(r), req.ProtocolVersionID, req.CampaignID, asOf, idempotencyKey, requestHash)
 	if err != nil {
+		if errors.Is(err, vaccports.ErrIdempotencyConflict) {
+			h.conflict(w, r, "idempotency_conflict", "Idempotency-Key was reused with a different manual campaign request")
+			return
+		}
 		h.internal(w, r, err)
 		return
 	}
@@ -392,6 +403,26 @@ func validCampaignID(value string) bool {
 	return true
 }
 
+func manualCampaignRequestHash(req manualCampaignRequest, asOfProvided bool) string {
+	asOf := ""
+	if req.AsOf != nil {
+		asOf = req.AsOf.UTC().Format(time.RFC3339Nano)
+	}
+	raw, _ := json.Marshal(struct {
+		ProtocolVersionID string `json:"protocol_version_id"`
+		CampaignID        string `json:"campaign_id"`
+		AsOf              string `json:"as_of"`
+		AsOfProvided      bool   `json:"as_of_provided"`
+	}{
+		ProtocolVersionID: req.ProtocolVersionID,
+		CampaignID:        req.CampaignID,
+		AsOf:              asOf,
+		AsOfProvided:      asOfProvided,
+	})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 func (h *Handler) manualCampaignIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if key == "" {
@@ -403,6 +434,11 @@ func (h *Handler) manualCampaignIdempotencyKey(w http.ResponseWriter, r *http.Re
 		return "", false
 	}
 	return key, true
+}
+
+func (h *Handler) conflict(w http.ResponseWriter, r *http.Request, code, message string) {
+	httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+		errorEnvelope{Code: code, Message: message, TraceID: traceID(r)}, nil)
 }
 
 func tenantID(r *http.Request) string {

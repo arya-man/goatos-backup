@@ -256,8 +256,8 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReplayDeadLetters: %v", err)
 		}
-		if replayed != 1 {
-			t.Fatalf("replayed=%d want 1", replayed)
+		if replayed.Updated != 1 || replayed.Replayed {
+			t.Fatalf("replayed=%#v want updated 1 fresh", replayed)
 		}
 		state := queryOutboxState(t, pool, dead.OutboxID)
 		if state.Status != domain.StatusPending || state.AttemptCount != 0 || !state.NextAttemptAt.Valid || state.PublishedAt.Valid {
@@ -281,8 +281,71 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReplayDeadLetters capped: %v", err)
 		}
-		if replayed != 0 {
-			t.Fatalf("capped replayed=%d want 0", replayed)
+		if replayed.Updated != 0 {
+			t.Fatalf("capped replayed=%#v want updated 0", replayed)
+		}
+	})
+
+	t.Run("dlq action audit is idempotent on repair retry", func(t *testing.T) {
+		repo := NewRepository(pool, 5*time.Second)
+		dead := insertOutboxMessage(t, pool, outboxRow{Suffix: 86, Status: domain.StatusDeadLetter, AttemptCount: 5, LastError: "max_attempts_exhausted"})
+		reason := "operator verified payload after schema fix"
+		ids := []string{dead.OutboxID}
+		key := "dlq-replay-audit-test-0001"
+		hash := dlqRepoActionHash("replay", ids, reason)
+		replayed, err := repo.ReplayDeadLetters(ctx, ports.ReplayDeadLettersParams{
+			TenantID:       meshaTenant,
+			OutboxIDs:      ids,
+			Reason:         reason,
+			Now:            outboxTestNow,
+			IdempotencyKey: key,
+			RequestHash:    hash,
+		})
+		if err != nil {
+			t.Fatalf("ReplayDeadLetters: %v", err)
+		}
+		if err := repo.RecordDLQActionAudit(ctx, ports.RecordDLQActionAuditParams{
+			TenantID:       meshaTenant,
+			Action:         "replay",
+			OutboxIDs:      ids,
+			Reason:         reason,
+			Updated:        replayed.Updated,
+			ActorID:        meshaParty,
+			TraceID:        "trace-dlq-audit-test",
+			IdempotencyKey: key,
+			RequestHash:    hash,
+		}); err != nil {
+			t.Fatalf("RecordDLQActionAudit first: %v", err)
+		}
+		replayed, err = repo.ReplayDeadLetters(ctx, ports.ReplayDeadLettersParams{
+			TenantID:       meshaTenant,
+			OutboxIDs:      ids,
+			Reason:         reason,
+			Now:            outboxTestNow.Add(time.Minute),
+			IdempotencyKey: key,
+			RequestHash:    hash,
+		})
+		if err != nil {
+			t.Fatalf("ReplayDeadLetters retry: %v", err)
+		}
+		if !replayed.Replayed {
+			t.Fatalf("retry result=%#v want stored replay", replayed)
+		}
+		if err := repo.RecordDLQActionAudit(ctx, ports.RecordDLQActionAuditParams{
+			TenantID:       meshaTenant,
+			Action:         "replay",
+			OutboxIDs:      ids,
+			Reason:         reason,
+			Updated:        replayed.Updated,
+			ActorID:        meshaParty,
+			TraceID:        "trace-dlq-audit-test",
+			IdempotencyKey: key,
+			RequestHash:    hash,
+		}); err != nil {
+			t.Fatalf("RecordDLQActionAudit retry: %v", err)
+		}
+		if got := countDLQAuditRows(t, pool, dead.OutboxID, key, hash); got != 1 {
+			t.Fatalf("audit rows=%d want 1", got)
 		}
 	})
 
@@ -301,6 +364,23 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 			t.Fatalf("limit not respected: result=%#v calls=%#v", result, publisher.Calls())
 		}
 	})
+}
+
+func countDLQAuditRows(t *testing.T, pool *pgxpool.Pool, outboxID, key, hash string) int {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(context.Background(), `
+SELECT count(*)::int
+FROM audit_log
+WHERE tenant_id = $1
+  AND action = 'operations.dlq.replay'
+  AND resource_type = 'outbox_message'
+  AND resource_id = $2
+  AND metadata->>'idempotency_key' = $3
+  AND metadata->>'request_hash' = $4`, meshaTenant, outboxID, key, hash).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
 }
 
 type outboxRow struct {

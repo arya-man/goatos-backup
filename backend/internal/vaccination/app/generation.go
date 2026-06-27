@@ -139,12 +139,26 @@ func (s *GenerationService) GenerateManualCampaignForVersionWithRun(ctx context.
 	})
 }
 
+// GenerateManualCampaignForVersionWithHTTPRun wraps manual campaign generation using the caller's
+// HTTP Idempotency-Key as the durable command key. Exact retries return the same run/result without
+// deriving a fresh as_of timestamp or materializing duplicate manual obligations.
+func (s *GenerationService) GenerateManualCampaignForVersionWithHTTPRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error) {
+	return s.generateForVersionWithRun(ctx, tenantID, versionID, asOf, "manual_campaign", manualCampaignTriggerRef(campaignID, asOf), generationOptions{
+		ManualCampaignID:  campaignID,
+		RunIDempotencyKey: idempotencyKey,
+		RunRequestHash:    requestHash,
+	})
+}
+
 func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenantID, versionID string, asOf time.Time, triggerType, triggerRef string, opts generationOptions) (domain.GenerationRun, domain.GenerateResult, error) {
 	if s.runs == nil {
 		res, err := s.generateForVersion(ctx, tenantID, versionID, asOf, opts)
 		return domain.GenerationRun{}, res, err
 	}
 	key := generationRunKey(tenantID, versionID, triggerType, triggerRef)
+	if opts.RunIDempotencyKey != "" {
+		key = opts.RunIDempotencyKey
+	}
 	run, started, err := s.runs.StartGenerationRun(ctx, domain.GenerationRunInput{
 		TenantID:          tenantID,
 		ProtocolVersionID: versionID,
@@ -152,6 +166,7 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 		TriggerRef:        triggerRef,
 		StartedAt:         asOf,
 		IdempotencyKey:    key,
+		RequestHash:       opts.RunRequestHash,
 	})
 	if err != nil {
 		return run, domain.GenerateResult{}, err
@@ -174,7 +189,9 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 }
 
 type generationOptions struct {
-	ManualCampaignID string
+	ManualCampaignID  string
+	RunIDempotencyKey string
+	RunRequestHash    string
 }
 
 func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {

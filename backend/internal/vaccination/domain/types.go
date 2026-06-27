@@ -41,6 +41,8 @@ type CompletionHistoryItem struct {
 // enough to complete the obligation (SM-5) and consume the reserved dose. BatchID/LotID are "" when
 // the completion was not part of a drive (no stock to consume).
 type AcceptedCompletion struct {
+	CompletionID   string
+	Status         string
 	ObligationID   string
 	GoatID         string
 	BatchID        string
@@ -131,6 +133,7 @@ type GenerationRun struct {
 	CursorGoatID               string
 	LastError                  string
 	IdempotencyKey             string
+	RequestHash                string
 }
 
 // GenerationRunInput starts one durable generation run.
@@ -141,6 +144,7 @@ type GenerationRunInput struct {
 	TriggerRef        string
 	StartedAt         time.Time
 	IdempotencyKey    string
+	RequestHash       string
 }
 
 // ImpactPreview is the computed live impact (eligible goats, catch-up, obligations, batches,

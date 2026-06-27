@@ -161,12 +161,12 @@ func (r *serviceFakeRepo) Health(context.Context, string, time.Time) (domain.Hea
 	return domain.Health{Status: "healthy"}, nil
 }
 
-func (r *serviceFakeRepo) ReplayDeadLetters(context.Context, ports.ReplayDeadLettersParams) (int64, error) {
-	return 0, nil
+func (r *serviceFakeRepo) ReplayDeadLetters(context.Context, ports.ReplayDeadLettersParams) (ports.DLQActionResult, error) {
+	return ports.DLQActionResult{}, nil
 }
 
-func (r *serviceFakeRepo) DiscardDeadLetters(context.Context, ports.DiscardDeadLettersParams) (int64, error) {
-	return 0, nil
+func (r *serviceFakeRepo) DiscardDeadLetters(context.Context, ports.DiscardDeadLettersParams) (ports.DLQActionResult, error) {
+	return ports.DLQActionResult{}, nil
 }
 
 func (r *serviceFakeRepo) Ping(context.Context) error {

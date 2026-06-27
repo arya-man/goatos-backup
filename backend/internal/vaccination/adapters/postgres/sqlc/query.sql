@@ -58,6 +58,39 @@ WHERE tenant_id = @tenant_id
   AND completion_id = @completion_id
   AND status = 'recorded';
 
+-- name: GetAcceptableVaccinationCompletion :one
+-- Recovery/resume read for SM-5: a retry after the completion row was already accepted must still
+-- be able to finish idempotent side effects such as obligation completion, stock consumption, and
+-- booster scheduling.
+SELECT completion_id::text AS completion_id,
+       status,
+       obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id,
+       COALESCE(batch_id::text, '')::text AS batch_id,
+       COALESCE(vaccine_inventory_lot_id::text, '')::text AS vaccine_inventory_lot_id,
+       COALESCE(doses, 0)::int AS doses,
+       administered_at
+FROM vaccination_completions
+WHERE tenant_id = @tenant_id
+  AND completion_id = @completion_id
+  AND status IN ('recorded', 'accepted');
+
+-- name: GetAcceptableVaccinationCompletionByIdempotency :one
+-- Direct Accept recovery: if the record step succeeded but a later side effect failed, the same
+-- idempotency key must resume the existing completion instead of no-oping.
+SELECT completion_id::text AS completion_id,
+       status,
+       obligation_id::text AS obligation_id,
+       goat_id::text AS goat_id,
+       COALESCE(batch_id::text, '')::text AS batch_id,
+       COALESCE(vaccine_inventory_lot_id::text, '')::text AS vaccine_inventory_lot_id,
+       COALESCE(doses, 0)::int AS doses,
+       administered_at
+FROM vaccination_completions
+WHERE tenant_id = @tenant_id
+  AND idempotency_key = @idempotency_key
+  AND status IN ('recorded', 'accepted');
+
 -- name: CountEligibleGoats :one
 -- Live impact: alive goats matching a rule's eligibility dims within an optional park scope.
 -- Optional text dims use the ('' OR col = @x) idiom; park scope via a nullable narg uuid.
