@@ -192,8 +192,14 @@ type AdminGoatBulkPreviewRequest struct {
 }
 
 type AdminGoatBulkCommitRequest struct {
-	Rows     []AdminGoatCreateRequest `json:"rows"`
+	Rows     []AdminGoatBulkCommitRow `json:"rows"`
 	FileHash string                   `json:"file_hash,omitempty"`
+}
+
+type AdminGoatBulkCommitRow struct {
+	RowNumber  int                     `json:"row_number,omitempty"`
+	Normalized *AdminGoatCreateRequest `json:"normalized,omitempty"`
+	AdminGoatCreateRequest
 }
 
 type MoveGoatRequest struct {

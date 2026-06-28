@@ -18,6 +18,7 @@ import {
   createAdminGoat,
   listLocations,
   previewAdminGoatBulkImport,
+  type AdminGoatBulkCommitRequest,
   type AdminGoatBulkResponse,
   type ApiResult,
   type CreateAdminGoatRequest,
@@ -33,6 +34,7 @@ const EVIDENCE_TYPES = ["source_record", "identifier", "goat", "event", "media",
 const HERD_PATH = "/counts/herd";
 const MAX_SHED_IMPORT_ROWS = 500;
 const SHED_BULK_FILE_HASH_RE = /^[a-f0-9]{8,64}$/;
+const GOAT_BULK_FILE_HASH_RE = /^[a-f0-9]{8,64}$/;
 
 export type ShedImportDecision = "create" | "requires_review";
 
@@ -40,6 +42,7 @@ export type ShedImportRowResult = {
   row_number: number;
   decision: ShedImportDecision;
   errors: { field: string; code: string; message: string }[];
+  source_label?: string;
   normalized?: CreateLocationRequest;
   result?: LocationMutationResponse;
 };
@@ -216,10 +219,14 @@ export async function previewGoatsAction(csv: string, fileHash: string): Promise
 }
 
 export async function commitGoatsAction(
-  rows: CreateAdminGoatRequest[],
+  rows: AdminGoatBulkCommitRequest["rows"],
   fileHash: string,
 ): Promise<ApiResult<AdminGoatBulkResponse>> {
-  const result = await commitAdminGoatBulkImport({ rows, file_hash: fileHash }, randomUUID());
+  const stableFileHash = (typeof fileHash === "string" ? fileHash : "").trim().toLowerCase();
+  if (!GOAT_BULK_FILE_HASH_RE.test(stableFileHash)) {
+    return { ok: false, error: { kind: "bad_request", code: "invalid_file_hash", message: "Goat import commit received an invalid file hash; preview the CSV again." } };
+  }
+  const result = await commitAdminGoatBulkImport({ rows, file_hash: stableFileHash }, `goat-bulk:${stableFileHash}`);
   if (result.ok && result.data.summary.created > 0) {
     revalidatePath(HERD_PATH);
   }
@@ -246,8 +253,17 @@ export async function previewShedsAction(csv: string): Promise<ShedImportActionR
     const headers = headerMap(records[0]);
     const parks = parksResult.data.items;
     const response: ShedImportResponse = { summary: { total: 0, create_ready: 0, requires_review: 0, created: 0, failed: 0 }, rows: [] };
+    const seenSheds = new Map<string, number>();
     dataRecords.forEach(({ record, rowNumber }) => {
       const row = previewShedImportRow(record, rowNumber, headers, parks);
+      if (row.decision === "create" && row.normalized) {
+        const duplicate = duplicateShedImportError(row.normalized, rowNumber, seenSheds);
+        if (duplicate) {
+          row.decision = "requires_review";
+          row.errors = [duplicate];
+          row.normalized = undefined;
+        }
+      }
       if (row.decision === "create") response.summary.create_ready += 1;
       else response.summary.requires_review += 1;
       response.rows.push(row);
@@ -278,6 +294,7 @@ export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: s
 
   const activeParkIDs = new Set(parksResult.data.items.map((park) => park.location_id));
   const seenRows = new Set<number>();
+  const seenSheds = new Map<string, number>();
   const response: ShedImportResponse = { summary: { total: rows.length, create_ready: 0, requires_review: 0, created: 0, failed: 0 }, rows: [] };
   for (const row of rows) {
     const rowNumber = Number.isSafeInteger(row?.row_number) ? row.row_number : response.rows.length + 2;
@@ -289,6 +306,20 @@ export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: s
         row_number: rowNumber,
         decision: "requires_review",
         errors: commit.errors,
+        source_label: row?.normalized?.location_code ?? row?.normalized?.name,
+        normalized: commit.normalized,
+      });
+      continue;
+    }
+    const duplicate = duplicateShedImportError(commit.normalized, rowNumber, seenSheds);
+    if (duplicate) {
+      response.summary.requires_review += 1;
+      response.summary.failed += 1;
+      response.rows.push({
+        row_number: rowNumber,
+        decision: "requires_review",
+        errors: [duplicate],
+        source_label: commit.normalized.location_code ?? commit.normalized.name,
         normalized: commit.normalized,
       });
       continue;
@@ -302,6 +333,7 @@ export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: s
         row_number: rowNumber,
         decision: "create",
         errors: [],
+        source_label: commit.normalized.location_code ?? commit.normalized.name,
         normalized: commit.normalized,
         result: result.data,
       });
@@ -311,6 +343,7 @@ export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: s
         row_number: rowNumber,
         decision: "requires_review",
         errors: [{ field: "row", code: result.error.code ?? result.error.kind, message: result.error.message }],
+        source_label: commit.normalized.location_code ?? commit.normalized.name,
         normalized: commit.normalized,
       });
     }
@@ -326,6 +359,7 @@ function previewShedImportRow(record: string[], rowNumber: number, headers: Map<
   const parkValue = valueCSV(record, headers, "park");
   const shedName = valueCSV(record, headers, "shed_name") || valueCSV(record, headers, "name");
   const shedCode = valueCSV(record, headers, "shed_code") || valueCSV(record, headers, "location_code");
+  const sourceLabel = [shedCode, shedName].filter(Boolean).join(" · ") || undefined;
   const notes = valueCSV(record, headers, "notes");
   const displayOrderRaw = valueCSV(record, headers, "display_order");
   const park = resolvePark(parks, parkValue);
@@ -352,7 +386,33 @@ function previewShedImportRow(record: string[], rowNumber: number, headers: Map<
     };
   }
   const decision: ShedImportDecision = errors.length === 0 ? "create" : "requires_review";
-  return { row_number: rowNumber, decision, errors, normalized };
+  return { row_number: rowNumber, decision, errors, source_label: sourceLabel, normalized };
+}
+
+function duplicateShedImportError(
+  normalized: CreateLocationRequest,
+  rowNumber: number,
+  seen: Map<string, number>,
+): ShedImportRowResult["errors"][number] | null {
+  const keys = shedImportDuplicateKeys(normalized);
+  for (const key of keys) {
+    const firstRow = seen.get(key);
+    if (firstRow !== undefined) {
+      return { field: "shed", code: "duplicate_in_file", message: `Duplicate shed in uploaded sheet; first seen on row ${firstRow}.` };
+    }
+  }
+  for (const key of keys) seen.set(key, rowNumber);
+  return null;
+}
+
+function shedImportDuplicateKeys(normalized: CreateLocationRequest): string[] {
+  const park = String(normalized.parent_location_id ?? "").trim().toLowerCase();
+  const name = String(normalized.name ?? "").trim().toLowerCase();
+  const code = String(normalized.location_code ?? "").trim().toLowerCase();
+  const keys: string[] = [];
+  if (park && code) keys.push(`${park}:code:${code}`);
+  if (park && name) keys.push(`${park}:name:${name}`);
+  return keys;
 }
 
 function normalizeCommittedShedRow(
@@ -484,7 +544,7 @@ function parseCSV(raw: string): string[][] {
     row.push(cell.trim());
     rows.push(row);
   }
-  return rows.filter((record) => record.some((value) => value.trim() !== ""));
+  return rows;
 }
 
 function headerMap(header: string[]): Map<string, number> {

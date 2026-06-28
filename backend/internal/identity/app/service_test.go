@@ -398,6 +398,29 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestCommitAdminGoatBulkPreservesPreviewRowNumber(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	input := CommitAdminGoatBulkInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "bulk-idem-0002",
+		TraceID:        testTrace,
+		RawBody:        validAdminGoatBulkCommitRowRaw(5, "RFID-BULK-ROW-005"),
+	}
+	resp, err := svc.CommitAdminGoatBulkImport(context.Background(), input)
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if resp.Summary.Created != 1 || len(resp.Rows) != 1 || resp.Rows[0].RowNumber != 5 {
+		t.Fatalf("response=%#v, want one created row with source row number 5", resp)
+	}
+	wantRowKey := "bulk-idem-0002:row:5"
+	if repo.createAdminGoatCmds[0].ClientIdempotencyKey != wantRowKey {
+		t.Fatalf("row key = %q, want %q", repo.createAdminGoatCmds[0].ClientIdempotencyKey, wantRowKey)
+	}
+}
+
 func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -425,6 +448,52 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	}
 	if len(repo.validateAdminGoatCreateCmds) != 1 || repo.validateAdminGoatCreateCmds[0].ParkCode == nil || *repo.validateAdminGoatCreateCmds[0].ParkCode != "CBE" {
 		t.Fatalf("validation command did not receive park code: %#v", repo.validateAdminGoatCreateCmds)
+	}
+}
+
+func TestPreviewAdminGoatBulkFlagsDuplicateRowsWithoutFailingFile(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	csv := "RFID,Park,Shed,Sex,Origin,Management stage,Entry date,Weight(kg)\nDUP-RFID-001,CBE,K1,female,birth,K1,2026-06-15,22.5\n\nDUP-RFID-001,CBE,K1,female,birth,K1,2026-06-15\n"
+	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
+		TenantID: testTenant,
+		TraceID:  testTrace,
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":"duplicate-template"}`, csv)),
+	})
+	if err != nil {
+		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.Summary.CreateReady != 1 || resp.Summary.RequiresReview != 1 || resp.Summary.Total != 2 {
+		t.Fatalf("summary=%#v, want one create-ready and one review", resp.Summary)
+	}
+	if len(resp.Rows) != 2 || resp.Rows[1].RowNumber != 4 || len(resp.Rows[1].Errors) != 1 || resp.Rows[1].Errors[0].Code != "duplicate_in_file" {
+		t.Fatalf("duplicate row result = %#v", resp.Rows)
+	}
+	if len(repo.validateAdminGoatCreateCmds) != 1 {
+		t.Fatalf("validate calls = %d, want only the first create-ready row validated", len(repo.validateAdminGoatCreateCmds))
+	}
+}
+
+func TestPreviewAdminGoatBulkWrongTemplateReturnsRowErrors(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	csv := "Wrong column,Another wrong column\nvalue,still wrong\n"
+	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
+		TenantID: testTenant,
+		TraceID:  testTrace,
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":"wrong-template"}`, csv)),
+	})
+	if err != nil {
+		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.Summary.CreateReady != 0 || resp.Summary.RequiresReview != 1 || resp.Summary.Total != 1 {
+		t.Fatalf("summary=%#v, want one row-level review", resp.Summary)
+	}
+	if len(resp.Rows) != 1 || resp.Rows[0].RowNumber != 2 || len(resp.Rows[0].Errors) == 0 {
+		t.Fatalf("wrong-template row result = %#v", resp.Rows)
+	}
+	if len(repo.validateAdminGoatCreateCmds) != 0 {
+		t.Fatalf("wrong-template row should not reach business validation, calls=%d", len(repo.validateAdminGoatCreateCmds))
 	}
 }
 
@@ -689,6 +758,10 @@ func validAdminGoatCreateRaw(rfid string) []byte {
 
 func validAdminGoatBulkCommitRaw(rfid string) []byte {
 	return []byte(fmt.Sprintf(`{"rows":[%s]}`, validAdminGoatCreateRaw(rfid)))
+}
+
+func validAdminGoatBulkCommitRowRaw(rowNumber int, rfid string) []byte {
+	return []byte(fmt.Sprintf(`{"rows":[{"row_number":%d,"normalized":%s}]}`, rowNumber, validAdminGoatCreateRaw(rfid)))
 }
 
 type fakeRepo struct {

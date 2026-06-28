@@ -59,6 +59,146 @@ function csvFilename(label: string): string {
   return label.toLowerCase().endsWith(".csv") ? label : `${label}.csv`;
 }
 
+function csvCell(value: unknown): string {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll("\"", "\"\"")}"` : text;
+}
+
+function parseCSVRecords(raw: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch === "\"") {
+      if (inQuotes && raw[i + 1] === "\"") {
+        cell += "\"";
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      row.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && raw[i + 1] === "\n") i += 1;
+      row.push(cell.trim());
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+    cell += ch;
+  }
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell.trim());
+    rows.push(row);
+  }
+  return rows;
+}
+
+type ImportResultRow = {
+  row_number: number;
+  decision: string;
+  errors: { field: string; message: string }[];
+  warnings?: { message: string }[];
+};
+
+function importRowFailed(row: ImportResultRow): boolean {
+  return row.errors.length > 0 || row.decision === "requires_review" || row.decision === "failed";
+}
+
+function failedImportRows<T extends ImportResultRow>(rows: T[]): T[] {
+  return rows.filter(importRowFailed);
+}
+
+function failureNotes(row: ImportResultRow): string {
+  const messages = [
+    ...row.errors.map((error) => `${error.field}: ${error.message}`),
+    ...(row.warnings ?? []).map((warning) => warning.message),
+  ];
+  return messages.join(" · ");
+}
+
+function downloadCSV(filename: string, records: unknown[][]) {
+  const body = `${records.map((record) => record.map(csvCell).join(",")).join("\n")}\n`;
+  const blob = new Blob([body], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = csvFilename(filename);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadFailedRows(filename: string, csv: string, templateColumns: string[], rows: ImportResultRow[], failureHeader: string) {
+  const failed = failedImportRows(rows);
+  if (failed.length === 0) return;
+  const parsed = parseCSVRecords(csv);
+  const header = parsed[0]?.length ? parsed[0] : templateColumns;
+  const records: unknown[][] = [[...header, failureHeader]];
+  failed.forEach((row) => {
+    const source = parsed[row.row_number - 1] ?? [];
+    records.push([...header.map((_, index) => source[index] ?? ""), failureNotes(row)]);
+  });
+  downloadCSV(filename, records);
+}
+
+function mergeGoatCommitResult(preview: AdminGoatBulkResponse, committed: AdminGoatBulkResponse): AdminGoatBulkResponse {
+  const sentRows = preview.rows.filter((row) => row.decision === "create" && row.normalized);
+  const committedRows = committed.rows.map((row, index) => {
+    const source = sentRows[index];
+    return {
+      ...row,
+      row_number: source?.row_number ?? row.row_number,
+      normalized: row.normalized ?? source?.normalized,
+    };
+  });
+  const rows = [
+    ...failedImportRows(preview.rows),
+    ...committedRows,
+  ].sort((a, b) => a.row_number - b.row_number);
+  const failed = failedImportRows(rows).length;
+  return {
+    ...committed,
+    rows,
+    summary: {
+      ...committed.summary,
+      total: preview.summary.total,
+      create_ready: preview.summary.create_ready,
+      requires_review: failed,
+      skipped: preview.summary.skipped + committed.summary.skipped,
+      failed,
+    },
+  };
+}
+
+function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImportResponse): ShedImportResponse {
+  const committedByRow = new Map(committed.rows.map((row) => [row.row_number, row]));
+  const rows = preview.rows
+    .map((row) => committedByRow.get(row.row_number) ?? row)
+    .sort((a, b) => a.row_number - b.row_number);
+  const failed = failedImportRows(rows).length;
+  return {
+    ...committed,
+    rows,
+    summary: {
+      ...committed.summary,
+      total: preview.summary.total,
+      create_ready: preview.summary.create_ready,
+      requires_review: failed,
+      failed,
+    },
+  };
+}
+
 // ---- Drawer shell (right panel; backdrop + Escape close; focus trap entry; body scroll lock) ----
 function Drawer({
   open,
@@ -499,14 +639,14 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     if (!preview) return;
     const rows = preview.rows
       .filter((r) => r.decision === "create" && r.normalized)
-      .map((r) => r.normalized as CreateAdminGoatRequest);
+      .map((r) => ({ row_number: r.row_number, normalized: r.normalized as CreateAdminGoatRequest }));
     if (rows.length === 0) return;
     setError(null);
     const hash = fnv1aHex(csv);
     startTransition(async () => {
       const res = await commitGoatsAction(rows, hash);
       if (res.ok) {
-        setCommitted(res.data);
+        setCommitted(mergeGoatCommitResult(preview, res.data));
         router.refresh();
       } else {
         setError(`${res.error.code ?? res.error.kind}: ${res.error.message}`);
@@ -518,6 +658,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   // Count what we will actually send (create rows that carry a normalized payload), so the button number
   // never overstates the commit versus summary.create_ready.
   const committable = preview ? preview.rows.filter((r) => r.decision === "create" && r.normalized).length : 0;
+  const failedCount = view ? failedImportRows(view.rows).length : 0;
 
   return (
     <Drawer
@@ -626,6 +767,11 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {failedCount > 0 ? (
+              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_goat_rows"), csv, bulkColumns, view.rows, copy(pageContract, "field.failure_reason"))}>
+                <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.export_failed_rows")} ({failedCount})
+              </button>
+            ) : null}
             {committed ? (
               <button type="button" className="btn p" onClick={close}>{copy(pageContract, "action.done")}</button>
             ) : (
@@ -712,7 +858,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     startTransition(async () => {
       const res = await commitShedsAction(rows, hash);
       if (res.ok) {
-        setCommitted(res.data);
+        setCommitted(mergeShedCommitResult(preview, res.data));
         router.refresh();
       } else {
         setError(res.message);
@@ -722,6 +868,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
 
   const view = committed ?? preview;
   const committable = preview ? preview.rows.filter((r) => r.decision === "create" && r.normalized).length : 0;
+  const failedCount = view ? failedImportRows(view.rows).length : 0;
 
   return (
     <Drawer
@@ -803,7 +950,9 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
                 </thead>
                 <tbody>
                   {view.rows.map((r) => {
-                    const ident = r.normalized ? `${r.normalized.location_code ? `${r.normalized.location_code} · ` : ""}${r.normalized.name}` : copy(pageContract, "label.placeholder");
+                    const ident = r.normalized
+                      ? `${r.normalized.location_code ? `${r.normalized.location_code} · ` : ""}${r.normalized.name}`
+                      : r.source_label || copy(pageContract, "label.placeholder");
                     const notes = r.errors.map((e) => `${e.field}: ${e.message}`).join(" · ");
                     return (
                       <tr key={r.row_number}>
@@ -822,6 +971,11 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {failedCount > 0 ? (
+              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_shed_rows"), csv, shedColumns, view.rows, copy(pageContract, "field.failure_reason"))}>
+                <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.export_failed_rows")} ({failedCount})
+              </button>
+            ) : null}
             {committed ? (
               <button type="button" className="btn p" onClick={close}>{copy(pageContract, "action.done")}</button>
             ) : (

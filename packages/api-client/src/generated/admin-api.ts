@@ -1732,8 +1732,12 @@ export interface components {
             file_hash?: string;
         };
         AdminGoatBulkCommitRequest: {
-            rows: components["schemas"]["CreateAdminGoatRequest"][];
+            rows: (components["schemas"]["CreateAdminGoatRequest"] | components["schemas"]["AdminGoatBulkCommitRow"])[];
             file_hash?: string;
+        };
+        AdminGoatBulkCommitRow: {
+            row_number: number;
+            normalized: components["schemas"]["CreateAdminGoatRequest"];
         };
         MoveGoatRequest: {
             /** Format: uuid */

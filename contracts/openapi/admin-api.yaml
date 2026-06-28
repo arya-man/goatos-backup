@@ -4393,10 +4393,24 @@ components:
           minItems: 1
           maxItems: 500
           items:
-            $ref: "#/components/schemas/CreateAdminGoatRequest"
+            oneOf:
+              - $ref: "#/components/schemas/CreateAdminGoatRequest"
+              - $ref: "#/components/schemas/AdminGoatBulkCommitRow"
         file_hash:
           type: string
           maxLength: 128
+    AdminGoatBulkCommitRow:
+      type: object
+      additionalProperties: false
+      required:
+        - row_number
+        - normalized
+      properties:
+        row_number:
+          type: integer
+          minimum: 1
+        normalized:
+          $ref: "#/components/schemas/CreateAdminGoatRequest"
     MoveGoatRequest:
       type: object
       additionalProperties: false

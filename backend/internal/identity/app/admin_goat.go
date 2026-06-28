@@ -121,9 +121,10 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 		return nil, BadRequest("bulk_too_large", fmt.Sprintf("bulk preview supports at most %d rows", maxBulkRows))
 	}
 	response := &domain.AdminGoatBulkResponse{Rows: make([]domain.AdminGoatBulkRowResult, 0, len(rows)), TraceID: input.TraceID}
+	seenIdentifiers := map[string]int{}
 	for i := range rows {
-		rowNumber := i + 2
-		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, input.TenantID, "", "", input.TraceID, &rows[i])
+		rowNumber := rows[i].RowNumber
+		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, input.TenantID, "", "", input.TraceID, &rows[i].Request)
 		result := domain.AdminGoatBulkRowResult{
 			RowNumber:        rowNumber,
 			Decision:         "create",
@@ -139,6 +140,13 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 		if len(fieldErrors) > 0 {
 			result.Decision = "requires_review"
 			result.Errors = fieldErrors
+		}
+		if len(result.Errors) == 0 {
+			if duplicateErrors := duplicateAdminGoatImportErrors(normalized, rowNumber, seenIdentifiers); len(duplicateErrors) > 0 {
+				result.Decision = "requires_review"
+				result.Errors = duplicateErrors
+				result.GenerationStatus = "skipped_needs_review"
+			}
 		}
 		if len(result.Errors) == 0 {
 			conflicts, warnings, vErr := validateAdminGoatCreate(ctx, repo, normalized, &cmd)
@@ -184,16 +192,24 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 	}
 	response := &domain.AdminGoatBulkResponse{Rows: make([]domain.AdminGoatBulkRowResult, 0, len(body.Rows)), TraceID: input.TraceID}
 	for i := range body.Rows {
-		rowNumber := i + 1
-		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, tenantID, actorID, clientKey, input.TraceID, &body.Rows[i])
+		rowNumber, request, rowErrors := adminGoatBulkCommitRowRequest(body.Rows[i], i)
 		rowResult := domain.AdminGoatBulkRowResult{
 			RowNumber:        rowNumber,
 			Decision:         "create",
 			Errors:           []domain.FieldError{},
 			Warnings:         []domain.Warning{},
-			Normalized:       normalized,
 			GenerationStatus: "queued",
 		}
+		if len(rowErrors) > 0 {
+			rowResult.Decision = "requires_review"
+			rowResult.Errors = rowErrors
+			rowResult.GenerationStatus = "skipped_needs_review"
+			response.Summary.RequiresReview++
+			response.Rows = append(response.Rows, rowResult)
+			continue
+		}
+		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, tenantID, actorID, clientKey, input.TraceID, request)
+		rowResult.Normalized = normalized
 		if err != nil {
 			rowResult.Decision = "requires_review"
 			rowResult.Errors = []domain.FieldError{{Field: "row", Code: "invalid", Message: err.Error()}}
@@ -456,26 +472,40 @@ func decodeStrict(raw []byte, dest any, schemaName string) error {
 	return nil
 }
 
-func parseAdminGoatCSV(raw string) ([]domain.AdminGoatCreateRequest, error) {
+type parsedAdminGoatCSVRow struct {
+	RowNumber int
+	Request   domain.AdminGoatCreateRequest
+}
+
+func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 	reader := csv.NewReader(strings.NewReader(raw))
 	reader.TrimLeadingSpace = true
-	records, err := reader.ReadAll()
-	if err != nil {
+	reader.FieldsPerRecord = -1
+	header, err := reader.Read()
+	if err != nil && err != io.EOF {
 		return nil, BadRequest("invalid_csv", "csv could not be parsed")
 	}
-	if len(records) < 2 {
+	if err == io.EOF {
 		return nil, BadRequest("invalid_csv", "csv must include a header and at least one row")
 	}
 	headers := map[string]int{}
-	for i, h := range records[0] {
+	for i, h := range header {
 		headers[normalizeHeader(h)] = i
 	}
-	out := make([]domain.AdminGoatCreateRequest, 0, len(records)-1)
-	for i, rec := range records[1:] {
+	out := make([]parsedAdminGoatCSVRow, 0)
+	for {
+		rec, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, BadRequest("invalid_csv", "csv could not be parsed")
+		}
 		if csvRecordBlank(rec) {
 			continue
 		}
-		sourceID := fmt.Sprintf("bulk-csv-row:%d", i+2)
+		rowNumber, _ := reader.FieldPos(0)
+		sourceID := fmt.Sprintf("bulk-csv-row:%d", rowNumber)
 		req := domain.AdminGoatCreateRequest{
 			RFID:            optionalCSV(rec, headers, "rfid"),
 			OldTag:          optionalCSV(rec, headers, "old_tag"),
@@ -510,9 +540,71 @@ func parseAdminGoatCSV(raw string) ([]domain.AdminGoatCreateRequest, error) {
 		}
 		req.DamID = optionalCSV(rec, headers, "dam_id")
 		req.SireOrLot = optionalCSV(rec, headers, "sire_lot")
-		out = append(out, req)
+		out = append(out, parsedAdminGoatCSVRow{RowNumber: rowNumber, Request: req})
+	}
+	if len(out) == 0 {
+		return nil, BadRequest("invalid_csv", "csv must include a header and at least one row")
 	}
 	return out, nil
+}
+
+func adminGoatBulkCommitRowRequest(row domain.AdminGoatBulkCommitRow, index int) (int, *domain.AdminGoatCreateRequest, []domain.FieldError) {
+	rowNumber := row.RowNumber
+	if rowNumber == 0 {
+		rowNumber = index + 1
+	}
+	if rowNumber < 1 {
+		return index + 1, nil, []domain.FieldError{{
+			Field:   "row_number",
+			Code:    "invalid",
+			Message: "row_number must identify a CSV data row",
+		}}
+	}
+	if row.Normalized != nil {
+		return rowNumber, row.Normalized, nil
+	}
+	request := row.AdminGoatCreateRequest
+	return rowNumber, &request, nil
+}
+
+func duplicateAdminGoatImportErrors(normalized *domain.AdminGoatCreateRequest, rowNumber int, seen map[string]int) []domain.FieldError {
+	if normalized == nil {
+		return nil
+	}
+	keys := adminGoatImportDuplicateKeys(normalized)
+	for _, key := range keys {
+		if firstRow, ok := seen[key]; ok {
+			return []domain.FieldError{{
+				Field:   "identifiers",
+				Code:    "duplicate_in_file",
+				Message: fmt.Sprintf("duplicate identifier in uploaded sheet; first seen on row %d", firstRow),
+			}}
+		}
+	}
+	for _, key := range keys {
+		seen[key] = rowNumber
+	}
+	return nil
+}
+
+func adminGoatImportDuplicateKeys(row *domain.AdminGoatCreateRequest) []string {
+	keys := make([]string, 0, 3)
+	if row.RFID != nil {
+		keys = append(keys, "rfid:"+normalizeIdentifier("rfid", *row.RFID))
+	}
+	if row.TempFieldID != nil {
+		keys = append(keys, "temp_field_id:"+normalizeIdentifier("temp_field_id", *row.TempFieldID))
+	}
+	if row.OldTag != nil {
+		scope := ""
+		if row.ParkID != nil {
+			scope = "park:" + strings.ToLower(*row.ParkID)
+		} else if row.ParkCode != nil {
+			scope = "park_code:" + strings.ToLower(*row.ParkCode)
+		}
+		keys = append(keys, "old_tag:"+scope+":"+normalizeIdentifier("old_tag", *row.OldTag))
+	}
+	return keys
 }
 
 func normalizeHeader(value string) string {
