@@ -44,6 +44,32 @@ navigational, contract-backed, or honestly disabled.
 
 Fixed in this pass:
 
+- SM-5 completion now writes a deterministic `vaccination.completed` outbox row
+  in the same transaction as `obligation_instances.status='completed'` and the
+  completed status event. Regression: accept a dose twice and assert exactly one
+  `vaccination.completed` outbox row.
+- SM-4 stock-out no longer aborts the whole sweep. A failed reservation marks
+  only that batch as stock-blocked and continues other groups/pages. Regression:
+  one stocked shed plus one stock-out shed must produce one runnable drive and
+  one blocked drive.
+- SM-4 no longer splits a single large shed into duplicate planned drives across
+  the 1000-row sweeper page boundary. Regression: 1001 due obligations in one
+  shed create exactly one `obligation_batches` row.
+- Calendar completed/canceled projection rows are hot-retained only for recent
+  operational proof. Refresh does not rematerialize completed vaccination rows
+  older than 90 days, and bounded prune can delete old closed rows without
+  deleting notification/snooze history.
+- Admin UI config invalidation drift is repaired by a forward `000106`
+  migration, so DBs that already applied the earlier `000105` get the
+  coalescing queue/functions/index without editing migration history.
+- Missing DOB / missing entry date for age/arrival-triggered vaccination rules
+  creates a visible deferred data-quality obligation instead of only incrementing
+  an aggregate skipped counter.
+- No-version vaccination backfill resolves effective versions per goat/park/as-of
+  instead of looping every published version and double-materializing tenant
+  defaults plus park overrides.
+- Explicit missed-dose policy with a due window is now executable:
+  `immediate`, `phc_approval`, `defer`, and yearly `next_cycle`.
 - Vaccination execution rendered the returned shed-event set as one long page.
   It now pages filtered execution rows before grouping by park/shed.
 - Vaccination status matrix and cohort detail used a disabled "no cursor"
@@ -65,6 +91,15 @@ Fixed in this pass:
 
 Still a documented platform/API gap, not hidden as done:
 
+- Death exits remain intentionally guardrailed. E2E must assert generic death is
+  blocked with the critical-action response and that non-death exits cancel open
+  obligations. Do not bypass the guardrail as a "fix."
+- Batch close/no-show stock release remains a separate close-drive contract:
+  current reserve/consume is idempotent, but an explicit close path must prove
+  unused reserved doses are released.
+- Bulk Herd Register upload is currently CSV/template based. Do not call it XLSX
+  Excel support until `.xlsx` parsing is implemented; the current E2E target is
+  CSV template download/upload plus failed-row export.
 - Some shell navigation, page titles, and page chrome remain frontend-owned.
   Full backend-driven IA/page contracts are tracked in the Contract-Driven UI
   Platform Gap section below.
@@ -202,8 +237,13 @@ Run API/integration checks before browser clicks.
    - Use the same template shape the UI exposes.
    - Preview mixed valid/invalid rows.
    - Commit valid rows.
-   - Assert row errors, idempotent replay, audit rows, and generated
-     `goat.created` events.
+   - Assert row errors, idempotent replay, audit rows, generated `goat.created`
+     events, and that failed rows can be exported with original cells plus
+     failure reasons.
+   - Mixed-row matrix must include: valid new shed/goat, duplicate tag,
+     duplicate row in the uploaded file, invalid shed reference, missing DOB for
+     a birth-age rule, invalid stage, invalid sex, malformed date, and blank
+     spacer rows. Only bad rows fail; valid rows still commit.
 
 4. Procurement source-entry:
    - Create load.
@@ -232,6 +272,25 @@ Run API/integration checks before browser clicks.
    - Assert deterministic conflict behavior.
    - Re-run relay and sweeper.
    - Assert obligations/completions remain de-duplicated.
+
+7. Kernel regression pack:
+   - Accept vaccination completion and assert `vaccination_completions`,
+     `obligation_status_events`, `obligation_instances.completed_at`, and
+     `outbox_messages(event_type='vaccination.completed')` are consistent and
+     idempotent.
+   - Sweep one stock-out shed and one stocked shed; assert the stock-out batch is
+     blocked and the stocked batch still finalizes.
+   - Sweep 1001 due goats in one shed; assert one planned drive/batch.
+   - Refresh Calendar with an old completed obligation; assert it is not
+     re-added after the 90-day cutoff, prune deletes old closed projection rows,
+     and notification/snooze history remains queryable.
+   - Run no-version vaccination backfill with tenant default plus park override;
+     assert one obligation per goat/protocol from the effective version only.
+   - Run birth-age K1 generation for a goat with no DOB; assert a visible
+     deferred data-quality row appears in AC/PA/Calendar/Passport where exposed.
+   - Run missed-dose policy cases for `immediate`, `next_cycle`, `phc_approval`,
+     and `defer`; assert status/due date/reason across AC, Execution, Passport,
+     and Calendar.
 
 ## Frontend Click Matrix
 
@@ -435,6 +494,12 @@ frontend assertions:
 - Dead/sold/exited goats cancel pending work without changing completed history.
 - Overdue/missed, missing proof, rejected proof, and rework remain visible.
 - Missing/expired stock is shown as blocked when the runtime enforces it.
+- Missing DOB / missing entry date shows as deferred/explained, not as an
+  invisible skipped counter.
+- Batch page boundaries do not split one shed drive.
+- Completion emits exactly one `vaccination.completed` outbox event.
+- Calendar closed-row retention: recent completed proof is filterable; old
+  completed/canceled projection rows prune while canonical history remains.
 - Rule changes preserve old completed work and new work follows the new approved
   rule.
 - Reminder/nudge/escalation state is visible and external delivery is verified

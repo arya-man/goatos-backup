@@ -44,22 +44,28 @@ func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
 			{ObligationID: "obl-1", ScopeType: "park", ScopeID: "park-1"},
+			{ObligationID: "obl-2", ScopeType: "park", ScopeID: "park-1"},
+			{ObligationID: "obl-3", ScopeType: "park", ScopeID: "park-2"},
+			{ObligationID: "obl-4", ScopeType: "park", ScopeID: "park-2"},
 		},
 		createBatchID:       "batch-1",
-		createBatchAttached: 1,
+		createBatchAttached: 2,
 	}
 	reserver := &fakeSweepStockReserver{err: errors.New("inventory: stock unavailable")}
 	svc := NewSweeperService(repo, nil, reserver)
 
-	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
 		VaccineItemID: "vaccine-1",
 		DosesPerGoat:  1,
 	}, time.Now())
-	if err == nil {
-		t.Fatal("SweepVersion expected stock error")
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
 	}
-	if repo.stockBlockCalls != 1 {
-		t.Fatalf("stock block calls = %d, want 1", repo.stockBlockCalls)
+	if repo.stockBlockCalls != 2 {
+		t.Fatalf("stock block calls = %d, want 2", repo.stockBlockCalls)
+	}
+	if result.Batches != 2 || result.Obligations != 4 {
+		t.Fatalf("result = %#v, want blocked batch counted", result)
 	}
 }
 
@@ -170,20 +176,30 @@ func TestSweeperMarksExistingBatchBlockedWhenFinalizedReservationFails(t *testin
 				AttachedObligations: 1,
 				HasSOPTask:          true,
 			},
+			{
+				BatchID:             "batch-2",
+				ScopeType:           "park",
+				ScopeID:             "park-2",
+				AttachedObligations: 2,
+				HasSOPTask:          true,
+			},
 		}},
 	}
 	reserver := &fakeSweepStockReserver{err: errors.New("inventory: stock unavailable")}
 	svc := NewSweeperService(repo, nil, reserver)
 
-	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
 		VaccineItemID: "vaccine-1",
 		DosesPerGoat:  1,
 	}, time.Now())
-	if err == nil {
-		t.Fatal("SweepVersion expected stock error")
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
 	}
-	if repo.stockBlockCalls != 1 {
-		t.Fatalf("stock block calls = %d, want 1", repo.stockBlockCalls)
+	if repo.stockBlockCalls != 2 {
+		t.Fatalf("stock block calls = %d, want 2", repo.stockBlockCalls)
+	}
+	if result.Batches != 0 || result.Obligations != 0 {
+		t.Fatalf("result = %#v, want no newly-created work for repair", result)
 	}
 }
 
@@ -212,6 +228,7 @@ type fakeSweepRepo struct {
 	missedCalls         int
 	finalizationPages   [][]domain.PlannedBatchFinalization
 	finalizationCalls   int
+	createdFinalization []domain.PlannedBatchFinalization
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
@@ -236,8 +253,17 @@ func (f *fakeSweepRepo) CreateBatch(context.Context, domain.NewBatch) (string, e
 	return "", nil
 }
 
-func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, _ domain.NewBatch, _ []string) (string, int64, error) {
+func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.NewBatch, _ []string) (string, int64, error) {
 	f.createBatchCalls++
+	if f.createBatchAttached > 0 {
+		f.createdFinalization = append(f.createdFinalization, domain.PlannedBatchFinalization{
+			BatchID:             f.createBatchID,
+			ScopeType:           in.ScopeType,
+			ScopeID:             in.ScopeID,
+			EstimatedTargets:    int32(f.createBatchAttached),
+			AttachedObligations: f.createBatchAttached,
+		})
+	}
 	return f.createBatchID, f.createBatchAttached, nil
 }
 
@@ -254,6 +280,11 @@ func (f *fakeSweepRepo) MarkBatchStockBlocked(context.Context, string, string, s
 
 func (f *fakeSweepRepo) ListPlannedBatchesNeedingFinalization(context.Context, string, string, bool, bool, int32) ([]domain.PlannedBatchFinalization, error) {
 	if f.finalizationCalls >= len(f.finalizationPages) {
+		if len(f.createdFinalization) > 0 {
+			rows := f.createdFinalization
+			f.createdFinalization = nil
+			return rows, nil
+		}
 		return nil, nil
 	}
 	rows := f.finalizationPages[f.finalizationCalls]

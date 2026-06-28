@@ -30,6 +30,7 @@ type Repository interface {
 	SweepDueReminders(ctx context.Context, tenantID string, limit int) (int, error)
 	SweepEscalations(ctx context.Context, in SweepEscalations) (int, error)
 	RefreshVaccinationProjection(ctx context.Context, in RefreshVaccinationProjection) (int, error)
+	PruneClosedVaccinationProjection(ctx context.Context, tenantID string, cutoff time.Time, limit int) (int, error)
 }
 
 type SendNudge struct {

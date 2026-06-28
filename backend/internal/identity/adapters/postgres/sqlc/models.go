@@ -254,6 +254,16 @@ type BreedAlias struct {
 	CreatedAt       pgtype.Timestamptz
 }
 
+type CalendarEventIdentity struct {
+	TenantID         pgtype.UUID
+	EventID          string
+	SliceKey         string
+	SourceTargetType pgtype.Text
+	SourceTargetID   pgtype.UUID
+	FirstSeenAt      pgtype.Timestamptz
+	LastSeenAt       pgtype.Timestamptz
+}
+
 type CalendarEventProjection struct {
 	TenantID                   pgtype.UUID
 	EventID                    string

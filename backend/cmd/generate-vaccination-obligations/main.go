@@ -64,13 +64,17 @@ func run(args []string) error {
 	vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
-	versionIDs := []string{cfg.VersionID}
 	if cfg.VersionID == "" {
-		versionIDs, err = protocolRepo.ListPublishedVaccinationVersions(ctx, cfg.TenantID)
+		res, err := gen.GenerateEffectiveForAllGoats(ctx, cfg.TenantID, cfg.AsOf)
 		if err != nil {
-			return fmt.Errorf("list published versions: %w", err)
+			return fmt.Errorf("generate effective cohort: %w", err)
 		}
+		fmt.Printf("generated effective-cohort generated=%d deferred=%d reopened=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+			res.Generated, res.Deferred, res.Reopened, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		return nil
 	}
+
+	versionIDs := []string{cfg.VersionID}
 	if len(versionIDs) == 0 {
 		fmt.Println("no published vaccination protocol versions to generate")
 		return nil

@@ -184,3 +184,7 @@ func (f fakeRepo) SweepEscalations(context.Context, ports.SweepEscalations) (int
 func (f fakeRepo) RefreshVaccinationProjection(context.Context, ports.RefreshVaccinationProjection) (int, error) {
 	return 0, nil
 }
+
+func (f fakeRepo) PruneClosedVaccinationProjection(context.Context, string, time.Time, int) (int, error) {
+	return 0, nil
+}

@@ -22,7 +22,7 @@
 # This uses the source-derived local/dev baseline in
 # context/source-findings/phc-vaccination-roster-stage-proposal.md. Production can replace it
 # with a later source-backed version if PHC/vet data changes.
-set -uo pipefail
+set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer
 export GOATOS_AUTH_ISSUER=goatos-local GOATOS_AUTH_AUDIENCE=goatos-api
@@ -40,6 +40,8 @@ BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
 psqlq(){ psql "$PGURL" -tAc "$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
 has(){ grep -q "$1" <<<"$2" && echo HIT || echo MISS; }
+fail(){ echo "FAIL $*" >&2; exit 1; }
+assert_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = HIT ] || fail "$label missing $needle"; }
 
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")
@@ -108,7 +110,13 @@ VQ=$(curl -s "${A[@]}" "$API/vaccination/verification-queue?limit=100")
 echo "verification-queue contains completion: $(has "$COMP" "$VQ")"
 ACC=$(curl -s "${A[@]}" -H "Content-Type: application/json" -X POST "$API/vaccination/completions/$COMP/accept" -d "{\"idempotency_key\":\"acc-$STAMP\"}")
 echo "accept: $ACC"
+echo "$ACC" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d.get("completed") is True, d' >/dev/null \
+  || fail "step7 accept did not complete obligation: $ACC"
 psql "$PGURL" -c "select c.completion_id,c.status comp,o.obligation_id,o.status obl,o.completed_at from vaccination_completions c join obligation_instances o on o.obligation_id=c.obligation_id where c.completion_id='$COMP'"
+COMPLETE_STATE=$(psqlq "select c.status || ':' || o.status || ':' || (o.completed_at is not null)::text from vaccination_completions c join obligation_instances o on o.obligation_id=c.obligation_id where c.completion_id='$COMP'")
+[ "$COMPLETE_STATE" = "accepted:completed:true" ] || fail "step7 inconsistent completion state $COMPLETE_STATE"
+VAX_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='vaccination.completed' and aggregate_id='$OBL'")
+[ "$VAX_OUTBOX_COUNT" = "1" ] || fail "step7 vaccination.completed outbox count=$VAX_OUTBOX_COUNT"
 
 echo; echo "### 8. read models reflect the same Postgres truth"
 RID=$(curl -s "${A[@]}" "$API/vaccination/action-center?limit=500" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((r["row_id"] for r in d.get("items",[]) if r.get("batch_id")=="'$BATCH'"),""))')
@@ -120,6 +128,13 @@ printf '%-26s %s\n' "Action Center (API):"    "obl:$(has "$OBL" "$AC")"
 printf '%-26s %s\n' "Workflows row (API):"    "row_id=$RID obl:$(has "$OBL" "$WF") comp:$(has "$COMP" "$WF")"
 printf '%-26s %s\n' "Goat Passport (API):"    "goat:$(has "$GOAT" "$PP") comp:$(has "$COMP" "$PP") obl:$(has "$OBL" "$PP")"
 printf '%-26s %s\n' "Shed drilldown (API):"   "batch-drive workState=$(echo "$SD" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((x.get("workState") for x in d.get("drives",[]) if x.get("driveId")=="'$BATCH'"),"MISS"))')"
+[ -n "$RID" ] || fail "Workflows row id not found for batch $BATCH"
+assert_hit "Workflows completion" "$COMP" "$WF"
+assert_hit "Passport goat" "$GOAT" "$PP"
+assert_hit "Passport completion" "$COMP" "$PP"
+assert_hit "Passport obligation" "$OBL" "$PP"
+SD_STATE=$(echo "$SD" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((x.get("workState") for x in d.get("drives",[]) if x.get("driveId")=="'$BATCH'"),"MISS"))')
+[ "$SD_STATE" != "MISS" ] || fail "Shed drilldown missing batch $BATCH"
 # Aggregate surfaces reflect the chain via scoped counts (only chain-proof completion is 'accepted' in a clean DB).
 echo "Control Tower (API+SQL):  verification_backlog=$(echo "$(curl -s "${A[@]}" "$API/control-tower/vaccination")" | jqp 'd["summary"]["verification_backlog"]') (completed obligation is not a gap)"
 echo "Adherence (API):          completed_count=$(curl -s "${A[@]}" "$API/vaccination/adherence" | jqp 'd["summary"]["completed_count"]')"
@@ -131,5 +146,9 @@ psql "$PGURL" -tAc "update outbox_messages set status='pending', published_at=nu
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/obligation-sweeper -tenant-id "$TENANT" -version-id "$VERSION" -sop-version-id "$SOPVER" -vaccine-item-id "$ITEM" -actor-id "$USER" 2>&1 | tail -1 )
 echo "obligations for goat after replay (expect 1): $(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")"
 echo "completions for goat after replay (expect 1): $(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")"
+OBL_REPLAY_COUNT=$(psqlq "select count(*) from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$RULE'")
+COMP_REPLAY_COUNT=$(psqlq "select count(*) from vaccination_completions where goat_id='$GOAT'")
+[ "$OBL_REPLAY_COUNT" = "1" ] || fail "replay obligation count=$OBL_REPLAY_COUNT"
+[ "$COMP_REPLAY_COUNT" = "1" ] || fail "replay completion count=$COMP_REPLAY_COUNT"
 
 echo; echo "## CLOSED  goat=$GOAT event=$EVENT obligation=$OBL batch=$BATCH task=$TASK submission=$SUBID completion=$COMP rule=$RULE version=$VERSION"

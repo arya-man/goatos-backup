@@ -614,6 +614,77 @@ $$;
 
 
 --
+-- Name: calendar_event_projection_identity_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.calendar_event_projection_identity_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO calendar_event_identities (
+    tenant_id,
+    event_id,
+    slice_key,
+    source_target_type,
+    source_target_id,
+    first_seen_at,
+    last_seen_at
+  ) VALUES (
+    NEW.tenant_id,
+    NEW.event_id,
+    NEW.slice_key,
+    NEW.source_target_type,
+    NEW.source_target_id,
+    COALESCE(NEW.created_at, now()),
+    now()
+  )
+  ON CONFLICT (tenant_id, event_id) DO UPDATE
+  SET slice_key = EXCLUDED.slice_key,
+      source_target_type = EXCLUDED.source_target_type,
+      source_target_id = EXCLUDED.source_target_id,
+      last_seen_at = now();
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: calendar_prune_closed_vaccination_projection(uuid, timestamp with time zone, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.calendar_prune_closed_vaccination_projection(p_tenant_id uuid, p_cutoff timestamp with time zone DEFAULT (now() - '90 days'::interval), p_limit integer DEFAULT 1000) RETURNS integer
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  deleted_count int;
+BEGIN
+  WITH doomed AS (
+    SELECT ctid
+    FROM calendar_event_projections
+    WHERE tenant_id = p_tenant_id
+      AND slice_key = 'vaccination'
+      AND system = false
+      AND status IN ('completed', 'canceled')
+      AND due_at < p_cutoff
+    ORDER BY due_at ASC, event_id ASC
+    LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 1000), 1000))
+  ),
+  deleted AS (
+    DELETE FROM calendar_event_projections cep
+    USING doomed
+    WHERE cep.ctid = doomed.ctid
+    RETURNING 1
+  )
+  SELECT count(*)::int INTO deleted_count
+  FROM deleted;
+
+  RETURN COALESCE(deleted_count, 0);
+END;
+$$;
+
+
+--
 -- Name: check_goat_active_ownership_total(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1070,6 +1141,20 @@ BEGIN
         AND escalation_id = NEW.aggregate_id
     ) THEN
       RAISE EXCEPTION 'obligation escalation outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.aggregate_type = 'obligation_instance' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM obligation_instances
+      WHERE tenant_id = NEW.tenant_id
+        AND obligation_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'obligation instance outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
         USING ERRCODE = '23503';
     END IF;
 
@@ -1552,6 +1637,23 @@ CREATE TABLE public.breeds (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
+);
+
+
+--
+-- Name: calendar_event_identities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_event_identities (
+    tenant_id uuid NOT NULL,
+    event_id text NOT NULL,
+    slice_key text DEFAULT 'vaccination'::text NOT NULL,
+    source_target_type text,
+    source_target_id uuid,
+    first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT calendar_event_identities_event_id_check CHECK ((btrim(event_id) <> ''::text)),
+    CONSTRAINT calendar_event_identities_slice_check CHECK ((slice_key = 'vaccination'::text))
 );
 
 
@@ -5160,6 +5262,14 @@ ALTER TABLE ONLY public.breeds
 
 
 --
+-- Name: calendar_event_identities calendar_event_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_identities
+    ADD CONSTRAINT calendar_event_identities_pkey PRIMARY KEY (tenant_id, event_id);
+
+
+--
 -- Name: calendar_event_projections calendar_event_projections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7169,6 +7279,13 @@ CREATE INDEX auth_pending_email_grants_lookup_idx ON public.auth_pending_email_g
 
 
 --
+-- Name: calendar_event_projections_closed_prune_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_event_projections_closed_prune_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, due_at, event_id) WHERE ((system = false) AND (status = ANY (ARRAY['completed'::text, 'canceled'::text])) AND (due_at IS NOT NULL));
+
+
+--
 -- Name: calendar_event_projections_due_reminder_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8769,6 +8886,13 @@ CREATE INDEX outbox_messages_status_next_attempt_idx ON public.outbox_messages U
 --
 
 CREATE INDEX outbox_messages_tenant_status_attempt_idx ON public.outbox_messages USING btree (tenant_id, status, next_attempt_at, created_at, outbox_id);
+
+
+--
+-- Name: outbox_messages_vaccination_completed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_vaccination_completed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'vaccination.completed'::text);
 
 
 --
@@ -10403,6 +10527,13 @@ CREATE TRIGGER admin_ui_user_scope_grants_revision_trg AFTER INSERT OR DELETE OR
 
 
 --
+-- Name: calendar_event_projections calendar_event_projections_identity_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER calendar_event_projections_identity_trg BEFORE INSERT OR UPDATE OF slice_key, source_target_type, source_target_id ON public.calendar_event_projections FOR EACH ROW EXECUTE FUNCTION public.calendar_event_projection_identity_trg();
+
+
+--
 -- Name: farm_profiles farm_profiles_validate_type_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -10743,6 +10874,14 @@ ALTER TABLE ONLY public.breed_aliases
 
 
 --
+-- Name: calendar_event_identities calendar_event_identities_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_event_identities
+    ADD CONSTRAINT calendar_event_identities_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: calendar_event_projections calendar_event_location_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10791,11 +10930,11 @@ ALTER TABLE ONLY public.calendar_event_projections
 
 
 --
--- Name: calendar_snoozes calendar_snoozes_event_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: calendar_snoozes calendar_snoozes_event_identity_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.calendar_snoozes
-    ADD CONSTRAINT calendar_snoozes_event_fk FOREIGN KEY (tenant_id, calendar_event_id) REFERENCES public.calendar_event_projections(tenant_id, event_id);
+    ADD CONSTRAINT calendar_snoozes_event_identity_fk FOREIGN KEY (tenant_id, calendar_event_id) REFERENCES public.calendar_event_identities(tenant_id, event_id);
 
 
 --
@@ -12487,11 +12626,11 @@ ALTER TABLE ONLY public.movement_commands
 
 
 --
--- Name: notification_requests notification_requests_event_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: notification_requests notification_requests_event_identity_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.notification_requests
-    ADD CONSTRAINT notification_requests_event_fk FOREIGN KEY (tenant_id, calendar_event_id) REFERENCES public.calendar_event_projections(tenant_id, event_id);
+    ADD CONSTRAINT notification_requests_event_identity_fk FOREIGN KEY (tenant_id, calendar_event_id) REFERENCES public.calendar_event_identities(tenant_id, event_id);
 
 
 --

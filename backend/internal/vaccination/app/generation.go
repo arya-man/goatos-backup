@@ -136,6 +136,69 @@ func (s *GenerationService) GenerateManualCampaignForVersion(ctx context.Context
 	})
 }
 
+// GenerateEffectiveForAllGoats backfills the current cohort by resolving the effective vaccination
+// version per goat/park. This is the safe no-version backfill path; it does not loop every published
+// version and therefore cannot double-materialize tenant defaults plus park overrides.
+func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, tenantID string, asOf time.Time) (domain.GenerateResult, error) {
+	var res domain.GenerateResult
+	if err := s.requireEvidenceReader(); err != nil {
+		return res, err
+	}
+	filter := domain.ImpactFilter{TenantID: tenantID}
+	after := ""
+	type plan struct {
+		rules       []protodomain.Rule
+		deferState  []string
+		eligibility genEligibility
+	}
+	plans := make(map[string]plan)
+	for {
+		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
+		if err != nil {
+			return res, err
+		}
+		if len(goats) == 0 {
+			break
+		}
+		for _, g := range goats {
+			versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, g.ParkID, asOf)
+			if err != nil {
+				return res, err
+			}
+			for _, versionID := range versionIDs {
+				p, ok := plans[versionID]
+				if !ok {
+					v, err := s.proto.GetVersion(ctx, tenantID, versionID)
+					if err != nil {
+						return res, err
+					}
+					var dsl genDSL
+					if len(v.RuleDsl) > 0 {
+						_ = json.Unmarshal(v.RuleDsl, &dsl)
+					}
+					rules, err := s.proto.ListRules(ctx, tenantID, versionID)
+					if err != nil {
+						return res, err
+					}
+					p = plan{rules: rules, deferState: dsl.Eligibility.DeferStates, eligibility: dsl.Eligibility}
+					plans[versionID] = p
+				}
+				if !goatMatchesEligibility(g, p.eligibility) {
+					continue
+				}
+				if err := s.genOneGoat(ctx, tenantID, versionID, p.rules, p.deferState, g, asOf, generationOptions{}, &res); err != nil {
+					return res, err
+				}
+			}
+		}
+		if int32(len(goats)) < s.page {
+			break
+		}
+		after = goats[len(goats)-1].GoatID
+	}
+	return res, nil
+}
+
 // GenerateForVersionWithRun wraps an existing-cohort generation pass in a durable status row. If
 // the same idempotency key has already completed, it returns the persisted counts without replaying
 // the whole herd scan.
@@ -287,6 +350,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		due, ok, skip := dueAt(rule, g, asOf, opts)
 		if skip {
 			res.SkippedNoDueDate++
+			if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, g, asOf, res); err != nil {
+				return err
+			}
 			continue
 		}
 		if !ok {
@@ -301,20 +367,21 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			res.SuppressedByTrustedHistory++
 			continue
 		}
+		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, due, asOf)
+		if skip {
+			continue
+		}
 		// Scope to the goat's shed so the SM-4 sweeper batches one vaccination drive per shed (the
 		// operational "one shed = one drive" rule), falling back to park then tenant when the goat
 		// has no shed/park location. The obligation-shift handler already re-scopes to shed, so
 		// generation must stamp shed scope to stay consistent across the goat's lifecycle.
-		scopeType, scopeID := "tenant", tenantID
-		if g.ParkID != "" {
-			scopeType, scopeID = "park", g.ParkID
-		}
-		if g.ShedID != "" {
-			scopeType, scopeID = "shed", g.ShedID
-		}
+		scopeType, scopeID := generationScope(tenantID, g)
 		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, due.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
 		status := "scheduled"
 		deferReason := deferredReason(g, deferStates)
+		if deferReason == "" {
+			deferReason = catchUpDeferReason
+		}
 		deferred := deferReason != ""
 		if deferred {
 			status = "deferred"
@@ -383,6 +450,54 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 	return nil
 }
 
+func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {
+	reason := missingDueDateReason(rule, g)
+	if reason == "" {
+		reason = "missing_due_date"
+	}
+	scopeType, scopeID := generationScope(tenantID, g)
+	key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, "missing_due_date", reason, strconv.Itoa(int(rule.Sequence)))
+	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		RuleID:            rule.RuleID,
+		TargetType:        "goat",
+		TargetID:          g.GoatID,
+		ScopeType:         scopeType,
+		ScopeID:           scopeID,
+		DueAt:             asOf,
+		Status:            "deferred",
+		IdempotencyKey:    key,
+		Sequence:          rule.Sequence,
+	})
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return nil
+	}
+	res.Generated++
+	res.Deferred++
+	payload, _ := json.Marshal(map[string]string{
+		"reason":       "missing_due_date",
+		"missing":      reason,
+		"trigger_type": rule.TriggerType,
+	})
+	if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
+		TenantID:       tenantID,
+		ObligationID:   obID,
+		EventType:      "deferred",
+		OccurredAt:     asOf,
+		Payload:        payload,
+		IdempotencyKey: obID + ":deferred:missing_due_date:" + asOf.UTC().Format(time.RFC3339),
+		Scope:          "obligation.status_event",
+		RequestHash:    "missing_due_date:" + reason,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
 // GenerateForGoat generates obligations for ONE goat across all published vaccination versions it
 // is eligible for. Used by the goat.created handler (event-driven SM-1). Idempotent.
 func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
@@ -430,6 +545,70 @@ func inCare(lifecycle string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func generationScope(tenantID string, g domain.EligibleGoat) (string, string) {
+	scopeType, scopeID := "tenant", tenantID
+	if g.ParkID != "" {
+		scopeType, scopeID = "park", g.ParkID
+	}
+	if g.ShedID != "" {
+		scopeType, scopeID = "shed", g.ShedID
+	}
+	return scopeType, scopeID
+}
+
+func missingDueDateReason(rule protodomain.Rule, g domain.EligibleGoat) string {
+	switch rule.TriggerType {
+	case "birth_age":
+		if g.DOB == nil {
+			return "missing_dob"
+		}
+	case "post_arrival":
+		if g.EntryDate == nil {
+			return "missing_entry_date"
+		}
+	}
+	return ""
+}
+
+func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Time, string, bool) {
+	if rule.DueWindowDays <= 0 {
+		return due, "", false
+	}
+	windowEnd := due.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour)
+	if !asOf.After(windowEnd) {
+		return due, "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(rule.CatchUp)) {
+	case "", "immediate":
+		return asOf, "", false
+	case "phc_approval":
+		return asOf, "catch_up_phc_approval", false
+	case "defer":
+		return asOf, "missed_dose_deferred", false
+	case "next_cycle":
+		next, ok := nextRepeatCycle(rule, due, asOf)
+		if !ok {
+			return time.Time{}, "", true
+		}
+		return next, "", false
+	default:
+		return asOf, "catch_up_" + strings.ToLower(strings.TrimSpace(rule.CatchUp)), false
+	}
+}
+
+func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
+	switch strings.ToLower(strings.TrimSpace(rule.Repeat)) {
+	case "yearly":
+		next := due
+		for !next.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour).After(asOf) {
+			next = next.AddDate(1, 0, 0)
+		}
+		return next, true
+	default:
+		return time.Time{}, false
 	}
 }
 

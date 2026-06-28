@@ -261,6 +261,102 @@ func TestGenerateScopesObligationToShed(t *testing.T) {
 	}
 }
 
+func TestGenerateMissingDOBCreatesVisibleDeferredGap(t *testing.T) {
+	ctx := context.Background()
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-no-dob", LifecycleStatus: "alive", Stage: "K1", ParkID: "park-1", ShedID: "shed-1"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.SkippedNoDueDate != 1 || result.Generated != 1 || result.Deferred != 1 {
+		t.Fatalf("result=%#v, want one counted skip and one visible deferred gap", result)
+	}
+	if len(obl.inserted) != 1 || obl.inserted[0].Status != "deferred" || obl.inserted[0].ScopeType != "shed" {
+		t.Fatalf("inserted=%#v, want deferred shed-scoped missing-DOB obligation", obl.inserted)
+	}
+}
+
+func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", EntryDate: &entryDate},
+	}}
+
+	t.Run("immediate", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-immediate", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, CatchUp: "immediate",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate immediate: %v", err)
+		}
+		if result.Generated != 1 || !obl.inserted[0].DueAt.Equal(asOf) || obl.inserted[0].Status != "scheduled" {
+			t.Fatalf("result=%#v inserted=%#v, want immediate catch-up due now", result, obl.inserted)
+		}
+	})
+
+	t.Run("phc approval", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-phc", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, CatchUp: "phc_approval",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate phc approval: %v", err)
+		}
+		if result.Deferred != 1 || len(obl.deferReasons) != 0 || obl.inserted[0].Status != "deferred" {
+			t.Fatalf("result=%#v inserted=%#v reasons=%#v, want deferred PHC approval gap", result, obl.inserted, obl.deferReasons)
+		}
+	})
+
+	t.Run("next cycle yearly", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-yearly", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, Repeat: "yearly", CatchUp: "next_cycle",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate yearly: %v", err)
+		}
+		wantDue := time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC)
+		if result.Generated != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
+			t.Fatalf("result=%#v inserted=%#v, want next yearly cycle %s", result, obl.inserted, wantDue)
+		}
+	})
+
+	t.Run("next cycle without repeat skips", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-skip", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, Repeat: "none", CatchUp: "next_cycle",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate next-cycle skip: %v", err)
+		}
+		if result.Generated != 0 || len(obl.inserted) != 0 {
+			t.Fatalf("result=%#v inserted=%#v, want no unsafe non-repeat next-cycle obligation", result, obl.inserted)
+		}
+	})
+}
+
 func TestGenerateForGoatUsesEffectiveVersionsAsOf(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
@@ -280,6 +376,35 @@ func TestGenerateForGoatUsesEffectiveVersionsAsOf(t *testing.T) {
 	}
 	if len(proto.effectiveAsOf) != 1 || !proto.effectiveAsOf[0].Equal(asOf) {
 		t.Fatalf("effectiveAsOf=%#v, want per-goat generation to select the version effective at asOf", proto.effectiveAsOf)
+	}
+}
+
+func TestGenerateEffectiveForAllGoatsUsesPerGoatParkPrecedence(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-park-a", LifecycleStatus: "alive", DOB: &dob, ParkID: "park-a"},
+		{GoatID: "goat-park-b", LifecycleStatus: "alive", DOB: &dob, ParkID: "park-b"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	asOf := time.Date(2026, time.June, 2, 0, 0, 0, 0, time.UTC)
+	result, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", asOf)
+	if err != nil {
+		t.Fatalf("effective cohort generate: %v", err)
+	}
+	if result.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want two effective goat obligations", result, obl.inserted)
+	}
+	if len(proto.effectiveParkID) != 2 || proto.effectiveParkID[0] != "park-a" || proto.effectiveParkID[1] != "park-b" {
+		t.Fatalf("effective park IDs=%#v, want per-goat park lookup", proto.effectiveParkID)
 	}
 }
 

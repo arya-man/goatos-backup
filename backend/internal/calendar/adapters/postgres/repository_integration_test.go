@@ -903,6 +903,79 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 }
 
+func TestCalendarVaccinationClosedProjectionRetentionAndPrune(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	oldDueAt := time.Now().UTC().Add(-120 * 24 * time.Hour)
+	protocolID := "86000000-0000-4000-8000-000000000921"
+	versionID := "86000000-0000-4000-8000-000000000922"
+	ruleID := "86000000-0000-4000-8000-000000000923"
+	obligationID := "86000000-0000-4000-8000-000000000924"
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, oldDueAt)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'completed', updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationID); err != nil {
+		t.Fatalf("mark old obligation completed: %v", err)
+	}
+
+	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: oldDueAt.Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(time.Hour),
+		Limit:    100,
+	})
+	if err != nil {
+		t.Fatalf("RefreshVaccinationProjection old completed: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("old completed refresh count = %d, want 0", count)
+	}
+	assertCount(t, ctx, pool, "old completed projection", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2`, 0, testTenantID, "obligation:"+obligationID)
+
+	oldEventID := "obligation:86000000-0000-4000-8000-000000000925"
+	seedCalendarProjection(t, ctx, pool, oldEventID, oldDueAt, "not_scheduled")
+	if _, err := pool.Exec(ctx, `
+UPDATE calendar_event_projections
+SET status='completed', severity='info', updated_at=now()
+WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, oldEventID); err != nil {
+		t.Fatalf("close old projection: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, notification_type, channel,
+  title, body, status, idempotency_key, request_fingerprint, context
+) VALUES (
+  $1::uuid, $2, 'calendar_event', 'nudge', 'local-stub',
+  'Old proof nudge', 'kept as history', 'sent',
+  'old-closed-prune-nudge', 'old-closed-prune-nudge', '{}'::jsonb
+)`, testTenantID, oldEventID); err != nil {
+		t.Fatalf("seed old notification: %v", err)
+	}
+	pruned, err := repo.PruneClosedVaccinationProjection(ctx, testTenantID, time.Now().UTC().Add(-90*24*time.Hour), 10)
+	if err != nil {
+		t.Fatalf("PruneClosedVaccinationProjection: %v", err)
+	}
+	if pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", pruned)
+	}
+	assertCount(t, ctx, pool, "pruned projection", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2`, 0, testTenantID, oldEventID)
+	assertCount(t, ctx, pool, "notification history after prune", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid AND calendar_event_id=$2`, 1, testTenantID, oldEventID)
+}
+
 func TestCalendarConfigSourceApprovalNudgeIsActionable(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

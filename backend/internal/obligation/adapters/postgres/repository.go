@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,13 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
+
+const (
+	vaccinationCompletedEventType     = "vaccination.completed"
+	vaccinationCompletedSchemaVersion = "1.0.0"
+	vaccinationCompletedSchemaRef     = "domain-event-envelope.v1"
+	vaccinationCompletedTopic         = "vaccination.events"
+)
 
 // Repository is the Postgres-backed obligation repository.
 type Repository struct {
@@ -553,25 +561,45 @@ func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.N
 	}()
 	qtx := r.queries.WithTx(tx)
 
-	batchID, err := qtx.CreateObligationBatch(ctx, obligationdb.CreateObligationBatchParams{
-		TenantID:              tenant,
-		ProtocolVersionID:     version,
-		ScopeType:             in.ScopeType,
-		ScopeID:               scope,
-		Session:               pgconv.Text(in.Session),
-		PlannedDate:           pgconv.Date(in.PlannedDate),
-		WindowStart:           pgconv.NullableTimestamptz(in.WindowStart),
-		WindowEnd:             pgconv.NullableTimestamptz(in.WindowEnd),
-		Status:                in.Status,
-		EstimatedTargets:      in.EstimatedTargets,
-		PlannedQuantity:       plannedQty,
-		QuantityUnit:          pgconv.Text(in.QuantityUnit),
-		PrimaryInventoryLotID: pgconv.NullableUUID(in.PrimaryInventoryLotID),
-		SopTaskID:             pgconv.NullableUUID(in.SopTaskID),
-		ConductedBy:           pgconv.NullableUUID(in.ConductedBy),
-	})
-	if err != nil {
-		return "", 0, fmt.Errorf("obligation: create batch: %w", err)
+	lockKey := fmt.Sprintf("%s:obligation-batch:%s:%s:%s", in.TenantID, in.ProtocolVersionID, in.ScopeType, in.ScopeID)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
+		return "", 0, fmt.Errorf("obligation: batch scope lock: %w", err)
+	}
+	var batchID string
+	err = tx.QueryRow(ctx, `
+SELECT batch_id::text
+FROM obligation_batches
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+  AND scope_type = $3
+  AND scope_id = $4
+  AND status = 'planned'
+ORDER BY created_at ASC, batch_id ASC
+LIMIT 1
+FOR UPDATE`, tenant, version, in.ScopeType, scope).Scan(&batchID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		batchID, err = qtx.CreateObligationBatch(ctx, obligationdb.CreateObligationBatchParams{
+			TenantID:              tenant,
+			ProtocolVersionID:     version,
+			ScopeType:             in.ScopeType,
+			ScopeID:               scope,
+			Session:               pgconv.Text(in.Session),
+			PlannedDate:           pgconv.Date(in.PlannedDate),
+			WindowStart:           pgconv.NullableTimestamptz(in.WindowStart),
+			WindowEnd:             pgconv.NullableTimestamptz(in.WindowEnd),
+			Status:                in.Status,
+			EstimatedTargets:      in.EstimatedTargets,
+			PlannedQuantity:       plannedQty,
+			QuantityUnit:          pgconv.Text(in.QuantityUnit),
+			PrimaryInventoryLotID: pgconv.NullableUUID(in.PrimaryInventoryLotID),
+			SopTaskID:             pgconv.NullableUUID(in.SopTaskID),
+			ConductedBy:           pgconv.NullableUUID(in.ConductedBy),
+		})
+		if err != nil {
+			return "", 0, fmt.Errorf("obligation: create batch: %w", err)
+		}
+	} else if err != nil {
+		return "", 0, fmt.Errorf("obligation: find planned batch: %w", err)
 	}
 	batch, err := pgconv.UUID(batchID)
 	if err != nil {
@@ -588,13 +616,19 @@ func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.N
 	if attached == 0 {
 		return "", 0, nil
 	}
-	if attached != int64(in.EstimatedTargets) {
-		if _, err := tx.Exec(ctx, `
-UPDATE obligation_batches
-SET estimated_targets = $1, updated_at = now()
-WHERE tenant_id = $2 AND batch_id = $3`, int32(attached), tenant, batch); err != nil {
-			return "", 0, fmt.Errorf("obligation: update batch target count: %w", err)
-		}
+	if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches ob
+SET estimated_targets = live.attached::int,
+    updated_at = now()
+FROM (
+  SELECT count(*) AS attached
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = $1
+    AND oi.batch_id = $2
+) live
+WHERE ob.tenant_id = $1
+  AND ob.batch_id = $2`, tenant, batch); err != nil {
+		return "", 0, fmt.Errorf("obligation: update batch target count: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", 0, fmt.Errorf("obligation: commit batch attach: %w", err)
@@ -1000,10 +1034,88 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	}); err != nil {
 		return false, fmt.Errorf("obligation: completed event: %w", err)
 	}
+	if err := insertVaccinationCompletedOutbox(ctx, tx, tenantID, obligationID); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("obligation: commit complete: %w", err)
 	}
 	return true, nil
+}
+
+func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) error {
+	eventID := deterministicOutboxUUID("vaccination.completed:" + tenantID + ":" + obligationID)
+	idempotencyKey := "vaccination.completed:" + obligationID
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	payload := map[string]any{
+		"tenant_id":     tenantID,
+		"obligation_id": obligationID,
+		"status":        "completed",
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     vaccinationCompletedEventType,
+		"schema_version": vaccinationCompletedSchemaVersion,
+		"schema_ref":     vaccinationCompletedSchemaRef,
+		"aggregate_type": "obligation_instance",
+		"aggregate_id":   obligationID,
+		"occurred_at":    now,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "obligation",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "obligation_instance",
+		"subject_id":   obligationID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "obligation_status_event",
+			"evidence_id":   obligationID + ":completed",
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("obligation: vaccination completed envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        "obligation.MarkCompleted",
+		"schema_version":  vaccinationCompletedSchemaVersion,
+		"obligation_id":   obligationID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("obligation: vaccination completed headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'obligation_instance', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.completed' DO NOTHING`,
+		tenantID, eventID, vaccinationCompletedEventType, vaccinationCompletedSchemaVersion,
+		obligationID, vaccinationCompletedTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("obligation: vaccination completed outbox: %w", err)
+	}
+	return nil
+}
+
+func deterministicOutboxUUID(seed string) string {
+	sum := md5.Sum([]byte(seed))
+	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 }
 
 // MarkMissedBefore marks open obligations whose due window has crossed as missed and writes a

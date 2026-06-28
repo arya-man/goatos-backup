@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -264,5 +265,71 @@ func TestSM4SweeperBatchesByScope(t *testing.T) {
 	}
 	if res2.Batches != 0 {
 		t.Fatalf("re-sweep should create 0 batches, got %d", res2.Batches)
+	}
+}
+
+func TestSM4SweeperKeepsOneScopeInOneBatchAcrossPages(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.sweep.pages", Name: "SweepPages", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	for i := 0; i < 1001; i++ {
+		goatID := fmt.Sprintf("40000000-0000-4000-8000-%012d", i)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, identity_state, custodian_party_id, current_location_id, park_id)
+VALUES ($1::uuid, $2::uuid, 'alive', 'clean', $3::uuid, $4::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO NOTHING`, goatID, tenantID, meshaParty, cbePark); err != nil {
+			t.Fatalf("seed goat %d: %v", i, err)
+		}
+		_, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+			TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
+			DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
+			IdempotencyKey: "page-split-obligation-" + goatID,
+			Sequence:       1,
+		})
+		if err != nil || !applied {
+			t.Fatalf("insert obligation %d: applied=%v err=%v", i, applied, err)
+		}
+	}
+
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if res.Batches != 1 || res.Obligations != 1001 {
+		t.Fatalf("result = %#v, want one scope batch and 1001 obligations", res)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE protocol_version_id=$1`, versionID); got != 1 {
+		t.Fatalf("batch count = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND batch_id IS NOT NULL`, versionID); got != 1001 {
+		t.Fatalf("batched obligations = %d, want 1001", got)
 	}
 }

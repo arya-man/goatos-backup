@@ -49,6 +49,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
 		return res, err
 	}
+	touchedScopes := make(map[string]bool)
 	for {
 		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
 		if err != nil {
@@ -79,7 +80,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
-			batchID, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+			_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
 				TenantID:          tenantID,
 				ProtocolVersionID: versionID,
 				ScopeType:         g.scopeType,
@@ -93,33 +94,19 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 			if n == 0 {
 				continue
 			}
-			if s.tasks != nil && cfg.SOPVersionID != "" {
-				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, batchID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
-				if err != nil {
-					return res, err
-				}
-				if err := s.repo.SetBatchSOPTask(ctx, tenantID, batchID, taskID); err != nil {
-					return res, err
-				}
+			if !touchedScopes[k] {
+				res.Batches++
+				touchedScopes[k] = true
 			}
-			if s.reserver != nil && cfg.VaccineItemID != "" {
-				dosesPer := cfg.DosesPerGoat
-				if dosesPer < 1 {
-					dosesPer = 1
-				}
-				qty := n * int64(dosesPer)
-				if err := s.reserver.ReserveForBatch(ctx, tenantID, batchID, g.scopeID, cfg.VaccineItemID, qty); err != nil {
-					_ = s.repo.MarkBatchStockBlocked(ctx, tenantID, batchID, cfg.VaccineItemID, qty, err.Error())
-					return res, err
-				}
-			}
-			res.Batches++
 			res.Obligations += int(n)
 			progressed += n
 		}
 		if progressed == 0 || int32(len(rows)) < s.page {
 			break
 		}
+	}
+	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+		return res, err
 	}
 	return res, nil
 }
@@ -158,8 +145,10 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 					continue
 				}
 				if err := s.reserver.ReserveForBatch(ctx, tenantID, b.BatchID, b.ScopeID, cfg.VaccineItemID, qty); err != nil {
-					_ = s.repo.MarkBatchStockBlocked(ctx, tenantID, b.BatchID, cfg.VaccineItemID, qty, err.Error())
-					return err
+					if markErr := s.repo.MarkBatchStockBlocked(ctx, tenantID, b.BatchID, cfg.VaccineItemID, qty, err.Error()); markErr != nil {
+						return markErr
+					}
+					continue
 				}
 			}
 		}

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -134,6 +135,71 @@ func TestStatusEventReserveBeforeInsertDedup(t *testing.T) {
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND idempotency_key=$2`, tenantID, "evt-1"); got != 1 {
 		t.Fatalf("expected exactly 1 status event, got %d", got)
+	}
+}
+
+func TestMarkCompletedEmitsVaccinationCompletedOutbox(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	obligationID := seed(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	completed, err := repo.MarkCompleted(ctx, tenantID, obligationID)
+	if err != nil {
+		t.Fatalf("MarkCompleted: %v", err)
+	}
+	if !completed {
+		t.Fatal("MarkCompleted completed=false, want true")
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid AND status='completed'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("completed obligation count = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_status_events
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid AND event_type='completed'`, tenantID, obligationID); got != 1 {
+		t.Fatalf("completed status event count = %d, want 1", got)
+	}
+
+	var raw []byte
+	if err := pool.QueryRow(ctx, `
+SELECT payload
+FROM outbox_messages
+WHERE tenant_id=$1::uuid
+  AND event_type='vaccination.completed'
+  AND aggregate_type='obligation_instance'
+  AND aggregate_id=$2::uuid`, tenantID, obligationID).Scan(&raw); err != nil {
+		t.Fatalf("query vaccination completed outbox: %v", err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode vaccination completed outbox: %v", err)
+	}
+	if envelope["event_type"] != vaccinationCompletedEventType || envelope["aggregate_id"] != obligationID {
+		t.Fatalf("vaccination completed envelope = %#v", envelope)
+	}
+	payload, ok := envelope["payload"].(map[string]any)
+	if !ok || payload["obligation_id"] != obligationID || payload["status"] != "completed" {
+		t.Fatalf("vaccination completed payload = %#v", envelope["payload"])
+	}
+
+	completed, err = repo.MarkCompleted(ctx, tenantID, obligationID)
+	if err != nil {
+		t.Fatalf("MarkCompleted replay: %v", err)
+	}
+	if completed {
+		t.Fatal("MarkCompleted replay completed=true, want false")
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND event_type='vaccination.completed' AND aggregate_id=$2::uuid`, tenantID, obligationID); got != 1 {
+		t.Fatalf("vaccination completed outbox count after replay = %d, want 1", got)
 	}
 }
 

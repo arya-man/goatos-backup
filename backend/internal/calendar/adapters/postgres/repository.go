@@ -1259,6 +1259,22 @@ func (r *Repository) tombstoneVaccinationProjection(ctx context.Context, in port
 	return count, nil
 }
 
+func (r *Repository) PruneClosedVaccinationProjection(ctx context.Context, tenantID string, cutoff time.Time, limit int) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if cutoff.IsZero() {
+		cutoff = time.Now().UTC().Add(-90 * 24 * time.Hour)
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	var count int
+	if err := r.pool.QueryRow(ctx, calendarPruneClosedVaccinationProjectionSQL, tenantID, cutoff, limit).Scan(&count); err != nil {
+		return 0, fmt.Errorf("calendar: prune closed vaccination projection: %w", err)
+	}
+	return count, nil
+}
+
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
@@ -1748,6 +1764,7 @@ WITH obligation_events AS (
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+    AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
 ),
 batch_events AS (
   SELECT DISTINCT ON (ob.batch_id, pr.rule_id)
@@ -1836,6 +1853,7 @@ batch_events AS (
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND ob.status NOT IN ('superseded', 'canceled')
+    AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
   ORDER BY ob.batch_id, pr.rule_id, COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)
 ),
 sop_events AS (
@@ -2136,6 +2154,7 @@ WITH source_event_ids AS (
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+    AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
 
   UNION ALL
 
@@ -2156,6 +2175,7 @@ WITH source_event_ids AS (
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
     AND ob.status NOT IN ('superseded', 'canceled')
+    AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
 
   UNION ALL
 
@@ -2219,6 +2239,26 @@ tombstoned AS (
   RETURNING 1
 )
 SELECT count(*)::int FROM tombstoned`
+
+const calendarPruneClosedVaccinationProjectionSQL = `
+WITH doomed AS (
+  SELECT ctid
+  FROM calendar_event_projections
+  WHERE tenant_id = $1::uuid
+    AND slice_key = 'vaccination'
+    AND system = false
+    AND status IN ('completed', 'canceled')
+    AND due_at < $2::timestamptz
+  ORDER BY due_at ASC, event_id ASC
+  LIMIT $3
+),
+deleted AS (
+  DELETE FROM calendar_event_projections cep
+  USING doomed
+  WHERE cep.ctid = doomed.ctid
+  RETURNING 1
+)
+SELECT count(*)::int FROM deleted`
 
 type eventScanner interface {
 	Scan(dest ...any) error
