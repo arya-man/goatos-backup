@@ -27,6 +27,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 }
 
 var _ app.ReferenceRepository = (*Repository)(nil)
+var _ app.ReferenceRevisionRepository = (*Repository)(nil)
 
 func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) (app.ReferenceFamilies, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -57,6 +58,31 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	}
 	if out.FeedItems, out.RevisionInputs["feed-items"], err = r.listFeedItems(ctx, tenantID); err != nil {
 		return out, err
+	}
+	if out.UIConfig, out.RevisionInputs["admin-ui-config-values"], err = r.listUIConfigEntries(ctx, tenantID); err != nil {
+		return out, err
+	}
+	revisions, err := r.listConfigFamilyRevisions(ctx, tenantID)
+	if err != nil {
+		return out, err
+	}
+	for key, value := range revisions {
+		out.RevisionInputs["admin-ui:"+key] = value
+	}
+	return out, nil
+}
+
+func (r *Repository) LoadContractFamilyRevisions(ctx context.Context, tenantID string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	revisions, err := r.listConfigFamilyRevisions(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for key, value := range revisions {
+		out["admin-ui:"+key] = value
 	}
 	return out, nil
 }
@@ -247,6 +273,65 @@ LIMIT 200`, tenantID)
 		}
 		out = append(out, app.ReferenceOption{Key: id, Label: label, Title: code})
 		rev.WriteString(id + "|" + label + "|" + code + "|" + updated + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	return out, rev.String(), nil
+}
+
+func (r *Repository) listConfigFamilyRevisions(ctx context.Context, tenantID string) (map[string]string, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT family_key, revision::text, content_hash, changed_at::text
+FROM admin_ui_config_family_revisions
+WHERE tenant_id = $1::uuid
+ORDER BY family_key
+LIMIT 1000`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("adminui: list config family revisions: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var key, revision, hash, changed string
+		if err := rows.Scan(&key, &revision, &hash, &changed); err != nil {
+			return nil, err
+		}
+		out[key] = revision + "|" + hash + "|" + changed
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) listUIConfigEntries(ctx context.Context, tenantID string) ([]app.ConfigEntry, string, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  route_id,
+  config_key,
+  config_value,
+  row_version::text,
+  updated_at::text
+FROM admin_ui_config_entries
+WHERE tenant_id = $1::uuid
+  AND status = 'active'
+  AND locale = 'default'
+ORDER BY route_id, config_key
+LIMIT 5000`, tenantID)
+	if err != nil {
+		return nil, "", fmt.Errorf("adminui: list ui config entries: %w", err)
+	}
+	defer rows.Close()
+	var out []app.ConfigEntry
+	var rev strings.Builder
+	for rows.Next() {
+		var routeID, key, value, rowVersion, updated string
+		if err := rows.Scan(&routeID, &key, &value, &rowVersion, &updated); err != nil {
+			return nil, "", err
+		}
+		out = append(out, app.ConfigEntry{RouteID: routeID, Key: key, Value: value})
+		rev.WriteString(routeID + "|" + key + "|" + value + "|" + rowVersion + "|" + updated + "\n")
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err

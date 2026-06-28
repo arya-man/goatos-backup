@@ -30,6 +30,10 @@ type ReferenceRepository interface {
 	LoadContractFamilies(ctx context.Context, tenantID string) (ReferenceFamilies, error)
 }
 
+type ReferenceRevisionRepository interface {
+	LoadContractFamilyRevisions(ctx context.Context, tenantID string) (map[string]string, error)
+}
+
 type ReferenceFamilies struct {
 	Parks              []ReferenceOption
 	RuleCategories     []ReferenceOption
@@ -39,6 +43,7 @@ type ReferenceFamilies struct {
 	DeferStates        []ReferenceOption
 	SOPLabels          []ReferenceOption
 	FeedItems          []ReferenceOption
+	UIConfig           []ConfigEntry
 	RevisionInputs     map[string]string
 }
 
@@ -49,23 +54,41 @@ type ReferenceOption struct {
 	Tone  string
 }
 
+type ConfigEntry struct {
+	RouteID string
+	Key     string
+	Value   string
+}
+
 type cacheEntry struct {
 	expiresAt time.Time
 	response  domain.BootstrapResponse
 }
 
 func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
-	key := s.cacheKey(input)
 	now := s.now()
+	revisionKey := ""
+	if revisions, ok := s.loadFamilyRevisions(ctx, input.TenantID); ok {
+		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil)
+		if cached, ok := s.cached(revisionKey, now); ok {
+			return cached
+		}
+	}
+	families, familyErr := s.loadFamilies(ctx, input.TenantID)
+	key := s.cacheKey(input, families, familyErr)
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(ctx, input)
-	s.storeCache(key, resp, now.Add(s.cacheTTL))
+	resp := s.compile(input, families, familyErr)
+	expiresAt := now.Add(s.cacheTTL)
+	s.storeCache(key, resp, expiresAt)
+	if revisionKey != "" && familyErr == nil {
+		s.storeCache(revisionKey, resp, expiresAt)
+	}
 	return resp
 }
 
-func (s *Service) cacheKey(input BootstrapInput) string {
+func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, familyErr error) string {
 	roles := rolesFromGrants(input.Grants)
 	sort.Strings(roles)
 	grantParts := make([]string, 0, len(input.Grants))
@@ -73,10 +96,21 @@ func (s *Service) cacheKey(input BootstrapInput) string {
 		grantParts = append(grantParts, grant.Role+"|"+grant.ScopeType+"|"+grant.ScopeID)
 	}
 	sort.Strings(grantParts)
+	revisionParts := make([]string, 0, len(families.RevisionInputs))
+	for key, value := range families.RevisionInputs {
+		revisionParts = append(revisionParts, key+"="+value)
+	}
+	sort.Strings(revisionParts)
+	errPart := ""
+	if familyErr != nil {
+		errPart = familyErr.Error()
+	}
 	return strings.Join([]string{
 		strings.TrimSpace(input.TenantID),
 		strings.Join(roles, ","),
 		strings.Join(grantParts, ","),
+		strings.Join(revisionParts, ","),
+		errPart,
 	}, "::")
 }
 
@@ -102,10 +136,11 @@ func (s *Service) storeCache(key string, resp domain.BootstrapResponse, expiresA
 	s.cache[key] = cacheEntry{expiresAt: expiresAt, response: resp}
 }
 
-func (s *Service) compile(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
-	families, familyErr := s.loadFamilies(ctx, input.TenantID)
+func (s *Service) compile(input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
+	families.UIConfig = applicableConfigEntries(families.UIConfig)
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
+	resp = applyConfigEntries(resp, families.UIConfig)
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes
 	resp.ContractRevision = hashStruct(hashes)
@@ -144,12 +179,471 @@ func (s *Service) loadFamilies(ctx context.Context, tenantID string) (ReferenceF
 	return families, err
 }
 
+func (s *Service) loadFamilyRevisions(ctx context.Context, tenantID string) (map[string]string, bool) {
+	if s.repo == nil || strings.TrimSpace(tenantID) == "" {
+		return map[string]string{}, true
+	}
+	repo, ok := s.repo.(ReferenceRevisionRepository)
+	if !ok {
+		return nil, false
+	}
+	revisions, err := repo.LoadContractFamilyRevisions(ctx, tenantID)
+	if err != nil {
+		return nil, false
+	}
+	if revisions == nil {
+		revisions = map[string]string{}
+	}
+	return revisions, true
+}
+
 func compileRequestContext(resp domain.BootstrapResponse, input BootstrapInput, families ReferenceFamilies) domain.BootstrapResponse {
 	resp.TopBar = compileTopBar(resp.TopBar, input, families)
 	resp.RoleLenses = compileRoleLenses(input)
 	resp.Navigation = compileNavigation(resp.Navigation, input)
 	resp.Pages = compilePages(resp.Pages, families, input)
 	return resp
+}
+
+func applicableConfigEntries(entries []ConfigEntry) []ConfigEntry {
+	out := make([]ConfigEntry, 0, len(entries))
+	for _, entry := range entries {
+		if configEntryApplies(entry) {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func configEntryApplies(entry ConfigEntry) bool {
+	key := strings.TrimSpace(entry.Key)
+	if key == "" {
+		return false
+	}
+	if strings.TrimSpace(entry.RouteID) != "" {
+		return pageConfigEntryApplies(key)
+	}
+	return globalConfigEntryApplies(key)
+}
+
+func globalConfigEntryApplies(key string) bool {
+	switch key {
+	case "navigation.footer",
+		"top_bar.product_name",
+		"top_bar.logo_text",
+		"top_bar.park_selector.label",
+		"top_bar.park_selector.hint",
+		"top_bar.date_range_selector.label",
+		"top_bar.date_range_selector.hint",
+		"top_bar.notifications.label",
+		"top_bar.notifications.disabled_reason":
+		return true
+	}
+	switch {
+	case strings.HasPrefix(key, "chrome.copy."):
+		return strings.TrimPrefix(key, "chrome.copy.") != ""
+	case strings.HasPrefix(key, "nav.primary."):
+		parts := strings.Split(key, ".")
+		return len(parts) == 4 && parts[3] == "label"
+	case strings.HasPrefix(key, "nav.group."):
+		parts := strings.Split(key, ".")
+		return len(parts) == 4 && parts[3] == "label"
+	case strings.HasPrefix(key, "nav.leaf."):
+		parts := strings.Split(key, ".")
+		return len(parts) == 4 && parts[3] == "label"
+	case strings.HasPrefix(key, "top_bar.scope_mode."):
+		return topBarOptionConfigEntryApplies(key)
+	case strings.HasPrefix(key, "top_bar.date_range."):
+		return topBarOptionConfigEntryApplies(key)
+	case strings.HasPrefix(key, "page."):
+		parts := strings.Split(key, ".")
+		return len(parts) == 3 && (parts[2] == "title" || parts[2] == "subtitle")
+	default:
+		return false
+	}
+}
+
+func pageConfigEntryApplies(key string) bool {
+	switch {
+	case key == "title" || key == "page.title" || key == "subtitle" || key == "page.subtitle":
+		return true
+	case strings.HasPrefix(key, "copy."):
+		return strings.TrimPrefix(key, "copy.") != ""
+	case strings.HasPrefix(key, "section."):
+		parts := strings.Split(key, ".")
+		return len(parts) == 3 && parts[2] == "title"
+	case strings.HasPrefix(key, "table."):
+		parts := strings.Split(key, ".")
+		return (len(parts) == 3 && parts[2] == "title") ||
+			(len(parts) == 5 && parts[2] == "column" && parts[4] == "label") ||
+			(len(parts) == 5 && parts[2] == "filter" && parts[4] == "label")
+	case strings.HasPrefix(key, "option."):
+		parts := strings.Split(key, ".")
+		return len(parts) == 4 && stableUIConfigOptionField(parts[1], parts[3])
+	default:
+		return false
+	}
+}
+
+func topBarOptionConfigEntryApplies(key string) bool {
+	parts := strings.Split(key, ".")
+	return len(parts) == 4 && (parts[3] == "label" || parts[3] == "title" || parts[3] == "disabled_reason")
+}
+
+func applyConfigEntries(resp domain.BootstrapResponse, entries []ConfigEntry) domain.BootstrapResponse {
+	for _, entry := range entries {
+		key := strings.TrimSpace(entry.Key)
+		value := entry.Value
+		if key == "" {
+			continue
+		}
+		if strings.TrimSpace(entry.RouteID) != "" {
+			resp.Pages = applyPageConfigEntry(resp.Pages, entry.RouteID, key, value)
+			if key == "title" || key == "page.title" {
+				resp.RouteLabels = applyRouteLabel(resp.RouteLabels, resp.Pages, entry.RouteID, value)
+			}
+			continue
+		}
+		resp = applyGlobalConfigEntry(resp, key, value)
+	}
+	return resp
+}
+
+func applyGlobalConfigEntry(resp domain.BootstrapResponse, key, value string) domain.BootstrapResponse {
+	switch {
+	case key == "navigation.footer":
+		resp.Navigation.Footer = value
+	case key == "top_bar.product_name":
+		resp.TopBar.ProductName = value
+	case key == "top_bar.logo_text":
+		resp.TopBar.LogoText = value
+	case key == "top_bar.park_selector.label":
+		resp.TopBar.ParkSelector.Label = value
+	case key == "top_bar.park_selector.hint":
+		resp.TopBar.ParkSelector.Hint = value
+	case key == "top_bar.date_range_selector.label":
+		resp.TopBar.DateRangeSelector.Label = value
+	case key == "top_bar.date_range_selector.hint":
+		resp.TopBar.DateRangeSelector.Hint = value
+	case key == "top_bar.notifications.label":
+		resp.TopBar.Notifications.Label = value
+	case key == "top_bar.notifications.disabled_reason":
+		resp.TopBar.Notifications.DisabledReason = value
+	case strings.HasPrefix(key, "chrome.copy."):
+		copyKey := strings.TrimPrefix(key, "chrome.copy.")
+		if copyKey != "" {
+			resp.Copy[copyKey] = value
+		}
+	case strings.HasPrefix(key, "nav.primary."):
+		parts := strings.Split(key, ".")
+		if len(parts) == 4 && parts[3] == "label" {
+			resp.Navigation.Primary = applyNavItemLabel(resp.Navigation.Primary, parts[2], value)
+		}
+	case strings.HasPrefix(key, "nav.group."):
+		parts := strings.Split(key, ".")
+		if len(parts) == 4 && parts[3] == "label" {
+			for i := range resp.Navigation.Groups {
+				if resp.Navigation.Groups[i].ID == parts[2] {
+					resp.Navigation.Groups[i].Label = value
+				}
+			}
+		}
+	case strings.HasPrefix(key, "nav.leaf."):
+		parts := strings.Split(key, ".")
+		if len(parts) == 4 && parts[3] == "label" {
+			for i := range resp.Navigation.Groups {
+				resp.Navigation.Groups[i].Leaves = applyNavItemLabel(resp.Navigation.Groups[i].Leaves, parts[2], value)
+			}
+		}
+	case strings.HasPrefix(key, "top_bar.scope_mode."):
+		parts := strings.Split(key, ".")
+		if len(parts) == 4 {
+			resp.TopBar.ScopeModeToggle = applyTopBarOptionValue(resp.TopBar.ScopeModeToggle, parts[2], parts[3], value)
+		}
+	case strings.HasPrefix(key, "top_bar.date_range."):
+		parts := strings.Split(key, ".")
+		if len(parts) == 4 {
+			resp.TopBar.DateRangeSelector.Options = applyTopBarOptionValue(resp.TopBar.DateRangeSelector.Options, parts[2], parts[3], value)
+		}
+	case strings.HasPrefix(key, "page."):
+		parts := strings.Split(key, ".")
+		if len(parts) == 3 && (parts[2] == "title" || parts[2] == "subtitle") {
+			resp.Pages = applyPageConfigEntry(resp.Pages, parts[1], parts[2], value)
+			if parts[2] == "title" {
+				resp.RouteLabels = applyRouteLabel(resp.RouteLabels, resp.Pages, parts[1], value)
+			}
+		}
+	}
+	return resp
+}
+
+func applyPageConfigEntry(pages []domain.PageContract, routeID, key, value string) []domain.PageContract {
+	out := make([]domain.PageContract, len(pages))
+	copy(out, pages)
+	for i := range out {
+		if out[i].RouteID != routeID {
+			continue
+		}
+		switch {
+		case key == "title" || key == "page.title":
+			out[i].Title = value
+			out[i].Copy["page.title"] = value
+			out[i].Sections = applySectionTitle(out[i].Sections, "primary", value)
+		case key == "subtitle" || key == "page.subtitle":
+			out[i].Subtitle = value
+			out[i].Copy["page.subtitle"] = value
+		case strings.HasPrefix(key, "copy."):
+			copyKey := strings.TrimPrefix(key, "copy.")
+			if copyKey != "" {
+				out[i].Copy[copyKey] = value
+			}
+		case strings.HasPrefix(key, "section."):
+			parts := strings.Split(key, ".")
+			if len(parts) == 3 && parts[2] == "title" {
+				out[i].Sections = applySectionTitle(out[i].Sections, parts[1], value)
+			}
+		case strings.HasPrefix(key, "table."):
+			out[i].Tables = applyTableConfigEntry(out[i].Tables, key, value)
+		case strings.HasPrefix(key, "option."):
+			out[i].OptionGroups = applyOptionConfigEntry(out[i].OptionGroups, key, value)
+		}
+		return out
+	}
+	return out
+}
+
+func applyNavItemLabel(items []domain.NavigationItem, id, value string) []domain.NavigationItem {
+	out := make([]domain.NavigationItem, len(items))
+	copy(out, items)
+	for i := range out {
+		if out[i].ID == id {
+			out[i].Label = value
+		}
+	}
+	return out
+}
+
+func applyTopBarOptionValue(options []domain.TopBarOption, key, field, value string) []domain.TopBarOption {
+	out := make([]domain.TopBarOption, len(options))
+	copy(out, options)
+	for i := range out {
+		if out[i].Key != key {
+			continue
+		}
+		switch field {
+		case "label":
+			out[i].Label = value
+		case "title":
+			out[i].Title = value
+		case "disabled_reason":
+			out[i].DisabledReason = value
+		}
+	}
+	return out
+}
+
+func applyRouteLabel(labels []domain.RouteLabelRule, pages []domain.PageContract, routeID, value string) []domain.RouteLabelRule {
+	pattern := ""
+	for _, page := range pages {
+		if page.RouteID == routeID {
+			pattern = page.PathPattern
+			break
+		}
+	}
+	if pattern == "" {
+		return labels
+	}
+	out := make([]domain.RouteLabelRule, len(labels))
+	copy(out, labels)
+	for i := range out {
+		if out[i].Pattern == pattern {
+			out[i].Label = value
+		}
+	}
+	return out
+}
+
+func applySectionTitle(sections []domain.Section, id, value string) []domain.Section {
+	out := make([]domain.Section, len(sections))
+	copy(out, sections)
+	for i := range out {
+		if out[i].ID == id {
+			out[i].Title = value
+		}
+	}
+	return out
+}
+
+func applyTableConfigEntry(tables []domain.TableContract, key, value string) []domain.TableContract {
+	parts := strings.Split(key, ".")
+	if len(parts) < 3 {
+		return tables
+	}
+	tableID := parts[1]
+	out := make([]domain.TableContract, len(tables))
+	copy(out, tables)
+	for i := range out {
+		if out[i].ID != tableID {
+			continue
+		}
+		if len(parts) == 3 && parts[2] == "title" {
+			out[i].Title = value
+			return out
+		}
+		if len(parts) == 5 && parts[2] == "column" && parts[4] == "label" {
+			columns := make([]domain.Column, len(out[i].Columns))
+			copy(columns, out[i].Columns)
+			for j := range columns {
+				if columns[j].Key == parts[3] {
+					columns[j].Label = value
+				}
+			}
+			out[i].Columns = columns
+			return out
+		}
+		if len(parts) == 5 && parts[2] == "filter" && parts[4] == "label" {
+			filters := make([]domain.Filter, len(out[i].Filters))
+			copy(filters, out[i].Filters)
+			for j := range filters {
+				if filters[j].Key == parts[3] {
+					filters[j].Label = value
+				}
+			}
+			out[i].Filters = filters
+			return out
+		}
+	}
+	return out
+}
+
+func applyOptionConfigEntry(groups []domain.OptionGroup, key, value string) []domain.OptionGroup {
+	parts := strings.Split(key, ".")
+	if len(parts) != 4 {
+		return groups
+	}
+	groupID := parts[1]
+	optionKey := parts[2]
+	field := parts[3]
+	if !stableUIConfigOptionField(groupID, field) {
+		return groups
+	}
+	out := make([]domain.OptionGroup, len(groups))
+	copy(out, groups)
+	for i := range out {
+		if out[i].ID != groupID {
+			continue
+		}
+		options := make([]domain.Option, len(out[i].Options))
+		copy(options, out[i].Options)
+		for j := range options {
+			if options[j].Key != optionKey {
+				continue
+			}
+			switch field {
+			case "label":
+				options[j].Label = value
+			case "title":
+				options[j].Title = value
+			case "tone":
+				options[j].Tone = value
+			case "disabled_reason":
+				options[j].DisabledReason = value
+			}
+		}
+		out[i].Options = options
+		return out
+	}
+	return out
+}
+
+func stableUIConfigOptionField(groupID, field string) bool {
+	fields, ok := stableUIConfigOptionGroups[groupID]
+	if !ok {
+		return false
+	}
+	_, ok = fields[field]
+	return ok
+}
+
+var presentationOptionFields = map[string]struct{}{
+	"label":           {},
+	"title":           {},
+	"tone":            {},
+	"disabled_reason": {},
+}
+
+var stableUIConfigOptionGroups = map[string]map[string]struct{}{
+	"adverse_reaction":                        presentationOptionFields,
+	"audit_operation_families":                presentationOptionFields,
+	"audit_status_tabs":                       presentationOptionFields,
+	"calendar_escalation_state":               presentationOptionFields,
+	"calendar_event_types":                    presentationOptionFields,
+	"calendar_history_status":                 presentationOptionFields,
+	"calendar_links":                          presentationOptionFields,
+	"calendar_months":                         presentationOptionFields,
+	"calendar_owner_tabs":                     presentationOptionFields,
+	"calendar_reminder_state":                 presentationOptionFields,
+	"calendar_rhythm_days_admin_data_ops":     presentationOptionFields,
+	"calendar_rhythm_days_all":                presentationOptionFields,
+	"calendar_rhythm_days_inventory":          presentationOptionFields,
+	"calendar_rhythm_days_phc":                presentationOptionFields,
+	"calendar_severity":                       presentationOptionFields,
+	"calendar_status":                         presentationOptionFields,
+	"calendar_view_tabs":                      presentationOptionFields,
+	"calendar_weekdays":                       presentationOptionFields,
+	"calendar_workstream_tabs_admin_data_ops": presentationOptionFields,
+	"calendar_workstream_tabs_all":            presentationOptionFields,
+	"calendar_workstream_tabs_inventory":      presentationOptionFields,
+	"calendar_workstream_tabs_phc":            presentationOptionFields,
+	"chain_steps":                             presentationOptionFields,
+	"cohort_detail_facets":                    presentationOptionFields,
+	"dlq_repair_actions":                      presentationOptionFields,
+	"dlq_status_tabs":                         presentationOptionFields,
+	"domain_chips":                            presentationOptionFields,
+	"drive_steps":                             presentationOptionFields,
+	"evidence_types":                          presentationOptionFields,
+	"filter_quick_terms":                      presentationOptionFields,
+	"health_selection_states":                 presentationOptionFields,
+	"herd_filter_extra_facets":                presentationOptionFields,
+	"herd_import_columns":                     presentationOptionFields,
+	"journey_stages":                          presentationOptionFields,
+	"matrix_states":                           presentationOptionFields,
+	"new_drive_steps":                         presentationOptionFields,
+	"obligation_count_chips":                  presentationOptionFields,
+	"priority_chips":                          presentationOptionFields,
+	"proc_arrival_counts":                     presentationOptionFields,
+	"proc_arrival_state":                      presentationOptionFields,
+	"proc_arrival_status":                     presentationOptionFields,
+	"proc_decision_type":                      presentationOptionFields,
+	"proc_discrepancy_state":                  presentationOptionFields,
+	"proc_goat_state":                         presentationOptionFields,
+	"proc_handoff_status":                     presentationOptionFields,
+	"proc_health_state":                       presentationOptionFields,
+	"proc_hf_review_status":                   presentationOptionFields,
+	"proc_identity_review_state":              presentationOptionFields,
+	"proc_intake_signal":                      presentationOptionFields,
+	"proc_ownership_state":                    presentationOptionFields,
+	"proc_purpose":                            presentationOptionFields,
+	"proc_selection_state":                    presentationOptionFields,
+	"proc_transit_status":                     presentationOptionFields,
+	"proc_warmup_state":                       presentationOptionFields,
+	"proof_state_chips":                       presentationOptionFields,
+	"proof_types":                             presentationOptionFields,
+	"protocol_rule_status":                    presentationOptionFields,
+	"shed_event_facets":                       presentationOptionFields,
+	"sop_seed_steps":                          presentationOptionFields,
+	"sop_state_chips":                         presentationOptionFields,
+	"sop_trigger_chips":                       presentationOptionFields,
+	"source_load_status":                      presentationOptionFields,
+	"status_matrix_facets":                    presentationOptionFields,
+	"supplier_warmup_facets":                  presentationOptionFields,
+	"vaccination_drive_sop_steps":             presentationOptionFields,
+	"vaccination_import_columns":              presentationOptionFields,
+	"verification_state_chips":                presentationOptionFields,
+	"warmup_evidence_states":                  presentationOptionFields,
+	"warmup_expectations":                     presentationOptionFields,
+	"work_state_board_columns":                presentationOptionFields,
+	"work_state_filter_chips":                 presentationOptionFields,
 }
 
 func compileTopBar(top domain.TopBarContract, input BootstrapInput, families ReferenceFamilies) domain.TopBarContract {
@@ -509,6 +1003,7 @@ func familyHashes(resp domain.BootstrapResponse, families ReferenceFamilies, inp
 		"permissions": hashStruct(input.Grants),
 		"locations":   hashStruct(families.Parks),
 		"config":      hashStruct(struct{ Categories, Breeds, Health, Repro, Defer, SOP, FeedItems []ReferenceOption }{families.RuleCategories, families.Breeds, families.HealthStatuses, families.ReproductiveStates, families.DeferStates, families.SOPLabels, families.FeedItems}),
+		"ui-config":   hashStruct(families.UIConfig),
 	}
 	for key, value := range families.RevisionInputs {
 		hashes["db:"+key] = hashString(value)

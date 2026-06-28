@@ -238,6 +238,19 @@ source-backed config, then compiled into the admin-web contract. Never add CBE/
 CPT-style constants, seed UUIDs, person names, or farm/shed capacities in React
 or static backend contract code.
 
+Stable UI values that rarely change (nav titles, page titles, table/filter
+labels, chips/tabs, empty/error copy, disabled reasons) still belong to the
+backend contract, not React. When those values need runtime governance, store
+them as tenant-scoped `admin_ui_config_entries` rows and let
+`/admin-web/bootstrap` compile them once with `contract_revision`,
+`family_hashes`, and `cache_policy`. The frontend must block business UI until
+bootstrap succeeds; it must not render local defaults and then replace them with
+async config. Live/domain values such as parks, sheds, animal stages, protocol
+vocabularies, SOP labels, grants, and feed items stay in their owning Postgres
+tables and are compiled as DB families; UI config entries must not relabel those
+live/module-owned option groups or override semantic option metadata such as
+source-system publishability.
+
 The only current exceptions are pre-contract auth screens and the emergency
 contract-unavailable shell, documented in
 `context/frontend/admin-web-backend-ui-contract.md`. Run

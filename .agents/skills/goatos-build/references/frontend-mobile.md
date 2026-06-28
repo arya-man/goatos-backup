@@ -125,8 +125,16 @@ Calendar or dashboard label.
   location/park, person, goat, shed, vendor/operator IDs, CBE/CPT-style codes,
   capacities, role scope, permissions, and governed dropdown vocabularies must
   come from Postgres/source-backed config and be compiled into the backend
-  contract. Static backend code may hold only stable product contract shape
-  while the DB config compiler is being built.
+  contract. Stable UI text that rarely changes (nav/page titles, table/filter
+  labels, chips/tabs, empty/error copy, disabled reasons) also belongs in the
+  backend contract; when runtime governance is needed, store it as tenant-scoped
+  `admin_ui_config_entries` and compile it into `/admin-web/bootstrap`.
+  UI config entries must not relabel live/module-owned option groups such as
+  parks, sheds, breeds, SOP labels, feed items, or role/grant scopes, and must
+  not override semantic option metadata such as source-system publishability.
+  Frontend must not render local defaults and then replace them with async
+  config. Static backend code may hold only product contract shape, compile
+  mapping, and intentional default skeletons for missing optional UI config rows.
 - Do not reuse or recolor old admin-web UI, old `admin-primitives`, old chart
   components, old layout components, or old dashboard routes.
 - Run `npm --prefix apps/admin-web run check:mock-fidelity` before frontend

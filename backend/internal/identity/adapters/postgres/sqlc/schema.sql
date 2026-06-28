@@ -31,6 +31,392 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
+-- Name: admin_ui_bump_config_family(uuid, text, uuid, text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_config_family(p_tenant_id uuid, p_family_key text, p_changed_by uuid DEFAULT NULL::uuid, p_source text DEFAULT 'system'::text, p_metadata jsonb DEFAULT '{}'::jsonb) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  next_revision bigint;
+  next_hash text;
+  event_uuid uuid := gen_random_uuid();
+  family text := btrim(COALESCE(p_family_key, ''));
+BEGIN
+  IF p_tenant_id IS NULL OR family = '' THEN
+    RETURN;
+  END IF;
+
+  INSERT INTO admin_ui_config_family_revisions (
+    tenant_id,
+    family_key,
+    revision,
+    content_hash,
+    changed_at,
+    changed_by,
+    source,
+    metadata
+  ) VALUES (
+    p_tenant_id,
+    family,
+    1,
+    md5(p_tenant_id::text || ':' || family || ':1:' || clock_timestamp()::text),
+    now(),
+    p_changed_by,
+    COALESCE(NULLIF(btrim(p_source), ''), 'system'),
+    COALESCE(p_metadata, '{}'::jsonb)
+  )
+  ON CONFLICT (tenant_id, family_key) DO UPDATE
+  SET revision = admin_ui_config_family_revisions.revision + 1,
+      content_hash = md5(
+        EXCLUDED.tenant_id::text || ':' ||
+        EXCLUDED.family_key || ':' ||
+        (admin_ui_config_family_revisions.revision + 1)::text || ':' ||
+        clock_timestamp()::text
+      ),
+      changed_at = now(),
+      changed_by = EXCLUDED.changed_by,
+      source = EXCLUDED.source,
+      metadata = EXCLUDED.metadata
+  RETURNING revision, content_hash
+    INTO next_revision, next_hash;
+
+  INSERT INTO outbox_messages (
+    tenant_id,
+    event_id,
+    event_type,
+    schema_version,
+    aggregate_type,
+    aggregate_id,
+    topic,
+    payload,
+    headers,
+    idempotency_key,
+    trace_id,
+    status,
+    next_attempt_at
+  ) VALUES (
+    p_tenant_id,
+    event_uuid,
+    'config.changed',
+    'v1',
+    'admin_ui_config_family',
+    p_tenant_id,
+    'config.changed',
+    jsonb_build_object(
+      'tenant_id', p_tenant_id,
+      'family_key', family,
+      'revision', next_revision,
+      'content_hash', next_hash,
+      'source', COALESCE(NULLIF(btrim(p_source), ''), 'system'),
+      'metadata', COALESCE(p_metadata, '{}'::jsonb)
+    ),
+    jsonb_build_object('producer', 'postgres.admin_ui_config_family_revisions'),
+    'admin-ui-config:' || event_uuid::text,
+    NULL,
+    'pending',
+    now()
+  );
+END;
+$$;
+
+
+--
+-- Name: admin_ui_bump_config_family_for_all_tenants(text, text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_config_family_for_all_tenants(p_family_key text, p_source text DEFAULT 'system'::text, p_metadata jsonb DEFAULT '{}'::jsonb) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  tenant_row record;
+BEGIN
+  FOR tenant_row IN SELECT tenant_id FROM tenants LOOP
+    PERFORM admin_ui_bump_config_family(
+      tenant_row.tenant_id,
+      p_family_key,
+      NULL,
+      p_source,
+      p_metadata
+    );
+  END LOOP;
+END;
+$$;
+
+
+--
+-- Name: admin_ui_bump_feed_item_family_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_feed_item_family_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  row_tenant uuid;
+  old_category text;
+  new_category text;
+  source text := TG_TABLE_NAME || '.' || lower(TG_OP);
+  metadata jsonb := jsonb_build_object('table', TG_TABLE_NAME, 'operation', TG_OP);
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    row_tenant := OLD.tenant_id;
+  ELSE
+    row_tenant := NEW.tenant_id;
+  END IF;
+  IF TG_OP <> 'INSERT' THEN
+    old_category := COALESCE(OLD.category, '');
+  END IF;
+  IF TG_OP <> 'DELETE' THEN
+    new_category := COALESCE(NEW.category, '');
+  END IF;
+
+  IF new_category = 'feed' OR old_category = 'feed' THEN
+    PERFORM admin_ui_bump_config_family(row_tenant, 'feed-items', NULL, source, metadata);
+    PERFORM admin_ui_bump_config_family(row_tenant, 'config', NULL, source, metadata);
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: admin_ui_bump_global_family_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_global_family_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  family text := TG_ARGV[0];
+BEGIN
+  PERFORM admin_ui_bump_config_family_for_all_tenants(
+    family,
+    TG_TABLE_NAME || '.' || lower(TG_OP),
+    jsonb_build_object('table', TG_TABLE_NAME, 'operation', TG_OP)
+  );
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: admin_ui_bump_protocol_family_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_protocol_family_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  row_tenant uuid;
+  protocol_version uuid;
+  protocol_ref uuid;
+  old_category text;
+  new_category text;
+  source text := TG_TABLE_NAME || '.' || lower(TG_OP);
+  metadata jsonb := jsonb_build_object('table', TG_TABLE_NAME, 'operation', TG_OP);
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    row_tenant := OLD.tenant_id;
+  ELSE
+    row_tenant := NEW.tenant_id;
+  END IF;
+
+  IF TG_TABLE_NAME = 'protocol_definitions' THEN
+    IF TG_OP <> 'INSERT' THEN
+      old_category := NULLIF(COALESCE(OLD.category, ''), '');
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+      new_category := NULLIF(COALESCE(NEW.category, ''), '');
+    END IF;
+  ELSIF TG_TABLE_NAME = 'protocol_versions' THEN
+    IF TG_OP = 'DELETE' THEN
+      protocol_ref := OLD.protocol_id;
+    ELSE
+      protocol_ref := NEW.protocol_id;
+    END IF;
+    SELECT category INTO new_category
+    FROM protocol_definitions
+    WHERE tenant_id = row_tenant
+      AND protocol_id = protocol_ref;
+  ELSE
+    IF TG_OP = 'DELETE' THEN
+      protocol_version := OLD.protocol_version_id;
+    ELSE
+      protocol_version := NEW.protocol_version_id;
+    END IF;
+    SELECT pd.category INTO new_category
+    FROM protocol_versions pv
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id
+     AND pd.protocol_id = pv.protocol_id
+    WHERE pv.tenant_id = row_tenant
+      AND pv.protocol_version_id = protocol_version;
+  END IF;
+
+  IF old_category IS NOT NULL THEN
+    PERFORM admin_ui_bump_config_family(row_tenant, 'protocols:' || old_category, NULL, source, metadata);
+  END IF;
+  IF new_category IS NOT NULL AND new_category IS DISTINCT FROM old_category THEN
+    PERFORM admin_ui_bump_config_family(row_tenant, 'protocols:' || new_category, NULL, source, metadata);
+  END IF;
+  PERFORM admin_ui_bump_config_family(row_tenant, 'config', NULL, source, metadata);
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: admin_ui_bump_row_family_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_row_family_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  family text := TG_ARGV[0];
+  row_tenant uuid;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    row_tenant := OLD.tenant_id;
+  ELSE
+    row_tenant := NEW.tenant_id;
+  END IF;
+  PERFORM admin_ui_bump_config_family(
+    row_tenant,
+    family,
+    NULL,
+    TG_TABLE_NAME || '.' || lower(TG_OP),
+    jsonb_build_object('table', TG_TABLE_NAME, 'operation', TG_OP)
+  );
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: admin_ui_bump_sop_family_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_sop_family_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  row_tenant uuid;
+  sop_ref uuid;
+  old_family text;
+  new_family text;
+  source text := TG_TABLE_NAME || '.' || lower(TG_OP);
+  metadata jsonb := jsonb_build_object('table', TG_TABLE_NAME, 'operation', TG_OP);
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    row_tenant := OLD.tenant_id;
+  ELSE
+    row_tenant := NEW.tenant_id;
+  END IF;
+
+  IF TG_TABLE_NAME = 'sop_definitions' THEN
+    IF TG_OP <> 'INSERT' THEN
+      old_family := admin_ui_sop_family_key(OLD.code);
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+      new_family := admin_ui_sop_family_key(NEW.code);
+    END IF;
+  ELSE
+    IF TG_OP = 'DELETE' THEN
+      sop_ref := OLD.sop_id;
+    ELSE
+      sop_ref := NEW.sop_id;
+    END IF;
+    SELECT admin_ui_sop_family_key(code) INTO new_family
+    FROM sop_definitions
+    WHERE tenant_id = row_tenant
+      AND sop_id = sop_ref;
+  END IF;
+
+  IF old_family IS NOT NULL THEN
+    PERFORM admin_ui_bump_config_family(row_tenant, old_family, NULL, source, metadata);
+  END IF;
+  IF new_family IS NOT NULL AND new_family IS DISTINCT FROM old_family THEN
+    PERFORM admin_ui_bump_config_family(row_tenant, new_family, NULL, source, metadata);
+  END IF;
+  PERFORM admin_ui_bump_config_family(row_tenant, 'config', NULL, source, metadata);
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: admin_ui_bump_status_family_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_bump_status_family_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  old_axis text;
+  new_axis text;
+  source text := TG_TABLE_NAME || '.' || lower(TG_OP);
+  metadata jsonb := jsonb_build_object('table', TG_TABLE_NAME, 'operation', TG_OP);
+BEGIN
+  IF TG_OP <> 'INSERT' THEN
+    old_axis := NULLIF(COALESCE(OLD.axis, ''), '');
+  END IF;
+  IF TG_OP <> 'DELETE' THEN
+    new_axis := NULLIF(COALESCE(NEW.axis, ''), '');
+  END IF;
+
+  IF old_axis IS NOT NULL THEN
+    PERFORM admin_ui_bump_config_family_for_all_tenants('status:' || old_axis, source, metadata);
+  END IF;
+  IF new_axis IS NOT NULL AND new_axis IS DISTINCT FROM old_axis THEN
+    PERFORM admin_ui_bump_config_family_for_all_tenants('status:' || new_axis, source, metadata);
+  END IF;
+  PERFORM admin_ui_bump_config_family_for_all_tenants('config', source, metadata);
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: admin_ui_sop_family_key(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.admin_ui_sop_family_key(sop_code text) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  SELECT CASE
+    WHEN btrim(COALESCE(sop_code, '')) = '' THEN 'sops'
+    WHEN strpos(btrim(sop_code), '.') > 0 THEN 'sops:' || split_part(btrim(sop_code), '.', 1)
+    ELSE 'sops'
+  END
+$$;
+
+
+--
 -- Name: block_active_vaccination_for_procurement_excluded_goat(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -520,6 +906,20 @@ CREATE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
+  IF NEW.aggregate_type = 'admin_ui_config_family' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM admin_ui_config_family_revisions
+      WHERE tenant_id = NEW.tenant_id
+        AND family_key = NEW.payload->>'family_key'
+    ) THEN
+      RAISE EXCEPTION 'admin ui config family outbox aggregate % does not exist for tenant %', NEW.payload->>'family_key', NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF NEW.aggregate_type = 'calendar_notification' THEN
     IF NOT EXISTS (
       SELECT 1
@@ -690,6 +1090,50 @@ $$;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: admin_ui_config_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_ui_config_entries (
+    tenant_id uuid NOT NULL,
+    locale text DEFAULT 'default'::text NOT NULL,
+    route_id text DEFAULT ''::text NOT NULL,
+    config_key text NOT NULL,
+    config_value text NOT NULL,
+    value_kind text DEFAULT 'text'::text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT admin_ui_config_entries_key_check CHECK ((btrim(config_key) <> ''::text)),
+    CONSTRAINT admin_ui_config_entries_kind_check CHECK ((value_kind = ANY (ARRAY['text'::text, 'label'::text, 'title'::text, 'copy'::text, 'tone'::text, 'disabled_reason'::text]))),
+    CONSTRAINT admin_ui_config_entries_locale_check CHECK ((btrim(locale) <> ''::text)),
+    CONSTRAINT admin_ui_config_entries_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT admin_ui_config_entries_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT admin_ui_config_entries_status_check CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: admin_ui_config_family_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_ui_config_family_revisions (
+    tenant_id uuid NOT NULL,
+    family_key text NOT NULL,
+    revision bigint DEFAULT 1 NOT NULL,
+    content_hash text DEFAULT ''::text NOT NULL,
+    changed_at timestamp with time zone DEFAULT now() NOT NULL,
+    changed_by uuid,
+    source text DEFAULT 'system'::text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT admin_ui_config_family_key_check CHECK ((btrim(family_key) <> ''::text)),
+    CONSTRAINT admin_ui_config_family_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT admin_ui_config_family_revision_check CHECK ((revision >= 1))
+);
+
 
 --
 -- Name: animal_stage_lookup; Type: TABLE; Schema: public; Owner: -
@@ -4405,6 +4849,22 @@ ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligat
 
 
 --
+-- Name: admin_ui_config_entries admin_ui_config_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_ui_config_entries
+    ADD CONSTRAINT admin_ui_config_entries_pkey PRIMARY KEY (tenant_id, locale, route_id, config_key);
+
+
+--
+-- Name: admin_ui_config_family_revisions admin_ui_config_family_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_ui_config_family_revisions
+    ADD CONSTRAINT admin_ui_config_family_revisions_pkey PRIMARY KEY (tenant_id, family_key);
+
+
+--
 -- Name: animal_stage_lookup animal_stage_lookup_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6010,6 +6470,20 @@ ALTER TABLE ONLY public.workforce_members
 
 ALTER TABLE ONLY public.workforce_roster_assignments
     ADD CONSTRAINT workforce_roster_assignments_pkey PRIMARY KEY (roster_assignment_id);
+
+
+--
+-- Name: admin_ui_config_entries_route_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX admin_ui_config_entries_route_idx ON public.admin_ui_config_entries USING btree (tenant_id, locale, route_id, status, updated_at DESC);
+
+
+--
+-- Name: admin_ui_config_family_changed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX admin_ui_config_family_changed_idx ON public.admin_ui_config_family_revisions USING btree (tenant_id, changed_at DESC, family_key);
 
 
 --
@@ -9660,6 +10134,118 @@ ALTER INDEX public.obligation_status_events_idempotency_idx ATTACH PARTITION pub
 
 
 --
+-- Name: animal_stage_lookup admin_ui_animal_stages_config_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_animal_stages_config_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.animal_stage_lookup FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('config');
+
+
+--
+-- Name: animal_stage_lookup admin_ui_animal_stages_protocol_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_animal_stages_protocol_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.animal_stage_lookup FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('protocols:vaccination');
+
+
+--
+-- Name: animal_stage_lookup admin_ui_animal_stages_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_animal_stages_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.animal_stage_lookup FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('animal-stages');
+
+
+--
+-- Name: breeds admin_ui_breeds_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_breeds_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.breeds FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_global_family_trg('breeds');
+
+
+--
+-- Name: admin_ui_config_entries admin_ui_config_entries_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_config_entries_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.admin_ui_config_entries FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('admin-ui-config');
+
+
+--
+-- Name: inventory_items admin_ui_inventory_feed_items_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_inventory_feed_items_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.inventory_items FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_feed_item_family_trg();
+
+
+--
+-- Name: locations admin_ui_locations_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_locations_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.locations FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('locations');
+
+
+--
+-- Name: auth_pending_email_grants admin_ui_pending_email_grants_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_pending_email_grants_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.auth_pending_email_grants FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
+
+
+--
+-- Name: protocol_definitions admin_ui_protocol_definitions_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_protocol_definitions_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.protocol_definitions FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_protocol_family_trg();
+
+
+--
+-- Name: protocol_rules admin_ui_protocol_rules_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_protocol_rules_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.protocol_rules FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_protocol_family_trg();
+
+
+--
+-- Name: protocol_triggers admin_ui_protocol_triggers_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_protocol_triggers_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.protocol_triggers FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_protocol_family_trg();
+
+
+--
+-- Name: protocol_versions admin_ui_protocol_versions_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_protocol_versions_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.protocol_versions FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_protocol_family_trg();
+
+
+--
+-- Name: sop_definitions admin_ui_sop_definitions_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_sop_definitions_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.sop_definitions FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_sop_family_trg();
+
+
+--
+-- Name: sop_versions admin_ui_sop_versions_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_sop_versions_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.sop_versions FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_sop_family_trg();
+
+
+--
+-- Name: status_definitions admin_ui_status_definitions_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_status_definitions_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.status_definitions FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_status_family_trg();
+
+
+--
+-- Name: user_scope_grants admin_ui_user_scope_grants_revision_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER admin_ui_user_scope_grants_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.user_scope_grants FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('permissions');
+
+
+--
 -- Name: farm_profiles farm_profiles_validate_type_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -9853,6 +10439,22 @@ CREATE TRIGGER shed_profiles_validate_type_trg BEFORE INSERT OR UPDATE OF tenant
 --
 
 CREATE TRIGGER user_scope_grants_validate_scope_trg BEFORE INSERT OR UPDATE OF tenant_id, scope_type, scope_id ON public.user_scope_grants FOR EACH ROW EXECUTE FUNCTION public.validate_user_scope_grant();
+
+
+--
+-- Name: admin_ui_config_entries admin_ui_config_entries_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_ui_config_entries
+    ADD CONSTRAINT admin_ui_config_entries_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: admin_ui_config_family_revisions admin_ui_config_family_revisions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.admin_ui_config_family_revisions
+    ADD CONSTRAINT admin_ui_config_family_revisions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

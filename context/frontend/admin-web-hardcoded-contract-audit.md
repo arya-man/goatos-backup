@@ -29,6 +29,20 @@ config compiler is being built, but must not hardcode live data:
   contract.
 - Added backend contract metadata: deterministic `contract_revision`,
   `family_hashes`, and `cache_policy` with an in-process TTL and Redis TTL hint.
+- Added `admin_ui_config_entries` as the Postgres-backed key/value surface for
+  stable UI config such as nav/page/copy/table/filter/chip labels.
+- Added compiler overlays so active `admin_ui_config_entries` rows are applied
+  to `/admin-web/bootstrap` before hashing and returning the contract.
+- Restricted `option.*` UI config overlays to backend-classified stable UI
+  option groups and fields. Live/module-DB-owned groups such as park display
+  chips, rule scopes, breeds, statuses, SOP labels, and feed items keep
+  canonical DB labels, and semantic metadata such as `source_systems.tone`
+  cannot be changed through UI config.
+- Added `admin_ui_config_family_revisions` plus `config.changed` outbox events
+  for stale-content invalidation across locations, permissions, protocols,
+  SOPs, animal stages, status vocabularies, feed items, and UI config writes.
+- Included DB family revision inputs in the in-process bootstrap cache key so
+  stale compiled content misses when a canonical family changes.
 - Made top-bar park selector options and optional `park_display_chips`
   DB-compiled from active `locations`, keyed by `location_id`.
 - Made navigation enabled/disabled state and role preview/lenses derive from
@@ -68,18 +82,23 @@ config compiler is being built, but must not hardcode live data:
 
 ## Remaining Required Work
 
-1. Redis/event invalidation.
-   The compiler publishes family hashes and a Redis TTL hint, and uses bounded
-   in-process caching. Production Redis invalidation still needs config-change
-   events/family revision rows for immediate cache misses.
+1. Redis compiled cache adapter.
+   The compiler publishes family hashes and a Redis TTL hint, uses bounded
+   in-process caching, and now has DB revision rows plus `config.changed`
+   events. It probes the revision ledger before full family loading, so
+   unchanged revisions reuse the compiled in-process contract. Production
+   Redis/Memorystore still needs an adapter for compiled bootstrap/page JSON
+   keyed by tenant/role/locale/revision.
 
 2. Governed config tables for still-static bounded product vocabularies.
-   Some finite protocol UI values still come from backend product contract shape
-   or DB CHECK constraints rather than first-class governed config tables. Those
-   include trigger/repeat/catch-up policies, source-system publishing vocabulary,
-   feed class/unit/inventory policies, and stable UI tab/status taxonomies.
-   They are no longer frontend-owned, but the next schema pass should give them
-   explicit DB family tables where the business needs governance.
+   Stable UI labels/copy can now be governed through `admin_ui_config_entries`.
+   Some finite business vocabularies still come from backend product contract
+   shape or DB CHECK constraints rather than first-class module tables. Those
+   include trigger/repeat/catch-up policies, source-system publishing
+   vocabulary, feed class/unit/inventory policies, and stable UI tab/status
+   taxonomies. They are no longer frontend-owned, but the next schema pass
+   should give them explicit DB family tables where the business needs
+   governance beyond UI label overrides.
 
 3. E2E contract assertions.
    For every active page, fetch `/admin-web/bootstrap` and assert nav labels,

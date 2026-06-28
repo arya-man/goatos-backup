@@ -148,7 +148,12 @@ one product; this skill is the navigation layer.
   density, icon-token mapping, focus/hover behavior, and local open/closed or
   selected-row state. When a page still has hardcoded product text or control
   semantics, migrate it into the backend contract or record the temporary gap in
-  `context/frontend/` before handoff.
+  `context/frontend/` before handoff. Stable UI text that needs runtime
+  governance is stored in tenant-scoped `admin_ui_config_entries` and compiled
+  into `/admin-web/bootstrap`; live/domain values stay in canonical module DB
+  tables and are compiled as DB families. UI config entries must not relabel
+  live/module-owned option groups or override semantic option metadata such as
+  source-system publishability.
 - Keep official analytics metrics behind Cube.
 - Keep Slack/Sheets/App Script as legacy reference/migration only.
 - When source artifacts add lasting facts, sync the relevant `context/` doc and

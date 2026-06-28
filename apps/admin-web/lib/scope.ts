@@ -113,12 +113,6 @@ export function scopeHref(
 }
 
 export function parkLabel(parks: Park[], parkId: string | undefined): string {
-  if (!parkId) return "All parks";
   const park = parks.find((p) => p.id === parkId);
-  if (!park) return "Selected park";
-  return park.code ?? park.name;
-}
-
-export function rangeLabel(range: RangeKey): string {
-  return range === "last_7_days" ? "Last 7 days" : range === "last_30_days" ? "Last 30 days" : "Custom range";
+  return park?.code ?? park?.name ?? "";
 }

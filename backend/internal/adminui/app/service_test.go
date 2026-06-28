@@ -88,6 +88,13 @@ func TestCalendarOptionGroupsCoverProjectionStates(t *testing.T) {
 			t.Fatalf("calendar_escalation_state missing projected key %q", key)
 		}
 	}
+
+	historyKeys := optionKeys(optionGroupByID(t, page.OptionGroups, "calendar_history_status"))
+	for _, key := range []string{"open", "queued", "active", "acknowledged", "resolved", "replaced", "sent", "snoozed", "escalated"} {
+		if !historyKeys[key] {
+			t.Fatalf("calendar_history_status missing projected key %q", key)
+		}
+	}
 }
 
 func TestCalendarOwnerTabsHaveFallbackPresentationGroups(t *testing.T) {
@@ -200,7 +207,7 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 	}
 	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
 	if got := optionKeys(feedItems); len(got) != 1 || !got["custom"] || got["Mesha concentrate"] {
-		t.Fatalf("feed_items must expose only the custom sentinel until a DB family exists, got %#v", feedItems.Options)
+		t.Fatalf("empty DB feed_items must expose only the custom sentinel, got %#v", feedItems.Options)
 	}
 }
 
@@ -277,6 +284,120 @@ func TestBootstrapConfigCompilesFeedItemsAndCategories(t *testing.T) {
 	}
 }
 
+func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
+	resp := NewService(fakeUIConfigFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+
+	if resp.TopBar.ProductName != "Goat OS" {
+		t.Fatalf("top bar product name was not config-overridden: %#v", resp.TopBar)
+	}
+	if item := primaryNavByID(t, resp.Navigation.Primary, "action-center"); item.Label != "Work Queue" {
+		t.Fatalf("action-center nav label = %q", item.Label)
+	}
+	actionCenter := pageByRouteID(t, resp.Pages, "action-center")
+	if actionCenter.Title != "Backend Work Queue" || actionCenter.Copy["page.title"] != "Backend Work Queue" {
+		t.Fatalf("page title was not config-overridden: title=%q copy=%q", actionCenter.Title, actionCenter.Copy["page.title"])
+	}
+	if actionCenter.Subtitle != "Backend queue subtitle" {
+		t.Fatalf("page subtitle was not config-overridden: %q", actionCenter.Subtitle)
+	}
+	if got := routeLabelByPattern(t, resp.RouteLabels, "/action-center"); got != "Backend Work Queue" {
+		t.Fatalf("route label was not config-overridden: %q", got)
+	}
+	if labels := tableLabels(actionCenter, "work-board"); len(labels) < 2 || labels[1] != "Responsible" {
+		t.Fatalf("work-board labels were not config-overridden: %#v", labels)
+	}
+	if got := optionLabelFromPage(t, actionCenter, "work_state_filter_chips", "owner_missing"); got != "Needs owner" {
+		t.Fatalf("work_state owner_missing label = %q", got)
+	}
+	if got := optionLabelFromPage(t, actionCenter, "park_display_chips", "park-1"); got != "P1" {
+		t.Fatalf("live park chip label must remain DB-owned, got %q", got)
+	}
+	if actionCenter.Copy["empty.work_board"] != "No backend work for this scope." {
+		t.Fatalf("page copy was not config-overridden: %q", actionCenter.Copy["empty.work_board"])
+	}
+	config := pageByRouteID(t, resp.Pages, "config")
+	for _, blocked := range []struct {
+		group string
+		key   string
+		want  string
+	}{
+		{group: "rule_scopes", key: "park:park-1", want: "park: P1"},
+		{group: "rule_breeds", key: "DB Breed", want: "DB Breed"},
+		{group: "schedule_sop_labels", key: "sop-v1", want: "SOP v1"},
+		{group: "feed_items", key: "feed-1", want: "Mesha concentrate"},
+		{group: "source_systems", key: "manual_admin", want: "manual admin (not publishable)"},
+	} {
+		if got := optionLabelFromPage(t, config, blocked.group, blocked.key); got != blocked.want {
+			t.Fatalf("DB-owned option %s.%s label must not be UI-config overridden: got %q want %q", blocked.group, blocked.key, got, blocked.want)
+		}
+	}
+	if got := optionFromPage(t, config, "source_systems", "manual_admin").Tone; got != "warn" {
+		t.Fatalf("source_systems.manual_admin tone must remain backend semantic metadata, got %q", got)
+	}
+}
+
+func TestBootstrapCacheKeyIncludesDBFamilyRevisionInputs(t *testing.T) {
+	repo := &revisionFamilies{revision: "rev-1"}
+	service := NewService(repo)
+	input := BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	}
+
+	first := service.Bootstrap(context.Background(), input)
+	repo.revision = "rev-2"
+	second := service.Bootstrap(context.Background(), input)
+
+	if first.ContractRevision == second.ContractRevision {
+		t.Fatalf("contract revision did not change after DB family revision input changed: %q", first.ContractRevision)
+	}
+	if first.CachePolicy.ETag == second.CachePolicy.ETag {
+		t.Fatalf("ETag did not change after DB family revision input changed: %q", first.CachePolicy.ETag)
+	}
+}
+
+func TestBootstrapUsesRevisionCacheBeforeFullFamilyLoad(t *testing.T) {
+	repo := &revisionAwareFamilies{revision: "rev-1"}
+	service := NewService(repo)
+	input := BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	}
+
+	first := service.Bootstrap(context.Background(), input)
+	second := service.Bootstrap(context.Background(), input)
+	if first.ContractRevision != second.ContractRevision {
+		t.Fatalf("unchanged revisions should return cached contract revision: first=%q second=%q", first.ContractRevision, second.ContractRevision)
+	}
+	if repo.fullLoads != 1 {
+		t.Fatalf("unchanged revisions should perform one full family load, got %d", repo.fullLoads)
+	}
+	if repo.revisionLoads != 2 {
+		t.Fatalf("each bootstrap should perform cheap revision probe, got %d", repo.revisionLoads)
+	}
+
+	repo.revision = "rev-2"
+	third := service.Bootstrap(context.Background(), input)
+	if third.ContractRevision == first.ContractRevision {
+		t.Fatalf("changed revision input should invalidate cached contract revision: %q", third.ContractRevision)
+	}
+	if repo.fullLoads != 2 {
+		t.Fatalf("changed revision should trigger second full family load, got %d", repo.fullLoads)
+	}
+}
+
 type fakeFamilies struct{}
 
 func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
@@ -297,6 +418,58 @@ type fakeEmptyFamilies struct{}
 
 func (fakeEmptyFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
 	return ReferenceFamilies{RevisionInputs: map[string]string{}}, nil
+}
+
+type fakeUIConfigFamilies struct{}
+
+func (fakeUIConfigFamilies) LoadContractFamilies(ctx context.Context, tenantID string) (ReferenceFamilies, error) {
+	families, err := fakeFamilies{}.LoadContractFamilies(ctx, tenantID)
+	families.UIConfig = []ConfigEntry{
+		{Key: "top_bar.product_name", Value: "Goat OS"},
+		{Key: "nav.primary.action-center.label", Value: "Work Queue"},
+		{RouteID: "action-center", Key: "page.title", Value: "Backend Work Queue"},
+		{Key: "page.action-center.subtitle", Value: "Backend queue subtitle"},
+		{RouteID: "action-center", Key: "copy.empty.work_board", Value: "No backend work for this scope."},
+		{RouteID: "action-center", Key: "table.work-board.column.owner.label", Value: "Responsible"},
+		{RouteID: "action-center", Key: "option.work_state_filter_chips.owner_missing.label", Value: "Needs owner"},
+		{RouteID: "action-center", Key: "option.park_display_chips.park-1.label", Value: "Wrong park label"},
+		{RouteID: "config", Key: "option.rule_scopes.park:park-1.label", Value: "Wrong park scope"},
+		{RouteID: "config", Key: "option.rule_breeds.DB Breed.label", Value: "Wrong breed"},
+		{RouteID: "config", Key: "option.schedule_sop_labels.sop-v1.label", Value: "Wrong SOP"},
+		{RouteID: "config", Key: "option.feed_items.feed-1.label", Value: "Wrong feed"},
+		{RouteID: "config", Key: "option.source_systems.manual_admin.label", Value: "Wrong source label"},
+		{RouteID: "config", Key: "option.source_systems.manual_admin.tone", Value: "ok"},
+	}
+	families.RevisionInputs["admin-ui-config-values"] = "ui-config-rev-1"
+	return families, err
+}
+
+type revisionFamilies struct {
+	revision string
+}
+
+func (r *revisionFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
+	families, err := fakeFamilies{}.LoadContractFamilies(context.Background(), "")
+	families.RevisionInputs["admin-ui:config"] = r.revision
+	return families, err
+}
+
+type revisionAwareFamilies struct {
+	revision      string
+	fullLoads     int
+	revisionLoads int
+}
+
+func (r *revisionAwareFamilies) LoadContractFamilyRevisions(context.Context, string) (map[string]string, error) {
+	r.revisionLoads++
+	return map[string]string{"admin-ui:config": r.revision}, nil
+}
+
+func (r *revisionAwareFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
+	r.fullLoads++
+	families, err := fakeFamilies{}.LoadContractFamilies(context.Background(), "")
+	families.RevisionInputs["admin-ui:config"] = r.revision
+	return families, err
 }
 
 func pageByRouteID(t *testing.T, pages []domain.PageContract, routeID string) domain.PageContract {
@@ -334,6 +507,17 @@ func navLeafByID(t *testing.T, groups []domain.NavigationGroup, id string) domai
 	return domain.NavigationItem{}
 }
 
+func routeLabelByPattern(t *testing.T, labels []domain.RouteLabelRule, pattern string) string {
+	t.Helper()
+	for _, label := range labels {
+		if label.Pattern == pattern {
+			return label.Label
+		}
+	}
+	t.Fatalf("missing route label pattern %q", pattern)
+	return ""
+}
+
 func optionGroupByID(t *testing.T, groups []domain.OptionGroup, id string) domain.OptionGroup {
 	t.Helper()
 	for _, group := range groups {
@@ -343,6 +527,39 @@ func optionGroupByID(t *testing.T, groups []domain.OptionGroup, id string) domai
 	}
 	t.Fatalf("missing option group %q", id)
 	return domain.OptionGroup{}
+}
+
+func tableLabels(page domain.PageContract, tableID string) []string {
+	for _, table := range page.Tables {
+		if table.ID != tableID {
+			continue
+		}
+		labels := make([]string, 0, len(table.Columns))
+		for _, column := range table.Columns {
+			if column.Visible {
+				labels = append(labels, column.Label)
+			}
+		}
+		return labels
+	}
+	return nil
+}
+
+func optionLabelFromPage(t *testing.T, page domain.PageContract, groupID, key string) string {
+	t.Helper()
+	return optionFromPage(t, page, groupID, key).Label
+}
+
+func optionFromPage(t *testing.T, page domain.PageContract, groupID, key string) domain.Option {
+	t.Helper()
+	group := optionGroupByID(t, page.OptionGroups, groupID)
+	for _, option := range group.Options {
+		if option.Key == key {
+			return option
+		}
+	}
+	t.Fatalf("missing option %s.%s", groupID, key)
+	return domain.Option{}
 }
 
 func optionKeys(group domain.OptionGroup) map[string]bool {

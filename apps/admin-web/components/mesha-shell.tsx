@@ -81,6 +81,11 @@ function dateFreshnessLabel(asOf: string | undefined, today: string, contract: A
   return days === 0 ? shellCopy(contract, "state.fresh") : `${days}${shellCopy(contract, "state.days_old_suffix")}`;
 }
 
+function parkScopeLabel(parks: Park[], parkId: string | undefined, contract: AdminWebBootstrapResponse): string {
+  if (!parkId) return shellCopy(contract, "scope.all_parks");
+  return parkLabel(parks, parkId) || shellCopy(contract, "scope.selected_park");
+}
+
 function enabledNavHrefs(contract: AdminWebBootstrapResponse): string[] {
   return [
     ...contract.navigation.primary.filter((item) => item.enabled),
@@ -161,7 +166,7 @@ export function MeshaShell({
   const defaultPark = parks[0] ?? null;
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
-  const activeParkLabel = parkLabel(parks, activeParkId);
+  const activeParkLabel = parkScopeLabel(parks, activeParkId, contract);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
   const [isLight, setIsLight] = useState(false);

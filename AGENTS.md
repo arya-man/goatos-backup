@@ -213,8 +213,17 @@ Do:
   person/goat/shed/vendor/operator IDs, park codes/names, capacities, role/actor
   scope, permissions, and business-managed dropdown vocabularies must come from
   Postgres/source-backed config and be compiled into the contract by backend.
-  Static backend code may only hold stable product contract shape while the DB
-  config compiler is being built.
+  Stable UI text that rarely changes (nav/page titles, table/filter labels,
+  chips/tabs, empty/error copy, disabled reasons) belongs in the backend
+  bootstrap contract; when it needs runtime governance, store it as tenant-scoped
+  `admin_ui_config_entries` and compile it into `/admin-web/bootstrap`.
+  These entries may not relabel live/module-DB-owned options such as parks,
+  sheds, breeds, SOP labels, feed items, or role/grant scopes, and may not
+  override semantic option metadata such as source-system publishability.
+  Frontend must not ship local defaults that later get replaced by async config.
+  Backend code may hold only product contract shape, compile mapping, and
+  intentional default skeletons for missing optional UI config rows; live/domain
+  values stay in canonical module tables.
 - For frontend code changes, perform rendered visual QA before pushing. Open the
   changed local page, capture and inspect screenshots, and compare with the
   authoritative UI/UX source of truth, the mock `mock/goatos-dashboard-mock.html`

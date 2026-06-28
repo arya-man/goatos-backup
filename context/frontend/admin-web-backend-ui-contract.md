@@ -64,6 +64,24 @@ The bootstrap contract should carry small, stable UI contract data:
 - icon, tone, density, and surface-kind tokens that the frontend maps to local
   components/styles
 
+Stable UI values that mostly never change, such as nav titles, page titles,
+section titles, table column labels, filter labels, chip/dropdown labels, empty
+states, and disabled reasons, are compiled from tenant-scoped
+`admin_ui_config_entries` when runtime governance is needed. Live/domain values
+such as parks, animal stages, SOP labels, protocol vocabularies, grants, shed
+data, and feed items remain in their canonical module tables and are compiled
+into the same bootstrap contract as DB families. The frontend receives one
+backend contract and does not fetch or default those labels independently per
+page.
+
+Stable UI config entries may override `option.*` fields only for option groups
+and fields explicitly classified by the backend as stable UI/product
+presentation. They must not override live/module-DB groups such as park display
+chips, rule scopes, breeds, health statuses, SOP labels, or feed items. They
+also must not override semantic option metadata that drives workflow decisions,
+such as `source_systems.tone` publishability, protocol authoring keys, grants,
+or source-backed vocabularies.
+
 The bootstrap contract must not carry large or volatile data:
 
 - rows/cards/alerts/search results/counts
@@ -76,23 +94,26 @@ The bootstrap contract must not carry large or volatile data:
 
 Those values come from normal domain/read-model APIs. Business-managed config
 such as locations, animal stages, protocol versions/rules, SOP versions,
-permissions, tenant feature flags, and source-backed vocabularies must be
-canonical in Postgres. Backend code may own only stable product contract shape
-while phase-0 config compilation is being built; it must not hardcode live
-tenant data such as UUIDs, park/location codes, person names, shed names, farm
-tabs, capacities, or DB-backed dropdown values.
+permissions, tenant feature flags, source-backed vocabularies, and stable UI
+config entries must be canonical in Postgres. Backend code may own only stable
+product contract shape and compile mapping; it must not hardcode live tenant
+data such as UUIDs, park/location codes, person names, shed names, farm tabs,
+capacities, or DB-backed dropdown values.
 
 Caching rule: Postgres is canonical. Redis/Memorystore may cache compiled
 contract JSON only as acceleration, never as truth. A production bootstrap
 response should include a contract revision/ETag plus family hashes such as
 `chrome`, `page:<route_id>`, `options:<family>`, `locations`, `permissions`,
-and `sop/protocol:<category>`. Backend cache keys should include tenant, role,
-locale, schema version, and the relevant revision/hash. Config writes or
-publish actions bump the affected family revision in Postgres and emit a
-`config.changed` event; Redis entries either miss by revision or expire by TTL.
-Recommended TTLs are short in-process cache for compiled bootstrap (30-120
-seconds) and longer Redis TTL for immutable/versioned published families
-(10-60 minutes), while current-pointer lookups stay short or event-invalidated.
+`admin-ui-config`, and `sop/protocol:<category>`. Backend cache keys include
+tenant, role, locale/schema shape, and the relevant revision/hash. The current
+service first probes the Postgres family revision ledger and reuses the
+in-process compiled contract on an unchanged revision; a full family load is
+needed only on cache miss or revision change. Config writes or publish actions
+bump the affected family revision in Postgres and emit a `config.changed`
+event; Redis entries either miss by revision or expire by TTL. Recommended TTLs
+are short in-process cache for compiled bootstrap (30-120 seconds) and longer
+Redis TTL for immutable/versioned published families (10-60 minutes), while
+current-pointer lookups stay short or event-invalidated.
 
 If bootstrap grows too large, split without changing ownership:
 
@@ -184,6 +205,10 @@ Done in this pass:
 - Shell nav, group labels, route labels, top-bar product labels, disabled reasons,
   role lenses, and page contract metadata are backend-owned through
   `/admin-web/bootstrap`.
+- Stable UI label/copy overrides are DB-backed through
+  `admin_ui_config_entries` and applied during bootstrap compilation.
+- Family revision rows and `config.changed` outbox events now feed
+  contract_revision/cache invalidation inputs for stale content.
 - `MeshaShell` consumes the generated `AdminWebBootstrapResponse` instead of
   local nav arrays and local route-label regexes.
 - The backend contract includes table/drawer/page metadata for every active

@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const ROOT = process.cwd();
-const SCAN_PATHS = ["app", "components", "features"];
+const SCAN_PATHS = ["app", "components", "features", "lib/scope.ts"];
 const SKIP_PATH_PARTS = [
   "components/auth/",
   "components/admin-shell.tsx",
@@ -49,6 +49,7 @@ function walk(path, out) {
   }
   const rel = relative(ROOT, path).replaceAll("\\", "/");
   if (/\.tsx$/.test(path)) out.push(path);
+  if (rel === "lib/scope.ts") out.push(path);
   if (/\.ts$/.test(path) && (/(^|\/)(actions|.*-actions)\.ts$/.test(rel) || rel === "features/calendar/calendar-contract.ts")) out.push(path);
 }
 

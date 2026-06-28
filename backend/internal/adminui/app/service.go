@@ -172,6 +172,7 @@ func chromeCopy() map[string]string {
 		"scope.park_menu_aria":          "Park scope",
 		"scope.all_sheds":               "all sheds",
 		"scope.all_parks":               "All parks",
+		"scope.selected_park":           "Selected park",
 		"scope.company_wide":            "company-wide",
 		"scope.no_parks_for_tenant":     "No parks available for this tenant.",
 		"date.as_of_fallback":           "As of",
@@ -2676,6 +2677,7 @@ func calendarOptionGroups() []domain.OptionGroup {
 		{
 			ID: "calendar_history_status",
 			Options: []domain.Option{
+				option("open", "open", "", "warn"),
 				option("queued", "queued", "", "info"),
 				option("active", "active", "", "warn"),
 				option("acknowledged", "acknowledged", "", "info"),

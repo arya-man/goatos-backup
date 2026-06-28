@@ -44,6 +44,12 @@ Rules:
   drawers, actions, disabled reasons, or summary/detail field sets, publish the
   shape in OpenAPI, regenerate clients, and validate contracts before frontend
   handoff. Do not let React page constants become the source of product truth.
+  Stable UI values that need runtime governance should flow through
+  `admin_ui_config_entries` and compile into `/admin-web/bootstrap` with family
+  hashes/ETags; live/domain values must come from canonical module tables, not
+  static backend code. UI config entries must not relabel live/module-owned
+  option groups or semantic option metadata such as source-system
+  publishability.
 
 Operational kernel contracts:
 

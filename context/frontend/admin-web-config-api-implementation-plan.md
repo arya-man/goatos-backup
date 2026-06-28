@@ -2,8 +2,9 @@
 
 Date: 2026-06-27
 
-Status: implemented v1 for admin-web bootstrap compiler; Redis/event
-invalidation remains the production cache follow-up.
+Status: implemented v1 for admin-web bootstrap compiler and DB-backed stable UI
+config overlays; Redis compiled-cache adapter remains the production cache
+follow-up.
 
 Purpose: turn the current backend-owned admin-web contract into a production
 config API with stable revisions, cache keys, invalidation, and rollout gates.
@@ -19,7 +20,7 @@ loading, skeleton, or contract-unavailable states.
 
 Postgres is canonical. Redis/Memorystore and in-process maps may cache compiled
 contract JSON only as acceleration. A cache miss must always be reconstructable
-from Postgres plus backend code-owned product contract definitions.
+from Postgres plus backend code-owned product contract shape.
 
 ## Current State
 
@@ -51,8 +52,9 @@ Current contract owns shell navigation, page copy, table contracts, option
 groups, action copy, route labels, and disabled reasons. The v1 compiler is now
 request-aware: it receives authenticated tenant/actor/grants from backend auth
 middleware, compiles DB-backed families for locations, selected config
-vocabularies, SOP labels, and permissions into `/admin-web/bootstrap`, and
-returns deterministic `contract_revision`, `family_hashes`, and `cache_policy`.
+vocabularies, SOP labels, permissions, and stable UI config key/value entries
+into `/admin-web/bootstrap`, and returns deterministic `contract_revision`,
+`family_hashes`, and `cache_policy`.
 
 ## What Belongs In The Config API
 
@@ -61,9 +63,9 @@ to render business UI.
 
 | Family | Examples | Source of truth |
 | --- | --- | --- |
-| `chrome` | product name, nav groups, route labels, top-bar labels, footer, icon tokens | backend product contract, permissions |
-| `page:<route_id>` | title, subtitle, sections, tables, filters, sort keys, page sizes, row-click rules, drawer anatomy | backend product contract, page metadata |
-| `copy:<route_id>` | empty states, action labels, disabled reasons, field labels, validation copy | backend product contract; later optional DB overrides only through governed workflow |
+| `chrome` | product name, nav groups, route labels, top-bar labels, footer, icon tokens | backend product contract shape plus `admin_ui_config_entries`, permissions |
+| `page:<route_id>` | title, subtitle, sections, tables, filters, sort keys, page sizes, row-click rules, drawer anatomy | backend product contract shape plus route-scoped `admin_ui_config_entries` |
+| `copy:<route_id>` | empty states, action labels, disabled reasons, field labels, validation copy | route-scoped `admin_ui_config_entries` over backend product contract shape |
 | `options:<family>` | bounded status/severity/proof/work-state chips, procurement state, calendar tabs, and optional live-entity display overrides | backend enums/config, DB lookup tables, locations |
 | `defaults:<route_id>` | default tab, default sort, default page size, default scope mode | backend product contract |
 | `permissions` | visible/hidden/enabled/disabled actions and disabled reasons for actor role/scope | permissions module, role grants |
@@ -83,6 +85,13 @@ mutable display text. Split option groups by cardinality:
   present.
 - Do not make the frontend own a fallback label for live data. The fallback is
   backend row data, not a React constant.
+
+Stable UI strings that rarely change, such as nav titles, page titles, table
+labels, filter labels, empty states, disabled reasons, and chip/dropdown labels,
+are stored as tenant-scoped key/value rows in `admin_ui_config_entries` when
+they need runtime governance. The compiler applies those entries to the
+bootstrap contract once per request/cache miss. The frontend never fetches those
+keys independently per page.
 
 ## What Does Not Belong In The Config API
 
@@ -198,7 +207,8 @@ Implemented v1 sources:
 - `backend/internal/adminui/app` owns the compiler and stable product shape.
 - `backend/internal/adminui/adapters/postgres` reads tenant-scoped DB families:
   active parks, protocol categories, published SOP labels, active/review goat
-  breeds, and active status definitions for health/reproductive/defer options.
+  breeds, active status definitions for health/reproductive/defer options, and
+  active stable UI config entries from `admin_ui_config_entries`.
 - `backend/internal/adminui/adapters/http` passes authenticated request context
   from `httpmiddleware` into the compiler.
 - `apps/admin-web/components/admin-shell.tsx` derives top-bar parks from
@@ -218,6 +228,7 @@ Use explicit family revisions instead of guessing from response text.
 | `sops:<domain>` | max SOP definition/version row version for domain/scope |
 | `animal_stages` | max `animal_stage_lookup.row_version` or `updated_at` for tenant |
 | `source_vocab:<domain>` | max governed source vocabulary revision |
+| `admin-ui-config` | max `admin_ui_config_entries.row_version`/`updated_at` plus `admin_ui_config_family_revisions` for the tenant |
 
 If a table lacks `row_version`, use `updated_at` for v1 and add row versions in
 the owning module later. Do not introduce a frontend-side cache key to hide a
@@ -225,22 +236,78 @@ missing backend revision.
 
 ## Remaining Production Cache Follow-Up
 
-The current implementation uses an in-process 60 second cache and publishes a
-Redis TTL hint in the contract. Production Redis/Memorystore should cache by:
+The current implementation uses an in-process 60 second cache, publishes a Redis
+TTL hint in the contract, and includes DB revision inputs in the cache key so
+stale in-process content misses after DB family changes. Production
+Redis/Memorystore should cache by:
 
 ```text
 admin-web:<schema_version>:tenant:<tenant_id>:roles:<role_hash>:families:<contract_revision>
 ```
 
-Writes to locations, permissions, protocol config, and SOP publishing should
-emit family-specific invalidation events and/or bump a family revision row so
-Redis keys miss immediately. Until that event path lands, Postgres remains
-canonical and the in-process TTL bounds staleness.
+Writes to locations, permissions, protocol config, SOP publishing, animal
+stages, status vocabularies, feed items, and `admin_ui_config_entries` bump
+family revision rows and emit `config.changed` outbox events. Redis is still a
+future compiled-cache adapter; Postgres remains canonical and the in-process TTL
+bounds staleness if revision reads fail.
 
 ## Database Plan
 
-Phase 1 can compute revisions from existing tables and backend code hashes.
-Phase 2 should add a lightweight revision ledger:
+Implemented v1 computes revisions from existing tables/backend contract hashes
+and adds a tenant-scoped stable UI config table:
+
+```sql
+CREATE TABLE admin_ui_config_entries (
+  tenant_id uuid NOT NULL,
+  locale text NOT NULL DEFAULT 'default',
+  route_id text NOT NULL DEFAULT '',
+  config_key text NOT NULL,
+  config_value text NOT NULL,
+  value_kind text NOT NULL DEFAULT 'text',
+  status text NOT NULL DEFAULT 'active',
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  row_version int NOT NULL DEFAULT 1,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, locale, route_id, config_key)
+);
+```
+
+Stable UI config key patterns:
+
+```text
+navigation.footer
+top_bar.product_name
+top_bar.logo_text
+top_bar.park_selector.label
+top_bar.date_range_selector.label
+top_bar.scope_mode.<option_key>.<label|title|disabled_reason>
+chrome.copy.<copy_key>
+nav.primary.<id>.label
+nav.group.<id>.label
+nav.leaf.<id>.label
+page.<route_id>.<title|subtitle>
+page.title
+page.subtitle
+copy.<copy_key>
+section.<section_id>.title
+table.<table_id>.title
+table.<table_id>.column.<column_key>.label
+table.<table_id>.filter.<filter_key>.label
+option.<stable_ui_group_id>.<option_key>.<field_allowed_by_backend_policy>
+```
+
+`option.*` overlays are accepted only for option groups and fields classified
+in backend code as stable UI/product presentation. Presentation groups may allow
+`label`, `title`, `tone`, and/or `disabled_reason`; authoring/domain groups get
+no UI-config overlay unless a typed backend policy says that field is visual
+only. Config rows must not rewrite live or module-DB-owned groups such as park
+display chips, rule scopes, breeds, health statuses, SOP labels, or feed items;
+those labels come from canonical module tables and row/object data. Config rows
+also must not rewrite semantic metadata such as `source_systems.tone`, because
+that value drives publishability in the authoring UI.
+
+Implemented v1 also adds the lightweight revision ledger:
 
 ```sql
 CREATE TABLE admin_ui_config_family_revisions (
@@ -259,7 +326,10 @@ CREATE TABLE admin_ui_config_family_revisions (
 Rules:
 
 - The ledger is an invalidation pointer, not the source of displayed values.
-- Canonical values remain in module tables or backend contract code.
+- Canonical live/domain values remain in module tables.
+- Canonical stable UI config values live in `admin_ui_config_entries` when
+  governance/runtime edits are needed; backend code owns only the compile shape
+  and default product skeleton for missing optional overrides.
 - Module write paths bump their affected family key inside the same transaction
   or emit an outbox event consumed by a config revision worker.
 - Published immutable versions can be cached long because a new publish creates
@@ -271,8 +341,7 @@ Family keys:
 chrome
 page:action-center
 page:calendar
-options:process-integrity
-options:procurement
+admin-ui-config
 locations
 permissions
 protocols:vaccination
@@ -302,6 +371,7 @@ backend/internal/adminui/ports
 backend/internal/adminui/adapters/postgres
   revision queries
   DB-backed option groups: locations, animal stages, permissions, protocol/SOP families
+  DB-backed stable UI config entries: nav/page/copy/table/filter/chip labels
 
 backend/internal/adminui/adapters/redis
   compiled contract cache
@@ -324,12 +394,11 @@ route_id optional
 
 and return deterministic JSON plus metadata.
 
-The current static `Bootstrap()` implementation is only a phase-0 product
-contract. Production bootstrap must accept request context, authenticate the
-actor, resolve tenant/role/capabilities, and compile only the nav, pages,
-actions, park scope controls, and disabled reasons valid for that actor. Static
-person names such as role-preview actors must be replaced by authenticated actor
-metadata or a generic role-lens label when no person is available.
+Production bootstrap accepts request context, authenticates the actor, resolves
+tenant/role/capabilities, and compiles only the nav, pages, actions, park scope
+controls, and disabled reasons valid for that actor. Static person names such
+as role-preview actors must not appear; the role preview uses authenticated
+actor metadata or a generic role-lens label when no person is available.
 
 ## Cache Strategy
 
@@ -344,6 +413,9 @@ ttl = 30-120 seconds
 
 Invalidate by revision miss. Optional best-effort process-local clearing on
 `config.changed` events is allowed but not required for correctness.
+Current v1 probes `admin_ui_config_family_revisions` before full family loading,
+then serves the compiled in-process contract when tenant/role revisions are
+unchanged.
 
 ### Redis / Memorystore Cache
 
@@ -502,12 +574,18 @@ Done gate: current UI renders the same, generated clients pass drift checks.
 ### Phase 2 - DB-Backed Family Revisions
 
 - Add `admin_ui_config_family_revisions`.
+- Add `admin_ui_config_entries` for stable UI key/value labels and copy.
 - Wire same-transaction bumps or `config.changed` outbox events for locations,
   protocol publish, SOP publish, permissions, and animal stages.
 - Add config index endpoint.
 
 Done gate: changing any canonical config family changes the relevant revision
 without a backend deploy.
+
+Current status: DB table, revision ledger, outbox event emission, and bootstrap
+compiler integration are implemented. A separate config-index endpoint remains
+optional/future because `/admin-web/bootstrap` already includes family hashes
+and cache metadata.
 
 ### Phase 3 - Redis Compiled Cache
 
