@@ -60,6 +60,23 @@ The proof engine is reused across shifting, vaccination, health, treatment,
 death, abortion, attendance, procurement load, transit, arrival, dispatch, and
 exit proof.
 
+## Critical Guardrails Are Kernel Core
+
+High-risk actions are not ordinary edits. A wrong move can cause animal loss,
+disease spread, bad counts/feed, broken sale/allocation promises, missed
+treatment, stock misuse, customer promise failure, and leadership escalation.
+
+The generic guardrail engine contract lives in
+`context/architecture/operational-kernel-system-design.md`. Animal-operation
+policy packs live in `docs/features/critical-animal-action-guardrails.md`.
+Every future Movement, Health, Quarantine, ICU, Birth, Death, Feed,
+Procurement, Sale/Allocation, and Goat Passport phase must use those documents
+before implementation. Generic form submission or generic shifting approval is
+not enough when the destination, state, stock, task, or promise is critical;
+Goat OS must validate why the action is happening, what evidence supports it,
+what checks are created, who owns the next action, and which alert waterfall
+fires when an SLA is missed.
+
 ## Promise Safety Is A Cross-Phase Vertical Slice
 
 Goat OS must eventually answer a simple customer-facing question:

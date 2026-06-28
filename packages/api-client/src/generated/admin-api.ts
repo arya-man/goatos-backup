@@ -760,6 +760,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/{goat_id}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change goat health status and queue goat.health.changed vaccination rechecks. */
+        post: operations["healthGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/manual-campaigns": {
         parameters: {
             query?: never;
@@ -1731,6 +1748,15 @@ export interface components {
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
         };
+        HealthGoatRequest: {
+            /** @enum {string} */
+            health_status: "healthy" | "sick" | "under_treatment" | "recovering" | "quarantine" | "icu";
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
         RunVaccinationManualCampaignRequest: {
             /** Format: uuid */
             protocol_version_id: string;
@@ -1754,6 +1780,7 @@ export interface components {
             completed_at?: string;
             generated: number;
             deferred: number;
+            reopened: number;
             skipped_no_due_date: number;
             suppressed_by_trusted_history: number;
             /** Format: uuid */
@@ -1761,6 +1788,7 @@ export interface components {
             last_error?: string;
             result_generated: number;
             result_deferred: number;
+            result_reopened: number;
             result_skipped_no_due_date: number;
             result_suppressed_by_trusted_history: number;
         };
@@ -4570,6 +4598,39 @@ export interface operations {
         };
         responses: {
             /** @description Goat stage changed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    healthGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HealthGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat health changed or idempotently replayed. */
             200: {
                 headers: {
                     [name: string]: unknown;

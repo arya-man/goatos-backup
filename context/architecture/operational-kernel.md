@@ -38,6 +38,14 @@ This rule applies to PHC vaccination now and to future feed, breeding,
 procurement, parks, HR/people, farmer network, sales/commerce, and finance
 modules later.
 
+Critical guardrails are part of this kernel, not side workflows. Any high-risk
+state transition must go through a generic guardrail engine: source-backed
+reason, validation, proof, authority, obligations, deadline/escalation
+waterfall, audit, and read-model visibility. Animal-operation policy packs for
+quarantine entry/exit, ICU entry/exit, contagious-risk isolation, death
+reporting, birth, procurement arrival, sale/allocation blockers, and high-risk
+movement are tracked in `docs/features/critical-animal-action-guardrails.md`.
+
 For the concrete backend, frontend, infra, DLQ, SLA waterfall, and vertical
 plug-in system design, read
 `context/architecture/operational-kernel-system-design.md`.

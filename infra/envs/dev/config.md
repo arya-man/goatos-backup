@@ -35,6 +35,22 @@ manju@mesha.sg
 ravi@mesha.sg
 ```
 
+Seed the matching `auth_pending_email_grants` rows with the guarded helper, not
+with a schema migration:
+
+```bash
+GOATOS_ENV=dev \
+GOATOS_ALLOW_DEV_CLOUDSQL_TARGET=true \
+GOATOS_DEV_CLOUDSQL_CONNECTION_NAME=goatos-dev:asia-south1:<instance> \
+DATABASE_URL="<Cloud SQL socket /cloudsql/goatos-dev:asia-south1:<instance>>" \
+GOATOS_TENANT_ID="<admin tenant uuid>" \
+make seed-dev-email-grants
+```
+
+The target inserts the four emails above as tenant-scope `ceo_internal` grants;
+first verified sign-in claims the real `user_scope_grants` row for that Firebase
+subject.
+
 Admin-web sets `GOATOS_CANONICAL_DASHBOARD_HOST=dev.dashboard.mesha.sg` so raw
 Cloud Run dashboard URLs redirect to the custom host before login. The shared
 dev Cloud Run default URL should also stay disabled once the load balancer

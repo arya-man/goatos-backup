@@ -57,8 +57,6 @@ function badgeForKey(key: string, actionCenterBadge?: string, phcBadge?: string)
   return undefined;
 }
 
-const SCOPE_QUERY_KEYS = new Set(["scope_mode", "park", "range", "as_of", "date_from", "date_to", "domain"]);
-
 // Business date for the top bar. MUST be the operating-tenant timezone (IST, Asia/Kolkata) — using UTC
 // (`toISOString`) shows yesterday after midnight IST (e.g. 00:12 IST = previous UTC day). en-CA gives a
 // YYYY-MM-DD string; it's stable within an IST day so SSR and hydration agree.
@@ -161,8 +159,7 @@ export function MeshaShell({
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
   const defaultPark = parks[0] ?? null;
-  const explicitScopeMode = Boolean(searchParams?.has("scope_mode"));
-  const activeParkId = scope.parkId ?? (!explicitScopeMode ? defaultPark?.id : undefined);
+  const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
   const activeParkLabel = parkLabel(parks, activeParkId);
   const [navOpen, setNavOpen] = useState(false);
@@ -251,15 +248,6 @@ export function MeshaShell({
   }, [applyNavTrail, contract, popTrailForPath]);
 
   useEffect(() => {
-    if (explicitScopeMode || scope.parkId || !defaultPark) return;
-    const pageFilters: Record<string, string> = {};
-    searchParams?.forEach((value, key) => {
-      if (!SCOPE_QUERY_KEYS.has(key)) pageFilters[key] = value;
-    });
-    router.replace(scopeHref(pathname, scope, { park: defaultPark.id, mode: "park" }, pageFilters), { scroll: false });
-  }, [defaultPark, explicitScopeMode, pathname, router, scope, searchParams]);
-
-  useEffect(() => {
     let cancelled = false;
     fetch(navCountsHref, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
@@ -346,9 +334,9 @@ export function MeshaShell({
         {/* Topbar owns park/date scope only. The active module (PHC › Vaccination) is shown by the sidebar
             nav + the page crumb, so no module badge belongs here. Vaccination is a module under PHC, not
             an app-wide scope. */}
-        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). The shell defaults
-            to the first backend-returned tenant park when available; the links write the same backend-safe
-            scope params as the park picker, so the top bar and every scope-aware screen stay in sync. */}
+        {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Bare URLs stay
+            company-wide; choosing Park-wise writes the first backend-returned tenant park when available,
+            using the same backend-safe scope params as the park picker. */}
         <div className="parkpick" style={{ marginRight: 6 }}>
           <Link
             href={scopeHref(pathname, scope, { park: null, mode: "company" })}

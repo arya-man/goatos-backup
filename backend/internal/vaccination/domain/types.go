@@ -133,6 +133,7 @@ type GenerationRun struct {
 	CompletedAt                *time.Time
 	Generated                  int
 	Deferred                   int
+	Reopened                   int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int
 	CursorGoatID               string

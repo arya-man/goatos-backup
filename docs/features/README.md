@@ -10,6 +10,7 @@ contract, parity plan, and rollout gates before code starts.
 Current feature docs:
 
 - `docs/features/cutover-contract.md`
+- `docs/features/critical-animal-action-guardrails.md`
 - `docs/features/locations/AGENT-TASK.md`
 - `docs/features/locations/PRD.md`
 - `docs/features/locations/TRD.md`
@@ -49,6 +50,15 @@ Rules:
   implemented, reconciled, tested, and scalable. Pending, migration-only, or
   source-unavailable required sections may exist in internal/dev review, but
   they block production completion.
+- Critical guardrails are generic kernel capability, not per-feature hacks.
+  Follow `context/architecture/operational-kernel-system-design.md` for the
+  shared guardrail engine and
+  `docs/features/critical-animal-action-guardrails.md` for animal-operation
+  policy packs such as quarantine, ICU, death, movement, birth, health,
+  procurement, feed, and sale/allocation. Do not implement high-risk actions as
+  ordinary CRUD, generic form submission, or generic shifting without reason
+  validation, proof, authority, obligations, escalation, audit, and read-model
+  visibility.
 - Permission namespaces follow product ownership: dashboard/report permissions
   use `analytics.<feature>.*`, while master-data modules such as Locations use
   module namespaces such as `locations.*`. New features should state their

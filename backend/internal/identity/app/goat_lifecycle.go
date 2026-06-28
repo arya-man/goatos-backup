@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	moveGoatCommand  = "moveGoat"
-	exitGoatCommand  = "exitGoat"
-	stageGoatCommand = "stageGoat"
+	moveGoatCommand   = "moveGoat"
+	exitGoatCommand   = "exitGoat"
+	stageGoatCommand  = "stageGoat"
+	healthGoatCommand = "healthGoat"
 )
 
 type MoveGoatInput struct {
@@ -38,6 +39,15 @@ type ExitGoatInput struct {
 }
 
 type StageGoatInput struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+	GoatID         string
+	RawBody        []byte
+}
+
+type HealthGoatInput struct {
 	TenantID       string
 	ActorID        string
 	IdempotencyKey string
@@ -198,6 +208,56 @@ func (s *Service) StageGoat(ctx context.Context, input StageGoatInput) (*domain.
 	return adminGoatResponse(result, clientKey, input.TraceID), nil
 }
 
+func (s *Service) HealthGoat(ctx context.Context, input HealthGoatInput) (*domain.AdminGoatResponse, error) {
+	tenantID, actorID, clientKey, err := validateWriteHeaders(input.TenantID, input.ActorID, input.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	goatID := strings.TrimSpace(input.GoatID)
+	if !uuidPattern.MatchString(goatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a valid UUID")
+	}
+	body, err := decodeHealthGoat(input.RawBody)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateHealthGoat(body); err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, Internal("health goat request normalization failed")
+	}
+	route := "/admin/goats/{goat_id}/health"
+	requestHash, err := CanonicalRequestHashWithSubject(tenantID, healthGoatCommand, route, goatID, raw)
+	if err != nil {
+		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+	}
+	occurredAt := time.Now().UTC()
+	if body.OccurredAt != nil {
+		occurredAt = body.OccurredAt.UTC()
+	}
+	result, err := s.repo.HealthGoat(ctx, ports.HealthGoatCommand{
+		TenantID:             tenantID,
+		ActorID:              actorID,
+		ClientIdempotencyKey: clientKey,
+		StoredIdempotencyKey: fmt.Sprintf("%s:%s:%s:%s", tenantID, healthGoatCommand, goatID, clientKey),
+		IdempotencyScope:     healthGoatCommand,
+		RequestHash:          requestHash,
+		TraceID:              input.TraceID,
+		GoatID:               goatID,
+		HealthStatus:         strings.TrimSpace(body.HealthStatus),
+		Reason:               strings.TrimSpace(body.Reason),
+		OccurredAt:           occurredAt,
+		EvidenceRefs:         body.EvidenceRefs,
+		RowVersion:           body.RowVersion,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return adminGoatResponse(result, clientKey, input.TraceID), nil
+}
+
 func decodeMoveGoat(raw []byte) (*domain.MoveGoatRequest, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, BadRequest("invalid_json", "request body is required")
@@ -241,6 +301,23 @@ func decodeStageGoat(raw []byte) (*domain.StageGoatRequest, error) {
 	var body domain.StageGoatRequest
 	if err := decoder.Decode(&body); err != nil {
 		return nil, BadRequest("invalid_json", "request body must match StageGoatRequest")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return &body, nil
+}
+
+func decodeHealthGoat(raw []byte) (*domain.HealthGoatRequest, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var body domain.HealthGoatRequest
+	if err := decoder.Decode(&body); err != nil {
+		return nil, BadRequest("invalid_json", "request body must match HealthGoatRequest")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
@@ -307,6 +384,30 @@ func validateStageGoat(body *domain.StageGoatRequest) error {
 		return BadRequest("invalid_row_version", "row_version must be positive")
 	}
 	return validateEvidenceRefs(body.EvidenceRefs, true)
+}
+
+func validateHealthGoat(body *domain.HealthGoatRequest) error {
+	body.HealthStatus = strings.TrimSpace(body.HealthStatus)
+	body.Reason = strings.TrimSpace(body.Reason)
+	if !allowedHealthStatuses[body.HealthStatus] {
+		return BadRequest("invalid_health_status", "health_status must be healthy, sick, under_treatment, recovering, quarantine, or icu")
+	}
+	if len(body.Reason) < 3 || len(body.Reason) > 500 {
+		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
+	}
+	if body.RowVersion < 1 {
+		return BadRequest("invalid_row_version", "row_version must be positive")
+	}
+	return validateEvidenceRefs(body.EvidenceRefs, true)
+}
+
+var allowedHealthStatuses = map[string]bool{
+	"healthy":         true,
+	"sick":            true,
+	"under_treatment": true,
+	"recovering":      true,
+	"quarantine":      true,
+	"icu":             true,
 }
 
 var allowedExitReasons = map[string]bool{

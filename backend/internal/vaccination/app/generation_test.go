@@ -410,6 +410,7 @@ func (r *generationRunRecorderFake) StartGenerationRun(_ context.Context, in dom
 			run.CompletedAt = nil
 			run.Generated = 0
 			run.Deferred = 0
+			run.Reopened = 0
 			run.SkippedNoDueDate = 0
 			run.SuppressedByTrustedHistory = 0
 			run.LastError = ""
@@ -444,6 +445,7 @@ func (r *generationRunRecorderFake) FinishGenerationRun(_ context.Context, tenan
 		run.CompletedAt = &completedAt
 		run.Generated = result.Generated
 		run.Deferred = result.Deferred
+		run.Reopened = result.Reopened
 		run.SkippedNoDueDate = result.SkippedNoDueDate
 		run.SuppressedByTrustedHistory = result.SuppressedByTrustedHistory
 		run.LastError = lastError

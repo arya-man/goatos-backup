@@ -23,8 +23,8 @@ const EventGoatLocationChanged = "goat.location.changed"
 // EventGoatHealthChanged re-evaluates rules after a goat's health status changes (e.g. sick →
 // recovered) WITHOUT a stage/location move. Pure health recovery is not covered by stage/location
 // events, so the recheck must consume this dedicated signal to reopen health-deferred obligations.
-// The consumer is wired here; the producer (a health-status mutation command) is emitted by whichever
-// module owns health writes — until then this subscription is harmless (no producer → never fires).
+// The identity health-status mutation command durably emits this event through goat_identity_events
+// and the outbox, so local and Pub/Sub delivery both drive the same recheck path.
 const EventGoatHealthChanged = "goat.health.changed"
 
 // EventManualCampaignRequested intentionally fires manual_campaign schedule rows for one published

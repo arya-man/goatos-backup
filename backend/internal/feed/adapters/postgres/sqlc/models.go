@@ -2165,6 +2165,7 @@ type VaccinationGenerationRun struct {
 	CreatedAt                     pgtype.Timestamptz
 	UpdatedAt                     pgtype.Timestamptz
 	RowVersion                    int32
+	ReopenedCount                 int32
 }
 
 type Vaccine struct {

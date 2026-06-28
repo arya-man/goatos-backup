@@ -2131,7 +2131,7 @@ CREATE TABLE public.identity_decisions (
     CONSTRAINT identity_decisions_confidence_check CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))),
     CONSTRAINT identity_decisions_decided_by_type_check CHECK ((decided_by_type = ANY (ARRAY['human'::text, 'system_rule'::text, 'import_policy'::text, 'ai_proposal'::text]))),
     CONSTRAINT identity_decisions_decision_state_check CHECK ((decision_state = ANY (ARRAY['proposed'::text, 'approved'::text, 'rejected'::text, 'needs_review'::text]))),
-    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text, 'stage_goat'::text])))
+    CONSTRAINT identity_decisions_decision_type_check CHECK ((decision_type = ANY (ARRAY['create_goat'::text, 'attach_identifier'::text, 'retire_identifier'::text, 'mark_identifier_disputed'::text, 'merge_goats'::text, 'batch_merge_goats'::text, 'reject_match'::text, 'request_field_verification'::text, 'resolve_correction_request'::text, 'move_goat'::text, 'exit_goat'::text, 'stage_goat'::text, 'health_goat'::text])))
 );
 
 
@@ -4001,7 +4001,8 @@ CREATE TABLE public.vaccination_generation_runs (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT vaccination_generation_runs_counts_check CHECK (((generated_count >= 0) AND (deferred_count >= 0) AND (skipped_no_due_date_count >= 0) AND (suppressed_trusted_history_count >= 0))),
+    reopened_count integer DEFAULT 0 NOT NULL,
+    CONSTRAINT vaccination_generation_runs_counts_check CHECK (((generated_count >= 0) AND (deferred_count >= 0) AND (reopened_count >= 0) AND (skipped_no_due_date_count >= 0) AND (suppressed_trusted_history_count >= 0))),
     CONSTRAINT vaccination_generation_runs_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT vaccination_generation_runs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT vaccination_generation_runs_trigger_check CHECK ((trigger_type = ANY (ARRAY['publish'::text, 'cli'::text, 'goat_created'::text, 'stage_changed'::text, 'manual_campaign'::text, 'retry'::text])))
@@ -7423,6 +7424,13 @@ CREATE INDEX identity_match_candidates_queue_idx ON public.identity_match_candid
 --
 
 CREATE INDEX inventory_stock_fefo_idx ON public.inventory_stock USING btree (tenant_id, location_id, item_id, expiry_date) WHERE (quantity_in_stock > (0)::numeric);
+
+
+--
+-- Name: inventory_stock_movements_batch_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX inventory_stock_movements_batch_idx ON public.inventory_stock_movements USING btree (tenant_id, batch_id) WHERE (batch_id IS NOT NULL);
 
 
 --

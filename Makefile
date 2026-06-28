@@ -1,6 +1,8 @@
 SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
+GOATOS_LOCAL_TENANT_ID ?= 00000000-0000-4000-8000-000000000001
+GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= abhishek@mesha.sg aryaman@mesha.sg manju@mesha.sg ravi@mesha.sg
 
-.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans seed-calendar-vaccination-dev admin-web-e2e-smoke replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: check guardrails test api-client-generate api-client-check sqlc-generate sqlc-check validate-migrations validate-sqlc-plans seed-calendar-vaccination-dev seed-dev-email-grants admin-web-e2e-smoke replay-live replay-delta docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 
 setup-crg:
 	@echo "Installing code-review-graph for structural code graph (Layer 1)..."
@@ -74,6 +76,9 @@ validate-sqlc-plans:
 
 seed-calendar-vaccination-dev:
 	cd backend && go run ./cmd/seed-calendar-vaccination-dev
+
+seed-dev-email-grants:
+	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
 admin-web-e2e-smoke:
 	bash tools/dev/admin-web-e2e-smoke.sh

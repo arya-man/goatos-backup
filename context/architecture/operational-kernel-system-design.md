@@ -61,6 +61,67 @@ claim "alerts", "missed work", "shift handling", "exit handling", or "SLA
 escalation" unless the runtime path is implemented, wired, observable, and
 covered by tests.
 
+## Generic Guardrail Engine
+
+Guardrails are kernel decision points before or during critical state
+transitions. They are feature agnostic. The core engine must not know special
+case words such as "quarantine", "birth", "feed", or "sale". It knows the
+shape of a critical action:
+
+- action type
+- subject references such as goat, batch, shed, load, person, stock item, task,
+  or booking
+- requested transition
+- tenant, park, shed, cohort, date, and owner scope
+- actor, authority, source, and idempotency key
+- linked evidence
+- policy pack and policy version
+- decision, disabled reason, approval plan, obligation plan, proof policy,
+  escalation plan, audit, outbox, and projections
+
+Generic evaluation flow:
+
+```text
+command
+  -> canonical action request
+  -> policy-pack selection
+  -> scoped evidence fetch
+  -> deterministic guardrail evaluation
+  -> decision: allow | block | require_approval | require_exception | defer |
+               create_process_exception
+  -> transaction writes request + evaluation + audit + outbox
+  -> approvals / obligations / proof / notifications / projections
+```
+
+The guardrail engine follows SOLID principles:
+
+| Principle | Goat OS rule |
+| --- | --- |
+| Single Responsibility | The engine orchestrates evaluation and writes decisions. Policy packs own domain rules. Evidence adapters fetch facts. Approval, proof, obligation, notification, and projection components stay separate. |
+| Open/Closed | New critical features are added by registering new policy packs and adapters, not by editing a growing `if action == ...` block in the kernel. |
+| Liskov Substitution | Every policy pack obeys the same contract. A movement pack, health pack, feed pack, or sale pack can be evaluated, replayed, versioned, disabled, and audited through the same engine. |
+| Interface Segregation | Policy packs depend on small ports such as `EvidenceReader`, `PolicyEvaluator`, `ApprovalPlanner`, `ObligationPlanner`, `ProofPlanner`, `EscalationPlanner`, and `ProjectionWriter`, instead of one oversized service. |
+| Dependency Inversion | Domain rules depend on interfaces and versioned configuration. Slack, FCM, GCS, Pub/Sub, BigQuery, Redis, and vendor SDKs are replaceable adapters at the edge. |
+
+A policy pack must declare:
+
+- owned action types and transitions
+- subject types and evidence required to evaluate them
+- allowed reasons, blocks, warnings, exception paths, and disabled reasons
+- approval/authority policy
+- proof and verification policy
+- obligation/task generation policy
+- SLA/reminder/escalation policy
+- read-model/projection requirements
+- idempotency, replay, and migration behavior
+- test fixtures for allow, block, approval, exception, replay, and scale cases
+
+Examples of policy packs include movement/shifting, quarantine/ICU, death,
+health diagnosis/treatment/close, birth/abortion, procurement/arrival, feed
+direction/bridge ration, sale/allocation, stock issue/return, and workforce
+attendance/backfill. The point is not to build one engine per feature. The point
+is to build one guardrail engine and plug domain packs into it.
+
 ## Backend Architecture
 
 Goat OS stays a Go modular monolith with strict module boundaries. The kernel
@@ -135,6 +196,14 @@ Scale rules:
 
 - All hot reads and workers are scoped by tenant, park, shed, cohort, owner,
   status, date, or cursor. No API path scans the full herd.
+- Guardrail evaluation uses scoped evidence by explicit subject identifiers and
+  indexes. Cross-herd or cross-park risk signals must come from maintained
+  projections, not synchronous full-herd scans.
+- Critical batch actions run as bounded preflight/evaluation jobs with progress,
+  partial failure state, and idempotent apply steps. A user action must never
+  create unbounded per-goat work in one request path.
+- Policy versions are immutable for replay. Re-evaluation records must explain
+  whether the old policy or current policy was used.
 - Use keyset pagination for large lists and stable sort keys for operational
   queues.
 - High-volume event, audit, notification, history, media, and telemetry-like
@@ -264,6 +333,9 @@ must be able to show this state without reading notification vendor logs.
 - No worker scans the whole herd or creates unbounded goroutines per goat.
 - No module creates a private scheduler, private notification engine, private
   proof engine, or private task engine.
+- No module creates a private critical-action guardrail engine. Critical
+  movement, health, feed, birth, procurement, sale, death, and workforce actions
+  plug into the shared guardrail engine through policy packs.
 - AI can suggest, summarize, triage, and detect anomalies, but it cannot become
   source of truth or silently complete work.
 - Any production-readiness claim must include code wiring, tests, migration/API

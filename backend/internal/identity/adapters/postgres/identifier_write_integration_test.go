@@ -159,6 +159,30 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, staged.Events[0].EventID, created.Goat.GoatID, "goat.stage_changed", created.Goat.GoatID)
 	})
 
+	t.Run("admin goat health writes goat.health.changed outbox for recovery recheck", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-health-0001", "rfid-admin-health-0001", "admin-health-oldtag-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for health: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET health_status = 'sick',
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID); err != nil {
+			t.Fatalf("seed sick health: %v", err)
+		}
+		cmd := healthGoatCommand(t, "idem-health-goat-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		healed, err := repo.HealthGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("HealthGoat: %v", err)
+		}
+		if healed.Goat.HealthStatus == nil || *healed.Goat.HealthStatus != "healthy" || healed.Events[0].EventType != "goat.health.changed" {
+			t.Fatalf("unexpected health result: %#v", healed)
+		}
+		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, healed.Events[0].EventID, created.Goat.GoatID, "goat.health.changed", created.Goat.GoatID)
+	})
+
 	t.Run("admin goat create duplicate rfid rolls back goat idempotency audit and outbox", func(t *testing.T) {
 		first := adminGoatCreateCommand(t, "idem-create-goat-dupe-0001", "rfid-admin-create-dupe", "admin-create-oldtag-dupe-0001")
 		if _, err := repo.CreateAdminGoat(ctx, first); err != nil {
@@ -859,6 +883,46 @@ func stageGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.St
 		ManagementStage:      "weaner",
 		Reason:               reason,
 		OccurredAt:           time.Date(2026, time.June, 26, 11, 0, 0, 0, time.UTC),
+		EvidenceRefs:         evidenceRefs,
+		RowVersion:           rowVersion,
+	}
+}
+
+func healthGoatCommand(t *testing.T, key, goatID string, rowVersion int) ports.HealthGoatCommand {
+	t.Helper()
+	reason := "Synthetic health recovery for vaccination rule recheck."
+	sourceSystem := "synthetic_admin_register"
+	evidenceRefs := []domain.EvidenceRef{{
+		EvidenceType: "source_record",
+		EvidenceID:   "synthetic-health-" + key,
+		SourceSystem: &sourceSystem,
+	}}
+	body := map[string]any{
+		"health_status": "healthy",
+		"reason":        reason,
+		"evidence_refs": evidenceRefs,
+		"row_version":   rowVersion,
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := app.CanonicalRequestHashWithSubject(meshaTenant, "healthGoat", "/admin/goats/{goat_id}/health", goatID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.HealthGoatCommand{
+		TenantID:             meshaTenant,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: meshaTenant + ":healthGoat:" + goatID + ":" + key,
+		IdempotencyScope:     "healthGoat",
+		RequestHash:          hash,
+		TraceID:              "trace-" + key,
+		GoatID:               goatID,
+		HealthStatus:         "healthy",
+		Reason:               reason,
+		OccurredAt:           time.Date(2026, time.June, 26, 12, 0, 0, 0, time.UTC),
 		EvidenceRefs:         evidenceRefs,
 		RowVersion:           rowVersion,
 	}

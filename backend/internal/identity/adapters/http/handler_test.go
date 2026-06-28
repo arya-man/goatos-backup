@@ -189,6 +189,36 @@ func TestStageGoatContractShape(t *testing.T) {
 	}
 }
 
+func TestHealthGoatContractShape(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(app.NewService(&handlerRepo{})))
+	handler := httpmiddleware.RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mux)
+
+	body := `{"health_status":"healthy","reason":"recovered after PHC treatment","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-1"}],"row_version":5}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/goats/10000000-0000-4000-8000-000000000001/health", strings.NewReader(body))
+	req.Header.Set("X-GoatOS-Tenant-ID", "00000000-0000-4000-8000-000000000001")
+	req.Header.Set("X-GoatOS-Actor-ID", "00000000-0000-4000-8000-000000000002")
+	req.Header.Set("Idempotency-Key", "idem-health-handler-0001")
+	req.Header.Set("X-Request-ID", "req-health")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response domain.AdminGoatResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(response.Events) != 1 || response.Events[0].EventType != "goat.health.changed" {
+		t.Fatalf("unexpected health response: %#v", response)
+	}
+	if response.Goat.HealthStatus == nil || *response.Goat.HealthStatus != "healthy" {
+		t.Fatalf("health status = %#v", response.Goat.HealthStatus)
+	}
+}
+
 func TestAddGoatIdentifierRequiresIdempotencyKey(t *testing.T) {
 	rec := postAddGoatIdentifier(t, "90000000-0000-4000-8000-000000000001", "", validAddIdentifierBody())
 	if rec.Code != http.StatusBadRequest {
@@ -461,6 +491,17 @@ func (h handlerRepo) StageGoat(_ context.Context, cmd ports.StageGoatCommand) (*
 		Identifiers: []domain.GoatIdentifier{},
 		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000203", "stage_goat", "goat_stage_changed"),
 		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000203", EventType: "goat.stage_changed"}},
+	}, nil
+}
+
+func (h handlerRepo) HealthGoat(_ context.Context, cmd ports.HealthGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	goat := handlerPassport().Summary
+	goat.HealthStatus = strPtr(cmd.HealthStatus)
+	return &ports.AdminGoatMutationResult{
+		Goat:        goat,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000204", "health_goat", "goat_health_changed"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000204", EventType: "goat.health.changed"}},
 	}, nil
 }
 

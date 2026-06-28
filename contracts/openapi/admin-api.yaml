@@ -1625,6 +1625,38 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats/{goat_id}/health:
+    post:
+      tags:
+        - Admin Goats
+      operationId: healthGoat
+      summary: Change goat health status and queue goat.health.changed vaccination rechecks.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HealthGoatRequest"
+      responses:
+        "200":
+          description: Goat health changed or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /vaccination/manual-campaigns:
     post:
       tags:
@@ -4418,6 +4450,39 @@ components:
         row_version:
           type: integer
           minimum: 1
+    HealthGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - health_status
+        - reason
+        - evidence_refs
+        - row_version
+      properties:
+        health_status:
+          type: string
+          enum:
+            - healthy
+            - sick
+            - under_treatment
+            - recovering
+            - quarantine
+            - icu
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+        occurred_at:
+          type: string
+          format: date-time
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
     RunVaccinationManualCampaignRequest:
       type: object
       additionalProperties: false
@@ -4448,10 +4513,12 @@ components:
         - started_at
         - generated
         - deferred
+        - reopened
         - skipped_no_due_date
         - suppressed_by_trusted_history
         - result_generated
         - result_deferred
+        - result_reopened
         - result_skipped_no_due_date
         - result_suppressed_by_trusted_history
       properties:
@@ -4486,6 +4553,9 @@ components:
         deferred:
           type: integer
           minimum: 0
+        reopened:
+          type: integer
+          minimum: 0
         skipped_no_due_date:
           type: integer
           minimum: 0
@@ -4501,6 +4571,9 @@ components:
           type: integer
           minimum: 0
         result_deferred:
+          type: integer
+          minimum: 0
+        result_reopened:
           type: integer
           minimum: 0
         result_skipped_no_due_date:

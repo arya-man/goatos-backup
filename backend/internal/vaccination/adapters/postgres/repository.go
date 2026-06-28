@@ -78,6 +78,7 @@ SET status = 'running',
     completed_at = NULL,
     generated_count = 0,
     deferred_count = 0,
+    reopened_count = 0,
     skipped_no_due_date_count = 0,
     suppressed_trusted_history_count = 0,
     cursor_goat_id = NULL,
@@ -102,7 +103,7 @@ WHERE (
   )
 RETURNING run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
           COALESCE(trigger_ref, ''), status, started_at, completed_at,
-          generated_count, deferred_count, skipped_no_due_date_count,
+          generated_count, deferred_count, reopened_count, skipped_no_due_date_count,
           suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
           COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')`,
 		in.TenantID, in.ProtocolVersionID, in.TriggerType, in.TriggerRef, in.StartedAt, in.IdempotencyKey, string(runContext), in.RequestHash)
@@ -141,16 +142,17 @@ SET status = $3,
     completed_at = $4::timestamptz,
     generated_count = $5,
     deferred_count = $6,
-    skipped_no_due_date_count = $7,
-    suppressed_trusted_history_count = $8,
-    cursor_goat_id = nullif($9::text, '')::uuid,
-    last_error = nullif($10, ''),
+    reopened_count = $7,
+    skipped_no_due_date_count = $8,
+    suppressed_trusted_history_count = $9,
+    cursor_goat_id = nullif($10::text, '')::uuid,
+    last_error = nullif($11, ''),
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND run_id = $2::uuid`,
 		tenantID, runID, status, completedAt, result.Generated, result.Deferred,
-		result.SkippedNoDueDate, result.SuppressedByTrustedHistory, cursorGoatID, lastError)
+		result.Reopened, result.SkippedNoDueDate, result.SuppressedByTrustedHistory, cursorGoatID, lastError)
 	if err != nil {
 		return fmt.Errorf("vaccination: finish generation run: %w", err)
 	}
@@ -178,7 +180,7 @@ func (r *Repository) getGenerationRunByKey(ctx context.Context, tenantID, key st
 	err := r.pool.QueryRow(ctx, `
 SELECT run_id::text, tenant_id::text, protocol_version_id::text, trigger_type,
        COALESCE(trigger_ref, ''), status, started_at, completed_at,
-       generated_count, deferred_count, skipped_no_due_date_count,
+       generated_count, deferred_count, reopened_count, skipped_no_due_date_count,
        suppressed_trusted_history_count, COALESCE(cursor_goat_id::text, ''),
        COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')
 FROM vaccination_generation_runs
@@ -193,6 +195,7 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, key).Scan(
 		&run.CompletedAt,
 		&run.Generated,
 		&run.Deferred,
+		&run.Reopened,
 		&run.SkippedNoDueDate,
 		&run.SuppressedByTrustedHistory,
 		&run.CursorGoatID,
@@ -226,6 +229,7 @@ func scanGenerationRun(row generationRunScanner) (domain.GenerationRun, error) {
 		&run.CompletedAt,
 		&run.Generated,
 		&run.Deferred,
+		&run.Reopened,
 		&run.SkippedNoDueDate,
 		&run.SuppressedByTrustedHistory,
 		&run.CursorGoatID,
@@ -866,10 +870,10 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 // matching protocol rule for this goat as of this generation run, so SM-1 must not re-issue the dose.
 // Two trusted sources suppress due work:
 //  1. Reviewed supplier/HF evidence (procurement_hf_vaccination_evidence, review_status='trusted').
-//  2. Accepted Goat OS administrations (vaccination_completions, status='accepted') for the SAME
-//     protocol (protocol_id) and dose_code — matched across protocol versions so that publishing a
-//     new version of a protocol the goat already completed does not duplicate the dose (version
-//     change / catch-up dedupe).
+//  2. Accepted and verified Goat OS administrations (vaccination_completions, status='accepted',
+//     verified_at set) for the SAME protocol (protocol_id) and dose_code — matched across protocol
+//     versions so that publishing a new version of a protocol the goat already completed does not
+//     duplicate the dose (version change / catch-up dedupe).
 //
 // Imported/rejected/conflicting/duplicate rows, future administrations, and future reviews never
 // suppress due work.
@@ -939,6 +943,7 @@ SELECT (
     WHERE vc.tenant_id = $1
       AND vc.goat_id = $2
       AND vc.status = 'accepted'
+      AND vc.verified_at IS NOT NULL
       AND cpr.dose_code = $5
       AND cpv.protocol_id = (
         SELECT protocol_id
@@ -947,6 +952,7 @@ SELECT (
       )
       AND vc.administered_at <= $6::timestamptz
       AND vc.administered_at <= $7::timestamptz
+      AND vc.verified_at <= $7::timestamptz
   )
 )`, tenant, goat, version, rule, doseCode, dueAt, generationAt).Scan(&exists); err != nil {
 		return false, fmt.Errorf("vaccination: trusted completion evidence: %w", err)

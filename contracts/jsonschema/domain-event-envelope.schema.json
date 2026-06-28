@@ -45,6 +45,7 @@
         "goat.exited",
         "goat.location.changed",
         "goat.stage_changed",
+        "goat.health.changed",
         "goat.shifted",
         "identity.correction_request.created",
         "identity.correction_request.updated",

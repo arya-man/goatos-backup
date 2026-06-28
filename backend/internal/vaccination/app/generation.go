@@ -545,6 +545,7 @@ func generationResultFromRun(run domain.GenerationRun) domain.GenerateResult {
 	return domain.GenerateResult{
 		Generated:                  run.Generated,
 		Deferred:                   run.Deferred,
+		Reopened:                   run.Reopened,
 		SkippedNoDueDate:           run.SkippedNoDueDate,
 		SuppressedByTrustedHistory: run.SuppressedByTrustedHistory,
 	}

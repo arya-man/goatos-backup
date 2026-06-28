@@ -134,6 +134,22 @@ type StageGoatCommand struct {
 	RowVersion           int
 }
 
+type HealthGoatCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	HealthStatus         string
+	Reason               string
+	OccurredAt           time.Time
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
 type AdminGoatCreateIdentifier struct {
 	IdentifierType  string
 	IdentifierValue string
@@ -215,5 +231,6 @@ type Repository interface {
 	MoveGoat(ctx context.Context, cmd MoveGoatCommand) (*AdminGoatMutationResult, error)
 	ExitGoat(ctx context.Context, cmd ExitGoatCommand) (*AdminGoatMutationResult, error)
 	StageGoat(ctx context.Context, cmd StageGoatCommand) (*AdminGoatMutationResult, error)
+	HealthGoat(ctx context.Context, cmd HealthGoatCommand) (*AdminGoatMutationResult, error)
 	Ping(ctx context.Context) error
 }

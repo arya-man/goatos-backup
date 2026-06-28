@@ -473,7 +473,33 @@ func TestStageGoatBuildsLifecycleCommand(t *testing.T) {
 	}
 }
 
-func TestMoveExitAndStageRequireEvidence(t *testing.T) {
+func TestHealthGoatBuildsLifecycleCommand(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+	input := HealthGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-health-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"health_status":"healthy","reason":"recovered after PHC treatment","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-1"}],"row_version":10}`),
+	}
+	result, err := svc.HealthGoat(context.Background(), input)
+	if err != nil {
+		t.Fatalf("HealthGoat error = %v", err)
+	}
+	if result.Events[0].EventType != "goat.health.changed" {
+		t.Fatalf("event type = %s", result.Events[0].EventType)
+	}
+	if repo.lastHealthGoatCmd.HealthStatus != "healthy" || repo.lastHealthGoatCmd.RowVersion != 10 {
+		t.Fatalf("health command = %#v", repo.lastHealthGoatCmd)
+	}
+	if repo.lastHealthGoatCmd.StoredIdempotencyKey == "" || repo.lastHealthGoatCmd.RequestHash == "" {
+		t.Fatalf("expected idempotency and request hash, got %#v", repo.lastHealthGoatCmd)
+	}
+}
+
+func TestMoveExitStageAndHealthRequireEvidence(t *testing.T) {
 	svc := NewService(&fakeRepo{goats: map[string]*domain.GoatPassport{}})
 	_, err := svc.MoveGoat(context.Background(), MoveGoatInput{
 		TenantID:       testTenant,
@@ -504,6 +530,16 @@ func TestMoveExitAndStageRequireEvidence(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("StageGoat expected evidence error")
+	}
+	_, err = svc.HealthGoat(context.Background(), HealthGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-health-0002",
+		GoatID:         goatA,
+		RawBody:        []byte(`{"health_status":"healthy","reason":"missing evidence","row_version":1}`),
+	})
+	if err == nil {
+		t.Fatal("HealthGoat expected evidence error")
 	}
 }
 
@@ -576,6 +612,7 @@ type fakeRepo struct {
 	lastMoveGoatCmd             ports.MoveGoatCommand
 	lastExitGoatCmd             ports.ExitGoatCommand
 	lastStageGoatCmd            ports.StageGoatCommand
+	lastHealthGoatCmd           ports.HealthGoatCommand
 	validateAdminGoatCreateFunc func(ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error)
 	validateAdminGoatCreateCmds []ports.ValidateAdminGoatCreateCommand
 	createAdminGoatResult       *ports.AdminGoatMutationResult
@@ -735,6 +772,25 @@ func (f *fakeRepo) StageGoat(_ context.Context, cmd ports.StageGoatCommand) (*po
 			CreatedAt:      time.Now().UTC(),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000203", EventType: "goat.stage_changed"}},
+	}, nil
+}
+
+func (f *fakeRepo) HealthGoat(_ context.Context, cmd ports.HealthGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	f.lastHealthGoatCmd = cmd
+	out := summary(cmd.GoatID, "G-000001", "clean")
+	out.HealthStatus = strPtr(cmd.HealthStatus)
+	return &ports.AdminGoatMutationResult{
+		Goat:        out,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000204",
+			DecisionType:   "health_goat",
+			DecisionResult: "goat_health_changed",
+			DecisionState:  "approved",
+			PolicyVersion:  "goat-lifecycle-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000204", EventType: "goat.health.changed"}},
 	}, nil
 }
 

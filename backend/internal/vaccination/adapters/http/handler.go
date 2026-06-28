@@ -127,12 +127,14 @@ type manualCampaignRunResponse struct {
 	CompletedAt                      *time.Time `json:"completed_at,omitempty"`
 	Generated                        int        `json:"generated"`
 	Deferred                         int        `json:"deferred"`
+	Reopened                         int        `json:"reopened"`
 	SkippedNoDueDate                 int        `json:"skipped_no_due_date"`
 	SuppressedByTrustedHistory       int        `json:"suppressed_by_trusted_history"`
 	CursorGoatID                     string     `json:"cursor_goat_id,omitempty"`
 	LastError                        string     `json:"last_error,omitempty"`
 	ResultGenerated                  int        `json:"result_generated"`
 	ResultDeferred                   int        `json:"result_deferred"`
+	ResultReopened                   int        `json:"result_reopened"`
 	ResultSkippedNoDueDate           int        `json:"result_skipped_no_due_date"`
 	ResultSuppressedByTrustedHistory int        `json:"result_suppressed_by_trusted_history"`
 }
@@ -198,12 +200,14 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 		CompletedAt:                      run.CompletedAt,
 		Generated:                        run.Generated,
 		Deferred:                         run.Deferred,
+		Reopened:                         run.Reopened,
 		SkippedNoDueDate:                 run.SkippedNoDueDate,
 		SuppressedByTrustedHistory:       run.SuppressedByTrustedHistory,
 		CursorGoatID:                     run.CursorGoatID,
 		LastError:                        run.LastError,
 		ResultGenerated:                  result.Generated,
 		ResultDeferred:                   result.Deferred,
+		ResultReopened:                   result.Reopened,
 		ResultSkippedNoDueDate:           result.SkippedNoDueDate,
 		ResultSuppressedByTrustedHistory: result.SuppressedByTrustedHistory,
 	})

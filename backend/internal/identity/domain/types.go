@@ -222,6 +222,14 @@ type StageGoatRequest struct {
 	RowVersion      int           `json:"row_version"`
 }
 
+type HealthGoatRequest struct {
+	HealthStatus string        `json:"health_status"`
+	Reason       string        `json:"reason"`
+	OccurredAt   *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs []EvidenceRef `json:"evidence_refs"`
+	RowVersion   int           `json:"row_version"`
+}
+
 type AdminGoatBulkRowResult struct {
 	RowNumber        int                     `json:"row_number"`
 	Decision         string                  `json:"decision"`
