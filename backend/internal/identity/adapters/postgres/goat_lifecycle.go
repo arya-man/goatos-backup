@@ -402,6 +402,9 @@ func (r *Repository) HealthGoat(ctx context.Context, cmd ports.HealthGoatCommand
 	if state.HealthStatus == cmd.HealthStatus {
 		return nil, ports.ErrWriteConflict
 	}
+	if criticalHealthStatus(state.HealthStatus) || criticalHealthStatus(cmd.HealthStatus) {
+		return nil, ports.ErrGuardrailRequired
+	}
 	if _, err := tx.Exec(ctx, `
 UPDATE goats
 SET health_status = $3,
@@ -746,6 +749,15 @@ FOR UPDATE`, tenantID, goatID).Scan(
 func exitedLifecycleStatus(status string) bool {
 	switch status {
 	case "dead", "sold", "culled", "transferred", "lost", "merged", "inactive":
+		return true
+	default:
+		return false
+	}
+}
+
+func criticalHealthStatus(status string) bool {
+	switch status {
+	case "quarantine", "icu":
 		return true
 	default:
 		return false

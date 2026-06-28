@@ -35,6 +35,9 @@ General/Slack source findings
 Customer promise safety source findings
   context/source-findings/customer-promise-safety-findings.md
 
+Live legacy critical guardrails findings
+  context/source-findings/live-legacy-critical-guardrails-2026-06-28.md
+
 Final architecture
   context/architecture/final-architecture.md
 

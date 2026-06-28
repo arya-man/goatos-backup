@@ -666,7 +666,7 @@ export function RuleEditorModal({
                     .map((session, i) => (
                       <tr key={`${session}-${i}`}>
                         <td className="mono">{session}</td>
-                        <td>{feed.feedItem}</td>
+                        <td>{optionLabel(pageContract, "feed_items", feed.feedItem)}</td>
                         <td>
                           {feed.quantity} {feed.unit}
                         </td>

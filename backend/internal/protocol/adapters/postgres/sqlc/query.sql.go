@@ -159,17 +159,23 @@ func (q *Queries) ListActiveAnimalStages(ctx context.Context, arg ListActiveAnim
 }
 
 const listEffectiveVaccinationVersionsForGoat = `-- name: ListEffectiveVaccinationVersionsForGoat :many
+WITH effective_clock AS (
+  SELECT ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AS business_date
+)
 SELECT DISTINCT ON (pv.protocol_id)
        pv.protocol_version_id::text AS protocol_version_id
 FROM protocol_versions pv
 JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+CROSS JOIN effective_clock ec
 WHERE pv.tenant_id = $1
   AND pv.status = 'published'
   AND pd.category = 'vaccination'
-  AND pv.effective_from <= ($2::timestamptz)::date
-  AND (pv.effective_to IS NULL OR pv.effective_to > ($2::timestamptz)::date)
+  -- Protocol dates are business-calendar dates for the operating tenant; use Asia/Kolkata explicitly
+  -- so a DB session timezone cannot select yesterday's version during cutover-day evening UTC.
+  AND pv.effective_from <= ec.business_date
+  AND (pv.effective_to IS NULL OR pv.effective_to > ec.business_date)
   AND (pv.scope_type = 'tenant'
-       OR (pv.scope_type = 'park' AND pv.scope_id = $3))
+       OR (pv.scope_type = 'park' AND pv.scope_id = $2))
 ORDER BY pv.protocol_id,
          (pv.scope_type = 'park') DESC,
          pv.effective_from DESC,
@@ -178,8 +184,8 @@ ORDER BY pv.protocol_id,
 
 type ListEffectiveVaccinationVersionsForGoatParams struct {
 	TenantID pgtype.UUID
-	AsOf     pgtype.Timestamptz
 	ParkID   pgtype.UUID
+	AsOf     pgtype.Timestamptz
 }
 
 // The published vaccination version EFFECTIVE as of @as_of for ONE goat, one row per protocol. SM-1 on
@@ -192,7 +198,7 @@ type ListEffectiveVaccinationVersionsForGoatParams struct {
 // — never both, and never another park's calendar. A goat with no park (@park_id IS NULL) only matches
 // tenant-default versions.
 func (q *Queries) ListEffectiveVaccinationVersionsForGoat(ctx context.Context, arg ListEffectiveVaccinationVersionsForGoatParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listEffectiveVaccinationVersionsForGoat, arg.TenantID, arg.AsOf, arg.ParkID)
+	rows, err := q.db.Query(ctx, listEffectiveVaccinationVersionsForGoat, arg.TenantID, arg.ParkID, arg.AsOf)
 	if err != nil {
 		return nil, err
 	}

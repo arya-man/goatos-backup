@@ -52,6 +52,15 @@ Rules:
   reachable legacy/source artifacts and produce evidence-backed proposals with
   source paths, counts, confidence, and open policy-only decisions. Do not commit
   raw private rows, PII, tokens, or media URLs.
+- If a phase or policy pack replaces a legacy Slack/Sheets/App Script workflow,
+  the PRD/TRD must declare the `legacy capability parity floor`, `known legacy
+  gaps to close`, and `import/replay mapping`. Capability parity preserves
+  useful source signals and workflow intent; it must not preserve weak legacy
+  validation as the target behavior.
+- Critical-action PRD/TRDs must also declare classification authority and
+  bypass handling: what evidence computes the final action classification, and
+  how lower-level primitives are blocked, wrapped, or restricted until the pack
+  owns the transition.
 - After coding, run a closeout sync: compare code, migrations, contracts,
   tests, adapters, workflows, and operational checks against PRD/TRD and update
   PRD/TRD/BUILD-STATUS/context/skills/agent shims where the implementation

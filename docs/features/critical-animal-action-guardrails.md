@@ -51,6 +51,20 @@ guardrail: source-backed reason validation, location fitness, authority/exceptio
 rules, proof/privacy policy, SLA waterfall, audit, outbox, and read-model
 visibility.
 
+Interim enforcement must be explicit. Until a policy pack owns a critical
+transition, routes/UI/actions that would mutate quarantine, ICU, death,
+high-risk movement, or sale/allocation blocker state must either:
+
+- be unavailable outside migration/admin break-glass scope
+- return a deterministic `critical_action_guardrail_required` disabled reason
+- route through a temporary wrapper that records evidence, authority, audit,
+  outbox, and a process exception
+- be limited to import/backfill paths that keep raw-source references without
+  claiming guardrail-compliant canonical state
+
+A lower-level primitive being evidence-gated is useful, but it is not by itself
+permission to expose a critical workflow as live product behavior.
+
 ## Generic Guardrail Boundary
 
 Guardrails are a kernel capability, not a quarantine-specific hack. The same
@@ -105,6 +119,7 @@ quarantine/ICU/death state at all, and what must happen when it does.
 Sanitized committed findings:
 
 - `context/source-findings/drive-docs-findings.md`
+- `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`
 - `context/product/goat-os-feature-phases.md`
 - `context/architecture/operational-kernel.md`
 
@@ -118,9 +133,22 @@ Maintainer-local wiki/legacy sources reviewed:
 - `wiki/graphify-out/converted/Death Reports_77cc2f42.md`
 - `wiki/graphify-out/converted/Feed, Shiftings and Count_27cef16d.md`
 - `wiki/graphify-out/converted/Mesha-dept-directors_3e7ab556.md`
+- `Handbooks/PHC_Director.pdf` graph nodes for 21-day quarantine, daily
+  Park Head coordination, EOD reporting, SOP video verification, and PHC
+  daily/weekly execution
+- `Handbooks/Health_Director.pdf` graph node for the 10-minute report response
+  standard
 - `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md`
 - `slack-automation-scripts/shifting_death_automation.js`
 - legacy dashboard repos for read-only shifting/quarantine display behavior
+
+Read-only live legacy checks on 2026-06-28:
+
+- `goatos-sheets` BigQuery schemas for `Shiftings`, `goatsDB`, `healthDB`,
+  `weights`, and `procurement_farm`
+- shared Google Sheets metadata/headers for Health DB, Goats DB, Sheds DB, and
+  Procurement DB
+- no raw private chat, media, goat-level incident rows, or PII are copied here
 
 No raw screenshots, chats, private media URLs, or raw source rows belong in this
 repo.
@@ -236,6 +264,86 @@ Legacy proof shape:
 - Central verifies request/direction, assignment, proof, and completed/cancelled
   state.
 
+## Legacy Parity Floor
+
+Goat OS must be better than legacy, but it must first preserve the useful
+control surface legacy already has. Replacing Slack/Sheets/App Script with a
+kernel must not remove operational friction that currently prevents mistakes.
+This is capability parity, not bug-for-bug behavior parity. Goat OS preserves
+legacy signals, workflow intent, proof points, and audit context while closing
+legacy gaps as part of the same implementation.
+
+Do not carry forward legacy weaknesses as acceptable behavior:
+
+- comments-only reasons
+- sheet names or shed labels acting as process state
+- manual remembering for timetable, quarantine, health, or vaccination follow-up
+- approval status without source-backed evidence validation
+- proof links without subject, verifier, privacy, rejection, and rework state
+- cleaned/derived tables dropping important source fields such as vaccination
+  evidence
+- Slack-only alerts without durable acknowledgement/resolution state
+- dashboard-visible rows without canonical action, obligation, and policy
+  decision records
+
+Non-negotiable legacy capabilities to preserve:
+
+| Legacy capability | Goat OS minimum behavior | Goat OS improvement |
+| --- | --- | --- |
+| Shifting Request vs Shifting Direction | Preserve who initiated the move and whether it was a request needing approval or a direction from authority. | Add policy evaluation before apply, not just approval status after submission. |
+| Category and priority | Preserve Health/Growth/Breeding/Delivery-style category and Low/High urgency. | Replace free-form category dependence with typed action classification and SLA policy. |
+| Source shed, destination shed, destination tag | Preserve exact movement path and destination proof target. | Resolve to canonical location profile with capabilities, capacity, risk, and timetable requirements. |
+| Comments | Preserve raw human context for audit and migration. | Do not let comments be the only reason; require structured reason codes and linked evidence. |
+| Approval status and workflow status | Preserve pending/authorised/rejected/cancelled/scheduled/completed style states. | Model decisions, approval, proof, verification, exception, blocked, overdue, and rework as first-class state. |
+| Destination proof video | Preserve proof capture and central verification. | Add proof subject, verifier role, rejection/rework, privacy, retention, and access controls. |
+| Feeding cutoff and movement timing | Preserve due-date logic and the 09:00 feed-impact concern. | Auto-create feed bridge obligations when movement timing can make feed counts wrong. |
+| Overdue/open movement visibility | Preserve scheduled/open/overdue movement visibility. | Project overdue critical actions into Action Center, Control Tower, Calendar, Protocol Adherence, and Goat Passport. |
+| Health diagnosis, treatment, follow-up sheets | Preserve problem, diagnosis, medicine, status, treatment schedule, follow-up, and active-problem tracking. | Convert health flows into state machines with proof, missed-check escalation, release blockers, and recovery events. |
+| Procurement quarantine/holding sheet | Preserve incoming load, holding/quarantine center, weight/health check, and procurement vaccination fields. | Separate procurement warmup/holding from biological quarantine and require accepted-herd intake gates. |
+| Sheds DB | Preserve existing shed labels/tags/capacity-like values. | Add canonical location profile, active state, fitness dimensions, isolation class, and timetable policy. |
+| Vaccination recorded in source sheets | Preserve imported vaccination facts and source references. | Add protocol-version coverage, evidence/proof confidence, missed-dose exceptions, and recheck triggers. |
+| Death reporting and verification | Preserve reason/location/proof/verification and next-day completion expectation. | Add incident investigation, cluster detection, preventive action, escalation waterfall, and void/reversal audit. |
+
+For migration and audit, Goat OS must keep a raw-source reference for imported
+legacy rows: source system, source table/sheet/tab, source row id where
+available, source timestamp, raw status/category/priority, raw comments, and
+raw proof links. These are not canonical truth by themselves, but they are
+important for reconciliation and for proving that Goat OS did not lose legacy
+context during cutover.
+
+## Kernel Improvements Above Legacy
+
+The kernel upgrade is not "add a few mandatory fields." The upgrade is a generic
+critical-action engine that every high-risk workflow can plug into.
+
+Every legacy replacement must be designed in two passes:
+
+1. Preserve useful legacy capabilities and raw source context so operators do
+   not lose current working controls.
+2. Close known gaps with typed policy, deterministic validation, obligations,
+   proof, escalation, reconciliation, and scalable projections.
+
+Compared with legacy, Goat OS must add:
+
+- typed action classification: quarantine episode, procurement holding/warmup,
+  operational separation, ICU, death, treatment, vaccination, birth, sale blocker
+- source-backed reason validation instead of comments-only reasons
+- explicit evidence refs to procurement, health, movement, proof, location,
+  protocol, vaccination, or approval records
+- location fitness checks before critical movement applies
+- automatic obligation creation for checks, rounds, proof, release, feed bridge,
+  investigation, and preventive action
+- durable alerts/escalations with acknowledgement and resolution state
+- proof confidence and privacy controls
+- immutable decision records with policy version and replay-safe idempotency
+- read models that answer where the process broke, not just where a row exists
+- batch-safe evaluation that works at one million-plus goat operations
+
+Production completion requires both passes. A feature that only preserves
+legacy behavior without closing known gaps is incomplete. A feature that adds
+new guardrails but drops useful legacy fields, proof, statuses, or operational
+visibility is also incomplete.
+
 ## Current Legacy / Docs Gap
 
 The legacy workflow appears to enforce generic form/process steps, but not a
@@ -263,6 +371,36 @@ For quarantine specifically, the observed gap is:
 - There is no evidence that moving a healthy existing farm goat into quarantine
   is blocked, warned, or escalated.
 
+The 2026-06-28 read-only live check adds these concrete legacy observations:
+
+- `Shiftings.shiftings_fact` carries source shed, destination shed, destination
+  tag, comments, requested-by, approval status, status, overdue flags, and
+  counts. It does not carry structured quarantine reason, exception type,
+  linked source evidence, quarantine episode status, shed-fitness decision, or
+  follow-up task linkage.
+- Quarantine-like movements exist in live history as free-text comments or tags,
+  for example ORF/fever/recovered animals moving into a quarantine-tagged
+  destination. This is useful context, but it is not source-backed policy
+  validation.
+- Sheds DB lists shed identities such as Q1/Q2 as buck sheds with small
+  capacity-like values; it does not model "this animal is in quarantine" as a
+  biological/process state, nor does it expose sanitation, isolation class,
+  fit-for-purpose, or timetable coverage fields.
+- Procurement DB has a separate incoming/holding/quarantine sheet flow, including
+  repeated "Weight and health Check" columns and a procurement-level
+  `Vaccination` column. That is separate from an existing farm animal being
+  moved into a shed whose name or tag looks like quarantine.
+- The cleaned BigQuery procurement tables inspected do not carry the
+  procurement sheet's `Vaccination` column forward, so downstream systems must
+  not assume a sheet-level vaccination value is enough proof of vaccination
+  coverage.
+
+Sanitized incident lesson: if a shed named Q1/Q2 or "quarantine" is used only
+as an operational separation shed for male/female breeding management, Goat OS
+must not blindly open a quarantine episode. It must classify the action as
+`operational_separation`, validate the reason, shed fitness, capacity, timetable
+coverage, and animal criticality, and keep biological quarantine rules separate.
+
 For other critical workflows, the same risk appears in different forms:
 
 - a death can be reported, but wrong-report correction must become
@@ -281,6 +419,9 @@ For other critical workflows, the same risk appears in different forms:
 Therefore Goat OS must not copy legacy behavior as-is. Generic shifting approval
 is not enough for a critical destination such as quarantine or ICU, and generic
 form submission is not enough for any high-risk state transition.
+
+The correct stance is: legacy parity is the floor, policy-backed process
+integrity is the upgrade.
 
 ## Kernel Rule
 
@@ -324,6 +465,8 @@ These actions are high-risk and must never be plain CRUD:
 - mark animal death
 - mark post-mortem requested/completed
 - move high-risk animal between sheds
+- bulk, back-dated, or imported movement correction that changes shed/status
+  history
 - raise or complete high-priority movement that affects feed before cutoff
 - diagnose disease and create health problems
 - close or extend a health problem
@@ -364,6 +507,7 @@ must provide these pieces:
 | Allowed reasons | Versioned reason codes and which evidence makes each reason valid. |
 | Decision rules | Deterministic rules that return allow, block, require approval, require exception, defer, or create process exception. |
 | Approval plan | Who can approve routine action, who can approve exception, expiry, and whether approval is required before or after execution. |
+| Segregation rules | Which requester, direction-author, approver, verifier, shed owner, or park owner combinations are disallowed or require second approval. |
 | Obligation plan | Tasks/checks/follow-ups created automatically after the decision. |
 | Proof policy | Media/form/signature requirements, proof subject, verifier role, rejection/rework behavior, human-PII classification, access/export/redaction rules, and retention. |
 | SLA waterfall | Reminder, missed-SLA, escalation, acknowledgement, and resolution rules. |
@@ -374,10 +518,62 @@ Policy packs must be open for extension and closed for kernel modification. New
 critical workflows should add a pack and adapters; they should not edit a
 central switch statement or bypass the evaluation record.
 
+## Policy Pack Depth And Sequencing
+
+This document uses quarantine and operational separation as the deepest
+reference pack because that is where the live incident and legacy evidence are
+strongest. Death, birth, procurement arrival, feed bridge, health treatment,
+vaccination confidence, and sale/allocation blockers are included as kernel
+requirements, but each still needs its own PRD/TRD or pack spec before build.
+
+The first real guardrail engine implementation should prove the contract with at
+least two policy packs. A single quarantine-only implementation can accidentally
+shape the engine around one use case and would not prove the open/closed policy
+pack contract.
+
 ## Quarantine Entry Guardrail
 
 When destination location is quarantine, Goat OS must evaluate the entry before
 the move can complete.
+
+Location name is not enough. Goat OS must distinguish:
+
+- `quarantine_episode`: the animal is entering biological/process quarantine.
+- `warmup_or_procurement_holding`: incoming load management before accepted herd
+  intake.
+- `operational_separation`: an ordinary farm-management move into a shed whose
+  name/tag may say Q1/Q2/quarantine, but the animal is not being treated as
+  quarantine.
+
+Only `quarantine_episode` should create quarantine status and quarantine exit
+requirements. `warmup_or_procurement_holding` belongs to the procurement/intake
+policy pack. `operational_separation` belongs to movement/park-management
+guardrails and still needs controls when animal value, breeding purpose,
+location risk, or missed-check impact is high.
+
+## Classification Authority
+
+The requested action classification is only an operator/system proposal. The
+authoritative classification must be computed by the guardrail policy pack from
+source-backed evidence. Free text, a dropdown choice, or a shed name cannot
+decide the classification alone.
+
+Classification rules must follow this order:
+
+- linked procurement load/intake/arrival evidence inside the configured holding
+  window -> `warmup_or_procurement_holding`
+- active contagious/viral health problem, ORF evidence, configured contagious
+  symptom, or vet isolation instruction -> `quarantine_episode`
+- active ICU/serious-illness status or vet ICU instruction -> `icu_episode`
+- explicit operational reason, compatible location profile, and no quarantine/
+  ICU/procurement evidence -> `operational_separation`
+- no source-backed reason, conflicting evidence, or missing location profile ->
+  block or require approved exception
+
+An actor cannot downgrade a true quarantine/ICU/procurement case to
+`operational_separation` to avoid checks. If the requested classification and
+evidence-derived classification disagree, the evaluation must block, require
+authorized exception, or create a process exception for review.
 
 Allowed source-backed reasons:
 
@@ -424,7 +620,11 @@ Exception path:
 
 - Healthy existing farm goats are not normal quarantine candidates.
 - If a healthy existing farm goat must be moved to quarantine for an operational
-  reason, it must use `approved_exception`.
+  reason and the destination is truly being used as quarantine, it must use
+  `approved_exception`.
+- If the destination is only a quarantine-named shed and the animal is not meant
+  to enter quarantine, the action must be classified as `operational_separation`
+  instead of mutating quarantine status.
 - `approved_exception` must require a stronger approval level than routine
   shifting and must record why no normal destination was suitable.
 
@@ -449,6 +649,39 @@ Location fitness should include:
 If the destination is not fit, the system must block or escalate before the move
 is completed.
 
+Location owner and park-head mapping are hard dependencies for segregation of
+duties. If a location profile does not identify who owns/manages the shed,
+routine self-authored movement into that shed cannot be auto-approved. The
+system must require second approval, block, or create a process exception until
+the owner mapping is configured.
+
+## Operational Separation Guardrail
+
+Some high-risk movements are not quarantine, but still cannot be treated as
+ordinary shed edits. Examples include separating adult males from adult females
+for breeding control, moving high-value bucks, moving vulnerable animals, or
+placing animals in small/isolated sheds for operational reasons.
+
+Required controls:
+
+- structured movement reason such as `breeding_separation`, `space_management`,
+  `behavioral_separation`, `feed_management`, or `approved_exception`
+- source-backed or authority-backed evidence for the reason
+- destination shed profile and capacity check
+- incompatibility check for gender, age/stage, breed, breeding purpose, disease
+  cohort, and vulnerable/high-value status
+- explicit "not quarantine status" classification when using a quarantine-named
+  shed for ordinary separation
+- segregation-of-duties check when the requester, directing authority, or
+  verifier also owns or manages the destination shed; self-authored directions
+  into a user's own shed need a second approver or stronger evidence
+- timetable/round coverage obligation for the destination shed
+- escalation if a required health, water/feed, or visual check is missed
+
+This guardrail prevents the system from solving the wrong problem. A free-text
+reason or shed name should not decide whether the animal is in quarantine,
+operational separation, ICU, warmup, or routine movement.
+
 ## Quarantine Obligations
 
 Entering quarantine must create work automatically. It must not rely on someone
@@ -458,6 +691,8 @@ At minimum, create:
 
 - quarantine episode record
 - health/weight check obligations
+- shed timetable/round obligations when the destination requires routine visual
+  checks independent of quarantine status
 - due dates and owner assignments
 - proof policy for each check
 - reminders and escalation deadlines
@@ -466,6 +701,14 @@ At minimum, create:
 The check frequency should come from configurable protocol/SOP rules. If the
 rule is missing, the move should create a process exception instead of silently
 doing nothing.
+
+The timetable/round requirement is source-backed by the PHC Director handbook
+nodes for daily coordination, EOD reporting, SOP video verification, and
+daily/weekly execution, by the director handbook 10-minute report-response
+standard, and by live legacy findings that current sheets do not create durable
+timetable obligations automatically. Implementation must cite the exact
+protocol/SOP version that supplies the frequency, proof policy, owner, and
+escalation rule.
 
 ## Quarantine Exit Guardrail
 
@@ -483,6 +726,13 @@ Moving out of quarantine requires:
 - recovery/eligibility-change event so obligations deferred while the goat was in
   quarantine/ICU (such as deferred vaccination) are re-evaluated downstream
   instead of staying silently parked
+
+The contract requires a durable recovery or eligibility-change signal. Existing
+events such as `goat.location.changed` and `goat.health.changed` can satisfy
+this only if their payload and consumers can prove the old and new states needed
+to reopen deferred obligations. If they cannot, the pack must add an explicit
+recovery/eligibility-change event instead of relying on implicit status strings
+or read-time inference.
 
 No one should be able to "just move back" by editing current shed.
 
@@ -516,6 +766,13 @@ Death report must immediately:
 
 Wrong death reports must be corrected by void/reversal/audit, never deletion.
 
+There must be one canonical death path. Existing lifecycle exit/death mutation
+primitives are lower-level building blocks and must be wrapped or subsumed by
+the death guardrail before live critical-action use. Deaths recorded through old
+paths before the pack ships must be imported/backfilled with legacy source
+references, then reconciled into the death guardrail read models without
+rewriting history.
+
 ## Incident Investigation And Preventive Action
 
 Any death in quarantine, ICU, or high-risk movement context must create an
@@ -544,6 +801,13 @@ Preventive action must have:
 - verifier
 - escalation path
 - completion/rework states
+
+If the investigation shows the animal was not actually in quarantine but in an
+operational separation shed, the incident still stays critical. The investigation
+must then focus on whether the shed was correctly classified, whether timetable
+checks were assigned and completed, whether vaccination/prophylaxis evidence was
+trustworthy, and whether the chosen location was appropriate for the animal
+class and business value.
 
 ## Approval And Authority
 
@@ -574,6 +838,8 @@ Illustrative default SLA levels, pending final business confirmation:
 | --- | --- | --- | --- | --- |
 | Quarantine move missing reason/evidence | requester blocked instantly | Park Head / Health owner within 10 minutes | configured PHC or Health Director role within 30 minutes | leadership before 4 hours |
 | Quarantine check overdue | assigned operator immediately | Park Head within 30 minutes | configured PHC or Health Director role within 2 hours | leadership before 4 hours if critical |
+| Critical shed timetable/round missed | assigned operator immediately | Park Head within 30 minutes | configured PHC or Health Director role within 2 hours | leadership before 4 hours if death/high-value/high-risk |
+| Vaccination coverage/proof confidence gap for high-risk animal | PHC owner immediately | configured PHC or Health Director role within 30 minutes | COO/CEO if linked to death/cluster | before investigation closes |
 | Death in quarantine/ICU/high-risk context | Park Head + Health owner immediately | configured PHC or Health Director role within 10 minutes | COO/CEO within 30 minutes | never later than 4 hours |
 | Biosecurity breach / contagious cluster | Park Head + PHC owner immediately | configured PHC or Health Director role within 10 minutes | COO/CEO within 30 minutes | never later than 4 hours |
 | Missing proof for critical action | assignee immediately | verifier/Park Head within 30 minutes | configured PHC or Health Director role within 2 hours | leadership if still open |
@@ -584,6 +850,12 @@ persist labels such as "Director" as authorization truth.
 
 Alerts must be durable rows/events, not only Slack messages. Notification
 adapters can send Slack/FCM/email, but Postgres state is the truth.
+
+Missed/overdue state must also be durable. Read-time "overdue" calculations are
+useful for display, but they cannot be the only source for Action Center,
+Control Tower, SLA escalation, or compliance metrics. A deadline crossing must
+create or update durable missed/escalation state and emit the outbox event that
+downstream projections consume.
 
 ## Read Models And Surfaces
 
@@ -598,6 +870,8 @@ Goat Passport:
 - approval/directing authority
 - pending checks
 - missed checks
+- shed timetable/round coverage status
+- vaccination coverage/proof confidence for the relevant protocol window
 - incident/investigation state
 - sale/allocation blockers and the source event that created each blocker
 - movement and high-risk action timeline
@@ -621,6 +895,8 @@ Control Tower:
 - death in quarantine/ICU count
 - missing reason/evidence count
 - overdue quarantine checks
+- missed critical shed timetable/round checks
+- vaccination coverage/proof confidence gaps for high-risk animals
 - missed health treatment or ICU follow-up count
 - birth/abortion blocked-sequence count
 - procurement arrival gate blocked count
@@ -631,6 +907,7 @@ Control Tower:
 Calendar:
 
 - quarantine checks
+- shed timetable/round checks for critical sheds
 - release reviews
 - treatment sessions
 - ICU follow-ups
@@ -644,6 +921,8 @@ Protocol Adherence:
 
 - quarantine entry compliance
 - check completion compliance
+- critical shed timetable compliance
+- vaccination proof/coverage confidence compliance
 - release compliance
 - death investigation compliance
 - treatment proof compliance
@@ -659,13 +938,48 @@ Workflow drilldown:
 - policy decision timeline showing allowed, blocked, approved, exception,
   deferred, escalated, acknowledged, and resolved states
 
+## Host Module Dependencies
+
+Some guardrail outputs depend on host modules that may not exist yet. The
+guardrail engine must still record the risk, but it must not pretend an
+integration is complete when the host module is missing.
+
+Examples:
+
+- feed-impact bridge obligations require the feed-direction/feed execution host
+  module before they can create executable feed tasks
+- sale/allocation blockers require the sale/allocation host module before they
+  can enforce promise or booking decisions
+- procurement arrival gates require procurement/source-entry records before they
+  can accept or reject animals into clean herd truth
+- vaccination confidence and recheck outputs require protocol/vaccination
+  coverage records before they can close a dose-confidence gap
+
+Before the host module ships, the guardrail should emit a durable process
+exception or deferred integration marker with owner, SLA, and read-model
+visibility. Silent no-op integration is not allowed.
+
 ## Data Model Implications
 
 Future PRD/TRD work should decide exact table names, but the shared model must
 support these generic records:
 
+- legacy source reference for migrated/imported rows, including source system,
+  sheet/table/tab, row identity where available, raw status/category/priority,
+  raw comments, raw proof links, and import/reconciliation state
 - critical action request with action type, subject refs, transition, scope,
   actor, source, idempotency key, and requested reason
+- critical-action exposure gate state for lower-level primitives that are not
+  yet wrapped by a policy pack
+- batch/import guardrail request with source event timestamp, import/apply
+  timestamp, bounded subject set, per-subject evaluation results, partial
+  failure state, and replay key
+- requested classification, evidence-derived classification, conflict state,
+  and final authoritative classification that separates biological/process
+  status from location names or tags
+- location profile with canonical location ID, display name/tag, capabilities,
+  capacity, fitness attributes, isolation class, active state, and timetable
+  requirements
 - policy pack and immutable policy version used for the decision
 - guardrail evaluation result with decision, disabled reasons, evidence summary,
   risk/severity, and replay metadata
@@ -674,18 +988,27 @@ support these generic records:
 - approval, rejection, override, and exception records with authority, reason,
   expiry, and audit
 - obligation/task plan created by the decision
+- timetable/round obligation and coverage records for critical sheds and animal
+  cohorts
+- vaccination coverage/proof-confidence records linked to protocol version,
+  subject, evidence type such as administered dose, supplier record, lab result,
+  titer, sample-test, or exception, actor, and exception state
 - proof and verification state, including reject/rework/accept paths
 - proof privacy state, including human-PII classification, access class,
   redaction requirement/status, export permission, retention policy, delete/hold
   status, and audit for access/export/redaction decisions
 - SLA escalation state with reminder, missed, acknowledgement, resolution, and
   delivery attempts
+- durable missed/deadline-crossed state and outbox events for obligations that
+  drive Action Center, Control Tower, Calendar, and Protocol Adherence
 - process exception and preventive action records
 - full business audit/history and outbox/domain events
 
 Animal policy packs then add or reference domain records:
 
 - movement request/direction with critical destination policy evaluation
+- operational separation episode/reason when a non-quarantine animal is placed
+  in a quarantine-named or otherwise critical shed
 - quarantine episode and release review
 - ICU episode and follow-up requirements
 - health diagnosis/problem/treatment/follow-up state
@@ -733,69 +1056,124 @@ tests/E2E seeds for the relevant module.
 Generic engine cases:
 
 1. A new policy pack can be registered without editing the kernel engine.
-2. Every critical action request records policy version, evidence refs,
+2. The first production implementation proves the engine with at least two
+   policy packs, so the contract is not accidentally shaped around quarantine
+   only.
+3. Every critical action request records policy version, evidence refs,
    decision, actor, scope, audit, and outbox.
-3. Missing evidence returns a deterministic block/disabled reason instead of a
+4. Missing evidence returns a deterministic block/disabled reason instead of a
    permissive fallback.
-4. Retry/replay of the same action (same idempotency key, same payload) returns
+5. Retry/replay of the same action (same idempotency key, same payload) returns
    the original result and does not duplicate obligations, proof tasks,
    notifications, approvals, or audit rows. A same-key, different-payload replay
    is rejected or returns the original result with no new side effects.
-5. Batch preflight evaluates bounded subjects and exposes partial failures.
-6. A policy version change does not rewrite old evaluation history.
-7. Action Center, Control Tower, Calendar, Protocol Adherence, Workflow, and
+6. Batch preflight evaluates bounded subjects and exposes partial failures.
+7. A policy version change does not rewrite old evaluation history.
+8. Action Center, Control Tower, Calendar, Protocol Adherence, Workflow, and
    entity detail surfaces all read projection state created by the kernel.
-8. Load tests prove the widest allowed evaluation/list/worker paths do not scan
+9. Load tests prove the widest allowed evaluation/list/worker paths do not scan
    the full herd.
-9. AI/automation can attach risk signals and missing-evidence warnings to a
+10. AI/automation can attach risk signals and missing-evidence warnings to a
    critical action, but cannot approve, override, or complete it. Only an
    authorized human decision closes the guardrail.
-10. Proof media that may include staff faces, voices, names, or other human PII
+11. Proof media that may include staff faces, voices, names, or other human PII
     records privacy classification and enforces configured access, export,
     redaction, and retention rules.
+12. Legacy import/replay preserves request/direction, category, priority,
+    source/destination, raw comments, raw status, proof reference, and source row
+    reference while producing canonical guardrail state separately.
 
 Animal policy cases:
 
-1. Incoming purchased goat can enter quarantine with linked intake evidence and
+1. Legacy shifting behavior is not regressed: request vs direction, approval
+   status, movement status, proof, due timing, and feed-impact timing remain
+   visible after migration/cutover.
+2. Operator requests `operational_separation` for a goat with active ORF,
+   contagious-risk evidence, or procurement holding evidence; the guardrail
+   rejects the operator classification and computes the quarantine/procurement
+   classification from evidence.
+3. An unwrapped low-level move, health, stage, or death primitive is unavailable
+   for live critical transitions, returns `critical_action_guardrail_required`,
+   or routes through a wrapper that records process exception state.
+4. Incoming purchased goat can enter quarantine with linked intake evidence and
    automatically receives quarantine checks.
-2. Goat with active ORF/contagious-risk health problem can enter quarantine with
+5. Goat with active ORF/contagious-risk health problem can enter quarantine with
    linked health evidence.
-3. Healthy existing goat cannot enter quarantine without approved exception.
-4. Quarantine move with free-text-only reason is blocked.
-5. Quarantine destination over capacity or inactive is blocked.
-6. Shifting Direction by authorized user still fails if guardrail evidence is
+6. Healthy existing goat cannot enter quarantine without approved exception.
+7. Healthy existing goat moved into a quarantine-named shed for breeding or
+   operational separation does not mutate quarantine status; it requires an
+   operational-separation reason, shed fitness/capacity check, timetable
+   obligation, and audit.
+8. Bulk, back-dated, or imported mega-shift affecting many goats runs bounded
+   per-goat batch preflight, preserves source/event time separately from
+   import/apply time, exposes partial failures, and cannot silently rewrite
+   quarantine/ICU/death/shed truth from historical comments.
+9. Quarantine move with free-text-only reason is blocked.
+10. Quarantine destination over capacity or inactive is blocked.
+11. Shifting Direction by authorized user still fails if guardrail evidence is
    missing.
-7. Quarantine check overdue creates visible Action Center and Control Tower
+12. Quarantine check overdue creates visible Action Center and Control Tower
    exception plus escalation.
-8. Goat cannot exit quarantine while required checks or blocking health problems
-   remain open.
-9. Health diagnosis cannot complete before disease selection and required proof.
-10. Missed treatment proof creates rework/escalation and does not silently close
+13. Deadline crossing creates durable missed/escalation state and outbox; Action
+    Center and Control Tower do not rely only on read-time overdue filters.
+14. Critical shed timetable/round missed creates Action Center, Control Tower,
+   escalation, and investigation linkage if there is death or deterioration.
+15. Vaccination record without trusted evidence/proof is flagged as a confidence
+    gap and cannot silently satisfy high-risk eligibility or incident review.
+16. Goat cannot exit quarantine while required checks or blocking health problems
+    remain open.
+17. Quarantine/ICU/health recovery emits a durable signal that re-evaluates
+    deferred obligations such as vaccination; implicit read-time inference is
+    not enough.
+18. Health diagnosis cannot complete before disease selection and required proof.
+19. Missed treatment proof creates rework/escalation and does not silently close
     the treatment.
-11. Birth/kid/mother sequence does not post or complete the next action until
+20. Birth/kid/mother sequence does not post or complete the next action until
     the prior proof gate is accepted.
-12. Procurement arrival cannot accept goats into clean herd truth until intake,
+21. Procurement arrival cannot accept goats into clean herd truth until intake,
     health, weight/count, media, source, and discrepancy checks are resolved.
-13. Urgent movement after feed cutoff creates a feed-impact/bridge obligation.
-14. Sale/allocation is blocked when goat is in ICU/quarantine, milk-drinking kid
+22. Urgent movement after feed cutoff creates a feed-impact/bridge obligation
+    only when the feed host module can own it; otherwise it creates a durable
+    deferred integration/process exception.
+23. Sale/allocation is blocked when goat is in ICU/quarantine, milk-drinking kid
     stage, dead, or under a configured withdrawal blocker.
-15. Death in quarantine creates death event, investigation, proof verification,
+24. Sale/allocation blocker emits a durable process exception/deferred marker if
+    the sale/allocation host module is not yet available.
+25. Death in quarantine creates death event, investigation, proof verification,
     preventive action, and escalation.
-16. Wrong death report is voided/reversed with audit, not deleted.
-17. High-value/pregnant/breeding/vulnerable animal movement requires stricter
+26. Existing lifecycle exit/death primitives cannot create a second canonical
+    death path; live death actions route through the guardrail, and pre-pack
+    legacy deaths are backfilled/reconciled with source references.
+27. Wrong death report is voided/reversed with audit, not deleted.
+28. High-value/pregnant/breeding/vulnerable animal movement requires stricter
     approval and evidence.
-18. All critical actions show a timeline on Goat Passport.
+29. A self-authored direction into a shed with missing or conflicting owner
+    mapping blocks, requires second approval, or creates process exception state.
+30. All critical actions show a timeline on Goat Passport.
 
 ## Business Inputs Still Needed
 
 These must be confirmed before implementation:
 
 - criticality matrix by action type and animal state
+- mapping from legacy shifting categories/priorities/statuses/proof fields to
+  canonical Goat OS action classification and state
+- bulk/back-dated movement cutover rules, source-vs-import timestamps, and
+  partial-failure policy
+- location owner/manager mapping for shed-level segregation-of-duties
 - exact quarantine health/weight check frequency by animal class and reason
 - exact role that can approve routine quarantine moves
 - exact role that can approve exceptions
+- segregation-of-duties matrix for self-authored directions into a user's own
+  shed, park, or managed scope
 - high-value animal definition
 - quarantine shed fitness dimensions and thresholds
+- critical shed timetable/round frequency, owner, proof policy, and escalation
+- whether quarantine-named Q1/Q2 style sheds should be modeled as quarantine
+  capable locations, ordinary sheds, or both depending on action classification
+- vaccination evidence/proof standard, lab/titer/sample-test evidence types,
+  confidence scoring, and what to do when a vaccination is recorded but may have
+  been missed
 - when a death is "unexpected", "cluster", or "high severity"
 - default SLA minutes for each escalation level
 - whether post-mortem is mandatory for every quarantine/ICU death or only by
@@ -806,6 +1184,8 @@ These must be confirmed before implementation:
 - policy owner, publish/rollback process, and effective-date behavior for each
   guardrail pack
 - feed-impact rules for urgent shiftings after the feed-direction cutoff
+- host-module readiness/order for feed bridge, sale/allocation blockers,
+  procurement arrival, and vaccination confidence rechecks
 - procurement arrival-gate evidence and discrepancy thresholds
 - sale/allocation blocker policy for ICU, quarantine, kid stage, medication
   withdrawal, treatment status, and promise-risk

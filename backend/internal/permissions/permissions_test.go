@@ -10,6 +10,12 @@ func TestRolePermissionMatrix(t *testing.T) {
 	}{
 		{RoleOperator, GoatRead, true},
 		{RoleCEOInternal, GoatWriteIdentity, true},
+		{RoleCEOInternal, GoatWriteHealth, true},
+		{RoleAdmin, GoatWriteHealth, true},
+		{RolePHCDirector, GoatWriteHealth, true},
+		{RoleVerifier, GoatWriteHealth, false},
+		{RoleVerifier, GoatWriteIdentity, true},
+		{RoleParkHead, GoatWriteHealth, false},
 		{RoleAdmin, OperatorsManageCapability, true},
 		{RoleParkHead, OperatorsManageRoster, true},
 		{RoleOperator, AppBootstrap, true},
@@ -52,6 +58,25 @@ func TestRolePermissionMatrix(t *testing.T) {
 				t.Fatalf("RoleHasPermission()=%v want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHealthGoatRouteUsesDedicatedHealthPermission(t *testing.T) {
+	route, ok := Match("POST", "/admin/goats/10000000-0000-4000-8000-000000000001/health")
+	if !ok {
+		t.Fatal("healthGoat route is not registered")
+	}
+	if route.OperationID != "healthGoat" {
+		t.Fatalf("operation_id=%q, want healthGoat", route.OperationID)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != GoatWriteHealth {
+		t.Fatalf("healthGoat permissions=%v, want [%s]", route.Permissions, GoatWriteHealth)
+	}
+	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
+		t.Fatal("verifier must not authorize direct health mutation")
+	}
+	if !RolesAuthorize([]string{RolePHCDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("phc_director should authorize direct health mutation")
 	}
 }
 

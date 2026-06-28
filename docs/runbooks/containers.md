@@ -18,16 +18,48 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 ```text
 /app/bin/api
 /app/bin/outbox-relay
+/app/bin/domain-event-consumer
+/app/bin/generate-vaccination-obligations
+/app/bin/obligation-sweeper
+/app/bin/calendar-vaccination-projector
+/app/bin/calendar-reminder-sweeper
+/app/bin/calendar-escalation-sweeper
+/app/bin/notification-dispatcher
+/app/bin/backfill-goat-created
+/app/bin/idempotency-key-sweeper
 /app/bin/seed-dev-grant
 /app/bin/seed-dev-email-grants
+/app/bin/seed-vaccination-trigger
 /app/bin/mint-dev-token
 ```
 
 The default entrypoint is `/app/bin/api`. Run another binary by overriding the
-entrypoint. Example:
+entrypoint. Local/dev outbox runs must choose an explicit non-durable publisher;
+staging/production must use `GOATOS_OUTBOX_PUBLISHER=pubsub` and Pub/Sub topic
+env instead.
 
 ```bash
-docker run --rm --entrypoint /app/bin/outbox-relay goatos-backend:local -limit 10
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  -e GOATOS_OUTBOX_PUBLISHER=logging \
+  -e GOATOS_OUTBOX_ALLOW_NONDURABLE=1 \
+  --entrypoint /app/bin/outbox-relay \
+  goatos-backend:local -limit 10
+```
+
+Expired shared idempotency keys are cleaned by a bounded job-style binary. Dry
+run first, then execute with an operator-chosen limit:
+
+```bash
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  --entrypoint /app/bin/idempotency-key-sweeper \
+  goatos-backend:local -limit 1000 -dry-run
+
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  --entrypoint /app/bin/idempotency-key-sweeper \
+  goatos-backend:local -limit 1000
 ```
 
 Old import/reconciliation/reporting binaries are no longer packaged in the

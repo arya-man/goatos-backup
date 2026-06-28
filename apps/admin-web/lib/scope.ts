@@ -36,7 +36,7 @@ export function parseScope(sp: RouteSearchParams | undefined): Scope {
   const params = sp ?? {};
   const parkRaw = one(params, "park");
   const parkId = parkRaw && parkRaw !== "all" ? parkRaw : undefined;
-  const mode: ScopeMode = one(params, "scope_mode") === "park" || parkId ? "park" : "company";
+  const mode: ScopeMode = parkId ? "park" : "company";
   const range = (RANGES.find((r) => r === one(params, "range")) ?? "last_30_days") as RangeKey;
   const domainRaw = one(params, "domain");
   return {

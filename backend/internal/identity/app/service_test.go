@@ -499,6 +499,30 @@ func TestHealthGoatBuildsLifecycleCommand(t *testing.T) {
 	}
 }
 
+func TestHealthGoatRejectsCriticalTargetBeforeRepository(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+
+	_, err := svc.HealthGoat(context.Background(), HealthGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-health-critical-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"health_status":"quarantine","reason":"suspected contagious disease","evidence_refs":[{"evidence_type":"source_record","evidence_id":"health-ticket-2"}],"row_version":10}`),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("HealthGoat error = %v, want app error", err)
+	}
+	if appErr.Code != "critical_health_transition_requires_guardrail" || appErr.HTTPStatus != 501 {
+		t.Fatalf("app error = %#v, want guardrail-required 501", appErr)
+	}
+	if repo.lastHealthGoatCmd.GoatID != "" {
+		t.Fatalf("repository should not be called for critical target, got %#v", repo.lastHealthGoatCmd)
+	}
+}
+
 func TestMoveExitStageAndHealthRequireEvidence(t *testing.T) {
 	svc := NewService(&fakeRepo{goats: map[string]*domain.GoatPassport{}})
 	_, err := svc.MoveGoat(context.Background(), MoveGoatInput{

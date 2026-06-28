@@ -45,6 +45,11 @@ waterfall, audit, and read-model visibility. Animal-operation policy packs for
 quarantine entry/exit, ICU entry/exit, contagious-risk isolation, death
 reporting, birth, procurement arrival, sale/allocation blockers, and high-risk
 movement are tracked in `docs/features/critical-animal-action-guardrails.md`.
+When a kernel pack replaces a legacy workflow, it must declare and test the
+legacy capability parity floor first, then close known legacy gaps with stronger
+typed policy, source-backed evidence, obligations, proof, escalation, and
+scalable projections. Parity never means preserving weak validation as the
+target behavior.
 
 For the concrete backend, frontend, infra, DLQ, SLA waterfall, and vertical
 plug-in system design, read

@@ -183,6 +183,34 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.Go
 		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, healed.Events[0].EventID, created.Goat.GoatID, "goat.health.changed", created.Goat.GoatID)
 	})
 
+	t.Run("admin goat health blocks critical guardrail transitions", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-critical-health-0001", "rfid-admin-critical-health-0001", "admin-critical-health-oldtag-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for critical health: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET health_status = 'quarantine',
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID); err != nil {
+			t.Fatalf("seed quarantine health: %v", err)
+		}
+		cmd := healthGoatCommand(t, "idem-health-critical-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		if _, err := repo.HealthGoat(ctx, cmd); !errors.Is(err, ports.ErrGuardrailRequired) {
+			t.Fatalf("HealthGoat critical transition error = %v, want ErrGuardrailRequired", err)
+		}
+		var got string
+		if err := pool.QueryRow(ctx, "SELECT health_status FROM goats WHERE tenant_id = $1 AND goat_id = $2", meshaTenant, created.Goat.GoatID).Scan(&got); err != nil {
+			t.Fatalf("health after blocked critical transition: %v", err)
+		}
+		if got != "quarantine" {
+			t.Fatalf("health_status=%q, want quarantine", got)
+		}
+		assertNoRows(t, pool, "idempotency after blocked critical health", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "outbox after blocked critical health", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+	})
+
 	t.Run("admin goat create duplicate rfid rolls back goat idempotency audit and outbox", func(t *testing.T) {
 		first := adminGoatCreateCommand(t, "idem-create-goat-dupe-0001", "rfid-admin-create-dupe", "admin-create-oldtag-dupe-0001")
 		if _, err := repo.CreateAdminGoat(ctx, first); err != nil {

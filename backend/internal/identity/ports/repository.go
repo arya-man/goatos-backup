@@ -15,6 +15,7 @@ var (
 	ErrWriteConflict       = errors.New("identity write conflict")
 	ErrInvalidReference    = errors.New("identity referenced record is invalid")
 	ErrInvalidCursor       = errors.New("invalid pagination cursor")
+	ErrGuardrailRequired   = errors.New("identity critical transition requires guardrail")
 )
 
 type SearchGoatsParams struct {

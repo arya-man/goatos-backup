@@ -58,7 +58,9 @@ Rules:
   procurement, feed, and sale/allocation. Do not implement high-risk actions as
   ordinary CRUD, generic form submission, or generic shifting without reason
   validation, proof, authority, obligations, escalation, audit, and read-model
-  visibility.
+  visibility. When replacing a legacy workflow, preserve the useful legacy
+  controls as capability parity, but close known legacy gaps in the same
+  production scope.
 - Permission namespaces follow product ownership: dashboard/report permissions
   use `analytics.<feature>.*`, while master-data modules such as Locations use
   module namespaces such as `locations.*`. New features should state their

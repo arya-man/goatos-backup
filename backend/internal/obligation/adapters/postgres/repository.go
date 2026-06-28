@@ -275,8 +275,8 @@ WHERE tenant_id = $1
 // ReopenDeferredObligationByIdempotencyKey flips a still-'deferred' obligation back to 'scheduled'
 // when a goat recovers from its defer state (sick/ICU/quarantine), and records a 'scheduled' status
 // event in the same transaction. changed is false (a safe recovery-recheck replay) when no deferred
-// row matches the key — already schedulable, terminal, or absent. Deferred rows are unbatched
-// (DeferOpenObligationByIdempotencyKey detaches planned batches), so no batch repair is needed here.
+// row matches the key — already schedulable, terminal, or absent. The SQL clears batch_id
+// defensively so recovered obligations always return to the unbatched sweeper path.
 func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

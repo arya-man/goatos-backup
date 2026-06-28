@@ -12,6 +12,7 @@ const (
 
 	GoatRead                  = "goat.read"
 	GoatWriteIdentity         = "goat.write_identity"
+	GoatWriteHealth           = "goat.write_health"
 	LocationsRead             = "locations.read"
 	LocationsWrite            = "locations.write"
 	LocationsReview           = "locations.review"
@@ -50,7 +51,7 @@ const (
 
 var rolePermissions = map[string]map[string]struct{}{
 	RoleAdmin: {
-		GoatRead: {}, GoatWriteIdentity: {},
+		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
@@ -79,7 +80,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 	},
 	RolePHCDirector: {
-		GoatRead:      {},
+		GoatRead: {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
@@ -91,7 +92,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, ProcurementRead: {}, ProcurementWrite: {},
 	},
 	RoleCEOInternal: {
-		GoatRead: {}, GoatWriteIdentity: {},
+		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},

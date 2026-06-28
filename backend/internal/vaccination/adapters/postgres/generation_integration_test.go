@@ -661,6 +661,84 @@ WHERE tenant_id=$1 AND goat_id=$2`, impTenant, g, entryDate, impCbe); err != nil
 	}
 }
 
+func TestGoatCreatedAcceptedCompletionDoesNotSuppressDifferentCalendarCycle(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.goatos.sequence", Name: "GoatOS Sequence",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	v1End := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	v1, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), EffectiveTo: &v1End,
+		RuleDsl: []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create v1: %v", err)
+	}
+	v1Rule, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: v1, DoseCode: "primary", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create v1 rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, v1, nil); err != nil {
+		t.Fatalf("publish v1: %v", err)
+	}
+	v2, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 2, Status: "draft",
+		EffectiveFrom: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"eligibility":{"animal_stage":"K1"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create v2: %v", err)
+	}
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: v2, DoseCode: "primary", Sequence: 2,
+		TriggerType: "post_arrival", OffsetDays: 30, Repeat: "none", CatchUp: "phc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("create v2 rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, v2, nil); err != nil {
+		t.Fatalf("publish v2: %v", err)
+	}
+
+	goatID := "30000000-0000-4000-8000-0000000000e4"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+	entryDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET entry_date=$3::date, origin_type='procured', shed_id=$4::uuid, current_location_id=$4::uuid
+WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID, entryDate, impCbe); err != nil {
+		t.Fatalf("set entry/shed: %v", err)
+	}
+	seedGoatOSCompletion(t, ctx, pool, obl, v1, v1Rule, goatID, "accepted", time.Date(2026, 6, 17, 8, 0, 0, 0, time.UTC))
+
+	res, err := vaccapp.NewGenerationService(proto, vacc, obl).GenerateForGoat(ctx, impTenant, goatID, time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if res.Generated != 1 || res.SuppressedByTrustedHistory != 0 {
+		t.Fatalf("result = %#v, want sequence-2 obligation generated and not suppressed by sequence-1 history", res)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3 AND "sequence"=2`, impTenant, goatID, v2); got != 1 {
+		t.Fatalf("sequence-2 obligations = %d, want 1", got)
+	}
+}
+
 // TestGenerateScopesObligationToShedLocation proves a goat assigned to a real shed location gets a
 // shed-scoped obligation, so the SM-4 sweeper batches one vaccination drive per shed.
 func TestGenerateScopesObligationToShedLocation(t *testing.T) {

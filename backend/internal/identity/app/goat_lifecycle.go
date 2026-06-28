@@ -392,6 +392,9 @@ func validateHealthGoat(body *domain.HealthGoatRequest) error {
 	if !allowedHealthStatuses[body.HealthStatus] {
 		return BadRequest("invalid_health_status", "health_status must be healthy, sick, under_treatment, recovering, quarantine, or icu")
 	}
+	if criticalHealthStatus(body.HealthStatus) {
+		return NotImplemented("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
+	}
 	if len(body.Reason) < 3 || len(body.Reason) > 500 {
 		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
 	}
@@ -408,6 +411,15 @@ var allowedHealthStatuses = map[string]bool{
 	"recovering":      true,
 	"quarantine":      true,
 	"icu":             true,
+}
+
+func criticalHealthStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "quarantine", "icu":
+		return true
+	default:
+		return false
+	}
 }
 
 var allowedExitReasons = map[string]bool{

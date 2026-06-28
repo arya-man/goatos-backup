@@ -167,3 +167,53 @@ func TestListEffectiveVaccinationVersionsForGoatPicksParkOverride(t *testing.T) 
 		t.Fatalf("other-park goat: got %v, want [%s] (tenant default)", got, tenantVer)
 	}
 }
+
+func TestListEffectiveVaccinationVersionsForGoatUsesKolkataCutoverDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.cutover.tz", Name: "Cutover TZ",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	v1End := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	v1, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), EffectiveTo: &v1End,
+		RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create v1: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, v1, nil); err != nil {
+		t.Fatalf("publish v1: %v", err)
+	}
+	v2, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 2, Status: "draft",
+		EffectiveFrom: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create v2: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, v2, nil); err != nil {
+		t.Fatalf("publish v2: %v", err)
+	}
+
+	// 2026-06-30T20:00Z is already 2026-07-01 in Asia/Kolkata, the tenant operating calendar.
+	asOf := time.Date(2026, 6, 30, 20, 0, 0, 0, time.UTC)
+	got, err := repo.ListEffectiveVaccinationVersionsForGoat(ctx, testTenantID, "", asOf)
+	if err != nil {
+		t.Fatalf("list effective: %v", err)
+	}
+	if len(got) != 1 || got[0] != v2 {
+		t.Fatalf("got %v, want [%s] for Kolkata cutover date", got, v2)
+	}
+}

@@ -92,10 +92,12 @@ RETURNING obligation_id::text AS obligation_id;
 
 -- name: ReopenDeferredObligationForKey :one
 -- Recovery recheck: a previously-deferred (held) obligation becomes schedulable again once the goat
--- is no longer in a defer state (recovered from sick/ICU/quarantine). Idempotent: only rows still
+-- is no longer in a defer state (recovered from sick/ICU/quarantine). Clear batch_id defensively so
+-- recovery always returns the obligation to the unbatched sweeper path, even if a future execution
+-- path deferred a row after it had been attached to a non-planned batch. Idempotent: only rows still
 -- 'deferred' match, so a replay after the goat is already schedulable is a no-op.
 UPDATE obligation_instances
-SET status = 'scheduled', row_version = row_version + 1, updated_at = now()
+SET status = 'scheduled', batch_id = NULL, row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = @tenant_id
   AND idempotency_key = @idempotency_key
   AND status = 'deferred'

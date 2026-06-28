@@ -72,6 +72,8 @@ shape of a critical action:
 - subject references such as goat, batch, shed, load, person, stock item, task,
   or booking
 - requested transition
+- requested classification and evidence-derived authoritative classification,
+  where the pack needs to separate process state from names/tags/free text
 - tenant, park, shed, cohort, date, and owner scope
 - actor, authority, source, and idempotency key
 - linked evidence
@@ -86,12 +88,17 @@ command
   -> canonical action request
   -> policy-pack selection
   -> scoped evidence fetch
+  -> evidence-derived classification and conflict check
   -> deterministic guardrail evaluation
   -> decision: allow | block | require_approval | require_exception | defer |
                create_process_exception
   -> transaction writes request + evaluation + audit + outbox
   -> approvals / obligations / proof / notifications / projections
 ```
+
+Lower-level mutation primitives are execution adapters, not guardrail bypasses.
+A critical state transition may call them only after the guardrail decision is
+allowed or after an approved exception path explicitly records why it is safe.
 
 The guardrail engine follows SOLID principles:
 
@@ -107,6 +114,10 @@ A policy pack must declare:
 
 - owned action types and transitions
 - subject types and evidence required to evaluate them
+- legacy capability parity floor, known legacy gaps to close, and import/replay
+  mapping when replacing an existing Slack/Sheets/App Script workflow
+- classification authority rules: what evidence decides the final action
+  classification, and how conflicts with user-entered classification are handled
 - allowed reasons, blocks, warnings, exception paths, and disabled reasons
 - approval/authority policy
 - proof and verification policy

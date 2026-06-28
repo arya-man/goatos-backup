@@ -930,7 +930,15 @@ SELECT (
   )
   OR EXISTS (
     SELECT 1
-    FROM vaccination_completions vc
+    FROM protocol_rules target_pr
+    JOIN protocol_versions target_pv
+      ON target_pv.tenant_id = target_pr.tenant_id
+     AND target_pv.protocol_version_id = target_pr.protocol_version_id
+    JOIN vaccination_completions vc
+      ON vc.tenant_id = target_pr.tenant_id
+     AND vc.goat_id = $2
+     AND vc.status = 'accepted'
+     AND vc.verified_at IS NOT NULL
     JOIN obligation_instances oi
       ON oi.tenant_id = vc.tenant_id
      AND oi.obligation_id = vc.obligation_id
@@ -940,16 +948,14 @@ SELECT (
     JOIN protocol_versions cpv
       ON cpv.tenant_id = oi.tenant_id
      AND cpv.protocol_version_id = oi.protocol_version_id
-    WHERE vc.tenant_id = $1
-      AND vc.goat_id = $2
-      AND vc.status = 'accepted'
-      AND vc.verified_at IS NOT NULL
-      AND cpr.dose_code = $5
-      AND cpv.protocol_id = (
-        SELECT protocol_id
-        FROM protocol_versions
-        WHERE tenant_id = $1 AND protocol_version_id = $3
-      )
+    WHERE target_pr.tenant_id = $1
+      AND target_pr.protocol_version_id = $3
+      AND target_pr.rule_id = $4
+      AND target_pr.dose_code = $5
+      AND vc.tenant_id = $1
+      AND cpr.dose_code = target_pr.dose_code
+      AND cpr.sequence = target_pr.sequence
+      AND cpv.protocol_id = target_pv.protocol_id
       AND vc.administered_at <= $6::timestamptz
       AND vc.administered_at <= $7::timestamptz
       AND vc.verified_at <= $7::timestamptz

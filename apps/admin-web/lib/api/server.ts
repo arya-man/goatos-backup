@@ -76,7 +76,6 @@ export type AdminGoatBulkRowResult = AdminApiComponents["schemas"]["AdminGoatBul
 export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkSummary"];
 export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
 export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
-export type HealthGoatRequest = AdminApiComponents["schemas"]["HealthGoatRequest"];
 export type LocationSummary = AdminApiComponents["schemas"]["LocationSummary"];
 export type LocationListResponse = AdminApiComponents["schemas"]["LocationListResponse"];
 export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentifierRequest"];
@@ -801,24 +800,8 @@ export async function stageGoat(
   );
 }
 
-export async function healthGoat(
-  goatId: string,
-  body: HealthGoatRequest,
-  idempotencyKey: string,
-): Promise<ApiResult<AdminGoatResponse>> {
-  const config = await getServerConfig();
-  if (!config.ok) return config;
-  const client = createAdminApiClient(apiClientOptions(config.data));
-  const path = `/admin/goats/${encodeURIComponent(goatId)}/health` as keyof AdminApiPaths & string;
-  return request(() =>
-    client.request<AdminGoatResponse>(path, {
-      method: "POST",
-      cache: "no-store",
-      headers: { "Idempotency-Key": idempotencyKey },
-      body,
-    }),
-  );
-}
+// Health status writes intentionally have no admin-web wrapper yet. Add one only with a backend-owned
+// Goat Passport/Herd action contract that carries labels, options, disabled reasons, and authority copy.
 
 // Counts -> Herd Register write path. Each create/commit carries an Idempotency-Key so a double-submit or
 // retry replays the original result instead of writing a second goat. The backend derives the actor from the

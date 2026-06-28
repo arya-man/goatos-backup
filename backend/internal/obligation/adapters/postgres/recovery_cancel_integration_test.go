@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -71,5 +72,51 @@ func TestReopenDeferredObligationOnRecovery(t *testing.T) {
 		t.Fatalf("reopen replay: %v", err)
 	} else if changed2 {
 		t.Fatalf("reopen replay should be a no-op")
+	}
+}
+
+func TestReopenDeferredObligationClearsStaleBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	batchID, err := repo.CreateBatch(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: mustVersionOf(t, ctx, pool),
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "morning",
+		Status:            "in_progress",
+		EstimatedTargets:  1,
+		PlannedQuantity:   "0",
+		QuantityUnit:      "dose",
+	})
+	if err != nil {
+		t.Fatalf("create in-progress batch: %v", err)
+	}
+	if attached, err := repo.AttachObligationsToBatch(ctx, tenantID, batchID, []string{obA}); err != nil || attached != 1 {
+		t.Fatalf("attach stale batch precondition: attached=%d err=%v", attached, err)
+	}
+	if _, changed, err := repo.DeferOpenObligationByIdempotencyKey(ctx, tenantID, "obl-1", "sick", time.Now().UTC()); err != nil || !changed {
+		t.Fatalf("defer held obligation: changed=%v err=%v", changed, err)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2 AND status='deferred' AND batch_id=$3`,
+		tenantID, obA, batchID); got != 1 {
+		t.Fatalf("precondition: deferred obligation should still carry non-planned batch_id, got %d", got)
+	}
+
+	id, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "obl-1", time.Now().UTC())
+	if err != nil || !changed || id != obA {
+		t.Fatalf("reopen: id=%q changed=%v err=%v", id, changed, err)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2 AND status='scheduled' AND batch_id IS NULL`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("reopened obligation must be unbatched and schedulable, got %d", got)
 	}
 }

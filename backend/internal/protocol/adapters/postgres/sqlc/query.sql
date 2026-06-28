@@ -40,15 +40,21 @@ ORDER BY pv.protocol_version_id;
 -- exists and is effective, else the tenant default), so the goat is issued doses from exactly one scope
 -- — never both, and never another park's calendar. A goat with no park (@park_id IS NULL) only matches
 -- tenant-default versions.
+WITH effective_clock AS (
+  SELECT (sqlc.arg('as_of')::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AS business_date
+)
 SELECT DISTINCT ON (pv.protocol_id)
        pv.protocol_version_id::text AS protocol_version_id
 FROM protocol_versions pv
 JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+CROSS JOIN effective_clock ec
 WHERE pv.tenant_id = @tenant_id
   AND pv.status = 'published'
   AND pd.category = 'vaccination'
-  AND pv.effective_from <= (@as_of::timestamptz)::date
-  AND (pv.effective_to IS NULL OR pv.effective_to > (@as_of::timestamptz)::date)
+  -- Protocol dates are business-calendar dates for the operating tenant; use Asia/Kolkata explicitly
+  -- so a DB session timezone cannot select yesterday's version during cutover-day evening UTC.
+  AND pv.effective_from <= ec.business_date
+  AND (pv.effective_to IS NULL OR pv.effective_to > ec.business_date)
   AND (pv.scope_type = 'tenant'
        OR (pv.scope_type = 'park' AND pv.scope_id = sqlc.narg('park_id')))
 ORDER BY pv.protocol_id,

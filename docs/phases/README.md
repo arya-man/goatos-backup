@@ -66,6 +66,15 @@ Every phase must inspect available legacy/source artifacts before asking the
 business to answer from memory. Agents should produce evidence-backed proposals
 with source paths, counts, and confidence, then ask for confirmation. Raw PII or
 private source rows must not be committed.
+When a phase or policy pack replaces a legacy Slack/Sheets/App Script workflow,
+it must declare the `legacy capability parity floor`, `known legacy gaps to
+close`, and `import/replay mapping`. Capability parity means preserving useful
+source signals and workflow intent while closing weak validation and manual
+remembering gaps.
+Critical-action phases must also declare classification authority and bypass
+handling: what evidence computes the final action classification, and how
+lower-level primitives are blocked, wrapped, or restricted until the pack owns
+the transition.
 Every phase closes with a docs sync: compare implemented code, contracts,
 migrations, adapters, tests, and operational behavior against PRD/TRD/context
 and update docs, `SKILLS.md`, `AGENTS.md`, `CLAUDE.md`/`CODEX.md` shims, and
