@@ -12,9 +12,18 @@ import { AlertTriangle, Check, Download, Plus, Upload, X } from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { LocationOption } from "@/lib/api/herd-locations";
-import type { AdminGoatBulkResponse, AdminGoatBulkRowResult, CreateAdminGoatRequest } from "@/lib/api/server";
+import type { AdminGoatBulkResponse, CreateAdminGoatRequest } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { commitGoatsAction, createGoatAction, previewGoatsAction } from "./herd-actions";
+import {
+  commitGoatsAction,
+  commitShedsAction,
+  createGoatAction,
+  createShedAction,
+  previewGoatsAction,
+  previewShedsAction,
+  type ShedImportCommitRow,
+  type ShedImportResponse,
+} from "./herd-actions";
 
 function todayISO(): string {
   const now = new Date();
@@ -37,7 +46,7 @@ function contractTone(pageContract: AdminUiPageContract, groupId: string, key: s
   return optionTone(pageContract, groupId, key) as Tone;
 }
 
-function decisionLabel(pageContract: AdminUiPageContract, decision: AdminGoatBulkRowResult["decision"]): string {
+function decisionLabel(pageContract: AdminUiPageContract, decision: string): string {
   return optionLabel(pageContract, "herd_bulk_decisions", String(decision));
 }
 
@@ -314,6 +323,93 @@ function RegisterGoatDrawer({
   );
 }
 
+// ---- Register shed drawer (single create) ----
+function RegisterShedDrawer({
+  open,
+  onClose,
+  parks,
+  idempotencyKey,
+  returnTo,
+  pageContract,
+}: {
+  open: boolean;
+  onClose: () => void;
+  parks: LocationOption[];
+  idempotencyKey: string;
+  returnTo: string;
+  pageContract: AdminUiPageContract;
+}) {
+  const canCreate = parks.length > 0;
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      closeLabel={copy(pageContract, "action.close")}
+      title={copy(pageContract, "drawer.shed_register.title")}
+      subtitle={copy(pageContract, "drawer.shed_register.subtitle")}
+    >
+      {!canCreate ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>
+            <b>{copy(pageContract, "alert.locations.title")}</b>
+            <div className="small">{copy(pageContract, "alert.shed_locations.body")}</div>
+          </div>
+        </div>
+      ) : null}
+
+      <form action={createShedAction} onSubmit={() => onClose()} className="fld" style={{ margin: 0 }}>
+        <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+        <input type="hidden" name="return_to" value={returnTo} />
+
+        <div className="fld">
+          <label htmlFor="rs_park">{copy(pageContract, "field.park_required")}</label>
+          <select id="rs_park" name="park_id" required disabled={!canCreate}>
+            {parks.length === 0 ? <option value="">{copy(pageContract, "option.no_parks")}</option> : null}
+            {parks.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}{p.code ? ` · ${p.code}` : ""}</option>
+            ))}
+          </select>
+        </div>
+
+        <Row>
+          <div className="fld" style={{ flex: 1, minWidth: 180 }}>
+            <label htmlFor="rs_code">{copy(pageContract, "field.shed_code")}</label>
+            <input id="rs_code" name="location_code" placeholder={copy(pageContract, "placeholder.shed_code")} />
+          </div>
+          <div className="fld" style={{ flex: 1, minWidth: 220 }}>
+            <label htmlFor="rs_name">{copy(pageContract, "field.shed_name_required")}</label>
+            <input id="rs_name" name="name" required placeholder={copy(pageContract, "placeholder.shed_name")} />
+          </div>
+        </Row>
+
+        <Row>
+          <div className="fld" style={{ width: 150 }}>
+            <label htmlFor="rs_order">{copy(pageContract, "field.display_order")}</label>
+            <input id="rs_order" name="display_order" type="number" min={0} step={1} defaultValue={0} />
+          </div>
+          <div className="fld" style={{ flex: 1, minWidth: 220 }}>
+            <label htmlFor="rs_notes">{copy(pageContract, "field.notes")}</label>
+            <input id="rs_notes" name="notes" placeholder={copy(pageContract, "placeholder.shed_notes")} />
+          </div>
+        </Row>
+
+        <div className="note" style={{ marginBottom: 12 }}>{copy(pageContract, "note.shed_create")}</div>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 4 }}>
+          <button type="button" className="btn" onClick={onClose}>{copy(pageContract, "action.cancel")}</button>
+          {canCreate ? (
+            <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.register_shed")}</SubmitButton>
+          ) : (
+            <button type="button" className="btn p" disabled aria-disabled="true" style={{ opacity: 0.5, cursor: "not-allowed" }}>{copy(pageContract, "action.register_shed")}</button>
+          )}
+        </div>
+      </form>
+    </Drawer>
+  );
+}
+
 // ---- Bulk import drawer (download template -> paste/upload CSV -> preview -> commit) ----
 function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
   const router = useRouter();
@@ -519,6 +615,200 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   );
 }
 
+// ---- Shed bulk import drawer (download template -> paste/upload CSV -> preview -> commit) ----
+function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onClose: () => void; pageContract: AdminUiPageContract }) {
+  const router = useRouter();
+  const [csv, setCsv] = useState("");
+  const [preview, setPreview] = useState<ShedImportResponse | null>(null);
+  const [committed, setCommitted] = useState<ShedImportResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const shedColumns = optionGroup(pageContract, "shed_import_columns").map((column) => column.label);
+
+  function reset() {
+    setCsv("");
+    setPreview(null);
+    setCommitted(null);
+    setError(null);
+  }
+
+  function close() {
+    reset();
+    onClose();
+  }
+
+  function downloadTemplate() {
+    const header = shedColumns.join(",");
+    const blob = new Blob([`${header}\n`], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = copy(pageContract, "action.download_shed_template");
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setCsv(await file.text());
+  }
+
+  function runPreview() {
+    setError(null);
+    setCommitted(null);
+    startTransition(async () => {
+      const res = await previewShedsAction(csv);
+      if (res.ok) setPreview(res.data);
+      else setError(res.message);
+    });
+  }
+
+  function runCommit() {
+    if (!preview) return;
+    const rows: ShedImportCommitRow[] = preview.rows.flatMap((r) =>
+      r.decision === "create" && r.normalized ? [{ row_number: r.row_number, normalized: r.normalized }] : [],
+    );
+    if (rows.length === 0) return;
+    setError(null);
+    const hash = fnv1aHex(csv);
+    startTransition(async () => {
+      const res = await commitShedsAction(rows, hash);
+      if (res.ok) {
+        setCommitted(res.data);
+        router.refresh();
+      } else {
+        setError(res.message);
+      }
+    });
+  }
+
+  const view = committed ?? preview;
+  const committable = preview ? preview.rows.filter((r) => r.decision === "create" && r.normalized).length : 0;
+
+  return (
+    <Drawer
+      open={open}
+      onClose={close}
+      closeLabel={copy(pageContract, "action.close")}
+      title={copy(pageContract, "drawer.shed_import.title")}
+      subtitle={copy(pageContract, "drawer.shed_import.subtitle")}
+      width={820}
+    >
+      {!committed ? (
+        <>
+          <div className="fld">
+            <label>{copy(pageContract, "field.bulk_template")} <span className="muted small">({shedColumns.length} {copy(pageContract, "label.columns")})</span></label>
+            <button type="button" className="btn sm" onClick={downloadTemplate}>
+              <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.download_shed_template")}
+            </button>
+            <div className="muted small" style={{ marginTop: 6 }}>{shedColumns.join(" · ")}</div>
+            <div className="note" style={{ marginTop: 8 }}>
+              {copy(pageContract, "note.shed_bulk_template")}
+            </div>
+          </div>
+          <div className="fld">
+            <label htmlFor="shed_bulk_file">{copy(pageContract, "field.bulk_upload")}</label>
+            <input id="shed_bulk_file" type="file" accept=".csv,text/csv" onChange={onFile} />
+          </div>
+          <div className="fld">
+            <label htmlFor="shed_bulk_csv">{copy(pageContract, "field.bulk_paste")}</label>
+            <textarea
+              id="shed_bulk_csv"
+              rows={5}
+              value={csv}
+              onChange={(e) => setCsv(e.target.value)}
+              placeholder={shedColumns.join(",")}
+              style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+            <button type="button" className="btn p" onClick={runPreview} disabled={pending || csv.trim() === ""} aria-busy={pending}>
+              {pending && !committed ? copy(pageContract, "action.previewing_rows") : copy(pageContract, "action.preview_rows")}
+            </button>
+            {preview ? <span className="muted small">{copy(pageContract, "note.preview_ready")}</span> : null}
+          </div>
+        </>
+      ) : null}
+
+      {error ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div><b>{committed ? copy(pageContract, "action.commit_failed") : copy(pageContract, "action.preview_failed")}</b><div className="small">{error}</div></div>
+        </div>
+      ) : null}
+
+      {committed ? (
+        <div className="note" style={{ marginBottom: 14 }}>
+          <Tag tone="ok">{copy(pageContract, "label.committed")}</Tag> {copy(pageContract, "label.created")} {committed.summary.created} · {copy(pageContract, "label.failed")} {committed.summary.failed} {copy(pageContract, "label.of")} {committed.summary.total} {copy(pageContract, "label.rows")}. {copy(pageContract, "note.shed_committed_suffix")}
+        </div>
+      ) : null}
+
+      {view ? (
+        <>
+          <div className="chipset" style={{ marginBottom: 10 }}>
+            <Tag tone="mut">{view.summary.total} {copy(pageContract, "label.rows")}</Tag>
+            <Tag tone="ok">{view.summary.create_ready} {copy(pageContract, "label.create_ready")}</Tag>
+            <Tag tone="warn">{view.summary.requires_review} {copy(pageContract, "label.review")}</Tag>
+            {committed ? <Tag tone={view.summary.failed ? "dng" : "ok"}>{view.summary.created} {copy(pageContract, "label.created")}</Tag> : null}
+          </div>
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>{copy(pageContract, "field.import_row")}</th>
+                    <th>{copy(pageContract, "field.import_decision")}</th>
+                    <th>{copy(pageContract, "field.shed")}</th>
+                    <th>{copy(pageContract, "field.import_notes")}</th>
+                    {committed ? <th>{copy(pageContract, "field.import_result")}</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {view.rows.map((r) => {
+                    const ident = r.normalized ? `${r.normalized.location_code ? `${r.normalized.location_code} · ` : ""}${r.normalized.name}` : copy(pageContract, "label.placeholder");
+                    const notes = r.errors.map((e) => `${e.field}: ${e.message}`).join(" · ");
+                    return (
+                      <tr key={r.row_number}>
+                        <td className="muted">{r.row_number}</td>
+                        <td><Tag tone={contractTone(pageContract, "herd_bulk_decisions", r.decision)}>{decisionLabel(pageContract, r.decision)}</Tag></td>
+                        <td>{ident}</td>
+                        <td className="muted small">{notes || copy(pageContract, "label.placeholder")}</td>
+                        {committed ? (
+                          <td className="muted small">{r.result ? r.result.location.name : r.errors.length ? copy(pageContract, "label.failed") : copy(pageContract, "label.placeholder")}</td>
+                        ) : null}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {committed ? (
+              <button type="button" className="btn p" onClick={close}>{copy(pageContract, "action.done")}</button>
+            ) : (
+              <>
+                <button type="button" className="btn" onClick={() => { setPreview(null); setError(null); }}>{copy(pageContract, "action.re_edit")}</button>
+                <button
+                  type="button"
+                  className="btn p"
+                  onClick={runCommit}
+                  disabled={pending || committable === 0}
+                  aria-disabled={committable === 0}
+                  aria-busy={pending}
+                >
+                  <Check className="ic" aria-hidden="true" /> {pending ? copy(pageContract, "action.creating_records") : `${copy(pageContract, "action.create_sheds")} (${committable})`}
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      ) : null}
+    </Drawer>
+  );
+}
+
 // ---- Header CTA group rendered inside the page header (replaces the disabled buttons) ----
 export function HerdActions({
   parks,
@@ -537,10 +827,16 @@ export function HerdActions({
   returnTo: string;
   pageContract: AdminUiPageContract;
 }) {
-  const [openDrawer, setOpenDrawer] = useState<"register" | "bulk" | null>(null);
+  const [openDrawer, setOpenDrawer] = useState<"shed" | "shed-bulk" | "register" | "bulk" | null>(null);
 
   return (
     <>
+      <button type="button" className="btn" onClick={() => setOpenDrawer("shed-bulk")}>
+        <Upload className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.import_sheds")}
+      </button>
+      <button type="button" className="btn" onClick={() => setOpenDrawer("shed")}>
+        <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.register_shed")}
+      </button>
       <button type="button" className="btn" onClick={() => setOpenDrawer("bulk")}>
         <Upload className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.import_sheet")}
       </button>
@@ -559,7 +855,16 @@ export function HerdActions({
         returnTo={returnTo}
         pageContract={pageContract}
       />
+      <RegisterShedDrawer
+        open={openDrawer === "shed"}
+        onClose={() => setOpenDrawer(null)}
+        parks={parks}
+        idempotencyKey={idempotencyKey}
+        returnTo={returnTo}
+        pageContract={pageContract}
+      />
       <BulkImportDrawer open={openDrawer === "bulk"} onClose={() => setOpenDrawer(null)} pageContract={pageContract} />
+      <ShedImportDrawer open={openDrawer === "shed-bulk"} onClose={() => setOpenDrawer(null)} pageContract={pageContract} />
     </>
   );
 }

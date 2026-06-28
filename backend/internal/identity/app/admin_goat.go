@@ -479,6 +479,7 @@ func parseAdminGoatCSV(raw string) ([]domain.AdminGoatCreateRequest, error) {
 		req := domain.AdminGoatCreateRequest{
 			RFID:           optionalCSV(rec, headers, "rfid"),
 			OldTag:         optionalCSV(rec, headers, "old_tag"),
+			TempFieldID:    optionalCSV(rec, headers, "temp_field_id"),
 			FarmCode:       optionalCSV(rec, headers, "farm"),
 			ParkID:         optionalCSV(rec, headers, "park_id"),
 			ParkCode:       optionalCSV(rec, headers, "park"),
@@ -520,6 +521,8 @@ func normalizeHeader(value string) string {
 	switch v {
 	case "old_tag", "oldtag":
 		return "old_tag"
+	case "temp_field_id", "temporary_field_id", "tempfieldid":
+		return "temp_field_id"
 	case "weightkg", "weight_kg":
 		return "weight_kg"
 	case "sire_lot", "sire_or_lot":

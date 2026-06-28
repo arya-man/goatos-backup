@@ -181,11 +181,11 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 	})
 	config := pageByRouteID(t, resp.Pages, "config")
 
-	// rule_categories is a fixed PRODUCT vocabulary, not live tenant data: an empty DB must still
-	// expose {vaccination, feed_direction} so the first protocol rule can be authored.
+	// rule_categories is a fixed visible vocabulary for this deploy: an empty DB must still expose
+	// vaccination so the first PHC rule can be authored, and future/non-vaccination categories stay hidden.
 	categories := optionGroupByID(t, config.OptionGroups, "rule_categories")
-	if got := optionKeys(categories); len(got) != 2 || !got["vaccination"] || !got["feed_direction"] {
-		t.Fatalf("empty DB rule_categories must keep the fixed product vocabulary, got %#v", categories.Options)
+	if got := optionKeys(categories); len(got) != 1 || !got["vaccination"] || got["feed_direction"] {
+		t.Fatalf("empty DB rule_categories must stay vaccination-only, got %#v", categories.Options)
 	}
 	breeds := optionGroupByID(t, config.OptionGroups, "rule_breeds")
 	if got := optionKeys(breeds); len(got) != 1 || !got["all"] || got["Beetal"] || got["Sirohi"] {
@@ -207,9 +207,8 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 	if len(sopLabels.Options) != 0 {
 		t.Fatalf("empty DB schedule_sop_labels must stay empty, got %#v", sopLabels.Options)
 	}
-	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
-	if got := optionKeys(feedItems); len(got) != 1 || !got["custom"] || got["Mesha concentrate"] {
-		t.Fatalf("empty DB feed_items must expose only the custom sentinel, got %#v", feedItems.Options)
+	if optionGroupExists(config.OptionGroups, "feed_items") {
+		t.Fatalf("empty DB config must not expose feed_items in the vaccination-only slice")
 	}
 }
 
@@ -254,7 +253,7 @@ func TestDLQCenterSeparatesReadNavFromRepairActions(t *testing.T) {
 	}
 }
 
-func TestBootstrapConfigCompilesFeedItemsAndCategories(t *testing.T) {
+func TestBootstrapConfigPublishesVaccinationOnlyRuleAuthoringGroups(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
@@ -264,25 +263,25 @@ func TestBootstrapConfigCompilesFeedItemsAndCategories(t *testing.T) {
 	})
 	config := pageByRouteID(t, resp.Pages, "config")
 
-	// feed_items: DB-backed active feed inventory item + the static 'custom' sentinel.
-	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
-	if got := optionKeys(feedItems); !got["custom"] || !got["feed-1"] {
-		t.Fatalf("feed_items must include DB items and the custom sentinel, got %#v", feedItems.Options)
+	if optionGroupExists(config.OptionGroups, "feed_items") {
+		t.Fatalf("config must not expose feed_items in the vaccination-only slice")
+	}
+	if optionGroupExists(config.OptionGroups, "feed_classes") || optionGroupExists(config.OptionGroups, "feed_units") || optionGroupExists(config.OptionGroups, "feed_inventory_policies") {
+		t.Fatalf("config must not expose feed option groups in the vaccination-only slice: %#v", config.OptionGroups)
 	}
 
-	// rule_categories: fixed vocab + DB categories, with 'vaccination' deduped to a single option.
+	// rule_categories: static vaccination-only vocabulary. DB categories such as feed_direction are not visible.
 	categories := optionGroupByID(t, config.OptionGroups, "rule_categories")
-	if got := optionKeys(categories); !got["vaccination"] || !got["feed_direction"] {
-		t.Fatalf("rule_categories must include the product vocabulary, got %#v", categories.Options)
+	if got := optionKeys(categories); len(got) != 1 || !got["vaccination"] || got["feed_direction"] {
+		t.Fatalf("rule_categories must stay vaccination-only, got %#v", categories.Options)
 	}
-	vaccinationCount := 0
-	for _, o := range categories.Options {
-		if o.Key == "vaccination" {
-			vaccinationCount++
-		}
+	placeholders := optionGroupByID(t, config.OptionGroups, "protocol_placeholders")
+	if got := optionKeys(placeholders); !got["vaccination.code"] || !got["vaccination.name"] || got["feed_direction.code"] || got["deworming.code"] {
+		t.Fatalf("protocol placeholders must stay vaccination-only, got %#v", placeholders.Options)
 	}
-	if vaccinationCount != 1 {
-		t.Fatalf("rule_categories must dedup 'vaccination' across static+DB, got %d", vaccinationCount)
+	sourceSystems := optionGroupByID(t, config.OptionGroups, "source_systems")
+	if got := optionKeys(sourceSystems); !got["manual_admin"] || !got["vaccinations_db"] || !got["phc"] || !got["vet"] || got["feed_master"] || got["nutritionist"] || got["ops_source"] {
+		t.Fatalf("source systems must stay vaccination-only, got %#v", sourceSystems.Options)
 	}
 }
 
@@ -332,7 +331,6 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 		{group: "rule_scopes", key: "park:park-1", want: "park: P1"},
 		{group: "rule_breeds", key: "DB Breed", want: "DB Breed"},
 		{group: "schedule_sop_labels", key: "sop-v1", want: "SOP v1"},
-		{group: "feed_items", key: "feed-1", want: "Mesha concentrate"},
 		{group: "source_systems", key: "manual_admin", want: "manual admin (not publishable)"},
 	} {
 		if got := optionLabelFromPage(t, config, blocked.group, blocked.key); got != blocked.want {
@@ -591,6 +589,15 @@ func optionGroupByID(t *testing.T, groups []domain.OptionGroup, id string) domai
 	}
 	t.Fatalf("missing option group %q", id)
 	return domain.OptionGroup{}
+}
+
+func optionGroupExists(groups []domain.OptionGroup, id string) bool {
+	for _, group := range groups {
+		if group.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func tableLabels(page domain.PageContract, tableID string) []string {

@@ -9,6 +9,7 @@ import {
   sourceBadge,
   validatePublish,
   ALL_STAGES_VALUE,
+  newFeedFields,
   type AnimalStageOption,
   type DoseRow,
   type FeedFields,
@@ -16,7 +17,7 @@ import {
   type SopVersionOption,
 } from "./rule-dsl";
 import type { ImpactPreviewResult } from "@/lib/api/server";
-import { copy, optionGroup, optionLabel, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, optionGroup, optionLabel, optionalOptionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok" } as const;
 
@@ -59,10 +60,17 @@ export function RuleEditorModal({
   const repeatOptions = optionGroup(pageContract, "repeat_policies");
   const catchUpOptions = optionGroup(pageContract, "catch_up_policies");
   const scheduleSopOptions = optionGroup(pageContract, "schedule_sop_labels");
-  const feedClassOptions = optionGroup(pageContract, "feed_classes");
-  const feedItemOptions = optionGroup(pageContract, "feed_items");
-  const feedUnitOptions = optionGroup(pageContract, "feed_units");
-  const feedInventoryOptions = optionGroup(pageContract, "feed_inventory_policies");
+  const feedClassOptions = optionalOptionGroup(pageContract, "feed_classes");
+  const feedItemOptions = optionalOptionGroup(pageContract, "feed_items");
+  const feedUnitOptions = optionalOptionGroup(pageContract, "feed_units");
+  const feedInventoryOptions = optionalOptionGroup(pageContract, "feed_inventory_policies");
+  const supportsFeedDirection =
+    ruleCategories.some((option) => option.key === "feed_direction") &&
+    feedClassOptions.length > 0 &&
+    feedItemOptions.length > 0 &&
+    feedUnitOptions.length > 0 &&
+    feedInventoryOptions.length > 0;
+  const visibleRuleCategories = ruleCategories.filter((option) => option.key !== "feed_direction" || supportsFeedDirection);
 
   function firstKey(options: AdminUiOption[], groupId: string): string {
     const [first] = options;
@@ -78,11 +86,18 @@ export function RuleEditorModal({
     }
     return key;
   }
+  function firstKeyOr(options: AdminUiOption[], fallback: string): string {
+    return options[0]?.key ?? fallback;
+  }
   function categoryDefault(): string {
-    return ruleCategories.some((option) => option.key === initialCategory) ? initialCategory : (ruleCategories[0]?.key ?? initialCategory);
+    const fallback = visibleRuleCategories.find((option) => option.key === "vaccination")?.key ?? visibleRuleCategories[0]?.key ?? initialCategory;
+    if (initialCategory === "feed_direction" && !supportsFeedDirection) return fallback;
+    return visibleRuleCategories.some((option) => option.key === initialCategory) ? initialCategory : fallback;
   }
   function defaultEscalation(categoryKey: string): string {
-    return categoryKey === "feed_direction" ? copy(pageContract, "modal.rule_editor.default_feed_escalation") : copy(pageContract, "modal.rule_editor.default_vaccination_escalation");
+    return categoryKey === "feed_direction" && supportsFeedDirection
+      ? (optionalCopy(pageContract, "modal.rule_editor.default_feed_escalation") ?? copy(pageContract, "modal.rule_editor.default_vaccination_escalation"))
+      : copy(pageContract, "modal.rule_editor.default_vaccination_escalation");
   }
   function protocolPlaceholder(categoryKey: string, field: "code" | "name"): string {
     const key = `${categoryKey}.${field}`;
@@ -106,16 +121,17 @@ export function RuleEditorModal({
     };
   }
   function newContractFeedFields(): FeedFields {
+    const fallback = newFeedFields();
     return {
-      animalStage: firstKey(animalStageScope, "animal_stage_scope"),
-      breedClass: firstKey(feedClassOptions, "feed_classes"),
-      feedItem: firstKey(feedItemOptions, "feed_items"),
-      quantity: 1,
-      unit: firstKey(feedUnitOptions, "feed_units"),
-      sessionTimes: copy(pageContract, "modal.rule_editor.placeholder.session_timing"),
-      packingProofCsv: copy(pageContract, "modal.rule_editor.placeholder.packing_proof"),
-      executionProofCsv: copy(pageContract, "modal.rule_editor.placeholder.execution_proof"),
-      inventoryPolicy: firstKey(feedInventoryOptions, "feed_inventory_policies"),
+      animalStage: firstKeyOr(animalStageScope, fallback.animalStage),
+      breedClass: firstKeyOr(feedClassOptions, fallback.breedClass),
+      feedItem: firstKeyOr(feedItemOptions, fallback.feedItem),
+      quantity: fallback.quantity,
+      unit: firstKeyOr(feedUnitOptions, fallback.unit),
+      sessionTimes: optionalCopy(pageContract, "modal.rule_editor.placeholder.session_timing") ?? fallback.sessionTimes,
+      packingProofCsv: optionalCopy(pageContract, "modal.rule_editor.placeholder.packing_proof") ?? fallback.packingProofCsv,
+      executionProofCsv: optionalCopy(pageContract, "modal.rule_editor.placeholder.execution_proof") ?? fallback.executionProofCsv,
+      inventoryPolicy: firstKeyOr(feedInventoryOptions, fallback.inventoryPolicy),
     };
   }
 
@@ -124,7 +140,7 @@ export function RuleEditorModal({
   // seed-state (disabled-with-reason, all-stages draft still allowed); (3) READ FAILED (stagesError)
   // → we don't know the true stage set, so the picker is disabled and Save/Publish are blocked.
   const stagesSeeded = animalStages.length > 0;
-  const categoriesSeeded = ruleCategories.length > 0;
+  const categoriesSeeded = visibleRuleCategories.length > 0;
   const categoryBlockReason = categoriesSeeded
     ? ""
     : `${copy(pageContract, "modal.rule_editor.category_seed_block_prefix")} — ${copy(pageContract, "modal.rule_editor.categories_empty")}`;
@@ -142,7 +158,8 @@ export function RuleEditorModal({
   const sopBlockReason = sopsError
     ? `${copy(pageContract, "modal.rule_editor.sop_load_block_prefix")} (${sopsError}) — ${copy(pageContract, "modal.rule_editor.fix_reload_suffix")}`
     : "";
-  const [category, setCategory] = useState(categoryDefault());
+  const defaultCategory = categoryDefault();
+  const [category, setCategory] = useState(defaultCategory);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [scope, setScope] = useState(firstKey(scopeOptions, "rule_scopes"));
@@ -161,7 +178,7 @@ export function RuleEditorModal({
   const [vaccineLotPolicy, setVaccineLotPolicy] = useState(copy(pageContract, "modal.rule_editor.default_vaccine_lot_policy"));
 
   const [missedDosePolicy, setMissedDosePolicy] = useState(requireKey(missedDoseOptions, "phc_approval", "missed_dose_policies"));
-  const [escalation, setEscalation] = useState(() => defaultEscalation(initialCategory));
+  const [escalation, setEscalation] = useState(() => defaultEscalation(defaultCategory));
 
   const [sourceSystem, setSourceSystem] = useState(firstKey(sourceSystemOptions, "source_systems"));
   const [sourceRef, setSourceRef] = useState("");
@@ -183,7 +200,7 @@ export function RuleEditorModal({
   const [notice, setNotice] = useState<ActionResult | null>(null);
   const [impact, setImpact] = useState<ImpactPreviewResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const isFeedDirection = category === "feed_direction";
+  const isFeedDirection = category === "feed_direction" && supportsFeedDirection;
 
   const input: RuleInput = useMemo(
     () => ({
@@ -372,7 +389,7 @@ export function RuleEditorModal({
               {!categoriesSeeded ? (
                 <option value={category}>{copy(pageContract, "modal.rule_editor.option.no_categories")}</option>
               ) : (
-                ruleCategories.map((c) => (
+                visibleRuleCategories.map((c) => (
                   <option key={c.key} value={c.key}>
                     {c.label}
                   </option>

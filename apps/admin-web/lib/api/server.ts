@@ -76,8 +76,10 @@ export type AdminGoatBulkRowResult = AdminApiComponents["schemas"]["AdminGoatBul
 export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkSummary"];
 export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
 export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
+export type CreateLocationRequest = AdminApiComponents["schemas"]["CreateLocationRequest"];
 export type LocationSummary = AdminApiComponents["schemas"]["LocationSummary"];
 export type LocationListResponse = AdminApiComponents["schemas"]["LocationListResponse"];
+export type LocationMutationResponse = AdminApiComponents["schemas"]["LocationMutationResponse"];
 export type AddIdentifierRequestBody = AdminApiComponents["schemas"]["AddIdentifierRequest"];
 export type RetireIdentifierRequestBody = AdminApiComponents["schemas"]["RetireIdentifierRequest"];
 export type OperationsAuditRow = AdminApiComponents["schemas"]["OperationsAuditRow"];
@@ -868,6 +870,23 @@ export async function listLocations(
         parent_location_id: params.parentLocationId,
         limit: params.limit ?? 500,
       }),
+    }),
+  );
+}
+
+export async function createLocation(
+  body: CreateLocationRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<LocationMutationResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LocationMutationResponse>("/admin/locations", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
     }),
   );
 }

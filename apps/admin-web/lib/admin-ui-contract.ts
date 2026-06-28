@@ -45,6 +45,10 @@ export function optionGroup(page: AdminUiPageContract, groupId: string): AdminUi
   return value.options;
 }
 
+export function optionalOptionGroup(page: AdminUiPageContract, groupId: string): AdminUiOption[] {
+  return page.option_groups.find((item) => item.id === groupId)?.options ?? [];
+}
+
 export function optionalOption(page: AdminUiPageContract, groupId: string, key: string): AdminUiOption | undefined {
   return optionGroup(page, groupId).find((item) => item.key === key);
 }
