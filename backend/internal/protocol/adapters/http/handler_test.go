@@ -128,6 +128,18 @@ func TestAddRuleSurfacesPublishedVersionImmutable(t *testing.T) {
 	}
 }
 
+func TestAddRuleSurfacesUnsupportedRepeatPolicy(t *testing.T) {
+	body := `{"dose_code":"primary","sequence":1,"trigger_type":"post_arrival","repeat":"until_age","catch_up":"immediate","eligibility_json":{},"proof_policy":{}}`
+	rec := serve(NewHandler(&fakeConfig{addRuleErr: app.ErrUnsupportedRepeatPolicy}), http.MethodPost, "/protocols/versions/v1/rules", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("add rule unsupported repeat: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "unsupported_repeat_policy" {
+		t.Fatalf("unsupported repeat envelope: %+v err=%v", env, err)
+	}
+}
+
 func TestGetVersionNotFound(t *testing.T) {
 	rec := serve(NewHandler(&fakeConfig{getErr: ports.ErrNotFound}), http.MethodGet, "/protocols/versions/v1", "")
 	if rec.Code != http.StatusNotFound {

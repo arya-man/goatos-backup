@@ -165,6 +165,40 @@ func TestValidateExecutionContract(t *testing.T) {
 	if err := ValidateExecutionContract(rowOmittedProof); err != nil {
 		t.Fatalf("row omitting proof should inherit version proof, got %v", err)
 	}
+
+	unsupportedRepeat := valid
+	unsupportedRepeat.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"until_age"}]}`)
+	if err := ValidateExecutionContract(unsupportedRepeat); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("unsupported repeat policy should be not publishable, got %v", err)
+	}
+}
+
+func TestAddRuleRejectsUnsupportedRepeatPolicy(t *testing.T) {
+	repo := &fakeProtocolRepo{}
+	service := NewService(repo)
+
+	_, err := service.AddRule(context.Background(), domain.NewRule{Repeat: "after_age"})
+	if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
+		t.Fatalf("unsupported repeat err=%v, want ErrUnsupportedRepeatPolicy", err)
+	}
+	if repo.createRuleCalled {
+		t.Fatalf("repo must not be called for unsupported repeat policies")
+	}
+}
+
+func TestAddRuleDefaultsBlankRepeatToNone(t *testing.T) {
+	repo := &fakeProtocolRepo{}
+	service := NewService(repo)
+
+	if _, err := service.AddRule(context.Background(), domain.NewRule{}); err != nil {
+		t.Fatalf("blank repeat should default to none: %v", err)
+	}
+	if !repo.createRuleCalled {
+		t.Fatalf("repo should be called")
+	}
+	if repo.createdRule.Repeat != "none" {
+		t.Fatalf("repeat=%q, want none", repo.createdRule.Repeat)
+	}
 }
 
 func TestPublishVersionAlreadyPublishedRetryIsNoop(t *testing.T) {
@@ -224,9 +258,11 @@ func validPublishVersion(status string) domain.Version {
 }
 
 type fakeProtocolRepo struct {
-	version       domain.Version
-	publishCalled bool
-	publishCalls  int
+	version          domain.Version
+	publishCalled    bool
+	publishCalls     int
+	createRuleCalled bool
+	createdRule      domain.NewRule
 }
 
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
@@ -254,8 +290,10 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 	f.version.Status = "published"
 	return nil
 }
-func (f *fakeProtocolRepo) CreateRule(context.Context, domain.NewRule) (string, error) {
-	return "", nil
+func (f *fakeProtocolRepo) CreateRule(_ context.Context, in domain.NewRule) (string, error) {
+	f.createRuleCalled = true
+	f.createdRule = in
+	return "rule-1", nil
 }
 func (f *fakeProtocolRepo) ListRules(context.Context, string, string) ([]domain.Rule, error) {
 	return nil, nil

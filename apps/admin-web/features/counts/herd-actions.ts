@@ -237,13 +237,21 @@ export async function previewGoatsAction(csv: string, fileHash: string): Promise
 export async function commitGoatsAction(
   rows: AdminGoatBulkCommitRequest["rows"],
   fileHash: string,
+  previewToken: string,
 ): Promise<ApiResult<AdminGoatBulkResponse>> {
   const stableFileHash = (typeof fileHash === "string" ? fileHash : "").trim().toLowerCase();
   if (!BULK_FILE_SHA256_RE.test(stableFileHash)) {
     return { ok: false, error: { kind: "bad_request", code: "invalid_file_hash", message: "Goat import commit received an invalid file hash; preview the CSV again." } };
   }
+  const stablePreviewToken = (typeof previewToken === "string" ? previewToken : "").trim();
+  if (stablePreviewToken === "") {
+    return { ok: false, error: { kind: "bad_request", code: "invalid_preview_token", message: "Goat import commit is missing the preview token; preview the CSV again." } };
+  }
   const commitHash = bulkCommitRowsHash(rows);
-  const result = await commitAdminGoatBulkImport({ rows, file_hash: commitHash }, `goat-bulk:${commitHash}`);
+  const result = await commitAdminGoatBulkImport(
+    { rows, file_hash: stableFileHash, preview_token: stablePreviewToken },
+    `goat-bulk:${stableFileHash}:${commitHash}`,
+  );
   if (result.ok && result.data.summary.created > 0) {
     revalidatePath(HERD_PATH);
   }

@@ -156,13 +156,21 @@ func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	if len(ruleScopes.Options) != 2 || ruleScopes.Options[1].Key != "park:park-1" || !strings.Contains(ruleScopes.Options[1].Label, "P1") {
 		t.Fatalf("rule scopes were not DB compiled: %#v", ruleScopes.Options)
 	}
+	health := optionGroupByID(t, config.OptionGroups, "rule_healths")
+	if len(health.Options) < 3 || health.Options[0].Key != "any" || !optionKeys(health)["sick"] || !optionKeys(health)["recovering"] {
+		t.Fatalf("rule_healths must default to any and expose DB health states, got %#v", health.Options)
+	}
 	breeds := optionGroupByID(t, config.OptionGroups, "rule_breeds")
 	if len(breeds.Options) < 2 || breeds.Options[1].Key != "DB Breed" {
 		t.Fatalf("breed options were not DB compiled: %#v", breeds.Options)
 	}
 	deferStates := optionGroupByID(t, config.OptionGroups, "defer_states")
+	deferKeys := optionKeys(deferStates)
+	if !deferKeys["sick"] || !deferKeys["quarantine"] {
+		t.Fatalf("defer states must include hold-worthy health statuses, got %#v", deferStates.Options)
+	}
 	for _, opt := range deferStates.Options {
-		if opt.Key == "healthy" {
+		if opt.Key == "healthy" || opt.Key == "recovering" {
 			t.Fatalf("defer states must not include healthy status: %#v", deferStates.Options)
 		}
 	}
@@ -467,9 +475,9 @@ func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFami
 		Parks:              []ReferenceOption{{Key: "park-1", Label: "P1", Title: "Park One", Tone: "info"}},
 		RuleCategories:     []ReferenceOption{{Key: "vaccination", Label: "vaccination"}},
 		Breeds:             []ReferenceOption{{Key: "DB Breed", Label: "DB Breed"}},
-		HealthStatuses:     []ReferenceOption{{Key: "healthy", Label: "healthy"}},
+		HealthStatuses:     []ReferenceOption{{Key: "healthy", Label: "healthy"}, {Key: "sick", Label: "sick"}, {Key: "recovering", Label: "recovering"}},
 		ReproductiveStates: []ReferenceOption{{Key: "pregnant", Label: "pregnant"}},
-		DeferStates:        []ReferenceOption{{Key: "healthy", Label: "healthy"}, {Key: "quarantine", Label: "quarantine"}},
+		DeferStates:        []ReferenceOption{{Key: "healthy", Label: "healthy"}, {Key: "sick", Label: "sick"}, {Key: "recovering", Label: "recovering"}, {Key: "quarantine", Label: "quarantine"}},
 		SOPLabels:          []ReferenceOption{{Key: "sop-v1", Label: "SOP v1"}},
 		FeedItems:          []ReferenceOption{{Key: "feed-1", Label: "Mesha concentrate", Title: "Mesha concentrate"}},
 		RevisionInputs:     map[string]string{"locations": "park-1"},

@@ -15,11 +15,19 @@ var displayIDPattern = regexp.MustCompile(`^G-[0-9]{6,}$`)
 const maxMergeRedirectHops = 16
 
 type Service struct {
-	repo ports.Repository
+	repo                  ports.Repository
+	bulkPreviewSigningKey string
 }
 
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) WithBulkPreviewSigningKey(key string) *Service {
+	if trimmed := strings.TrimSpace(key); trimmed != "" {
+		s.bulkPreviewSigningKey = trimmed
+	}
+	return s
 }
 
 func (s *Service) GetGoatPassport(ctx context.Context, tenantID, lookup string, traceID string) (*domain.GoatPassportResult, error) {

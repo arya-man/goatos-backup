@@ -735,24 +735,37 @@ CREATE FUNCTION public.ensure_protocol_child_version_is_draft() RETURNS trigger
     AS $$
 DECLARE
   parent_status text;
+  child_tenant_id uuid;
+  child_version_id uuid;
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    child_tenant_id := OLD.tenant_id;
+    child_version_id := OLD.protocol_version_id;
+  ELSE
+    child_tenant_id := NEW.tenant_id;
+    child_version_id := NEW.protocol_version_id;
+  END IF;
+
   SELECT status
   INTO parent_status
   FROM protocol_versions
-  WHERE tenant_id = NEW.tenant_id
-    AND protocol_version_id = NEW.protocol_version_id;
+  WHERE tenant_id = child_tenant_id
+    AND protocol_version_id = child_version_id;
 
   IF parent_status IS NULL THEN
-    RAISE EXCEPTION 'protocol version % does not exist for tenant %', NEW.protocol_version_id, NEW.tenant_id
+    RAISE EXCEPTION 'protocol version % does not exist for tenant %', child_version_id, child_tenant_id
       USING ERRCODE = '23503';
   END IF;
 
   IF parent_status <> 'draft' THEN
     RAISE EXCEPTION 'protocol version % is %, not draft; published config is immutable',
-      NEW.protocol_version_id, parent_status
+      child_version_id, parent_status
       USING ERRCODE = '23514';
   END IF;
 
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -880,6 +893,24 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: prevent_published_protocol_version_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prevent_published_protocol_version_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF OLD.status IN ('published', 'retired') THEN
+    RAISE EXCEPTION 'published or retired protocol version % is immutable; create a new draft version',
+      OLD.protocol_version_id
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN OLD;
 END;
 $$;
 
@@ -4199,7 +4230,7 @@ CREATE TABLE public.protocol_rules (
     CONSTRAINT protocol_rules_catch_up_check CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'phc_approval'::text, 'defer'::text]))),
     CONSTRAINT protocol_rules_gap_check CHECK ((min_gap_days >= 0)),
     CONSTRAINT protocol_rules_offset_check CHECK ((offset_days >= 0)),
-    CONSTRAINT protocol_rules_repeat_check CHECK ((repeat = ANY (ARRAY['none'::text, 'every_n_days'::text, 'yearly'::text, 'until_age'::text, 'after_age'::text]))),
+    CONSTRAINT protocol_rules_repeat_check CHECK ((repeat = ANY (ARRAY['none'::text, 'every_n_days'::text, 'yearly'::text]))),
     CONSTRAINT protocol_rules_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['birth_age'::text, 'post_arrival'::text, 'calendar'::text, 'after_previous_completion'::text, 'manual_campaign'::text]))),
     CONSTRAINT protocol_rules_window_check CHECK ((due_window_days >= 0))
 );
@@ -8875,6 +8906,13 @@ CREATE INDEX outbox_messages_discarded_idx ON public.outbox_messages USING btree
 
 
 --
+-- Name: outbox_messages_obligation_missed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_obligation_missed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'obligation.missed'::text);
+
+
+--
 -- Name: outbox_messages_replay_guard_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8893,13 +8931,6 @@ CREATE INDEX outbox_messages_status_next_attempt_idx ON public.outbox_messages U
 --
 
 CREATE INDEX outbox_messages_tenant_status_attempt_idx ON public.outbox_messages USING btree (tenant_id, status, next_attempt_at, created_at, outbox_id);
-
-
---
--- Name: outbox_messages_obligation_missed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX outbox_messages_obligation_missed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'obligation.missed'::text);
 
 
 --
@@ -10705,14 +10736,14 @@ CREATE TRIGGER park_profiles_validate_type_trg BEFORE INSERT OR UPDATE OF tenant
 -- Name: protocol_rules protocol_rules_require_draft_version_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER protocol_rules_require_draft_version_trg BEFORE INSERT OR UPDATE ON public.protocol_rules FOR EACH ROW EXECUTE FUNCTION public.ensure_protocol_child_version_is_draft();
+CREATE TRIGGER protocol_rules_require_draft_version_trg BEFORE INSERT OR DELETE OR UPDATE ON public.protocol_rules FOR EACH ROW EXECUTE FUNCTION public.ensure_protocol_child_version_is_draft();
 
 
 --
 -- Name: protocol_triggers protocol_triggers_require_draft_version_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER protocol_triggers_require_draft_version_trg BEFORE INSERT OR UPDATE ON public.protocol_triggers FOR EACH ROW EXECUTE FUNCTION public.ensure_protocol_child_version_is_draft();
+CREATE TRIGGER protocol_triggers_require_draft_version_trg BEFORE INSERT OR DELETE OR UPDATE ON public.protocol_triggers FOR EACH ROW EXECUTE FUNCTION public.ensure_protocol_child_version_is_draft();
 
 
 --
@@ -10720,6 +10751,13 @@ CREATE TRIGGER protocol_triggers_require_draft_version_trg BEFORE INSERT OR UPDA
 --
 
 CREATE TRIGGER protocol_versions_published_immutable_trg BEFORE UPDATE ON public.protocol_versions FOR EACH ROW EXECUTE FUNCTION public.ensure_published_protocol_version_is_immutable();
+
+
+--
+-- Name: protocol_versions protocol_versions_published_no_delete_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER protocol_versions_published_no_delete_trg BEFORE DELETE ON public.protocol_versions FOR EACH ROW EXECUTE FUNCTION public.prevent_published_protocol_version_delete();
 
 
 --

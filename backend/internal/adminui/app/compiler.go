@@ -768,7 +768,7 @@ func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFa
 	// DB-discovered future categories must not leak into the vaccination-only Config deploy.
 	out = replaceOptionGroup(out, "rule_scopes", ruleScopeOptions(families.Parks))
 	out = replaceOptionGroup(out, "rule_breeds", prependOption("all", "all", "", "", optionsFromReferences(families.Breeds, "")))
-	out = replaceOptionGroup(out, "rule_healths", append(optionsFromReferences(families.HealthStatuses, ""), option("any", "any", "", "")))
+	out = replaceOptionGroup(out, "rule_healths", prependOption("any", "any", "", "", optionsFromReferences(families.HealthStatuses, "")))
 	out = replaceOptionGroup(out, "rule_reproductive", prependOption("any", "any", "", "", optionsFromReferences(families.ReproductiveStates, "")))
 	out = replaceOptionGroup(out, "defer_states", optionsFromReferences(deferableStates(families.DeferStates), ""))
 	out = replaceOptionGroup(out, "schedule_sop_labels", optionsFromReferences(families.SOPLabels, ""))
@@ -812,7 +812,7 @@ func deferableStates(options []ReferenceOption) []ReferenceOption {
 	out := make([]ReferenceOption, 0, len(options))
 	for _, option := range options {
 		switch strings.ToLower(strings.TrimSpace(option.Key)) {
-		case "", "healthy", "normal", "ok":
+		case "", "healthy", "normal", "ok", "recovering":
 			continue
 		default:
 			out = append(out, option)

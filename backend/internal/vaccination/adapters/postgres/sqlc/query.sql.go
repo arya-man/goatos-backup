@@ -385,12 +385,7 @@ LEFT JOIN locations park
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
 WHERE g.tenant_id = $1
-  AND (
-    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(loa.is_quarantine, false)
-    OR COALESCE(loa.is_icu, false)
-  )
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($2::text = '' OR g.management_stage = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)

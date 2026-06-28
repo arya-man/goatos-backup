@@ -12,16 +12,18 @@ import (
 )
 
 const (
-	testTenant   = "00000000-0000-4000-8000-000000000001"
-	testActor    = "90000000-0000-4000-8000-000000000001"
-	testTrace    = "trace-test"
-	goatA        = "10000000-0000-4000-8000-000000000001"
-	goatB        = "10000000-0000-4000-8000-000000000002"
-	mergedGoat   = "10000000-0000-4000-8000-000000000003"
-	survivorGoat = "10000000-0000-4000-8000-000000000004"
-	conflictID   = "20000000-0000-4000-8000-000000000001"
-	testPark     = "00000000-0000-4000-8000-000000003001"
-	testShed     = "00000000-0000-4000-8000-000000004001"
+	testTenant        = "00000000-0000-4000-8000-000000000001"
+	testActor         = "90000000-0000-4000-8000-000000000001"
+	testTrace         = "trace-test"
+	testBulkHash      = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testOtherBulkHash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	goatA             = "10000000-0000-4000-8000-000000000001"
+	goatB             = "10000000-0000-4000-8000-000000000002"
+	mergedGoat        = "10000000-0000-4000-8000-000000000003"
+	survivorGoat      = "10000000-0000-4000-8000-000000000004"
+	conflictID        = "20000000-0000-4000-8000-000000000001"
+	testPark          = "00000000-0000-4000-8000-000000003001"
+	testShed          = "00000000-0000-4000-8000-000000004001"
 )
 
 func TestResolveIdentifierStateMachine(t *testing.T) {
@@ -362,7 +364,7 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 			return defaultAdminGoatCreateValidation(cmd), nil
 		},
 	}
-	svc := NewService(repo)
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
 	input := CommitAdminGoatBulkInput{
 		TenantID:       testTenant,
 		ActorID:        testActor,
@@ -400,7 +402,7 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 
 func TestCommitAdminGoatBulkPreservesPreviewRowNumber(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
 	input := CommitAdminGoatBulkInput{
 		TenantID:       testTenant,
 		ActorID:        testActor,
@@ -421,17 +423,79 @@ func TestCommitAdminGoatBulkPreservesPreviewRowNumber(t *testing.T) {
 	}
 }
 
+func TestCommitAdminGoatBulkRejectsMissingPreviewToken(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	_, err := svc.CommitAdminGoatBulkImport(context.Background(), CommitAdminGoatBulkInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "bulk-no-preview-token",
+		TraceID:        testTrace,
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q}`, validAdminGoatCreateRaw("RFID-NO-TOKEN"), testBulkHash)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
+		t.Fatalf("err = %v, want invalid_preview_token", err)
+	}
+	if len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("missing preview token must not create goats, calls=%d", len(repo.createAdminGoatCmds))
+	}
+}
+
+func TestCommitAdminGoatBulkRejectsRowsAlteredAfterPreview(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	token := validAdminGoatBulkPreviewToken("RFID-PREVIEWED")
+	_, err := svc.CommitAdminGoatBulkImport(context.Background(), CommitAdminGoatBulkInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "bulk-altered-preview",
+		TraceID:        testTrace,
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("RFID-ALTERED"), testBulkHash, token)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
+		t.Fatalf("err = %v, want invalid_preview_token", err)
+	}
+	if len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("altered preview rows must not create goats, calls=%d", len(repo.createAdminGoatCmds))
+	}
+}
+
+func TestCommitAdminGoatBulkRejectsUnrelatedValidFileHash(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	token := validAdminGoatBulkPreviewToken("RFID-FILE-HASH")
+	_, err := svc.CommitAdminGoatBulkImport(context.Background(), CommitAdminGoatBulkInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "bulk-wrong-file-hash",
+		TraceID:        testTrace,
+		RawBody:        []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw("RFID-FILE-HASH"), testOtherBulkHash, token)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_preview_token" {
+		t.Fatalf("err = %v, want invalid_preview_token", err)
+	}
+	if len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("unrelated file hash must not create goats, calls=%d", len(repo.createAdminGoatCmds))
+	}
+}
+
 func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
 	csv := "Farm,Temp field ID,Park,Shed,Sex,Origin,Management stage,Entry date\nMain Farm,TMP-KID-001,CBE,K1,female,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
-		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":"temp-field-template"}`, csv)),
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
 	})
 	if err != nil {
 		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.PreviewToken == "" {
+		t.Fatalf("preview token must be returned for commit binding")
 	}
 	if resp.Summary.CreateReady != 1 || len(resp.Rows) != 1 {
 		t.Fatalf("summary=%#v rows=%d", resp.Summary, len(resp.Rows))
@@ -453,12 +517,12 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 
 func TestPreviewAdminGoatBulkFlagsDuplicateRowsWithoutFailingFile(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
 	csv := "RFID,Park,Shed,Sex,Origin,Management stage,Entry date,Weight(kg)\nDUP-RFID-001,CBE,K1,female,birth,K1,2026-06-15,22.5\n\nDUP-RFID-001,CBE,K1,female,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
-		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":"duplicate-template"}`, csv)),
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
 	})
 	if err != nil {
 		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
@@ -476,12 +540,12 @@ func TestPreviewAdminGoatBulkFlagsDuplicateRowsWithoutFailingFile(t *testing.T) 
 
 func TestPreviewAdminGoatBulkWrongTemplateReturnsRowErrors(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
 	csv := "Wrong column,Another wrong column\nvalue,still wrong\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
-		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":"wrong-template"}`, csv)),
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
 	})
 	if err != nil {
 		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
@@ -757,11 +821,45 @@ func validAdminGoatCreateRaw(rfid string) []byte {
 }
 
 func validAdminGoatBulkCommitRaw(rfid string) []byte {
-	return []byte(fmt.Sprintf(`{"rows":[%s]}`, validAdminGoatCreateRaw(rfid)))
+	return []byte(fmt.Sprintf(`{"rows":[%s],"file_hash":%q,"preview_token":%q}`, validAdminGoatCreateRaw(rfid), testBulkHash, validAdminGoatBulkPreviewToken(rfid)))
 }
 
 func validAdminGoatBulkCommitRowRaw(rowNumber int, rfid string) []byte {
-	return []byte(fmt.Sprintf(`{"rows":[{"row_number":%d,"normalized":%s}]}`, rowNumber, validAdminGoatCreateRaw(rfid)))
+	return []byte(fmt.Sprintf(`{"rows":[{"row_number":%d,"normalized":%s}],"file_hash":%q,"preview_token":%q}`, rowNumber, validAdminGoatCreateRaw(rfid), testBulkHash, validAdminGoatBulkPreviewTokenForRow(rowNumber, rfid)))
+}
+
+func validAdminGoatBulkPreviewToken(rfid string) string {
+	return validAdminGoatBulkPreviewTokenForRow(1, rfid)
+}
+
+func validAdminGoatBulkPreviewTokenForRow(rowNumber int, rfid string) string {
+	token, err := signAdminGoatBulkPreviewWithKey(testTenant, testBulkHash, []domain.AdminGoatBulkCommitRow{{
+		RowNumber:  rowNumber,
+		Normalized: validAdminGoatCreateRequest(rfid),
+	}}, defaultAdminGoatBulkPreviewSigningKey)
+	if err != nil {
+		panic(err)
+	}
+	return token
+}
+
+func validAdminGoatCreateRequest(rfid string) *domain.AdminGoatCreateRequest {
+	parkID := testPark
+	shedID := testShed
+	estimated := true
+	return &domain.AdminGoatCreateRequest{
+		RFID:         &rfid,
+		ParkID:       &parkID,
+		ShedID:       &shedID,
+		Sex:          "female",
+		OriginType:   "procured",
+		EntryDate:    "2026-06-01",
+		DOBEstimated: &estimated,
+		EvidenceRefs: []domain.EvidenceRef{{
+			EvidenceType: "source_record",
+			EvidenceID:   "synthetic-row-1",
+		}},
+	}
 }
 
 type fakeRepo struct {

@@ -63,19 +63,31 @@ func TestMarkMissedBeforeMaterializesCanonicalStatus(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='completed' WHERE obligation_id=$1`, obB); err != nil {
 		t.Fatalf("complete obB: %v", err)
 	}
+	obC, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC), Status: "in_progress",
+		IdempotencyKey: "obl-missed-in-progress-control", Sequence: 2,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert obC: applied=%v err=%v", applied, err)
+	}
 
 	n, err := repo.MarkMissedBefore(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
 	if err != nil {
 		t.Fatalf("mark missed: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("marked missed = %d, want 1", n)
+	if n != 2 {
+		t.Fatalf("marked missed = %d, want 2", n)
 	}
 	if got := scanStatus(t, ctx, pool, obA); got != "missed" {
 		t.Fatalf("obA status: want missed, got %s", got)
 	}
 	if got := scanStatus(t, ctx, pool, obB); got != "completed" {
 		t.Fatalf("obB status: want completed, got %s", got)
+	}
+	if got := scanStatus(t, ctx, pool, obC); got != "missed" {
+		t.Fatalf("obC status: want missed, got %s", got)
 	}
 	if got := countRows(t, ctx, pool,
 		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='missed'`,
@@ -87,6 +99,16 @@ func TestMarkMissedBeforeMaterializesCanonicalStatus(t *testing.T) {
 		tenantID, obA); got != 1 {
 		t.Fatalf("expected 1 missed outbox event, got %d", got)
 	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.missed'`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("expected 1 missed audit event, got %d", got)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.missed'`,
+		tenantID, obC); got != 1 {
+		t.Fatalf("expected 1 in-progress missed audit event, got %d", got)
+	}
 
 	replay, err := repo.MarkMissedBefore(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
 	if err != nil {
@@ -94,6 +116,11 @@ func TestMarkMissedBeforeMaterializesCanonicalStatus(t *testing.T) {
 	}
 	if replay != 0 {
 		t.Fatalf("replay marked missed = %d, want 0", replay)
+	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.missed'`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("replay missed audit event count = %d, want 1", got)
 	}
 }
 

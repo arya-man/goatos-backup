@@ -192,7 +192,7 @@ SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protoc
        due_at, status, "sequence"
 FROM obligation_instances
 WHERE tenant_id = $1 AND target_type = 'goat' AND target_id = $2
-  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
 ORDER BY due_at ASC, obligation_id ASC
 LIMIT $3
 `
@@ -214,7 +214,7 @@ type ListOpenObligationsByGoatRow struct {
 	Sequence          int32
 }
 
-// Goat Passport next-due: a goat's still-open obligations, earliest due first. Uses
+// Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Uses
 // obligation_instances_target_idx (tenant_id, target_type, target_id, status).
 func (q *Queries) ListOpenObligationsByGoat(ctx context.Context, arg ListOpenObligationsByGoatParams) ([]ListOpenObligationsByGoatRow, error) {
 	rows, err := q.db.Query(ctx, listOpenObligationsByGoat, arg.TenantID, arg.TargetID, arg.RowLimit)

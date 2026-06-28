@@ -153,6 +153,7 @@ type OperationsCounts struct {
 	Due          int `json:"due"`
 	InProgress   int `json:"inProgress"`
 	Scheduled    int `json:"scheduled"`
+	Missed       int `json:"missed"`
 	Deferred     int `json:"deferred"`
 	Accepted     int `json:"accepted"`
 	ProofPending int `json:"proofPending"`
@@ -206,6 +207,7 @@ type OperationsRow struct {
 	DueCount          int
 	InProgressCount   int
 	ScheduledCount    int
+	MissedCount       int
 	DeferredCount     int
 	AcceptedCount     int
 	ProofPendingCount int

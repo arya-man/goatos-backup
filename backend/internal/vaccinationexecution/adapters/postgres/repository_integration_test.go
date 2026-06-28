@@ -990,9 +990,9 @@ func insertObligationStatusEvent(t *testing.T, ctx context.Context, pool *pgxpoo
 // terminal states that have no timestamp column (missed/waived): the obligation_status_events log decides
 // whether the transition was already true at as_of.
 //   - missed AFTER as_of  -> re-bucket to the open state at as_of (overdue), NOT deferred.
-//   - missed AT/BEFORE as_of -> deferred (the real point-in-time state).
-//   - missed with NO event -> trusted as deferred (documented fallback; we never fake an earlier time).
-//   - churn (missed AT/BEFORE as_of AND missed AFTER as_of) -> deferred: the latest terminal event AT OR
+//   - missed AT/BEFORE as_of -> missed/blocked (the real point-in-time state).
+//   - missed with NO event -> trusted as missed/blocked (documented fallback; we never fake an earlier time).
+//   - churn (missed AT/BEFORE as_of AND missed AFTER as_of) -> missed/blocked: the latest terminal event AT OR
 //     BEFORE as_of wins, instead of an unbounded MAX() picking the future event and wrongly re-bucketing open.
 func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
@@ -1064,28 +1064,28 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 		t.Errorf("MA cohort workState want overdue, got %q", c.WorkState)
 	}
 
-	// MB: missed-before-as_of is genuinely deferred at as_of.
-	if mb.DeferredCount != 1 || mb.OverdueCount != 0 {
-		t.Errorf("MB (missed before as_of): want deferred=1 overdue=0, got deferred=%d overdue=%d", mb.DeferredCount, mb.OverdueCount)
+	// MB: missed-before-as_of is genuinely missed/blocked at as_of.
+	if mb.MissedCount != 1 || mb.DeferredCount != 0 || mb.OverdueCount != 0 {
+		t.Errorf("MB (missed before as_of): want missed=1 deferred=0 overdue=0, got missed=%d deferred=%d overdue=%d", mb.MissedCount, mb.DeferredCount, mb.OverdueCount)
 	}
-	if c := opsCohortByStage(t, svc, ctx, q, "MB"); c.WorkState != domain.WorkStateDeferred {
-		t.Errorf("MB cohort workState want deferred, got %q", c.WorkState)
-	}
-
-	// MN: no event -> trust stored missed (deferred). We do not fake an earlier open state.
-	if mn.DeferredCount != 1 || mn.OverdueCount != 0 {
-		t.Errorf("MN (missed no event): want deferred=1 overdue=0 (trusted), got deferred=%d overdue=%d", mn.DeferredCount, mn.OverdueCount)
-	}
-	if c := opsCohortByStage(t, svc, ctx, q, "MN"); c.WorkState != domain.WorkStateDeferred {
-		t.Errorf("MN cohort workState want deferred, got %q", c.WorkState)
+	if c := opsCohortByStage(t, svc, ctx, q, "MB"); c.WorkState != domain.WorkStateBlocked {
+		t.Errorf("MB cohort workState want blocked, got %q", c.WorkState)
 	}
 
-	// MC: churn — latest terminal event at/before as_of wins -> deferred, NOT overdue (regression guard for
+	// MN: no event -> trust stored missed/blocked. We do not fake an earlier open state.
+	if mn.MissedCount != 1 || mn.DeferredCount != 0 || mn.OverdueCount != 0 {
+		t.Errorf("MN (missed no event): want missed=1 deferred=0 overdue=0 (trusted), got missed=%d deferred=%d overdue=%d", mn.MissedCount, mn.DeferredCount, mn.OverdueCount)
+	}
+	if c := opsCohortByStage(t, svc, ctx, q, "MN"); c.WorkState != domain.WorkStateBlocked {
+		t.Errorf("MN cohort workState want blocked, got %q", c.WorkState)
+	}
+
+	// MC: churn — latest terminal event at/before as_of wins -> missed/blocked, NOT overdue (regression guard for
 	// the old unbounded MAX() that would pick the after-as_of event).
-	if mc.DeferredCount != 1 || mc.OverdueCount != 0 {
-		t.Errorf("MC (missed churn): want deferred=1 overdue=0, got deferred=%d overdue=%d", mc.DeferredCount, mc.OverdueCount)
+	if mc.MissedCount != 1 || mc.DeferredCount != 0 || mc.OverdueCount != 0 {
+		t.Errorf("MC (missed churn): want missed=1 deferred=0 overdue=0, got missed=%d deferred=%d overdue=%d", mc.MissedCount, mc.DeferredCount, mc.OverdueCount)
 	}
-	if c := opsCohortByStage(t, svc, ctx, q, "MC"); c.WorkState != domain.WorkStateDeferred {
-		t.Errorf("MC cohort workState want deferred, got %q", c.WorkState)
+	if c := opsCohortByStage(t, svc, ctx, q, "MC"); c.WorkState != domain.WorkStateBlocked {
+		t.Errorf("MC cohort workState want blocked, got %q", c.WorkState)
 	}
 }

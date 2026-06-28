@@ -1990,6 +1990,7 @@ export interface components {
             due: number;
             inProgress: number;
             scheduled: number;
+            missed: number;
             deferred: number;
             accepted: number;
             proofPending: number;
@@ -2133,7 +2134,8 @@ export interface components {
             offset_days?: number;
             due_window_days?: number;
             min_gap_days?: number;
-            repeat?: string;
+            /** @enum {string} */
+            repeat?: "none" | "every_n_days" | "yearly";
             repeat_until_after_age?: string;
             catch_up?: string;
             /** @description Eligibility predicate JSON. */

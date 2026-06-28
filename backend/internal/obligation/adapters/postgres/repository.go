@@ -16,6 +16,7 @@ import (
 	obligationdb "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
 
@@ -692,7 +693,8 @@ SET context = context || jsonb_build_object(
         'item_id', $3,
         'required_qty', $4,
         'reason', $5,
-        'blocked_at', now()
+        'blocked_at', now(),
+        'retry_after', now() + interval '15 minutes'
       )
     ),
     updated_at = now(),
@@ -701,6 +703,26 @@ WHERE tenant_id = $1::uuid
   AND batch_id = $2::uuid`, tenantID, batchID, itemID, requiredQty, reason)
 	if err != nil {
 		return fmt.Errorf("obligation: mark batch stock blocked: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+// ClearBatchStockBlock removes a previous stock-block marker after a later reservation succeeds.
+func (r *Repository) ClearBatchStockBlock(ctx context.Context, tenantID, batchID string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE obligation_batches
+SET context = context - 'stock_block',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND batch_id = $2::uuid`, tenantID, batchID)
+	if err != nil {
+		return fmt.Errorf("obligation: clear batch stock block: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ports.ErrNotFound
@@ -754,7 +776,10 @@ HAVING COUNT(oi.obligation_id) > 0
      ($3::boolean AND ob.sop_task_id IS NULL)
      OR (
        $4::boolean
-       AND NOT (ob.context ? 'stock_block')
+       AND (
+         NOT (ob.context ? 'stock_block')
+         OR COALESCE(NULLIF(ob.context #>> '{stock_block,retry_after}', '')::timestamptz, '-infinity'::timestamptz) <= now()
+       )
        AND NOT EXISTS (
          SELECT 1
          FROM inventory_stock_movements ism
@@ -1300,7 +1325,7 @@ func deterministicOutboxUUID(seed string) string {
 
 // MarkMissedBefore marks open obligations whose due window has crossed as missed and writes a
 // durable 'missed' status event per transition. It is safe for repeated/parallel sweepers: candidates
-// are locked with SKIP LOCKED and only scheduled/due rows can transition.
+// are locked with SKIP LOCKED and only scheduled/due/in_progress rows can transition.
 func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, missedBefore time.Time, limit int32) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1326,7 +1351,7 @@ WITH candidate AS (
   SELECT obligation_id
   FROM obligation_instances
   WHERE tenant_id = $1
-    AND status IN ('scheduled', 'due')
+    AND status IN ('scheduled', 'due', 'in_progress')
     AND COALESCE(window_end, due_at) < $2
   ORDER BY COALESCE(window_end, due_at) ASC, obligation_id ASC
   LIMIT $3
@@ -1378,6 +1403,25 @@ RETURNING oi.obligation_id::text`, tenant, pgconv.Timestamptz(missedBefore), lim
 		}
 		if err := insertObligationMissedOutbox(ctx, tx, tenantID, id, now); err != nil {
 			return 0, err
+		}
+		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+			TenantID:     tenantID,
+			ActorType:    "system",
+			Action:       obligationMissedEventType,
+			ResourceType: "obligation_instance",
+			ResourceID:   id,
+			ScopeType:    "obligation.status_event",
+			ScopeID:      id,
+			AfterState: map[string]any{
+				"status":      "missed",
+				"occurred_at": now.Format(time.RFC3339Nano),
+			},
+			Metadata: map[string]any{
+				"source": "obligation_missed_sweeper",
+			},
+			TraceID: "obligation.missed:" + id,
+		}); err != nil {
+			return 0, fmt.Errorf("obligation: missed audit: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

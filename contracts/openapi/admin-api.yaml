@@ -4375,18 +4375,21 @@ components:
       additionalProperties: false
       required:
         - csv
+        - file_hash
       properties:
         csv:
           type: string
           minLength: 1
         file_hash:
           type: string
-          maxLength: 128
+          pattern: "^[a-f0-9]{64}$"
     AdminGoatBulkCommitRequest:
       type: object
       additionalProperties: false
       required:
         - rows
+        - file_hash
+        - preview_token
       properties:
         rows:
           type: array
@@ -4398,7 +4401,11 @@ components:
               - $ref: "#/components/schemas/AdminGoatBulkCommitRow"
         file_hash:
           type: string
-          maxLength: 128
+          pattern: "^[a-f0-9]{64}$"
+        preview_token:
+          type: string
+          minLength: 67
+          maxLength: 67
     AdminGoatBulkCommitRow:
       type: object
       additionalProperties: false
@@ -4861,6 +4868,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminGoatBulkRowResult"
+        preview_token:
+          type: string
+          minLength: 67
+          maxLength: 67
         trace_id:
           type: string
           minLength: 1

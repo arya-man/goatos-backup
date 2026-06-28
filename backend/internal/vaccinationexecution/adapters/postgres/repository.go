@@ -169,11 +169,11 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 		var row domain.OperationsRow
 		var ageBand pgtype.Text
 		var nextDue, lastDose pgtype.Timestamptz
-		var animals, overdue, due, inProgress, scheduled, deferred, accepted, proofPending, rejected, total int64
+		var animals, overdue, due, inProgress, scheduled, missed, deferred, accepted, proofPending, rejected, total int64
 		if err := rows.Scan(
 			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Stage, &ageBand,
 			&row.ProtocolID, &row.ProtocolName, &animals, &nextDue, &lastDose,
-			&overdue, &due, &inProgress, &scheduled, &deferred, &accepted, &proofPending, &rejected, &total,
+			&overdue, &due, &inProgress, &scheduled, &missed, &deferred, &accepted, &proofPending, &rejected, &total,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan operations: %w", err)
 		}
@@ -185,6 +185,7 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 		row.DueCount = int(due)
 		row.InProgressCount = int(inProgress)
 		row.ScheduledCount = int(scheduled)
+		row.MissedCount = int(missed)
 		row.DeferredCount = int(deferred)
 		row.AcceptedCount = int(accepted)
 		row.ProofPendingCount = int(proofPending)
@@ -724,7 +725,8 @@ SELECT
   COUNT(*) FILTER (WHERE effective.eff_status = 'due')::bigint AS due_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'in_progress')::bigint AS in_progress_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'scheduled')::bigint AS scheduled_count,
-  COUNT(*) FILTER (WHERE effective.eff_status IN ('missed', 'waived'))::bigint AS deferred_count,
+  COUNT(*) FILTER (WHERE effective.eff_status = 'missed')::bigint AS missed_count,
+  COUNT(*) FILTER (WHERE effective.eff_status = 'waived')::bigint AS deferred_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'completed' AND effective.completion_status = 'accepted')::bigint AS accepted_count,
   COUNT(*) FILTER (WHERE effective.completion_status = 'recorded')::bigint AS proof_pending_count,
   COUNT(*) FILTER (WHERE effective.completion_status = 'rejected')::bigint AS rejected_count,

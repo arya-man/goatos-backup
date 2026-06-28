@@ -48,7 +48,7 @@ function csvFilename(label: string): string {
   return label.toLowerCase().endsWith(".csv") ? label : `${label}.csv`;
 }
 
-function parseCSVRecords(raw: string): string[][] {
+function parseCSVRecords(raw: string, unterminatedQuoteMessage: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -80,7 +80,7 @@ function parseCSVRecords(raw: string): string[][] {
     cell += ch;
   }
   if (inQuotes) {
-    throw new Error("CSV contains an unterminated quoted cell.");
+    throw new Error(unterminatedQuoteMessage);
   }
   if (cell.length > 0 || row.length > 0) {
     row.push(cell.trim());
@@ -125,10 +125,10 @@ function downloadCSV(filename: string, records: unknown[][]) {
   URL.revokeObjectURL(url);
 }
 
-function downloadFailedRows(filename: string, csv: string, templateColumns: string[], rows: ImportResultRow[], failureHeader: string) {
+function downloadFailedRows(filename: string, csv: string, templateColumns: string[], rows: ImportResultRow[], failureHeader: string, parseErrorMessage: string) {
   const failed = failedImportRows(rows);
   if (failed.length === 0) return;
-  const parsed = parseCSVRecords(csv);
+  const parsed = parseCSVRecords(csv, parseErrorMessage);
   const header = parsed[0]?.length ? parsed[0] : templateColumns;
   const records: unknown[][] = [[...header, failureHeader]];
   failed.forEach((row) => {
@@ -650,7 +650,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
         setError(copy(pageContract, "error.preview_stale"));
         return;
       }
-      const res = await commitGoatsAction(rows, hash);
+      const res = await commitGoatsAction(rows, hash, preview.preview_token ?? "");
       if (res.ok) {
         setCommitted(mergeGoatCommitResult(preview, res.data));
         router.refresh();
@@ -774,7 +774,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             {failedCount > 0 ? (
-              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_goat_rows"), csv, bulkColumns, view.rows, copy(pageContract, "field.failure_reason"))}>
+              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_goat_rows"), csv, bulkColumns, view.rows, copy(pageContract, "field.failure_reason"), copy(pageContract, "error.csv_unterminated_quote"))}>
                 <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.export_failed_rows")} ({failedCount})
               </button>
             ) : null}
@@ -998,7 +998,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             {failedCount > 0 ? (
-              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_shed_rows"), csv, shedColumns, view.rows, copy(pageContract, "field.failure_reason"))}>
+              <button type="button" className="btn" onClick={() => downloadFailedRows(copy(pageContract, "action.download_failed_shed_rows"), csv, shedColumns, view.rows, copy(pageContract, "field.failure_reason"), copy(pageContract, "error.csv_unterminated_quote"))}>
                 <Download className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.export_failed_rows")} ({failedCount})
               </button>
             ) : null}

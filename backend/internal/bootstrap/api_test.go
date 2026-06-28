@@ -151,6 +151,41 @@ func TestBuildProofStorageAllowsLocalOnlyForLocalTestDevelopment(t *testing.T) {
 	}
 }
 
+func TestValidateBulkImportPreviewSigningKeyFailsClosedOutsideLocal(t *testing.T) {
+	for _, env := range []string{"", "stg", "staging", "prod", "production"} {
+		t.Run(env, func(t *testing.T) {
+			_, err := bulkImportPreviewSigningKey(Config{Auth: AuthConfig{Environment: env}})
+			if err == nil {
+				t.Fatal("empty preview signing key accepted outside local/dev/test")
+			}
+		})
+	}
+}
+
+func TestValidateBulkImportPreviewSigningKeyAllowsLocalAndExplicitKey(t *testing.T) {
+	for _, env := range []string{"local", "dev", "development", "test"} {
+		t.Run(env, func(t *testing.T) {
+			key, err := bulkImportPreviewSigningKey(Config{Auth: AuthConfig{Environment: env}})
+			if err != nil {
+				t.Fatalf("local preview signing key fallback rejected: %v", err)
+			}
+			if key == "" {
+				t.Fatal("local preview signing key fallback returned empty key")
+			}
+		})
+	}
+	key, err := bulkImportPreviewSigningKey(Config{
+		BulkImportPreviewSigningKey: "configured-secret",
+		Auth:                        AuthConfig{Environment: "prod"},
+	})
+	if err != nil {
+		t.Fatalf("configured production preview signing key rejected: %v", err)
+	}
+	if key != "configured-secret" {
+		t.Fatalf("configured key = %q, want configured-secret", key)
+	}
+}
+
 func TestAuthAuditOptionsFromConfig(t *testing.T) {
 	options, err := buildAuthAuditOptions(AuthConfig{
 		AuthSessionAllowedTenantIDs:   []string{"00000000-0000-4000-8000-000000000001"},

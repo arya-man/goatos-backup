@@ -4,14 +4,14 @@ FROM obligation_instances
 WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key;
 
 -- name: ListOpenObligationsByGoat :many
--- Goat Passport next-due: a goat's still-open obligations, earliest due first. Uses
+-- Goat Passport next-due: a goat's still-actionable obligations, earliest due first. Uses
 -- obligation_instances_target_idx (tenant_id, target_type, target_id, status).
 SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protocol_version_id,
        rule_id::text AS rule_id, scope_type, COALESCE(scope_id::text, '')::text AS scope_id,
        due_at, status, "sequence"
 FROM obligation_instances
 WHERE tenant_id = @tenant_id AND target_type = 'goat' AND target_id = @target_id
-  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
 ORDER BY due_at ASC, obligation_id ASC
 LIMIT @row_limit;
 

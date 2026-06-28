@@ -180,6 +180,9 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		}
 		pagePlans := make([]goatGenerationPlan, 0, len(goats))
 		for _, g := range goats {
+			if !inCare(g.LifecycleStatus) {
+				continue
+			}
 			versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, g.ParkID, asOf)
 			if err != nil {
 				return res, err
@@ -359,6 +362,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		}
 		pagePlans := make([]goatGenerationPlan, 0, len(goats))
 		for _, g := range goats {
+			if !inCare(g.LifecycleStatus) {
+				continue
+			}
 			if !goatMatchesEligibility(g, elig) {
 				continue
 			}
@@ -473,7 +479,7 @@ func trustedCompletionCandidate(rule protodomain.Rule, g domain.EligibleGoat, du
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	for _, rule := range rules {
-		due, ok, skip := dueAt(rule, g, asOf, opts)
+		baseDue, ok, skip := dueAt(rule, g, asOf, opts)
 		if skip {
 			res.SkippedNoDueDate++
 			if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, g, asOf, res); err != nil {
@@ -484,7 +490,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		evidenceDue, ok := trustedEvidenceDue(rule, due, asOf)
+		evidenceDue, ok := trustedEvidenceDue(rule, baseDue, asOf)
 		if !ok {
 			continue
 		}
@@ -496,7 +502,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			res.SuppressedByTrustedHistory++
 			continue
 		}
-		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, due, asOf)
+		due, catchUpDeferReason, skip := applyMissedDosePolicy(rule, baseDue, asOf)
 		if skip {
 			continue
 		}
@@ -505,7 +511,8 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// has no shed/park location. The obligation-shift handler already re-scopes to shed, so
 		// generation must stamp shed scope to stay consistent across the goat's lifecycle.
 		scopeType, scopeID := generationScope(tenantID, g)
-		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, due.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
+		keyDue := obligationKeyDue(rule, baseDue, due)
+		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDue.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
 		status := "scheduled"
 		deferReason := deferredReason(g, deferStates)
 		if deferReason == "" {
@@ -752,6 +759,13 @@ func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time) (time.Time, 
 		return adjusted, true
 	}
 	return due, true
+}
+
+func obligationKeyDue(rule protodomain.Rule, baseDue, materializedDue time.Time) time.Time {
+	if strings.EqualFold(strings.TrimSpace(rule.CatchUp), "next_cycle") && !materializedDue.Equal(baseDue) {
+		return materializedDue
+	}
+	return baseDue
 }
 
 func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {

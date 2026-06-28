@@ -1729,11 +1729,12 @@ export interface components {
         };
         AdminGoatBulkPreviewRequest: {
             csv: string;
-            file_hash?: string;
+            file_hash: string;
         };
         AdminGoatBulkCommitRequest: {
             rows: (components["schemas"]["CreateAdminGoatRequest"] | components["schemas"]["AdminGoatBulkCommitRow"])[];
-            file_hash?: string;
+            file_hash: string;
+            preview_token: string;
         };
         AdminGoatBulkCommitRow: {
             row_number: number;
@@ -1888,6 +1889,7 @@ export interface components {
         AdminGoatBulkResponse: {
             summary: components["schemas"]["AdminGoatBulkSummary"];
             rows: components["schemas"]["AdminGoatBulkRowResult"][];
+            preview_token?: string;
             trace_id: string;
         };
         OperationsAuditRow: {

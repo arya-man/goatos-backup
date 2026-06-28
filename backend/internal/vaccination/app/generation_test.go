@@ -133,6 +133,59 @@ func TestGenerateForVersionUsesConfigAnimalStageEligibility(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionSkipsExitedGoatsEvenIfRepositoryReturnsThem(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"defer_states":["sick","quarantine","ICU"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-alive", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob},
+		{GoatID: "goat-dead", LifecycleStatus: "dead", HealthStatus: "sick", DOB: &dob},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].TargetID != "goat-alive" {
+		t.Fatalf("result=%#v inserted=%#v, want only in-care goat generated", result, obl.inserted)
+	}
+}
+
+func TestGenerateEffectiveForAllGoatsSkipsExitedBeforeVersionLookup(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"defer_states":["sick","quarantine","ICU"]}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-dead", LifecycleStatus: "dead", HealthStatus: "sick", DOB: &dob, ParkID: "park-dead"},
+		{GoatID: "goat-alive", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob, ParkID: "park-alive"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("generate effective: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].TargetID != "goat-alive" {
+		t.Fatalf("result=%#v inserted=%#v, want only in-care goat generated", result, obl.inserted)
+	}
+	if len(proto.effectiveParkID) != 1 || proto.effectiveParkID[0] != "park-alive" {
+		t.Fatalf("effective park lookups=%#v, want no lookup for exited goat", proto.effectiveParkID)
+	}
+}
+
 func TestGenerateForGoatRecheckDefersExistingOpenObligation(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
@@ -381,6 +434,37 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 			t.Fatalf("result=%#v inserted=%#v, want no unsafe non-repeat next-cycle obligation", result, obl.inserted)
 		}
 	})
+}
+
+func TestImmediateCatchUpRecheckKeepsOriginalCycleKey(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{rules: []protodomain.Rule{{
+		RuleID: "rule-immediate", DoseCode: "dose-1", Sequence: 1,
+		TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, CatchUp: "immediate",
+	}}}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", EntryDate: &entryDate},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	firstAsOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	first, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", firstAsOf)
+	if err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	if first.Generated != 1 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(firstAsOf) {
+		t.Fatalf("first result=%#v inserted=%#v, want one immediate catch-up obligation", first, obl.inserted)
+	}
+
+	second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", firstAsOf.Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+	if second.Generated != 0 || len(obl.inserted) != 1 {
+		t.Fatalf("second result=%#v inserted=%#v, want no duplicate when asOf moves", second, obl.inserted)
+	}
 }
 
 func TestGenerateForGoatUsesEffectiveVersionsAsOf(t *testing.T) {

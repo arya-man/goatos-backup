@@ -36,6 +36,11 @@ func (s *Service) GetVersion(ctx context.Context, tenantID, versionID string) (d
 
 // AddRule appends a dose/phase rule to a draft version.
 func (s *Service) AddRule(ctx context.Context, in domain.NewRule) (string, error) {
+	repeat, err := normalizeRepeatPolicy(in.Repeat)
+	if err != nil {
+		return "", err
+	}
+	in.Repeat = repeat
 	return s.repo.CreateRule(ctx, in)
 }
 

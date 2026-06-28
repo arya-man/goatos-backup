@@ -16,6 +16,10 @@ import (
 // The wrapped message carries the specific reason for the UI/API.
 var ErrNotPublishable = errors.New("protocol: version not publishable")
 
+// ErrUnsupportedRepeatPolicy is returned when direct protocol authoring attempts to store a repeat
+// policy that the generator does not execute yet.
+var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy")
+
 // publishableSources are the real source systems whose approved values may be published. Anything
 // else (manual_admin, extracted, empty) stays draft / not source-backed.
 var publishableSources = map[string]bool{"vaccinations_db": true, "phc": true, "vet": true}
@@ -36,6 +40,7 @@ type ruleDSLEnvelope struct {
 type scheduleRow struct {
 	DoseCode    string          `json:"dose_code"`
 	SOPVersion  string          `json:"sop_version"`
+	Repeat      string          `json:"repeat"`
 	ProofPolicy json.RawMessage `json:"proof_policy"`
 }
 
@@ -84,6 +89,9 @@ func ValidateExecutionContract(v domain.Version) error {
 		}
 	}
 	for idx, row := range env.Schedule {
+		if _, err := normalizeRepeatPolicy(row.Repeat); err != nil {
+			return fmt.Errorf("%w: schedule[%d] %v", ErrNotPublishable, idx, err)
+		}
 		if strings.TrimSpace(row.SOPVersion) == "" && strings.TrimSpace(v.SopVersionID) == "" {
 			return fmt.Errorf("%w: schedule[%d] missing sop_version", ErrNotPublishable, idx)
 		}
@@ -95,6 +103,19 @@ func ValidateExecutionContract(v domain.Version) error {
 		}
 	}
 	return nil
+}
+
+func normalizeRepeatPolicy(value string) (string, error) {
+	repeat := strings.TrimSpace(value)
+	if repeat == "" {
+		return "none", nil
+	}
+	switch repeat {
+	case "none", "every_n_days", "yearly":
+		return repeat, nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrUnsupportedRepeatPolicy, repeat)
+	}
 }
 
 // recognizedProofKeys are the object keys under which a proof_policy may carry its proof-token

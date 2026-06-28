@@ -192,8 +192,9 @@ type AdminGoatBulkPreviewRequest struct {
 }
 
 type AdminGoatBulkCommitRequest struct {
-	Rows     []AdminGoatBulkCommitRow `json:"rows"`
-	FileHash string                   `json:"file_hash,omitempty"`
+	Rows         []AdminGoatBulkCommitRow `json:"rows"`
+	FileHash     string                   `json:"file_hash,omitempty"`
+	PreviewToken string                   `json:"preview_token,omitempty"`
 }
 
 type AdminGoatBulkCommitRow struct {
@@ -256,9 +257,10 @@ type AdminGoatBulkSummary struct {
 }
 
 type AdminGoatBulkResponse struct {
-	Summary AdminGoatBulkSummary     `json:"summary"`
-	Rows    []AdminGoatBulkRowResult `json:"rows"`
-	TraceID string                   `json:"trace_id"`
+	Summary      AdminGoatBulkSummary     `json:"summary"`
+	Rows         []AdminGoatBulkRowResult `json:"rows"`
+	PreviewToken string                   `json:"preview_token,omitempty"`
+	TraceID      string                   `json:"trace_id"`
 }
 
 type GoatTimelineEvent struct {

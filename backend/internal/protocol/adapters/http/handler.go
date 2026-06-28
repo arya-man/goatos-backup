@@ -155,6 +155,11 @@ func (h *Handler) AddRule(w http.ResponseWriter, r *http.Request) {
 			errorEnvelope{Code: "version_not_draft", Message: "published protocol versions are immutable; create a new draft version", TraceID: traceID(r)}, nil)
 		return
 	}
+	if errors.Is(err, app.ErrUnsupportedRepeatPolicy) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "unsupported_repeat_policy", Message: "repeat must be one of none, every_n_days, or yearly", TraceID: traceID(r)}, nil)
+		return
+	}
 	if err != nil {
 		h.internal(w, r, err)
 		return

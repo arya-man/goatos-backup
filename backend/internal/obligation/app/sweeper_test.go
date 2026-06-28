@@ -166,6 +166,37 @@ func TestSweeperFinalizesExistingPlannedBatchMissingStockReservation(t *testing.
 	}
 }
 
+func TestSweeperRetriesAndClearsBlockedBatchAfterStockRecovery(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-1",
+				ScopeType:           "park",
+				ScopeID:             "park-1",
+				AttachedObligations: 2,
+				HasSOPTask:          true,
+				StockBlocked:        true,
+			},
+		}},
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if reserver.calls != 1 || reserver.lastBatchID != "batch-1" || reserver.lastQty != 2 {
+		t.Fatalf("reservation retry calls=%d batch=%q qty=%d", reserver.calls, reserver.lastBatchID, reserver.lastQty)
+	}
+	if repo.clearStockBlockCalls != 1 {
+		t.Fatalf("clear stock block calls = %d, want 1", repo.clearStockBlockCalls)
+	}
+}
+
 func TestSweeperMarksExistingBatchBlockedWhenFinalizedReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		finalizationPages: [][]domain.PlannedBatchFinalization{{
@@ -217,18 +248,19 @@ func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
 }
 
 type fakeSweepRepo struct {
-	rows                []domain.UnbatchedDue
-	createBatchID       string
-	createBatchAttached int64
-	createBatchCalls    int
-	setTaskCalls        int
-	stockBlockCalls     int
-	lastTaskID          string
-	missedPages         []int
-	missedCalls         int
-	finalizationPages   [][]domain.PlannedBatchFinalization
-	finalizationCalls   int
-	createdFinalization []domain.PlannedBatchFinalization
+	rows                 []domain.UnbatchedDue
+	createBatchID        string
+	createBatchAttached  int64
+	createBatchCalls     int
+	setTaskCalls         int
+	stockBlockCalls      int
+	clearStockBlockCalls int
+	lastTaskID           string
+	missedPages          []int
+	missedCalls          int
+	finalizationPages    [][]domain.PlannedBatchFinalization
+	finalizationCalls    int
+	createdFinalization  []domain.PlannedBatchFinalization
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
@@ -275,6 +307,11 @@ func (f *fakeSweepRepo) SetBatchSOPTask(_ context.Context, _, _, taskID string) 
 
 func (f *fakeSweepRepo) MarkBatchStockBlocked(context.Context, string, string, string, int64, string) error {
 	f.stockBlockCalls++
+	return nil
+}
+
+func (f *fakeSweepRepo) ClearBatchStockBlock(context.Context, string, string) error {
+	f.clearStockBlockCalls++
 	return nil
 }
 

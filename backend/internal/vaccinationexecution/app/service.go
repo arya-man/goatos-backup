@@ -146,6 +146,7 @@ func countsFromRow(r domain.OperationsRow) domain.OperationsCounts {
 		Due:          r.DueCount,
 		InProgress:   r.InProgressCount,
 		Scheduled:    r.ScheduledCount,
+		Missed:       r.MissedCount,
 		Deferred:     r.DeferredCount,
 		Accepted:     r.AcceptedCount,
 		ProofPending: r.ProofPendingCount,
@@ -161,6 +162,7 @@ func addCounts(a, b domain.OperationsCounts) domain.OperationsCounts {
 		Due:          a.Due + b.Due,
 		InProgress:   a.InProgress + b.InProgress,
 		Scheduled:    a.Scheduled + b.Scheduled,
+		Missed:       a.Missed + b.Missed,
 		Deferred:     a.Deferred + b.Deferred,
 		Accepted:     a.Accepted + b.Accepted,
 		ProofPending: a.ProofPending + b.ProofPending,
@@ -178,6 +180,8 @@ func cellWorkState(r domain.OperationsRow) domain.WorkState {
 		return domain.WorkStateRejected
 	case r.ProofPendingCount > 0:
 		return domain.WorkStateProofPending
+	case r.MissedCount > 0:
+		return domain.WorkStateBlocked
 	case r.OverdueCount > 0:
 		return domain.WorkStateOverdue
 	case r.DueCount > 0:
@@ -196,22 +200,24 @@ func operationsRank(w domain.WorkState) int {
 	switch w {
 	case domain.WorkStateOverdue:
 		return 0
-	case domain.WorkStateRejected:
+	case domain.WorkStateBlocked:
 		return 1
-	case domain.WorkStateProofPending:
+	case domain.WorkStateRejected:
 		return 2
-	case domain.WorkStateVerificationPending:
+	case domain.WorkStateProofPending:
 		return 3
-	case domain.WorkStateDue:
+	case domain.WorkStateVerificationPending:
 		return 4
-	case domain.WorkStateInProgress:
+	case domain.WorkStateDue:
 		return 5
-	case domain.WorkStateScheduled:
+	case domain.WorkStateInProgress:
 		return 6
-	case domain.WorkStateDeferred:
+	case domain.WorkStateScheduled:
 		return 7
-	default: // completed
+	case domain.WorkStateDeferred:
 		return 8
+	default: // completed
+		return 9
 	}
 }
 

@@ -5418,6 +5418,7 @@ components:
         - due
         - inProgress
         - scheduled
+        - missed
         - deferred
         - accepted
         - proofPending
@@ -5431,6 +5432,8 @@ components:
         inProgress:
           type: integer
         scheduled:
+          type: integer
+        missed:
           type: integer
         deferred:
           type: integer
@@ -5792,6 +5795,10 @@ components:
           type: integer
         repeat:
           type: string
+          enum:
+            - none
+            - every_n_days
+            - yearly
         repeat_until_after_age:
           type: string
         catch_up:

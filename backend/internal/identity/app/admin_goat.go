@@ -3,7 +3,10 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,11 +18,19 @@ import (
 )
 
 const (
-	createAdminGoatCommand      = "createAdminGoat"
-	previewAdminGoatBulkCommand = "previewAdminGoatBulkImport"
-	commitAdminGoatBulkCommand  = "commitAdminGoatBulkImport"
-	maxBulkRows                 = 500
+	createAdminGoatCommand                = "createAdminGoat"
+	previewAdminGoatBulkCommand           = "previewAdminGoatBulkImport"
+	commitAdminGoatBulkCommand            = "commitAdminGoatBulkImport"
+	maxBulkRows                           = 500
+	adminGoatBulkPreviewTokenV1           = "v1"
+	defaultAdminGoatBulkPreviewSigningKey = "goatos-admin-goat-bulk-preview-dev-v1"
 )
+
+// DevBulkPreviewSigningKey is the local/dev/test-only fallback injected by bootstrap when
+// GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY is intentionally unset in a non-shared environment.
+func DevBulkPreviewSigningKey() string {
+	return defaultAdminGoatBulkPreviewSigningKey
+}
 
 type CreateAdminGoatInput struct {
 	TenantID       string
@@ -171,6 +182,10 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 		response.Rows = append(response.Rows, result)
 	}
 	response.Summary.Total = len(response.Rows)
+	response.PreviewToken, err = s.signAdminGoatBulkPreview(input.TenantID, body.FileHash, previewCommitRows(response.Rows))
+	if err != nil {
+		return nil, Internal("bulk preview token generation failed")
+	}
 	return response, nil
 }
 
@@ -190,6 +205,14 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 	if len(body.Rows) > maxBulkRows {
 		return nil, BadRequest("bulk_too_large", fmt.Sprintf("bulk commit supports at most %d rows", maxBulkRows))
 	}
+	previewRows, err := s.normalizeBulkCommitRowsForPreviewToken(ctx, tenantID, input.TraceID, body.Rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.verifyAdminGoatBulkPreviewToken(tenantID, body.FileHash, body.PreviewToken, previewRows); err != nil {
+		return nil, err
+	}
+	body.Rows = previewRows
 	response := &domain.AdminGoatBulkResponse{Rows: make([]domain.AdminGoatBulkRowResult, 0, len(body.Rows)), TraceID: input.TraceID}
 	for i := range body.Rows {
 		rowNumber, request, rowErrors := adminGoatBulkCommitRowRequest(body.Rows[i], i)
@@ -270,6 +293,7 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 		response.Rows = append(response.Rows, rowResult)
 	}
 	response.Summary.Total = len(response.Rows)
+	response.PreviewToken = body.PreviewToken
 	return response, nil
 }
 
@@ -439,6 +463,11 @@ func decodeBulkPreview(raw []byte) (*domain.AdminGoatBulkPreviewRequest, error) 
 	if err := decodeStrict(raw, &body, "AdminGoatBulkPreviewRequest"); err != nil {
 		return nil, err
 	}
+	fileHash, err := normalizeBulkFileHash(body.FileHash)
+	if err != nil {
+		return nil, err
+	}
+	body.FileHash = fileHash
 	if strings.TrimSpace(body.CSV) == "" {
 		return nil, BadRequest("missing_csv", "csv is required")
 	}
@@ -450,10 +479,47 @@ func decodeBulkCommit(raw []byte) (*domain.AdminGoatBulkCommitRequest, error) {
 	if err := decodeStrict(raw, &body, "AdminGoatBulkCommitRequest"); err != nil {
 		return nil, err
 	}
+	fileHash, err := normalizeBulkFileHash(body.FileHash)
+	if err != nil {
+		return nil, err
+	}
+	body.FileHash = fileHash
+	previewToken, err := normalizeBulkPreviewToken(body.PreviewToken)
+	if err != nil {
+		return nil, err
+	}
+	body.PreviewToken = previewToken
 	if len(body.Rows) == 0 {
 		return nil, BadRequest("missing_rows", "rows must contain at least one item")
 	}
 	return &body, nil
+}
+
+func normalizeBulkFileHash(raw string) (string, error) {
+	hash := strings.ToLower(strings.TrimSpace(raw))
+	if len(hash) != 64 {
+		return "", BadRequest("invalid_file_hash", "file_hash must be the SHA-256 hash returned by bulk preview")
+	}
+	if _, err := hex.DecodeString(hash); err != nil {
+		return "", BadRequest("invalid_file_hash", "file_hash must be the SHA-256 hash returned by bulk preview")
+	}
+	return hash, nil
+}
+
+func normalizeBulkPreviewToken(raw string) (string, error) {
+	token := strings.TrimSpace(raw)
+	prefix := adminGoatBulkPreviewTokenV1 + ":"
+	if !strings.HasPrefix(token, prefix) {
+		return "", BadRequest("invalid_preview_token", "bulk commit must include the preview_token returned by bulk preview")
+	}
+	signature := strings.TrimPrefix(token, prefix)
+	if len(signature) != sha256.Size*2 {
+		return "", BadRequest("invalid_preview_token", "bulk commit must include the preview_token returned by bulk preview")
+	}
+	if _, err := hex.DecodeString(signature); err != nil {
+		return "", BadRequest("invalid_preview_token", "bulk commit must include the preview_token returned by bulk preview")
+	}
+	return token, nil
 }
 
 func decodeStrict(raw []byte, dest any, schemaName string) error {
@@ -565,6 +631,87 @@ func adminGoatBulkCommitRowRequest(row domain.AdminGoatBulkCommitRow, index int)
 	}
 	request := row.AdminGoatCreateRequest
 	return rowNumber, &request, nil
+}
+
+func (s *Service) normalizeBulkCommitRowsForPreviewToken(ctx context.Context, tenantID, traceID string, rows []domain.AdminGoatBulkCommitRow) ([]domain.AdminGoatBulkCommitRow, error) {
+	out := make([]domain.AdminGoatBulkCommitRow, 0, len(rows))
+	seenIdentifiers := map[string]int{}
+	for i := range rows {
+		rowNumber, request, rowErrors := adminGoatBulkCommitRowRequest(rows[i], i)
+		if len(rowErrors) > 0 {
+			return nil, BadRequest("invalid_preview_rows", rowErrors[0].Message)
+		}
+		normalized, _, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, tenantID, "", "", traceID, request)
+		if err != nil {
+			return nil, err
+		}
+		if len(fieldErrors) > 0 {
+			return nil, BadRequest("invalid_preview_rows", fieldErrors[0].Message)
+		}
+		if duplicateErrors := duplicateAdminGoatImportErrors(normalized, rowNumber, seenIdentifiers); len(duplicateErrors) > 0 {
+			return nil, BadRequest("invalid_preview_rows", duplicateErrors[0].Message)
+		}
+		out = append(out, domain.AdminGoatBulkCommitRow{RowNumber: rowNumber, Normalized: normalized})
+	}
+	return out, nil
+}
+
+func previewCommitRows(rows []domain.AdminGoatBulkRowResult) []domain.AdminGoatBulkCommitRow {
+	out := make([]domain.AdminGoatBulkCommitRow, 0, len(rows))
+	for _, row := range rows {
+		if row.Decision == "create" && row.Normalized != nil {
+			out = append(out, domain.AdminGoatBulkCommitRow{RowNumber: row.RowNumber, Normalized: row.Normalized})
+		}
+	}
+	return out
+}
+
+type bulkPreviewTokenRow struct {
+	RowNumber  int                            `json:"row_number"`
+	Normalized *domain.AdminGoatCreateRequest `json:"normalized"`
+}
+
+func (s *Service) signAdminGoatBulkPreview(tenantID, fileHash string, rows []domain.AdminGoatBulkCommitRow) (string, error) {
+	return signAdminGoatBulkPreviewWithKey(tenantID, fileHash, rows, s.bulkPreviewSigningKey)
+}
+
+func signAdminGoatBulkPreviewWithKey(tenantID, fileHash string, rows []domain.AdminGoatBulkCommitRow, signingKey string) (string, error) {
+	payloadRows := make([]bulkPreviewTokenRow, 0, len(rows))
+	for _, row := range rows {
+		payloadRows = append(payloadRows, bulkPreviewTokenRow{RowNumber: row.RowNumber, Normalized: row.Normalized})
+	}
+	payload, err := json.Marshal(struct {
+		Version  string                `json:"version"`
+		TenantID string                `json:"tenant_id"`
+		FileHash string                `json:"file_hash"`
+		Rows     []bulkPreviewTokenRow `json:"rows"`
+	}{
+		Version:  adminGoatBulkPreviewTokenV1,
+		TenantID: strings.TrimSpace(tenantID),
+		FileHash: fileHash,
+		Rows:     payloadRows,
+	})
+	if err != nil {
+		return "", err
+	}
+	key := strings.TrimSpace(signingKey)
+	if key == "" {
+		return "", fmt.Errorf("bulk preview signing key is required")
+	}
+	mac := hmac.New(sha256.New, []byte(key))
+	_, _ = mac.Write(payload)
+	return adminGoatBulkPreviewTokenV1 + ":" + hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func (s *Service) verifyAdminGoatBulkPreviewToken(tenantID, fileHash, token string, rows []domain.AdminGoatBulkCommitRow) error {
+	expected, err := s.signAdminGoatBulkPreview(tenantID, fileHash, rows)
+	if err != nil {
+		return Internal("bulk preview token verification failed")
+	}
+	if !hmac.Equal([]byte(expected), []byte(token)) {
+		return BadRequest("invalid_preview_token", "bulk commit rows do not match the latest preview; preview the CSV again")
+	}
+	return nil
 }
 
 func duplicateAdminGoatImportErrors(normalized *domain.AdminGoatCreateRequest, rowNumber int, seen map[string]int) []domain.FieldError {

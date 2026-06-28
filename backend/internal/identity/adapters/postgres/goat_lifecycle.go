@@ -405,7 +405,7 @@ func (r *Repository) HealthGoat(ctx context.Context, cmd ports.HealthGoatCommand
 	if state.HealthStatus == cmd.HealthStatus {
 		return nil, ports.ErrWriteConflict
 	}
-	if criticalHealthStatus(cmd.HealthStatus) {
+	if criticalHealthStatus(state.HealthStatus) || criticalHealthStatus(cmd.HealthStatus) {
 		return nil, ports.ErrGuardrailRequired
 	}
 	if _, err := tx.Exec(ctx, `

@@ -171,7 +171,7 @@ export function RuleEditorModal({
   const [stage, setStage] = useState(() => animalStages[0]?.code ?? firstKey(animalStageScope, "animal_stage_scope"));
   const [sex, setSex] = useState(firstKey(sexOptions, "rule_sexes"));
   const [breed, setBreed] = useState(firstKey(breedOptions, "rule_breeds"));
-  const [health, setHealth] = useState(firstKey(healthOptions, "rule_healths"));
+  const [health, setHealth] = useState(requireKey(healthOptions, "any", "rule_healths"));
   const [lifecycle, setLifecycle] = useState(firstKey(lifecycleOptions, "rule_lifecycles"));
   const [reproductive, setReproductive] = useState(firstKey(reproductiveOptions, "rule_reproductive"));
   const [deferStates, setDeferStates] = useState<string[]>(() => deferOptions.map((option) => option.key));

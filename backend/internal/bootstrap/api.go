@@ -75,9 +75,10 @@ import (
 )
 
 type Config struct {
-	HTTPAddr string
-	Postgres platformpg.Config
-	Auth     AuthConfig
+	HTTPAddr                    string
+	Postgres                    platformpg.Config
+	Auth                        AuthConfig
+	BulkImportPreviewSigningKey string
 }
 
 // AuthModeJWKS selects asymmetric RS256/ES256 token verification via a remote
@@ -117,8 +118,9 @@ func ConfigFromEnv() Config {
 		addr = ":8080"
 	}
 	return Config{
-		HTTPAddr: addr,
-		Postgres: platformpg.ConfigFromEnv(),
+		HTTPAddr:                    addr,
+		Postgres:                    platformpg.ConfigFromEnv(),
+		BulkImportPreviewSigningKey: os.Getenv("GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY"),
 		Auth: AuthConfig{
 			Mode:                             os.Getenv("GOATOS_AUTH_MODE"),
 			Issuer:                           os.Getenv("GOATOS_AUTH_ISSUER"),
@@ -196,6 +198,10 @@ func localProofStorageAllowed(env string) bool {
 }
 
 func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
+	bulkPreviewSigningKey, err := bulkImportPreviewSigningKey(cfg)
+	if err != nil {
+		return nil, err
+	}
 	verifier, err := buildAuthVerifier(cfg.Auth, log)
 	if err != nil {
 		return nil, err
@@ -211,7 +217,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	identityService := identityapp.NewService(identityRepo)
+	identityService := identityapp.NewService(identityRepo).WithBulkPreviewSigningKey(bulkPreviewSigningKey)
 	identityHandler := identityhttp.NewHandler(identityService, log)
 	locationsRepo := locationspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	locationsService := locationsapp.NewService(locationsRepo)
@@ -326,6 +332,26 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Server: server,
 		Close:  pool.Close,
 	}, nil
+}
+
+func bulkImportPreviewSigningKey(cfg Config) (string, error) {
+	key := strings.TrimSpace(cfg.BulkImportPreviewSigningKey)
+	if key != "" {
+		return key, nil
+	}
+	if bulkImportPreviewDevSigningKeyAllowed(cfg.Auth.Environment) {
+		return identityapp.DevBulkPreviewSigningKey(), nil
+	}
+	return "", fmt.Errorf("GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY is required when GOATOS_ENV is %q", cfg.Auth.Environment)
+}
+
+func bulkImportPreviewDevSigningKeyAllowed(env string) bool {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "local", "dev", "development", "test":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildAuthVerifier(cfg AuthConfig, log *slog.Logger) (httpmiddleware.TokenVerifier, error) {

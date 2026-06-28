@@ -145,7 +145,7 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 					return err
 				}
 			}
-			if needsStock && !b.HasStockReservation && !b.StockBlocked {
+			if needsStock && !b.HasStockReservation {
 				dosesPer := cfg.DosesPerGoat
 				if dosesPer < 1 {
 					dosesPer = 1
@@ -159,6 +159,11 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 						return markErr
 					}
 					continue
+				}
+				if b.StockBlocked {
+					if err := s.repo.ClearBatchStockBlock(ctx, tenantID, b.BatchID); err != nil {
+						return err
+					}
 				}
 			}
 		}
