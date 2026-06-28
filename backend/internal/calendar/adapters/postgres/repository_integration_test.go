@@ -896,10 +896,10 @@ SELECT status, COALESCE(detail -> 'tombstone' ->> 'reason', '')
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2`,
 		testTenantID, "obligation:"+obligationIDs[1]).Scan(&status, &tombstoneReason); err != nil {
-		t.Fatalf("query tombstoned projection: %v", err)
+		t.Fatalf("query completed projection: %v", err)
 	}
-	if status != domain.StatusCanceled || tombstoneReason != "source_no_longer_qualifies" {
-		t.Fatalf("tombstone status=%s reason=%s", status, tombstoneReason)
+	if status != domain.StatusCompleted || tombstoneReason != "" {
+		t.Fatalf("completed projection status=%s tombstoneReason=%s", status, tombstoneReason)
 	}
 }
 

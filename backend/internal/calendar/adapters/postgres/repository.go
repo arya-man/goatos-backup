@@ -1646,6 +1646,7 @@ WITH obligation_events AS (
       ELSE oi.status
     END AS status,
     CASE
+      WHEN oi.status = 'completed' THEN 'info'
       WHEN oi.status = 'missed' OR oi.due_at < now() THEN 'critical'
       WHEN oi.due_at <= now() + interval '24 hours' THEN 'warning'
       ELSE 'info'
@@ -1746,7 +1747,7 @@ WITH obligation_events AS (
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
-    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+    AND oi.status NOT IN ('waived', 'canceled', 'superseded')
 ),
 batch_events AS (
   SELECT DISTINCT ON (ob.batch_id, pr.rule_id)
@@ -1834,7 +1835,7 @@ batch_events AS (
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
-    AND ob.status NOT IN ('completed', 'superseded', 'canceled')
+    AND ob.status NOT IN ('superseded', 'canceled')
   ORDER BY ob.batch_id, pr.rule_id, COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)
 ),
 sop_events AS (
@@ -2039,7 +2040,7 @@ limited AS (
   WHERE due_at IS NOT NULL
     AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending',
                    'verification_pending', 'rejected', 'rework_due', 'deferred',
-                   'blocked')
+                   'blocked', 'completed')
     AND ($5::timestamptz IS NULL OR (due_at, event_id) > ($5::timestamptz, $6::text))
   ORDER BY due_at ASC, event_id ASC
   LIMIT $4
@@ -2134,7 +2135,7 @@ WITH source_event_ids AS (
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
-    AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+    AND oi.status NOT IN ('waived', 'canceled', 'superseded')
 
   UNION ALL
 
@@ -2154,7 +2155,7 @@ WITH source_event_ids AS (
     AND pv.status = 'published'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'review_status', '') = 'approved'
     AND COALESCE(pv.rule_dsl -> 'source' ->> 'source_ref', '') <> ''
-    AND ob.status NOT IN ('completed', 'superseded', 'canceled')
+    AND ob.status NOT IN ('superseded', 'canceled')
 
   UNION ALL
 
