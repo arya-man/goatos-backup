@@ -101,3 +101,95 @@ func TestSM4cReservesStockPerBatch(t *testing.T) {
 		t.Fatalf("re-sweep must not double-reserve, reserved=%q", reserved)
 	}
 }
+
+// TestSM4cReservesShedScopedDriveFromParkStock proves a SHED-scoped vaccination drive reserves
+// against PARK-held vaccine stock by rolling the reservation location up the location hierarchy —
+// otherwise every real (shed-scoped) drive would stock-block because stock lives at the park.
+func TestSM4cReservesShedScopedDriveFromParkStock(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const item = "d0000000-0000-4000-8000-000000000101"
+	const lot = "d0000000-0000-4000-8000-000000000102"
+	const shed = "00000000-0000-4000-8000-00000000a001"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+		 VALUES ($1, $2, 'VAC-RS', 'Reserve shed test', 'vaccine', 'dose')`, item, tenantID); err != nil {
+		t.Fatalf("seed item: %v", err)
+	}
+	// Stock is held at the PARK.
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', DATE '2026-09-30')`, lot, tenantID, item, cbePark); err != nil {
+		t.Fatalf("seed stock: %v", err)
+	}
+	// A shed UNDER the park (the drive scope).
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id)
+		 VALUES ($1, $2, 'shed', 'SHED-RS', 'Reserve Shed', 'active', $3)`, shed, tenantID, cbePark); err != nil {
+		t.Fatalf("seed shed: %v", err)
+	}
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.reserve.shed", Name: "Reserve shed", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	for i, key := range []string{"rs1", "rs2"} { // 2 shed-scoped obligations -> one shed drive
+		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+			TargetType: "shed", TargetID: shed, ScopeType: "shed", ScopeID: shed,
+			DueAt: time.Date(2026, 8, i+1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+		}); err != nil || !applied {
+			t.Fatalf("insert %s: %v", key, err)
+		}
+	}
+
+	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
+	sweep := oblapp.NewSweeperService(repo, nil, reserver)
+	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 1}
+	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore)
+	if err != nil {
+		t.Fatalf("sweep shed-scoped drive against park stock: %v", err)
+	}
+	if res.Batches != 1 {
+		t.Fatalf("batches: want 1 shed drive, got %d", res.Batches)
+	}
+
+	var reserved string
+	if err := pool.QueryRow(ctx, `SELECT quantity_reserved::text FROM inventory_stock WHERE stock_id=$1`, lot).Scan(&reserved); err != nil {
+		t.Fatalf("read reserved: %v", err)
+	}
+	if reserved != "2" {
+		t.Fatalf("shed-scoped drive must reserve from park stock (rollup), reserved=%q want 2", reserved)
+	}
+	var movedLoc string
+	if err := pool.QueryRow(ctx, `SELECT location_id::text FROM inventory_stock_movements WHERE tenant_id=$1 AND movement_type='reserve' LIMIT 1`, tenantID).Scan(&movedLoc); err != nil {
+		t.Fatalf("read movement location: %v", err)
+	}
+	if movedLoc != cbePark {
+		t.Fatalf("reserve movement location = %s, want park %s (rolled up from shed)", movedLoc, cbePark)
+	}
+}

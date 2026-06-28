@@ -137,3 +137,45 @@ func (q *Queries) PickFEFOLot(ctx context.Context, arg PickFEFOLotParams) (PickF
 	)
 	return i, err
 }
+
+const resolveStockLocation = `-- name: ResolveStockLocation :one
+WITH RECURSIVE chain AS (
+  SELECT b.location_id, b.parent_location_id, 0 AS depth
+  FROM locations b
+  WHERE b.tenant_id = $1 AND b.location_id = $3
+  UNION ALL
+  SELECT l.location_id, l.parent_location_id, c.depth + 1
+  FROM locations l
+  JOIN chain c ON l.location_id = c.parent_location_id
+  WHERE l.tenant_id = $1 AND c.depth < 8
+)
+SELECT c.location_id::text AS location_id
+FROM chain c
+JOIN inventory_stock s
+  ON s.tenant_id = $1
+ AND s.location_id = c.location_id
+ AND s.item_id = $2
+ AND s.quantity_in_stock > s.quantity_reserved
+ AND s.status = 'active'
+ AND (s.expiry_date IS NULL OR s.expiry_date >= CURRENT_DATE)
+ORDER BY c.depth ASC
+LIMIT 1
+`
+
+type ResolveStockLocationParams struct {
+	TenantID   pgtype.UUID
+	ItemID     pgtype.UUID
+	LocationID pgtype.UUID
+}
+
+// Resolve the location that actually HOLDS available stock for an item, starting at @location_id and
+// walking UP the location hierarchy (shed -> park -> farm) via parent_location_id. Vaccine stock is
+// held at park/farm while drives are shed-scoped, so a shed-scoped reservation must roll up to the
+// nearest ancestor (including itself) that has active, unexpired, unreserved stock. Returns the
+// nearest such location; no row when no ancestor holds stock (caller treats as stock-unavailable).
+func (q *Queries) ResolveStockLocation(ctx context.Context, arg ResolveStockLocationParams) (string, error) {
+	row := q.db.QueryRow(ctx, resolveStockLocation, arg.TenantID, arg.ItemID, arg.LocationID)
+	var location_id string
+	err := row.Scan(&location_id)
+	return location_id, err
+}

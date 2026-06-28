@@ -170,6 +170,33 @@ func (r *Repository) GetStockLot(ctx context.Context, tenantID, stockID string) 
 	}, nil
 }
 
+// ResolveStockLocation walks up the location hierarchy from locationID to the nearest ancestor
+// (including itself) that holds available stock for the item. Returns ErrNotFound when none does.
+func (r *Repository) ResolveStockLocation(ctx context.Context, tenantID, locationID, itemID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", fmt.Errorf("inventory: tenant id: %w", err)
+	}
+	location, err := pgconv.UUID(locationID)
+	if err != nil {
+		return "", fmt.Errorf("inventory: location id: %w", err)
+	}
+	item, err := pgconv.UUID(itemID)
+	if err != nil {
+		return "", fmt.Errorf("inventory: item id: %w", err)
+	}
+	resolved, err := r.queries.ResolveStockLocation(ctx, inventorydb.ResolveStockLocationParams{TenantID: tenant, LocationID: location, ItemID: item})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("inventory: resolve stock location: %w", err)
+	}
+	return resolved, nil
+}
+
 // PickFEFOLot returns the earliest-expiring lot with available stock.
 func (r *Repository) PickFEFOLot(ctx context.Context, tenantID, locationID, itemID string) (domain.FEFOPick, error) {
 	ctx, cancel := r.withTimeout(ctx)

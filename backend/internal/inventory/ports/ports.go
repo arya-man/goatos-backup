@@ -26,6 +26,11 @@ type Repository interface {
 	// (location, item). Returns ErrNotFound when no lot has available stock.
 	PickFEFOLot(ctx context.Context, tenantID, locationID, itemID string) (domain.FEFOPick, error)
 
+	// ResolveStockLocation returns the nearest location (starting at locationID and walking UP the
+	// parent_location_id chain) that holds available stock for the item — so a shed-scoped drive
+	// reserves against park/farm-held vaccine stock. Returns ErrNotFound when no ancestor holds stock.
+	ResolveStockLocation(ctx context.Context, tenantID, locationID, itemID string) (string, error)
+
 	// RecordMovement appends a ledger movement. It is idempotent on (tenant_id, idempotency_key):
 	// applied is false when the movement was already recorded (replay).
 	RecordMovement(ctx context.Context, m domain.Movement) (movementID string, applied bool, err error)

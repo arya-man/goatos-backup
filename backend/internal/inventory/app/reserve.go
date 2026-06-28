@@ -24,9 +24,20 @@ func (s *Service) ReserveForBatch(ctx context.Context, tenantID, batchID, locati
 	if qty <= 0 {
 		return nil
 	}
-	pick, err := s.repo.PickFEFOLot(ctx, tenantID, locationID, itemID)
+	// Roll the requested (drive) location up to the nearest ancestor that holds stock: shed-scoped
+	// drives reserve against park/farm-held vaccine stock. ErrNotFound = no location in the chain has
+	// an active lot -> a hard stock-unavailable block. The reservation movement is recorded at the
+	// resolved stock location (where the lot actually lives), not the drive's shed.
+	stockLocation, err := s.repo.ResolveStockLocation(ctx, tenantID, locationID, itemID)
 	if errors.Is(err, ports.ErrNotFound) {
-		return fmt.Errorf("%w: no active FEFO lot for item %s at location %s", ErrStockUnavailable, itemID, locationID)
+		return fmt.Errorf("%w: no active stock for item %s at or above location %s", ErrStockUnavailable, itemID, locationID)
+	}
+	if err != nil {
+		return err
+	}
+	pick, err := s.repo.PickFEFOLot(ctx, tenantID, stockLocation, itemID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return fmt.Errorf("%w: no active FEFO lot for item %s at location %s", ErrStockUnavailable, itemID, stockLocation)
 	}
 	if err != nil {
 		return err
@@ -34,17 +45,17 @@ func (s *Service) ReserveForBatch(ctx context.Context, tenantID, batchID, locati
 	available := parseQty(pick.AvailableQuantity)
 	reserveQty := qty
 	if available < reserveQty {
-		return fmt.Errorf("%w: required %d, available %d for item %s at location %s", ErrInsufficientStock, qty, available, itemID, locationID)
+		return fmt.Errorf("%w: required %d, available %d for item %s at location %s", ErrInsufficientStock, qty, available, itemID, stockLocation)
 	}
 	if reserveQty <= 0 {
-		return fmt.Errorf("%w: no available quantity for item %s at location %s", ErrStockUnavailable, itemID, locationID)
+		return fmt.Errorf("%w: no available quantity for item %s at location %s", ErrStockUnavailable, itemID, stockLocation)
 	}
 	qstr := strconv.FormatInt(reserveQty, 10)
 	_, _, err = s.repo.RecordMovementAndAdjustBalances(ctx, domain.Movement{
 		TenantID:       tenantID,
 		LotID:          pick.StockID,
 		ItemID:         itemID,
-		LocationID:     locationID,
+		LocationID:     stockLocation,
 		MovementType:   "reserve",
 		Quantity:       qstr,
 		QuantityUnit:   pick.QuantityUnit,

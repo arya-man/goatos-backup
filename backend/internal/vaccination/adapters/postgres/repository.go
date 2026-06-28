@@ -88,10 +88,12 @@ WHERE (
     vaccination_generation_runs.status = 'failed'
     OR (
       vaccination_generation_runs.status = 'running'
-      -- Reclaim only runs with no recent heartbeat. A live long run (1M-goat scale) bumps updated_at
-      -- via HeartbeatGenerationRun every page, so GREATEST(started_at, updated_at) stays fresh and the
-      -- run is NOT reclaimed/duplicated while it is still making progress.
-      AND GREATEST(vaccination_generation_runs.started_at, vaccination_generation_runs.updated_at) < $5::timestamptz - interval '15 minutes'
+      -- Staleness is measured against WALL-CLOCK now(), never the caller's business asOf ($5): on
+      -- at-least-once redelivery of a crashed publish event asOf == started_at, so an asOf-based
+      -- window could never elapse and a dead 1M-goat run would wedge forever. A live long run bumps
+      -- updated_at via HeartbeatGenerationRun every page, so GREATEST(started_at, updated_at) stays
+      -- fresh (not reclaimed); a crashed run with no heartbeat is reclaimable after 15 real minutes.
+      AND GREATEST(vaccination_generation_runs.started_at, vaccination_generation_runs.updated_at) < now() - interval '15 minutes'
     )
   )
   AND (

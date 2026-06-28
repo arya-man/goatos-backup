@@ -139,7 +139,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
-       COALESCE(g.park_id::text, '')::text AS park_id,
+       COALESCE(park.location_id::text, '')::text AS park_id,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(g.management_stage, '')::text AS management_stage,
@@ -153,6 +153,10 @@ LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
  AND shed.location_type = 'shed'
+LEFT JOIN locations park
+  ON park.tenant_id = g.tenant_id
+ AND park.location_id = g.park_id
+ AND park.location_type = 'park'
 WHERE g.tenant_id = @tenant_id
   AND (
     g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
@@ -175,7 +179,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.lifecycle_status,
        COALESCE(g.health_status, '')::text AS health_status,
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
-       COALESCE(g.park_id::text, '')::text AS park_id,
+       COALESCE(park.location_id::text, '')::text AS park_id,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(g.management_stage, '')::text AS management_stage,
@@ -189,6 +193,10 @@ LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
  AND shed.location_type = 'shed'
+LEFT JOIN locations park
+  ON park.tenant_id = g.tenant_id
+ AND park.location_id = g.park_id
+ AND park.location_type = 'park'
 WHERE g.tenant_id = @tenant_id AND g.goat_id = @goat_id::uuid;
 
 -- name: SumAvailableStockForItem :one

@@ -192,7 +192,6 @@ func TestStartGenerationRunStaleRunningReplayRestarts(t *testing.T) {
 	}
 
 	firstAt := time.Date(2026, 6, 27, 8, 0, 0, 0, time.UTC)
-	staleRetryAt := firstAt.Add(16 * time.Minute)
 	run, started, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
 		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "stale@first",
 		StartedAt: firstAt, IdempotencyKey: "manual-campaign-stale-key", RequestHash: "request-hash",
@@ -201,28 +200,33 @@ func TestStartGenerationRunStaleRunningReplayRestarts(t *testing.T) {
 		t.Fatalf("start generation run started=%v err=%v run=%#v", started, err, run)
 	}
 
-	// Model a DEAD run: no heartbeat since it started, so updated_at is as old as started_at. Only
-	// then is GREATEST(started_at, updated_at) stale enough to reclaim.
+	// Model a DEAD run: no heartbeat for >15 REAL minutes. Staleness is wall-clock now(), so updated_at
+	// must be aged relative to now(), NOT to the business asOf (the bug this guards: an asOf-based
+	// window can never elapse on replay).
 	if _, err := pool.Exec(ctx, `
-UPDATE vaccination_generation_runs SET updated_at = $2::timestamptz
-WHERE tenant_id = $1::uuid AND idempotency_key = 'manual-campaign-stale-key'`, impTenant, firstAt); err != nil {
+UPDATE vaccination_generation_runs SET updated_at = now() - interval '16 minutes'
+WHERE tenant_id = $1::uuid AND idempotency_key = 'manual-campaign-stale-key'`, impTenant); err != nil {
 		t.Fatalf("age dead generation run: %v", err)
 	}
 
+	// Publish REDELIVERY: the same event carries the same OccurredAt, so asOf == the stuck run's
+	// started_at. A wall-clock staleness window still reclaims the dead run; an asOf-based window
+	// (started_at < asOf-15m) never could, wedging the cohort forever.
 	retry, restarted, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
-		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "stale@retry",
-		StartedAt: staleRetryAt, IdempotencyKey: "manual-campaign-stale-key", RequestHash: "request-hash",
+		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "stale@first",
+		StartedAt: firstAt, IdempotencyKey: "manual-campaign-stale-key", RequestHash: "request-hash",
 	})
 	if err != nil || !restarted {
 		t.Fatalf("restart stale generation run restarted=%v err=%v run=%#v", restarted, err, retry)
 	}
-	if !retry.StartedAt.Equal(staleRetryAt) || retry.Status != "running" || retry.RequestHash != "request-hash" {
+	if retry.Status != "running" || retry.RequestHash != "request-hash" {
 		t.Fatalf("stale retry run = %#v, want restarted running row", retry)
 	}
 }
 
-// TestStartGenerationRunHeartbeatPreventsReclaim proves a long but LIVE run (recent heartbeat) is not
-// reclaimed/duplicated by the stale-run detector, even past the 15-minute started_at window.
+// TestStartGenerationRunHeartbeatPreventsReclaim proves a long but LIVE run (recent wall-clock
+// heartbeat) is not reclaimed/duplicated by the stale-run detector — even when the reclaiming caller
+// supplies a FUTURE business asOf (staleness is measured against now(), not asOf).
 func TestStartGenerationRunHeartbeatPreventsReclaim(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -247,7 +251,6 @@ func TestStartGenerationRunHeartbeatPreventsReclaim(t *testing.T) {
 	}
 
 	firstAt := time.Date(2026, 6, 27, 8, 0, 0, 0, time.UTC)
-	retryAt := firstAt.Add(16 * time.Minute)
 	run, started, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
 		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "live@first",
 		StartedAt: firstAt, IdempotencyKey: "manual-campaign-live-key", RequestHash: "request-hash",
@@ -256,22 +259,25 @@ func TestStartGenerationRunHeartbeatPreventsReclaim(t *testing.T) {
 		t.Fatalf("start generation run started=%v err=%v run=%#v", started, err, run)
 	}
 
-	// Recent heartbeat at 08:10 (within 15m of the 08:16 retry) keeps the live run from being reclaimed.
+	// Recent heartbeat: updated_at 5 REAL minutes ago (well inside the 15m wall-clock window).
 	if _, err := pool.Exec(ctx, `
-UPDATE vaccination_generation_runs SET updated_at = $2::timestamptz
-WHERE tenant_id = $1::uuid AND idempotency_key = 'manual-campaign-live-key'`, impTenant, firstAt.Add(10*time.Minute)); err != nil {
+UPDATE vaccination_generation_runs SET updated_at = now() - interval '5 minutes'
+WHERE tenant_id = $1::uuid AND idempotency_key = 'manual-campaign-live-key'`, impTenant); err != nil {
 		t.Fatalf("heartbeat generation run: %v", err)
 	}
 
+	// FUTURE business asOf must NOT steal the live run: an asOf-based window (asOf-15m) would exceed
+	// now() and wrongly reclaim, but staleness is wall-clock so the recent heartbeat wins.
+	futureAsOf := firstAt.Add(72 * time.Hour)
 	retry, restarted, err := vacc.StartGenerationRun(ctx, vaccdomain.GenerationRunInput{
 		TenantID: impTenant, ProtocolVersionID: versionID, TriggerType: "manual_campaign", TriggerRef: "live@retry",
-		StartedAt: retryAt, IdempotencyKey: "manual-campaign-live-key", RequestHash: "request-hash",
+		StartedAt: futureAsOf, IdempotencyKey: "manual-campaign-live-key", RequestHash: "request-hash",
 	})
 	if err != nil {
 		t.Fatalf("retry live run: %v", err)
 	}
 	if restarted {
-		t.Fatalf("live (recently heartbeated) run must NOT be reclaimed; got restarted=true run=%#v", retry)
+		t.Fatalf("live (recently heartbeated) run must NOT be reclaimed even with a future asOf; got restarted=true run=%#v", retry)
 	}
 	if retry.RunID != run.RunID || retry.Status != "running" {
 		t.Fatalf("retry should return the original live run, got %#v", retry)
