@@ -25,6 +25,11 @@ import {
   type ShedImportResponse,
 } from "./herd-actions";
 
+export type HerdAnimalStageOption = {
+  code: string;
+  label: string;
+};
+
 function todayISO(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -48,6 +53,10 @@ function contractTone(pageContract: AdminUiPageContract, groupId: string, key: s
 
 function decisionLabel(pageContract: AdminUiPageContract, decision: string): string {
   return optionLabel(pageContract, "herd_bulk_decisions", String(decision));
+}
+
+function csvFilename(label: string): string {
+  return label.toLowerCase().endsWith(".csv") ? label : `${label}.csv`;
 }
 
 // ---- Drawer shell (right panel; backdrop + Escape close; focus trap entry; body scroll lock) ----
@@ -151,7 +160,9 @@ function RegisterGoatDrawer({
   parks,
   sheds,
   farms,
+  animalStages,
   locationsAvailable,
+  stagesAvailable,
   idempotencyKey,
   returnTo,
   pageContract,
@@ -161,7 +172,9 @@ function RegisterGoatDrawer({
   parks: LocationOption[];
   sheds: LocationOption[];
   farms: LocationOption[];
+  animalStages: HerdAnimalStageOption[];
   locationsAvailable: boolean;
+  stagesAvailable: boolean;
   idempotencyKey: string;
   returnTo: string;
   pageContract: AdminUiPageContract;
@@ -172,7 +185,9 @@ function RegisterGoatDrawer({
   const sexOptions = optionGroup(pageContract, "herd_sex");
   const originOptions = optionGroup(pageContract, "herd_origin");
 
-  const canCreate = locationsAvailable && parks.length > 0 && shedOptions.length > 0;
+  const hasLocations = locationsAvailable && parks.length > 0 && shedOptions.length > 0;
+  const hasStages = stagesAvailable && animalStages.length > 0;
+  const canCreate = hasLocations && hasStages;
 
   return (
     <Drawer
@@ -182,12 +197,21 @@ function RegisterGoatDrawer({
       title={copy(pageContract, "drawer.register.title")}
       subtitle={copy(pageContract, "drawer.register.subtitle")}
     >
-      {!canCreate ? (
+      {!hasLocations ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <AlertTriangle className="ic" aria-hidden="true" />
           <div>
             <b>{copy(pageContract, "alert.locations.title")}</b>
             <div className="small">{copy(pageContract, "alert.locations.body")}</div>
+          </div>
+        </div>
+      ) : null}
+      {!hasStages ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>
+            <b>{copy(pageContract, "alert.stages.title")}</b>
+            <div className="small">{copy(pageContract, "alert.stages.body")}</div>
           </div>
         </div>
       ) : null}
@@ -251,6 +275,15 @@ function RegisterGoatDrawer({
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_breed">{copy(pageContract, "field.breed")}</label>
             <input id="rg_breed" name="breed" placeholder={copy(pageContract, "placeholder.breed")} />
+          </div>
+          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
+            <label htmlFor="rg_stage">{copy(pageContract, "field.management_stage")}</label>
+            <select id="rg_stage" name="management_stage" required disabled={!hasStages} defaultValue={animalStages[0]?.code ?? ""}>
+              {animalStages.length === 0 ? <option value="">{copy(pageContract, "alert.stages.title")}</option> : null}
+              {animalStages.map((stage) => (
+                <option key={stage.code} value={stage.code}>{stage.label}</option>
+              ))}
+            </select>
           </div>
         </Row>
 
@@ -438,8 +471,10 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = copy(pageContract, "action.download_template");
+    a.download = csvFilename(copy(pageContract, "action.download_template"));
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     URL.revokeObjectURL(url);
   }
 
@@ -643,8 +678,10 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = copy(pageContract, "action.download_shed_template");
+    a.download = csvFilename(copy(pageContract, "action.download_shed_template"));
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     URL.revokeObjectURL(url);
   }
 
@@ -814,7 +851,9 @@ export function HerdActions({
   parks,
   sheds,
   farms,
+  animalStages,
   locationsAvailable,
+  stagesAvailable,
   idempotencyKey,
   returnTo,
   pageContract,
@@ -822,7 +861,9 @@ export function HerdActions({
   parks: LocationOption[];
   sheds: LocationOption[];
   farms: LocationOption[];
+  animalStages: HerdAnimalStageOption[];
   locationsAvailable: boolean;
+  stagesAvailable: boolean;
   idempotencyKey: string;
   returnTo: string;
   pageContract: AdminUiPageContract;
@@ -850,7 +891,9 @@ export function HerdActions({
         parks={parks}
         sheds={sheds}
         farms={farms}
+        animalStages={animalStages}
         locationsAvailable={locationsAvailable}
+        stagesAvailable={stagesAvailable}
         idempotencyKey={idempotencyKey}
         returnTo={returnTo}
         pageContract={pageContract}

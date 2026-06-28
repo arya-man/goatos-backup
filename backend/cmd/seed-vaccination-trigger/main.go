@@ -25,6 +25,10 @@ const (
 	localVersionID    = "00000000-0000-4000-8000-00000000b011"
 	localRuleID       = "00000000-0000-4000-8000-00000000b012"
 	localSOPVersionID = "b0000000-0000-4000-8000-000000000002"
+	localStageK0ID    = "00000000-0000-4000-8000-00000000b030"
+	localStageK1ID    = "00000000-0000-4000-8000-00000000b031"
+	localStageK2ID    = "00000000-0000-4000-8000-00000000b032"
+	localStageK3ID    = "00000000-0000-4000-8000-00000000b033"
 )
 
 func main() {
@@ -91,6 +95,22 @@ func validateTarget(env, databaseURL string) error {
 }
 
 const seedSQL = `
+INSERT INTO animal_stage_lookup (
+  animal_stage_id, tenant_id, stage_code, name, min_age_days, max_age_days,
+  sort_order, status
+) VALUES
+  ('` + localStageK0ID + `', $1::uuid, 'K0', 'Newborn', 0, 1, 0, 'active'),
+  ('` + localStageK1ID + `', $1::uuid, 'K1', 'Milk training', 2, 7, 10, 'active'),
+  ('` + localStageK2ID + `', $1::uuid, 'K2', 'Milk drinking', 8, 42, 20, 'active'),
+  ('` + localStageK3ID + `', $1::uuid, 'K3', 'Weaned kids', 43, NULL, 30, 'active')
+ON CONFLICT (tenant_id, stage_code) DO UPDATE
+SET name = EXCLUDED.name,
+    min_age_days = EXCLUDED.min_age_days,
+    max_age_days = EXCLUDED.max_age_days,
+    sort_order = EXCLUDED.sort_order,
+    status = 'active',
+    updated_at = now();
+
 INSERT INTO locations (
   location_id, tenant_id, location_type, location_code, name, parent_location_id,
   country, state_region, timezone, status, updated_at

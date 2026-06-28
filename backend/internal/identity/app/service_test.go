@@ -401,7 +401,7 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
-	csv := "Farm,Temp field ID,Park,Shed,Sex,Origin,Entry date\nMain Farm,TMP-KID-001,CBE,K1,female,birth,2026-06-15\n"
+	csv := "Farm,Temp field ID,Park,Shed,Sex,Origin,Management stage,Entry date\nMain Farm,TMP-KID-001,CBE,K1,female,birth,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -419,6 +419,9 @@ func TestPreviewAdminGoatBulkParsesTempFieldIDAndEntryDate(t *testing.T) {
 	}
 	if row.Normalized.EntryDate != "2026-06-15" {
 		t.Fatalf("entry_date = %q", row.Normalized.EntryDate)
+	}
+	if row.Normalized.ManagementStage == nil || *row.Normalized.ManagementStage != "K1" {
+		t.Fatalf("management_stage = %#v", row.Normalized.ManagementStage)
 	}
 	if len(repo.validateAdminGoatCreateCmds) != 1 || repo.validateAdminGoatCreateCmds[0].ParkCode == nil || *repo.validateAdminGoatCreateCmds[0].ParkCode != "CBE" {
 		t.Fatalf("validation command did not receive park code: %#v", repo.validateAdminGoatCreateCmds)

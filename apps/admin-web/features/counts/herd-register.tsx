@@ -8,6 +8,7 @@ import { dash } from "@/lib/format";
 import { actionFeedbackCopy, copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
+  listAnimalStages,
   searchGoats,
   type GoatSearchResponse,
 } from "@/lib/api/server";
@@ -22,7 +23,7 @@ import {
   one,
   type RouteSearchParams,
 } from "@/lib/search-params";
-import { HerdActions } from "./herd-actions-ui";
+import { HerdActions, type HerdAnimalStageOption } from "./herd-actions-ui";
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
@@ -168,17 +169,24 @@ export async function HerdRegisterPage({
   const selectedGoatId = one(sp, "goat_passport");
 
   // Real goats + real location options for the write drawers, in parallel.
-  const [result, summaryResult, locations] = await Promise.all([
+  const [result, summaryResult, locations, stagesResult] = await Promise.all([
     searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId }),
     searchGoats({ limit: SUMMARY_LIMIT, q, breed, sex, park_id: parkId }),
     getHerdRegisterLocations(),
+    listAnimalStages(),
   ]);
-  const authError = firstAuthRequiredError(result, summaryResult);
+  const authError = firstAuthRequiredError(result, summaryResult, stagesResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   // A fresh idempotency key per render: a double-submit of the open Register drawer replays the same key
   // (backend returns the original goat); a reload mints a new key for a new logical create.
   const registerIdempotencyKey = randomUUID();
+  const animalStages: HerdAnimalStageOption[] = stagesResult.ok
+    ? stagesResult.data.items.map((stage) => ({
+        code: stage.stage_code,
+        label: stage.name ? `${stage.stage_code} · ${stage.name}` : stage.stage_code,
+      }))
+    : [];
 
   const goats: GoatRow[] = result.ok ? result.data.items : [];
   const summaryRows: GoatRow[] = summaryResult.ok ? summaryResult.data.items : goats;
@@ -207,7 +215,9 @@ export async function HerdRegisterPage({
           parks={locations.parks}
           sheds={locations.sheds}
           farms={locations.farms}
+          animalStages={animalStages}
           locationsAvailable={locations.available}
+          stagesAvailable={stagesResult.ok}
           idempotencyKey={registerIdempotencyKey}
           returnTo={returnTo}
           pageContract={pageContract}

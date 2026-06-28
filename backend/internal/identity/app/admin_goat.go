@@ -477,20 +477,21 @@ func parseAdminGoatCSV(raw string) ([]domain.AdminGoatCreateRequest, error) {
 		}
 		sourceID := fmt.Sprintf("bulk-csv-row:%d", i+2)
 		req := domain.AdminGoatCreateRequest{
-			RFID:           optionalCSV(rec, headers, "rfid"),
-			OldTag:         optionalCSV(rec, headers, "old_tag"),
-			TempFieldID:    optionalCSV(rec, headers, "temp_field_id"),
-			FarmCode:       optionalCSV(rec, headers, "farm"),
-			ParkID:         optionalCSV(rec, headers, "park_id"),
-			ParkCode:       optionalCSV(rec, headers, "park"),
-			ShedID:         optionalCSV(rec, headers, "shed_id"),
-			ShedCode:       optionalCSV(rec, headers, "shed"),
-			Breed:          optionalCSV(rec, headers, "breed"),
-			Sex:            valueCSV(rec, headers, "sex"),
-			DOB:            optionalCSV(rec, headers, "dob"),
-			OriginType:     valueCSV(rec, headers, "origin"),
-			PhotoURL:       optionalCSV(rec, headers, "photo_url"),
-			SourceRecordID: &sourceID,
+			RFID:            optionalCSV(rec, headers, "rfid"),
+			OldTag:          optionalCSV(rec, headers, "old_tag"),
+			TempFieldID:     optionalCSV(rec, headers, "temp_field_id"),
+			FarmCode:        optionalCSV(rec, headers, "farm"),
+			ParkID:          optionalCSV(rec, headers, "park_id"),
+			ParkCode:        optionalCSV(rec, headers, "park"),
+			ShedID:          optionalCSV(rec, headers, "shed_id"),
+			ShedCode:        optionalCSV(rec, headers, "shed"),
+			Breed:           optionalCSV(rec, headers, "breed"),
+			ManagementStage: optionalCSV(rec, headers, "management_stage"),
+			Sex:             valueCSV(rec, headers, "sex"),
+			DOB:             optionalCSV(rec, headers, "dob"),
+			OriginType:      valueCSV(rec, headers, "origin"),
+			PhotoURL:        optionalCSV(rec, headers, "photo_url"),
+			SourceRecordID:  &sourceID,
 			EvidenceRefs: []domain.EvidenceRef{{
 				EvidenceType: "source_record",
 				EvidenceID:   sourceID,
@@ -523,6 +524,8 @@ func normalizeHeader(value string) string {
 		return "old_tag"
 	case "temp_field_id", "temporary_field_id", "tempfieldid":
 		return "temp_field_id"
+	case "management_stage", "managementstage", "animal_stage", "animalstage", "stage":
+		return "management_stage"
 	case "weightkg", "weight_kg":
 		return "weight_kg"
 	case "sire_lot", "sire_or_lot":

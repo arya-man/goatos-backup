@@ -141,6 +141,7 @@ export async function createGoatAction(formData: FormData): Promise<void> {
       shed_id: requiredString(formData, "shed_id"),
       farm_id: optionalString(formData, "farm_id"),
       breed: optionalString(formData, "breed"),
+      management_stage: requiredString(formData, "management_stage"),
       sex: inEnum(optionalString(formData, "sex") ?? "unknown", SEXES, "sex"),
       dob: optionalString(formData, "dob"),
       dob_estimated: formData.get("dob_estimated") === "on",
