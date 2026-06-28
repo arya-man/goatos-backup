@@ -38,7 +38,9 @@ func StartPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 		image = defaultPostgresImage
 	}
 	run(t, "docker", "run", "--rm", "--name", container, "-e", "POSTGRES_PASSWORD=goatos", "-e", "POSTGRES_DB=goatos", "-p", "127.0.0.1::5432", "-d", image)
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", container).Run() })
+	// -v removes the container's anonymous volume (postgres declares VOLUME /var/lib/postgresql/data).
+	// Without it every test leaks one orphan volume; thousands accumulated and filled the Docker VM disk.
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", "-v", container).Run() })
 	for i := 0; i < 60; i++ {
 		if exec.Command("docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "goatos").Run() == nil {
 			applyMigrations(t, container)
