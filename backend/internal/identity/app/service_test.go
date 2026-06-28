@@ -614,8 +614,8 @@ func TestHealthGoatRejectsCriticalTargetBeforeRepository(t *testing.T) {
 	if !errors.As(err, &appErr) {
 		t.Fatalf("HealthGoat error = %v, want app error", err)
 	}
-	if appErr.Code != "critical_health_transition_requires_guardrail" || appErr.HTTPStatus != 501 {
-		t.Fatalf("app error = %#v, want guardrail-required 501", appErr)
+	if appErr.Code != "critical_health_transition_requires_guardrail" || appErr.HTTPStatus != 409 {
+		t.Fatalf("app error = %#v, want guardrail-required 409", appErr)
 	}
 	if repo.lastHealthGoatCmd.GoatID != "" {
 		t.Fatalf("repository should not be called for critical target, got %#v", repo.lastHealthGoatCmd)
@@ -638,8 +638,8 @@ func TestExitGoatRejectsDeathBeforeRepository(t *testing.T) {
 	if !errors.As(err, &appErr) {
 		t.Fatalf("ExitGoat error = %v, want app error", err)
 	}
-	if appErr.Code != "critical_death_transition_requires_guardrail" || appErr.HTTPStatus != 501 {
-		t.Fatalf("app error = %#v, want death guardrail-required 501", appErr)
+	if appErr.Code != "critical_death_transition_requires_guardrail" || appErr.HTTPStatus != 409 {
+		t.Fatalf("app error = %#v, want death guardrail-required 409", appErr)
 	}
 	if repo.lastExitGoatCmd.GoatID != "" {
 		t.Fatalf("repository should not be called for death exit, got %#v", repo.lastExitGoatCmd)
@@ -652,8 +652,8 @@ func TestMapRepoErrReturnsDeathGuardrailMessage(t *testing.T) {
 	if !errors.As(err, &appErr) {
 		t.Fatalf("mapRepoErr error = %v, want app error", err)
 	}
-	if appErr.Code != "critical_death_transition_requires_guardrail" || appErr.HTTPStatus != 501 {
-		t.Fatalf("app error = %#v, want death guardrail-required 501", appErr)
+	if appErr.Code != "critical_death_transition_requires_guardrail" || appErr.HTTPStatus != 409 {
+		t.Fatalf("app error = %#v, want death guardrail-required 409", appErr)
 	}
 	if !errors.Is(ports.ErrCriticalDeathGuardrailRequired, ports.ErrGuardrailRequired) {
 		t.Fatal("death guardrail error should preserve generic guardrail sentinel")

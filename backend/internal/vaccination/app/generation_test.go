@@ -341,6 +341,32 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 		}
 	})
 
+	t.Run("next cycle evidence uses advanced cycle fence", func(t *testing.T) {
+		originalDue := time.Date(2026, time.January, 8, 0, 0, 0, 0, time.UTC)
+		wantDue := time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC)
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-yearly", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, Repeat: "yearly", CatchUp: "next_cycle",
+		}}}
+		goats := &generationGoatFake{
+			list: []domain.EligibleGoat{{GoatID: "goat-1", LifecycleStatus: "alive", EntryDate: &entryDate}},
+			trustedByDue: map[string]bool{
+				originalDue.UTC().Format(time.RFC3339Nano): true,
+			},
+		}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate yearly with prior-cycle evidence: %v", err)
+		}
+		if result.Generated != 1 || result.SuppressedByTrustedHistory != 0 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
+			t.Fatalf("result=%#v inserted=%#v, want next cycle obligation despite prior-cycle evidence", result, obl.inserted)
+		}
+		if len(goats.trustedCalls) != 1 || !goats.trustedCalls[0].Equal(wantDue) {
+			t.Fatalf("trusted evidence due calls=%#v, want advanced cycle fence %s", goats.trustedCalls, wantDue)
+		}
+	})
+
 	t.Run("next cycle without repeat skips", func(t *testing.T) {
 		proto := &generationProtoFake{rules: []protodomain.Rule{{
 			RuleID: "rule-skip", DoseCode: "dose-1", Sequence: 1,
@@ -435,9 +461,11 @@ func (p *generationProtoFake) ListEffectiveVaccinationVersionsForGoat(_ context.
 }
 
 type generationGoatFake struct {
-	list    []domain.EligibleGoat
-	goat    domain.EligibleGoat
-	filters []domain.ImpactFilter
+	list         []domain.EligibleGoat
+	goat         domain.EligibleGoat
+	filters      []domain.ImpactFilter
+	trustedByDue map[string]bool
+	trustedCalls []time.Time
 }
 
 func (g *generationGoatFake) ListEligibleGoatsForGeneration(_ context.Context, f domain.ImpactFilter, _ string, _ int32) ([]domain.EligibleGoat, error) {
@@ -455,8 +483,12 @@ func (g *generationGoatFake) GetGoatForGeneration(context.Context, string, strin
 	return domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive"}, true, nil
 }
 
-func (*generationGoatFake) HasTrustedCompletionEvidence(context.Context, string, string, string, string, string, time.Time, time.Time) (bool, error) {
-	return false, nil
+func (g *generationGoatFake) HasTrustedCompletionEvidence(_ context.Context, _, _, _, _, _ string, dueAt, _ time.Time) (bool, error) {
+	g.trustedCalls = append(g.trustedCalls, dueAt)
+	if g.trustedByDue == nil {
+		return false, nil
+	}
+	return g.trustedByDue[dueAt.UTC().Format(time.RFC3339Nano)], nil
 }
 
 type generationObligationFake struct {

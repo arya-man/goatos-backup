@@ -868,6 +868,30 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 
 // HasTrustedCompletionEvidence returns true when prior trusted evidence already satisfies the
 // matching protocol rule for this goat as of this generation run, so SM-1 must not re-issue the dose.
+func (r *Repository) HasTrustedCompletionEvidence(ctx context.Context, tenantID, goatID, protocolVersionID, ruleID, doseCode string, dueAt, generationAt time.Time) (bool, error) {
+	candidate := domain.TrustedCompletionCandidate{
+		GoatID:   goatID,
+		RuleID:   ruleID,
+		DoseCode: doseCode,
+		DueAt:    dueAt,
+	}
+	hits, err := r.HasTrustedCompletionEvidenceBatch(ctx, tenantID, protocolVersionID, []domain.TrustedCompletionCandidate{candidate}, generationAt)
+	if err != nil {
+		return false, err
+	}
+	return hits[candidate.Key()], nil
+}
+
+type trustedCompletionCandidatePayload struct {
+	CandidateKey string `json:"candidate_key"`
+	GoatID       string `json:"goat_id"`
+	RuleID       string `json:"rule_id"`
+	DoseCode     string `json:"dose_code"`
+	DueAt        string `json:"due_at"`
+	RuleRepeat   string `json:"rule_repeat"`
+}
+
+// HasTrustedCompletionEvidenceBatch resolves trusted-history suppression for a generation page.
 // Two trusted sources suppress due work:
 //  1. Reviewed supplier/HF evidence (procurement_hf_vaccination_evidence, review_status='trusted').
 //  2. Accepted and verified Goat OS administrations (vaccination_completions, status='accepted',
@@ -875,113 +899,154 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 //
 // Both sources match the SAME protocol (protocol_id), dose_code, and sequence across protocol
 // versions so that publishing a new version of a protocol the goat already completed does not
-// duplicate the dose (version change / catch-up dedupe).
-//
-// Imported/rejected/conflicting/duplicate rows, future administrations, and future reviews never
-// suppress due work.
-func (r *Repository) HasTrustedCompletionEvidence(ctx context.Context, tenantID, goatID, protocolVersionID, ruleID, doseCode string, dueAt, generationAt time.Time) (bool, error) {
+// duplicate the dose. Repeated rules additionally include the candidate due date as a cycle fence:
+// accepted Goat OS completions must belong to the same obligation due date, and reviewed imported/HF
+// evidence must be administered on or after that cycle's due date.
+func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tenantID, protocolVersionID string, candidates []domain.TrustedCompletionCandidate, generationAt time.Time) (map[string]bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
+	hits := make(map[string]bool, len(candidates))
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return false, fmt.Errorf("vaccination: tenant id: %w", err)
-	}
-	goat, err := pgconv.UUID(goatID)
-	if err != nil {
-		return false, fmt.Errorf("vaccination: goat id: %w", err)
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
 	version, err := pgconv.UUID(protocolVersionID)
 	if err != nil {
-		return false, fmt.Errorf("vaccination: protocol version id: %w", err)
+		return nil, fmt.Errorf("vaccination: protocol version id: %w", err)
 	}
-	rule, err := pgconv.UUID(ruleID)
+	if len(candidates) == 0 {
+		return hits, nil
+	}
+	payloadRows := make([]trustedCompletionCandidatePayload, 0, len(candidates))
+	for _, candidate := range candidates {
+		payloadRows = append(payloadRows, trustedCompletionCandidatePayload{
+			CandidateKey: candidate.Key(),
+			GoatID:       candidate.GoatID,
+			RuleID:       candidate.RuleID,
+			DoseCode:     candidate.DoseCode,
+			DueAt:        candidate.DueAt.UTC().Format(time.RFC3339Nano),
+			RuleRepeat:   candidate.Repeat,
+		})
+	}
+	payload, err := json.Marshal(payloadRows)
 	if err != nil {
-		return false, fmt.Errorf("vaccination: rule id: %w", err)
+		return nil, fmt.Errorf("vaccination: trusted completion evidence payload: %w", err)
 	}
-	var exists bool
-	if err := r.pool.QueryRow(ctx, `
-SELECT (
-  EXISTS (
-    SELECT 1
-    FROM protocol_rules target_pr
-    JOIN protocol_versions target_pv
-      ON target_pv.tenant_id = target_pr.tenant_id
-     AND target_pv.protocol_version_id = target_pr.protocol_version_id
-    JOIN procurement_hf_vaccination_evidence ev
-      ON ev.tenant_id = target_pr.tenant_id
-     AND ev.goat_id = $2
-     AND ev.review_status = 'trusted'
-     AND ev.reviewed_at IS NOT NULL
-    JOIN protocol_rules ev_pr
-      ON ev_pr.tenant_id = ev.tenant_id
-     AND ev_pr.rule_id = ev.rule_id
-    JOIN protocol_versions ev_pv
-      ON ev_pv.tenant_id = ev.tenant_id
-     AND ev_pv.protocol_version_id = ev.protocol_version_id
-    JOIN goats g
-      ON g.tenant_id = ev.tenant_id
-     AND g.goat_id = ev.goat_id
-    LEFT JOIN procurement_load_goats plg
-      ON plg.tenant_id = ev.tenant_id
-     AND plg.load_id = ev.load_id
-     AND plg.goat_id = ev.goat_id
-    WHERE target_pr.tenant_id = $1
-      AND target_pr.protocol_version_id = $3
-      AND target_pr.rule_id = $4
-      AND target_pr.dose_code = $5
-      AND ev.tenant_id = $1
-      AND ev.dose_code = target_pr.dose_code
-      AND ev_pr.dose_code = target_pr.dose_code
-      AND ev_pr.sequence = target_pr.sequence
-      AND ev_pv.protocol_id = target_pv.protocol_id
-      AND ev.administered_at <= $6::timestamptz
-      AND ev.administered_at <= $7::timestamptz
-      AND ev.reviewed_at <= $7::timestamptz
-      AND (
-        plg.intake_accepted_at IS NULL
-        OR ev.administered_at <= plg.intake_accepted_at
-      )
-      AND (
-        g.entry_date IS NULL
-        OR ev.administered_at < (g.entry_date::timestamptz + interval '1 day')
-      )
-  )
-  OR EXISTS (
-    SELECT 1
-    FROM protocol_rules target_pr
-    JOIN protocol_versions target_pv
-      ON target_pv.tenant_id = target_pr.tenant_id
-     AND target_pv.protocol_version_id = target_pr.protocol_version_id
-    JOIN vaccination_completions vc
-      ON vc.tenant_id = target_pr.tenant_id
-     AND vc.goat_id = $2
-     AND vc.status = 'accepted'
-     AND vc.verified_at IS NOT NULL
-    JOIN obligation_instances oi
-      ON oi.tenant_id = vc.tenant_id
-     AND oi.obligation_id = vc.obligation_id
-    JOIN protocol_rules cpr
-      ON cpr.tenant_id = oi.tenant_id
-     AND cpr.rule_id = oi.rule_id
-    JOIN protocol_versions cpv
-      ON cpv.tenant_id = oi.tenant_id
-     AND cpv.protocol_version_id = oi.protocol_version_id
-    WHERE target_pr.tenant_id = $1
-      AND target_pr.protocol_version_id = $3
-      AND target_pr.rule_id = $4
-      AND target_pr.dose_code = $5
-      AND vc.tenant_id = $1
-      AND cpr.dose_code = target_pr.dose_code
-      AND cpr.sequence = target_pr.sequence
-      AND cpv.protocol_id = target_pv.protocol_id
-      AND vc.administered_at <= $6::timestamptz
-      AND vc.administered_at <= $7::timestamptz
-      AND vc.verified_at <= $7::timestamptz
-  )
-)`, tenant, goat, version, rule, doseCode, dueAt, generationAt).Scan(&exists); err != nil {
-		return false, fmt.Errorf("vaccination: trusted completion evidence: %w", err)
+	rows, err := r.pool.Query(ctx, `
+	WITH candidate AS (
+	  SELECT c.candidate_key,
+	         c.goat_id::uuid AS goat_id,
+	         c.rule_id::uuid AS rule_id,
+	         c.dose_code,
+	         c.due_at::timestamptz AS due_at,
+	         COALESCE(NULLIF(c.rule_repeat, ''), 'none') AS requested_repeat
+	  FROM jsonb_to_recordset($4::jsonb) AS c(
+	    candidate_key text,
+	    goat_id text,
+	    rule_id text,
+	    dose_code text,
+	    due_at text,
+	    rule_repeat text
+	  )
+	),
+	target AS (
+	  SELECT c.candidate_key,
+	         c.goat_id,
+	         c.rule_id,
+	         c.dose_code,
+	         c.due_at,
+	         target_pr.sequence,
+	         COALESCE(NULLIF(target_pr."repeat", ''), c.requested_repeat, 'none') AS rule_repeat,
+	         target_pv.protocol_id
+	  FROM candidate c
+	  JOIN protocol_rules target_pr
+	    ON target_pr.tenant_id = $1::uuid
+	   AND target_pr.protocol_version_id = $2::uuid
+	   AND target_pr.rule_id = c.rule_id
+	   AND target_pr.dose_code = c.dose_code
+	  JOIN protocol_versions target_pv
+	    ON target_pv.tenant_id = target_pr.tenant_id
+	   AND target_pv.protocol_version_id = target_pr.protocol_version_id
+	),
+	trusted_procurement AS (
+	  SELECT DISTINCT t.candidate_key
+	  FROM target t
+	  JOIN procurement_hf_vaccination_evidence ev
+	    ON ev.tenant_id = $1::uuid
+	   AND ev.goat_id = t.goat_id
+	   AND ev.review_status = 'trusted'
+	   AND ev.reviewed_at IS NOT NULL
+	  JOIN protocol_rules ev_pr
+	    ON ev_pr.tenant_id = ev.tenant_id
+	   AND ev_pr.rule_id = ev.rule_id
+	  JOIN protocol_versions ev_pv
+	    ON ev_pv.tenant_id = ev.tenant_id
+	   AND ev_pv.protocol_version_id = ev.protocol_version_id
+	  JOIN goats g
+	    ON g.tenant_id = ev.tenant_id
+	   AND g.goat_id = ev.goat_id
+	  LEFT JOIN procurement_load_goats plg
+	    ON plg.tenant_id = ev.tenant_id
+	   AND plg.load_id = ev.load_id
+	   AND plg.goat_id = ev.goat_id
+	  WHERE ev.dose_code = t.dose_code
+	    AND ev_pr.dose_code = t.dose_code
+	    AND ev_pr.sequence = t.sequence
+	    AND ev_pv.protocol_id = t.protocol_id
+	    AND ev.administered_at <= $3::timestamptz
+	    AND ev.reviewed_at <= $3::timestamptz
+	    AND (t.rule_repeat = 'none' OR ev.administered_at >= t.due_at)
+	    AND (
+	      plg.intake_accepted_at IS NULL
+	      OR ev.administered_at <= plg.intake_accepted_at
+	    )
+	    AND (
+	      g.entry_date IS NULL
+	      OR ev.administered_at < (g.entry_date::timestamptz + interval '1 day')
+	    )
+	),
+	trusted_completion AS (
+	  SELECT DISTINCT t.candidate_key
+	  FROM target t
+	  JOIN vaccination_completions vc
+	    ON vc.tenant_id = $1::uuid
+	   AND vc.goat_id = t.goat_id
+	   AND vc.status = 'accepted'
+	   AND vc.verified_at IS NOT NULL
+	  JOIN obligation_instances oi
+	    ON oi.tenant_id = vc.tenant_id
+	   AND oi.obligation_id = vc.obligation_id
+	  JOIN protocol_rules cpr
+	    ON cpr.tenant_id = oi.tenant_id
+	   AND cpr.rule_id = oi.rule_id
+	  JOIN protocol_versions cpv
+	    ON cpv.tenant_id = oi.tenant_id
+	   AND cpv.protocol_version_id = oi.protocol_version_id
+	  WHERE cpr.dose_code = t.dose_code
+	    AND cpr.sequence = t.sequence
+	    AND cpv.protocol_id = t.protocol_id
+	    AND vc.administered_at <= $3::timestamptz
+	    AND vc.verified_at <= $3::timestamptz
+	    AND (t.rule_repeat = 'none' OR oi.due_at = t.due_at)
+	)
+	SELECT candidate_key FROM trusted_procurement
+	UNION
+	SELECT candidate_key FROM trusted_completion`, tenant, version, generationAt, payload)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: trusted completion evidence: %w", err)
 	}
-	return exists, nil
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("vaccination: trusted completion evidence scan: %w", err)
+		}
+		hits[key] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: trusted completion evidence rows: %w", err)
+	}
+	return hits, nil
 }
 
 // SumAvailableStock returns available (unreserved) quantity + earliest expiry for an item.

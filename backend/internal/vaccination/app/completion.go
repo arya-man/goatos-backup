@@ -19,6 +19,10 @@ type ObligationCompleter interface {
 	GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error)
 }
 
+type ObligationCompletionReader interface {
+	IsCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
+}
+
 // StockConsumer is the slice of the inventory service SM-5 needs: consume reserved doses on accept.
 // The lot's item/location/unit are derived from the lot itself, so callers pass only (batch, lot).
 type StockConsumer interface {
@@ -122,8 +126,15 @@ func (s *CompletionService) Accept(ctx context.Context, in AcceptInput) (AcceptR
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	next, err := s.scheduleBooster(ctx, in.Completion.TenantID, in.ProtocolVersionID, pending.GoatID,
-		in.ScopeType, in.ScopeID, in.RuleSequence, pending.AdministeredAt)
+	canScheduleBooster, err := s.obligationCompleted(ctx, in.Completion.TenantID, pending.ObligationID, completed)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	next := false
+	if canScheduleBooster {
+		next, err = s.scheduleBooster(ctx, in.Completion.TenantID, in.ProtocolVersionID, pending.GoatID,
+			in.ScopeType, in.ScopeID, in.RuleSequence, pending.AdministeredAt)
+	}
 	if err != nil {
 		return AcceptResult{}, err
 	}
@@ -175,7 +186,11 @@ func (s *CompletionService) AcceptExisting(ctx context.Context, in AcceptExistin
 		return AcceptResult{}, err
 	}
 	next := false
-	if s.booster != nil {
+	canScheduleBooster, err := s.obligationCompleted(ctx, in.TenantID, pending.ObligationID, completed)
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	if canScheduleBooster && s.booster != nil {
 		versionID, scopeType, scopeID, seq, gerr := s.obl.GetBoosterContext(ctx, in.TenantID, pending.ObligationID)
 		if gerr != nil {
 			return AcceptResult{}, gerr
@@ -222,12 +237,20 @@ func (s *CompletionService) Reject(ctx context.Context, in RejectInput) (RejectR
 		return RejectResult{}, err
 	}
 	if !applied {
-		return RejectResult{Applied: false}, nil
+		pending, found, err := s.vacc.GetAcceptableCompletionByIdempotency(ctx, in.Completion.TenantID, in.Completion.IdempotencyKey)
+		if err != nil {
+			return RejectResult{}, err
+		}
+		if !found || pending.Status != "recorded" {
+			return RejectResult{CompletionID: pending.CompletionID, Applied: false}, nil
+		}
+		cid = pending.CompletionID
 	}
-	if _, err := s.vacc.RejectCompletion(ctx, in.Completion.TenantID, cid, in.Reason, in.VerifiedBy); err != nil {
+	rejected, err := s.vacc.RejectCompletion(ctx, in.Completion.TenantID, cid, in.Reason, in.VerifiedBy)
+	if err != nil {
 		return RejectResult{}, err
 	}
-	return RejectResult{CompletionID: cid, Applied: true}, nil
+	return RejectResult{CompletionID: cid, Applied: applied || rejected}, nil
 }
 
 // RejectExisting rejects an already-recorded completion (the SOP rework outcome). The obligation
@@ -251,6 +274,17 @@ func (s *CompletionService) consume(ctx context.Context, tenantID, batchID, lotI
 		q = int64(*doses)
 	}
 	return s.inv.ConsumeForBatch(ctx, tenantID, batchID, lotID, batchID+":consume:"+obligationID+":"+goatID, q)
+}
+
+func (s *CompletionService) obligationCompleted(ctx context.Context, tenantID, obligationID string, transitioned bool) (bool, error) {
+	if transitioned {
+		return true, nil
+	}
+	reader, ok := s.obl.(ObligationCompletionReader)
+	if !ok {
+		return false, nil
+	}
+	return reader.IsCompleted(ctx, tenantID, obligationID)
 }
 
 // scheduleBooster runs SM-7 when a booster is wired and a protocol version is given.

@@ -260,6 +260,9 @@ export async function previewShedsAction(csv: string): Promise<ShedImportActionR
       .slice(1)
       .map((record, index) => ({ record, rowNumber: index + 2 }))
       .filter(({ record }) => !record.every((cell) => cell.trim() === ""));
+    if (dataRecords.length === 0) {
+      return { ok: false, message: "CSV must include a header and at least one row." };
+    }
     if (dataRecords.length > MAX_SHED_IMPORT_ROWS) {
       return { ok: false, message: `Shed import supports at most ${MAX_SHED_IMPORT_ROWS} rows.` };
     }

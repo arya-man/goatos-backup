@@ -168,7 +168,7 @@ func repoStatusForWorkState(workState string) (string, string) {
 	case "proof_pending":
 		return "in_progress", "proof_pending"
 	case "deferred":
-		return "waived", "deferred"
+		return "deferred", "deferred"
 	case "missed":
 		return "missed", "missed"
 	case "scheduled", "due", "in_progress":

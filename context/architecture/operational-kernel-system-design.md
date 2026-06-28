@@ -118,6 +118,8 @@ A policy pack must declare:
   mapping when replacing an existing Slack/Sheets/App Script workflow
 - classification authority rules: what evidence decides the final action
   classification, and how conflicts with user-entered classification are handled
+- primitive exposure plan: how lower-level mutation primitives are blocked,
+  wrapped, or restricted until the policy pack owns each critical transition
 - allowed reasons, blocks, warnings, exception paths, and disabled reasons
 - approval/authority policy
 - proof and verification policy

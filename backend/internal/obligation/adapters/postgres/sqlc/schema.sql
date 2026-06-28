@@ -8896,6 +8896,13 @@ CREATE INDEX outbox_messages_tenant_status_attempt_idx ON public.outbox_messages
 
 
 --
+-- Name: outbox_messages_obligation_missed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_obligation_missed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'obligation.missed'::text);
+
+
+--
 -- Name: outbox_messages_vaccination_completed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 

@@ -26,6 +26,10 @@ const (
 	vaccinationCompletedSchemaVersion = "1.0.0"
 	vaccinationCompletedSchemaRef     = "domain-event-envelope.v1"
 	vaccinationCompletedTopic         = "vaccination.events"
+	obligationMissedEventType         = "obligation.missed"
+	obligationMissedSchemaVersion     = "1.0.0"
+	obligationMissedSchemaRef         = "domain-event-envelope.v1"
+	obligationMissedTopic             = "obligation.events"
 )
 
 // Repository is the Postgres-backed obligation repository.
@@ -1123,6 +1127,31 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	return true, nil
 }
 
+func (r *Repository) IsCompleted(ctx context.Context, tenantID, obligationID string) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	obl, err := pgconv.UUID(obligationID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: obligation id: %w", err)
+	}
+	var completed bool
+	if err := r.pool.QueryRow(ctx, `
+	SELECT status = 'completed'
+	FROM obligation_instances
+	WHERE tenant_id = $1::uuid
+	  AND obligation_id = $2::uuid`, tenant, obl).Scan(&completed); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("obligation: is completed: %w", err)
+	}
+	return completed, nil
+}
+
 func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) error {
 	eventID := deterministicOutboxUUID("vaccination.completed:" + tenantID + ":" + obligationID)
 	idempotencyKey := "vaccination.completed:" + obligationID
@@ -1189,6 +1218,77 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.complet
 		obligationID, vaccinationCompletedTopic, envelope, headers, idempotencyKey)
 	if err != nil {
 		return fmt.Errorf("obligation: vaccination completed outbox: %w", err)
+	}
+	return nil
+}
+
+func insertObligationMissedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string, occurredAt time.Time) error {
+	eventID := deterministicOutboxUUID("obligation.missed:" + tenantID + ":" + obligationID)
+	idempotencyKey := "obligation.missed:" + obligationID
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	occurred := occurredAt.UTC().Format(time.RFC3339Nano)
+	payload := map[string]any{
+		"tenant_id":     tenantID,
+		"obligation_id": obligationID,
+		"status":        "missed",
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     obligationMissedEventType,
+		"schema_version": obligationMissedSchemaVersion,
+		"schema_ref":     obligationMissedSchemaRef,
+		"aggregate_type": "obligation_instance",
+		"aggregate_id":   obligationID,
+		"occurred_at":    occurred,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "obligation",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "obligation_instance",
+		"subject_id":   obligationID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "obligation_status_event",
+			"evidence_id":   obligationID + ":missed",
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("obligation: missed envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        "obligation.MarkMissedBefore",
+		"schema_version":  obligationMissedSchemaVersion,
+		"obligation_id":   obligationID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("obligation: missed headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+	INSERT INTO outbox_messages (
+	  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+	  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+	) VALUES (
+	  $1::uuid, $2::uuid, $3, $4, 'obligation_instance', $5::uuid,
+	  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+	)
+	ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'obligation.missed' DO NOTHING`,
+		tenantID, eventID, obligationMissedEventType, obligationMissedSchemaVersion,
+		obligationID, obligationMissedTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("obligation: missed outbox: %w", err)
 	}
 	return nil
 }
@@ -1275,6 +1375,9 @@ RETURNING oi.obligation_id::text`, tenant, pgconv.Timestamptz(missedBefore), lim
 			IdempotencyKey: id + ":missed",
 		}); err != nil {
 			return 0, fmt.Errorf("obligation: missed event: %w", err)
+		}
+		if err := insertObligationMissedOutbox(ctx, tx, tenantID, id, now); err != nil {
+			return 0, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

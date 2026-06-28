@@ -89,7 +89,7 @@ SELECT completion_id::text AS completion_id,
 FROM vaccination_completions
 WHERE tenant_id = @tenant_id
   AND idempotency_key = @idempotency_key
-  AND status IN ('recorded', 'accepted');
+  AND status IN ('recorded', 'accepted', 'rejected');
 
 -- name: CountEligibleGoats :one
 -- Live impact: alive goats matching a rule's eligibility dims within an optional park scope.

@@ -177,7 +177,7 @@ func cellWorkState(r domain.OperationsRow) domain.WorkState {
 	case r.RejectedCount > 0:
 		return domain.WorkStateRejected
 	case r.ProofPendingCount > 0:
-		return domain.WorkStateVerificationPending
+		return domain.WorkStateProofPending
 	case r.OverdueCount > 0:
 		return domain.WorkStateOverdue
 	case r.DueCount > 0:
@@ -198,18 +198,20 @@ func operationsRank(w domain.WorkState) int {
 		return 0
 	case domain.WorkStateRejected:
 		return 1
-	case domain.WorkStateVerificationPending:
+	case domain.WorkStateProofPending:
 		return 2
-	case domain.WorkStateDue:
+	case domain.WorkStateVerificationPending:
 		return 3
-	case domain.WorkStateInProgress:
+	case domain.WorkStateDue:
 		return 4
-	case domain.WorkStateScheduled:
+	case domain.WorkStateInProgress:
 		return 5
-	case domain.WorkStateDeferred:
+	case domain.WorkStateScheduled:
 		return 6
-	default: // completed
+	case domain.WorkStateDeferred:
 		return 7
+	default: // completed
+		return 8
 	}
 }
 

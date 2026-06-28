@@ -185,7 +185,7 @@ SELECT completion_id::text AS completion_id,
 FROM vaccination_completions
 WHERE tenant_id = $1
   AND idempotency_key = $2
-  AND status IN ('recorded', 'accepted')
+  AND status IN ('recorded', 'accepted', 'rejected')
 `
 
 type GetAcceptableVaccinationCompletionByIdempotencyParams struct {

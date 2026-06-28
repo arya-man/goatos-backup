@@ -110,6 +110,20 @@ type EligibleGoat struct {
 	LocationIsICU        bool
 }
 
+// TrustedCompletionCandidate is one generation-time suppression check. DueAt is part of the
+// identity so repeat/campaign cycles for the same goat/rule do not collapse into each other.
+type TrustedCompletionCandidate struct {
+	GoatID   string
+	RuleID   string
+	DoseCode string
+	DueAt    time.Time
+	Repeat   string
+}
+
+func (c TrustedCompletionCandidate) Key() string {
+	return c.GoatID + "|" + c.RuleID + "|" + c.DoseCode + "|" + c.DueAt.UTC().Format(time.RFC3339Nano)
+}
+
 // GenerateResult summarises an SM-1 generation run.
 type GenerateResult struct {
 	Generated                  int

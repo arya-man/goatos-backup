@@ -426,7 +426,7 @@ func criticalHealthStatus(status string) bool {
 }
 
 func criticalHealthTransitionError() *Error {
-	return NotImplemented("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
+	return GuardrailRequired("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
 }
 
 func criticalDeathExit(lifecycleStatus, exitReason string) bool {
@@ -434,7 +434,7 @@ func criticalDeathExit(lifecycleStatus, exitReason string) bool {
 }
 
 func criticalDeathTransitionError() *Error {
-	return NotImplemented("critical_death_transition_requires_guardrail", "death exits must use the critical-action guardrail path")
+	return GuardrailRequired("critical_death_transition_requires_guardrail", "death exits must use the critical-action guardrail path")
 }
 
 var allowedExitReasons = map[string]bool{

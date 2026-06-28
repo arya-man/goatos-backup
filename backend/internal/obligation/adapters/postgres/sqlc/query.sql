@@ -11,7 +11,7 @@ SELECT obligation_id::text AS obligation_id, protocol_version_id::text AS protoc
        due_at, status, "sequence"
 FROM obligation_instances
 WHERE tenant_id = @tenant_id AND target_type = 'goat' AND target_id = @target_id
-  AND status IN ('scheduled', 'due', 'in_progress')
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
 ORDER BY due_at ASC, obligation_id ASC
 LIMIT @row_limit;
 

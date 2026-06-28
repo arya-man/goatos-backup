@@ -79,6 +79,9 @@ function parseCSVRecords(raw: string): string[][] {
     }
     cell += ch;
   }
+  if (inQuotes) {
+    throw new Error("CSV contains an unterminated quoted cell.");
+  }
   if (cell.length > 0 || row.length > 0) {
     row.push(cell.trim());
     rows.push(row);

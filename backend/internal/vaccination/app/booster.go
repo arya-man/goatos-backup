@@ -39,10 +39,9 @@ type ScheduleNextInput struct {
 	AdministeredAt    time.Time // basis for the next due date
 }
 
-// ScheduleNextDose schedules the obligation for the dose at PrevSequence+1 when that rule is
-// triggered after_previous_completion. Returns scheduled=false when there is no such next rule
-// (series complete, or the next dose is calendar/age-triggered and already covered by SM-1), or on
-// an idempotent replay.
+// ScheduleNextDose schedules the next higher-sequence dose when that rule is triggered
+// after_previous_completion. Returns scheduled=false when there is no such next rule (series complete,
+// or the next dose is calendar/age-triggered and already covered by SM-1), or on an idempotent replay.
 func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextInput) (scheduled bool, err error) {
 	rules, err := s.proto.ListRules(ctx, in.TenantID, in.ProtocolVersionID)
 	if err != nil {
@@ -50,9 +49,11 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 	}
 	var next *protodomain.Rule
 	for i := range rules {
-		if rules[i].Sequence == in.PrevSequence+1 {
+		if rules[i].Sequence <= in.PrevSequence {
+			continue
+		}
+		if next == nil || rules[i].Sequence < next.Sequence {
 			next = &rules[i]
-			break
 		}
 	}
 	if next == nil || next.TriggerType != "after_previous_completion" {

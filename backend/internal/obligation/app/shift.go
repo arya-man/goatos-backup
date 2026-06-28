@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -45,7 +46,6 @@ func (h *GoatShiftedHandler) Register(bus eventbus.Bus) {
 }
 
 // HandleEvent re-scopes the shifted goat's open obligations (event Key = goat_id, Payload = scope).
-// A missing scope_id is a no-op (nothing safe to move).
 func (h *GoatShiftedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
 	var p ShiftPayload
 	if len(e.Payload) > 0 {
@@ -55,7 +55,7 @@ func (h *GoatShiftedHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 	}
 	if p.ScopeType == "" || p.ScopeID == "" {
 		if p.ToShedID == "" {
-			return nil
+			return fmt.Errorf("obligation: goat shift event missing destination scope for goat %s", e.Key)
 		}
 		p.ScopeType = "shed"
 		p.ScopeID = p.ToShedID

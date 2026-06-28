@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -110,6 +111,74 @@ func TestAcceptExistingConsumesEachObligationForSameGoatBatch(t *testing.T) {
 	}
 	if !stock.seen["batch-1:consume:obligation-1:goat-1"] || !stock.seen["batch-1:consume:obligation-2:goat-1"] {
 		t.Fatalf("consume keys = %#v, want per-obligation keys", stock.seen)
+	}
+}
+
+func TestAcceptDoesNotScheduleBoosterWhenObligationDidNotComplete(t *testing.T) {
+	ctx := context.Background()
+	repo := newCompletionRepoFake()
+	obl := newObligationCompleterFake()
+	obl.blockComplete["obligation-1"] = true
+	stock := newStockConsumerFake()
+	boosterWriter := &boosterObligationWriterFake{}
+	booster := NewBoosterService(&boosterRuleReaderFake{rules: []protodomain.Rule{
+		{RuleID: "rule-2", DoseCode: "dose-b", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 21},
+	}}, boosterWriter)
+	svc := NewCompletionService(NewService(repo), obl, stock).WithBooster(booster)
+	doses := int32(1)
+	batchID, lotID := "batch-1", "lot-1"
+	in := domain.NewCompletion{
+		TenantID: "tenant-1", ObligationID: "obligation-1", GoatID: "goat-1", BatchID: &batchID,
+		VaccineInventoryLotID: &lotID, Doses: &doses, ColdChainVerified: true,
+		AdministeredAt: time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC),
+		IdempotencyKey: "accept-canceled-obligation",
+	}
+
+	result, err := svc.Accept(ctx, AcceptInput{
+		Completion:        in,
+		ProtocolVersionID: "version-1",
+		ScopeType:         "shed",
+		ScopeID:           "shed-1",
+		RuleSequence:      1,
+	})
+
+	if err != nil {
+		t.Fatalf("accept closed obligation: %v", err)
+	}
+	if result.Completed || result.NextScheduled {
+		t.Fatalf("result=%#v, want no completion transition and no booster", result)
+	}
+	if len(boosterWriter.inserted) != 0 {
+		t.Fatalf("booster inserted %d obligations, want 0", len(boosterWriter.inserted))
+	}
+}
+
+func TestRejectResumesAfterRecordOnlyRetry(t *testing.T) {
+	ctx := context.Background()
+	repo := newCompletionRepoFake()
+	svc := NewCompletionService(NewService(repo), newObligationCompleterFake(), nil)
+	in := domain.NewCompletion{
+		TenantID:          "tenant-1",
+		ObligationID:      "obligation-1",
+		GoatID:            "goat-1",
+		AdministeredAt:    time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC),
+		IdempotencyKey:    "reject-key-1",
+		ColdChainVerified: true,
+	}
+	if _, applied, err := repo.RecordCompletion(ctx, in); err != nil || !applied {
+		t.Fatalf("pre-record completion: applied=%v err=%v", applied, err)
+	}
+
+	result, err := svc.Reject(ctx, RejectInput{Completion: in, Reason: "bad_photo"})
+
+	if err != nil {
+		t.Fatalf("reject retry: %v", err)
+	}
+	if !result.Applied || result.CompletionID != "completion-1" {
+		t.Fatalf("reject retry result=%#v", result)
+	}
+	if repo.byID["completion-1"].status != "rejected" {
+		t.Fatalf("completion status=%s want rejected", repo.byID["completion-1"].status)
 	}
 }
 
@@ -242,7 +311,11 @@ func (r *completionRepoFake) GetAcceptableCompletion(_ context.Context, _, compl
 }
 
 func (r *completionRepoFake) GetAcceptableCompletionByIdempotency(_ context.Context, _, key string) (domain.AcceptedCompletion, bool, error) {
-	return r.GetAcceptableCompletion(context.Background(), "", r.byKey[key])
+	row := r.byID[r.byKey[key]]
+	if row == nil || (row.status != "recorded" && row.status != "accepted" && row.status != "rejected") {
+		return domain.AcceptedCompletion{}, false, nil
+	}
+	return row.withStatus(), true, nil
 }
 
 func (r *completionRepoFake) AcceptCompletion(_ context.Context, _, completionID string, _ *string, _ *time.Time) (domain.AcceptedCompletion, bool, error) {
@@ -258,8 +331,13 @@ func (r *completionRepoFake) AcceptCompletion(_ context.Context, _, completionID
 	return row.withStatus(), true, nil
 }
 
-func (r *completionRepoFake) RejectCompletion(context.Context, string, string, string, *string) (bool, error) {
-	return false, nil
+func (r *completionRepoFake) RejectCompletion(_ context.Context, _, completionID string, _ string, _ *string) (bool, error) {
+	row := r.byID[completionID]
+	if row == nil || row.status != "recorded" {
+		return false, nil
+	}
+	row.status = "rejected"
+	return true, nil
 }
 
 func (r *completionRepoFake) ListCompletionsByGoat(context.Context, string, string, int32) ([]domain.CompletionHistoryItem, error) {
@@ -307,14 +385,18 @@ func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, strin
 }
 
 type obligationCompleterFake struct {
-	completed map[string]bool
+	completed     map[string]bool
+	blockComplete map[string]bool
 }
 
 func newObligationCompleterFake() *obligationCompleterFake {
-	return &obligationCompleterFake{completed: map[string]bool{}}
+	return &obligationCompleterFake{completed: map[string]bool{}, blockComplete: map[string]bool{}}
 }
 
 func (o *obligationCompleterFake) MarkCompleted(_ context.Context, _, obligationID string) (bool, error) {
+	if o.blockComplete[obligationID] {
+		return false, nil
+	}
 	if o.completed[obligationID] {
 		return false, nil
 	}
@@ -324,6 +406,10 @@ func (o *obligationCompleterFake) MarkCompleted(_ context.Context, _, obligation
 
 func (o *obligationCompleterFake) GetBoosterContext(context.Context, string, string) (string, string, string, int32, error) {
 	return "", "", "", 0, nil
+}
+
+func (o *obligationCompleterFake) IsCompleted(_ context.Context, _, obligationID string) (bool, error) {
+	return o.completed[obligationID], nil
 }
 
 type stockConsumerFake struct {

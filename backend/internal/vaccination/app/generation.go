@@ -56,6 +56,29 @@ type CompletionEvidenceReader interface {
 	HasTrustedCompletionEvidence(ctx context.Context, tenantID, goatID, protocolVersionID, ruleID, doseCode string, dueAt, generationAt time.Time) (bool, error)
 }
 
+// BatchCompletionEvidenceReader lets a generation page resolve trusted-history suppression in one
+// database round-trip per protocol version instead of goat×rule probes.
+type BatchCompletionEvidenceReader interface {
+	HasTrustedCompletionEvidenceBatch(ctx context.Context, tenantID, protocolVersionID string, candidates []domain.TrustedCompletionCandidate, generationAt time.Time) (map[string]bool, error)
+}
+
+type cachedVersionPlan struct {
+	rules       []protodomain.Rule
+	deferState  []string
+	eligibility genEligibility
+}
+
+type goatGenerationPlan struct {
+	versionID   string
+	rules       []protodomain.Rule
+	deferState  []string
+	goat        domain.EligibleGoat
+	opts        generationOptions
+	eligibility genEligibility
+}
+
+type trustedEvidenceLookup map[string]bool
+
 // GenerationService implements SM-1: expand a published protocol version's rules into per-goat
 // obligations over the in-care cohort, idempotently, deferring (visibly) ICU/quarantine/sick goats.
 type GenerationService struct {
@@ -146,12 +169,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 	}
 	filter := domain.ImpactFilter{TenantID: tenantID}
 	after := ""
-	type plan struct {
-		rules       []protodomain.Rule
-		deferState  []string
-		eligibility genEligibility
-	}
-	plans := make(map[string]plan)
+	plans := make(map[string]cachedVersionPlan)
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
 		if err != nil {
@@ -160,6 +178,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 		if len(goats) == 0 {
 			break
 		}
+		pagePlans := make([]goatGenerationPlan, 0, len(goats))
 		for _, g := range goats {
 			versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, g.ParkID, asOf)
 			if err != nil {
@@ -180,15 +199,29 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					if err != nil {
 						return res, err
 					}
-					p = plan{rules: rules, deferState: dsl.Eligibility.DeferStates, eligibility: dsl.Eligibility}
+					p = cachedVersionPlan{rules: rules, deferState: dsl.Eligibility.DeferStates, eligibility: dsl.Eligibility}
 					plans[versionID] = p
 				}
 				if !goatMatchesEligibility(g, p.eligibility) {
 					continue
 				}
-				if err := s.genOneGoat(ctx, tenantID, versionID, p.rules, p.deferState, g, asOf, generationOptions{}, &res); err != nil {
-					return res, err
-				}
+				pagePlans = append(pagePlans, goatGenerationPlan{
+					versionID:   versionID,
+					rules:       p.rules,
+					deferState:  p.deferState,
+					goat:        g,
+					opts:        generationOptions{},
+					eligibility: p.eligibility,
+				})
+			}
+		}
+		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
+		if err != nil {
+			return res, err
+		}
+		for _, p := range pagePlans {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
+				return res, err
 			}
 		}
 		if int32(len(goats)) < s.page {
@@ -324,11 +357,26 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if len(goats) == 0 {
 			break
 		}
+		pagePlans := make([]goatGenerationPlan, 0, len(goats))
 		for _, g := range goats {
 			if !goatMatchesEligibility(g, elig) {
 				continue
 			}
-			if err := s.genOneGoat(ctx, tenantID, versionID, rules, elig.DeferStates, g, asOf, opts, &res); err != nil {
+			pagePlans = append(pagePlans, goatGenerationPlan{
+				versionID:   versionID,
+				rules:       rules,
+				deferState:  elig.DeferStates,
+				goat:        g,
+				opts:        opts,
+				eligibility: elig,
+			})
+		}
+		trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
+		if err != nil {
+			return res, err
+		}
+		for _, p := range pagePlans {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
 				return res, err
 			}
 		}
@@ -343,9 +391,87 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	return res, nil
 }
 
+func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantID string, plans []goatGenerationPlan, asOf time.Time) (map[string]trustedEvidenceLookup, error) {
+	lookups := make(map[string]trustedEvidenceLookup)
+	if len(plans) == 0 {
+		return lookups, nil
+	}
+	candidatesByVersion := make(map[string][]domain.TrustedCompletionCandidate)
+	seenByVersion := make(map[string]map[string]bool)
+	for _, plan := range plans {
+		if _, ok := lookups[plan.versionID]; !ok {
+			lookups[plan.versionID] = trustedEvidenceLookup{}
+		}
+		if _, ok := seenByVersion[plan.versionID]; !ok {
+			seenByVersion[plan.versionID] = make(map[string]bool)
+		}
+		for _, rule := range plan.rules {
+			due, ok, skip := dueAt(rule, plan.goat, asOf, plan.opts)
+			if skip || !ok {
+				continue
+			}
+			evidenceDue, ok := trustedEvidenceDue(rule, due, asOf)
+			if !ok {
+				continue
+			}
+			candidate := trustedCompletionCandidate(rule, plan.goat, evidenceDue)
+			key := candidate.Key()
+			if seenByVersion[plan.versionID][key] {
+				continue
+			}
+			seenByVersion[plan.versionID][key] = true
+			candidatesByVersion[plan.versionID] = append(candidatesByVersion[plan.versionID], candidate)
+		}
+	}
+	if batch, ok := s.evidence.(BatchCompletionEvidenceReader); ok {
+		for versionID, candidates := range candidatesByVersion {
+			hits, err := batch.HasTrustedCompletionEvidenceBatch(ctx, tenantID, versionID, candidates, asOf)
+			if err != nil {
+				return nil, err
+			}
+			for key, trusted := range hits {
+				if trusted {
+					lookups[versionID][key] = true
+				}
+			}
+		}
+		return lookups, nil
+	}
+	for versionID, candidates := range candidatesByVersion {
+		for _, candidate := range candidates {
+			trusted, err := s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, candidate.GoatID, versionID, candidate.RuleID, candidate.DoseCode, candidate.DueAt, asOf)
+			if err != nil {
+				return nil, err
+			}
+			if trusted {
+				lookups[versionID][candidate.Key()] = true
+			}
+		}
+	}
+	return lookups, nil
+}
+
+func (s *GenerationService) hasTrustedCompletionEvidence(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, due, asOf time.Time, trustedLookup trustedEvidenceLookup) (bool, error) {
+	candidate := trustedCompletionCandidate(rule, g, due)
+	if trustedLookup != nil {
+		return trustedLookup[candidate.Key()], nil
+	}
+	return s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, g.GoatID, versionID, rule.RuleID, rule.DoseCode, due, asOf)
+}
+
+func trustedCompletionCandidate(rule protodomain.Rule, g domain.EligibleGoat, due time.Time) domain.TrustedCompletionCandidate {
+	return domain.TrustedCompletionCandidate{
+		GoatID:   g.GoatID,
+		RuleID:   rule.RuleID,
+		DoseCode: rule.DoseCode,
+		DueAt:    due,
+		Repeat:   rule.Repeat,
+	}
+}
+
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, res *domain.GenerateResult) error {
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, g domain.EligibleGoat, asOf time.Time, opts generationOptions, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	for _, rule := range rules {
 		due, ok, skip := dueAt(rule, g, asOf, opts)
 		if skip {
@@ -358,8 +484,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		// evidence is guaranteed non-nil here: both entrypoints call requireEvidenceReader first.
-		trusted, err := s.evidence.HasTrustedCompletionEvidence(ctx, tenantID, g.GoatID, versionID, rule.RuleID, rule.DoseCode, due, asOf)
+		evidenceDue, ok := trustedEvidenceDue(rule, due, asOf)
+		if !ok {
+			continue
+		}
+		trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, evidenceDue, asOf, trustedLookup)
 		if err != nil {
 			return err
 		}
@@ -516,6 +645,7 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 	if err != nil {
 		return res, err
 	}
+	pagePlans := make([]goatGenerationPlan, 0, len(versionIDs))
 	for _, versionID := range versionIDs {
 		v, err := s.proto.GetVersion(ctx, tenantID, versionID)
 		if err != nil {
@@ -532,7 +662,21 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 		if err != nil {
 			return res, err
 		}
-		if err := s.genOneGoat(ctx, tenantID, versionID, rules, dsl.Eligibility.DeferStates, g, asOf, generationOptions{}, &res); err != nil {
+		pagePlans = append(pagePlans, goatGenerationPlan{
+			versionID:   versionID,
+			rules:       rules,
+			deferState:  dsl.Eligibility.DeferStates,
+			goat:        g,
+			opts:        generationOptions{},
+			eligibility: dsl.Eligibility,
+		})
+	}
+	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf)
+	if err != nil {
+		return res, err
+	}
+	for _, p := range pagePlans {
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.goat, asOf, p.opts, trustedByVersion[p.versionID], &res); err != nil {
 			return res, err
 		}
 	}
@@ -599,8 +743,32 @@ func applyMissedDosePolicy(rule protodomain.Rule, due, asOf time.Time) (time.Tim
 	}
 }
 
+func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
+	adjusted, _, skip := applyMissedDosePolicy(rule, due, asOf)
+	if skip {
+		return time.Time{}, false
+	}
+	if strings.EqualFold(strings.TrimSpace(rule.CatchUp), "next_cycle") && !adjusted.Equal(due) {
+		return adjusted, true
+	}
+	return due, true
+}
+
 func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, bool) {
 	switch strings.ToLower(strings.TrimSpace(rule.Repeat)) {
+	case "every_n_days":
+		interval := rule.MinGapDays
+		if interval <= 0 {
+			interval = rule.OffsetDays
+		}
+		if interval <= 0 {
+			return time.Time{}, false
+		}
+		next := due
+		for !next.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour).After(asOf) {
+			next = next.AddDate(0, 0, int(interval))
+		}
+		return next, true
 	case "yearly":
 		next := due
 		for !next.Add(time.Duration(rule.DueWindowDays) * 24 * time.Hour).After(asOf) {

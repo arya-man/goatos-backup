@@ -82,6 +82,11 @@ func TestMarkMissedBeforeMaterializesCanonicalStatus(t *testing.T) {
 		tenantID, obA); got != 1 {
 		t.Fatalf("expected 1 missed event, got %d", got)
 	}
+	if got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='obligation.missed'`,
+		tenantID, obA); got != 1 {
+		t.Fatalf("expected 1 missed outbox event, got %d", got)
+	}
 
 	replay, err := repo.MarkMissedBefore(ctx, tenantID, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), 100)
 	if err != nil {
