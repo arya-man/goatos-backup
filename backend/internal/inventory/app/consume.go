@@ -38,6 +38,13 @@ func (s *Service) settle(ctx context.Context, tenantID, batchID, lotID, key, mov
 	if qty <= 0 {
 		return nil
 	}
+	exists, err := s.repo.MovementExists(ctx, tenantID, key)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
 	lot, err := s.repo.GetStockLot(ctx, tenantID, lotID)
 	if err != nil {
 		return err

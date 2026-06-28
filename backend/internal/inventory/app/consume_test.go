@@ -76,11 +76,33 @@ func TestConsumeForBatchRecordsExactReservedDose(t *testing.T) {
 	}
 }
 
+func TestConsumeForBatchReplaySkipsReservationCheck(t *testing.T) {
+	repo := &consumeRepo{
+		lot: domain.StockLot{
+			StockID:          "lot-1",
+			ItemID:           "item-1",
+			LocationID:       "loc-1",
+			QuantityReserved: "0",
+			QuantityUnit:     "dose",
+		},
+		movementExists: true,
+	}
+	svc := NewService(repo)
+
+	if err := svc.ConsumeForBatch(context.Background(), "tenant-1", "batch-1", "lot-1", "consume-key", 1); err != nil {
+		t.Fatalf("ConsumeForBatch replay: %v", err)
+	}
+	if len(repo.movements) != 0 {
+		t.Fatalf("replay should not record another movement, got %#v", repo.movements)
+	}
+}
+
 type consumeRepo struct {
-	lot           domain.StockLot
-	movements     []domain.Movement
-	inDelta       string
-	reservedDelta string
+	lot            domain.StockLot
+	movements      []domain.Movement
+	movementExists bool
+	inDelta        string
+	reservedDelta  string
 }
 
 var _ ports.Repository = (*consumeRepo)(nil)
@@ -117,6 +139,10 @@ func (r *consumeRepo) ReserveForBatch(context.Context, string, string, string, s
 
 func (r *consumeRepo) RecordMovement(context.Context, domain.Movement) (string, bool, error) {
 	return "", false, nil
+}
+
+func (r *consumeRepo) MovementExists(context.Context, string, string) (bool, error) {
+	return r.movementExists, nil
 }
 
 func (r *consumeRepo) RecordMovementAndAdjustBalances(_ context.Context, m domain.Movement, inDelta, reservedDelta string) (string, bool, error) {

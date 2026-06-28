@@ -24,6 +24,12 @@ INSERT INTO inventory_stock_movements (
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING movement_id::text AS movement_id;
 
+-- name: CountStockMovementByIdempotencyKey :one
+SELECT count(*)::int
+FROM inventory_stock_movements
+WHERE tenant_id = @tenant_id
+  AND idempotency_key = @idempotency_key;
+
 -- name: AdjustStockBalances :exec
 UPDATE inventory_stock
 SET quantity_in_stock = quantity_in_stock + @in_delta,

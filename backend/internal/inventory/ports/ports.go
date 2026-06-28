@@ -49,6 +49,9 @@ type Repository interface {
 	// applied is false when the movement was already recorded (replay).
 	RecordMovement(ctx context.Context, m domain.Movement) (movementID string, applied bool, err error)
 
+	// MovementExists reports whether an idempotency key has already recorded an inventory movement.
+	MovementExists(ctx context.Context, tenantID, idempotencyKey string) (bool, error)
+
 	// RecordMovementAndAdjustBalances appends an idempotent ledger movement and applies stock
 	// balance deltas in the same transaction. If the movement idempotency key already exists,
 	// applied is false and balances are not adjusted again.

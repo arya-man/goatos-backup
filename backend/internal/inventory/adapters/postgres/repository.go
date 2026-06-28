@@ -280,6 +280,24 @@ func (r *Repository) RecordMovement(ctx context.Context, m domain.Movement) (str
 	return id, true, nil
 }
 
+// MovementExists reports whether an inventory movement already exists for an idempotency key.
+func (r *Repository) MovementExists(ctx context.Context, tenantID, idempotencyKey string) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return false, fmt.Errorf("inventory: tenant id: %w", err)
+	}
+	count, err := r.queries.CountStockMovementByIdempotencyKey(ctx, inventorydb.CountStockMovementByIdempotencyKeyParams{
+		TenantID:       tenant,
+		IdempotencyKey: idempotencyKey,
+	})
+	if err != nil {
+		return false, fmt.Errorf("inventory: movement exists: %w", err)
+	}
+	return count > 0, nil
+}
+
 // RecordMovementAndAdjustBalances records a movement and applies its balance impact atomically.
 func (r *Repository) RecordMovementAndAdjustBalances(ctx context.Context, m domain.Movement, inDelta, reservedDelta string) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)

@@ -37,6 +37,25 @@ func (q *Queries) AdjustStockBalances(ctx context.Context, arg AdjustStockBalanc
 	return err
 }
 
+const countStockMovementByIdempotencyKey = `-- name: CountStockMovementByIdempotencyKey :one
+SELECT count(*)::int
+FROM inventory_stock_movements
+WHERE tenant_id = $1
+  AND idempotency_key = $2
+`
+
+type CountStockMovementByIdempotencyKeyParams struct {
+	TenantID       pgtype.UUID
+	IdempotencyKey string
+}
+
+func (q *Queries) CountStockMovementByIdempotencyKey(ctx context.Context, arg CountStockMovementByIdempotencyKeyParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countStockMovementByIdempotencyKey, arg.TenantID, arg.IdempotencyKey)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createInventoryItem = `-- name: CreateInventoryItem :one
 INSERT INTO inventory_items (tenant_id, item_code, name, category, base_unit, status)
 VALUES ($1, $2, $3, $4, $5, $6)
