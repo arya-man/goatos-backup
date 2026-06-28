@@ -1249,6 +1249,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.export_failed_rows":                "Export failed rows",
 			"action.commit_failed":                     "Commit failed",
 			"action.preview_failed":                    "Preview failed",
+			"error.preview_stale":                      "CSV changed after preview. Preview rows again before creating records.",
 			"action.working":                           "Working...",
 			"action.create_sheds":                      "Create sheds",
 			"action.goat_registered_generation_queued": "Goat registered; vaccination generation queued.",

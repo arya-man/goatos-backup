@@ -246,8 +246,12 @@ Run API/integration checks before browser clicks.
      cells: values beginning with `=`, `+`, `-`, `@`, tab, CR/LF, or those
      forms after leading whitespace must open as text, not formulas.
    - Preview/commit idempotency must use a collision-resistant content digest
-     for the uploaded CSV, not a short checksum. Run
-     `npm --prefix apps/admin-web run check:herd-import-security`.
+     for the uploaded CSV, not a short checksum. Commit must be bound to the
+     previewed CSV in the UI, and the server action must derive the commit
+     namespace from the normalized rows it actually sends, not trust a client
+     hash. Run `npm --prefix apps/admin-web run check:herd-import-security`.
+   - Edit the CSV after preview and before commit; assert the UI clears or
+     blocks the stale preview and forces preview again before creating records.
    - Mixed-row matrix must include: valid new shed/goat, duplicate tag,
      duplicate row in the uploaded file, invalid shed reference, missing DOB for
      a birth-age rule, invalid stage, invalid sex, malformed date, and blank
@@ -291,7 +295,9 @@ Run API/integration checks before browser clicks.
    - Shift/defer/cancel one goat out of a reserved planned batch, run
      `go run ./cmd/inventory-batch-reconciler -tenant-id <tenant>`, and assert
      only the recorded excess dose is released, replay is a no-op, and the
-     remaining batch reservation is preserved.
+     remaining batch reservation is preserved. Mark a second valid repair on
+     the same batch/lot and assert it creates a second idempotent release
+     movement instead of being swallowed by the first repair key.
    - Sweep 1001 due goats in one shed; assert one planned drive/batch.
    - Refresh Calendar with an old completed obligation; assert it is not
      re-added after the 90-day cutoff, prune deletes old closed projection rows,

@@ -175,6 +175,7 @@ ORDER BY occurred_at;"
 validate_inventory_batch_reconcile_plan() {
   explain_must_use_index "InventoryBatchStockReconcileCandidates" 'Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
 SELECT batch_id,
+       row_version::text AS repair_token,
        (
          CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
               THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)

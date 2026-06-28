@@ -26,5 +26,15 @@ assert.equal(csvCell("\"quoted\""), "\"\"\"quoted\"\"\"");
 const herdActions = readFileSync(new URL("../features/counts/herd-actions.ts", import.meta.url), "utf8");
 assert.match(herdActions, /const BULK_FILE_SHA256_RE = \/\^\[a-f0-9\]\{64\}\$\/;/);
 assert.doesNotMatch(herdActions, /\{8,64\}/, "bulk import server actions must not accept legacy 32-bit hashes");
+assert.match(herdActions, /function bulkCommitRowsHash/, "server action must derive commit namespace from normalized rows");
+assert.match(herdActions, /commitAdminGoatBulkImport\(\{ rows, file_hash: commitHash \}, `goat-bulk:\$\{commitHash\}`\)/);
+assert.match(herdActions, /`shed-bulk:\$\{commitHash\}:row:\$\{rowNumber\}`/);
+
+const herdUI = readFileSync(new URL("../features/counts/herd-actions-ui.tsx", import.meta.url), "utf8");
+assert.match(herdUI, /previewHash/, "bulk UI must bind commit to the previewed CSV hash");
+assert.match(herdUI, /copy\(pageContract, "error\.preview_stale"\)/, "bulk UI must force re-preview after CSV edits with backend-owned copy");
+
+const adminUiService = readFileSync(new URL("../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+assert.match(adminUiService, /"error\.preview_stale":\s+"CSV changed after preview\. Preview rows again before creating records\."/);
 
 console.log("herd import security guard passed.");

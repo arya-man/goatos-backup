@@ -546,6 +546,7 @@ func (r *Repository) ReleaseBatchReconcileRemainders(ctx context.Context, tenant
 
 	rows, err := tx.Query(ctx, `
 SELECT batch_id::text,
+       row_version::text AS repair_token,
        (
          CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
               THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
@@ -571,13 +572,14 @@ FOR UPDATE SKIP LOCKED`, tenant, limit)
 		return summary, fmt.Errorf("inventory: list stock reconcile batches: %w", err)
 	}
 	type candidate struct {
-		batchID    string
-		releaseQty pgtype.Numeric
+		batchID     string
+		repairToken string
+		releaseQty  pgtype.Numeric
 	}
 	candidates := make([]candidate, 0)
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.batchID, &c.releaseQty); err != nil {
+		if err := rows.Scan(&c.batchID, &c.repairToken, &c.releaseQty); err != nil {
 			rows.Close()
 			return summary, fmt.Errorf("inventory: scan stock reconcile batch: %w", err)
 		}
@@ -591,7 +593,7 @@ FOR UPDATE SKIP LOCKED`, tenant, limit)
 
 	for _, c := range candidates {
 		targetQty := floorNumericToInt64(c.releaseQty)
-		released, movements, err := r.releaseBatchReconcileQty(ctx, tx, tenant, c.batchID, targetQty)
+		released, movements, err := r.releaseBatchReconcileQty(ctx, tx, tenant, c.batchID, c.repairToken, targetQty)
 		if err != nil {
 			return summary, err
 		}
@@ -625,9 +627,12 @@ WHERE tenant_id = $1
 	return summary, nil
 }
 
-func (r *Repository) releaseBatchReconcileQty(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchID string, targetQty int64) (int64, int, error) {
+func (r *Repository) releaseBatchReconcileQty(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchID, repairToken string, targetQty int64) (int64, int, error) {
 	if targetQty <= 0 {
 		return 0, 0, nil
+	}
+	if repairToken == "" {
+		repairToken = "unknown"
 	}
 	rows, err := tx.Query(ctx, `
 SELECT ledger.lot_id::text,
@@ -724,7 +729,7 @@ FOR UPDATE OF stock`, tenant, batchID)
 		if err != nil {
 			return released, movements, fmt.Errorf("inventory: release quantity: %w", err)
 		}
-		idempotencyKey := batchID + ":release-reconcile:" + row.lotID
+		idempotencyKey := batchID + ":release-reconcile:" + repairToken + ":" + row.lotID
 		var movementID string
 		err = tx.QueryRow(ctx, `
 INSERT INTO inventory_stock_movements (

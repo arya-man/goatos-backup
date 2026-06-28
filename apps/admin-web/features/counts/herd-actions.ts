@@ -4,7 +4,7 @@
 // createAdminGoat / bulk-commit write canonical goat identity + emit goat.created, which generates
 // vaccination obligations. Every call goes through a generated admin-api client (lib/api/server.ts) with an
 // Idempotency-Key. No hand-rolled DTOs, no fake rows, no local route handlers, no client-only mutation.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
   actionErrorMessage,
@@ -94,6 +94,23 @@ function optInt(formData: FormData, key: string): number | undefined {
     throw new Error(`${key} must be a non-negative integer`);
   }
   return n;
+}
+
+function stableJSONValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJSONValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, v]) => v !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, stableJSONValue(v)]),
+    );
+  }
+  return value;
+}
+
+function bulkCommitRowsHash(rows: unknown): string {
+  return createHash("sha256").update(JSON.stringify(stableJSONValue(rows))).digest("hex");
 }
 
 function vaccinationShedOperational(displayOrder = 0, notes?: string | null): CreateLocationRequest["operational"] {
@@ -225,7 +242,8 @@ export async function commitGoatsAction(
   if (!BULK_FILE_SHA256_RE.test(stableFileHash)) {
     return { ok: false, error: { kind: "bad_request", code: "invalid_file_hash", message: "Goat import commit received an invalid file hash; preview the CSV again." } };
   }
-  const result = await commitAdminGoatBulkImport({ rows, file_hash: stableFileHash }, `goat-bulk:${stableFileHash}`);
+  const commitHash = bulkCommitRowsHash(rows);
+  const result = await commitAdminGoatBulkImport({ rows, file_hash: commitHash }, `goat-bulk:${commitHash}`);
   if (result.ok && result.data.summary.created > 0) {
     revalidatePath(HERD_PATH);
   }
@@ -291,6 +309,7 @@ export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: s
     return { ok: false, message: `Parks unavailable: ${parksResult.error.message}` };
   }
 
+  const commitHash = bulkCommitRowsHash(rows);
   const activeParkIDs = new Set(parksResult.data.items.map((park) => park.location_id));
   const seenRows = new Set<number>();
   const seenSheds = new Map<string, number>();
@@ -324,7 +343,7 @@ export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: s
       continue;
     }
 
-    const idempotencyKey = `shed-bulk:${stableFileHash}:row:${rowNumber}`;
+    const idempotencyKey = `shed-bulk:${commitHash}:row:${rowNumber}`;
     const result = await createLocation(commit.normalized, idempotencyKey);
     if (result.ok) {
       response.summary.created += 1;

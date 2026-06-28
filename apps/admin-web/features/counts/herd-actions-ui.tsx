@@ -572,6 +572,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   const router = useRouter();
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<AdminGoatBulkResponse | null>(null);
+  const [previewHash, setPreviewHash] = useState<string | null>(null);
   const [committed, setCommitted] = useState<AdminGoatBulkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -580,6 +581,15 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   function reset() {
     setCsv("");
     setPreview(null);
+    setPreviewHash(null);
+    setCommitted(null);
+    setError(null);
+  }
+
+  function updateCSV(next: string) {
+    setCsv(next);
+    setPreview(null);
+    setPreviewHash(null);
     setCommitted(null);
     setError(null);
   }
@@ -605,7 +615,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    setCsv(await file.text());
+    updateCSV(await file.text());
   }
 
   function runPreview() {
@@ -614,8 +624,13 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     startTransition(async () => {
       const hash = await stableCSVContentHash(csv);
       const res = await previewGoatsAction(csv, hash);
-      if (res.ok) setPreview(res.data);
-      else setError(`${res.error.code ?? res.error.kind}: ${res.error.message}`);
+      if (res.ok) {
+        setPreview(res.data);
+        setPreviewHash(hash);
+      } else {
+        setPreviewHash(null);
+        setError(`${res.error.code ?? res.error.kind}: ${res.error.message}`);
+      }
     });
   }
 
@@ -628,6 +643,10 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     setError(null);
     startTransition(async () => {
       const hash = await stableCSVContentHash(csv);
+      if (hash !== previewHash) {
+        setError(copy(pageContract, "error.preview_stale"));
+        return;
+      }
       const res = await commitGoatsAction(rows, hash);
       if (res.ok) {
         setCommitted(mergeGoatCommitResult(preview, res.data));
@@ -676,7 +695,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
               id="bulk_csv"
               rows={5}
               value={csv}
-              onChange={(e) => setCsv(e.target.value)}
+              onChange={(e) => updateCSV(e.target.value)}
               placeholder={bulkColumns.join(",")}
               style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
             />
@@ -785,6 +804,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   const router = useRouter();
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<ShedImportResponse | null>(null);
+  const [previewHash, setPreviewHash] = useState<string | null>(null);
   const [committed, setCommitted] = useState<ShedImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -793,6 +813,15 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   function reset() {
     setCsv("");
     setPreview(null);
+    setPreviewHash(null);
+    setCommitted(null);
+    setError(null);
+  }
+
+  function updateCSV(next: string) {
+    setCsv(next);
+    setPreview(null);
+    setPreviewHash(null);
     setCommitted(null);
     setError(null);
   }
@@ -818,16 +847,22 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    setCsv(await file.text());
+    updateCSV(await file.text());
   }
 
   function runPreview() {
     setError(null);
     setCommitted(null);
     startTransition(async () => {
+      const hash = await stableCSVContentHash(csv);
       const res = await previewShedsAction(csv);
-      if (res.ok) setPreview(res.data);
-      else setError(res.message);
+      if (res.ok) {
+        setPreview(res.data);
+        setPreviewHash(hash);
+      } else {
+        setPreviewHash(null);
+        setError(res.message);
+      }
     });
   }
 
@@ -840,6 +875,10 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     setError(null);
     startTransition(async () => {
       const hash = await stableCSVContentHash(csv);
+      if (hash !== previewHash) {
+        setError(copy(pageContract, "error.preview_stale"));
+        return;
+      }
       const res = await commitShedsAction(rows, hash);
       if (res.ok) {
         setCommitted(mergeShedCommitResult(preview, res.data));
@@ -885,7 +924,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
               id="shed_bulk_csv"
               rows={5}
               value={csv}
-              onChange={(e) => setCsv(e.target.value)}
+              onChange={(e) => updateCSV(e.target.value)}
               placeholder={shedColumns.join(",")}
               style={{ fontFamily: "var(--mono, monospace)", fontSize: 12 }}
             />

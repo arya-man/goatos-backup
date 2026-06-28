@@ -99,6 +99,31 @@ WHERE tenant_id=$1 AND batch_id=$2 AND movement_type='release'`, tenantID, batch
 	if replay.Batches != 0 || replay.Movements != 0 || replay.Released != 0 {
 		t.Fatalf("replay summary=%+v, want zero", replay)
 	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches
+SET context = context || '{"shift_repair":{"state":"stock_reconcile_required","release_qty":1,"reason":"second_repair_same_lot"}}'::jsonb,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchID); err != nil {
+		t.Fatalf("mark second repair: %v", err)
+	}
+	second, err := repo.ReleaseBatchReconcileRemainders(ctx, tenantID, 10)
+	if err != nil {
+		t.Fatalf("ReleaseBatchReconcileRemainders second repair: %v", err)
+	}
+	if second.Batches != 1 || second.Movements != 1 || second.Released != 1 {
+		t.Fatalf("second summary=%+v, want batches=1 movements=1 released=1", second)
+	}
+	if got := scanInventoryText(t, ctx, pool, `SELECT quantity_reserved::text FROM inventory_stock WHERE tenant_id=$1 AND stock_id=$2`, tenantID, lotID); got != "0" {
+		t.Fatalf("quantity_reserved after second repair=%q, want 0", got)
+	}
+	if got := scanInventoryText(t, ctx, pool, `
+SELECT count(*)::text
+FROM inventory_stock_movements
+WHERE tenant_id=$1 AND batch_id=$2 AND movement_type='release'`, tenantID, batchID); got != "2" {
+		t.Fatalf("release movements after second repair=%q, want 2", got)
+	}
 }
 
 func scanInventoryText(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) string {
