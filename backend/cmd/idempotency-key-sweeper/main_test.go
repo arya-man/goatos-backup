@@ -105,6 +105,27 @@ VALUES ($1, $2::uuid, 'test', $3, 'started', $4::timestamptz)`, row.key, testTen
 	}
 }
 
+func TestIdempotencyKeysDefaultExpiry(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	var expiresAt time.Time
+	if err := pool.QueryRow(ctx, `
+	INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
+	VALUES ('default-expiry', $1::uuid, 'test', 'hash:default-expiry', 'started')
+	RETURNING expires_at`, testTenantID).Scan(&expiresAt); err != nil {
+		t.Fatalf("insert default expiry key: %v", err)
+	}
+	if expiresAt.IsZero() {
+		t.Fatal("expires_at should be set by default")
+	}
+	if expiresAt.Before(time.Now().UTC().Add(6*24*time.Hour)) || expiresAt.After(time.Now().UTC().Add(8*24*time.Hour)) {
+		t.Fatalf("expires_at = %s, want about 7 days from now", expiresAt)
+	}
+}
+
 func countKeys(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int {
 	t.Helper()
 	var count int

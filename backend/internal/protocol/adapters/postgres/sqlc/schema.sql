@@ -1917,7 +1917,7 @@ CREATE TABLE public.idempotency_keys (
     result_id uuid,
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
     completed_at timestamp with time zone,
-    expires_at timestamp with time zone,
+    expires_at timestamp with time zone DEFAULT (now() + '7 days'::interval),
     CONSTRAINT idempotency_keys_completed_shape_check CHECK (((status <> 'completed'::text) OR (completed_at IS NOT NULL))),
     CONSTRAINT idempotency_keys_status_check CHECK ((status = ANY (ARRAY['started'::text, 'completed'::text, 'failed'::text])))
 );
