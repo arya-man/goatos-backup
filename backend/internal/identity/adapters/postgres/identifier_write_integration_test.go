@@ -142,6 +142,46 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, exited.Events[0].EventID, created.Goat.GoatID, "goat.exited", created.Goat.GoatID)
 	})
 
+	t.Run("admin goat exit blocks death guardrail transitions", func(t *testing.T) {
+		create := adminGoatCreateCommand(t, "idem-create-goat-death-0001", "rfid-admin-death-0001", "admin-death-oldtag-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for death guardrail: %v", err)
+		}
+		cmd := exitGoatCommand(t, "idem-exit-death-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		cmd.LifecycleStatus = "dead"
+		cmd.ExitReason = "died"
+		cmd.Reason = "Synthetic death exit requiring guardrail review."
+		body := map[string]any{
+			"lifecycle_status": cmd.LifecycleStatus,
+			"exit_reason":      cmd.ExitReason,
+			"reason":           cmd.Reason,
+			"evidence_refs":    cmd.EvidenceRefs,
+			"row_version":      cmd.RowVersion,
+		}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd.RequestHash, err = app.CanonicalRequestHashWithSubject(meshaTenant, "exitGoat", "/admin/goats/{goat_id}/exit", created.Goat.GoatID, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := repo.ExitGoat(ctx, cmd); !errors.Is(err, ports.ErrCriticalDeathGuardrailRequired) {
+			t.Fatalf("ExitGoat death transition error = %v, want ErrCriticalDeathGuardrailRequired", err)
+		}
+		var lifecycleStatus string
+		if err := pool.QueryRow(ctx, "SELECT lifecycle_status FROM goats WHERE tenant_id = $1 AND goat_id = $2", meshaTenant, created.Goat.GoatID).Scan(&lifecycleStatus); err != nil {
+			t.Fatalf("lifecycle after blocked death transition: %v", err)
+		}
+		if lifecycleStatus != "alive" {
+			t.Fatalf("lifecycle_status=%q, want alive", lifecycleStatus)
+		}
+		assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+	})
+
 	t.Run("admin goat stage writes goat.stage_changed outbox for rule recheck", func(t *testing.T) {
 		create := adminGoatCreateCommand(t, "idem-create-goat-stage-0001", "rfid-admin-stage-0001", "admin-stage-oldtag-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)

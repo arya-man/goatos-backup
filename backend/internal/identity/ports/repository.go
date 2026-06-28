@@ -3,19 +3,21 @@ package ports
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 )
 
 var (
-	ErrNotFound            = errors.New("identity record not found")
-	ErrIdempotencyConflict = errors.New("idempotency key reused with different request")
-	ErrIdempotencyPending  = errors.New("idempotency key is not completed")
-	ErrWriteConflict       = errors.New("identity write conflict")
-	ErrInvalidReference    = errors.New("identity referenced record is invalid")
-	ErrInvalidCursor       = errors.New("invalid pagination cursor")
-	ErrGuardrailRequired   = errors.New("identity critical transition requires guardrail")
+	ErrNotFound                       = errors.New("identity record not found")
+	ErrIdempotencyConflict            = errors.New("idempotency key reused with different request")
+	ErrIdempotencyPending             = errors.New("idempotency key is not completed")
+	ErrWriteConflict                  = errors.New("identity write conflict")
+	ErrInvalidReference               = errors.New("identity referenced record is invalid")
+	ErrInvalidCursor                  = errors.New("invalid pagination cursor")
+	ErrGuardrailRequired              = errors.New("identity critical transition requires guardrail")
+	ErrCriticalDeathGuardrailRequired = fmt.Errorf("%w: death exit", ErrGuardrailRequired)
 )
 
 type SearchGoatsParams struct {

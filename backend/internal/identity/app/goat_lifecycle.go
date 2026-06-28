@@ -359,6 +359,9 @@ func validateExitGoat(body *domain.ExitGoatRequest) error {
 	if body.ExitReason != expectedReason {
 		return BadRequest("invalid_exit_reason", "exit_reason must match lifecycle_status")
 	}
+	if criticalDeathExit(body.LifecycleStatus, body.ExitReason) {
+		return criticalDeathTransitionError()
+	}
 	if len(body.Reason) < 3 || len(body.Reason) > 500 {
 		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
 	}
@@ -393,7 +396,7 @@ func validateHealthGoat(body *domain.HealthGoatRequest) error {
 		return BadRequest("invalid_health_status", "health_status must be healthy, sick, under_treatment, recovering, quarantine, or icu")
 	}
 	if criticalHealthStatus(body.HealthStatus) {
-		return NotImplemented("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
+		return criticalHealthTransitionError()
 	}
 	if len(body.Reason) < 3 || len(body.Reason) > 500 {
 		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
@@ -420,6 +423,18 @@ func criticalHealthStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func criticalHealthTransitionError() *Error {
+	return NotImplemented("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
+}
+
+func criticalDeathExit(lifecycleStatus, exitReason string) bool {
+	return strings.TrimSpace(lifecycleStatus) == "dead" || strings.TrimSpace(exitReason) == "died"
+}
+
+func criticalDeathTransitionError() *Error {
+	return NotImplemented("critical_death_transition_requires_guardrail", "death exits must use the critical-action guardrail path")
 }
 
 var allowedExitReasons = map[string]bool{

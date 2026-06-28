@@ -304,8 +304,11 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrInvalidReference) {
 		return BadRequest("invalid_reference", "referenced identity data is missing, inactive, or outside tenant scope")
 	}
+	if errors.Is(err, ports.ErrCriticalDeathGuardrailRequired) {
+		return criticalDeathTransitionError()
+	}
 	if errors.Is(err, ports.ErrGuardrailRequired) {
-		return NotImplemented("critical_health_transition_requires_guardrail", "quarantine and ICU health transitions must use the critical-action guardrail path")
+		return criticalHealthTransitionError()
 	}
 	if errors.Is(err, ports.ErrInvalidCursor) {
 		return BadRequest("invalid_cursor", "cursor is not valid for this list endpoint")

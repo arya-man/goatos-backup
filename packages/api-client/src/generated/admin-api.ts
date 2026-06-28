@@ -735,7 +735,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mark a goat exited and queue goat.exited cancellation. */
+        /**
+         * Mark a goat exited and queue goat.exited cancellation.
+         * @description Non-death exits use this primitive. Death exits fail closed with 501 until the critical-action guardrail path owns death classification and approval.
+         */
         post: operations["exitGoat"];
         delete?: never;
         options?: never;
@@ -769,7 +772,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Change goat health status and queue goat.health.changed vaccination rechecks. */
+        /**
+         * Change goat health status and queue goat.health.changed vaccination rechecks.
+         * @description Recovery and non-critical health changes use this primitive. Quarantine and ICU targets fail closed with 501 until the critical-action guardrail path owns them.
+         */
         post: operations["healthGoat"];
         delete?: never;
         options?: never;
@@ -1748,6 +1754,7 @@ export interface components {
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
         };
+        /** @description Quarantine and ICU are schema-visible for forward compatibility, but this primitive returns 501 for those targets until the critical-action guardrail path owns them. */
         HealthGoatRequest: {
             /** @enum {string} */
             health_status: "healthy" | "sick" | "under_treatment" | "recovering" | "quarantine" | "icu";
@@ -1792,6 +1799,7 @@ export interface components {
             result_skipped_no_due_date: number;
             result_suppressed_by_trusted_history: number;
         };
+        /** @description Dead/died exits are schema-visible for forward compatibility, but this primitive returns 501 for death transitions until the critical-action guardrail path owns them. */
         ExitGoatRequest: components["schemas"]["ExitGoatDeadRequest"] | components["schemas"]["ExitGoatSoldRequest"] | components["schemas"]["ExitGoatCulledRequest"] | components["schemas"]["ExitGoatTransferredRequest"] | components["schemas"]["ExitGoatLostRequest"];
         ExitGoatDeadRequest: {
             /** @constant */
@@ -4578,6 +4586,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     stageGoat: {
@@ -4644,6 +4653,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            501: components["responses"]["NotImplemented"];
         };
     };
     runVaccinationManualCampaign: {

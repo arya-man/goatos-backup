@@ -523,6 +523,44 @@ func TestHealthGoatRejectsCriticalTargetBeforeRepository(t *testing.T) {
 	}
 }
 
+func TestExitGoatRejectsDeathBeforeRepository(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+
+	_, err := svc.ExitGoat(context.Background(), ExitGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-exit-death-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"lifecycle_status":"dead","exit_reason":"died","reason":"death certificate reported by PHC supervisor","evidence_refs":[{"evidence_type":"source_record","evidence_id":"death-ticket-1"}],"row_version":10}`),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("ExitGoat error = %v, want app error", err)
+	}
+	if appErr.Code != "critical_death_transition_requires_guardrail" || appErr.HTTPStatus != 501 {
+		t.Fatalf("app error = %#v, want death guardrail-required 501", appErr)
+	}
+	if repo.lastExitGoatCmd.GoatID != "" {
+		t.Fatalf("repository should not be called for death exit, got %#v", repo.lastExitGoatCmd)
+	}
+}
+
+func TestMapRepoErrReturnsDeathGuardrailMessage(t *testing.T) {
+	err := mapRepoErr(ports.ErrCriticalDeathGuardrailRequired)
+	var appErr *Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("mapRepoErr error = %v, want app error", err)
+	}
+	if appErr.Code != "critical_death_transition_requires_guardrail" || appErr.HTTPStatus != 501 {
+		t.Fatalf("app error = %#v, want death guardrail-required 501", appErr)
+	}
+	if !errors.Is(ports.ErrCriticalDeathGuardrailRequired, ports.ErrGuardrailRequired) {
+		t.Fatal("death guardrail error should preserve generic guardrail sentinel")
+	}
+}
+
 func TestMoveExitStageAndHealthRequireEvidence(t *testing.T) {
 	svc := NewService(&fakeRepo{goats: map[string]*domain.GoatPassport{}})
 	_, err := svc.MoveGoat(context.Background(), MoveGoatInput{

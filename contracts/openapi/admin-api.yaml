@@ -1567,6 +1567,7 @@ paths:
         - Admin Goats
       operationId: exitGoat
       summary: Mark a goat exited and queue goat.exited cancellation.
+      description: Non-death exits use this primitive. Death exits fail closed with 501 until the critical-action guardrail path owns death classification and approval.
       parameters:
         - $ref: "#/components/parameters/GoatId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1593,6 +1594,8 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
   /admin/goats/{goat_id}/stage:
     post:
       tags:
@@ -1631,6 +1634,7 @@ paths:
         - Admin Goats
       operationId: healthGoat
       summary: Change goat health status and queue goat.health.changed vaccination rechecks.
+      description: Recovery and non-critical health changes use this primitive. Quarantine and ICU targets fail closed with 501 until the critical-action guardrail path owns them.
       parameters:
         - $ref: "#/components/parameters/GoatId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1657,6 +1661,8 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "501":
+          $ref: "#/components/responses/NotImplemented"
   /vaccination/manual-campaigns:
     post:
       tags:
@@ -4452,6 +4458,7 @@ components:
           minimum: 1
     HealthGoatRequest:
       type: object
+      description: Quarantine and ICU are schema-visible for forward compatibility, but this primitive returns 501 for those targets until the critical-action guardrail path owns them.
       additionalProperties: false
       required:
         - health_status
@@ -4583,6 +4590,7 @@ components:
           type: integer
           minimum: 0
     ExitGoatRequest:
+      description: Dead/died exits are schema-visible for forward compatibility, but this primitive returns 501 for death transitions until the critical-action guardrail path owns them.
       oneOf:
         - $ref: "#/components/schemas/ExitGoatDeadRequest"
         - $ref: "#/components/schemas/ExitGoatSoldRequest"

@@ -206,6 +206,9 @@ func (r *Repository) ExitGoat(ctx context.Context, cmd ports.ExitGoatCommand) (*
 	if state.RowVersion != cmd.RowVersion || state.IdentityState == "merged" || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
+	if criticalDeathExit(cmd.LifecycleStatus, cmd.ExitReason) {
+		return nil, ports.ErrCriticalDeathGuardrailRequired
+	}
 	if _, err := tx.Exec(ctx, `
 UPDATE goats
 SET lifecycle_status = $3,
@@ -762,6 +765,10 @@ func criticalHealthStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func criticalDeathExit(lifecycleStatus, exitReason string) bool {
+	return lifecycleStatus == "dead" || exitReason == "died"
 }
 
 func uuidStringPtr(value pgtype.UUID) *string {
