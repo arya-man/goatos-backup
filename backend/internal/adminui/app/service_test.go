@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -395,6 +397,42 @@ func TestBootstrapUsesRevisionCacheBeforeFullFamilyLoad(t *testing.T) {
 	}
 	if repo.fullLoads != 2 {
 		t.Fatalf("changed revision should trigger second full family load, got %d", repo.fullLoads)
+	}
+}
+
+func TestBootstrapCacheIsBoundedAndSweepsExpiredEntries(t *testing.T) {
+	repo := &revisionAwareFamilies{revision: "rev-0"}
+	service := NewService(repo)
+	now := time.Date(2026, 6, 28, 8, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.cacheTTL = time.Second
+	service.cacheMaxEntries = 4
+	input := BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	}
+
+	for i := 0; i < 10; i++ {
+		repo.revision = fmt.Sprintf("rev-%02d", i)
+		service.Bootstrap(context.Background(), input)
+		if len(service.cache) > service.cacheMaxEntries {
+			t.Fatalf("bootstrap cache exceeded max entries: len=%d max=%d", len(service.cache), service.cacheMaxEntries)
+		}
+	}
+
+	now = now.Add(2 * time.Second)
+	repo.revision = "rev-after-expiry"
+	service.Bootstrap(context.Background(), input)
+	if len(service.cache) > 2 {
+		t.Fatalf("expired cache entries were not swept before store: len=%d cache=%#v", len(service.cache), service.cache)
+	}
+	for key, entry := range service.cache {
+		if !entry.expiresAt.After(now) {
+			t.Fatalf("cache contains expired entry %q: expires_at=%s now=%s", key, entry.expiresAt, now)
+		}
 	}
 }
 

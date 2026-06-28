@@ -84,11 +84,11 @@ config compiler is being built, but must not hardcode live data:
 
 1. Redis compiled cache adapter.
    The compiler publishes family hashes and a Redis TTL hint, uses bounded
-   in-process caching, and now has DB revision rows plus `config.changed`
-   events. It probes the revision ledger before full family loading, so
-   unchanged revisions reuse the compiled in-process contract. Production
-   Redis/Memorystore still needs an adapter for compiled bootstrap/page JSON
-   keyed by tenant/role/locale/revision.
+   in-process caching with a 512-entry cap and lazy expired-entry sweep, and now
+   has DB revision rows plus `config.changed` events. It probes the revision
+   ledger before full family loading, so unchanged revisions reuse the compiled
+   in-process contract. Production Redis/Memorystore still needs an adapter for
+   compiled bootstrap/page JSON keyed by tenant/role/locale/revision.
 
 2. Governed config tables for still-static bounded product vocabularies.
    Stable UI labels/copy can now be governed through `admin_ui_config_entries`.
@@ -118,3 +118,8 @@ config compiler is being built, but must not hardcode live data:
 - Procurement/counts server actions still have local enum allow-lists used to
   validate submitted backend enum values. They are acceptable only as defensive
   request validation if mirrored by generated OpenAPI/contract enums.
+- Global lookup writes such as breeds/status definitions currently fan out
+  synchronously to tenant config-family revision rows and `config.changed`
+  outbox entries. This is acceptable for low-frequency admin edits, but should
+  move to async fan-out or batched invalidation before high-tenant shared
+  lookup churn.

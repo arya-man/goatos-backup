@@ -10,11 +10,12 @@ import (
 )
 
 type Service struct {
-	repo     ReferenceRepository
-	mu       sync.Mutex
-	cache    map[string]cacheEntry
-	cacheTTL time.Duration
-	now      func() time.Time
+	repo            ReferenceRepository
+	mu              sync.Mutex
+	cache           map[string]cacheEntry
+	cacheTTL        time.Duration
+	cacheMaxEntries int
+	now             func() time.Time
 }
 
 func NewService(repo ...ReferenceRepository) *Service {
@@ -23,10 +24,11 @@ func NewService(repo ...ReferenceRepository) *Service {
 		r = repo[0]
 	}
 	return &Service{
-		repo:     r,
-		cache:    map[string]cacheEntry{},
-		cacheTTL: defaultContractCacheTTL,
-		now:      time.Now,
+		repo:            r,
+		cache:           map[string]cacheEntry{},
+		cacheTTL:        defaultContractCacheTTL,
+		cacheMaxEntries: defaultContractCacheMaxEntries,
+		now:             time.Now,
 	}
 }
 

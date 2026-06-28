@@ -236,10 +236,11 @@ missing backend revision.
 
 ## Remaining Production Cache Follow-Up
 
-The current implementation uses an in-process 60 second cache, publishes a Redis
-TTL hint in the contract, and includes DB revision inputs in the cache key so
-stale in-process content misses after DB family changes. Production
-Redis/Memorystore should cache by:
+The current implementation uses a bounded in-process 60 second cache with a
+512-entry cap and lazy expired-entry sweep, publishes a Redis TTL hint in the
+contract, and includes DB revision inputs in the cache key so stale in-process
+content misses after DB family changes. Production Redis/Memorystore should
+cache by:
 
 ```text
 admin-web:<schema_version>:tenant:<tenant_id>:roles:<role_hash>:families:<contract_revision>
@@ -415,7 +416,8 @@ Invalidate by revision miss. Optional best-effort process-local clearing on
 `config.changed` events is allowed but not required for correctness.
 Current v1 probes `admin_ui_config_family_revisions` before full family loading,
 then serves the compiled in-process contract when tenant/role revisions are
-unchanged.
+unchanged. The in-process cache is capped and sweeps expired entries before
+storing new revision keys.
 
 ### Redis / Memorystore Cache
 

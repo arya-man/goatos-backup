@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	defaultContractCacheTTL = 60 * time.Second
-	redisTTLHintSeconds     = 600
+	defaultContractCacheTTL        = 60 * time.Second
+	defaultContractCacheMaxEntries = 512
+	redisTTLHintSeconds            = 600
 )
 
 type BootstrapInput struct {
@@ -81,9 +82,9 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	}
 	resp := s.compile(input, families, familyErr)
 	expiresAt := now.Add(s.cacheTTL)
-	s.storeCache(key, resp, expiresAt)
+	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
-		s.storeCache(revisionKey, resp, expiresAt)
+		s.storeCache(revisionKey, resp, now, expiresAt)
 	}
 	return resp
 }
@@ -122,18 +123,51 @@ func (s *Service) cached(key string, now time.Time) (domain.BootstrapResponse, b
 	}
 	entry, ok := s.cache[key]
 	if !ok || !entry.expiresAt.After(now) {
+		delete(s.cache, key)
 		return domain.BootstrapResponse{}, false
 	}
 	return entry.response, true
 }
 
-func (s *Service) storeCache(key string, resp domain.BootstrapResponse, expiresAt time.Time) {
+func (s *Service) storeCache(key string, resp domain.BootstrapResponse, now time.Time, expiresAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cache == nil {
 		s.cache = map[string]cacheEntry{}
 	}
+	s.sweepExpiredCacheLocked(now)
+	maxEntries := s.cacheMaxEntries
+	if maxEntries <= 0 {
+		maxEntries = 1
+	}
+	if _, exists := s.cache[key]; !exists {
+		for len(s.cache) >= maxEntries {
+			s.evictCacheEntryLocked()
+		}
+	}
 	s.cache[key] = cacheEntry{expiresAt: expiresAt, response: resp}
+}
+
+func (s *Service) sweepExpiredCacheLocked(now time.Time) {
+	for key, entry := range s.cache {
+		if !entry.expiresAt.After(now) {
+			delete(s.cache, key)
+		}
+	}
+}
+
+func (s *Service) evictCacheEntryLocked() {
+	victimKey := ""
+	var victimExpiresAt time.Time
+	for key, entry := range s.cache {
+		if victimKey == "" || entry.expiresAt.Before(victimExpiresAt) || (entry.expiresAt.Equal(victimExpiresAt) && key < victimKey) {
+			victimKey = key
+			victimExpiresAt = entry.expiresAt
+		}
+	}
+	if victimKey != "" {
+		delete(s.cache, victimKey)
+	}
 }
 
 func (s *Service) compile(input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
