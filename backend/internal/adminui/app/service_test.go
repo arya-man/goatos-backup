@@ -367,6 +367,32 @@ func TestBootstrapCacheKeyIncludesDBFamilyRevisionInputs(t *testing.T) {
 	}
 }
 
+func TestBootstrapContractRevisionCanonicalizesGrantOrder(t *testing.T) {
+	grants := []permissions.ActiveGrant{
+		{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		{Role: permissions.RolePHCDirector, ScopeType: "park", ScopeID: "park-1"},
+	}
+	reversed := []permissions.ActiveGrant{grants[1], grants[0]}
+
+	first := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants:   grants,
+	})
+	second := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants:   reversed,
+	})
+
+	if first.ContractRevision != second.ContractRevision {
+		t.Fatalf("same grant set in different order changed contract revision: first=%q second=%q", first.ContractRevision, second.ContractRevision)
+	}
+	if first.CachePolicy.ETag != second.CachePolicy.ETag {
+		t.Fatalf("same grant set in different order changed ETag: first=%q second=%q", first.CachePolicy.ETag, second.CachePolicy.ETag)
+	}
+}
+
 func TestBootstrapUsesRevisionCacheBeforeFullFamilyLoad(t *testing.T) {
 	repo := &revisionAwareFamilies{revision: "rev-1"}
 	service := NewService(repo)

@@ -92,11 +92,7 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, familyErr error) string {
 	roles := rolesFromGrants(input.Grants)
 	sort.Strings(roles)
-	grantParts := make([]string, 0, len(input.Grants))
-	for _, grant := range input.Grants {
-		grantParts = append(grantParts, grant.Role+"|"+grant.ScopeType+"|"+grant.ScopeID)
-	}
-	sort.Strings(grantParts)
+	grantParts := canonicalGrantParts(input.Grants)
 	revisionParts := make([]string, 0, len(families.RevisionInputs))
 	for key, value := range families.RevisionInputs {
 		revisionParts = append(revisionParts, key+"="+value)
@@ -910,6 +906,15 @@ func rolesFromGrants(grants []permissions.ActiveGrant) []string {
 	return roles
 }
 
+func canonicalGrantParts(grants []permissions.ActiveGrant) []string {
+	parts := make([]string, 0, len(grants))
+	for _, grant := range grants {
+		parts = append(parts, grant.Role+"|"+grant.ScopeType+"|"+grant.ScopeID)
+	}
+	sort.Strings(parts)
+	return parts
+}
+
 func grantsAuthorize(grants []permissions.ActiveGrant, tenantID string, required []string) bool {
 	return permissions.RolesAuthorize(tenantRoles(grants, tenantID), required, false)
 }
@@ -1034,7 +1039,7 @@ func familyHashes(resp domain.BootstrapResponse, families ReferenceFamilies, inp
 			Top domain.TopBarContract
 		}{resp.Navigation, resp.TopBar}),
 		"pages":       hashStruct(resp.Pages),
-		"permissions": hashStruct(input.Grants),
+		"permissions": hashStruct(canonicalGrantParts(input.Grants)),
 		"locations":   hashStruct(families.Parks),
 		"config":      hashStruct(struct{ Categories, Breeds, Health, Repro, Defer, SOP, FeedItems []ReferenceOption }{families.RuleCategories, families.Breeds, families.HealthStatuses, families.ReproductiveStates, families.DeferStates, families.SOPLabels, families.FeedItems}),
 		"ui-config":   hashStruct(families.UIConfig),
