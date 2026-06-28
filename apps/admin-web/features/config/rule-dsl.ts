@@ -23,7 +23,6 @@ export interface Eligibility {
   health: string;
   reproductive: string;
   deferStates: string[];
-  individualOverride: boolean;
 }
 
 export interface FeedFields {
@@ -199,7 +198,6 @@ function vaccinationDsl(input: RuleInput): Record<string, unknown> {
       health: input.eligibility.health,
       reproductive: input.eligibility.reproductive,
       defer_states: input.eligibility.deferStates,
-      individual_override: input.eligibility.individualOverride,
     },
     missed_dose_policy: input.missedDosePolicy,
     next_due_basis: NEXT_DUE_BASIS,

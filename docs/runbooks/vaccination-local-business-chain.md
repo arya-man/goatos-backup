@@ -81,7 +81,7 @@ Manual equivalent of the script's steps (when running by hand):
    (the relay now fails closed: non-durable publishers like `eventbus`/`logging` require
     GOATOS_OUTBOX_ALLOW_NONDURABLE=1; staging/production must set GOATOS_OUTBOX_PUBLISHER=pubsub)
 3. go run ./cmd/obligation-sweeper -version-id <b011> -sop-version-id <b0..0002> \
-     -vaccine-item-id <b001> -actor-id <user>              -> obligation_batch + SOP task
+     -vaccine-item-id <b001> -actor-id <user>              -> obligation_batch + SOP task + Calendar projection/reminder/escalation sweep
 4. POST /app/proofs/uploads (x3: shed/vial_lot/administration, scope_type=task) + PUT bytes
 5. POST /app/tasks/{task}/submissions (answers + 3 proof_refs; vaccine_lot_id = stock_id b002)
      -> vaccination_completion (recorded) via the in-process submission fanout

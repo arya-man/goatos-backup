@@ -373,6 +373,46 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 }
 
+func TestCalendarVaccinationProjectionPreservesMissedStatus(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000871"
+	versionID := "86000000-0000-4000-8000-000000000872"
+	ruleID := "86000000-0000-4000-8000-000000000873"
+	obligationID := "86000000-0000-4000-8000-000000000874"
+	dueAt := time.Now().UTC().Add(-48 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'missed', updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationID); err != nil {
+		t.Fatalf("mark obligation missed: %v", err)
+	}
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-72 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM calendar_event_projections
+WHERE tenant_id = $1::uuid AND event_id = $2`,
+		testTenantID, "obligation:"+obligationID).Scan(&status); err != nil {
+		t.Fatalf("query projection: %v", err)
+	}
+	if status != domain.StatusMissed {
+		t.Fatalf("projection status=%s, want missed", status)
+	}
+}
+
 func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

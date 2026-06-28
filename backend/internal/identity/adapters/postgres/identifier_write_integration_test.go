@@ -159,7 +159,7 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, staged.Events[0].EventID, created.Goat.GoatID, "goat.stage_changed", created.Goat.GoatID)
 	})
 
-	t.Run("admin goat health writes goat.health.changed outbox for recovery recheck", func(t *testing.T) {
+	t.Run("admin goat health writes goat.health.changed outbox for critical recovery recheck", func(t *testing.T) {
 		create := adminGoatCreateCommand(t, "idem-create-goat-health-0001", "rfid-admin-health-0001", "admin-health-oldtag-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
@@ -167,10 +167,10 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 		if _, err := pool.Exec(ctx, `
 UPDATE goats
-SET health_status = 'sick',
+SET health_status = 'quarantine',
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID); err != nil {
-			t.Fatalf("seed sick health: %v", err)
+			t.Fatalf("seed quarantine health: %v", err)
 		}
 		cmd := healthGoatCommand(t, "idem-health-goat-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
 		healed, err := repo.HealthGoat(ctx, cmd)
@@ -189,14 +189,8 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.Go
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for critical health: %v", err)
 		}
-		if _, err := pool.Exec(ctx, `
-UPDATE goats
-SET health_status = 'quarantine',
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID); err != nil {
-			t.Fatalf("seed quarantine health: %v", err)
-		}
 		cmd := healthGoatCommand(t, "idem-health-critical-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		cmd.HealthStatus = "icu"
 		if _, err := repo.HealthGoat(ctx, cmd); !errors.Is(err, ports.ErrGuardrailRequired) {
 			t.Fatalf("HealthGoat critical transition error = %v, want ErrGuardrailRequired", err)
 		}
@@ -204,8 +198,8 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.Go
 		if err := pool.QueryRow(ctx, "SELECT health_status FROM goats WHERE tenant_id = $1 AND goat_id = $2", meshaTenant, created.Goat.GoatID).Scan(&got); err != nil {
 			t.Fatalf("health after blocked critical transition: %v", err)
 		}
-		if got != "quarantine" {
-			t.Fatalf("health_status=%q, want quarantine", got)
+		if got != "healthy" {
+			t.Fatalf("health_status=%q, want healthy", got)
 		}
 		assertNoRows(t, pool, "idempotency after blocked critical health", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 		assertNoRows(t, pool, "outbox after blocked critical health", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)

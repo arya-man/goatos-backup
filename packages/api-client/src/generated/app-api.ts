@@ -1532,7 +1532,7 @@ export interface components {
         /** @enum {string} */
         CalendarOwnerKey: "phc" | "inventory" | "admin_data_ops";
         /** @enum {string} */
-        CalendarStatus: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "rework_due" | "deferred" | "blocked" | "completed" | "canceled";
+        CalendarStatus: "scheduled" | "due" | "overdue" | "missed" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "rework_due" | "deferred" | "blocked" | "completed" | "canceled";
         /** @enum {string} */
         CalendarSeverity: "info" | "warning" | "critical";
         /** @enum {string} */

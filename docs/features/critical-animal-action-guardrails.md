@@ -122,6 +122,7 @@ Sanitized committed findings:
 - `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`
 - `context/product/goat-os-feature-phases.md`
 - `context/architecture/operational-kernel.md`
+- `docs/features/locations/TRD.md`
 
 Maintainer-local wiki/legacy sources reviewed:
 
@@ -136,8 +137,8 @@ Maintainer-local wiki/legacy sources reviewed:
 - `Handbooks/PHC_Director.pdf` graph nodes for 21-day quarantine, daily
   Park Head coordination, EOD reporting, SOP video verification, and PHC
   daily/weekly execution
-- `Handbooks/Health_Director.pdf` graph node for the 10-minute report response
-  standard
+- `Handbooks/Health_Director.pdf` and `Handbooks/Mesha-dept-directors.pdf`
+  graph nodes for the 10-minute report response standard
 - `wiki/graphify-out/converted/Procurement DB [Goats]_dda03a25.md`
 - `slack-automation-scripts/shifting_death_automation.js`
 - legacy dashboard repos for read-only shifting/quarantine display behavior
@@ -300,7 +301,7 @@ Non-negotiable legacy capabilities to preserve:
 | Overdue/open movement visibility | Preserve scheduled/open/overdue movement visibility. | Project overdue critical actions into Action Center, Control Tower, Calendar, Protocol Adherence, and Goat Passport. |
 | Health diagnosis, treatment, follow-up sheets | Preserve problem, diagnosis, medicine, status, treatment schedule, follow-up, and active-problem tracking. | Convert health flows into state machines with proof, missed-check escalation, release blockers, and recovery events. |
 | Procurement quarantine/holding sheet | Preserve incoming load, holding/quarantine center, weight/health check, and procurement vaccination fields. | Separate procurement warmup/holding from biological quarantine and require accepted-herd intake gates. |
-| Sheds DB | Preserve existing shed labels/tags/capacity-like values. | Add canonical location profile, active state, fitness dimensions, isolation class, and timetable policy. |
+| Sheds DB | Preserve existing shed labels/tags/capacity-like values. | Resolve to canonical location records owned by Locations TRD, then use those records for fitness, active-state, isolation, and timetable policy evaluation. |
 | Vaccination recorded in source sheets | Preserve imported vaccination facts and source references. | Add protocol-version coverage, evidence/proof confidence, missed-dose exceptions, and recheck triggers. |
 | Death reporting and verification | Preserve reason/location/proof/verification and next-day completion expectation. | Add incident investigation, cluster detection, preventive action, escalation waterfall, and void/reversal audit. |
 
@@ -504,8 +505,10 @@ must provide these pieces:
 | Action types | Stable names such as `movement.shift`, `health.close_problem`, `lifecycle.death_report`, `procurement.arrival_accept`, or `sale.allocate`. |
 | Subject resolver | How the pack resolves goats, batches, sheds, loads, source farms, tasks, treatments, stock items, or bookings from the command. |
 | Evidence reader | The scoped records needed for evaluation: current goat state, open health problems, procurement load, location profile, proof status, treatment history, stock state, or sale promise. |
+| Classification authority | What evidence computes the final classification and how conflicts with user-entered classification are handled. |
 | Allowed reasons | Versioned reason codes and which evidence makes each reason valid. |
 | Decision rules | Deterministic rules that return allow, block, require approval, require exception, defer, or create process exception. |
+| Primitive exposure plan | How lower-level mutation primitives are blocked, wrapped, or restricted until the pack owns the critical transition. |
 | Approval plan | Who can approve routine action, who can approve exception, expiry, and whether approval is required before or after execution. |
 | Segregation rules | Which requester, direction-author, approver, verifier, shed owner, or park owner combinations are disallowed or require second approval. |
 | Obligation plan | Tasks/checks/follow-ups created automatically after the decision. |
@@ -575,6 +578,12 @@ An actor cannot downgrade a true quarantine/ICU/procurement case to
 evidence-derived classification disagree, the evaluation must block, require
 authorized exception, or create a process exception for review.
 
+Bulk, back-dated, or imported movement classification must be computed per
+subject and source event timestamp. A mega-shift can share one import/replay
+batch, but it cannot share one free-text classification across all goats, and it
+cannot let historical comments silently rewrite quarantine, ICU, death, or
+operational-separation truth.
+
 Allowed source-backed reasons:
 
 - `incoming_21_day`: goat is from procurement/intake/arrival and still inside
@@ -630,12 +639,22 @@ Exception path:
 
 ## Quarantine Location Fitness
 
-Quarantine is not a label on a shed alone. Goat OS must know whether the specific
-destination is fit for the specific animal/action.
+The canonical location schema is owned by `docs/features/locations/TRD.md`.
+Guardrail packs must consume that model rather than re-specifying location
+tables here. The Locations TRD defines active/review/retired state, effective
+capacity records such as `capacity_kind = quarantine`, and operational
+attributes such as `is_holding`, `is_quarantine`, and `is_icu`.
 
-Location fitness should include:
+Quarantine is not a label on a shed alone. `is_quarantine = true` means a
+location is quarantine-capable or quarantine-labelled; it does not mean every
+goat placed there has an active `quarantine_episode`. Episode state is produced
+by guardrail classification plus evidence, not by the shed attribute alone.
+Goat OS must know whether the specific destination is fit for the specific
+animal/action.
 
-- active/inactive lifecycle state
+Location fitness evaluation should consume:
+
+- active/review/retired location state
 - quarantine/ICU/holding attributes
 - capacity and current occupancy
 - species/age/stage compatibility
@@ -702,13 +721,18 @@ The check frequency should come from configurable protocol/SOP rules. If the
 rule is missing, the move should create a process exception instead of silently
 doing nothing.
 
-The timetable/round requirement is source-backed by the PHC Director handbook
-nodes for daily coordination, EOD reporting, SOP video verification, and
-daily/weekly execution, by the director handbook 10-minute report-response
-standard, and by live legacy findings that current sheets do not create durable
-timetable obligations automatically. Implementation must cite the exact
-protocol/SOP version that supplies the frequency, proof policy, owner, and
-escalation rule.
+Source trail for timetable/round requirements:
+
+- `Handbooks/PHC_Director.pdf` graph nodes cover daily Park Head coordination,
+  EOD reporting, SOP video verification, and PHC daily/weekly execution.
+- `Handbooks/Health_Director.pdf` and `Handbooks/Mesha-dept-directors.pdf`
+  graph nodes cover the 10-minute report response standard where applicable.
+- `context/source-findings/live-legacy-critical-guardrails-2026-06-28.md`
+  records that current legacy sheets do not create durable timetable obligations
+  automatically.
+
+Implementation must cite the exact protocol/SOP version that supplies the
+frequency, proof policy, owner, and escalation rule.
 
 ## Quarantine Exit Guardrail
 
@@ -733,6 +757,15 @@ this only if their payload and consumers can prove the old and new states needed
 to reopen deferred obligations. If they cannot, the pack must add an explicit
 recovery/eligibility-change event instead of relying on implicit status strings
 or read-time inference.
+
+Current code already points in the right direction:
+`backend/internal/identity/adapters/postgres/goat_lifecycle.go` emits
+`goat.health.changed`, `backend/internal/vaccination/app/generation_handler.go`
+consumes it for recovery rechecks, and
+`backend/internal/obligation/adapters/postgres/repository.go` manages
+deferred-obligation transitions by idempotency key. Policy packs should reuse
+that path when it satisfies critical-action old/new-state requirements instead
+of rebuilding a parallel recovery channel.
 
 No one should be able to "just move back" by editing current shed.
 
@@ -809,6 +842,22 @@ checks were assigned and completed, whether vaccination/prophylaxis evidence was
 trustworthy, and whether the chosen location was appropriate for the animal
 class and business value.
 
+## Vaccination Confidence Evidence
+
+Vaccination evidence is part of the critical-action guardrail surface whenever
+an incident, quarantine, procurement intake, sale blocker, or health decision
+depends on whether the goat was actually protected.
+
+Accepted evidence types may include administered-dose proof, imported source
+sheet row, supplier/procurement record, PHC/vet attestation, lab result, titer,
+sample-test, or approved exception. Each evidence type needs source reference,
+actor, timestamp, verifier/reviewer where required, confidence level, and
+recheck/exception state.
+
+A recorded vaccination date that may have been missed is not enough to silently
+close a high-risk decision. It must create a confidence gap, recheck/sample-test
+task, exception, or incident investigation input according to policy.
+
 ## Approval And Authority
 
 Do not create a separate approval maze for every action. Use the operational
@@ -821,6 +870,9 @@ Rules:
 - The same shifting request can carry quarantine-specific validation fields.
 - Shifting Direction by park head/central team must still pass guardrail checks.
   Authority can approve; it cannot bypass evidence silently.
+- A self-authored direction into a shed, park, or managed scope owned by the same
+  actor is not enough by itself; policy must require segregation-of-duties,
+  stronger evidence, second approval, or process-exception state.
 - Override/exception decisions need explicit authority, reason, expiry, and
   audit.
 - AI may propose risk and missing evidence. AI must never approve the action.
@@ -977,9 +1029,9 @@ support these generic records:
 - requested classification, evidence-derived classification, conflict state,
   and final authoritative classification that separates biological/process
   status from location names or tags
-- location profile with canonical location ID, display name/tag, capabilities,
-  capacity, fitness attributes, isolation class, active state, and timetable
-  requirements
+- location profile reference owned by the Locations module/TRD, including
+  canonical location ID, display name/tag, capabilities, capacity, fitness
+  attributes, isolation class, active state, and timetable requirements
 - policy pack and immutable policy version used for the decision
 - guardrail evaluation result with decision, disabled reasons, evidence summary,
   risk/severity, and replay metadata

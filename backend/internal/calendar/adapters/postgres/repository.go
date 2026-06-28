@@ -763,7 +763,7 @@ WHERE tenant_id = $1::uuid
   AND slice_key = 'vaccination'
   AND system = false
   AND due_at <= now() + interval '1 hour'
-  AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
   AND reminder_state IN ('not_scheduled', 'scheduled')
 ORDER BY due_at ASC, event_id ASC
 LIMIT $2`, tenantID, limit)
@@ -800,7 +800,7 @@ WHERE tenant_id = $1::uuid
   AND slice_key = 'vaccination'
   AND system = false
   AND due_at <= now() + interval '1 hour'
-  AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
   AND reminder_state IN ('not_scheduled', 'scheduled')
 ORDER BY due_at ASC, event_id ASC
 LIMIT 1
@@ -925,7 +925,7 @@ WITH candidates AS (
     AND system = false
     AND due_at IS NOT NULL
     AND due_at <= $2::timestamptz
-    AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
     AND COALESCE(escalation_state, '') <> 'resolved'
 )
 SELECT event_id, level
@@ -992,7 +992,7 @@ WHERE tenant_id = $1::uuid
   AND slice_key = 'vaccination'
   AND system = false
   AND due_at <= $3::timestamptz
-  AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
   AND COALESCE(escalation_state, '') <> 'resolved'
 FOR UPDATE SKIP LOCKED`, tenantID, eventID, now).Scan(
 		&target.EventID,
@@ -1640,7 +1640,7 @@ WITH obligation_events AS (
     CASE oi.status
       WHEN 'scheduled' THEN CASE WHEN oi.due_at < now() THEN 'overdue' ELSE 'scheduled' END
       WHEN 'due' THEN CASE WHEN oi.due_at < now() THEN 'overdue' ELSE 'due' END
-      WHEN 'missed' THEN 'overdue'
+      WHEN 'missed' THEN 'missed'
       WHEN 'waived' THEN 'deferred'
       WHEN 'superseded' THEN 'canceled'
       ELSE oi.status
@@ -2037,7 +2037,7 @@ limited AS (
   SELECT *
   FROM source_events
   WHERE due_at IS NOT NULL
-    AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending',
+    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending',
                    'verification_pending', 'rejected', 'rework_due', 'deferred',
                    'blocked')
     AND ($5::timestamptz IS NULL OR (due_at, event_id) > ($5::timestamptz, $6::text))

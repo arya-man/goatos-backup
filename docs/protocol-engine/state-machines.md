@@ -22,7 +22,7 @@
 **Inputs:** the goat; the set of **published** `protocol_versions` whose `[effective_from, effective_to)` covers `now`, matching tenant + (scope: tenant-default or the goat's park) + category.
 
 **Steps:**
-1. Resolve **multi-factor eligibility** per the rule's `eligibility_json` = `age + animal_stage(shed/cohort) + sex + breed + lifecycle + health + reproductive(exclude pregnant/lactating) + individual_override`. If a `defer_states` condition holds (ICU/quarantine/sick), **create/update a *visible* deferred obligation (or emit a defer event) and re-evaluate on recovery — never silently skip** (and don't mark missed): the obligation lands in a `deferred` state with a reason, so **Control Tower / Protocol Adherence can explain why the dose did not fire**. Skip rules the goat is ineligible for (true ineligibility ≠ defer — ineligible generates nothing; defer generates a tracked, explained obligation).
+1. Resolve **multi-factor eligibility** per the rule's `eligibility_json` = `age + animal_stage(shed/cohort) + sex + breed + lifecycle + health + reproductive(exclude pregnant/lactating)`. Phase 0 does not expose per-goat individual override generation; PHC-approved catch-up uses the manual campaign path. If a `defer_states` condition holds (ICU/quarantine/sick), **create/update a *visible* deferred obligation (or emit a defer event) and re-evaluate on recovery — never silently skip** (and don't mark missed): the obligation lands in a `deferred` state with a reason, so **Control Tower / Protocol Adherence can explain why the dose did not fire**. Skip rules the goat is ineligible for (true ineligibility ≠ defer — ineligible generates nothing; defer generates a tracked, explained obligation).
 2. **Iterate the `schedule[]` dose rows** (a rule is multi-dose, not one trigger). For each dose, compute `due_at` by `trigger_type`:
    - `birth_age`: `approx_dob + offset_days`
    - `post_arrival`: `entry_date + offset_days`
@@ -46,7 +46,7 @@
 1. Determine the goat's **new** `animal_stage` (from destination `shed_profiles.animal_stage_id` / cohort).
 2. Re-evaluate eligibility under the new stage for the **same vaccine/protocol**:
    - **Still eligible, dest batch open (same protocol_version, not completed):** re-point `obligation_instances.batch_id`/`scope_id` to the destination shed's batch.
-   - **Still eligible, dest batch already completed:** create an **individual** obligation (`is_individual`, `pre_shift`), spawn its own task.
+   - **Still eligible, dest batch already completed:** hold for PHC-approved catch-up/manual campaign review; Phase 0 does not auto-spawn standalone per-goat tasks.
    - **No longer eligible** (stage no longer matches the rule): `cancel` the obligation (status `canceled`, reason `ineligible_after_shift`); generate any newly-eligible obligations for the new stage (SM-1 path).
 3. **Never** blind-repoint across vaccines — re-point only within the same protocol/vaccine.
 
@@ -103,7 +103,7 @@ All writes go to `inventory_stock_movements` (append-only); `inventory_stock` ba
 | Manual correction | `adjust(±qty)` | `in_stock += qty` | actor has stock-adjust capability; reason required |
 | Lot expiry | `expire(qty)` | `in_stock −= qty` | `now > expiry_date` |
 
-**Mode split (no contradiction):** group drive = `reserve` at SM-4 create, `consume`+`release` at SM-4 close. Individual catch-up = `consume` per accepted completion, no prior reserve.
+**Mode split (no contradiction):** group drive = `reserve` at SM-4 create, `consume`+`release` at SM-4 close. PHC-approved catch-up creates canonical obligations/batches before execution; standalone per-goat individual override stock mode is not exposed in Phase 0.
 **Idempotency:** every movement carries `idempotency_key` (UNIQUE per tenant); replay no-ops.
 **Invariants:** balance is always `= Σ movements`; never negative; expired lots never consumed.
 **Edge:** stock-out at reserve → batch flagged shortfall (anomaly surfaced), partial reserve allowed only if policy permits; never a negative balance.

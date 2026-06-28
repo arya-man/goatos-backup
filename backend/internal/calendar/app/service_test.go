@@ -48,6 +48,20 @@ func TestServiceAddsBackendControlledPresentation(t *testing.T) {
 	}
 }
 
+func TestServiceAllowsMissedStatusFilter(t *testing.T) {
+	svc := NewService(fakeRepo{})
+	status := domain.StatusMissed
+	_, err := svc.ListEvents(context.Background(), domain.Query{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Status:   &status,
+		DateFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DateTo:   time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ListEvents missed status error = %v", err)
+	}
+}
+
 func TestServiceMapsIdempotencyConflictToConflict(t *testing.T) {
 	svc := NewService(fakeRepo{nudgeErr: ports.ErrIdempotencyConflict})
 	_, err := svc.SendNudge(context.Background(), ports.SendNudge{

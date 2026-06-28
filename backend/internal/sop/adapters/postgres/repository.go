@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -257,11 +258,25 @@ func (r *Repository) CreateTask(ctx context.Context, cmd ports.CreateTaskCommand
 	if err != nil {
 		return domain.TaskSummary{}, err
 	}
-	contextBytes, err := json.Marshal(nonNilMap(cmd.Body.Context))
+	contextMap := nonNilMap(cmd.Body.Context)
+	batchID := obligationBatchIDFromContext(contextMap)
+	if batchID != "" {
+		if task, found, err := r.getTaskByObligationBatchID(ctx, tx, cmd.TenantID, batchID); err != nil {
+			return domain.TaskSummary{}, err
+		} else if found {
+			return task, nil
+		}
+	}
+	contextBytes, err := json.Marshal(contextMap)
 	if err != nil {
 		return domain.TaskSummary{}, err
 	}
 	var taskID string
+	if batchID != "" {
+		if _, err := tx.Exec(ctx, "SAVEPOINT sop_task_insert"); err != nil {
+			return domain.TaskSummary{}, err
+		}
+	}
 	err = tx.QueryRow(ctx, `
 INSERT INTO sop_tasks (
   tenant_id, sop_id, sop_version_id, task_type, title, description,
@@ -287,6 +302,18 @@ RETURNING task_id::text`,
 		cmd.ActorID,
 	).Scan(&taskID)
 	if err != nil {
+		if batchID != "" && uniqueViolationOn(err, "sop_tasks_obligation_batch_id_unique_idx") {
+			if _, rollbackErr := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT sop_task_insert"); rollbackErr != nil {
+				return domain.TaskSummary{}, rollbackErr
+			}
+			task, found, lookupErr := r.getTaskByObligationBatchID(ctx, tx, cmd.TenantID, batchID)
+			if lookupErr != nil {
+				return domain.TaskSummary{}, lookupErr
+			}
+			if found {
+				return task, nil
+			}
+		}
 		return domain.TaskSummary{}, mapWriteErr(err)
 	}
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "sop.task.create", "sop_task", taskID, map[string]any{"sop_version_id": version.SOPVersionID}); err != nil {
@@ -325,6 +352,25 @@ LIMIT 1`), tenantID, taskID)
 		return domain.TaskSummary{}, nil, nil, err
 	}
 	return tasks[0], &version, submissions, nil
+}
+
+func (r *Repository) getTaskByObligationBatchID(ctx context.Context, tx pgx.Tx, tenantID, batchID string) (domain.TaskSummary, bool, error) {
+	rows, err := tx.Query(ctx, taskSelectSQL(`
+WHERE st.tenant_id = $1::uuid
+  AND st.context ->> 'obligation_batch_id' = $2
+ORDER BY st.created_at ASC, st.task_id ASC
+LIMIT 1`), tenantID, batchID)
+	if err != nil {
+		return domain.TaskSummary{}, false, err
+	}
+	tasks, err := scanTasks(rows)
+	if err != nil {
+		return domain.TaskSummary{}, false, err
+	}
+	if len(tasks) == 0 {
+		return domain.TaskSummary{}, false, nil
+	}
+	return tasks[0], true, nil
 }
 
 func (r *Repository) AssignTask(ctx context.Context, cmd ports.AssignTaskCommand) (domain.TaskSummary, error) {
@@ -1320,6 +1366,23 @@ func nonNilMap(v map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	return v
+}
+
+func obligationBatchIDFromContext(v map[string]any) string {
+	raw, ok := v["obligation_batch_id"]
+	if !ok {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func uniqueViolationOn(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == constraintName
 }
 
 func jsonEqual(left, right []byte) bool {

@@ -1030,7 +1030,7 @@ CREATE TABLE public.calendar_event_projections (
     CONSTRAINT calendar_event_owner_check CHECK ((owner_key = ANY (ARRAY['phc'::text, 'inventory'::text, 'admin_data_ops'::text]))),
     CONSTRAINT calendar_event_severity_check CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text]))),
     CONSTRAINT calendar_event_slice_check CHECK ((slice_key = 'vaccination'::text)),
-    CONSTRAINT calendar_event_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rejected'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text, 'completed'::text, 'canceled'::text]))),
+    CONSTRAINT calendar_event_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'missed'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rejected'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text, 'completed'::text, 'canceled'::text]))),
     CONSTRAINT calendar_event_target_count_check CHECK ((target_count >= 0)),
     CONSTRAINT calendar_event_type_check CHECK ((event_type = ANY (ARRAY['vaccination_dose_due'::text, 'vaccination_drive'::text, 'vaccination_campaign'::text, 'vaccination_booster_due'::text, 'vaccination_defer_review'::text, 'vaccination_evidence_review'::text, 'vaccination_proof_verification'::text, 'vaccination_rework_due'::text, 'vaccine_stock_readiness'::text, 'vaccine_cold_chain_check'::text, 'vaccine_reorder_expiry_grn'::text, 'phc_stock_anti_misuse'::text, 'vaccination_config_source_approval'::text]))),
     CONSTRAINT calendar_event_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
@@ -6555,7 +6555,7 @@ CREATE INDEX auth_pending_email_grants_lookup_idx ON public.auth_pending_email_g
 -- Name: calendar_event_projections_due_reminder_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX calendar_event_projections_due_reminder_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, reminder_state, due_at, event_id) WHERE ((system = false) AND (due_at IS NOT NULL) AND (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text])));
+CREATE INDEX calendar_event_projections_due_reminder_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, reminder_state, due_at, event_id) WHERE ((system = false) AND (due_at IS NOT NULL) AND (status = ANY (ARRAY['scheduled'::text, 'due'::text, 'overdue'::text, 'missed'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rework_due'::text, 'deferred'::text, 'blocked'::text])));
 
 
 --
@@ -8397,6 +8397,13 @@ CREATE INDEX sop_task_submission_fanouts_retry_idx ON public.sop_task_submission
 --
 
 CREATE INDEX sop_tasks_assignee_queue_idx ON public.sop_tasks USING btree (tenant_id, assigned_to, state, due_at, task_id) WHERE (assigned_to IS NOT NULL);
+
+
+--
+-- Name: sop_tasks_obligation_batch_id_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_tasks_obligation_batch_id_unique_idx ON public.sop_tasks USING btree (tenant_id, ((context ->> 'obligation_batch_id'::text))) WHERE (context ? 'obligation_batch_id'::text);
 
 
 --

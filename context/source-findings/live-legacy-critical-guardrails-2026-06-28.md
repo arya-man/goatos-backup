@@ -28,6 +28,21 @@ PII, proof media, tokens, or private URLs.
 | `goatos-sheets.procurement_farm.procurement_details_clean` | 100 | procurement load details and problems | Preserves procurement problem context, but not the full source health/vaccination evidence surface. | Medium |
 | `goatos-sheets.procurement_farm.procurement_holding_farm_clean` | 455 | holding-farm animal status, tag, weight, breed, gender | Supports separate procurement holding/warmup modeling before accepted herd intake. | High |
 
+## Legacy Slack/App Script Cross-Check
+
+`slack-automation-scripts/shifting_death_automation.js` was checked read-only to
+confirm the live shifting workflow shape. The script writes movement fields such
+as `Type`, `Category`, `Priority`, `Goat IDs`, `Src Shed`, `Dst Shed`, `Media`,
+`Breed`, `Comments`, and `Video Stage`; treats requests as `Pending` and
+directions as `Authorised`; and computes scheduled timing from category and
+priority.
+
+This confirms the parity floor: Goat OS must preserve request-vs-direction,
+category/priority, source/destination, proof, status, and timing semantics. It
+also confirms the named gap: `Dst Shed` and `Comments` are free-text context,
+not structured quarantine reason, linked evidence, quarantine episode,
+location-fitness decision, or follow-up obligation linkage.
+
 ## Google Sheets Metadata/Headers Checked
 
 | Sheet | Metadata checked | Relevant tabs/headers | Sanitized finding | Confidence |

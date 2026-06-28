@@ -307,7 +307,7 @@ type fakeSweepTaskCreator struct {
 	calls int
 }
 
-func (f *fakeSweepTaskCreator) CreateTaskForBatch(context.Context, string, string, string, string, string, string) (string, error) {
+func (f *fakeSweepTaskCreator) CreateTaskForBatch(context.Context, string, string, string, string, string, string, string) (string, error) {
 	f.calls++
 	if f.id == "" {
 		f.id = "task-1"

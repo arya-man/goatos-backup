@@ -24,6 +24,7 @@ const (
 	StatusScheduled           = "scheduled"
 	StatusDue                 = "due"
 	StatusOverdue             = "overdue"
+	StatusMissed              = "missed"
 	StatusInProgress          = "in_progress"
 	StatusProofPending        = "proof_pending"
 	StatusVerificationPending = "verification_pending"

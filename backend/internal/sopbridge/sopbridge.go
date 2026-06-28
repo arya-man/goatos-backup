@@ -30,7 +30,7 @@ func New(sop SOPTaskCreator, actorID string) *Bridge {
 var _ oblapp.TaskCreator = (*Bridge)(nil)
 
 // CreateTaskForBatch spawns one SOP task for a batch from the given published sop_version.
-func (b *Bridge) CreateTaskForBatch(ctx context.Context, tenantID, sopVersionID, taskType, title, scopeType, scopeID string) (string, error) {
+func (b *Bridge) CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopVersionID, taskType, title, scopeType, scopeID string) (string, error) {
 	versionID := sopVersionID
 	task, err := b.sop.CreateTask(ctx, sopports.CreateTaskCommand{
 		TenantID: tenantID,
@@ -42,6 +42,7 @@ func (b *Bridge) CreateTaskForBatch(ctx context.Context, tenantID, sopVersionID,
 			ScopeType:    scopeType,
 			ScopeID:      scopeID,
 			Priority:     "normal",
+			Context:      map[string]any{"created_by": "obligation-sweeper", "obligation_batch_id": batchID},
 		},
 	})
 	if err != nil {

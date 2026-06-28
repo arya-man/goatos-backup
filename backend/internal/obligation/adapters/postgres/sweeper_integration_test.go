@@ -23,13 +23,23 @@ type rawTaskCreator struct {
 
 const skeletonSOPID = "b0000000-0000-4000-8000-000000000001"
 
-func (c *rawTaskCreator) CreateTaskForBatch(ctx context.Context, tenantID, sopVersionID, taskType, title, scopeType, scopeID string) (string, error) {
+func (c *rawTaskCreator) CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopVersionID, taskType, title, scopeType, scopeID string) (string, error) {
+	var existing string
+	err := c.pool.QueryRow(ctx, `
+SELECT task_id::text
+FROM sop_tasks
+WHERE tenant_id = $1::uuid
+  AND context ->> 'obligation_batch_id' = $2
+LIMIT 1`, tenantID, batchID).Scan(&existing)
+	if err == nil {
+		return existing, nil
+	}
 	c.n++
 	var id string
-	err := c.pool.QueryRow(ctx,
-		`INSERT INTO sop_tasks (tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, priority)
-		 VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, 'normal') RETURNING task_id::text`,
-		tenantID, skeletonSOPID, sopVersionID, taskType, title, scopeType, scopeID).Scan(&id)
+	err = c.pool.QueryRow(ctx,
+		`INSERT INTO sop_tasks (tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, priority, context)
+		 VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, 'normal', jsonb_build_object('created_by', 'obligation-sweeper', 'obligation_batch_id', $8::text)) RETURNING task_id::text`,
+		tenantID, skeletonSOPID, sopVersionID, taskType, title, scopeType, scopeID, batchID).Scan(&id)
 	return id, err
 }
 

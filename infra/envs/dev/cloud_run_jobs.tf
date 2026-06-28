@@ -58,7 +58,13 @@ locals {
       cpu                 = "1"
       schedule            = "*/5 * * * *"
       env = {
-        GOATOS_TENANT_ID = var.dev_tenant_id
+        GOOGLE_CLOUD_PROJECT                     = var.project_id
+        GOATOS_TENANT_ID                         = var.dev_tenant_id
+        GOATOS_CLOUD_TASKS_PROJECT_ID            = var.project_id
+        GOATOS_CLOUD_TASKS_LOCATION              = var.region
+        GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name
+        GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
+        GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
       }
     }
     calendar_projector = {

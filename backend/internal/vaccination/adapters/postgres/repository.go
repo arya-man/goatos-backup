@@ -871,9 +871,11 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 // Two trusted sources suppress due work:
 //  1. Reviewed supplier/HF evidence (procurement_hf_vaccination_evidence, review_status='trusted').
 //  2. Accepted and verified Goat OS administrations (vaccination_completions, status='accepted',
-//     verified_at set) for the SAME protocol (protocol_id) and dose_code — matched across protocol
-//     versions so that publishing a new version of a protocol the goat already completed does not
-//     duplicate the dose (version change / catch-up dedupe).
+//     verified_at set).
+//
+// Both sources match the SAME protocol (protocol_id), dose_code, and sequence across protocol
+// versions so that publishing a new version of a protocol the goat already completed does not
+// duplicate the dose (version change / catch-up dedupe).
 //
 // Imported/rejected/conflicting/duplicate rows, future administrations, and future reviews never
 // suppress due work.
@@ -901,7 +903,21 @@ func (r *Repository) HasTrustedCompletionEvidence(ctx context.Context, tenantID,
 SELECT (
   EXISTS (
     SELECT 1
-    FROM procurement_hf_vaccination_evidence ev
+    FROM protocol_rules target_pr
+    JOIN protocol_versions target_pv
+      ON target_pv.tenant_id = target_pr.tenant_id
+     AND target_pv.protocol_version_id = target_pr.protocol_version_id
+    JOIN procurement_hf_vaccination_evidence ev
+      ON ev.tenant_id = target_pr.tenant_id
+     AND ev.goat_id = $2
+     AND ev.review_status = 'trusted'
+     AND ev.reviewed_at IS NOT NULL
+    JOIN protocol_rules ev_pr
+      ON ev_pr.tenant_id = ev.tenant_id
+     AND ev_pr.rule_id = ev.rule_id
+    JOIN protocol_versions ev_pv
+      ON ev_pv.tenant_id = ev.tenant_id
+     AND ev_pv.protocol_version_id = ev.protocol_version_id
     JOIN goats g
       ON g.tenant_id = ev.tenant_id
      AND g.goat_id = ev.goat_id
@@ -909,13 +925,15 @@ SELECT (
       ON plg.tenant_id = ev.tenant_id
      AND plg.load_id = ev.load_id
      AND plg.goat_id = ev.goat_id
-    WHERE ev.tenant_id = $1
-      AND ev.goat_id = $2
-      AND ev.protocol_version_id = $3
-      AND ev.rule_id = $4
-      AND ev.dose_code = $5
-      AND ev.review_status = 'trusted'
-      AND ev.reviewed_at IS NOT NULL
+    WHERE target_pr.tenant_id = $1
+      AND target_pr.protocol_version_id = $3
+      AND target_pr.rule_id = $4
+      AND target_pr.dose_code = $5
+      AND ev.tenant_id = $1
+      AND ev.dose_code = target_pr.dose_code
+      AND ev_pr.dose_code = target_pr.dose_code
+      AND ev_pr.sequence = target_pr.sequence
+      AND ev_pv.protocol_id = target_pv.protocol_id
       AND ev.administered_at <= $6::timestamptz
       AND ev.administered_at <= $7::timestamptz
       AND ev.reviewed_at <= $7::timestamptz

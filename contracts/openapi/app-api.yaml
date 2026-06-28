@@ -4097,6 +4097,7 @@ components:
         - scheduled
         - due
         - overdue
+        - missed
         - in_progress
         - proof_pending
         - verification_pending

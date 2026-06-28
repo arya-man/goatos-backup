@@ -326,7 +326,7 @@ func allowedOwnerKey(ownerKey string) bool {
 
 func allowedStatus(status string) bool {
 	switch status {
-	case domain.StatusScheduled, domain.StatusDue, domain.StatusOverdue, domain.StatusInProgress,
+	case domain.StatusScheduled, domain.StatusDue, domain.StatusOverdue, domain.StatusMissed, domain.StatusInProgress,
 		domain.StatusProofPending, domain.StatusVerificationPending, domain.StatusRejected,
 		domain.StatusReworkDue, domain.StatusDeferred, domain.StatusBlocked, domain.StatusCompleted,
 		domain.StatusCanceled:

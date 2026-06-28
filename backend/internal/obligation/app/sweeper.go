@@ -11,7 +11,7 @@ import (
 // TaskCreator spawns one SOP task per batch. Implemented by a thin adapter over the SOP module
 // (sop.CreateTask) at wiring time; the sweeper stays decoupled from SOP types. nil disables spawn.
 type TaskCreator interface {
-	CreateTaskForBatch(ctx context.Context, tenantID, sopVersionID, taskType, title, scopeType, scopeID string) (taskID string, err error)
+	CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopVersionID, taskType, title, scopeType, scopeID string) (taskID string, err error)
 }
 
 // StockReserver reserves doses for a batch (FEFO). Satisfied by the inventory app service; nil
@@ -94,7 +94,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 				continue
 			}
 			if s.tasks != nil && cfg.SOPVersionID != "" {
-				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
+				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, batchID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+g.scopeID, g.scopeType, g.scopeID)
 				if err != nil {
 					return res, err
 				}
@@ -140,7 +140,7 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 		}
 		for _, b := range batches {
 			if needsTask && !b.HasSOPTask {
-				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+b.ScopeID, b.ScopeType, b.ScopeID)
+				taskID, err := s.tasks.CreateTaskForBatch(ctx, tenantID, b.BatchID, cfg.SOPVersionID, "vaccination", "Vaccination drive "+b.ScopeID, b.ScopeType, b.ScopeID)
 				if err != nil {
 					return err
 				}

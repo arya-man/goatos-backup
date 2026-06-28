@@ -158,7 +158,6 @@ export function RuleEditorModal({
   const [lifecycle, setLifecycle] = useState(firstKey(lifecycleOptions, "rule_lifecycles"));
   const [reproductive, setReproductive] = useState(firstKey(reproductiveOptions, "rule_reproductive"));
   const [deferStates, setDeferStates] = useState<string[]>(() => deferOptions.map((option) => option.key));
-  const [individualOverride, setIndividualOverride] = useState(true);
   const [vaccineLotPolicy, setVaccineLotPolicy] = useState(copy(pageContract, "modal.rule_editor.default_vaccine_lot_policy"));
 
   const [missedDosePolicy, setMissedDosePolicy] = useState(requireKey(missedDoseOptions, "phc_approval", "missed_dose_policies"));
@@ -194,7 +193,7 @@ export function RuleEditorModal({
       scope,
       effectiveFrom,
       sopVersionId,
-      eligibility: { stage, sex, breed, lifecycle, health, reproductive, deferStates, individualOverride },
+      eligibility: { stage, sex, breed, lifecycle, health, reproductive, deferStates },
       vaccineLotPolicy,
       missedDosePolicy,
       escalation,
@@ -204,7 +203,7 @@ export function RuleEditorModal({
     }),
     [
       category, code, name, scope, effectiveFrom, sopVersionId, stage, sex, breed, lifecycle, health, reproductive,
-      deferStates, individualOverride, vaccineLotPolicy, missedDosePolicy, escalation, sourceSystem, sourceRef,
+      deferStates, vaccineLotPolicy, missedDosePolicy, escalation, sourceSystem, sourceRef,
       reviewStatus, reviewedBy, approvedBy, approvedAt, doses, feed,
     ],
   );
@@ -568,12 +567,6 @@ export function RuleEditorModal({
                     </label>
                   ))}
                 </div>
-                <div className="cfgchk" style={{ marginTop: 8 }}>
-                  <label>
-                    <input type="checkbox" checked={individualOverride} onChange={(e) => setIndividualOverride(e.target.checked)} /> {copy(pageContract, "modal.rule_editor.label.individual_override")}
-                  </label>
-                </div>
-
                 <label>{copy(pageContract, "modal.rule_editor.field.missed_dose")}</label>
                 <select aria-label={copy(pageContract, "modal.rule_editor.field.missed_dose")} value={missedDosePolicy} onChange={(e) => setMissedDosePolicy(e.target.value)}>
                   {missedDoseOptions.map((m) => (
