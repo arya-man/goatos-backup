@@ -50,6 +50,27 @@ CREATE TABLE admin_ui_config_family_revisions (
 CREATE INDEX admin_ui_config_family_changed_idx
   ON admin_ui_config_family_revisions (tenant_id, changed_at DESC, family_key);
 
+CREATE TABLE admin_ui_config_family_change_queue (
+  transaction_id bigint NOT NULL,
+  tenant_id uuid NOT NULL REFERENCES tenants(tenant_id),
+  family_key text NOT NULL,
+  changed_by uuid NULL,
+  source text NOT NULL DEFAULT 'system',
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  change_count int NOT NULL DEFAULT 1,
+  queued_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (transaction_id, tenant_id, family_key),
+  CONSTRAINT admin_ui_config_family_change_queue_family_check CHECK (btrim(family_key) <> ''),
+  CONSTRAINT admin_ui_config_family_change_queue_source_check CHECK (btrim(source) <> ''),
+  CONSTRAINT admin_ui_config_family_change_queue_metadata_object_check CHECK (jsonb_typeof(metadata) = 'object'),
+  CONSTRAINT admin_ui_config_family_change_queue_count_check CHECK (change_count >= 1)
+);
+
+CREATE UNIQUE INDEX outbox_messages_config_changed_idempotency_idx
+  ON outbox_messages (tenant_id, idempotency_key)
+  WHERE event_type = 'config.changed';
+
 CREATE OR REPLACE FUNCTION validate_outbox_event_tenant()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -153,7 +174,33 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION admin_ui_bump_config_family(
+CREATE OR REPLACE FUNCTION admin_ui_deterministic_config_event_uuid(
+  p_tenant_id uuid,
+  p_family_key text,
+  p_revision bigint
+) RETURNS uuid
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  WITH digest AS (
+    SELECT md5(
+      'admin-ui-config:' ||
+      p_tenant_id::text || ':' ||
+      btrim(COALESCE(p_family_key, '')) || ':' ||
+      COALESCE(p_revision, 0)::text
+    ) AS h
+  )
+  SELECT (
+    substr(h, 1, 8) || '-' ||
+    substr(h, 9, 4) || '-' ||
+    substr(h, 13, 4) || '-' ||
+    substr(h, 17, 4) || '-' ||
+    substr(h, 21, 12)
+  )::uuid
+  FROM digest
+$$;
+
+CREATE OR REPLACE FUNCTION admin_ui_emit_config_family_change(
   p_tenant_id uuid,
   p_family_key text,
   p_changed_by uuid DEFAULT NULL,
@@ -165,8 +212,11 @@ AS $$
 DECLARE
   next_revision bigint;
   next_hash text;
-  event_uuid uuid := gen_random_uuid();
+  event_uuid uuid;
+  event_idempotency_key text;
   family text := btrim(COALESCE(p_family_key, ''));
+  normalized_source text := COALESCE(NULLIF(btrim(p_source), ''), 'system');
+  normalized_metadata jsonb := COALESCE(p_metadata, '{}'::jsonb);
 BEGIN
   IF p_tenant_id IS NULL OR family = '' THEN
     RETURN;
@@ -188,8 +238,8 @@ BEGIN
     md5(p_tenant_id::text || ':' || family || ':1:' || clock_timestamp()::text),
     now(),
     p_changed_by,
-    COALESCE(NULLIF(btrim(p_source), ''), 'system'),
-    COALESCE(p_metadata, '{}'::jsonb)
+    normalized_source,
+    normalized_metadata
   )
   ON CONFLICT (tenant_id, family_key) DO UPDATE
   SET revision = admin_ui_config_family_revisions.revision + 1,
@@ -205,6 +255,9 @@ BEGIN
       metadata = EXCLUDED.metadata
   RETURNING revision, content_hash
     INTO next_revision, next_hash;
+
+  event_uuid := admin_ui_deterministic_config_event_uuid(p_tenant_id, family, next_revision);
+  event_idempotency_key := 'admin-ui-config:' || p_tenant_id::text || ':' || family || ':' || next_revision::text;
 
   INSERT INTO outbox_messages (
     tenant_id,
@@ -233,17 +286,101 @@ BEGIN
       'family_key', family,
       'revision', next_revision,
       'content_hash', next_hash,
-      'source', COALESCE(NULLIF(btrim(p_source), ''), 'system'),
-      'metadata', COALESCE(p_metadata, '{}'::jsonb)
+      'source', normalized_source,
+      'metadata', normalized_metadata
     ),
     jsonb_build_object('producer', 'postgres.admin_ui_config_family_revisions'),
-    'admin-ui-config:' || event_uuid::text,
+    event_idempotency_key,
     NULL,
     'pending',
     now()
-  );
+  )
+  ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'config.changed' DO NOTHING;
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION admin_ui_bump_config_family(
+  p_tenant_id uuid,
+  p_family_key text,
+  p_changed_by uuid DEFAULT NULL,
+  p_source text DEFAULT 'system',
+  p_metadata jsonb DEFAULT '{}'::jsonb
+) RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  family text := btrim(COALESCE(p_family_key, ''));
+  normalized_source text := COALESCE(NULLIF(btrim(p_source), ''), 'system');
+  normalized_metadata jsonb := COALESCE(p_metadata, '{}'::jsonb);
+BEGIN
+  IF p_tenant_id IS NULL OR family = '' THEN
+    RETURN;
+  END IF;
+
+  INSERT INTO admin_ui_config_family_change_queue (
+    transaction_id,
+    tenant_id,
+    family_key,
+    changed_by,
+    source,
+    metadata,
+    change_count
+  ) VALUES (
+    txid_current(),
+    p_tenant_id,
+    family,
+    p_changed_by,
+    normalized_source,
+    normalized_metadata,
+    1
+  )
+  ON CONFLICT (transaction_id, tenant_id, family_key) DO UPDATE
+  SET changed_by = COALESCE(EXCLUDED.changed_by, admin_ui_config_family_change_queue.changed_by),
+      source = CASE
+        WHEN admin_ui_config_family_change_queue.source = EXCLUDED.source THEN admin_ui_config_family_change_queue.source
+        ELSE 'coalesced'
+      END,
+      metadata = EXCLUDED.metadata,
+      change_count = admin_ui_config_family_change_queue.change_count + 1,
+      updated_at = now();
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION admin_ui_flush_config_family_change_trg()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  queued admin_ui_config_family_change_queue%ROWTYPE;
+  flush_metadata jsonb;
+BEGIN
+  DELETE FROM admin_ui_config_family_change_queue
+  WHERE transaction_id = NEW.transaction_id
+    AND tenant_id = NEW.tenant_id
+    AND family_key = NEW.family_key
+  RETURNING * INTO queued;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  flush_metadata := queued.metadata || jsonb_build_object('coalesced_change_count', queued.change_count);
+  PERFORM admin_ui_emit_config_family_change(
+    queued.tenant_id,
+    queued.family_key,
+    queued.changed_by,
+    queued.source,
+    flush_metadata
+  );
+
+  RETURN NULL;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER admin_ui_config_family_change_queue_flush_trg
+  AFTER INSERT OR UPDATE ON admin_ui_config_family_change_queue
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION admin_ui_flush_config_family_change_trg();
 
 CREATE OR REPLACE FUNCTION admin_ui_bump_config_family_for_all_tenants(
   p_family_key text,
@@ -602,7 +739,13 @@ DROP FUNCTION IF EXISTS admin_ui_bump_status_family_trg();
 DROP FUNCTION IF EXISTS admin_ui_bump_global_family_trg();
 DROP FUNCTION IF EXISTS admin_ui_bump_row_family_trg();
 DROP FUNCTION IF EXISTS admin_ui_bump_config_family_for_all_tenants(text, text, jsonb);
+DROP TRIGGER IF EXISTS admin_ui_config_family_change_queue_flush_trg ON admin_ui_config_family_change_queue;
 DROP FUNCTION IF EXISTS admin_ui_bump_config_family(uuid, text, uuid, text, jsonb);
+DROP FUNCTION IF EXISTS admin_ui_flush_config_family_change_trg();
+DROP FUNCTION IF EXISTS admin_ui_emit_config_family_change(uuid, text, uuid, text, jsonb);
+DROP FUNCTION IF EXISTS admin_ui_deterministic_config_event_uuid(uuid, text, bigint);
+DROP TABLE IF EXISTS admin_ui_config_family_change_queue;
+DROP INDEX IF EXISTS outbox_messages_config_changed_idempotency_idx;
 
 CREATE OR REPLACE FUNCTION validate_outbox_event_tenant()
 RETURNS trigger

@@ -8,6 +8,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AdminUiConfigEntry struct {
+	TenantID    pgtype.UUID
+	Locale      string
+	RouteID     string
+	ConfigKey   string
+	ConfigValue string
+	ValueKind   string
+	Status      string
+	Metadata    []byte
+	RowVersion  int32
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type AdminUiConfigFamilyChangeQueue struct {
+	TransactionID int64
+	TenantID      pgtype.UUID
+	FamilyKey     string
+	ChangedBy     pgtype.UUID
+	Source        string
+	Metadata      []byte
+	ChangeCount   int32
+	QueuedAt      pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type AdminUiConfigFamilyRevision struct {
+	TenantID    pgtype.UUID
+	FamilyKey   string
+	Revision    int64
+	ContentHash string
+	ChangedAt   pgtype.Timestamptz
+	ChangedBy   pgtype.UUID
+	Source      string
+	Metadata    []byte
+}
+
 type AnimalStageLookup struct {
 	AnimalStageID pgtype.UUID
 	TenantID      pgtype.UUID
