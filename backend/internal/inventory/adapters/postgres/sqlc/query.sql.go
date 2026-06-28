@@ -11,6 +11,103 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acquireBatchReserveLock = `-- name: AcquireBatchReserveLock :exec
+SELECT pg_advisory_xact_lock(hashtext($1::text))
+`
+
+// Serialize all reservation attempts for one batch within their transactions so the reserve-movement
+// count guard is authoritative: a concurrent retry/replay blocks here until the first reservation's
+// transaction ends, then observes the prior movements and no-ops instead of double-reserving across a
+// different lot/ancestor. The advisory lock auto-releases at transaction end.
+func (q *Queries) AcquireBatchReserveLock(ctx context.Context, batchID string) error {
+	_, err := q.db.Exec(ctx, acquireBatchReserveLock, batchID)
+	return err
+}
+
+const chainLocationAvailableSums = `-- name: ChainLocationAvailableSums :many
+WITH RECURSIVE chain AS (
+  SELECT b.location_id, b.parent_location_id, 0 AS depth
+  FROM locations b
+  WHERE b.tenant_id = $1 AND b.location_id = $3
+  UNION ALL
+  SELECT l.location_id, l.parent_location_id, c.depth + 1
+  FROM locations l
+  JOIN chain c ON l.location_id = c.parent_location_id
+  WHERE l.tenant_id = $1 AND c.depth < 8
+)
+SELECT c.location_id::text AS location_id,
+       c.depth AS depth,
+       SUM(s.quantity_in_stock - s.quantity_reserved)::numeric AS available_quantity
+FROM chain c
+JOIN inventory_stock s
+  ON s.tenant_id = $1
+ AND s.location_id = c.location_id
+ AND s.item_id = $2
+ AND s.quantity_in_stock > s.quantity_reserved
+ AND s.status = 'active'
+ AND (s.expiry_date IS NULL OR s.expiry_date >= CURRENT_DATE)
+GROUP BY c.location_id, c.depth
+ORDER BY c.depth ASC
+`
+
+type ChainLocationAvailableSumsParams struct {
+	TenantID   pgtype.UUID
+	ItemID     pgtype.UUID
+	LocationID pgtype.UUID
+}
+
+type ChainLocationAvailableSumsRow struct {
+	LocationID        string
+	Depth             int32
+	AvailableQuantity pgtype.Numeric
+}
+
+// Per-location TOTAL available (in_stock - reserved) active, unexpired stock for the location chain
+// starting at @location_id and walking UP parent_location_id (self at depth 0), ordered nearest-first.
+// Lets the reserve path pick the NEAREST ancestor whose lots TOGETHER cover the requested qty: a single
+// FEFO lot can be short even when the location holds enough across several lots, and a near ancestor can
+// be short even when a farther one is flush. Bounded chain depth (< 8). Locations with no available lot
+// are dropped (inner JOIN), so an empty result means no ancestor holds any stock at all.
+func (q *Queries) ChainLocationAvailableSums(ctx context.Context, arg ChainLocationAvailableSumsParams) ([]ChainLocationAvailableSumsRow, error) {
+	rows, err := q.db.Query(ctx, chainLocationAvailableSums, arg.TenantID, arg.ItemID, arg.LocationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChainLocationAvailableSumsRow
+	for rows.Next() {
+		var i ChainLocationAvailableSumsRow
+		if err := rows.Scan(&i.LocationID, &i.Depth, &i.AvailableQuantity); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countBatchReserveMovements = `-- name: CountBatchReserveMovements :one
+SELECT count(*)::bigint AS reserve_count
+FROM inventory_stock_movements
+WHERE tenant_id = $1 AND batch_id = $2 AND movement_type = 'reserve'
+`
+
+type CountBatchReserveMovementsParams struct {
+	TenantID pgtype.UUID
+	BatchID  pgtype.UUID
+}
+
+// How many reserve movements already exist for this batch — the idempotency guard for the multi-lot
+// reserve (a single per-lot movement key cannot cover a reservation that spans lots/ancestors).
+func (q *Queries) CountBatchReserveMovements(ctx context.Context, arg CountBatchReserveMovementsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countBatchReserveMovements, arg.TenantID, arg.BatchID)
+	var reserve_count int64
+	err := row.Scan(&reserve_count)
+	return reserve_count, err
+}
+
 const getInventoryItem = `-- name: GetInventoryItem :one
 SELECT item_id::text AS item_id, item_code, name, category, base_unit, status, row_version
 FROM inventory_items
@@ -82,6 +179,58 @@ func (q *Queries) GetStockLot(ctx context.Context, arg GetStockLotParams) (GetSt
 		&i.RowVersion,
 	)
 	return i, err
+}
+
+const listFEFOLotsForUpdate = `-- name: ListFEFOLotsForUpdate :many
+SELECT stock_id::text AS stock_id,
+       (quantity_in_stock - quantity_reserved)::numeric AS available_quantity,
+       quantity_unit
+FROM inventory_stock
+WHERE tenant_id = $1
+  AND location_id = $2
+  AND item_id = $3
+  AND status = 'active'
+  AND quantity_in_stock > quantity_reserved
+  AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+ORDER BY expiry_date ASC NULLS LAST, stock_id ASC
+FOR UPDATE
+`
+
+type ListFEFOLotsForUpdateParams struct {
+	TenantID   pgtype.UUID
+	LocationID pgtype.UUID
+	ItemID     pgtype.UUID
+}
+
+type ListFEFOLotsForUpdateRow struct {
+	StockID           string
+	AvailableQuantity pgtype.Numeric
+	QuantityUnit      string
+}
+
+// Active, unexpired lots with available stock at @location_id for @item_id, earliest-expiry first
+// (FEFO), LOCKED FOR UPDATE so concurrent reservers at the same location serialize — the second waits,
+// then re-reads each row's CURRENT reserved level under the lock (READ COMMITTED EvalPlanQual) so it
+// cannot over-reserve past the quantity_reserved <= quantity_in_stock guard. The caller recomputes
+// available from the locked rows and consumes greedily in FEFO order.
+func (q *Queries) ListFEFOLotsForUpdate(ctx context.Context, arg ListFEFOLotsForUpdateParams) ([]ListFEFOLotsForUpdateRow, error) {
+	rows, err := q.db.Query(ctx, listFEFOLotsForUpdate, arg.TenantID, arg.LocationID, arg.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFEFOLotsForUpdateRow
+	for rows.Next() {
+		var i ListFEFOLotsForUpdateRow
+		if err := rows.Scan(&i.StockID, &i.AvailableQuantity, &i.QuantityUnit); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const pickFEFOLot = `-- name: PickFEFOLot :one

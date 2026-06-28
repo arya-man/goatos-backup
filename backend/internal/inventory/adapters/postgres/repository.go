@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -337,6 +339,176 @@ func (r *Repository) RecordMovementAndAdjustBalances(ctx context.Context, m doma
 	}
 	committed = true
 	return id, true, nil
+}
+
+// ReserveForBatch atomically reserves qty for batchID against the nearest ancestor location whose
+// active FEFO lots together cover qty, consuming lots earliest-expiry first across as many lots as
+// needed. Walking up the location hierarchy AND spanning multiple lots is what stops a shed-scoped
+// drive from falsely stock-blocking when the vaccine is held at the park/farm or split across lots.
+// Idempotent per batch: the per-batch advisory lock serializes retries and the reserve-movement count
+// guard makes a replay a no-op even when the original reservation spanned several lots.
+func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64) error {
+	if qty <= 0 {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("inventory: tenant id: %w", err)
+	}
+	batch, err := pgconv.UUID(batchID)
+	if err != nil {
+		return fmt.Errorf("inventory: batch id: %w", err)
+	}
+	startLoc, err := pgconv.UUID(locationID)
+	if err != nil {
+		return fmt.Errorf("inventory: location id: %w", err)
+	}
+	item, err := pgconv.UUID(itemID)
+	if err != nil {
+		return fmt.Errorf("inventory: item id: %w", err)
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+
+	// Serialize concurrent reservations for this batch so the count guard below is authoritative — a
+	// retry that races the first reservation waits here, then observes its movements and no-ops instead
+	// of double-reserving across a different lot/ancestor.
+	if err := qtx.AcquireBatchReserveLock(ctx, batchID); err != nil {
+		return fmt.Errorf("inventory: acquire batch reserve lock: %w", err)
+	}
+	already, err := qtx.CountBatchReserveMovements(ctx, inventorydb.CountBatchReserveMovementsParams{TenantID: tenant, BatchID: batch})
+	if err != nil {
+		return fmt.Errorf("inventory: count batch reserve movements: %w", err)
+	}
+	if already > 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	}
+
+	// Pick the NEAREST ancestor whose lots together cover qty (a near location short on stock is skipped
+	// for a farther flush one). sums is ordered nearest-first; an empty result means no stock anywhere.
+	sums, err := qtx.ChainLocationAvailableSums(ctx, inventorydb.ChainLocationAvailableSumsParams{TenantID: tenant, ItemID: item, LocationID: startLoc})
+	if err != nil {
+		return fmt.Errorf("inventory: chain location available sums: %w", err)
+	}
+	chosen := ""
+	anyStock := false
+	for _, row := range sums {
+		if floorNumericToInt64(row.AvailableQuantity) > 0 {
+			anyStock = true
+		}
+		if floorNumericToInt64(row.AvailableQuantity) >= qty {
+			chosen = row.LocationID
+			break
+		}
+	}
+	if chosen == "" {
+		if !anyStock {
+			return ports.ErrNotFound
+		}
+		return ports.ErrInsufficientStock
+	}
+
+	chosenLoc, err := pgconv.UUID(chosen)
+	if err != nil {
+		return fmt.Errorf("inventory: resolved location id: %w", err)
+	}
+	lots, err := qtx.ListFEFOLotsForUpdate(ctx, inventorydb.ListFEFOLotsForUpdateParams{TenantID: tenant, LocationID: chosenLoc, ItemID: item})
+	if err != nil {
+		return fmt.Errorf("inventory: list fefo lots for update: %w", err)
+	}
+	zero, err := pgconv.Numeric("0")
+	if err != nil {
+		return fmt.Errorf("inventory: zero delta: %w", err)
+	}
+	remaining := qty
+	for _, lot := range lots {
+		if remaining <= 0 {
+			break
+		}
+		take := floorNumericToInt64(lot.AvailableQuantity) // recomputed under the FOR UPDATE lock
+		if take > remaining {
+			take = remaining
+		}
+		if take <= 0 {
+			continue
+		}
+		lotUUID, err := pgconv.UUID(lot.StockID)
+		if err != nil {
+			return fmt.Errorf("inventory: lot id: %w", err)
+		}
+		takeQty, err := pgconv.Numeric(strconv.FormatInt(take, 10))
+		if err != nil {
+			return fmt.Errorf("inventory: reserve quantity: %w", err)
+		}
+		// One reserve movement per consumed lot, each with its own idempotency key, so a reservation that
+		// spans lots stays idempotent (a single batch-level key would collapse the second lot's insert).
+		if _, err := qtx.InsertStockMovement(ctx, inventorydb.InsertStockMovementParams{
+			TenantID:       tenant,
+			LotID:          lotUUID,
+			ItemID:         item,
+			LocationID:     chosenLoc,
+			MovementType:   "reserve",
+			Quantity:       takeQty,
+			QuantityUnit:   lot.QuantityUnit,
+			BatchID:        pgconv.NullableUUID(&batchID),
+			Reason:         pgconv.Text("batch reserve"),
+			IdempotencyKey: batchID + ":reserve:" + lot.StockID,
+		}); errors.Is(err, pgx.ErrNoRows) {
+			// A reserve movement for this lot already exists though the batch counted none — under the
+			// advisory lock that is an invariant violation; fail closed rather than risk silent miscount.
+			return fmt.Errorf("inventory: unexpected duplicate reserve movement for batch %s lot %s", batchID, lot.StockID)
+		} else if err != nil {
+			return fmt.Errorf("inventory: record reserve movement: %w", err)
+		}
+		if err := qtx.AdjustStockBalances(ctx, inventorydb.AdjustStockBalancesParams{
+			InDelta:       zero,
+			ReservedDelta: takeQty,
+			TenantID:      tenant,
+			StockID:       lotUUID,
+		}); err != nil {
+			return fmt.Errorf("inventory: adjust reserve balances: %w", err)
+		}
+		remaining -= take
+	}
+	if remaining > 0 {
+		// A concurrent reservation drained the chosen location between the (unlocked) resolve and the
+		// (locked) consume, so it no longer covers qty. Roll back the partial inserts and fail closed.
+		return ports.ErrInsufficientStock
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// floorNumericToInt64 floors a Postgres numeric to a whole int64 (doses are whole units). Invalid or
+// unparseable numerics floor to 0, which the reserve path treats as "no available stock here".
+func floorNumericToInt64(n pgtype.Numeric) int64 {
+	if !n.Valid {
+		return 0
+	}
+	f, err := n.Float64Value()
+	if err != nil || !f.Valid {
+		return 0
+	}
+	return int64(math.Floor(f.Float64))
 }
 
 func movementParams(m domain.Movement) (tenant, lot, item, location pgtype.UUID, qty pgtype.Numeric, err error) {

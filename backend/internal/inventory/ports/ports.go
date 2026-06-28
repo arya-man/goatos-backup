@@ -11,6 +11,11 @@ import (
 // ErrNotFound is returned when a requested inventory row does not exist.
 var ErrNotFound = errors.New("inventory: not found")
 
+// ErrInsufficientStock is returned by ReserveForBatch when stock for the item exists somewhere in the
+// location chain but no single location at or above the requested location holds enough to fully cover
+// the requested quantity. Distinct from ErrNotFound, which means no stock exists in the chain at all.
+var ErrInsufficientStock = errors.New("inventory: insufficient stock")
+
 // Repository is the persistence boundary for inventory. Implementations wrap generated
 // sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {
@@ -30,6 +35,15 @@ type Repository interface {
 	// parent_location_id chain) that holds available stock for the item — so a shed-scoped drive
 	// reserves against park/farm-held vaccine stock. Returns ErrNotFound when no ancestor holds stock.
 	ResolveStockLocation(ctx context.Context, tenantID, locationID, itemID string) (string, error)
+
+	// ReserveForBatch atomically reserves exactly qty for batchID, walking up from locationID to the
+	// NEAREST ancestor location whose active, unexpired lots TOGETHER cover qty, then consuming those
+	// lots earliest-expiry first (FEFO) — spanning multiple lots within that location as needed. The
+	// whole reservation is one transaction. It is idempotent per batch (advisory-locked + guarded by the
+	// existing reserve-movement count), so a retry/replay reserves nothing more even when the original
+	// reservation spanned several lots. Returns ErrNotFound when no ancestor holds any stock for the
+	// item, and ErrInsufficientStock when stock exists but no single ancestor can fully cover qty.
+	ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64) error
 
 	// RecordMovement appends a ledger movement. It is idempotent on (tenant_id, idempotency_key):
 	// applied is false when the movement was already recorded (replay).
