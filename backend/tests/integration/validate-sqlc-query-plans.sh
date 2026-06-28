@@ -172,6 +172,32 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY occurred_at;"
 }
 
+validate_inventory_batch_reconcile_plan() {
+  explain_must_use_index "InventoryBatchStockReconcileCandidates" 'Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
+SELECT batch_id,
+       (
+         CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
+         + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
+         + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
+       )::numeric AS release_qty
+FROM obligation_batches
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND (
+    context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+    OR context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+    OR context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+  )
+ORDER BY updated_at ASC, batch_id ASC
+LIMIT 100
+FOR UPDATE SKIP LOCKED;"
+}
+
 validate_vaccination_generation_scan_plan() {
   explain_must_use_index "VaccinationGenerationKeyset" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
 SELECT goat_id, dob
@@ -821,6 +847,7 @@ validate_obligation_scope_count_plan
 validate_obligation_open_by_goat_plan
 validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
+validate_inventory_batch_reconcile_plan
 validate_vaccination_generation_scan_plan
 validate_vaccination_review_queue_plan
 validate_vaccination_fanout_plan

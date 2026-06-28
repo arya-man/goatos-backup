@@ -33,8 +33,7 @@ const EVIDENCE_TYPES = ["source_record", "identifier", "goat", "event", "media",
 
 const HERD_PATH = "/counts/herd";
 const MAX_SHED_IMPORT_ROWS = 500;
-const SHED_BULK_FILE_HASH_RE = /^[a-f0-9]{8,64}$/;
-const GOAT_BULK_FILE_HASH_RE = /^[a-f0-9]{8,64}$/;
+const BULK_FILE_SHA256_RE = /^[a-f0-9]{64}$/;
 
 export type ShedImportDecision = "create" | "requires_review";
 
@@ -223,7 +222,7 @@ export async function commitGoatsAction(
   fileHash: string,
 ): Promise<ApiResult<AdminGoatBulkResponse>> {
   const stableFileHash = (typeof fileHash === "string" ? fileHash : "").trim().toLowerCase();
-  if (!GOAT_BULK_FILE_HASH_RE.test(stableFileHash)) {
+  if (!BULK_FILE_SHA256_RE.test(stableFileHash)) {
     return { ok: false, error: { kind: "bad_request", code: "invalid_file_hash", message: "Goat import commit received an invalid file hash; preview the CSV again." } };
   }
   const result = await commitAdminGoatBulkImport({ rows, file_hash: stableFileHash }, `goat-bulk:${stableFileHash}`);
@@ -277,7 +276,7 @@ export async function previewShedsAction(csv: string): Promise<ShedImportActionR
 
 export async function commitShedsAction(rows: ShedImportCommitRow[], fileHash: string): Promise<ShedImportActionResult> {
   const stableFileHash = (typeof fileHash === "string" ? fileHash : "").trim().toLowerCase();
-  if (!SHED_BULK_FILE_HASH_RE.test(stableFileHash)) {
+  if (!BULK_FILE_SHA256_RE.test(stableFileHash)) {
     return { ok: false, message: "Shed import commit received an invalid file hash; preview the CSV again." };
   }
   if (!Array.isArray(rows)) {

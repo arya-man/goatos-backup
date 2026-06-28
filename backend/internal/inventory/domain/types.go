@@ -74,3 +74,11 @@ type Movement struct {
 	Reason         string
 	IdempotencyKey string
 }
+
+// BatchStockReconcileSummary reports bounded release cleanup for batches whose
+// planned membership changed after stock reservation.
+type BatchStockReconcileSummary struct {
+	Batches   int
+	Movements int
+	Released  int64
+}

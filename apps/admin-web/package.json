@@ -15,6 +15,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check:ia-guard": "node scripts/check-ia-guard.mjs",
+    "check:herd-import-security": "node --experimental-strip-types scripts/check-herd-import-security.mjs",
     "check:ui-contract": "node scripts/check-ui-contract-literals.mjs",
     "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-ui-contract-literals.mjs && node scripts/check-mock-fidelity.mjs"
   },

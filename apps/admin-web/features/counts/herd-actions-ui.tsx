@@ -24,6 +24,7 @@ import {
   type ShedImportCommitRow,
   type ShedImportResponse,
 } from "./herd-actions";
+import { csvCell, stableCSVContentHash } from "./herd-import-utils";
 
 export type HerdAnimalStageOption = {
   code: string;
@@ -33,18 +34,6 @@ export type HerdAnimalStageOption = {
 function todayISO(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-// Stable, path-independent content key over the CSV. Sent on preview AND commit so the backend's
-// file-hash + row-fingerprint idempotency dedupes a re-submitted file. Opaque to the backend — a fast
-// non-cryptographic hash is sufficient as a content key.
-function fnv1aHex(input: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, "0");
 }
 
 function contractTone(pageContract: AdminUiPageContract, groupId: string, key: string): Tone {
@@ -57,11 +46,6 @@ function decisionLabel(pageContract: AdminUiPageContract, decision: string): str
 
 function csvFilename(label: string): string {
   return label.toLowerCase().endsWith(".csv") ? label : `${label}.csv`;
-}
-
-function csvCell(value: unknown): string {
-  const text = String(value ?? "");
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll("\"", "\"\"")}"` : text;
 }
 
 function parseCSVRecords(raw: string): string[][] {
@@ -627,8 +611,8 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   function runPreview() {
     setError(null);
     setCommitted(null);
-    const hash = fnv1aHex(csv);
     startTransition(async () => {
+      const hash = await stableCSVContentHash(csv);
       const res = await previewGoatsAction(csv, hash);
       if (res.ok) setPreview(res.data);
       else setError(`${res.error.code ?? res.error.kind}: ${res.error.message}`);
@@ -642,8 +626,8 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
       .map((r) => ({ row_number: r.row_number, normalized: r.normalized as CreateAdminGoatRequest }));
     if (rows.length === 0) return;
     setError(null);
-    const hash = fnv1aHex(csv);
     startTransition(async () => {
+      const hash = await stableCSVContentHash(csv);
       const res = await commitGoatsAction(rows, hash);
       if (res.ok) {
         setCommitted(mergeGoatCommitResult(preview, res.data));
@@ -854,8 +838,8 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
     );
     if (rows.length === 0) return;
     setError(null);
-    const hash = fnv1aHex(csv);
     startTransition(async () => {
+      const hash = await stableCSVContentHash(csv);
       const res = await commitShedsAction(rows, hash);
       if (res.ok) {
         setCommitted(mergeShedCommitResult(preview, res.data));

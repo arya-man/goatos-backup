@@ -137,6 +137,10 @@ func (r *consumeRepo) ReserveForBatch(context.Context, string, string, string, s
 	return nil
 }
 
+func (r *consumeRepo) ReleaseBatchReconcileRemainders(context.Context, string, int) (domain.BatchStockReconcileSummary, error) {
+	return domain.BatchStockReconcileSummary{}, nil
+}
+
 func (r *consumeRepo) RecordMovement(context.Context, domain.Movement) (string, bool, error) {
 	return "", false, nil
 }

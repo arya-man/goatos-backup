@@ -58,7 +58,11 @@ Fixed in this pass:
 - Calendar completed/canceled projection rows are hot-retained only for recent
   operational proof. Refresh does not rematerialize completed vaccination rows
   older than 90 days, and bounded prune can delete old closed rows without
-  deleting notification/snooze history.
+  deleting notification/snooze history. The projector default-runs the bounded
+  prune after refresh.
+- Batch stock reconcile now has an operational worker. Defer/shift/cancel paths
+  mark batches with explicit `release_qty`, and `inventory-batch-reconciler`
+  releases only that excess reserved stock through idempotent release movements.
 - Admin UI config invalidation drift is repaired by a forward `000106`
   migration, so DBs that already applied the earlier `000105` get the
   coalescing queue/functions/index without editing migration history.
@@ -67,7 +71,8 @@ Fixed in this pass:
   an aggregate skipped counter.
 - No-version vaccination backfill resolves effective versions per goat/park/as-of
   instead of looping every published version and double-materializing tenant
-  defaults plus park overrides.
+  defaults plus park overrides. Explicit `-version-id` runs are now gated behind
+  `-unsafe-version-id-bypass-effective-resolution` for repair-only use.
 - Explicit missed-dose policy with a due window is now executable:
   `immediate`, `phc_approval`, `defer`, and yearly `next_cycle`.
 - Vaccination execution rendered the returned shed-event set as one long page.
@@ -94,9 +99,6 @@ Still a documented platform/API gap, not hidden as done:
 - Death exits remain intentionally guardrailed. E2E must assert generic death is
   blocked with the critical-action response and that non-death exits cancel open
   obligations. Do not bypass the guardrail as a "fix."
-- Batch close/no-show stock release remains a separate close-drive contract:
-  current reserve/consume is idempotent, but an explicit close path must prove
-  unused reserved doses are released.
 - Bulk Herd Register upload is currently CSV/template based. Do not call it XLSX
   Excel support until `.xlsx` parsing is implemented; the current E2E target is
   CSV template download/upload plus failed-row export.
@@ -240,6 +242,12 @@ Run API/integration checks before browser clicks.
    - Assert row errors, idempotent replay, audit rows, generated `goat.created`
      events, and that failed rows can be exported with original cells plus
      failure reasons.
+   - Failed-row export must neutralize spreadsheet formulas before writing CSV
+     cells: values beginning with `=`, `+`, `-`, `@`, tab, CR/LF, or those
+     forms after leading whitespace must open as text, not formulas.
+   - Preview/commit idempotency must use a collision-resistant content digest
+     for the uploaded CSV, not a short checksum. Run
+     `npm --prefix apps/admin-web run check:herd-import-security`.
    - Mixed-row matrix must include: valid new shed/goat, duplicate tag,
      duplicate row in the uploaded file, invalid shed reference, missing DOB for
      a birth-age rule, invalid stage, invalid sex, malformed date, and blank
@@ -280,12 +288,19 @@ Run API/integration checks before browser clicks.
      idempotent.
    - Sweep one stock-out shed and one stocked shed; assert the stock-out batch is
      blocked and the stocked batch still finalizes.
+   - Shift/defer/cancel one goat out of a reserved planned batch, run
+     `go run ./cmd/inventory-batch-reconciler -tenant-id <tenant>`, and assert
+     only the recorded excess dose is released, replay is a no-op, and the
+     remaining batch reservation is preserved.
    - Sweep 1001 due goats in one shed; assert one planned drive/batch.
    - Refresh Calendar with an old completed obligation; assert it is not
      re-added after the 90-day cutoff, prune deletes old closed projection rows,
      and notification/snooze history remains queryable.
    - Run no-version vaccination backfill with tenant default plus park override;
      assert one obligation per goat/protocol from the effective version only.
+   - Run the generation CLI with `-version-id` and no unsafe flag; assert it
+     fails before generation. Run normal no-version generation for production
+     coverage.
    - Run birth-age K1 generation for a goat with no DOB; assert a visible
      deferred data-quality row appears in AC/PA/Calendar/Passport where exposed.
    - Run missed-dose policy cases for `immediate`, `next_cycle`, `phc_approval`,

@@ -291,6 +291,27 @@ func (s *Service) RefreshVaccinationProjection(ctx context.Context, in ports.Ref
 	return n, nil
 }
 
+func (s *Service) PruneClosedVaccinationProjection(ctx context.Context, tenantID string, cutoff time.Time, limit int) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if cutoff.IsZero() {
+		cutoff = s.now().UTC().Add(-90 * 24 * time.Hour)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	n, err := s.repo.PruneClosedVaccinationProjection(ctx, tenantID, cutoff.UTC(), limit)
+	if err != nil {
+		return 0, mapRepoError(err)
+	}
+	return n, nil
+}
+
 func validateActionEnvelope(tenantID, actorID, eventID, idempotencyKey string) error {
 	if !uuidutil.IsUUIDString(tenantID) {
 		return BadRequest("invalid_tenant", "tenant id is required")

@@ -204,20 +204,27 @@ WHERE tenant_id = $1
 
 	if detachPlannedBatch {
 		if _, err := tx.Exec(ctx, `
+WITH reserved AS (
+  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+  FROM inventory_stock_movements
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+    AND movement_type = 'reserve'
+)
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - 1),
     context = CASE
-      WHEN EXISTS (
-        SELECT 1
-        FROM inventory_stock_movements ism
-        WHERE ism.tenant_id = ob.tenant_id
-          AND ism.batch_id = ob.batch_id
-          AND ism.movement_type = 'reserve'
-      ) THEN context || jsonb_build_object(
+      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
         'defer_repair', jsonb_build_object(
           'state', 'stock_reconcile_required',
           'held_obligation_id', $3::text,
           'reason', $4::text,
+          'release_qty',
+            (CASE
+              WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+              ELSE 0
+            END) + LEAST(reserved.qty, reserved.qty / GREATEST(ob.estimated_targets, 1)),
           'recorded_at', now()
         )
       )
@@ -225,6 +232,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - 1),
     END,
     updated_at = now(),
     row_version = row_version + 1
+FROM reserved
 WHERE tenant_id = $1
   AND batch_id = $2::uuid`, tenant, oldBatchID, obligationID, reason); err != nil {
 			return "", false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
@@ -815,12 +823,70 @@ func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, re
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 
-	ids, err := qtx.CancelOpenObligationsForGoat(ctx, obligationdb.CancelOpenObligationsForGoatParams{
-		TenantID: tenant,
-		TargetID: goat,
-	})
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_instances
+SET status = 'canceled',
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND target_type = 'goat'
+  AND target_id = $2
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+RETURNING obligation_id::text, COALESCE(batch_id::text, '')::text`, tenant, goat)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel open for goat: %w", err)
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	oldBatches := make(map[string]int)
+	for rows.Next() {
+		var id, batchID string
+		if err := rows.Scan(&id, &batchID); err != nil {
+			return 0, fmt.Errorf("obligation: scan canceled obligation: %w", err)
+		}
+		ids = append(ids, id)
+		if batchID != "" {
+			oldBatches[batchID]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("obligation: read canceled obligations: %w", err)
+	}
+	for batchID, count := range oldBatches {
+		if _, err := tx.Exec(ctx, `
+WITH reserved AS (
+  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+  FROM inventory_stock_movements
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+    AND movement_type = 'reserve'
+)
+UPDATE obligation_batches
+SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+    context = CASE
+      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
+        'cancel_repair', jsonb_build_object(
+          'state', 'stock_reconcile_required',
+          'target_id', $4::text,
+          'reason', $5::text,
+          'release_qty',
+            (CASE
+              WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+              ELSE 0
+            END) + LEAST(reserved.qty, ($3::numeric * reserved.qty) / GREATEST(estimated_targets, 1)),
+          'recorded_at', now()
+        )
+      )
+      ELSE context
+    END,
+    updated_at = now(),
+    row_version = row_version + 1
+FROM reserved
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, batchID, count, goatID, reason); err != nil {
+			return 0, fmt.Errorf("obligation: update canceled batch repair: %w", err)
+		}
 	}
 	payload, _ := json.Marshal(map[string]string{"reason": reason})
 	now := time.Now()
@@ -879,14 +945,27 @@ func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, s
 	}
 	for batchID, count := range oldBatches {
 		if _, err := tx.Exec(ctx, `
+WITH reserved AS (
+  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+  FROM inventory_stock_movements
+  WHERE tenant_id = $1::uuid
+    AND batch_id = $2::uuid
+    AND movement_type = 'reserve'
+)
 UPDATE obligation_batches
 SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     context = CASE
-      WHEN reserved_quantity > 0 THEN context || jsonb_build_object(
+      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
         'shift_repair', jsonb_build_object(
           'state', 'stock_reconcile_required',
           'moved_target_id', $4,
           'reason', 'goat_shifted_after_batch_planned',
+          'release_qty',
+            (CASE
+              WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+              ELSE 0
+            END) + LEAST(reserved.qty, ($3::numeric * reserved.qty) / GREATEST(estimated_targets, 1)),
           'recorded_at', now()
         )
       )
@@ -894,6 +973,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     END,
     updated_at = now(),
     row_version = row_version + 1
+FROM reserved
 WHERE tenant_id = $1::uuid
   AND batch_id = $2::uuid`, tenantID, batchID, count, goatID); err != nil {
 			return 0, fmt.Errorf("obligation: update old shift batch: %w", err)

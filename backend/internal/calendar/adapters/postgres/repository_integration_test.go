@@ -890,16 +890,17 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 		t.Fatalf("RefreshVaccinationProjection tombstone: %v", err)
 	}
 	var status string
+	var severity string
 	var tombstoneReason string
 	if err := pool.QueryRow(ctx, `
-SELECT status, COALESCE(detail -> 'tombstone' ->> 'reason', '')
+SELECT status, severity, COALESCE(detail -> 'tombstone' ->> 'reason', '')
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2`,
-		testTenantID, "obligation:"+obligationIDs[1]).Scan(&status, &tombstoneReason); err != nil {
+		testTenantID, "obligation:"+obligationIDs[1]).Scan(&status, &severity, &tombstoneReason); err != nil {
 		t.Fatalf("query completed projection: %v", err)
 	}
-	if status != domain.StatusCompleted || tombstoneReason != "" {
-		t.Fatalf("completed projection status=%s tombstoneReason=%s", status, tombstoneReason)
+	if status != domain.StatusCompleted || severity != domain.SeverityInfo || tombstoneReason != "" {
+		t.Fatalf("completed projection status=%s severity=%s tombstoneReason=%s", status, severity, tombstoneReason)
 	}
 }
 

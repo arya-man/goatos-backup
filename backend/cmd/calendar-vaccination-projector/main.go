@@ -16,11 +16,14 @@ import (
 )
 
 type config struct {
-	TenantID string
-	DateFrom time.Time
-	DateTo   time.Time
-	Limit    int
-	Timeout  time.Duration
+	TenantID        string
+	DateFrom        time.Time
+	DateTo          time.Time
+	Limit           int
+	PruneClosed     bool
+	PruneLimit      int
+	ClosedRetention time.Duration
+	Timeout         time.Duration
 }
 
 func main() {
@@ -53,8 +56,15 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("calendar vaccination projection refreshed=%d tenant=%s from=%s to=%s\n",
-		count, cfg.TenantID, cfg.DateFrom.Format(time.RFC3339), cfg.DateTo.Format(time.RFC3339))
+	pruned := 0
+	if cfg.PruneClosed {
+		pruned, err = service.PruneClosedVaccinationProjection(ctx, cfg.TenantID, time.Now().UTC().Add(-cfg.ClosedRetention), cfg.PruneLimit)
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Printf("calendar vaccination projection refreshed=%d pruned_closed=%d tenant=%s from=%s to=%s\n",
+		count, pruned, cfg.TenantID, cfg.DateFrom.Format(time.RFC3339), cfg.DateTo.Format(time.RFC3339))
 	return nil
 }
 
@@ -65,6 +75,9 @@ func parseFlags(args []string) (config, error) {
 	dateFrom := fs.String("date-from", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_FROM"), "RFC3339 lower bound; default now minus 24h")
 	dateTo := fs.String("date-to", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_TO"), "RFC3339 upper bound; default now plus 45d")
 	fs.IntVar(&cfg.Limit, "limit", intEnv("GOATOS_CALENDAR_PROJECTOR_LIMIT", 1000), "max projection rows to upsert")
+	fs.BoolVar(&cfg.PruneClosed, "prune-closed", boolEnv("GOATOS_CALENDAR_PROJECTOR_PRUNE_CLOSED", true), "prune old closed vaccination projection rows after refresh")
+	fs.IntVar(&cfg.PruneLimit, "prune-limit", intEnv("GOATOS_CALENDAR_PROJECTOR_PRUNE_LIMIT", 1000), "max old closed projection rows to prune")
+	fs.DurationVar(&cfg.ClosedRetention, "closed-retention", durationEnv("GOATOS_CALENDAR_PROJECTOR_CLOSED_RETENTION", 90*24*time.Hour), "closed projection row retention window")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_CALENDAR_PROJECTOR_TIMEOUT", 60*time.Second), "projector timeout")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -96,6 +109,12 @@ func parseFlags(args []string) (config, error) {
 	if cfg.Limit <= 0 {
 		cfg.Limit = 1000
 	}
+	if cfg.PruneLimit <= 0 {
+		cfg.PruneLimit = 1000
+	}
+	if cfg.ClosedRetention <= 0 {
+		return config{}, errors.New("closed-retention must be positive")
+	}
 	return cfg, nil
 }
 
@@ -113,6 +132,19 @@ func intEnv(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func boolEnv(key string, fallback bool) bool {
+	switch strings.ToLower(getenv(key)) {
+	case "":
+		return fallback
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func durationEnv(key string, fallback time.Duration) time.Duration {

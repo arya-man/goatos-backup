@@ -516,6 +516,249 @@ func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, loc
 	return nil
 }
 
+// ReleaseBatchReconcileRemainders releases excess reserved doses for batches whose membership
+// changed after reservation. The exact excess quantity is recorded by the obligation layer when it
+// marks a defer/shift/cancel repair; this worker releases only that amount and marks the repair done.
+func (r *Repository) ReleaseBatchReconcileRemainders(ctx context.Context, tenantID string, limit int) (domain.BatchStockReconcileSummary, error) {
+	var summary domain.BatchStockReconcileSummary
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return summary, fmt.Errorf("inventory: tenant id: %w", err)
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return summary, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	rows, err := tx.Query(ctx, `
+SELECT batch_id::text,
+       (
+         CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
+         + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
+         + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+              ELSE 0 END
+       )::numeric AS release_qty
+FROM obligation_batches
+WHERE tenant_id = $1
+  AND (
+    context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+    OR context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+    OR context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+  )
+ORDER BY updated_at ASC, batch_id ASC
+LIMIT $2
+FOR UPDATE SKIP LOCKED`, tenant, limit)
+	if err != nil {
+		return summary, fmt.Errorf("inventory: list stock reconcile batches: %w", err)
+	}
+	type candidate struct {
+		batchID    string
+		releaseQty pgtype.Numeric
+	}
+	candidates := make([]candidate, 0)
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.batchID, &c.releaseQty); err != nil {
+			rows.Close()
+			return summary, fmt.Errorf("inventory: scan stock reconcile batch: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return summary, fmt.Errorf("inventory: read stock reconcile batches: %w", err)
+	}
+	rows.Close()
+
+	for _, c := range candidates {
+		targetQty := floorNumericToInt64(c.releaseQty)
+		released, movements, err := r.releaseBatchReconcileQty(ctx, tx, tenant, c.batchID, targetQty)
+		if err != nil {
+			return summary, err
+		}
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET context = jsonb_set(
+        jsonb_set(
+          jsonb_set(context, '{defer_repair,state}', to_jsonb('stock_reconciled'::text), false),
+          '{shift_repair,state}', to_jsonb('stock_reconciled'::text), false
+        ),
+        '{cancel_repair,state}', to_jsonb('stock_reconciled'::text), false
+      )
+      || jsonb_build_object(
+        'stock_reconcile',
+        jsonb_build_object('state', 'stock_reconciled', 'released_qty', $3::numeric, 'reconciled_at', now()::text)
+      ),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, c.batchID, released); err != nil {
+			return summary, fmt.Errorf("inventory: mark batch stock reconciled: %w", err)
+		}
+		summary.Batches++
+		summary.Movements += movements
+		summary.Released += released
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return summary, err
+	}
+	committed = true
+	return summary, nil
+}
+
+func (r *Repository) releaseBatchReconcileQty(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchID string, targetQty int64) (int64, int, error) {
+	if targetQty <= 0 {
+		return 0, 0, nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT ledger.lot_id::text,
+       ledger.item_id::text,
+       ledger.location_id::text,
+       ledger.quantity_unit,
+       ledger.remaining_qty,
+       stock.quantity_reserved
+FROM (
+  SELECT lot_id,
+         item_id,
+         location_id,
+         quantity_unit,
+         SUM(CASE
+           WHEN movement_type = 'reserve' THEN quantity
+           WHEN movement_type IN ('consume', 'release') THEN -quantity
+           ELSE 0
+         END)::numeric AS remaining_qty
+  FROM inventory_stock_movements
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+    AND movement_type IN ('reserve', 'consume', 'release')
+  GROUP BY lot_id, item_id, location_id, quantity_unit
+  HAVING SUM(CASE
+    WHEN movement_type = 'reserve' THEN quantity
+    WHEN movement_type IN ('consume', 'release') THEN -quantity
+    ELSE 0
+  END) > 0
+) ledger
+JOIN inventory_stock stock
+  ON stock.tenant_id = $1
+ AND stock.stock_id = ledger.lot_id
+ AND stock.item_id = ledger.item_id
+ AND stock.location_id = ledger.location_id
+ORDER BY stock.expiry_date DESC NULLS FIRST, ledger.lot_id
+FOR UPDATE OF stock`, tenant, batchID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("inventory: list batch stock remainders: %w", err)
+	}
+
+	type stockRemainder struct {
+		lotID           string
+		itemID          string
+		locationID      string
+		unit            string
+		ledgerRemaining pgtype.Numeric
+		stockReserved   pgtype.Numeric
+	}
+	remainders := make([]stockRemainder, 0)
+	for rows.Next() {
+		var row stockRemainder
+		if err := rows.Scan(&row.lotID, &row.itemID, &row.locationID, &row.unit, &row.ledgerRemaining, &row.stockReserved); err != nil {
+			rows.Close()
+			return 0, 0, fmt.Errorf("inventory: scan batch stock remainder: %w", err)
+		}
+		remainders = append(remainders, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, 0, fmt.Errorf("inventory: read batch stock remainders: %w", err)
+	}
+	rows.Close()
+
+	remainingTarget := targetQty
+	var released int64
+	var movements int
+	for _, row := range remainders {
+		if remainingTarget <= 0 {
+			break
+		}
+		qty := floorNumericToInt64(row.ledgerRemaining)
+		if reserved := floorNumericToInt64(row.stockReserved); reserved < qty {
+			qty = reserved
+		}
+		if qty > remainingTarget {
+			qty = remainingTarget
+		}
+		if qty <= 0 {
+			continue
+		}
+		lot, err := pgconv.UUID(row.lotID)
+		if err != nil {
+			return released, movements, fmt.Errorf("inventory: release lot id: %w", err)
+		}
+		item, err := pgconv.UUID(row.itemID)
+		if err != nil {
+			return released, movements, fmt.Errorf("inventory: release item id: %w", err)
+		}
+		location, err := pgconv.UUID(row.locationID)
+		if err != nil {
+			return released, movements, fmt.Errorf("inventory: release location id: %w", err)
+		}
+		qtyNumeric, err := pgconv.Numeric(strconv.FormatInt(qty, 10))
+		if err != nil {
+			return released, movements, fmt.Errorf("inventory: release quantity: %w", err)
+		}
+		idempotencyKey := batchID + ":release-reconcile:" + row.lotID
+		var movementID string
+		err = tx.QueryRow(ctx, `
+INSERT INTO inventory_stock_movements (
+  tenant_id, lot_id, item_id, location_id, movement_type,
+  quantity, quantity_unit, batch_id, reason, idempotency_key
+) VALUES (
+  $1, $2, $3, $4, 'release',
+  $5, $6, $7::uuid, 'batch stock reconcile', $8
+)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+RETURNING movement_id::text`, tenant, lot, item, location, qtyNumeric, row.unit, batchID, idempotencyKey).Scan(&movementID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			remainingTarget -= qty
+			continue
+		}
+		if err != nil {
+			return released, movements, fmt.Errorf("inventory: record batch release: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+UPDATE inventory_stock
+SET quantity_reserved = quantity_reserved - $3,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND stock_id = $2`, tenant, lot, qtyNumeric); err != nil {
+			return released, movements, fmt.Errorf("inventory: adjust batch release balance: %w", err)
+		}
+		released += qty
+		movements++
+		remainingTarget -= qty
+	}
+	return released, movements, nil
+}
+
 // floorNumericToInt64 floors a Postgres numeric to a whole int64 (doses are whole units). Invalid or
 // unparseable numerics floor to 0, which the reserve path treats as "no available stock here".
 func floorNumericToInt64(n pgtype.Numeric) int64 {

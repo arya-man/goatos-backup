@@ -39,3 +39,13 @@ func (s *Service) PickFEFOLot(ctx context.Context, tenantID, locationID, itemID 
 func (s *Service) RecordMovement(ctx context.Context, m domain.Movement) (string, bool, error) {
 	return s.repo.RecordMovement(ctx, m)
 }
+
+func (s *Service) ReleaseBatchReconcileRemainders(ctx context.Context, tenantID string, limit int) (domain.BatchStockReconcileSummary, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	return s.repo.ReleaseBatchReconcileRemainders(ctx, tenantID, limit)
+}

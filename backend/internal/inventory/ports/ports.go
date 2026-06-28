@@ -45,6 +45,10 @@ type Repository interface {
 	// item, and ErrInsufficientStock when stock exists but no single ancestor can fully cover qty.
 	ReserveForBatch(ctx context.Context, tenantID, batchID, locationID, itemID string, qty int64) error
 
+	// ReleaseBatchReconcileRemainders releases bounded, explicitly-recorded excess reserved doses for
+	// batches marked stock_reconcile_required after goat defer/shift/cancel changed planned membership.
+	ReleaseBatchReconcileRemainders(ctx context.Context, tenantID string, limit int) (domain.BatchStockReconcileSummary, error)
+
 	// RecordMovement appends a ledger movement. It is idempotent on (tenant_id, idempotency_key):
 	// applied is false when the movement was already recorded (replay).
 	RecordMovement(ctx context.Context, m domain.Movement) (movementID string, applied bool, err error)

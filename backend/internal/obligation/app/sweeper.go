@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -87,6 +88,8 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 				ScopeID:           g.scopeID,
 				Status:            "planned",
 				EstimatedTargets:  int32(len(g.ids)),
+				PlannedQuantity:   strconv.FormatInt(int64(len(g.ids))*int64(normalizedDosesPerGoat(cfg.DosesPerGoat)), 10),
+				QuantityUnit:      "dose",
 			}, g.ids)
 			if err != nil {
 				return res, err
@@ -109,6 +112,13 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 		return res, err
 	}
 	return res, nil
+}
+
+func normalizedDosesPerGoat(v int32) int32 {
+	if v <= 0 {
+		return 1
+	}
+	return v
 }
 
 func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {

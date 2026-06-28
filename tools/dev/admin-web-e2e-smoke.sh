@@ -84,6 +84,9 @@ GOATOS_BEARER_TOKEN="$(
 )"
 export GOATOS_BEARER_TOKEN
 
+echo "### frontend guard: herd import security"
+npm --prefix "$repo_root/apps/admin-web" run check:herd-import-security | tee "$report_dir/check-herd-import-security.log"
+
 jq_py() {
   python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null || true
 }

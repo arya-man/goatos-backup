@@ -9,9 +9,9 @@
 // Usage:
 //
 //	DATABASE_URL=... go run ./cmd/generate-vaccination-obligations \
-//	  -tenant-id <tenant> [-version-id <v>] [-as-of RFC3339]
+//	  -tenant-id <tenant> [-as-of RFC3339]
 //
-// With no -version-id it generates for every published vaccination version.
+// The default path resolves the effective protocol per goat, including park/scope precedence.
 package main
 
 import (
@@ -31,10 +31,11 @@ import (
 )
 
 type config struct {
-	TenantID  string
-	VersionID string
-	AsOf      time.Time
-	Timeout   time.Duration
+	TenantID         string
+	VersionID        string
+	UnsafeVersionRun bool
+	AsOf             time.Time
+	Timeout          time.Duration
 }
 
 func main() {
@@ -73,6 +74,9 @@ func run(args []string) error {
 			res.Generated, res.Deferred, res.Reopened, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
 		return nil
 	}
+	if !cfg.UnsafeVersionRun {
+		return errors.New("version-id bypasses effective per-goat protocol resolution; omit -version-id, or pass -unsafe-version-id-bypass-effective-resolution for an intentional repair run")
+	}
 
 	versionIDs := []string{cfg.VersionID}
 	if len(versionIDs) == 0 {
@@ -95,7 +99,8 @@ func parseFlags(args []string) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("generate-vaccination-obligations", flag.ContinueOnError)
 	fs.StringVar(&cfg.TenantID, "tenant-id", strings.TrimSpace(os.Getenv("GOATOS_TENANT_ID")), "tenant id")
-	fs.StringVar(&cfg.VersionID, "version-id", "", "protocol version id; empty generates for all published vaccination versions")
+	fs.StringVar(&cfg.VersionID, "version-id", "", "unsafe repair-only protocol version id; empty uses effective per-goat protocol resolution")
+	fs.BoolVar(&cfg.UnsafeVersionRun, "unsafe-version-id-bypass-effective-resolution", false, "allow version-id to bypass effective per-goat protocol resolution for a targeted repair run")
 	fs.DurationVar(&cfg.Timeout, "timeout", 120*time.Second, "generation timeout")
 	asOfRaw := fs.String("as-of", "", "RFC3339 as-of instant; default now")
 	if err := fs.Parse(args); err != nil {

@@ -8588,6 +8588,13 @@ CREATE INDEX obligation_batches_scope_idx ON public.obligation_batches USING btr
 
 
 --
+-- Name: obligation_batches_stock_reconcile_required_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_batches_stock_reconcile_required_idx ON public.obligation_batches USING btree (tenant_id, updated_at, batch_id) WHERE (((context #>> '{defer_repair,state}'::text[]) = 'stock_reconcile_required'::text) OR ((context #>> '{shift_repair,state}'::text[]) = 'stock_reconcile_required'::text) OR ((context #>> '{cancel_repair,state}'::text[]) = 'stock_reconcile_required'::text));
+
+
+--
 -- Name: obligation_escalations_obligation_level_idx; Type: INDEX; Schema: public; Owner: -
 --
 
