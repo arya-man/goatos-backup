@@ -1303,7 +1303,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.sire_or_lot":                        "Sire / semen lot",
 			"field.evidence_ref":                       "Source / evidence reference",
 			"field.bulk_template":                      "1 · Download template",
-			"field.bulk_upload":                        "2 · Upload CSV",
+			"field.bulk_upload":                        "2 · Upload CSV/XLSX",
 			"field.bulk_paste":                         "…or paste CSV",
 			"field.import_row":                         "Row",
 			"field.import_decision":                    "Decision",

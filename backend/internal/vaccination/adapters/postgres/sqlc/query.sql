@@ -108,12 +108,7 @@ LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE g.tenant_id = @tenant_id
-  AND (
-    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(loa.is_quarantine, false)
-    OR COALESCE(loa.is_icu, false)
-  )
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND (@stage::text = '' OR g.management_stage = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)
@@ -130,12 +125,7 @@ LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE g.tenant_id = @tenant_id
-  AND (
-    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(loa.is_quarantine, false)
-    OR COALESCE(loa.is_icu, false)
-  )
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND (@stage::text = '' OR g.management_stage = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)
@@ -150,12 +140,7 @@ LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
  AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE g.tenant_id = @tenant_id
-  AND (
-    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(loa.is_quarantine, false)
-    OR COALESCE(loa.is_icu, false)
-  )
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND g.shed_id IS NOT NULL
   AND (@stage::text = '' OR g.management_stage = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
@@ -190,12 +175,7 @@ LEFT JOIN locations park
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
 WHERE g.tenant_id = @tenant_id
-  AND (
-    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
-    OR COALESCE(loa.is_quarantine, false)
-    OR COALESCE(loa.is_icu, false)
-  )
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND (@stage::text = '' OR g.management_stage = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)

@@ -623,7 +623,7 @@ func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in dom
 	SET status = 'accepted',
 	    verified_by = nullif($3, '')::uuid,
 	    verified_at = now(),
-	    withdrawal_until_date = $4,
+	    withdrawal_until_date = COALESCE($4::date, withdrawal_until_date),
 	    updated_at = now(),
 	    row_version = row_version + 1
 	WHERE tenant_id = $1::uuid

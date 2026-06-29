@@ -18,7 +18,8 @@ RETURNING completion_id::text AS completion_id;
 -- matches nothing → no rows → caller no-ops.
 UPDATE vaccination_completions
 SET status = 'accepted', verified_by = @verified_by, verified_at = now(),
-    withdrawal_until_date = @withdrawal_until_date, row_version = row_version + 1, updated_at = now()
+    withdrawal_until_date = COALESCE(@withdrawal_until_date, withdrawal_until_date),
+    row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = @tenant_id AND completion_id = @completion_id AND status = 'recorded'
 RETURNING obligation_id::text AS obligation_id,
           goat_id::text AS goat_id,

@@ -380,6 +380,13 @@ The current build is focused on the vaccination process-integrity layer:
 This is the right order because Control Tower should summarize real operating
 gaps, not decorate incomplete workflows.
 
+When the Google dev deployment is shown, be clear that deployment proves the
+tested vaccination kernel is running in Google. It does not automatically mean
+every future operating workflow is live. ICU/quarantine guardrails,
+shed-owner separation checks, full failed-message replay operations, and the
+stock-owner resolution workflow still need complete business workflows before
+they should be presented as finished CEO-facing processes.
+
 ## Immediate Next Steps
 
 Recommended next execution order:

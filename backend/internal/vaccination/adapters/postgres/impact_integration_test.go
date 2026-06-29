@@ -43,13 +43,19 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	// 4 eligible (3 alive + 1 defer-state sick goat, stage K1, in shed cbe); 1 wrong-stage; 1 dead.
+	// 4 eligible (3 alive + 1 defer-state sick goat, stage K1, in shed cbe); 1 wrong-stage.
+	// A dead goat with stale sick health must not be resurrected into impact counts.
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a1", "alive", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a2", "alive", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a3", "alive", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a4", "sick", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000b1", "alive", "K2", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000c1", "dead", "K1", true)
+	if _, err := pool.Exec(ctx,
+		`UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND goat_id='20000000-0000-4000-8000-0000000000c1'`,
+		impTenant); err != nil {
+		t.Fatalf("mark dead goat stale sick: %v", err)
+	}
 
 	// Vaccine item + a lot with only 2 available doses at cbe (shortage vs 4 required).
 	if _, err := pool.Exec(ctx,

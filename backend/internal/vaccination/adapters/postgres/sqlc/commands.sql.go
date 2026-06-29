@@ -14,7 +14,8 @@ import (
 const acceptVaccinationCompletion = `-- name: AcceptVaccinationCompletion :many
 UPDATE vaccination_completions
 SET status = 'accepted', verified_by = $1, verified_at = now(),
-    withdrawal_until_date = $2, row_version = row_version + 1, updated_at = now()
+    withdrawal_until_date = COALESCE($2, withdrawal_until_date),
+    row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $3 AND completion_id = $4 AND status = 'recorded'
 RETURNING obligation_id::text AS obligation_id,
           goat_id::text AS goat_id,

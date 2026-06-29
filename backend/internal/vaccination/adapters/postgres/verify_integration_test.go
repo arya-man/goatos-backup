@@ -100,12 +100,14 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	booster := vaccapp.NewBoosterService(proto, obl)
 	completion := vaccapp.NewCompletionService(svc, obl, reserver)
 	doses := int32(1)
+	withdrawalUntil := asOf.AddDate(0, 0, 5)
 	record := func(ob, goat, key string) string {
 		batch, lot := batchID, impLot
 		cid, applied, err := svc.RecordCompletion(ctx, vaccdomain.NewCompletion{
 			TenantID: impTenant, ObligationID: ob, GoatID: goat, BatchID: &batch,
 			VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: asOf,
-			ColdChainVerified: true, Status: "recorded", IdempotencyKey: key,
+			ColdChainVerified: true, Status: "recorded", WithdrawalUntilDate: &withdrawalUntil,
+			IdempotencyKey: key,
 		})
 		if err != nil || !applied || cid == "" {
 			t.Fatalf("record %s: cid=%q applied=%v err=%v", goat, cid, applied, err)
@@ -132,6 +134,9 @@ func TestSM5VerifyExistingTwoPhase(t *testing.T) {
 	}
 	if got := scanText(t, ctx, pool, `SELECT status FROM vaccination_completions WHERE tenant_id=$1 AND completion_id=$2`, impTenant, cid1); got != "accepted" {
 		t.Fatalf("completion g1: want accepted, got %s", got)
+	}
+	if got := scanText(t, ctx, pool, `SELECT COALESCE(withdrawal_until_date::text, '') FROM vaccination_completions WHERE tenant_id=$1 AND completion_id=$2`, impTenant, cid1); got != "2026-06-28" {
+		t.Fatalf("accepted completion must preserve withdrawal hold date, got %q", got)
 	}
 	if in, res := onHand(t, ctx, pool); in != "9" || res != "1" {
 		t.Fatalf("after accept: want in 9 / reserved 1, got %s / %s", in, res)

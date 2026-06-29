@@ -1298,14 +1298,12 @@ Current dev Terraform already describes Pub/Sub, Cloud Tasks, Cloud Run Jobs,
 and Cloud Scheduler in `infra/envs/dev/*.tf`. The next session must verify
 whether those resources are applied and current before assuming they exist.
 
-Goal 2 topology must also reconcile auxiliary kernel binaries that are not
-currently in the dev `kernel_jobs` map: `inventory-batch-reconciler`,
-`outbox-dlq`, and `idempotency-key-sweeper`. Either add them as Cloud Run
-Jobs/Scheduler entries with IAM/env/secrets and update the README/SVG, or
-document an equivalent dev-safe runner and why it satisfies the same E2E proof.
-Do not call goatos-dev ready while stock reconciliation, Pub/Sub DLQ drain/replay,
-or idempotency TTL/replay behavior has no tested runner or explicit
-operator-runbook path.
+Goal 2 topology must prove the auxiliary kernel jobs in Google. The current dev
+map includes `inventory-batch-reconciler` and `idempotency-key-sweeper`; prove
+stock reconciliation and idempotency TTL/replay behavior in Google E2E before
+calling the dev kernel runtime complete. `outbox-dlq` exists as a backend command
+but still needs either a Cloud Run Job/Scheduler entry or an explicit dev-safe
+operator-runbook path for Pub/Sub/native DLQ drain/replay/import.
 
 ### Goal 2 guardrails
 

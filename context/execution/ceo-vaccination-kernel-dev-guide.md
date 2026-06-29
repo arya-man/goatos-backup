@@ -203,6 +203,33 @@ proves it is closed.
   the critical-action pack is implemented.
 - XLSX import may remain out of scope if CSV/import API is the tested seed path.
 
+## What Google Dev Deployment Will Not Automatically Finish
+
+When the system is live in Google, say this plainly: deployment proves Goat OS is
+running in the right cloud environment, with the tested seed data, login,
+workers, and dashboard path. It does not by itself mean every future operating
+workflow is complete.
+
+The following items need full workflow implementation before they should be
+presented as live business processes:
+
+| Area | Non-technical CEO wording |
+| --- | --- |
+| ICU and quarantine actions | Goat OS can safely stop unsafe ICU/quarantine changes today. The full approval workflow still needs the evidence checklist, reviewer steps, release criteria, and operator screen before it is a live workflow. |
+| Critical health/death guardrails beyond the approved death path | The system blocks dangerous shortcuts. To make the full guardrail product live, we still need the complete policy pack that decides what evidence is required, who approves, and how exceptions are closed. |
+| Shed owner separation checks | Some approvals depend on knowing the correct shed owner or manager. Before this is live, the owner data and reviewer separation rules must be populated and tested. |
+| DLQ/replay operations | Goat OS has the repair screen concept and local recovery paths. In Google, we still need to prove failed background messages can be found, replayed, or discarded through the intended operator path. |
+| Stock issue resolution | Stock blocks are visible. The full owner workflow still needs the person responsible, action buttons, proof of resolution, and escalation behavior tested in Google. |
+
+Use this wording if asked whether these are "bugs":
+
+```text
+These are not hidden failures in the deployed vaccination kernel. The current
+system blocks unsafe shortcuts. They are future operating workflows that need
+their own evidence, approval, owner, and exception-handling screens before we
+call them live.
+```
+
 ## Final Acceptance Notes
 
 Goal 1 local acceptance note:
@@ -214,5 +241,5 @@ Old dashboard archive/rollback: Goal 2, not started.
 Preserved users/grants: Goal 2, not started.
 Seed source and count: local throwaway proof DB only; Google dev seed pending Goal 2.
 Vaccination E2E result: `GOAL1-E2E-FINAL-20260629-022731` passed locally; report `.codex-goatos-render/e2e-smoke/GOAL1-E2E-FINAL-20260629-022731`.
-Known incomplete flows: production PHC roster, production notification channels, critical guardrail policy pack, stock owner UI, and Google dev deployment remain Goal 2/product work.
+Known incomplete flows: production PHC roster, production notification channels, critical ICU/quarantine guardrail workflows, shed-owner separation checks, full DLQ/replay operations, stock owner workflow, and Google dev deployment remain Goal 2/product work.
 ```

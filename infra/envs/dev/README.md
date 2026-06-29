@@ -182,20 +182,17 @@ Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
                    goatos-dev-notification-dispatcher
 ```
 
-Known Goal 2 topology reconciliation items:
+Goal 2 topology proof items:
 
 ```text
-inventory-batch-reconciler  # stock reserve/release/reconcile repair worker
 outbox-dlq                  # Pub/Sub/native DLQ drain/replay/import runner
-idempotency-key-sweeper     # retention cleanup / replay-after-expiry proof
 ```
 
-These binaries exist in `backend/cmd/` but are not in the current
-`local.kernel_jobs` map. Goal 2 must either add them as Cloud Run Jobs/Scheduler
-entries with the right IAM/env/secrets, or document an equivalent dev-safe
-operator runner and prove the same stock, DLQ, and idempotency behavior in
-Google E2E. Do not call the dev kernel runtime complete while these are
-unreconciled.
+`inventory-batch-reconciler` and `idempotency-key-sweeper` are in the current
+Cloud Run Job/Scheduler map and must be proven in Google E2E. `outbox-dlq`
+exists as a backend command, but the Pub/Sub/native DLQ drain/replay/import
+path still needs a scheduled job or a documented dev-safe operator runner before
+calling the dev kernel runtime complete.
 
 Cloud SQL is planned with `activation_policy = "ALWAYS"` for the live raw-URL
 dev dashboard bring-up. This means the instance runs while the dashboard is
