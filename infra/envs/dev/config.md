@@ -32,6 +32,7 @@ Current dev dashboard admin email policy:
 abhishek@mesha.sg
 aryaman@mesha.sg
 manju@mesha.sg
+manohark@mesha.sg
 ravi@mesha.sg
 ```
 
@@ -47,7 +48,7 @@ GOATOS_TENANT_ID="<admin tenant uuid>" \
 make seed-dev-email-grants
 ```
 
-The target inserts the four emails above as tenant-scope `ceo_internal` grants;
+The target inserts the five emails above as tenant-scope `ceo_internal` grants;
 first verified sign-in claims the real `user_scope_grants` row for that Firebase
 subject.
 

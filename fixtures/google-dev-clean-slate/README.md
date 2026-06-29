@@ -13,7 +13,7 @@ make verify-google-dev-seed-fixtures
 ## Use Order
 
 1. Apply schema migrations with the dedicated `goatos-dev-migrate` job.
-2. Seed only the four approved dashboard email grants with
+2. Seed only the five approved dashboard email grants with
    `make seed-dev-email-grants`.
 3. Seed the source-derived ET/K1 protocol baseline with
    `backend/cmd/seed-vaccination-trigger` using the explicit dev Cloud SQL

@@ -13,7 +13,7 @@
   },
   "preconditions": [
     "schema migrations applied by goatos-dev-migrate job",
-    "only four approved user grants seeded",
+    "only five approved user grants seeded",
     "CBE and CPT park anchors exist from baseline migrations",
     "source-derived ET/K1 protocol baseline is seeded and published",
     "admin web and API are deployed with JWKS auth"

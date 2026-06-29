@@ -69,7 +69,7 @@ Capability is checked via `workforce_member_capabilities` (same mechanism as `va
 
 ### 2.1 Config UI contract (CEO/COO authoring surface)
 
-`protocol_rules` are **real business/medical/operations config — not public, not user-editable.** Only the ~4 approved superadmins (CEO/COO) create and **publish** real rules; Directors may **draft/propose** only if explicitly granted `protocol.draft.<category>`. Field/verifier/park users **never see or edit raw config** — they see generated obligations, SOP tasks, proof requirements, and their Action Center work.
+`protocol_rules` are **real business/medical/operations config — not public, not user-editable.** Only approved superadmins (CEO/COO/admin-style grants) create and **publish** real rules; Directors may **draft/propose** only if explicitly granted `protocol.draft.<category>`. Field/verifier/park users **never see or edit raw config** — they see generated obligations, SOP tasks, proof requirements, and their Action Center work.
 
 **Config screen (CEO/COO):** create/edit a *draft* rule → link an `sop_version_id` → define proof policy → define escalation policy → **impact preview** → publish version.
 

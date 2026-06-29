@@ -10,7 +10,7 @@ have been verified as Mesha/VGoats.
 `goatos-dev` starts as a clean-slate environment. It is not a legacy data
 migration.
 
-Preserve only the four approved user grants. Seed a small, representative PHC
+Preserve only the five approved user grants. Seed a small, representative PHC
 vaccination slice that proves the operational kernel end to end:
 
 ```text
@@ -161,7 +161,7 @@ make verify-google-dev-seed-fixtures
 
 Minimum seed set:
 
-- Tenant and four approved user grants.
+- Tenant and five approved user grants.
 - Small but real accepted herd: 3-5 sheds and 50-100 goats, with enough mixed
   records to exercise filters and pagination. Seed only complete, trusted,
   accepted rows. Do not seed guessed DOBs, guessed sheds, or half-valid animals.
