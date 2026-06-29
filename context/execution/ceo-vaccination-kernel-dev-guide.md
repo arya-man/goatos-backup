@@ -175,7 +175,10 @@ Expected review:
 - Only a published rule backed by approved source records creates vaccination
   work.
 - A published version is not edited in place.
-- A change creates a new draft and then a new published version.
+- The full guided flow for changing an existing published rule is still a
+  follow-up. Until then, use the current New draft rule path only for new draft
+  authoring and do not present rule-change/version replacement as a finished
+  reviewer workflow.
 - Completed historical work stays tied to the version that created it.
 - The vaccination SOP carries the proof requirements used during execution.
 

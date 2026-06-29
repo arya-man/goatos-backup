@@ -227,6 +227,18 @@ func TestAddRuleRejectsMissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestAddRuleAcceptsRowProofPolicyArray(t *testing.T) {
+	fake := &fakeConfig{}
+	body := `{"dose_code":"primary","sequence":1,"trigger_type":"post_arrival","repeat":"none","catch_up":"immediate","eligibility_json":{},"proof_policy":["shed_video","vial_photo"]}`
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/v1/rules", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add rule with proof array: want 201, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got := string(fake.gotRule.ProofPolicy); got != `["shed_video","vial_photo"]` {
+		t.Fatalf("proof_policy array not passed through: %s", got)
+	}
+}
+
 func TestAddRuleSurfacesUnsupportedRepeatPolicy(t *testing.T) {
 	body := `{"dose_code":"primary","sequence":1,"trigger_type":"post_arrival","repeat":"until_age","catch_up":"immediate","eligibility_json":{},"proof_policy":{}}`
 	rec := serve(NewHandler(&fakeConfig{addRuleErr: app.ErrUnsupportedRepeatPolicy}), http.MethodPost, "/protocols/versions/v1/rules", body)

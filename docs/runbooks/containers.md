@@ -65,12 +65,7 @@ docker run --rm \
 ```
 
 Inventory stock repair and SOP review fanout retry are also packaged as
-job-style binaries:
-
-```text
-/app/bin/inventory-batch-reconciler
-/app/bin/sop-review-fanout-retry
-```
+job-style binaries in the list above.
 
 Old import/reconciliation/reporting binaries are no longer packaged in the
 runtime image. If migration audit tooling is reintroduced later, it must be a

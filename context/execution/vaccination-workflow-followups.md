@@ -29,7 +29,9 @@ Google dev rollout execution. Those remain separate gates.
 
 ## Backlog Mapping
 
-The pasted review backlog maps as follows:
+The pasted review backlog maps as follows. The `R*`, `H*`, `E*`, `C*`, `M*`,
+`D-*`, and `L*` codes are from the pasted senior-review backlog, while `OCK-*`
+and `RVF-*` are from the Goal 1 closeout ledger.
 
 - Already fixed in code: R1, R2, H2, H7, R3, R4, R5, R7, E8, E6, and the
   D-drift comment issue.

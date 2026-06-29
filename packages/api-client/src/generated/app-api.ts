@@ -2115,10 +2115,10 @@ export interface components {
             eligibility_json: {
                 [key: string]: unknown;
             };
-            /** @description Proof policy JSON. */
+            /** @description Row-level proof policy JSON. Accepts an object policy or a bare array of proof tokens. */
             proof_policy?: {
                 [key: string]: unknown;
-            };
+            } | string[];
             withdrawal_days?: number | null;
             sort_order?: number;
         };
