@@ -2005,6 +2005,142 @@ CREATE TABLE public.calendar_snoozes (
 
 
 --
+-- Name: count_base_anchors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_base_anchors (
+    base_count_anchor_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    breed_id uuid,
+    breed_key text NOT NULL,
+    breed_label text NOT NULL,
+    counted_at timestamp with time zone NOT NULL,
+    head_count integer NOT NULL,
+    source_system text NOT NULL,
+    source_ref text NOT NULL,
+    source_hash text NOT NULL,
+    anchor_state text DEFAULT 'adopted'::text NOT NULL,
+    discrepancy_state text DEFAULT 'not_checked'::text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    recorded_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT count_base_anchors_breed_key_check CHECK ((btrim(breed_key) <> ''::text)),
+    CONSTRAINT count_base_anchors_discrepancy_check CHECK ((discrepancy_state = ANY (ARRAY['not_checked'::text, 'investigating'::text, 'resolved'::text]))),
+    CONSTRAINT count_base_anchors_head_count_check CHECK ((head_count >= 0)),
+    CONSTRAINT count_base_anchors_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT count_base_anchors_source_check CHECK ((source_system = ANY (ARRAY['physical_base_count'::text, 'manual_review'::text, 'import'::text, 'goatos_canonical'::text]))),
+    CONSTRAINT count_base_anchors_source_hash_check CHECK ((btrim(source_hash) <> ''::text)),
+    CONSTRAINT count_base_anchors_source_ref_check CHECK ((btrim(source_ref) <> ''::text)),
+    CONSTRAINT count_base_anchors_state_check CHECK ((anchor_state = ANY (ARRAY['adopted'::text, 'superseded'::text, 'rejected'::text])))
+);
+
+
+--
+-- Name: count_projection_exceptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_projection_exceptions (
+    count_projection_exception_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    count_projection_snapshot_id uuid,
+    exception_type text NOT NULL,
+    source_key text NOT NULL,
+    grain_key text NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    breed_key text,
+    stage_tag text,
+    severity text DEFAULT 'blocking'::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    owner_ref text,
+    blocker_reason text NOT NULL,
+    evidence_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    CONSTRAINT count_projection_exceptions_evidence_object_check CHECK ((jsonb_typeof(evidence_json) = 'object'::text)),
+    CONSTRAINT count_projection_exceptions_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_reason_check CHECK ((btrim(blocker_reason) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_severity_check CHECK ((severity = ANY (ARRAY['warning'::text, 'blocking'::text, 'critical'::text]))),
+    CONSTRAINT count_projection_exceptions_source_key_check CHECK ((btrim(source_key) <> ''::text)),
+    CONSTRAINT count_projection_exceptions_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'dismissed'::text]))),
+    CONSTRAINT count_projection_exceptions_type_check CHECK ((exception_type = ANY (ARRAY['missing_base_count'::text, 'missing_structured_impact'::text, 'unreported_shifting'::text, 'count_mismatch'::text, 'alias_conflict'::text, 'ration_context_unresolved'::text, 'destination_shortage'::text, 'unsafe_surplus'::text, 'query_plan_unproven'::text])))
+);
+
+
+--
+-- Name: count_projection_snapshot_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_projection_snapshot_rows (
+    count_projection_snapshot_row_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    count_projection_snapshot_id uuid NOT NULL,
+    park_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    target_date date NOT NULL,
+    grain_key text NOT NULL,
+    breed_id uuid,
+    breed_key text NOT NULL,
+    breed_label text NOT NULL,
+    stage_tag text,
+    age_class text,
+    sex text,
+    head_count integer NOT NULL,
+    pregnant_count integer DEFAULT 0 NOT NULL,
+    lactating_count integer DEFAULT 0 NOT NULL,
+    warmup_count integer DEFAULT 0 NOT NULL,
+    ration_context_resolution_state text DEFAULT 'unresolved'::text NOT NULL,
+    ration_context_ref text,
+    blocker_reason text,
+    source_row_hash text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT count_projection_snapshot_rows_breed_key_check CHECK ((btrim(breed_key) <> ''::text)),
+    CONSTRAINT count_projection_snapshot_rows_count_check CHECK ((head_count >= 0)),
+    CONSTRAINT count_projection_snapshot_rows_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
+    CONSTRAINT count_projection_snapshot_rows_hash_check CHECK ((btrim(source_row_hash) <> ''::text)),
+    CONSTRAINT count_projection_snapshot_rows_resolution_check CHECK ((ration_context_resolution_state = ANY (ARRAY['resolved'::text, 'unresolved'::text, 'blocked'::text, 'not_required'::text]))),
+    CONSTRAINT count_projection_snapshot_rows_risk_counts_check CHECK (((pregnant_count >= 0) AND (lactating_count >= 0) AND (warmup_count >= 0) AND (pregnant_count <= head_count) AND (lactating_count <= head_count) AND (warmup_count <= head_count)))
+);
+
+
+--
+-- Name: count_projection_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.count_projection_snapshots (
+    count_projection_snapshot_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    horizon text NOT NULL,
+    park_id uuid NOT NULL,
+    target_date date NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    projection_status text DEFAULT 'blocked'::text NOT NULL,
+    source_contract_version text NOT NULL,
+    source_hash text NOT NULL,
+    base_anchor_ids_hash text NOT NULL,
+    shifting_event_ids_hash text NOT NULL,
+    row_count integer DEFAULT 0 NOT NULL,
+    exception_count integer DEFAULT 0 NOT NULL,
+    generated_by text NOT NULL,
+    trace_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT count_projection_snapshots_contract_check CHECK ((btrim(source_contract_version) <> ''::text)),
+    CONSTRAINT count_projection_snapshots_hash_check CHECK (((btrim(source_hash) <> ''::text) AND (btrim(base_anchor_ids_hash) <> ''::text) AND (btrim(shifting_event_ids_hash) <> ''::text))),
+    CONSTRAINT count_projection_snapshots_horizon_check CHECK ((horizon = ANY (ARRAY['count_as_of'::text, 'feed_target_date'::text]))),
+    CONSTRAINT count_projection_snapshots_row_counts_check CHECK (((row_count >= 0) AND (exception_count >= 0))),
+    CONSTRAINT count_projection_snapshots_status_check CHECK ((projection_status = ANY (ARRAY['ready'::text, 'blocked'::text, 'stale'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: counts_current_snapshot_rows; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2115,6 +2251,28 @@ CREATE TABLE public.counts_projection_state (
     CONSTRAINT counts_projection_state_source_composition_check CHECK ((source_composition = ANY (ARRAY['legacy_only'::text, 'canonical_only'::text, 'blended'::text]))),
     CONSTRAINT counts_projection_state_unavailable_array_check CHECK ((jsonb_typeof(unavailable_sources) = 'array'::text)),
     CONSTRAINT counts_projection_state_view_check CHECK (((view_id IS NULL) OR (view_id = ANY (ARRAY['overall'::text, 'core-farms'::text, 'cbe'::text, 'cpt'::text, 'holdings'::text]))))
+);
+
+
+--
+-- Name: counts_shifting_readiness_subgates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.counts_shifting_readiness_subgates (
+    tenant_id uuid NOT NULL,
+    subgate_id text NOT NULL,
+    status text DEFAULT 'blocked'::text NOT NULL,
+    owner text NOT NULL,
+    evidence_ref text NOT NULL,
+    blocker_reason text NOT NULL,
+    implementation_ref text,
+    last_checked_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT counts_shifting_readiness_blocker_check CHECK ((btrim(blocker_reason) <> ''::text)),
+    CONSTRAINT counts_shifting_readiness_evidence_check CHECK ((btrim(evidence_ref) <> ''::text)),
+    CONSTRAINT counts_shifting_readiness_owner_check CHECK ((btrim(owner) <> ''::text)),
+    CONSTRAINT counts_shifting_readiness_status_check CHECK ((status = ANY (ARRAY['ready'::text, 'blocked'::text, 'pending'::text]))),
+    CONSTRAINT counts_shifting_readiness_subgate_id_check CHECK ((subgate_id = ANY (ARRAY['CSG1'::text, 'CSG2'::text, 'CSG3'::text, 'CSG4'::text, 'CSG5'::text, 'CSG6'::text, 'CSG7'::text, 'CSG8'::text, 'CSG9'::text, 'CSG10'::text])))
 );
 
 
@@ -4572,6 +4730,82 @@ CREATE TABLE public.shed_profiles (
 
 
 --
+-- Name: shifting_event_impacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shifting_event_impacts (
+    shifting_event_impact_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    shifting_event_id uuid NOT NULL,
+    grain_key text NOT NULL,
+    breed_id uuid,
+    breed_key text NOT NULL,
+    breed_label text NOT NULL,
+    stage_tag text,
+    age_class text,
+    sex text,
+    head_count integer NOT NULL,
+    pregnant_count integer DEFAULT 0 NOT NULL,
+    lactating_count integer DEFAULT 0 NOT NULL,
+    warmup_count integer DEFAULT 0 NOT NULL,
+    risk_flags jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ration_context_resolution_state text DEFAULT 'unresolved'::text NOT NULL,
+    ration_context_ref text,
+    blocker_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT shifting_event_impacts_breed_key_check CHECK ((btrim(breed_key) <> ''::text)),
+    CONSTRAINT shifting_event_impacts_grain_key_check CHECK ((btrim(grain_key) <> ''::text)),
+    CONSTRAINT shifting_event_impacts_head_count_check CHECK ((head_count > 0)),
+    CONSTRAINT shifting_event_impacts_resolution_check CHECK ((ration_context_resolution_state = ANY (ARRAY['resolved'::text, 'unresolved'::text, 'blocked'::text, 'not_required'::text]))),
+    CONSTRAINT shifting_event_impacts_risk_counts_check CHECK (((pregnant_count >= 0) AND (lactating_count >= 0) AND (warmup_count >= 0) AND (pregnant_count <= head_count) AND (lactating_count <= head_count) AND (warmup_count <= head_count))),
+    CONSTRAINT shifting_event_impacts_risk_flags_object_check CHECK ((jsonb_typeof(risk_flags) = 'object'::text))
+);
+
+
+--
+-- Name: shifting_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shifting_events (
+    shifting_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    logical_shifting_event_key text NOT NULL,
+    priority text NOT NULL,
+    category text NOT NULL,
+    source_park_id uuid,
+    source_shed_id uuid,
+    destination_park_id uuid NOT NULL,
+    destination_shed_id uuid NOT NULL,
+    raised_at timestamp with time zone NOT NULL,
+    effective_at timestamp with time zone NOT NULL,
+    authorized_at timestamp with time zone,
+    authorized_by uuid,
+    authorization_state text DEFAULT 'pending'::text NOT NULL,
+    verification_state text DEFAULT 'unverified'::text NOT NULL,
+    event_status text DEFAULT 'pending'::text NOT NULL,
+    source_system text NOT NULL,
+    source_ref text NOT NULL,
+    proof_ref text,
+    payload_hash text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT shifting_events_auth_state_check CHECK ((authorization_state = ANY (ARRAY['pending'::text, 'authorized'::text, 'rejected'::text]))),
+    CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['routine'::text, 'high_priority'::text, 'pregnancy'::text, 'warmup'::text, 'medical'::text, 'quarantine'::text, 'other'::text]))),
+    CONSTRAINT shifting_events_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT shifting_events_key_check CHECK ((btrim(logical_shifting_event_key) <> ''::text)),
+    CONSTRAINT shifting_events_payload_hash_check CHECK ((btrim(payload_hash) <> ''::text)),
+    CONSTRAINT shifting_events_priority_check CHECK ((priority = ANY (ARRAY['normal'::text, 'high'::text, 'emergency'::text]))),
+    CONSTRAINT shifting_events_source_check CHECK ((source_system = ANY (ARRAY['feed_shiftings_docx'::text, 'manual_review'::text, 'legacy_slack'::text, 'import'::text, 'goatos_canonical'::text]))),
+    CONSTRAINT shifting_events_source_ref_check CHECK ((btrim(source_ref) <> ''::text)),
+    CONSTRAINT shifting_events_status_check CHECK ((event_status = ANY (ARRAY['pending'::text, 'authorized'::text, 'applied'::text, 'rejected'::text, 'canceled'::text, 'unresolved'::text]))),
+    CONSTRAINT shifting_events_verification_state_check CHECK ((verification_state = ANY (ARRAY['unverified'::text, 'verified'::text, 'rejected'::text])))
+);
+
+
+--
 -- Name: sop_definitions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5569,6 +5803,38 @@ ALTER TABLE ONLY public.calendar_snoozes
 
 
 --
+-- Name: count_base_anchors count_base_anchors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_base_anchors
+    ADD CONSTRAINT count_base_anchors_pkey PRIMARY KEY (base_count_anchor_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_pkey PRIMARY KEY (count_projection_exception_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_pkey PRIMARY KEY (count_projection_snapshot_row_id);
+
+
+--
+-- Name: count_projection_snapshots count_projection_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshots
+    ADD CONSTRAINT count_projection_snapshots_pkey PRIMARY KEY (count_projection_snapshot_id);
+
+
+--
 -- Name: counts_current_snapshot_rows counts_current_snapshot_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5590,6 +5856,14 @@ ALTER TABLE ONLY public.counts_projection_rows
 
 ALTER TABLE ONLY public.counts_projection_state
     ADD CONSTRAINT counts_projection_state_pkey PRIMARY KEY (counts_projection_state_id);
+
+
+--
+-- Name: counts_shifting_readiness_subgates counts_shifting_readiness_subgates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_shifting_readiness_subgates
+    ADD CONSTRAINT counts_shifting_readiness_subgates_pkey PRIMARY KEY (tenant_id, subgate_id);
 
 
 --
@@ -6729,6 +7003,22 @@ ALTER TABLE ONLY public.shed_profiles
 
 
 --
+-- Name: shifting_event_impacts shifting_event_impacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_event_impacts
+    ADD CONSTRAINT shifting_event_impacts_pkey PRIMARY KEY (shifting_event_impact_id);
+
+
+--
+-- Name: shifting_events shifting_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_pkey PRIMARY KEY (shifting_event_id);
+
+
+--
 -- Name: sop_definitions sop_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7618,6 +7908,83 @@ CREATE INDEX calendar_snoozes_event_idx ON public.calendar_snoozes USING btree (
 
 
 --
+-- Name: count_base_anchors_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_base_anchors_hot_idx ON public.count_base_anchors USING btree (tenant_id, park_id, shed_id, lower(breed_key), counted_at DESC, base_count_anchor_id DESC) WHERE (anchor_state = 'adopted'::text);
+
+
+--
+-- Name: count_base_anchors_idempotency_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_base_anchors_idempotency_unique ON public.count_base_anchors USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: count_base_anchors_source_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_base_anchors_source_unique ON public.count_base_anchors USING btree (tenant_id, park_id, shed_id, lower(breed_key), counted_at, source_hash);
+
+
+--
+-- Name: count_projection_exceptions_open_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_projection_exceptions_open_unique ON public.count_projection_exceptions USING btree (tenant_id, exception_type, source_key, grain_key) WHERE (status = 'open'::text);
+
+
+--
+-- Name: count_projection_exceptions_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_exceptions_queue_idx ON public.count_projection_exceptions USING btree (tenant_id, status, severity, updated_at DESC, count_projection_exception_id DESC);
+
+
+--
+-- Name: count_projection_snapshot_rows_blocker_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_snapshot_rows_blocker_idx ON public.count_projection_snapshot_rows USING btree (tenant_id, target_date, ration_context_resolution_state, count_projection_snapshot_row_id) WHERE (ration_context_resolution_state = ANY (ARRAY['unresolved'::text, 'blocked'::text]));
+
+
+--
+-- Name: count_projection_snapshot_rows_feed_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_snapshot_rows_feed_hot_idx ON public.count_projection_snapshot_rows USING btree (tenant_id, target_date, park_id, shed_id, lower(breed_key), count_projection_snapshot_row_id);
+
+
+--
+-- Name: count_projection_snapshot_rows_grain_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_projection_snapshot_rows_grain_unique ON public.count_projection_snapshot_rows USING btree (tenant_id, count_projection_snapshot_id, grain_key);
+
+
+--
+-- Name: count_projection_snapshots_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX count_projection_snapshots_hot_idx ON public.count_projection_snapshots USING btree (tenant_id, horizon, park_id, target_date DESC, created_at DESC);
+
+
+--
+-- Name: count_projection_snapshots_source_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_projection_snapshots_source_unique ON public.count_projection_snapshots USING btree (tenant_id, horizon, park_id, target_date, source_hash);
+
+
+--
+-- Name: count_projection_snapshots_tenant_id_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX count_projection_snapshots_tenant_id_unique ON public.count_projection_snapshots USING btree (tenant_id, count_projection_snapshot_id);
+
+
+--
 -- Name: counts_projection_hot_read_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7664,6 +8031,13 @@ CREATE INDEX counts_projection_sync_run_idx ON public.counts_projection_rows USI
 --
 
 CREATE INDEX counts_projection_version_idx ON public.counts_projection_rows USING btree (tenant_id, projection_version);
+
+
+--
+-- Name: counts_shifting_readiness_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX counts_shifting_readiness_status_idx ON public.counts_shifting_readiness_subgates USING btree (tenant_id, status, updated_at DESC);
 
 
 --
@@ -9421,6 +9795,48 @@ CREATE INDEX protocol_versions_lookup_idx ON public.protocol_versions USING btre
 --
 
 CREATE INDEX shed_profiles_animal_stage_idx ON public.shed_profiles USING btree (animal_stage_id);
+
+
+--
+-- Name: shifting_event_impacts_grain_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX shifting_event_impacts_grain_unique ON public.shifting_event_impacts USING btree (tenant_id, shifting_event_id, grain_key);
+
+
+--
+-- Name: shifting_event_impacts_projection_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_event_impacts_projection_idx ON public.shifting_event_impacts USING btree (tenant_id, lower(breed_key), stage_tag, ration_context_resolution_state);
+
+
+--
+-- Name: shifting_events_idempotency_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX shifting_events_idempotency_unique ON public.shifting_events USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: shifting_events_logical_key_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX shifting_events_logical_key_unique ON public.shifting_events USING btree (tenant_id, logical_shifting_event_key);
+
+
+--
+-- Name: shifting_events_projection_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shifting_events_projection_window_idx ON public.shifting_events USING btree (tenant_id, event_status, effective_at, destination_park_id, destination_shed_id, shifting_event_id);
+
+
+--
+-- Name: shifting_events_tenant_id_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX shifting_events_tenant_id_unique ON public.shifting_events USING btree (tenant_id, shifting_event_id);
 
 
 --
@@ -11314,6 +11730,198 @@ ALTER TABLE ONLY public.calendar_snoozes
 
 
 --
+-- Name: count_base_anchors count_base_anchors_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_base_anchors
+    ADD CONSTRAINT count_base_anchors_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
+
+
+--
+-- Name: count_base_anchors count_base_anchors_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_base_anchors
+    ADD CONSTRAINT count_base_anchors_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_base_anchors count_base_anchors_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_base_anchors
+    ADD CONSTRAINT count_base_anchors_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_base_anchors count_base_anchors_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_base_anchors
+    ADD CONSTRAINT count_base_anchors_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: count_base_anchors count_base_anchors_tenant_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_base_anchors
+    ADD CONSTRAINT count_base_anchors_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_base_anchors count_base_anchors_tenant_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_base_anchors
+    ADD CONSTRAINT count_base_anchors_tenant_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_count_projection_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_count_projection_snapshot_id_fkey FOREIGN KEY (count_projection_snapshot_id) REFERENCES public.count_projection_snapshots(count_projection_snapshot_id) ON DELETE SET NULL;
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_tenant_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_tenant_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_tenant_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_projection_exceptions count_projection_exceptions_tenant_snapshot_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_exceptions
+    ADD CONSTRAINT count_projection_exceptions_tenant_snapshot_fk FOREIGN KEY (tenant_id, count_projection_snapshot_id) REFERENCES public.count_projection_snapshots(tenant_id, count_projection_snapshot_id) ON DELETE SET NULL;
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_row_count_projection_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_row_count_projection_snapshot_id_fkey FOREIGN KEY (count_projection_snapshot_id) REFERENCES public.count_projection_snapshots(count_projection_snapshot_id) ON DELETE CASCADE;
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_shed_id_fkey FOREIGN KEY (shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_tenant_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_tenant_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_tenant_shed_fk FOREIGN KEY (tenant_id, shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: count_projection_snapshot_rows count_projection_snapshot_rows_tenant_snapshot_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshot_rows
+    ADD CONSTRAINT count_projection_snapshot_rows_tenant_snapshot_fk FOREIGN KEY (tenant_id, count_projection_snapshot_id) REFERENCES public.count_projection_snapshots(tenant_id, count_projection_snapshot_id) ON DELETE CASCADE;
+
+
+--
+-- Name: count_projection_snapshots count_projection_snapshots_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshots
+    ADD CONSTRAINT count_projection_snapshots_park_id_fkey FOREIGN KEY (park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: count_projection_snapshots count_projection_snapshots_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshots
+    ADD CONSTRAINT count_projection_snapshots_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: count_projection_snapshots count_projection_snapshots_tenant_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.count_projection_snapshots
+    ADD CONSTRAINT count_projection_snapshots_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
 -- Name: counts_current_snapshot_rows counts_current_snapshot_rows_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11407,6 +12015,14 @@ ALTER TABLE ONLY public.counts_projection_state
 
 ALTER TABLE ONLY public.counts_projection_state
     ADD CONSTRAINT counts_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: counts_shifting_readiness_subgates counts_shifting_readiness_subgates_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.counts_shifting_readiness_subgates
+    ADD CONSTRAINT counts_shifting_readiness_subgates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -13503,6 +14119,110 @@ ALTER TABLE ONLY public.shed_profiles
 
 ALTER TABLE ONLY public.shed_profiles
     ADD CONSTRAINT shed_profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: shifting_event_impacts shifting_event_impacts_breed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_event_impacts
+    ADD CONSTRAINT shifting_event_impacts_breed_id_fkey FOREIGN KEY (breed_id) REFERENCES public.breeds(breed_id);
+
+
+--
+-- Name: shifting_event_impacts shifting_event_impacts_shifting_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_event_impacts
+    ADD CONSTRAINT shifting_event_impacts_shifting_event_id_fkey FOREIGN KEY (shifting_event_id) REFERENCES public.shifting_events(shifting_event_id) ON DELETE CASCADE;
+
+
+--
+-- Name: shifting_event_impacts shifting_event_impacts_tenant_event_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_event_impacts
+    ADD CONSTRAINT shifting_event_impacts_tenant_event_fk FOREIGN KEY (tenant_id, shifting_event_id) REFERENCES public.shifting_events(tenant_id, shifting_event_id) ON DELETE CASCADE;
+
+
+--
+-- Name: shifting_event_impacts shifting_event_impacts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_event_impacts
+    ADD CONSTRAINT shifting_event_impacts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: shifting_events shifting_events_destination_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_destination_park_id_fkey FOREIGN KEY (destination_park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: shifting_events shifting_events_destination_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_destination_shed_id_fkey FOREIGN KEY (destination_shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: shifting_events shifting_events_source_park_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_source_park_id_fkey FOREIGN KEY (source_park_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: shifting_events shifting_events_source_shed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_source_shed_id_fkey FOREIGN KEY (source_shed_id) REFERENCES public.locations(location_id);
+
+
+--
+-- Name: shifting_events shifting_events_tenant_destination_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_tenant_destination_park_fk FOREIGN KEY (tenant_id, destination_park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: shifting_events shifting_events_tenant_destination_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_tenant_destination_shed_fk FOREIGN KEY (tenant_id, destination_shed_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: shifting_events shifting_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: shifting_events shifting_events_tenant_source_park_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_tenant_source_park_fk FOREIGN KEY (tenant_id, source_park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: shifting_events shifting_events_tenant_source_shed_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shifting_events
+    ADD CONSTRAINT shifting_events_tenant_source_shed_fk FOREIGN KEY (tenant_id, source_shed_id) REFERENCES public.locations(tenant_id, location_id);
 
 
 --

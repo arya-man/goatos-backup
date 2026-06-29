@@ -1,0 +1,154 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/counts/domain"
+)
+
+type fakeRepo struct {
+	anchor domain.BaseCountAnchor
+	event  domain.ShiftingEvent
+	snap   domain.ProjectionSnapshot
+}
+
+func (f *fakeRepo) RecordBaseCountAnchor(_ context.Context, in domain.BaseCountAnchor) (string, bool, error) {
+	f.anchor = in
+	return "anchor-1", false, nil
+}
+func (f *fakeRepo) RecordShiftingEvent(_ context.Context, in domain.ShiftingEvent) (string, bool, error) {
+	f.event = in
+	return "event-1", false, nil
+}
+func (f *fakeRepo) CreateProjectionSnapshot(_ context.Context, in domain.ProjectionSnapshot) (string, error) {
+	f.snap = in
+	return "snapshot-1", nil
+}
+func (f *fakeRepo) Readiness(context.Context, string) (domain.Readiness, error) {
+	return domain.Readiness{}, nil
+}
+
+func TestRecordBaseCountAnchorDefaultsPhysicalSource(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	id, replay, err := svc.RecordBaseCountAnchor(context.Background(), domain.BaseCountAnchor{
+		TenantID: "tenant", ParkID: "park", ShedID: "shed", BreedKey: "beetal", BreedLabel: "Beetal",
+		CountedAt: time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		HeadCount: 42, SourceRef: "base-count-1", SourceHash: "hash-1",
+		IdempotencyKey: "idem-1", RequestFingerprint: "fp-1",
+	})
+	if err != nil || replay || id != "anchor-1" {
+		t.Fatalf("RecordBaseCountAnchor id=%q replay=%v err=%v", id, replay, err)
+	}
+	if repo.anchor.SourceSystem != "physical_base_count" {
+		t.Fatalf("source system=%q", repo.anchor.SourceSystem)
+	}
+	if repo.anchor.DiscrepancyState != "not_checked" {
+		t.Fatalf("discrepancy state=%q", repo.anchor.DiscrepancyState)
+	}
+}
+
+func TestRecordBaseCountAnchorRejectsNegativeCount(t *testing.T) {
+	_, _, err := NewService(&fakeRepo{}).RecordBaseCountAnchor(context.Background(), domain.BaseCountAnchor{
+		TenantID: "tenant", ParkID: "park", ShedID: "shed", BreedKey: "beetal", BreedLabel: "Beetal",
+		CountedAt: time.Now(), HeadCount: -1, SourceRef: "base-count-1", SourceHash: "hash-1",
+		IdempotencyKey: "idem-1", RequestFingerprint: "fp-1",
+	})
+	if !errors.Is(err, ErrInvalidCount) {
+		t.Fatalf("err=%v, want ErrInvalidCount", err)
+	}
+}
+
+func TestRecordShiftingEventRequiresStructuredImpact(t *testing.T) {
+	_, _, err := NewService(&fakeRepo{}).RecordShiftingEvent(context.Background(), domain.ShiftingEvent{
+		TenantID: "tenant", LogicalShiftingEventKey: "shift-1", DestinationParkID: "park", DestinationShedID: "shed",
+		RaisedAt: time.Now(), EffectiveAt: time.Now(), SourceRef: "shift-report-1",
+		PayloadHash: "hash-1", IdempotencyKey: "idem-1", RequestFingerprint: "fp-1",
+	})
+	if !errors.Is(err, ErrMissingImpact) {
+		t.Fatalf("err=%v, want ErrMissingImpact", err)
+	}
+}
+
+func TestRecordShiftingEventRejectsInvalidHighRiskCounts(t *testing.T) {
+	_, _, err := NewService(&fakeRepo{}).RecordShiftingEvent(context.Background(), domain.ShiftingEvent{
+		TenantID: "tenant", LogicalShiftingEventKey: "shift-1", DestinationParkID: "park", DestinationShedID: "shed",
+		RaisedAt: time.Now(), EffectiveAt: time.Now(), SourceRef: "shift-report-1",
+		PayloadHash: "hash-1", IdempotencyKey: "idem-1", RequestFingerprint: "fp-1",
+		Impacts: []domain.ShiftingEventImpact{{
+			GrainKey: "shed:breed", BreedKey: "beetal", BreedLabel: "Beetal", HeadCount: 2, PregnantCount: 3,
+		}},
+	})
+	if !errors.Is(err, ErrInvalidCount) {
+		t.Fatalf("err=%v, want ErrInvalidCount", err)
+	}
+}
+
+func TestRecordShiftingEventRejectsInvalidRiskFlagsJSON(t *testing.T) {
+	_, _, err := NewService(&fakeRepo{}).RecordShiftingEvent(context.Background(), domain.ShiftingEvent{
+		TenantID: "tenant", LogicalShiftingEventKey: "shift-1", DestinationParkID: "park", DestinationShedID: "shed",
+		RaisedAt: time.Now(), EffectiveAt: time.Now(), SourceRef: "shift-report-1",
+		PayloadHash: "hash-1", IdempotencyKey: "idem-1", RequestFingerprint: "fp-1",
+		Impacts: []domain.ShiftingEventImpact{{
+			GrainKey: "shed:breed:pregnant", BreedKey: "beetal", BreedLabel: "Beetal",
+			HeadCount: 3, PregnantCount: 3, RiskFlagsJSON: []byte(`["pregnant"]`),
+		}},
+	})
+	if !errors.Is(err, ErrInvalidJSON) {
+		t.Fatalf("err=%v, want ErrInvalidJSON", err)
+	}
+}
+
+func TestCreateProjectionSnapshotDefaultsBlocked(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	id, err := svc.CreateProjectionSnapshot(context.Background(), domain.ProjectionSnapshot{
+		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", SourceHash: "hash-1",
+		BaseAnchorIDsHash: "anchors", ShiftingEventIDsHash: "shifts", GeneratedBy: "test",
+	})
+	if err != nil || id != "snapshot-1" {
+		t.Fatalf("CreateProjectionSnapshot id=%q err=%v", id, err)
+	}
+	if repo.snap.Horizon != "feed_target_date" {
+		t.Fatalf("horizon=%q", repo.snap.Horizon)
+	}
+	if repo.snap.ProjectionStatus != "blocked" {
+		t.Fatalf("projection status=%q", repo.snap.ProjectionStatus)
+	}
+}
+
+func TestCreateProjectionSnapshotRejectsInvalidExceptionEvidence(t *testing.T) {
+	_, err := NewService(&fakeRepo{}).CreateProjectionSnapshot(context.Background(), domain.ProjectionSnapshot{
+		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", SourceHash: "hash-1",
+		BaseAnchorIDsHash: "anchors", ShiftingEventIDsHash: "shifts", GeneratedBy: "test",
+		Exceptions: []domain.ProjectionException{{
+			ExceptionType: "destination_shortage", SourceKey: "shift-1", GrainKey: "shed:breed:pregnant",
+			BlockerReason: "pregnant destination shed shortage", EvidenceJSON: []byte(`true`),
+		}},
+	})
+	if !errors.Is(err, ErrInvalidJSON) {
+		t.Fatalf("err=%v, want ErrInvalidJSON", err)
+	}
+}
+
+func TestCreateProjectionSnapshotRejectsExceptionWithoutBlocker(t *testing.T) {
+	_, err := NewService(&fakeRepo{}).CreateProjectionSnapshot(context.Background(), domain.ProjectionSnapshot{
+		TenantID: "tenant", ParkID: "park", TargetDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		AsOf:                  time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC),
+		SourceContractVersion: "counts-shifting-v1", SourceHash: "hash-1",
+		BaseAnchorIDsHash: "anchors", ShiftingEventIDsHash: "shifts", GeneratedBy: "test",
+		Exceptions: []domain.ProjectionException{{
+			ExceptionType: "destination_shortage", SourceKey: "shift-1", GrainKey: "shed:breed:pregnant",
+		}},
+	})
+	if !errors.Is(err, ErrMissingRequiredField) {
+		t.Fatalf("err=%v, want ErrMissingRequiredField", err)
+	}
+}

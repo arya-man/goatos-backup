@@ -55,7 +55,7 @@ func (s *Service) VerificationQueue(ctx context.Context, tenantID string, limit 
 }
 
 // Readiness returns the Feed Direction build/runtime readiness contract. Until
-// Counts/Shifting exposes a source-backed projection adapter, this deliberately
+// Counts/Shifting exposes source-backed projection readiness, this deliberately
 // fails closed so no caller can treat Feed generation as safe.
 func (s *Service) Readiness(_ context.Context, tenantID string) (domain.Readiness, error) {
 	checkedAt := s.clock().UTC()
@@ -64,9 +64,10 @@ func (s *Service) Readiness(_ context.Context, tenantID string) (domain.Readines
 		Status:            domain.ReadinessBlocked,
 		CurrentGate:       "G2",
 		GenerationAllowed: false,
-		NextAction: "Close G2 Counts/Shifting projection or keep this fail-closed adapter: " +
-			"Base Count anchor, ShiftingEvent ledger, one-day projection, ration-context resolver, " +
-			"idempotency, exceptions, observability, and bounded read models must exist before generation.",
+		NextAction: "Close G2 Counts/Shifting projection before generation: " +
+			"source-backed Base Count anchors, ShiftingEvent ledger, one-day projection worker, " +
+			"ration-context resolver, idempotency/replay proof, exceptions, observability, " +
+			"bounded read models, API/UI, and E2E evidence must all pass.",
 		SourcePriority:           "Feed, Shiftings and Count.docx is primary business truth; workbooks and legacy Apps Script are evidence only.",
 		Gates:                    feedReadinessGates(checkedAt),
 		CountsShiftingSubgates:   countsShiftingSubgates(checkedAt),
@@ -85,7 +86,7 @@ func (s *Service) clock() time.Time {
 func feedReadinessGates(checkedAt time.Time) []domain.ReadinessGate {
 	gates := []domain.ReadinessGate{
 		readyGate("G1", 1, "Mock anatomy and source-backed build lane reopened", "Product/engineering", "docs/feed-direction/BUILD-TO-DONE-GOAL.md"),
-		blockedGate("G2", 2, "Counts/Shifting projection", "Counts/Shifting + Feed Direction", "docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md", "No implemented projection adapter yet: Base Count anchor, ShiftingEvent ledger, immutable one-day projection snapshot, ration-context resolver, exceptions, observability, and query-plan evidence are required."),
+		blockedGate("G2", 2, "Counts/Shifting projection", "Counts/Shifting + Feed Direction", "docs/feed-direction/COUNTS-SHIFTING-CLOSURE-TRD.md", "Counts/Shifting storage is not enough: Feed stays blocked until source-backed Base Count anchors and the ShiftingEvent ledger are projected into immutable one-day shed/cohort snapshots with ration-context resolution, owner-visible exceptions, observability, and query-plan evidence."),
 		pendingGate("G3", 3, "Clock and legacy-trigger cutover sign-off", "Feed Director + engineering", "docs/feed-direction/DEPENDENCY-CLOSURE-TRD.md", "Must follow docx clocks; legacy triggers remain retain/retire/replace evidence only."),
 		pendingGate("G4", 4, "Ration approval and provenance", "Feed Director + protocol owner", "docs/feed-direction/TRD.md", "Workbook/KT parameters must become reviewed typed protocol/config rows before generation can depend on them."),
 		pendingGate("G5", 5, "Eligibility, stage-tag, pregnancy, and session-slot policy", "Feed Director + protocol owner", "docs/feed-direction/BUILD-TO-DONE-GOAL.md", "Warm-up, pregnancy/lactation, breed/tag/age/session rules need reviewed effective-dated policy."),
@@ -135,11 +136,11 @@ func countsShiftingSubgates(checkedAt time.Time) []domain.CountsShiftingSubgate 
 		name    string
 		blocker string
 	}{
-		{"CSG1", "Base Count anchor", "No source-backed physical Base Count anchor table/import adapter is implemented."},
-		{"CSG2", "Append-only ShiftingEvent ledger", "No aggregate movement ledger with structured source/destination/cohort impact is implemented."},
-		{"CSG3", "Realized vs one-day projection snapshot", "No immutable projection snapshot for target-day Feed consumption exists."},
+		{"CSG1", "Base Count anchor", "Physical Base Count storage exists, but source-backed import/adoption and discrepancy workflow are not proven."},
+		{"CSG2", "Append-only ShiftingEvent ledger", "ShiftingEvent storage exists, but source adapters, source parity, and structured source/destination/cohort ingestion are not proven."},
+		{"CSG3", "Realized vs one-day projection snapshot", "Projection snapshot storage exists, but the worker that produces target-day Feed consumption snapshots is not implemented."},
 		{"CSG4", "Ration-context resolver", "Breed/tag/age/pregnancy/warm-up nutrition context is not resolved against reviewed shed/cohort data."},
-		{"CSG5", "Idempotency and replay", "Durable keys for base counts, shifting events, impacts, snapshots, and exceptions are not implemented."},
+		{"CSG5", "Idempotency and replay", "Storage-level idempotency exists, but replay across adapters, workers, exceptions, and Feed consumption is not proven."},
 		{"CSG6", "Unreported-shifting and count-mismatch detection", "No exception worker/read model exists for unexpected deltas or unresolved movement."},
 		{"CSG7", "Exception workflow", "Count/projection exceptions do not yet create durable owner-visible work."},
 		{"CSG8", "Observability", "Projection latency, stale age, queue lag, retry, DLQ, and exception metrics are not wired."},

@@ -328,6 +328,96 @@ type CalendarSnooze struct {
 	TraceID            pgtype.Text
 }
 
+type CountBaseAnchor struct {
+	BaseCountAnchorID  pgtype.UUID
+	TenantID           pgtype.UUID
+	ParkID             pgtype.UUID
+	ShedID             pgtype.UUID
+	BreedID            pgtype.UUID
+	BreedKey           string
+	BreedLabel         string
+	CountedAt          pgtype.Timestamptz
+	HeadCount          int32
+	SourceSystem       string
+	SourceRef          string
+	SourceHash         string
+	AnchorState        string
+	DiscrepancyState   string
+	IdempotencyKey     string
+	RequestFingerprint string
+	RecordedBy         pgtype.UUID
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	RowVersion         int32
+}
+
+type CountProjectionException struct {
+	CountProjectionExceptionID pgtype.UUID
+	TenantID                   pgtype.UUID
+	CountProjectionSnapshotID  pgtype.UUID
+	ExceptionType              string
+	SourceKey                  string
+	GrainKey                   string
+	ParkID                     pgtype.UUID
+	ShedID                     pgtype.UUID
+	BreedKey                   pgtype.Text
+	StageTag                   pgtype.Text
+	Severity                   string
+	Status                     string
+	OwnerRef                   pgtype.Text
+	BlockerReason              string
+	EvidenceJson               []byte
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+	ResolvedAt                 pgtype.Timestamptz
+}
+
+type CountProjectionSnapshot struct {
+	CountProjectionSnapshotID pgtype.UUID
+	TenantID                  pgtype.UUID
+	Horizon                   string
+	ParkID                    pgtype.UUID
+	TargetDate                pgtype.Date
+	AsOf                      pgtype.Timestamptz
+	ProjectionStatus          string
+	SourceContractVersion     string
+	SourceHash                string
+	BaseAnchorIdsHash         string
+	ShiftingEventIdsHash      string
+	RowCount                  int32
+	ExceptionCount            int32
+	GeneratedBy               string
+	TraceID                   pgtype.Text
+	CreatedAt                 pgtype.Timestamptz
+	UpdatedAt                 pgtype.Timestamptz
+	RowVersion                int32
+}
+
+type CountProjectionSnapshotRow struct {
+	CountProjectionSnapshotRowID pgtype.UUID
+	TenantID                     pgtype.UUID
+	CountProjectionSnapshotID    pgtype.UUID
+	ParkID                       pgtype.UUID
+	ShedID                       pgtype.UUID
+	TargetDate                   pgtype.Date
+	GrainKey                     string
+	BreedID                      pgtype.UUID
+	BreedKey                     string
+	BreedLabel                   string
+	StageTag                     pgtype.Text
+	AgeClass                     pgtype.Text
+	Sex                          pgtype.Text
+	HeadCount                    int32
+	PregnantCount                int32
+	LactatingCount               int32
+	WarmupCount                  int32
+	RationContextResolutionState string
+	RationContextRef             pgtype.Text
+	BlockerReason                pgtype.Text
+	SourceRowHash                string
+	CreatedAt                    pgtype.Timestamptz
+}
+
 type CountsCurrentSnapshotRow struct {
 	CountsSnapshotRowID  pgtype.UUID
 	TenantID             pgtype.UUID
@@ -409,6 +499,18 @@ type CountsProjectionState struct {
 	RebuildRequired         bool
 	LastError               pgtype.Text
 	UpdatedAt               pgtype.Timestamptz
+}
+
+type CountsShiftingReadinessSubgate struct {
+	TenantID          pgtype.UUID
+	SubgateID         string
+	Status            string
+	Owner             string
+	EvidenceRef       string
+	BlockerReason     string
+	ImplementationRef pgtype.Text
+	LastCheckedAt     pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 type CountsSourceRow struct {
@@ -1965,6 +2067,56 @@ type ShedProfile struct {
 	RowVersion            int32
 	CreatedAt             pgtype.Timestamptz
 	UpdatedAt             pgtype.Timestamptz
+}
+
+type ShiftingEvent struct {
+	ShiftingEventID         pgtype.UUID
+	TenantID                pgtype.UUID
+	LogicalShiftingEventKey string
+	Priority                string
+	Category                string
+	SourceParkID            pgtype.UUID
+	SourceShedID            pgtype.UUID
+	DestinationParkID       pgtype.UUID
+	DestinationShedID       pgtype.UUID
+	RaisedAt                pgtype.Timestamptz
+	EffectiveAt             pgtype.Timestamptz
+	AuthorizedAt            pgtype.Timestamptz
+	AuthorizedBy            pgtype.UUID
+	AuthorizationState      string
+	VerificationState       string
+	EventStatus             string
+	SourceSystem            string
+	SourceRef               string
+	ProofRef                pgtype.Text
+	PayloadHash             string
+	IdempotencyKey          string
+	RequestFingerprint      string
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	RowVersion              int32
+}
+
+type ShiftingEventImpact struct {
+	ShiftingEventImpactID        pgtype.UUID
+	TenantID                     pgtype.UUID
+	ShiftingEventID              pgtype.UUID
+	GrainKey                     string
+	BreedID                      pgtype.UUID
+	BreedKey                     string
+	BreedLabel                   string
+	StageTag                     pgtype.Text
+	AgeClass                     pgtype.Text
+	Sex                          pgtype.Text
+	HeadCount                    int32
+	PregnantCount                int32
+	LactatingCount               int32
+	WarmupCount                  int32
+	RiskFlags                    []byte
+	RationContextResolutionState string
+	RationContextRef             pgtype.Text
+	BlockerReason                pgtype.Text
+	CreatedAt                    pgtype.Timestamptz
 }
 
 type SopDefinition struct {
