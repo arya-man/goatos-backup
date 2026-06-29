@@ -109,6 +109,7 @@ artifactregistry.googleapis.com
 cloudscheduler.googleapis.com
 cloudtasks.googleapis.com
 fcm.googleapis.com
+identitytoolkit.googleapis.com
 logging.googleapis.com
 monitoring.googleapis.com
 pubsub.googleapis.com
