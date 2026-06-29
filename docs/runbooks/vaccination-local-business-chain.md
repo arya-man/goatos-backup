@@ -41,7 +41,7 @@ real local stack (admin-web `:3300`, api `:8080`, docker PG `127.0.0.1:55432`) a
 prints concrete IDs plus a per-surface read-model check:
 
 ```bash
-cd /Users/ravi/mesha/goatos
+cd /path/to/goatos
 bash tools/dev/vaccination-chain-proof.sh
 ```
 

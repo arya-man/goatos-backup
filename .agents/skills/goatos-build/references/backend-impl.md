@@ -186,7 +186,7 @@ For backend cleanup or implementation, run the narrow package tests first, then
 the full backend suite when feasible:
 
 ```bash
-cd /Users/ravi/mesha/goatos/backend
+cd /path/to/goatos/backend
 go test ./internal/identity/...
 go test ./...
 ```
@@ -194,7 +194,7 @@ go test ./...
 For OpenAPI changes:
 
 ```bash
-cd /Users/ravi/mesha/goatos
+cd /path/to/goatos
 make api-client-generate
 make api-client-check
 ./tools/agent-hooks/check-contract-drift.sh

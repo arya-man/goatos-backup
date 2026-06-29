@@ -76,7 +76,7 @@ Open the generated screenshots under
 From the repo root:
 
 ```bash
-cd /Users/ravi/mesha/goatos
+cd /path/to/goatos
 make dev-local
 ```
 
@@ -85,7 +85,7 @@ Open `http://127.0.0.1:3300/`.
 For admin-web-only checks:
 
 ```bash
-cd /Users/ravi/mesha/goatos/apps/admin-web
+cd /path/to/goatos/apps/admin-web
 npm install
 npm run dev:local
 ```

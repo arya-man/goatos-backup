@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PostToolUse hook: auto-rebuild goatos-docs Graphify graph when tracked .md files change.
-# Runs claude -p in background (debounced: at most once per 60s).
+# Runs the configured local AI backend in background (debounced).
 
 HOOK_INPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/goatos-docs-graph-hook.XXXXXX")"
 trap 'rm -f "$HOOK_INPUT_FILE"' EXIT
@@ -78,7 +78,7 @@ if [ -z "$CHANGED_MD_PATHS" ]; then
     exit 0
 fi
 
-REPO="/Users/ravi/mesha/goatos"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOG="/tmp/graphify-goatos-update.log"
 MARKER="$REPO/graphify-out/.needs_docs_graph_update"
 TS="$(date '+%Y-%m-%d %H:%M:%S')"

@@ -10,19 +10,99 @@
 # restores the previous graph and keeps the stale-marker so nothing is silently
 # corrupted and the next change retries.
 #
-# Usage: rebuild-docs-graph.sh            # rebuild whatever changed vs manifest
+# Usage:
+#   rebuild-docs-graph.sh                    # auto-pick claude or codex
+#   AI_BACKEND=claude rebuild-docs-graph.sh
+#   AI_BACKEND=codex rebuild-docs-graph.sh
 set -uo pipefail
 
-REPO="/Users/ravi/mesha/goatos"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$REPO/graphify-out"
 LOG="/tmp/graphify-goatos-update.log"
 MARKER="$OUT/.needs_docs_graph_update"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AI_BACKEND="${AI_BACKEND:-auto}"
 cd "$REPO" || exit 1
 
-PY="$(cat "$OUT/.graphify_python" 2>/dev/null)"
-[ -x "$PY" ] || PY="python3"
 log() { echo "[$(date '+%F %T')] rebuild: $*" >> "$LOG"; }
+
+mkdir -p "$OUT"
+
+resolve_graphify_python() {
+    local py
+    py="$(cat "$OUT/.graphify_python" 2>/dev/null || true)"
+    if [ -n "$py" ] && [ -x "$py" ] && "$py" -c "import graphify" >/dev/null 2>&1; then
+        printf '%s\n' "$py"
+        return 0
+    fi
+    if command -v uv >/dev/null 2>&1; then
+        py="$(uv tool run graphifyy python -c "import sys; print(sys.executable)" 2>/dev/null || true)"
+        if [ -n "$py" ] && [ -x "$py" ] && "$py" -c "import graphify" >/dev/null 2>&1; then
+            printf '%s' "$py" > "$OUT/.graphify_python"
+            printf '%s\n' "$py"
+            return 0
+        fi
+    fi
+    if command -v graphify >/dev/null 2>&1; then
+        py="$(head -1 "$(command -v graphify)" | sed 's/^#!//')"
+        if [ -n "$py" ] && [ -x "$py" ] && "$py" -c "import graphify" >/dev/null 2>&1; then
+            printf '%s' "$py" > "$OUT/.graphify_python"
+            printf '%s\n' "$py"
+            return 0
+        fi
+    fi
+    if python3 -c "import graphify" >/dev/null 2>&1; then
+        printf '%s\n' "python3"
+        return 0
+    fi
+    return 1
+}
+
+PY="$(resolve_graphify_python || true)"
+if [ -z "$PY" ]; then
+    log "graphify python runtime missing; run make ai-setup"
+    echo "Missing graphify Python runtime. Run: make ai-setup" >&2
+    exit 2
+fi
+
+choose_llm_backend() {
+    case "$AI_BACKEND" in
+      auto)
+        if command -v claude >/dev/null 2>&1; then printf '%s\n' "claude"; return 0; fi
+        if command -v codex >/dev/null 2>&1; then printf '%s\n' "codex"; return 0; fi
+        ;;
+      claude|codex)
+        if command -v "$AI_BACKEND" >/dev/null 2>&1; then printf '%s\n' "$AI_BACKEND"; return 0; fi
+        ;;
+      *)
+        log "unsupported AI_BACKEND=$AI_BACKEND (expected auto|claude|codex)"
+        return 1
+        ;;
+    esac
+    log "no supported local LLM CLI found for AI_BACKEND=$AI_BACKEND"
+    return 1
+}
+
+run_llm_extract() {
+    local prompt="$1"
+    local backend
+    backend="$(choose_llm_backend)" || return 1
+    log "extracting $(echo "$CHANGED" | grep -c .) changed file(s) via $backend"
+    case "$backend" in
+      claude)
+        GOATOS_GRAPH_GUARD=0 GOATOS_DOCS_GRAPH_AUTOREBUILD=0 \
+            claude -p "$prompt" >> "$LOG" 2>&1
+        ;;
+      codex)
+        printf '%s\n' "$prompt" | GOATOS_GRAPH_GUARD=0 GOATOS_DOCS_GRAPH_AUTOREBUILD=0 \
+            codex exec --cd "$REPO" \
+            --sandbox danger-full-access \
+            --ask-for-approval never \
+            --output-last-message "$OUT/.codex_extract_last.txt" \
+            - >> "$LOG" 2>&1
+        ;;
+    esac
+}
 
 # Serialize: only one rebuild at a time.
 LOCK="$OUT/.rebuild.lock"
@@ -76,8 +156,7 @@ $FILE_LIST
 Rules: EXTRACTED edges confidence_score=1.0; INFERRED 0.6-0.9 (reason per edge, never 0.5); AMBIGUOUS 0.1-0.3 (flag, don't omit). Extract named concepts, rules, systems, and rationale (WHY -> rationale_for edges). Node id: lowercase [a-z0-9_] only, namespaced by directory to avoid collisions across identically-named files, format {dir_path_normalized}_{stem}_{entity}. source_file MUST be relative to $REPO. file_type=\"document\".
 Write exactly: {\"nodes\":[{\"id\":\"...\",\"label\":\"...\",\"file_type\":\"document\",\"source_file\":\"rel/path\",\"source_location\":null,\"source_url\":null,\"captured_at\":null,\"author\":null,\"contributor\":null}],\"edges\":[{\"source\":\"id\",\"target\":\"id\",\"relation\":\"references|conceptually_related_to|implements|rationale_for|depends_on|shares_data_with\",\"confidence\":\"EXTRACTED|INFERRED|AMBIGUOUS\",\"confidence_score\":1.0,\"source_file\":\"rel/path\",\"source_location\":null,\"weight\":1.0}],\"hyperedges\":[],\"input_tokens\":0,\"output_tokens\":0}
 After writing, validate it loads as JSON. Final message: node count + edge count."
-    log "extracting $(echo "$CHANGED" | grep -c .) changed file(s) via claude -p"
-    claude -p "$PROMPT" >> "$LOG" 2>&1
+    run_llm_extract "$PROMPT" || log "LLM extraction failed to start for AI_BACKEND=$AI_BACKEND"
 fi
 
 # 4. Merge + recluster + regenerate + SELF-CHECK (restores backup on failure).
@@ -104,8 +183,11 @@ def fail(msg):
     print("REBUILD_FAILED " + msg)
     raise SystemExit(2)
 
-# load previous graph
-g = json.load(open(f"{OUT}/graph.json"))
+# load previous graph, or start from empty on a fresh clone
+if os.path.exists(f"{OUT}/graph.json"):
+    g = json.load(open(f"{OUT}/graph.json"))
+else:
+    g = {"nodes": [], "links": [], "edges": [], "hyperedges": []}
 prev_nodes = g["nodes"]
 prev_count = len(prev_nodes)
 
@@ -136,7 +218,7 @@ added = 0
 chunk_path = f"{OUT}/.graphify_autochunk.json"
 if changed:
     if not os.path.exists(chunk_path):
-        fail("extraction chunk missing (claude -p produced nothing)")
+        fail("extraction chunk missing (AI backend produced nothing)")
     try:
         chunk = json.loads(Path(chunk_path).read_text())
     except Exception as e:

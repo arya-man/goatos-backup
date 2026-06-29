@@ -1,0 +1,42 @@
+---
+description: Goat OS AI graph routing and local setup
+alwaysApply: true
+---
+
+# Goat OS AI Routing
+
+Use the repo's local AI setup before broad code or docs scans.
+
+## Local Setup
+
+Run from the repository root:
+
+```bash
+make ai-setup
+make ai-rebuild AI_BACKEND=auto
+make ai-doctor
+```
+
+Generated graph artifacts are local-only and must not be committed:
+
+- `.code-review-graph/`
+- `graphify-out/graph.json`
+- `graphify-out/GRAPH_REPORT.md`
+- `graphify-out/graph.html`
+- `graphify-out/manifest.json`
+- `graphify-out/cost.json`
+- `graphify-out/cache/`
+
+## Routing
+
+| Task shape | First move |
+| --- | --- |
+| Cold orientation, review, or diff | CRG minimal context, then one targeted graph query |
+| Known symbol traversal | CRG callers/callees/imports/tests query directly |
+| Keyword/domain lookup | CRG semantic search, then targeted graph query |
+| Docs/product question | Graphify query against local `graphify-out/graph.json` |
+| Single file/function body | Read the file directly; use graph only for impact |
+| HTTP routes, config, SQL strings, uncommitted code | Native grep/read |
+
+Cursor does not enforce the Claude/Codex hook wall in this repo. Use
+`make ai-doctor` after setup and after AI-tooling edits.

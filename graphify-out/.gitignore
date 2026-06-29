@@ -1,15 +1,7 @@
-.needs_docs_graph_update
-.graphify_python
-.graphify_*.json
-.graphify_*.txt
-.graphify_*.tsv
-.graphify_chunk_*.json
-.graphify_old.json
-cache/
-.needs_update
-cost.json
-graph.html
-.corpus.txt
-.graph.bak.json
-.manifest.bak.json
-.rebuild.lock
+# Generated graph artifacts are local-only and must never be committed
+# (AGENTS.md: commit ONLY generation scripts/skills, never graph output).
+# Whitelist style: ignore EVERYTHING in this directory by default except this
+# .gitignore itself, so any current OR future graphify/CRG output file is
+# ignored without having to enumerate filenames.
+*
+!.gitignore

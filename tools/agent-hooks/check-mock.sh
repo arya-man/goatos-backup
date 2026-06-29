@@ -8,7 +8,7 @@
 # Tier 2 (if playwright present): load the mock in headless chromium, fail on
 #   any JS error and click every nav/leaf asserting the screen actually changes.
 set -uo pipefail
-REPO="/Users/ravi/mesha/goatos"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 F="$REPO/mock/goatos-dashboard-mock.html"
 cd "$REPO" || exit 1
 

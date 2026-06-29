@@ -10,17 +10,17 @@ be followed.
 Current local rehearsal:
 
 ```bash
-cd /Users/ravi/mesha/goatos
+cd /path/to/goatos
 make dev-local
 ```
 
 Then verify:
 
 ```bash
-cd /Users/ravi/mesha/goatos/backend
+cd /path/to/goatos/backend
 go test ./...
 
-cd /Users/ravi/mesha/goatos/apps/admin-web
+cd /path/to/goatos/apps/admin-web
 npm run check:mock-fidelity
 npm run lint
 npm run typecheck

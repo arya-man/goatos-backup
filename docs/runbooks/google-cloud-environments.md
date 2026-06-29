@@ -156,7 +156,7 @@ Before connecting, verify that the local shell is in the Mesha/VGoats context:
 ```bash
 gcloud auth list --format="table(account,status)"
 gcloud config list --format="text(core.account,core.project)"
-git -C /Users/ravi/mesha/goatos remote get-url origin \
+git -C /path/to/goatos remote get-url origin \
   | sed -E 's#(https://)[^/@]+@#\1***@#'
 gcloud organizations list --format="table(displayName,name,directoryCustomerId)"
 gcloud projects describe goatos-dev --format="json(projectId,name,parent)"

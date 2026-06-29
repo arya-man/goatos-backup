@@ -48,7 +48,7 @@
           },
           {
             "type": "command",
-            "command": "code-review-graph update /Users/ravi/mesha/goatos >/dev/null 2>&1 &"
+            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; [ -n \"$repo\" ] || repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; code-review-graph update \"$repo\" >/dev/null 2>&1 &"
           },
           {
             "type": "command",

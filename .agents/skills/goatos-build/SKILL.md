@@ -17,10 +17,12 @@ Work layers in order. Stop when the question is answered. Never jump to files fi
 
 **Layer 1 — CRG** (code structure: callers, imports, blast radius)
 ```
-repo_root: /Users/ravi/mesha/goatos
-1. semantic_search_nodes_tool  — keywords from the task
-2. query_graph_tool            — callers_of / callees_of / imports_of / tests_for
-3. get_impact_radius_tool      — if anything is changing
+repo_root: <absolute path of your goatos checkout>   # git rev-parse --show-toplevel
+Cold/review/diff task      -> get_minimal_context_tool, then one targeted graph query
+Known-symbol traversal     -> query_graph_tool callers_of/callees_of/imports_of/tests_for
+Keyword/domain lookup      -> semantic_search_nodes_tool, then query_graph_tool
+Changing code              -> detect_changes_tool + get_impact_radius_tool
+Single file/function read  -> read the file; use graph only if impact is unclear
 ```
 
 **Layer 2 — Graphify** (business context + technical docs). Query both in parallel:
@@ -32,12 +34,13 @@ CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
        --graph /Users/ravi/mesha/graphify-out/graph.json
 ```
 
-**goatos-docs graph** — TRDs, ADRs, protocol engine, obligation engine, frontend scope, skill refs (committed, available to all devs):
+**goatos-docs graph** — TRDs, ADRs, protocol engine, obligation engine, frontend scope, skill refs (locally generated; run `make ai-rebuild-docs` if missing):
 ```
 CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
        --graph ./graphify-out/graph.json
 ```
-191 nodes, 265 edges. Skip mesha_docs_graph if not configured — use goatos-docs graph alone.
+Skip mesha_docs_graph if not configured. If the local goatos-docs graph is
+missing, run `make ai-rebuild-docs` or fall back to the relevant source docs.
 
 **Layer 3 — Skill references** (architecture decisions, TRDs, contracts)
 Load `context/README.md`, then only the ONE reference doc from the table below

@@ -12,7 +12,7 @@
 # unrelated in-flight work. No-ops (and no network) when the mock is clean.
 set -uo pipefail
 
-REPO="/Users/ravi/mesha/goatos"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 F="mock/goatos-dashboard-mock.html"
 
 cd "$REPO" 2>/dev/null || exit 0

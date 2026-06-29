@@ -6,10 +6,11 @@
 //   2. clicks every sidebar nav + every drill leaf and asserts the active
 //      screen actually changes and nothing throws.
 // Exits non-zero with a loud message on failure so push-mock.sh can abort.
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 
-const REPO = '/Users/ravi/mesha/goatos';
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FILE = `${REPO}/mock/goatos-dashboard-mock.html`;
 const require = createRequire(`${REPO}/apps/admin-web/package.json`);
 

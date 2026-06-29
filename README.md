@@ -51,6 +51,27 @@ Is the vaccination process intact for each park/shed, and if not, who owns the
 next action?
 ```
 
+## AI Developer Setup
+
+Goat OS includes portable AI setup for Codex, Claude, Cursor, and other agents.
+The repo commits the rules, hooks, scripts, and docs; generated graph databases
+are rebuilt locally and must not be pushed.
+
+```bash
+make ai-setup
+make ai-rebuild AI_BACKEND=auto
+make ai-doctor
+```
+
+Use `docs/ai/README.md` for the full setup and routing guide. In short:
+
+- CRG handles code structure questions such as callers, imports, tests, impact,
+  and review context.
+- Graphify handles local docs/product graph queries.
+- RTK compresses noisy command output before it reaches agent context.
+- `make ai-doctor` verifies the clone is portable and graph artifacts remain
+  local-only.
+
 ## Operational Kernel
 
 Goat OS is built around a shared operational kernel. PHC vaccination is the

@@ -13,7 +13,7 @@
 #   goatos-docs-corpus.sh            # print all corpus files
 #   goatos-docs-corpus.sh --matches REL_PATH   # exit 0 if REL_PATH is in corpus, else 1
 
-REPO="/Users/ravi/mesha/goatos"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Directories never indexed (generated output, deps, build artifacts, VCS).
 PRUNE=(node_modules .git .next dist build vendor graphify-out .codex-goatos-render)

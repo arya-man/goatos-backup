@@ -1,6 +1,6 @@
 ---
 name: crg
-description: CRG-first code investigation for Goat OS. Runs code-review-graph tools to answer structural questions, find callers/callees, assess blast radius, and orient before reading files. Invoke for any code question in this repo.
+description: CRG-first code investigation for Goat OS. Routes by task shape through code-review-graph tools to answer structural questions, find callers/callees, assess blast radius, and avoid broad file scans.
 version: 0.1.0
 user-invocable: true
 argument-hint: "[query: what you want to find/understand]"
@@ -8,30 +8,31 @@ argument-hint: "[query: what you want to find/understand]"
 
 # CRG Scan Skill
 
-Mandatory CRG-first pass for any code question in this repo. Run these tools
-before opening files or grepping.
+Mandatory CRG-first pass for graph-shaped code questions in this repo. Choose
+the cheapest entry point that matches the task shape before opening many files
+or grepping broadly.
 
-## Step 1 — Orient (always run first)
+## Step 1 — Route by task shape
 
-Run in parallel:
-- `get_architecture_overview_tool` (repo_root: /Users/ravi/mesha/goatos)
-- `list_communities_tool` (repo_root: /Users/ravi/mesha/goatos)
+- Cold orientation, diff review, or unclear task: run `get_minimal_context_tool`
+  first, then one targeted graph query.
+- Known symbol/function/class: skip orientation and run `query_graph_tool`
+  directly with `callers_of`, `callees_of`, `imports_of`, or `tests_for`.
+- Keyword/domain lookup: run `semantic_search_nodes_tool`, then a targeted
+  `query_graph_tool`.
+- Single file/function body request: read the file directly; use CRG afterward
+  only if impact or callers matter.
 
-## Step 2 — Locate (based on the user's question)
+repo_root is the absolute path of your goatos checkout:
+`git rev-parse --show-toplevel`
 
-Run `semantic_search_nodes_tool` with the key terms from the question.
-repo_root: /Users/ravi/mesha/goatos
+## Step 2 — Impact (if code is changing or being reviewed)
 
-If the question is about a specific function/class name, use
-`query_graph_tool` with pattern=callers_of or callees_of.
-
-## Step 3 — Impact (if code is changing or being reviewed)
-
-Run `get_impact_radius_tool` on affected nodes.
 Run `detect_changes_tool` if there is a diff or recent edit.
+Run `get_impact_radius_tool` on affected nodes.
 Run `get_affected_flows_tool` to see which execution paths are touched.
 
-## Step 4 — Context (fill gaps the graph cannot see)
+## Step 3 — Context (fill gaps the graph cannot see)
 
 After graph pass: use Read/Grep ONLY for:
 - HTTP route strings, middleware registration
@@ -40,10 +41,10 @@ After graph pass: use Read/Grep ONLY for:
 
 ## Rules
 
-- NEVER skip Step 1 even for "simple" questions — orientation is cheap
-- NEVER read files first without running CRG — graph replaces most file reads
-- One graph query replaces 5-10 grep/read cycles
-- repo_root is ALWAYS /Users/ravi/mesha/goatos for this project
+- Do not run architecture overview/community listing as a default ritual.
+- Do not use graph for a plain one-file read unless impact is relevant.
+- One graph query replaces 5-10 grep/read cycles when the question is traversal-shaped.
+- repo_root is the absolute path of your goatos checkout (`git rev-parse --show-toplevel`)
 
 ## Graph blind spots (fall back to native)
 

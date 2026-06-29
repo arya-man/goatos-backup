@@ -2,8 +2,8 @@
 # PreToolUse guard (Claude AND Codex): one-time graph-first speed bump for
 # direct sessions launched inside the Goat OS repo.
 #
-# This is intentionally repo-local. Do not depend on /Users/ravi/mesha workspace
-# tooling from the committed Goat OS hook configuration.
+# This is intentionally repo-local. Do not depend on any absolute workspace path
+# or external workspace tooling from the committed Goat OS hook configuration.
 set -u
 [ "${GOATOS_GRAPH_GUARD:-1}" = "0" ] && exit 0
 

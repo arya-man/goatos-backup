@@ -7,12 +7,13 @@ Work through layers in order. Stop at the layer that answers the question. Do NO
 ### Layer 1 — CRG (code structure)
 For callers, callees, imports, blast radius, architecture, dead code, test coverage:
 ```
-repo_root: /Users/ravi/mesha/goatos
+repo_root: <absolute path of your goatos checkout>   # git rev-parse --show-toplevel
 
-1. get_architecture_overview_tool  — orient first
-2. semantic_search_nodes_tool      — keywords from the question
-3. query_graph_tool                — callers_of / callees_of / imports_of / tests_for
-4. get_impact_radius_tool          — if anything is changing
+Cold/review/diff task      -> get_minimal_context_tool, then one targeted graph query
+Known-symbol traversal     -> query_graph_tool callers_of/callees_of/imports_of/tests_for
+Keyword/domain lookup      -> semantic_search_nodes_tool, then query_graph_tool
+Changing code              -> detect_changes_tool + get_impact_radius_tool
+Single file/function read  -> read the file; use graph only if impact is unclear
 ```
 
 ### Layer 2 — Graphify (business/product context + technical docs)
@@ -25,13 +26,14 @@ CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
        --graph /Users/ravi/mesha/graphify-out/graph.json
 ```
 
-**goatos-docs graph** — TRDs, ADRs, phase docs, obligation engine, skill references (committed, available to all devs):
+**goatos-docs graph** — TRDs, ADRs, phase docs, obligation engine, skill references (locally generated; run `make ai-rebuild-docs` if missing):
 ```
 CLI: uvx --from 'graphifyy[mcp]==0.8.44' graphify query "QUESTION" \
        --graph ./graphify-out/graph.json
 ```
-191 nodes, 265 edges: protocol engine, PHC vaccination, feed direction, frontend scope,
-analytics infra, execution plans, observability, auth, SOP cutover, skill references.
+When built, it covers protocol engine, PHC vaccination, feed direction,
+frontend scope, analytics infra, execution plans, observability, auth, SOP
+cutover, and skill references.
 
 ### Layer 3 — Skill references (architecture decisions, TRDs, phase contracts)
 When CRG + Graphify don't cover it — deep implementation rules, phase PRDs/TRDs,
@@ -127,25 +129,25 @@ Purpose:
 
 Code navigation (graph-first):
 
-- For code-structure questions (callers, callees, dependencies, blast
-  radius/impact, diff review, architecture, hub/dead-code), query the
-  `code-review-graph` MCP tools FIRST. Read files only for what the graph cannot
-  see: constants, config values, HTTP route strings, error text, and
-  uncommitted code.
-- First-pass tools: `query_graph_tool` (callers_of/callees_of/imports_of/
-  tests_for), `semantic_search_nodes_tool`, `get_impact_radius_tool`,
-  `detect_changes_tool`, `get_review_context_tool`,
-  `get_architecture_overview_tool`, `get_minimal_context_tool`.
-- Graph is the fast first pass; native Grep/Read is the fallback for content the
-  graph cannot see. One graph query replaces many grep/read cycles — use it
-  before scanning files. The graph auto-updates on edits.
-- Setup is per-machine and optional. The graph DB (`.code-review-graph/`) is
-  gitignored and not shipped; nothing auto-installs or auto-builds on clone. To
-  enable: `pip install code-review-graph` (or `pipx`/`uvx`), then
-  `code-review-graph install` (configures MCP for your agent) and
-  `code-review-graph build` (~30s for this repo). If the `code-review-graph`
-  tools are not present, ignore this rule and just use Grep/Read — no setup is
-  required to work in the repo.
+- For code-structure questions (callers, callees, dependencies,
+  blast-radius/impact, diff review, architecture, hub/dead-code), query the
+  `code-review-graph` MCP tools before broad file scans. Read files for what the
+  graph cannot see: constants, config values, HTTP route strings, error text,
+  and uncommitted code.
+- Route by task shape, not ritual:
+  - cold/review/diff: `get_minimal_context_tool` first, then one targeted graph
+    query;
+  - known symbol: go straight to `query_graph_tool`;
+  - keyword/domain lookup: `semantic_search_nodes_tool`, then targeted graph;
+  - single file/function read: read the file, then graph only for impact.
+- Graph is the fast first pass for traversal; native Grep/Read is the fallback
+  for graph blind spots. One graph query replaces many grep/read cycles when the
+  question is graph-shaped.
+- Setup is per-machine and optional. The graph DB (`.code-review-graph/`) and
+  Graphify outputs (`graphify-out/graph.json`, reports, cost files, cache) are
+  gitignored and regenerated locally. To enable the portable setup, run
+  `make ai-setup`; to rebuild local graphs, run `make ai-rebuild`; to verify the
+  clone is wired without committed graph artifacts, run `make ai-doctor`.
 - Maintainer-local only: the Graphify Mesha wiki/doc/visual graphs
   (`mesha_docs_graph`, `mesha_visual_graph`) are built from sources outside this
   repo and cannot be reproduced here. Use them if already configured; otherwise
@@ -303,8 +305,8 @@ Do not:
 - Do not commit generated Graphify/CRG graphs. `graphify-out/graph.json`,
   `manifest.json`, `GRAPH_REPORT.md`, `graph.html`, `cost.json` and the
   `.code-review-graph/` DB are gitignored and machine-regenerated locally. Commit
-  ONLY the generation skills/scripts (`tools/agent-hooks/*.sh`, the graphify
-  skill) — never the graph artifacts themselves.
+  ONLY the setup docs, rules, hooks, and generation scripts — never the graph
+  artifacts themselves. Run `make ai-doctor` before pushing AI-tooling changes.
 - Do not let frontend/mobile read BigQuery, Sheets, Firestore, GCS, or operational databases directly.
 - Do not spread vendor SDK calls through product code.
 - Do not modify current live dashboard repos while building Goat OS copies.

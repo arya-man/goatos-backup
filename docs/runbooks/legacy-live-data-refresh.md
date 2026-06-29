@@ -75,7 +75,7 @@ Use the previous known-good replay commit only in a throwaway worktree:
 
 ```bash
 rm -rf /tmp/goatos-legacy-sync-3e6548f
-git -C /Users/ravi/mesha/goatos worktree add \
+git -C /path/to/goatos worktree add \
   --detach /tmp/goatos-legacy-sync-3e6548f 3e6548f
 ```
 

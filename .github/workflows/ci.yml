@@ -23,6 +23,7 @@ jobs:
           rg --version
       - name: Agent guardrails
         run: |
+          make ai-doctor
           bash tools/agent-hooks/check-boundaries.sh
           bash tools/agent-hooks/check-contract-drift.sh
       - name: Large file guard
