@@ -42,7 +42,14 @@ assert.match(ruleDsl, /sop_label:\s*d\.sopVersion/, "schedule SOP text remains a
 assert.doesNotMatch(ruleDsl, /sop_version:\s*d\.sopVersion/, "display SOP label must not be emitted as executable schedule[].sop_version");
 assert.match(ruleDsl, /export function hasProofRequirement/, "publish UI must share proof requirement gate");
 assert.match(ruleDsl, /export function validatePublish/, "publish UI must share source-backed approval gate");
+assert.match(ruleDsl, /export function hasSourceEvidenceFields/, "config rows must share source-evidence helper");
+assert.match(ruleDsl, /export function isPublishableSourceFields/, "config rows must share publishable-source helper");
 assert.doesNotMatch(ruleDsl, /next_due_basis|NEXT_DUE_BASIS|nextDueBasis/, "rule_dsl builder must not emit dead next_due_basis fields");
+
+const protocolRulesPage = read("features/config/protocol-rules-page.tsx");
+assert.match(protocolRulesPage, /hasSourceEvidenceFields/, "protocol rows must use the shared source-evidence helper");
+assert.match(protocolRulesPage, /isPublishableSourceFields/, "protocol rows must use the shared publishable-source helper");
+assert.doesNotMatch(protocolRulesPage, /function sourceSystemOption/, "protocol rows must not duplicate source-system lookup logic");
 
 const herdUI = read("features/counts/herd-actions-ui.tsx");
 const failedRows = functionBody(herdUI, "downloadFailedRows");

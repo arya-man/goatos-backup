@@ -288,8 +288,8 @@ same evidence ledger so they cannot be mistaken for still-pending Goal 1 bugs.
 | ID | Disposition | Evidence |
 | --- | --- | --- |
 | C1 | fixed | `infra/envs/dev/cloud_run_jobs.tf` schedules `inventory-batch-reconciler` and `idempotency-key-sweeper`; `backend/Dockerfile` builds the worker binaries. |
-| C2 | fixed | `000114_kernel_review_runtime_guards.sql` permits `incident`/`opsgenie`/`pagerduty`; escalation level 3+ queues `incident` in `backend/internal/calendar/adapters/postgres/repository.go`; gateway test covers incident payload/auth. |
-| C3 | fixed | Notification final failure is terminal `exhausted` with no retry and a distinct dispatch result counter in `backend/internal/notification/app/service.go`/`domain/types.go`; DB CHECK allows `exhausted`. |
+| C2 | fixed | `000114_kernel_review_runtime_guards.sql` permits `incident`/`opsgenie`/`pagerduty`; escalation level 3+ queues `incident` in `backend/internal/calendar/adapters/postgres/repository.go`; gateway test covers incident payload/auth. Dev Terraform now defines Slack/incident webhook secret containers and wires them to `goatos-dev-notification-dispatcher`; secret versions and live delivery proof remain Goal 2 runtime work. |
+| C3 | fixed-runtime-evidence / workflow-tracked | Notification final failure is terminal `exhausted` with no retry and a distinct dispatch result counter in `backend/internal/notification/app/service.go`/`domain/types.go`; final failure now writes an audit row and `notification.exhausted` outbox event from `backend/internal/notification/adapters/postgres/repository.go`. The full operator queue, metric export, reroute policy, and closure-evidence workflow remains tracked in `vaccination-workflow-followups.md`. |
 | C4 | fixed | Tenant publish generation now re-checks effective version per goat and skips park overrides; no-version CLI uses `GenerateEffectiveForAllGoats` by default. |
 | C5 | fixed | `backend/cmd/sop-review-fanout-retry` plus scheduled Cloud Run job retries pending/failed SOP review fanouts. |
 | H1 | fixed | Generation and impact queries include lifecycle, health-status, and quarantine/ICU location attributes. |
@@ -298,7 +298,7 @@ same evidence ledger so they cannot be mistaken for still-pending Goal 1 bugs.
 | H4 | fixed | Approved death exits use `criticalDeathExitGoat` and emit `goat.exited`; regular death exits remain guardrail-blocked. |
 | H5 | fixed | Booster scheduling only considers `PrevSequence+1` and applies current goat eligibility/defer-state rules before inserting scheduled/deferred work. |
 | H6 | fixed | Action Center due/overdue classification uses current time, not the query window, in both HTTP and repository paths. |
-| H7 | fixed | Due/overdue bucket filtering is pushed into SQL mode before LIMIT, avoiding page starvation by the opposite bucket. |
+| H7 | fixed for active Action Center | Due/overdue bucket filtering is pushed into SQL mode before LIMIT, avoiding page starvation by the opposite bucket. The current admin-web Action Center uses the process-integrity contract with `next_cursor`; the older obligation read endpoint remains a bounded compatibility endpoint, not the active reviewer UI path. |
 | H8 | fixed | Missed sweep excludes active in-progress batches and uses locked, non-poisoning batch scans. |
 | H9 | fixed | `idempotency_keys` defaults/backfills to 90-day expiry and has a scheduled sweeper. |
 | H10 | fixed | Default backfill pins `as_of` to the UTC day bucket, and unsafe version-id runs use durable generation-run rows. |
@@ -307,14 +307,14 @@ same evidence ledger so they cannot be mistaken for still-pending Goal 1 bugs.
 | M2 | fixed | Completion transition writes an audit row in the same transaction as completed status/outbox. |
 | M3 | fixed | Completed obligations reject a second distinct recorded completion before stock consume; accepted replay remains a no-op. |
 | M4 | fixed | `protocol.version.published` outbox has a partial unique DB index and `ON CONFLICT DO NOTHING`. |
-| M5 | countered | The stale-processing reclaim path was disabled; a `processing` event is not re-claimed after a timeout, while handler side effects remain guarded by deterministic idempotency keys. |
+| M5 | workflow-tracked | The processed-event store does reclaim stale `processing` rows after the configured timeout, and handlers are expected to be idempotent. Side effects are not co-transactional with `domain_event_processed_events`; making every handler share one transaction or proving deterministic idempotency for each side effect remains tracked in `vaccination-workflow-followups.md`. |
 | M6 | fixed | Shift handler rejects/ignores unsupported non-location scopes before watermark mutation; `shed` and `park` scopes are location-backed. |
 | M7 | fixed | Missing-DOB/entry placeholder obligations are canceled by deterministic key when real source data produces a real due date. |
 | M8 | fixed | Location idempotency keys now use the same 90-day horizon as the kernel default. |
 | M9 | fixed | `rule_dsl` has a schema contract and is rejected on create/publish when invalid or unknown. |
 | M10 | fixed | Config publish availability is backend-owned and permission-aware in admin-web; non-publishers see the disabled action instead of a late 403. |
 | L1 | countered | Equal-timestamp shift events have no source causal sequence in the event contract; the runtime keeps a deterministic event-id tie-break and ignores stale/equal replays. No unsafe mutation or open Goal 1 data-loss path remains. |
-| L2 | fixed | Orphan app completion schemas/types were removed and generated clients were regenerated. |
+| L2 | partial / tracked | Orphan app completion schemas/types were removed, generated clients were regenerated, and CI runs the contract drift check. A dedicated recurring orphan-schema lint remains tracked in `vaccination-workflow-followups.md`. |
 
 ### Direct Pasted Follow-Up Disposition Addendum
 

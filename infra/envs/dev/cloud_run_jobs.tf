@@ -132,6 +132,10 @@ locals {
         GOATOS_FCM_PROJECT_ID = var.project_id
         GOATOS_TENANT_ID      = var.dev_tenant_id
       }
+      secret_env = {
+        GOATOS_SLACK_WEBHOOK_URL    = "notification_slack_webhook_url"
+        GOATOS_INCIDENT_WEBHOOK_URL = "notification_incident_webhook_url"
+      }
     }
     inventory_batch_reconciler = {
       name                = "goatos-dev-inventory-batch-reconciler"
@@ -209,6 +213,19 @@ resource "google_cloud_run_v2_job" "kernel" {
           content {
             name  = env.key
             value = env.value
+          }
+        }
+
+        dynamic "env" {
+          for_each = try(each.value.secret_env, {})
+          content {
+            name = env.key
+            value_source {
+              secret_key_ref {
+                secret  = google_secret_manager_secret.container[env.value].secret_id
+                version = "latest"
+              }
+            }
           }
         }
 

@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
-import { isRfc3339Timestamp, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
+import {
+  hasSourceEvidenceFields,
+  isPublishableSourceFields,
+  type AnimalStageOption,
+  type SopVersionOption,
+} from "./rule-dsl";
 import { listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
 import { control, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -15,21 +20,14 @@ function resolveCategory(category: string, pageContract: AdminUiPageContract): s
   return categories.some((option) => option.key === category) ? category : categories[0]?.key ?? category;
 }
 
-function sourceSystemOption(item: ProtocolConfigItem, pageContract: AdminUiPageContract) {
-  return optionGroup(pageContract, "source_systems").find((option) => option.key === item.source_system);
-}
-
-// Mirrors the backend publish gate through the backend-owned source_systems contract metadata. A draft is
-// publishable ONLY when source-backed, reviewed, and approved; otherwise the row says so plainly.
 function isPublishableSource(item: ProtocolConfigItem, pageContract: AdminUiPageContract): boolean {
-  const source = sourceSystemOption(item, pageContract);
-  return (
-    source?.tone === "ok" &&
-    item.source_ref.trim() !== "" &&
-    item.review_status === "approved" &&
-    item.approved_by.trim() !== "" &&
-    isRfc3339Timestamp(item.approved_at)
-  );
+  return isPublishableSourceFields({
+    sourceSystem: item.source_system,
+    sourceRef: item.source_ref,
+    reviewStatus: item.review_status,
+    approvedBy: item.approved_by,
+    approvedAt: item.approved_at,
+  }, optionGroup(pageContract, "source_systems"));
 }
 
 function fmtDate(iso: string | null | undefined, pageContract: AdminUiPageContract): string {
@@ -52,8 +50,10 @@ function scopeLabel(item: ProtocolConfigItem, pageContract: AdminUiPageContract)
 }
 
 function hasSourceEvidence(item: ProtocolConfigItem, pageContract: AdminUiPageContract): boolean {
-  const source = sourceSystemOption(item, pageContract);
-  return !!source && source.tone !== "warn" && item.source_ref.trim() !== "";
+  return hasSourceEvidenceFields({
+    sourceSystem: item.source_system,
+    sourceRef: item.source_ref,
+  }, optionGroup(pageContract, "source_systems"));
 }
 
 function statusOf(item: ProtocolConfigItem, pageContract: AdminUiPageContract): { text: string; tone: ConfigRuleRow["statusTone"] } {

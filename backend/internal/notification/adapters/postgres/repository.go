@@ -3,9 +3,13 @@ package postgres
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -13,7 +17,14 @@ import (
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
 )
 
-const defaultQueryTimeout = 3 * time.Second
+const (
+	defaultQueryTimeout                  = 3 * time.Second
+	notificationExhaustedEventType       = "notification.exhausted"
+	notificationExhaustedSchemaVersion   = "1.0.0"
+	notificationExhaustedSchemaRef       = "contracts/jsonschema/domain-event-envelope.schema.json#notification.exhausted"
+	notificationExhaustedTopic           = "calendar.notifications"
+	notificationExhaustedProducerService = "goatos-notification-dispatcher"
+)
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -174,7 +185,14 @@ func (r *Repository) MarkFailed(ctx context.Context, tenantID, notificationReque
 		next = pgtype.Timestamptz{Time: nextAttemptAt.UTC(), Valid: true}
 		status = "failed"
 	}
-	tag, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var row failedNotificationRow
+	err = tx.QueryRow(ctx, `
 UPDATE notification_requests
 SET status = $8,
     failure_reason = $4,
@@ -186,12 +204,190 @@ SET status = $8,
 WHERE tenant_id = $1::uuid
   AND notification_request_id = $2::uuid
   AND lease_token = $3::uuid
-  AND status = 'sending'`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now, status)
+  AND status = 'sending'
+RETURNING
+  calendar_event_id,
+  target_type,
+  COALESCE(target_id::text, ''),
+  notification_type,
+  channel,
+  title,
+  body,
+  delivery_attempts,
+  COALESCE(trace_id, ''),
+  context`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now, status).Scan(
+		&row.CalendarEventID,
+		&row.TargetType,
+		&row.TargetID,
+		&row.NotificationType,
+		&row.Channel,
+		&row.Title,
+		&row.Body,
+		&row.DeliveryAttempts,
+		&row.TraceID,
+		&row.Context,
+	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("notification: mark failed claim missing")
+		}
 		return fmt.Errorf("notification: mark failed: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("notification: mark failed claim missing")
+	if status == "exhausted" {
+		if err := insertNotificationExhaustedEvidence(ctx, tx, tenantID, notificationRequestID, deliveredBy, failureReason, now, row); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
 	}
 	return nil
+}
+
+type failedNotificationRow struct {
+	CalendarEventID  string
+	TargetType       string
+	TargetID         string
+	NotificationType string
+	Channel          string
+	Title            string
+	Body             string
+	DeliveryAttempts int
+	TraceID          string
+	Context          []byte
+}
+
+func insertNotificationExhaustedEvidence(ctx context.Context, tx pgx.Tx, tenantID, notificationRequestID, deliveredBy, failureReason string, now time.Time, row failedNotificationRow) error {
+	idempotencyKey := notificationExhaustedEventType + ":" + notificationRequestID
+	eventID := deterministicNotificationOutboxUUID(notificationExhaustedEventType + ":" + tenantID + ":" + notificationRequestID)
+	recorded := now.UTC().Format(time.RFC3339Nano)
+	payload := map[string]any{
+		"tenant_id":               tenantID,
+		"notification_request_id": notificationRequestID,
+		"calendar_event_id":       row.CalendarEventID,
+		"notification_type":       row.NotificationType,
+		"channel":                 row.Channel,
+		"status":                  domain.StatusExhausted,
+		"failure_reason":          failureReason,
+		"delivery_attempts":       row.DeliveryAttempts,
+	}
+	if row.TargetType != "" {
+		payload["target_type"] = row.TargetType
+	}
+	if row.TargetID != "" {
+		payload["target_id"] = row.TargetID
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     notificationExhaustedEventType,
+		"schema_version": notificationExhaustedSchemaVersion,
+		"schema_ref":     notificationExhaustedSchemaRef,
+		"aggregate_type": "calendar_notification",
+		"aggregate_id":   notificationRequestID,
+		"occurred_at":    recorded,
+		"recorded_at":    recorded,
+		"producer": map[string]any{
+			"service": notificationExhaustedProducerService,
+			"module":  "notification",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "calendar_event",
+		"subject_id":   row.CalendarEventID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "notification_request",
+			"evidence_id":   notificationRequestID + ":exhausted",
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: exhausted envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":                "notification.MarkFailed",
+		"schema_version":          notificationExhaustedSchemaVersion,
+		"notification_request_id": notificationRequestID,
+		"idempotency_key":         idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: exhausted headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'calendar_notification', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT (event_id) DO NOTHING`,
+		tenantID, eventID, notificationExhaustedEventType, notificationExhaustedSchemaVersion,
+		notificationRequestID, notificationExhaustedTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("notification: exhausted outbox: %w", err)
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"domain":                  "calendar",
+		"module":                  "notification",
+		"category":                "notification_delivery",
+		"calendar_event_id":       row.CalendarEventID,
+		"notification_request_id": notificationRequestID,
+		"notification_type":       row.NotificationType,
+		"channel":                 row.Channel,
+		"status":                  domain.StatusExhausted,
+		"result":                  domain.StatusExhausted,
+		"delivery_attempts":       row.DeliveryAttempts,
+		"delivered_by":            deliveredBy,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: exhausted audit metadata: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO audit_log (
+  tenant_id, actor_type, action, resource_type, resource_id, scope_type,
+  scope_id, after_state, metadata, trace_id, recorded_at
+) VALUES (
+  $1::uuid, 'system', $2, 'calendar_notification', $3::uuid, 'notification_request',
+  $3::uuid, $4::jsonb, $5::jsonb, $6, $7::timestamptz
+)`,
+		tenantID,
+		notificationExhaustedEventType,
+		notificationRequestID,
+		mustJSON(map[string]any{
+			"status":            domain.StatusExhausted,
+			"failure_reason":    failureReason,
+			"delivery_attempts": row.DeliveryAttempts,
+		}),
+		metadata,
+		idempotencyKey,
+		now,
+	)
+	if err != nil {
+		return fmt.Errorf("notification: exhausted audit: %w", err)
+	}
+	return nil
+}
+
+func deterministicNotificationOutboxUUID(seed string) string {
+	sum := md5.Sum([]byte(seed))
+	sum[6] = (sum[6] & 0x0f) | 0x30
+	sum[8] = (sum[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
+}
+
+func mustJSON(value any) []byte {
+	out, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }

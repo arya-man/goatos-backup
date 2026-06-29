@@ -164,6 +164,18 @@ locals {
         "admin_web",
       ]
     }
+    notification_slack_webhook_url = {
+      secret_id = "goatos-dev-notification-slack-webhook-url"
+      accessors = [
+        "notification_dispatcher",
+      ]
+    }
+    notification_incident_webhook_url = {
+      secret_id = "goatos-dev-notification-incident-webhook-url"
+      accessors = [
+        "notification_dispatcher",
+      ]
+    }
   }
 
   secret_accessor_bindings = merge([

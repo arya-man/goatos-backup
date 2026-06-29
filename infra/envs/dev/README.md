@@ -198,6 +198,12 @@ Pub/Sub/native DLQ drain/replay/import path still needs a scheduled job or a
 documented dev-safe operator runner before calling the dev kernel runtime
 complete.
 
+The notification dispatcher is wired to Secret Manager containers for
+`GOATOS_SLACK_WEBHOOK_URL` and `GOATOS_INCIDENT_WEBHOOK_URL`. Terraform creates
+only the containers and IAM; Goal 2 must add secret versions, confirm recipient
+policy, and prove a real dev-safe reminder/escalation delivery before claiming
+live notification delivery.
+
 Cloud SQL is planned with `activation_policy = "ALWAYS"` for the live raw-URL
 dev dashboard bring-up. This means the instance runs while the dashboard is
 live and carries running CPU/RAM cost plus storage cost. Stop or change this

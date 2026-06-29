@@ -353,6 +353,30 @@ function sourceOption(sourceSystem: string, options: SourceSystemContractOption[
   return options.find((option) => option.key === sourceSystem.trim());
 }
 
+export type PublishSourceFields = {
+  sourceSystem: string;
+  sourceRef: string;
+  reviewStatus: string;
+  approvedBy: string;
+  approvedAt: string;
+};
+
+export function hasSourceEvidenceFields(source: Pick<PublishSourceFields, "sourceSystem" | "sourceRef">, options: SourceSystemContractOption[]): boolean {
+  const option = sourceOption(source.sourceSystem, options);
+  return !!option && option.tone !== "warn" && source.sourceRef.trim() !== "";
+}
+
+export function isPublishableSourceFields(source: PublishSourceFields, options: SourceSystemContractOption[]): boolean {
+  const option = sourceOption(source.sourceSystem, options);
+  return (
+    option?.tone === "ok" &&
+    source.sourceRef.trim() !== "" &&
+    source.reviewStatus.trim() === "approved" &&
+    source.approvedBy.trim() !== "" &&
+    isRfc3339Timestamp(source.approvedAt)
+  );
+}
+
 export function sourceBadge(source: SourceMeta, options: SourceSystemContractOption[], labels: SourceBadgeCopy): SourceBadge {
   const sourceSystem = source.sourceSystem.trim();
   const reviewStatus = source.reviewStatus.trim();
@@ -362,12 +386,7 @@ export function sourceBadge(source: SourceMeta, options: SourceSystemContractOpt
   if (option.tone !== "ok") {
     return { text: `${labels.notPublishable} - ${sourceLabel}`, tone: "warn" };
   }
-  if (
-    reviewStatus === "approved" &&
-    source.sourceRef.trim() &&
-    source.approvedBy.trim() &&
-    isRfc3339Timestamp(source.approvedAt)
-  ) {
+  if (isPublishableSourceFields({ ...source, reviewStatus }, options)) {
     return { text: `${labels.approved} - ${sourceLabel}`, tone: "ok" };
   }
   return { text: `${labels.pending}${source.sourceRef.trim() ? "" : ` - ${labels.sourceRefNeeded}`}`, tone: "info" };
@@ -376,7 +395,8 @@ export function sourceBadge(source: SourceMeta, options: SourceSystemContractOpt
 // validatePublish uses backend-owned source_systems metadata for the pre-submit disabled reason.
 // The backend publish endpoint remains authoritative on submit.
 export function validatePublish(source: SourceMeta, publishableSourceKeys: Set<string>, labels: PublishGateCopy): { ok: boolean; message?: string } {
-  if (!publishableSourceKeys.has(source.sourceSystem.trim())) {
+  const sourceSystem = source.sourceSystem.trim();
+  if (!publishableSourceKeys.has(sourceSystem)) {
     return { ok: false, message: labels.sourceSystem };
   }
   if (!source.sourceRef.trim()) return { ok: false, message: labels.sourceRef };

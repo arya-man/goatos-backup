@@ -57,6 +57,7 @@
         "calendar.snooze.recorded",
         "calendar.escalation.acknowledged",
         "calendar.escalation.resolved",
+        "notification.exhausted",
         "obligation.missed",
         "vaccination.verify.accepted",
         "vaccination.verify.rejected",
@@ -306,6 +307,7 @@
             "conflict",
             "location",
             "actor",
+            "notification_request",
             "obligation_status_event"
           ]
         },

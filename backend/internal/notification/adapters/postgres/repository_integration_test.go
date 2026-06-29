@@ -62,6 +62,50 @@ WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
 	assertNotificationState(t, ctx, pool, failedID, "queued", 1, true)
 }
 
+func TestNotificationRepositoryFinalFailureWritesAuditAndOutbox(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 6, 27, 10, 30, 0, 0, time.UTC)
+	eventID := "calendar:86000000-0000-4000-8000-000000010002"
+	seedCalendarEvent(t, ctx, pool, eventID)
+	requestID := seedNotification(t, ctx, pool, eventID, "notification-repo-exhausted", "queued", 4, nil)
+
+	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{
+		TenantID:    testTenantID,
+		Limit:       10,
+		MaxAttempts: 5,
+		Now:         now,
+	})
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].NotificationRequestID != requestID || claimed[0].DeliveryAttempts != 5 {
+		t.Fatalf("claimed=%#v want final-attempt request %s", claimed, requestID)
+	}
+	if err := repo.MarkFailed(ctx, testTenantID, requestID, claimed[0].LeaseToken, "test-dispatcher", "synthetic exhausted", nil, now.Add(time.Minute)); err != nil {
+		t.Fatalf("MarkFailed final: %v", err)
+	}
+	assertNotificationState(t, ctx, pool, requestID, "exhausted", 5, true)
+	assertCount(t, ctx, pool, "notification exhausted audit", `
+SELECT count(*)
+FROM audit_log
+WHERE tenant_id = $1::uuid
+  AND resource_type = 'calendar_notification'
+  AND resource_id = $2::uuid
+  AND action = 'notification.exhausted'`, 1, testTenantID, requestID)
+	assertCount(t, ctx, pool, "notification exhausted outbox", `
+SELECT count(*)
+FROM outbox_messages
+WHERE tenant_id = $1::uuid
+  AND aggregate_type = 'calendar_notification'
+  AND aggregate_id = $2::uuid
+  AND event_type = 'notification.exhausted'
+  AND status = 'pending'`, 1, testTenantID, requestID)
+}
+
 func seedCalendarEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
@@ -103,6 +147,17 @@ RETURNING notification_request_id::text`,
 		t.Fatalf("seed notification: %v", err)
 	}
 	return requestID
+}
+
+func assertCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, query string, want int, args ...any) {
+	t.Helper()
+	var got int
+	if err := pool.QueryRow(ctx, query, args...).Scan(&got); err != nil {
+		t.Fatalf("%s count query: %v", label, err)
+	}
+	if got != want {
+		t.Fatalf("%s count=%d want %d", label, got, want)
+	}
 }
 
 func assertNotificationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID, wantStatus string, wantAttempts int, wantFailure bool) {

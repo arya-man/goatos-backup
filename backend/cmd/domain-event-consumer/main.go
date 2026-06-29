@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
+	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	domainconsumerpg "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/postgres"
 	domainconsumerpubsub "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/pubsub"
 	consumerapp "github.com/vgoats/goatos/backend/internal/domainconsumer/app"
@@ -94,6 +96,7 @@ func run(ctx context.Context, args []string) error {
 func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Logger) eventbus.Bus {
 	bus := eventbus.NewInProcessBus()
 	protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
+	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, pgCfg.QueryTimeout))
 	vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
@@ -109,6 +112,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationapp.NewManualCampaignHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
+	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	if logger != nil {
 		logger.Info("domain_event_handlers_registered")
 	}
