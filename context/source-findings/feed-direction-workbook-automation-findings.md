@@ -65,6 +65,14 @@ planning and execution, not a clean domain model:
   Pregnant, M0/Mother, Non Pregnant, Warmup, K0/K1, F2/Fattening, Flushing,
   Milking, breed aliases, and weight/energy-style thresholds. These are
   candidate config families, not stable formulas to execute in production.
+- Ratios and quantities are row data, not product constants. Examples observed
+  in KT or workbook context (`80/20`, `400-500g`, `600g`, F1/F2 ranges,
+  pregnancy/warm-up allowances, and similar thresholds) must be imported into a
+  reviewed parameter template only if source owners approve them for a specific
+  dimension set such as breed, shed tag/stage, kid weight band/ADG,
+  pregnancy/lactation/warm-up state, feed vector family, farm, or effective
+  version. The runtime must never hardcode `80/20` or any single quantity as a
+  global Feed Direction rule.
 - `Template` defines per-farm sessions and feed sets.
 - `Feed Packing Form`, `Feed Transport Form`, and `Feed Consumption & Wastage`
   are execution/proof surfaces with media links and processed/reconciliation
@@ -98,7 +106,8 @@ GoatOS must replace workbook tabs and script glue with governed kernel
 capabilities:
 
 - typed imports with source checksum, row-level validation, alias matching,
-  dry-run parity preview, dead-letter/repair state, and business audit;
+  calculation preview, dry-run parity preview, dead-letter/repair state, and
+  business audit;
 - CRUD/review/publish surfaces for feed item nutrient vectors, feed costs,
   feed-type constraints, breed aliases, stage/tag aliases, kid weight-band/ADG
   rules, quantity/weight-band thresholds, warm-up/pregnancy policy,
@@ -116,6 +125,26 @@ capabilities:
   rework;
 - bounded Postgres queries, idempotency keys, audit/outbox, scheduler/sweeper
   jobs, notification ports, and command-lens read models.
+
+Required runtime shape:
+
+```text
+source workbook/import batch
+-> typed feed parameter template rows
+-> alias/dimension/source-hash validation
+-> calculation preview and workbook/solver parity review
+-> row-level errors / repair / DLQ for wrong data
+-> reviewed + approved feed_direction protocol version
+-> immutable generation snapshot for each Feed Direction run
+```
+
+Wrong or incomplete data must fail closed before generation. Block on unknown
+breed, unreviewed shed tag/stage, unresolved F2/sex-gender tag, missing
+pregnancy/warm-up policy, invalid ratio or slot-weight math, non-numeric as-fed
+quantity, missing feed vector, broken workbook/formula reference, missing source
+hash, missing resolver coverage from `shed + breed` to nutrition cohort, or
+calculation-preview mismatch. These failures become visible repair/process work;
+they must not be silently "fixed" by legacy string transforms.
 
 Admins can change or add Feed Direction serving slots, but only through
 approved, effective-dated protocol config. The default published policy should

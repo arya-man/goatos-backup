@@ -579,23 +579,27 @@ It is category/schema-driven. Vaccination, feed direction, deworming, and future
 modules all use the same generic engine, but category changes the form fields
 and `rule_dsl`.
 
-Current visible scope remains vaccination-only. Feed Direction Config fields are
-design references for the generic engine, not permission to expose
-`feed_direction` as an active category in admin-web. The backend page contract
-must keep `feed_direction` hidden unless the owner explicitly reopens Feed
-Direction scope after PHC/Vaccination and generic Config review. Internal
-compiler/DSL code can exist if it is contract-gated and unreachable from the
-current visible UI.
+Current visible Config scope is vaccination plus the reopened Feed Direction
+parameter-template authoring category. This reopening is limited to
+`/config?category=feed_direction`: source tables, parameter families, dimension
+keys, validation gates, calculation-preview outputs, session slots/weights,
+proof policy, inventory policy, and source/review metadata may be visible there.
+It does not reopen a full Feed operational route, Feed command screen, or
+operator execution UI.
 
 Vaccination config may include animal/shed stage, age or post-arrival trigger,
 sex where needed, schedule dose rows, booster/catch-up/missed-dose policy,
 defer states such as ICU/quarantine/sick, SOP/proof policy, and stock/vaccine
 lot requirements.
 
-Future Feed Direction config uses different fields: animal stage or shed tag,
-breed/class if needed, kid weight-band/ADG where applicable, ration/feed item,
-quantity/unit, session timing, packing/execution proof, and inventory
-reserve/consume/release policy.
+Feed Direction config uses different fields from vaccination: animal stage or
+shed tag, breed/class if needed, source workbook/table family, feed unit
+vectors, dimension keys, kid weight-band/ADG where applicable, ratio/quantity
+policy, reviewed ration output rows, session timing and slot weights,
+packing/execution proof, validation/calculation preview outputs, and inventory
+reserve/consume/release policy. Values such as `80/20`, `400-500g`, `600g`,
+F1/F2 ranges, pregnant windows, and `90-95%` matching are examples until typed
+template rows pass validation and reviewed publish.
 
 ## Removed From Current Admin-Web
 

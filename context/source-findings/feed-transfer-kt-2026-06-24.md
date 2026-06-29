@@ -41,6 +41,13 @@ the raw transcript or local file path.
   the `Feed, Shiftings and Count.docx` default session split of `50/50`, and
   KT scheduling windows must not override the docx Feed Direction clocks unless
   the Feed Director explicitly approves them as policy.
+- More importantly, no single KT ratio or quantity is a default. All ratios,
+  quantities, thresholds, and validation tolerances vary by the approved runtime
+  template dimensions: breed, shed tag/stage, age/stage alias, kid weight
+  band/ADG, pregnancy/lactation/warm-up policy, feed vector family, farm/source
+  context, and effective-dated version. GoatOS should store these as typed
+  parameter rows with validation and calculation preview, not as constants in
+  code or copied workbook formulas.
 - The KT does not provide authoritative shed-placement truth. It talks about
   shed/pack combination and future counts, but not enough to infer that every
   breed/tag nutrition cohort maps cleanly to a shed or that shed info is present
@@ -65,6 +72,10 @@ Use this finding to strengthen Feed Direction gates `G2`, `G4`, and `G5`:
 - `G4` must preserve source-backed ration/constraint provenance from uploaded
   tables or solver output through typed import, review, approval, publish, and
   replay metadata.
+- `G4` must require the runtime template pipeline: source import, typed
+  parameter rows, dimension/alias/source-hash validation, calculation preview,
+  row repair/DLQ, and reviewed `feed_direction_config_pack` publication before a
+  value can affect generation.
 - `G5` must own the approved nutrition cohort dimensions and the policy for
   resolving a shed + breed count row into one or more ration cohorts.
 - `G5` also owns session-slot policy as configurable protocol state. The docx

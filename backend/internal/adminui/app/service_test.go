@@ -190,10 +190,10 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 	config := pageByRouteID(t, resp.Pages, "config")
 
 	// rule_categories is a fixed visible vocabulary for this deploy: an empty DB must still expose
-	// vaccination so the first PHC rule can be authored, and future/non-vaccination categories stay hidden.
+	// vaccination and the reopened Feed Direction Config template category. Future categories stay hidden.
 	categories := optionGroupByID(t, config.OptionGroups, "rule_categories")
-	if got := optionKeys(categories); len(got) != 1 || !got["vaccination"] || got["feed_direction"] {
-		t.Fatalf("empty DB rule_categories must stay vaccination-only, got %#v", categories.Options)
+	if got := optionKeys(categories); len(got) != 2 || !got["vaccination"] || !got["feed_direction"] || got["deworming"] {
+		t.Fatalf("empty DB rule_categories must expose only reopened categories, got %#v", categories.Options)
 	}
 	breeds := optionGroupByID(t, config.OptionGroups, "rule_breeds")
 	if got := optionKeys(breeds); len(got) != 1 || !got["all"] || got["Beetal"] || got["Sirohi"] {
@@ -215,8 +215,9 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 	if len(sopLabels.Options) != 0 {
 		t.Fatalf("empty DB schedule_sop_labels must stay empty, got %#v", sopLabels.Options)
 	}
-	if optionGroupExists(config.OptionGroups, "feed_items") {
-		t.Fatalf("empty DB config must not expose feed_items in the vaccination-only slice")
+	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
+	if got := optionKeys(feedItems); len(got) != 1 || !got["reviewed_template_rows"] || got["feed-1"] {
+		t.Fatalf("empty DB config must expose only the feed template sentinel, got %#v", feedItems.Options)
 	}
 }
 
@@ -294,7 +295,7 @@ func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
 	}
 }
 
-func TestBootstrapConfigPublishesVaccinationOnlyRuleAuthoringGroups(t *testing.T) {
+func TestBootstrapConfigPublishesReopenedRuleAuthoringGroups(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
@@ -304,25 +305,28 @@ func TestBootstrapConfigPublishesVaccinationOnlyRuleAuthoringGroups(t *testing.T
 	})
 	config := pageByRouteID(t, resp.Pages, "config")
 
-	if optionGroupExists(config.OptionGroups, "feed_items") {
-		t.Fatalf("config must not expose feed_items in the vaccination-only slice")
+	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
+	if got := optionKeys(feedItems); !got["reviewed_template_rows"] || !got["feed-1"] {
+		t.Fatalf("config must expose feed template sentinel plus DB feed items, got %#v", feedItems.Options)
 	}
-	if optionGroupExists(config.OptionGroups, "feed_classes") || optionGroupExists(config.OptionGroups, "feed_units") || optionGroupExists(config.OptionGroups, "feed_inventory_policies") {
-		t.Fatalf("config must not expose feed option groups in the vaccination-only slice: %#v", config.OptionGroups)
+	for _, groupID := range []string{"feed_classes", "feed_units", "feed_inventory_policies", "feed_source_tables", "feed_parameter_families", "feed_dimension_keys", "feed_ratio_policies", "feed_validation_checks", "feed_calculation_outputs"} {
+		if !optionGroupExists(config.OptionGroups, groupID) {
+			t.Fatalf("config must expose reopened Feed Direction option group %s", groupID)
+		}
 	}
 
-	// rule_categories: static vaccination-only vocabulary. DB categories such as feed_direction are not visible.
+	// rule_categories: static vocabulary for currently reopened Config slices.
 	categories := optionGroupByID(t, config.OptionGroups, "rule_categories")
-	if got := optionKeys(categories); len(got) != 1 || !got["vaccination"] || got["feed_direction"] {
-		t.Fatalf("rule_categories must stay vaccination-only, got %#v", categories.Options)
+	if got := optionKeys(categories); len(got) != 2 || !got["vaccination"] || !got["feed_direction"] || got["deworming"] {
+		t.Fatalf("rule_categories must expose only reopened categories, got %#v", categories.Options)
 	}
 	placeholders := optionGroupByID(t, config.OptionGroups, "protocol_placeholders")
-	if got := optionKeys(placeholders); !got["vaccination.code"] || !got["vaccination.name"] || got["feed_direction.code"] || got["deworming.code"] {
-		t.Fatalf("protocol placeholders must stay vaccination-only, got %#v", placeholders.Options)
+	if got := optionKeys(placeholders); !got["vaccination.code"] || !got["vaccination.name"] || !got["feed_direction.code"] || !got["feed_direction.name"] || got["deworming.code"] {
+		t.Fatalf("protocol placeholders must expose reopened categories only, got %#v", placeholders.Options)
 	}
 	sourceSystems := optionGroupByID(t, config.OptionGroups, "source_systems")
-	if got := optionKeys(sourceSystems); !got["manual_admin"] || !got["vaccinations_db"] || !got["phc"] || !got["vet"] || got["feed_master"] || got["nutritionist"] || got["ops_source"] {
-		t.Fatalf("source systems must stay vaccination-only, got %#v", sourceSystems.Options)
+	if got := optionKeys(sourceSystems); !got["manual_admin"] || !got["vaccinations_db"] || !got["phc"] || !got["vet"] || !got["feed_direction_config_pack"] || !got["feed_directions_automation_db"] || !got["counting_db_values"] || !got["feed_transfer_kt"] || got["feed_master"] || got["nutritionist"] || got["ops_source"] {
+		t.Fatalf("source systems must expose reviewed feed evidence sources without old aliases, got %#v", sourceSystems.Options)
 	}
 }
 
@@ -372,6 +376,7 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 		{group: "rule_scopes", key: "park:park-1", want: "park: P1"},
 		{group: "rule_breeds", key: "DB Breed", want: "DB Breed"},
 		{group: "schedule_sop_labels", key: "sop-v1", want: "SOP v1"},
+		{group: "feed_items", key: "feed-1", want: "Mesha concentrate"},
 		{group: "source_systems", key: "manual_admin", want: "manual admin (not publishable)"},
 	} {
 		if got := optionLabelFromPage(t, config, blocked.group, blocked.key); got != blocked.want {

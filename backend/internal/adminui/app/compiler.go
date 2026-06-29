@@ -784,14 +784,15 @@ func compileConfigControls(controls []domain.Control, input BootstrapInput, copy
 
 func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
 	out := groups
-	// rule_categories is intentionally a bounded visible vocabulary for the current admin-web slice.
-	// DB-discovered future categories must not leak into the vaccination-only Config deploy.
+	// rule_categories is intentionally a bounded visible vocabulary for reopened Config slices.
+	// DB-discovered future categories must not leak into the deployed Config contract.
 	out = replaceOptionGroup(out, "rule_scopes", ruleScopeOptions(families.Parks))
 	out = replaceOptionGroup(out, "rule_breeds", prependOption("all", "all", "", "", optionsFromReferences(families.Breeds, "")))
 	out = replaceOptionGroup(out, "rule_healths", prependOption("any", "any", "", "", optionsFromReferences(families.HealthStatuses, "")))
 	out = replaceOptionGroup(out, "rule_reproductive", prependOption("any", "any", "", "", optionsFromReferences(families.ReproductiveStates, "")))
 	out = replaceOptionGroup(out, "defer_states", optionsFromReferences(deferableStates(families.DeferStates), ""))
 	out = replaceOptionGroup(out, "schedule_sop_labels", optionsFromReferences(families.SOPLabels, ""))
+	out = mergeOptionGroupReferences(out, "feed_items", families.FeedItems, "")
 	return out
 }
 

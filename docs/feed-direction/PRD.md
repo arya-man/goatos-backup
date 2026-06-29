@@ -150,6 +150,14 @@ not override `Feed, Shiftings and Count.docx`: `80/20` is not the default
 session split, and KT scheduling windows are not GoatOS product clocks unless
 Feed Director approval turns them into effective-dated policy.
 
+No KT or workbook number is a global default. Ratios, quantities, thresholds,
+and tolerances vary by approved runtime template dimensions: breed, shed
+tag/stage, normalized age/stage alias, kid weight band/ADG,
+pregnancy/lactation/warm-up policy, feed vector family, farm/source context, and
+effective-dated version. GoatOS must ingest these as typed parameter rows,
+validate aliases and dimensions, run calculation preview, surface bad rows for
+repair/DLQ, and publish only a reviewed `feed_direction_config_pack`.
+
 The workbook and legacy automation review confirms why this cannot be a
 Sheet-clone build. Legacy `Count-DB`, validation, supply-planning, and template
 tabs use formulas, hidden copies, string transforms, processed flags, and script
@@ -160,6 +168,12 @@ stage/tag aliases, kid weight-band/ADG rules, quantity/weight thresholds,
 warm-up/pregnancy policy, eligibility/exclusions, ration solver/import outputs,
 transport maps, proof thresholds, validation tolerances, and
 session-slot/feed-set policy.
+
+The admin Config surface for `feed_direction` must expose this shape, not a
+single hardcoded ration field: source tables, parameter families, dimension
+keys, ratio/quantity policy, session slots and weights, validation checks,
+calculation outputs, source/review metadata, and disabled-with-reason calculation
+preview until the backend import/solver endpoint exists.
 
 The full NRC optimizer UI can wait, but ration quantity provenance cannot. The
 first slice must either run a non-UI RationTable solver for the source-required

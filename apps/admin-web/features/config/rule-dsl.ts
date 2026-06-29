@@ -28,13 +28,20 @@ export interface Eligibility {
 export interface FeedFields {
   animalStage: string;
   breedClass: string;
+  sourceTables: string[];
+  parameterFamilies: string[];
+  dimensionKeys: string[];
+  ratioPolicy: string;
   feedItem: string;
   quantity: number;
   unit: string;
   sessionTimes: string;
+  slotWeights: string;
   packingProofCsv: string;
   executionProofCsv: string;
   inventoryPolicy: string;
+  validationChecks: string[];
+  calculationOutputs: string[];
 }
 
 export interface SourceMeta {
@@ -143,14 +150,21 @@ export function newDose(seq: number): DoseRow {
 export function newFeedFields(): FeedFields {
   return {
     animalStage: "all",
-    breedClass: "all",
-    feedItem: "custom",
-    quantity: 1,
-    unit: "kg",
+    breedClass: "all_reviewed_cohorts",
+    sourceTables: [],
+    parameterFamilies: [],
+    dimensionKeys: [],
+    ratioPolicy: "source_row_variable",
+    feedItem: "reviewed_template_rows",
+    quantity: 0,
+    unit: "kg_as_fed",
     sessionTimes: "09:00,15:00",
+    slotWeights: "50,50",
     packingProofCsv: "pack_qty,feed_item,lot,video",
-    executionProofCsv: "distribution_video,consumed_qty,water_check",
+    executionProofCsv: "distribution_video,consumed_qty,wastage_qty,water_check",
     inventoryPolicy: "reserve_consume_release",
+    validationChecks: [],
+    calculationOutputs: [],
   };
 }
 
@@ -232,9 +246,14 @@ function feedSessions(feed: FeedFields): string[] {
   return sessions.length > 0 ? sessions : ["09:00"];
 }
 
+function feedSlotWeights(feed: FeedFields): string[] {
+  return csvToArr(feed.slotWeights);
+}
+
 function feedDsl(input: RuleInput): Record<string, unknown> {
   const packingProof = csvToArr(input.feed.packingProofCsv);
   const executionProof = csvToArr(input.feed.executionProofCsv);
+  const weights = feedSlotWeights(input.feed);
   return {
     category: "feed_direction",
     scope: parseScope(input.scope),
@@ -243,14 +262,23 @@ function feedDsl(input: RuleInput): Record<string, unknown> {
       animal_stage_source: STAGE_SOURCE,
       breed_class: input.feed.breedClass,
     },
+    parameter_template: {
+      source_tables: input.feed.sourceTables,
+      parameter_families: input.feed.parameterFamilies,
+      dimension_keys: input.feed.dimensionKeys,
+      ratio_policy: input.feed.ratioPolicy,
+    },
     ration: {
+      mode: "reviewed_template_rows",
       feed_item: input.feed.feedItem,
       quantity: Number(input.feed.quantity) || 0,
       unit: input.feed.unit,
+      quantity_semantics: "source-row variable by approved dimensions; examples are not global defaults",
     },
     session_timing: feedSessions(input.feed).map((session_time, i) => ({
       session_order: i + 1,
       session_time,
+      split_weight: weights[i] ?? null,
       packing_proof_policy: packingProof,
       execution_proof_policy: executionProof,
     })),
@@ -259,6 +287,12 @@ function feedDsl(input: RuleInput): Record<string, unknown> {
       reserve: "reserve stock before packing",
       consume: "consume verified quantity",
       release: "release unused reserved quantity",
+    },
+    validation_policy: {
+      checks: input.feed.validationChecks,
+      calculation_outputs: input.feed.calculationOutputs,
+      fail_closed: true,
+      preview_required: true,
     },
     source: sourceDsl(input.source),
   };

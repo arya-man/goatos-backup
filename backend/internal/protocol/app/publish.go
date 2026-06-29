@@ -26,7 +26,7 @@ var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy
 
 // publishableSources are the real source systems whose approved values may be published. Anything
 // else (manual_admin, extracted, empty) stays draft / not source-backed.
-var publishableSources = map[string]bool{"vaccinations_db": true, "phc": true, "vet": true}
+var publishableSources = map[string]bool{"vaccinations_db": true, "phc": true, "vet": true, "feed_direction_config_pack": true}
 var executableTriggerTypes = map[string]bool{
 	"birth_age":                 true,
 	"post_arrival":              true,
@@ -76,9 +76,11 @@ var (
 		"schedule":           true,
 		"escalation":         true,
 		"source":             true,
+		"parameter_template": true,
 		"ration":             true,
 		"session_timing":     true,
 		"inventory_policy":   true,
+		"validation_policy":  true,
 	}
 	ruleDSLScopeKeys = map[string]bool{
 		"type": true,
@@ -132,13 +134,16 @@ var (
 		"cold_chain_required":     true,
 	}
 	ruleDSLRationKeys = map[string]bool{
-		"feed_item": true,
-		"quantity":  true,
-		"unit":      true,
+		"mode":               true,
+		"feed_item":          true,
+		"quantity":           true,
+		"unit":               true,
+		"quantity_semantics": true,
 	}
 	ruleDSLSessionTimingKeys = map[string]bool{
 		"session_order":          true,
 		"session_time":           true,
+		"split_weight":           true,
 		"packing_proof_policy":   true,
 		"execution_proof_policy": true,
 	}
@@ -147,6 +152,18 @@ var (
 		"reserve": true,
 		"consume": true,
 		"release": true,
+	}
+	ruleDSLParameterTemplateKeys = map[string]bool{
+		"source_tables":      true,
+		"parameter_families": true,
+		"dimension_keys":     true,
+		"ratio_policy":       true,
+	}
+	ruleDSLValidationPolicyKeys = map[string]bool{
+		"checks":              true,
+		"calculation_outputs": true,
+		"fail_closed":         true,
+		"preview_required":    true,
 	}
 )
 
@@ -180,6 +197,11 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 			return err
 		}
 	}
+	if raw, ok := root["parameter_template"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.parameter_template", ruleDSLParameterTemplateKeys); err != nil {
+			return err
+		}
+	}
 	if raw, ok := root["ration"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.ration", ruleDSLRationKeys); err != nil {
 			return err
@@ -187,6 +209,11 @@ func ValidateRuleDSL(ruleDSL []byte) error {
 	}
 	if raw, ok := root["inventory_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
 		if _, err := decodeRuleDSLObject(raw, "rule_dsl.inventory_policy", ruleDSLInventoryPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["validation_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.validation_policy", ruleDSLValidationPolicyKeys); err != nil {
 			return err
 		}
 	}
@@ -247,7 +274,7 @@ func ValidatePublishable(ruleDSL []byte) error {
 	s := env.Source
 	switch {
 	case !publishableSources[strings.TrimSpace(s.SourceSystem)]:
-		return fmt.Errorf("%w: source_system must be vaccinations_db/phc/vet (got %q)", ErrNotPublishable, s.SourceSystem)
+		return fmt.Errorf("%w: source_system must be vaccinations_db/phc/vet/feed_direction_config_pack (got %q)", ErrNotPublishable, s.SourceSystem)
 	case strings.TrimSpace(s.SourceRef) == "":
 		return fmt.Errorf("%w: source_ref required", ErrNotPublishable)
 	case strings.TrimSpace(s.ReviewStatus) != "approved":

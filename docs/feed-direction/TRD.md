@@ -153,6 +153,17 @@ defaults: the default session split remains `50/50` until an effective-dated
 published policy changes it, and product clocks still come from the docx unless
 the owner approves otherwise.
 
+Implementation rule: `80/20` and every other KT/workbook ratio or quantity is
+sample row data. The Feed Config runtime must model source-imported parameter
+templates with dimension keys, not constants: `source_tables`,
+`parameter_families`, `dimension_keys`, `ratio_policy`, `validation_policy`, and
+`calculation_outputs` are part of the authored `rule_dsl`/config contract.
+Generation may use a value only after source hash validation, alias/reference
+matching, resolver coverage from `shed + breed` to nutrition cohort, slot-weight
+math, numeric as-fed quantity validation, calculation preview, and owner
+approval. Wrong rows block generation and create repair/DLQ/process-exception
+work; they must not be normalized silently by legacy script-style transforms.
+
 A new physical Base Count becomes canonical immediately. Any discrepancy against
 the prior replay creates investigation/accountability work, but that work does
 not gate adoption of the physical count as the new ledger anchor for subsequent

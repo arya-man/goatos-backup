@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, Plus, Search } from "lucide-react";
+import { AlertTriangle, Calculator, ChevronLeft, ChevronRight, Database, Pencil, Plus, Search } from "lucide-react";
 import { RuleEditorModal } from "./rule-editor-modal";
 import type { AnimalStageOption, SopVersionOption } from "./rule-dsl";
 import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -21,6 +21,91 @@ export interface ConfigRuleRow {
 }
 
 const TONE_CLASS = { warn: "t-warn", info: "t-info", ok: "t-ok", mut: "t-mut" } as const;
+
+function FeedDirectionTemplatePanel({ pageContract }: { pageContract: AdminUiPageContract }) {
+  const sourceTables = optionGroup(pageContract, "feed_source_tables");
+  const parameterFamilies = optionGroup(pageContract, "feed_parameter_families");
+  const dimensions = optionGroup(pageContract, "feed_dimension_keys");
+  const validations = optionGroup(pageContract, "feed_validation_checks");
+  const outputs = optionGroup(pageContract, "feed_calculation_outputs");
+  const labels = tableLabels(pageContract, "feed-config-evidence");
+  const rowCount = Math.max(sourceTables.length, parameterFamilies.length, validations.length, outputs.length);
+  const evidenceReady = sourceTables.length > 0 && parameterFamilies.length > 0 && validations.length > 0 && outputs.length > 0;
+
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <div className="hd" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <Database className="ic" />
+        <h3>{copy(pageContract, "feed_config.section.title")}</h3>
+        <div className="sp" style={{ flex: 1 }} />
+        <span className="tag t-info" style={{ maxWidth: "100%", whiteSpace: "normal", lineHeight: 1.3 }}>
+          {copy(pageContract, "feed_config.section.note")}
+        </span>
+      </div>
+      <div className="bd">
+        <div className="alert warn" style={{ marginBottom: 12 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>{copy(pageContract, "feed_config.alert")}</div>
+        </div>
+        <div className="grid g4" style={{ marginBottom: 12 }}>
+          {[
+            [copy(pageContract, "feed_config.kpi.sources"), sourceTables.length],
+            [copy(pageContract, "feed_config.kpi.families"), parameterFamilies.length],
+            [copy(pageContract, "feed_config.kpi.dimensions"), dimensions.length],
+            [copy(pageContract, "feed_config.kpi.validations"), validations.length],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="kpi">
+              <div className="lab">{label}</div>
+              <div className="val">{String(value)}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "feed_config.section.title")}>
+          <table>
+            <thead>
+              <tr>
+                {labels.map((label) => (
+                  <th key={label}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {evidenceReady
+                ? Array.from({ length: rowCount }).map((_, i) => {
+                    const source = sourceTables[i % sourceTables.length];
+                    const family = parameterFamilies[i % parameterFamilies.length];
+                    const validation = validations[i % validations.length];
+                    const output = outputs[i % outputs.length];
+                    return (
+                      <tr key={String(source.key) + "-" + String(family.key) + "-" + String(validation.key) + "-" + String(output.key)}>
+                        <td>
+                          <b>{source.label}</b>
+                          <div className="muted small">{source.title}</div>
+                        </td>
+                        <td>{family.label}</td>
+                        <td>
+                          <span className={"tag " + (validation.tone === "warn" ? "t-warn" : "t-mut")}>{validation.label}</span>
+                        </td>
+                        <td>{output.label}</td>
+                      </tr>
+                    );
+                  })
+                : null}
+            </tbody>
+          </table>
+        </div>
+        <div className="pager2">
+          <span className="muted small">{copy(pageContract, "feed_config.action.preview_disabled")}</span>
+          <span className="sp" style={{ flex: 1 }} />
+          <button type="button" className="btn sm" disabled title={copy(pageContract, "feed_config.action.preview_disabled")} style={{ opacity: 0.45, cursor: "not-allowed" }}>
+            <Calculator className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "feed_config.action.preview")}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // Client console for the generic Config surface: the protocol-rules table (all categories) plus the
 // New-draft-rule editor modal. Rules are passed in from the server (backend list); until the list
 // endpoint lands the table shows an honest empty state — rows are never fabricated client-side.
@@ -141,6 +226,8 @@ export function ConfigConsole({
           <div>{authoringDisabledReason}</div>
         </div>
       ) : null}
+
+      {initialCategory === "feed_direction" ? <FeedDirectionTemplatePanel pageContract={pageContract} /> : null}
 
       <section className="card" style={{ marginBottom: 14 }}>
         <div className="hd">

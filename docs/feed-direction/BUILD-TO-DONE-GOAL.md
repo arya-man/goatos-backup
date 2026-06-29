@@ -146,11 +146,15 @@ language.
    not prove shed placement. KT examples such as feed vectors/energy capacity,
    `80/20`, grain vs dry/green leaf groups, `400-500g`, `600g`, `F1`
    `11-15kg`, and `F2` `15-20kg` must be approved, rejected, or draft-only
-   before generation can depend on them. `G4` must also close the typed
-   importer/admin CRUD path for feed vectors, costs, constraints, aliases,
-   eligibility, quantity/weight thresholds, validation tolerances, ration
-   outputs, source hashes, row validation, dry-run parity preview, repair/DLQ,
-   review, approval, publish, and audit.
+   before generation can depend on them. They are variable parameter rows by
+   breed, shed tag/stage, age/stage alias, kid weight band/ADG,
+   pregnancy/lactation/warm-up policy, feed vector family, farm/source context,
+   and effective version; they are never global constants. `G4` must also close
+   the typed importer/admin CRUD path for source tables, feed vectors, costs,
+   constraints, aliases, eligibility, dimension keys, ratio policy,
+   quantity/weight thresholds, validation checks, calculation outputs, source
+   hashes, row validation, calculation preview, dry-run parity preview,
+   repair/DLQ, review, approval, publish, and audit.
 4. `G5` Eligibility and stage-tag/session policy: Warmup, K0/K1, Experiment, ICU,
    Quarantine, Flushing, Breeding, pregnancy, F2/Fattening, breed aliases, and
    versioned session-slot/feed-set policy are approved. The docx default is two
@@ -306,7 +310,8 @@ code, docs, seeds, or UI:
   tag/stage, kid weight band/ADG, energy/feed vector policy, pregnancy, warm-up,
   and explicit exclusions. KT numbers (`80/20`, `400-500g`, `600g`, F1/F2
   weight ranges, pregnant windows, `90-95%` matching) are source candidates only
-  until reviewed config publishes or rejects them.
+  until typed template rows pass validation, calculation preview, repair/DLQ for
+  wrong data, and reviewed `feed_direction_config_pack` publish or rejection.
 - Base Count cadence moved from roughly weekly to roughly monthly and may change
   again. Store cadence as reviewed policy or ops schedule; do not hardcode it.
 - Initial RationTable solver scope excludes item-level feed ceilings and

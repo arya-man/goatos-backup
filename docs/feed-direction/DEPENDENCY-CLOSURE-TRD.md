@@ -229,6 +229,16 @@ import/review layer must be able to represent feed vectors/energy capacity,
 policy, and future tag-reader/device evidence as reviewed, rejected, or
 draft-only source values.
 
+The authored Feed Config payload must preserve the template pipeline explicitly:
+`parameter_template.source_tables`, `parameter_template.parameter_families`,
+`parameter_template.dimension_keys`, `parameter_template.ratio_policy`,
+`validation_policy.checks`, and `validation_policy.calculation_outputs`.
+Validation must block unknown aliases, missing source hashes, invalid or global
+ratio promotion, slot weights that do not cover the full as-fed daily quantity,
+non-numeric quantities, broken formula/reference evidence, missing resolver
+coverage, and calculation-preview mismatches before any generation run can use
+the rows.
+
 `session_policy` is a versioned admin config family, not a fixed enum. It must
 store active session slots for the target date with slot code, label, serving
 time, sort order, effective range, split weight, and optional feed-item/scope

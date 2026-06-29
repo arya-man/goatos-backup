@@ -208,11 +208,17 @@ func TestValidateRuleDSLRejectsUnknownKeys(t *testing.T) {
 	if err := ValidateRuleDSL(valid); err != nil {
 		t.Fatalf("valid rule_dsl rejected: %v", err)
 	}
+	validFeed := []byte(`{"category":"feed_direction","scope":{"type":"tenant","id":null},"eligibility":{"animal_stage":"all","animal_stage_source":"shed_profiles.animal_stage_id -> animal_stage_lookup","breed_class":"all_reviewed_cohorts"},"parameter_template":{"source_tables":["feed_validation_tables"],"parameter_families":["feed_vectors"],"dimension_keys":["park_shed_breed_horizon"],"ratio_policy":"source_row_variable"},"ration":{"mode":"reviewed_template_rows","feed_item":"reviewed_template_rows","quantity":0,"unit":"kg_as_fed","quantity_semantics":"source-row variable by approved dimensions; examples are not global defaults"},"session_timing":[{"session_order":1,"session_time":"09:00","split_weight":"50","packing_proof_policy":["pack_qty"],"execution_proof_policy":["distribution_video"]}],"inventory_policy":{"mode":"reserve_consume_release","reserve":"reserve stock before packing","consume":"consume verified quantity","release":"release unused reserved quantity"},"validation_policy":{"checks":["resolver_coverage"],"calculation_outputs":["session_split_quantities"],"fail_closed":true,"preview_required":true},"source":{"source_system":"feed_direction_config_pack","source_ref":"ref","review_status":"reviewed"}}`)
+	if err := ValidateRuleDSL(validFeed); err != nil {
+		t.Fatalf("valid feed rule_dsl rejected: %v", err)
+	}
 	for _, bad := range []string{
 		`{"eligibilty":{"animal_stage":"K1"}}`,
 		`{"eligibility":{"animal_stage":"K1","defer_state":["icu"]}}`,
 		`{"schedule":[{"dose_code":"primary","sop_version_id":"display-only"}]}`,
 		`{"source":{"source_system":"phc","approvedby":"x"}}`,
+		`{"parameter_template":{"source_table":["feed_validation_tables"]}}`,
+		`{"validation_policy":{"calculation_output":["session_split_quantities"]}}`,
 	} {
 		if err := ValidateRuleDSL([]byte(bad)); !errors.Is(err, ErrInvalidRuleDSL) {
 			t.Fatalf("rule_dsl %s err=%v, want ErrInvalidRuleDSL", bad, err)

@@ -66,12 +66,24 @@ export function RuleEditorModal({
   const feedItemOptions = optionalOptionGroup(pageContract, "feed_items");
   const feedUnitOptions = optionalOptionGroup(pageContract, "feed_units");
   const feedInventoryOptions = optionalOptionGroup(pageContract, "feed_inventory_policies");
+  const feedSourceTableOptions = optionalOptionGroup(pageContract, "feed_source_tables");
+  const feedParameterFamilyOptions = optionalOptionGroup(pageContract, "feed_parameter_families");
+  const feedDimensionOptions = optionalOptionGroup(pageContract, "feed_dimension_keys");
+  const feedRatioOptions = optionalOptionGroup(pageContract, "feed_ratio_policies");
+  const feedValidationOptions = optionalOptionGroup(pageContract, "feed_validation_checks");
+  const feedCalculationOptions = optionalOptionGroup(pageContract, "feed_calculation_outputs");
   const supportsFeedDirection =
     ruleCategories.some((option) => option.key === "feed_direction") &&
     feedClassOptions.length > 0 &&
     feedItemOptions.length > 0 &&
     feedUnitOptions.length > 0 &&
-    feedInventoryOptions.length > 0;
+    feedInventoryOptions.length > 0 &&
+    feedSourceTableOptions.length > 0 &&
+    feedParameterFamilyOptions.length > 0 &&
+    feedDimensionOptions.length > 0 &&
+    feedRatioOptions.length > 0 &&
+    feedValidationOptions.length > 0 &&
+    feedCalculationOptions.length > 0;
   const visibleRuleCategories = ruleCategories.filter((option) => option.key !== "feed_direction" || supportsFeedDirection);
 
   function firstKey(options: AdminUiOption[], groupId: string): string {
@@ -101,6 +113,12 @@ export function RuleEditorModal({
       ? (optionalCopy(pageContract, "modal.rule_editor.default_feed_escalation") ?? copy(pageContract, "modal.rule_editor.default_vaccination_escalation"))
       : copy(pageContract, "modal.rule_editor.default_vaccination_escalation");
   }
+  function defaultSourceSystem(categoryKey: string): string {
+    if (categoryKey === "feed_direction" && sourceSystemOptions.some((option) => option.key === "feed_direction_config_pack")) {
+      return "feed_direction_config_pack";
+    }
+    return firstKey(sourceSystemOptions, "source_systems");
+  }
   function protocolPlaceholder(categoryKey: string, field: "code" | "name"): string {
     const key = `${categoryKey}.${field}`;
     const value = protocolPlaceholders.find((option) => option.key === key)?.label;
@@ -124,16 +142,24 @@ export function RuleEditorModal({
   }
   function newContractFeedFields(): FeedFields {
     const fallback = newFeedFields();
+    const quantity = Number(optionalCopy(pageContract, "modal.rule_editor.default_feed_quantity") ?? fallback.quantity);
     return {
       animalStage: firstKeyOr(animalStageScope, fallback.animalStage),
       breedClass: firstKeyOr(feedClassOptions, fallback.breedClass),
+      sourceTables: feedSourceTableOptions.map((option) => option.key),
+      parameterFamilies: feedParameterFamilyOptions.map((option) => option.key),
+      dimensionKeys: feedDimensionOptions.map((option) => option.key),
+      ratioPolicy: firstKeyOr(feedRatioOptions, fallback.ratioPolicy),
       feedItem: firstKeyOr(feedItemOptions, fallback.feedItem),
-      quantity: fallback.quantity,
+      quantity: Number.isFinite(quantity) ? quantity : fallback.quantity,
       unit: firstKeyOr(feedUnitOptions, fallback.unit),
       sessionTimes: optionalCopy(pageContract, "modal.rule_editor.placeholder.session_timing") ?? fallback.sessionTimes,
+      slotWeights: optionalCopy(pageContract, "modal.rule_editor.placeholder.session_weights") ?? fallback.slotWeights,
       packingProofCsv: optionalCopy(pageContract, "modal.rule_editor.placeholder.packing_proof") ?? fallback.packingProofCsv,
       executionProofCsv: optionalCopy(pageContract, "modal.rule_editor.placeholder.execution_proof") ?? fallback.executionProofCsv,
       inventoryPolicy: firstKeyOr(feedInventoryOptions, fallback.inventoryPolicy),
+      validationChecks: feedValidationOptions.map((option) => option.key),
+      calculationOutputs: feedCalculationOptions.map((option) => option.key),
     };
   }
 
@@ -182,7 +208,7 @@ export function RuleEditorModal({
   const [missedDosePolicy, setMissedDosePolicy] = useState(requireKey(missedDoseOptions, "phc_approval", "missed_dose_policies"));
   const [escalation, setEscalation] = useState(() => defaultEscalation(defaultCategory));
 
-  const [sourceSystem, setSourceSystem] = useState(firstKey(sourceSystemOptions, "source_systems"));
+  const [sourceSystem, setSourceSystem] = useState(() => defaultSourceSystem(defaultCategory));
   const [sourceRef, setSourceRef] = useState("");
   const [reviewStatus, setReviewStatus] = useState(firstKey(reviewStatusOptions, "review_statuses"));
   const [reviewedBy, setReviewedBy] = useState("");
@@ -280,9 +306,19 @@ export function RuleEditorModal({
   function changeCategory(nextCategory: string) {
     setCategory(nextCategory);
     setEscalation(defaultEscalation(nextCategory));
+    setSourceSystem(defaultSourceSystem(nextCategory));
   }
   function setFeedField(patch: Partial<FeedFields>) {
     setFeed((prev) => ({ ...prev, ...patch }));
+  }
+  function toggleFeedArray(field: "sourceTables" | "parameterFamilies" | "dimensionKeys" | "validationChecks" | "calculationOutputs", value: string) {
+    setFeed((prev) => {
+      const current = prev[field];
+      return {
+        ...prev,
+        [field]: current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
+      };
+    });
   }
 
   function preview() {
@@ -469,6 +505,40 @@ export function RuleEditorModal({
                   </select>
                 </div>
 
+                <label>{copy(pageContract, "modal.rule_editor.field.feed_template")}</label>
+                <div className="cfgchk">
+                  {feedSourceTableOptions.map((option) => (
+                    <label key={option.key} title={option.title}>
+                      <input type="checkbox" checked={feed.sourceTables.includes(option.key)} onChange={() => toggleFeedArray("sourceTables", option.key)} /> {option.label}
+                    </label>
+                  ))}
+                </div>
+                <div className="cfgchk" style={{ marginTop: 7 }}>
+                  {feedParameterFamilyOptions.map((option) => (
+                    <label key={option.key} title={option.title}>
+                      <input type="checkbox" checked={feed.parameterFamilies.includes(option.key)} onChange={() => toggleFeedArray("parameterFamilies", option.key)} /> {option.label}
+                    </label>
+                  ))}
+                </div>
+
+                <label>{copy(pageContract, "modal.rule_editor.field.feed_dimensions")}</label>
+                <div className="cfgchk">
+                  {feedDimensionOptions.map((option) => (
+                    <label key={option.key} title={option.title}>
+                      <input type="checkbox" checked={feed.dimensionKeys.includes(option.key)} onChange={() => toggleFeedArray("dimensionKeys", option.key)} /> {option.label}
+                    </label>
+                  ))}
+                </div>
+
+                <label>{copy(pageContract, "modal.rule_editor.field.ratio_policy")}</label>
+                <select aria-label={copy(pageContract, "modal.rule_editor.field.ratio_policy")} value={feed.ratioPolicy} onChange={(e) => setFeedField({ ratioPolicy: e.target.value })}>
+                  {feedRatioOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
                 <label>{copy(pageContract, "modal.rule_editor.field.ration")}</label>
                 <div className="rowf">
                   <select aria-label={copy(pageContract, "modal.rule_editor.table.feed_item")} value={feed.feedItem} onChange={(e) => setFeedField({ feedItem: e.target.value })}>
@@ -490,6 +560,13 @@ export function RuleEditorModal({
                   value={feed.sessionTimes}
                   onChange={(e) => setFeedField({ sessionTimes: e.target.value })}
                   placeholder={copy(pageContract, "modal.rule_editor.placeholder.session_timing")}
+                />
+                <input
+                  aria-label={copy(pageContract, "modal.rule_editor.field.session_weights")}
+                  value={feed.slotWeights}
+                  onChange={(e) => setFeedField({ slotWeights: e.target.value })}
+                  placeholder={copy(pageContract, "modal.rule_editor.placeholder.session_weights")}
+                  style={{ marginTop: 6 }}
                 />
 
                 <label>{copy(pageContract, "modal.rule_editor.field.proof")}</label>
@@ -516,6 +593,22 @@ export function RuleEditorModal({
                     </option>
                   ))}
                 </select>
+
+                <label>{copy(pageContract, "modal.rule_editor.field.validation")}</label>
+                <div className="cfgchk">
+                  {feedValidationOptions.map((option) => (
+                    <label key={option.key} title={option.title}>
+                      <input type="checkbox" checked={feed.validationChecks.includes(option.key)} onChange={() => toggleFeedArray("validationChecks", option.key)} /> {option.label}
+                    </label>
+                  ))}
+                </div>
+                <div className="cfgchk" style={{ marginTop: 7 }}>
+                  {feedCalculationOptions.map((option) => (
+                    <label key={option.key} title={option.title}>
+                      <input type="checkbox" checked={feed.calculationOutputs.includes(option.key)} onChange={() => toggleFeedArray("calculationOutputs", option.key)} /> {option.label}
+                    </label>
+                  ))}
+                </div>
 
                 <label>{copy(pageContract, "modal.rule_editor.field.escalation")}</label>
                 <input aria-label={copy(pageContract, "modal.rule_editor.field.escalation")} value={escalation} onChange={(e) => setEscalation(e.target.value)} />
@@ -666,6 +759,7 @@ export function RuleEditorModal({
                     <th>{copy(pageContract, "modal.rule_editor.table.session")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.feed_item")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.quantity")}</th>
+                    <th>{copy(pageContract, "modal.rule_editor.table.weight")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.proof")}</th>
                     <th>{copy(pageContract, "modal.rule_editor.table.inventory")}</th>
                   </tr>
@@ -675,17 +769,21 @@ export function RuleEditorModal({
                     .split(",")
                     .map((s) => s.trim())
                     .filter(Boolean)
-                    .map((session, i) => (
-                      <tr key={`${session}-${i}`}>
-                        <td className="mono">{session}</td>
-                        <td>{optionLabel(pageContract, "feed_items", feed.feedItem)}</td>
-                        <td>
-                          {feed.quantity} {feed.unit}
-                        </td>
-                        <td className="muted small">{copy(pageContract, "modal.rule_editor.table.packing_execution_proof")}</td>
-                        <td className="muted small">{optionLabel(pageContract, "feed_inventory_policies", feed.inventoryPolicy)}</td>
-                      </tr>
-                    ))}
+                    .map((session, i) => {
+                      const weight = feed.slotWeights.split(",").map((s) => s.trim()).filter(Boolean)[i] ?? copy(pageContract, "label.placeholder");
+                      return (
+                        <tr key={`${session}-${i}`}>
+                          <td className="mono">{session}</td>
+                          <td>{optionLabel(pageContract, "feed_items", feed.feedItem)}</td>
+                          <td>
+                            {feed.quantity} {optionLabel(pageContract, "feed_units", feed.unit)}
+                          </td>
+                          <td className="mono">{weight}</td>
+                          <td className="muted small">{copy(pageContract, "modal.rule_editor.table.packing_execution_proof")}</td>
+                          <td className="muted small">{optionLabel(pageContract, "feed_inventory_policies", feed.inventoryPolicy)}</td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
