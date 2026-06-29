@@ -1897,6 +1897,7 @@ WITH obligation_events AS (
     AND (
       (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
       OR oi.status IN ('missed', 'in_progress', 'deferred')
+      OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
@@ -2289,6 +2290,7 @@ WITH source_event_ids AS (
     AND (
       (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
       OR oi.status IN ('missed', 'in_progress', 'deferred')
+      OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'

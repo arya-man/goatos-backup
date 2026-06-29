@@ -512,6 +512,48 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	}
 }
 
+func TestCalendarProjectionAndListIncludePastDueOpenExceptions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID := "86000000-0000-4000-8000-000000000891"
+	versionID := "86000000-0000-4000-8000-000000000892"
+	ruleID := "86000000-0000-4000-8000-000000000893"
+	obligationID := "86000000-0000-4000-8000-000000000894"
+	now := time.Now().UTC()
+	dueAt := now.Add(-2 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+
+	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: now,
+		DateTo:   now.Add(24 * time.Hour),
+		Limit:    100,
+	})
+	if err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("past-due open projection count = %d, want 1", count)
+	}
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: now,
+		DateTo:   now.Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].EventID != "obligation:"+obligationID || list.Items[0].Status != domain.StatusOverdue {
+		t.Fatalf("list items=%#v, want old overdue obligation visible outside date window", list.Items)
+	}
+}
+
 func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
