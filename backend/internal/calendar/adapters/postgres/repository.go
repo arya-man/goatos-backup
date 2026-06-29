@@ -633,6 +633,10 @@ WHERE tenant_id = $1::uuid
   AND context->>'obligation_escalation_id' = ANY($3::text[])`, in.TenantID, in.EventID, escalationNotificationIDs(esc, closure), now); err != nil {
 		return fmt.Errorf("calendar: mark escalation notification read: %w", err)
 	}
+	escalationActionDetailsJSON, err := marshalJSON("escalation action details", escalationActionDetails(in, target, esc, closure))
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, actor_id, payload, idempotency_key
@@ -646,7 +650,7 @@ WHERE NOT EXISTS (
     AND idempotency_key = $6
 )`,
 		in.TenantID, esc.ObligationID, in.StatusEventType, in.ActorID,
-		mustJSON(escalationActionDetails(in, target, esc, closure)),
+		escalationActionDetailsJSON,
 		scopedKey+":obligation_status", now); err != nil {
 		return fmt.Errorf("calendar: insert escalation action event: %w", err)
 	}
@@ -841,6 +845,10 @@ FROM calendar_event_projections
 	}
 	channel := normalizeChannel("", e.PrimaryChannel)
 	key := tenantID + ":calendar.reminder:" + e.EventID + ":" + calendarBusinessDateIn(time.Now().UTC(), e.Timezone)
+	contextJSON, err := marshalJSON("reminder context", map[string]any{"calendar_event_id": e.EventID, "sweeper": "calendar-reminder-sweeper"})
+	if err != nil {
+		return false, err
+	}
 	var requestID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO notification_requests (
@@ -855,7 +863,7 @@ RETURNING notification_request_id::text`,
 		tenantID, e.EventID, e.TargetType, e.TargetID, channel,
 		"Reminder: "+e.Title, "Calendar reminder for "+e.Title, key,
 		requestFingerprint(tenantID, e.EventID, "reminder", key),
-		mustJSON(map[string]any{"calendar_event_id": e.EventID, "sweeper": "calendar-reminder-sweeper"})).Scan(&requestID)
+		contextJSON).Scan(&requestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -955,11 +963,11 @@ WITH candidates AS (
   FROM calendar_event_projections
   WHERE tenant_id = $1::uuid
     AND slice_key = 'vaccination'
-	    AND system = false
-	    AND due_at IS NOT NULL
-	    AND due_at <= $2::timestamptz
-	    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-	)
+    AND system = false
+    AND due_at IS NOT NULL
+    AND due_at <= $2::timestamptz
+    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+)
 SELECT event_id, level
 FROM candidates c
 WHERE level > 0
@@ -1102,6 +1110,10 @@ RETURNING escalation_id::text`,
 			return false, fmt.Errorf("calendar: insert obligation escalation: %w", err)
 		}
 		if escalationID != "" {
+			escalationStatusJSON, err := marshalJSON("obligation escalation status event", map[string]any{"level": level, "role": role, "calendar_event_id": target.EventID, "escalation_id": escalationID})
+			if err != nil {
+				return false, err
+			}
 			if _, err := tx.Exec(ctx, `
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, actor_id, payload, idempotency_key
@@ -1115,7 +1127,7 @@ WHERE NOT EXISTS (
     AND idempotency_key = $4
 )`,
 				tenantID, target.SourceTargetID,
-				mustJSON(map[string]any{"level": level, "role": role, "calendar_event_id": target.EventID, "escalation_id": escalationID}),
+				escalationStatusJSON,
 				key, now); err != nil {
 				return false, fmt.Errorf("calendar: insert obligation escalation event: %w", err)
 			}
@@ -1127,7 +1139,7 @@ WHERE NOT EXISTS (
 	} else if channel == "local-stub" && level >= 2 {
 		channel = "slack"
 	}
-	contextJSON := mustJSON(map[string]any{
+	contextJSON, err := marshalJSON("escalation context", map[string]any{
 		"calendar_event_id":        target.EventID,
 		"source_target_type":       target.SourceTargetType,
 		"source_target_id":         target.SourceTargetID,
@@ -1137,6 +1149,9 @@ WHERE NOT EXISTS (
 		"due_at":                   target.DueAt.UTC().Format(time.RFC3339Nano),
 		"sweeper":                  "calendar-escalation-sweeper",
 	})
+	if err != nil {
+		return false, err
+	}
 	var requestID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO notification_requests (
@@ -2492,10 +2507,10 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
-func mustJSON(value any) []byte {
+func marshalJSON(label string, value any) ([]byte, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return []byte(`{}`)
+		return nil, fmt.Errorf("calendar: marshal %s: %w", label, err)
 	}
-	return raw
+	return raw, nil
 }
