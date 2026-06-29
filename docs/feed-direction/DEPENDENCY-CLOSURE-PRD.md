@@ -68,20 +68,20 @@ questions must reference these IDs rather than maintaining independent lists.
 | ID | Gate | Required outcome | Type |
 | --- | --- | --- | --- |
 | G1 | Scope launch gate | Owner explicitly reopens Feed Direction beyond the PHC/Vaccination review slice before any active Feed UI, Config category, SOP card, or command-room route is exposed | Owner |
-| G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose Base Count anchors, realized ShiftingEvent ledger, one-day projection, idempotency, and fail-closed exceptions | Backend/source |
-| G3 | Clock and legacy trigger inventory | Feed Director signs off park-level publish, cutoff, staging, serving, retry, archive, and parity/cutover treatment for legacy trigger windows | Owner |
+| G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose Base Count anchors, realized ShiftingEvent ledger, one-day projection, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2` | Backend/source |
+| G3 | Clock and legacy trigger inventory | Feed Director signs off park-level publish, cutoff, staging, serving, retry, archive, and parity/cutover treatment for canonical `09:00`/`13:30`/`15:00` clocks plus legacy `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` trigger windows | Owner |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, constraints, approval metadata, and publish authority checks are defined | Source/owner |
-| G5 | Eligibility and stage-tag policy | Warmup tags, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and per-farm session/feed-set retention are explicitly approved or excluded | Source/owner |
+| G5 | Eligibility and stage-tag policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and per-farm session/feed-set retention are explicitly approved or excluded | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
 | G7 | Stage model | Packing, transport, consumption/wastage, bridge proof/rework model chosen with a durable queryable `stage_kind` discriminator | Architecture |
 | G8 | Transport map and checklist entity | Direction-shed to transport-shed consolidation owner/storage is confirmed, and any transport list/checklist entity from legacy overlap has a GoatOS equivalent | Source/owner |
-| G9 | Exception thresholds and rework policy | Packing discrepancy and wastage variance thresholds are confirmed, and stronger GoatOS rework/re-issue behavior is labeled as a new requirement where legacy only alerted | Owner |
+| G9 | Exception thresholds and rework policy | Packing discrepancy and wastage variance thresholds are confirmed; legacy alert plus reset/re-send evidence is inventoried, and GoatOS typed rework/re-issue is explicitly formalized | Owner |
 | G10 | Slack security | Affected legacy scripts inventoried, credentials revoked/rotated, any bridge credential moved to secret storage, and GoatOS API-only ingress proven before overlap | Security |
 | G11 | Reminder/escalation SLA | Per-stage deadlines, reminder cadence, escalation owner, retry policy, and admin-alert fallback are defined | Kernel |
 | G12 | NotificationGateway routing | Feed alert events and channel mappings are defined behind replaceable notification ports; Slack is only one adapter/cutover channel | Kernel/security |
 | G13 | Missed/recovery events | Feed explicitly closes or acknowledges the kernel missed/overdue gap: deadline crossing creates durable missed/recovery events and visible process exceptions | Kernel |
 | G14 | Audit and observability | Business audit rows, worker metrics, queue lag, retry counts, DLQ/error counters, and alert thresholds are specified | Kernel/ops |
-| G15 | Command-lens field mapping | Calendar, Action Center, Protocol Adherence, Workflows, and Control Tower can subscribe to stage, due, owner, evidence, resolution, and escalation fields from one source of truth | Backend/product |
+| G15 | Command-lens field mapping | Calendar, Action Center, Protocol Adherence, Workflows, and Control Tower can subscribe to stage, due, owner, evidence, resolution, and escalation fields from one source of truth; the vaccination-locked calendar projection blocker is widened, replaced, or acknowledged before Feed uses Calendar/Protocol Adherence | Backend/product |
 | G16 | Query-plan coverage | Feed hot reads, generation, projections, and count snapshots have bounded filters and plan checks | Build-time |
 | G17 | Cursor read models | Backend read models expose bounded filters, stable cursor pagination, and no unbounded list scans for command/UI/API use | Build-time |
 
@@ -116,6 +116,10 @@ physical count from becoming the next ledger anchor.
 Close `G2` through the sibling Counts/Shifting closure docs, not by burying this
 module inside Feed implementation.
 
+`G2` readiness rolls up from `CSG1`-`CSG10`. The Feed readiness API must expose
+each Counts/Shifting subgate with status, owner, evidence pointer, and blocker
+reason so a green `G2` is traceable instead of a single opaque checkbox.
+
 ### 5.2 Ration Source And Provenance
 
 Feed Direction must not publish quantities from hand-entered guesses or UI-only
@@ -143,10 +147,15 @@ Adult ration keys are `breed + shed_tag/stage`. Kid ration keys are
 runtime ration key.
 
 Warmup tags require explicit Feed Director sign-off before build. Source findings
-list Warmup tags such as Fattening M/F Warmup, Warmup Non-Pregnant, Warmup Buck,
-Warmup Pregnant, and Milking Warmup, but the feed docx ration table does not
-settle their quantities. If Warmup animals receive packed feed, they must have a
-reviewed ration path.
+list a Warmup 14-day transition and tags such as Fattening M/F Warmup, Warmup
+Non-Pregnant, Warmup Buck, Warmup Pregnant, and Milking Warmup, but the feed docx
+ration table does not settle their quantities. If Warmup animals receive packed
+feed, they must have a reviewed ration path.
+
+ICU, Quarantine, Flushing, and Breeding shed tags also need explicit handling.
+They may become reviewed ration paths, explicit exclusions, or process-exception
+states, but they must not inherit packed-feed behavior through catch-all alias
+cleanup.
 
 K0/K1 and Experiment exclusions are not settled by the feed docx alone. Treat
 legacy zero rows/automation filters as candidate policy evidence and require
@@ -203,8 +212,10 @@ are built; stage buckets must not infer stage from free-text status, SOP labels,
 or legacy processed flags.
 
 Short-packed or mismatched quantity behavior must be labeled honestly. Legacy
-automation alerted operators/admins on discrepancy; GoatOS re-open/re-issue is a
-stronger process-integrity requirement, not merely legacy parity.
+automation included both discrepancy/admin alert paths and a separate packing
+quantity check that reset packing state for re-send. GoatOS must not copy that
+Sheet/runtime mechanism; it formalizes the useful parity as typed rework,
+re-issue, audit, and idempotent obligation state.
 
 ### 5.5 Inventory Binding
 
@@ -259,6 +270,13 @@ kernel questions:
 - Which fields drive Calendar, Action Center, Protocol Adherence, Workflows, and
   Control Tower from the same source of truth?
 
+Current Calendar projection storage is a shared blocker for `G15`: the committed
+`calendar_event_projections` and identity constraints are vaccination-slice
+locked. Feed can feed top-level Action Center-style buckets from its own
+projection, but Calendar/Protocol Adherence integration needs a widened
+multi-slice projection, a generic projection, or a Feed-specific projector with
+compatible event vocabulary before it can be called closed.
+
 ## 6. Out Of Scope For This Closure Phase
 
 - Active Feed Direction admin-web UI.
@@ -281,7 +299,8 @@ This phase is complete when:
 1. Gates `G1`-`G17` have a status, owner, evidence pointer, and no unowned
    blocker.
 2. Counts/Shifting closure docs are accepted, and `G2` is no longer hiding a
-   whole module behind one Feed bullet.
+   whole module behind one Feed bullet. `GET /feed-direction/readiness` exposes
+   `CSG1`-`CSG10` statuses beneath `G2`.
 3. Ration values are source-backed through solver or reviewed import, and
    publishability requires `review_status='approved'`, approval metadata, and
    publish authority checks.

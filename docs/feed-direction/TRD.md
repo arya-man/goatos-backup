@@ -101,7 +101,8 @@ these contracts:
 1. A Counts/Shifting-owned aggregate realized ledger plus horizon-aware
    projection at tenant + park + shed + breed + stage/tag + effective time.
 2. A derivation from per-goat location history, only after RFID-to-shed
-   association is reliable enough to produce the same aggregate counts.
+   association through `goat_identifiers` and `goat_location_history` is reliable
+   enough to produce the same aggregate counts without full-herd scans.
 
 Until one contract exists, Feed generation must remain blocked even if protocol
 rules, obligations, and completion records exist.
@@ -153,7 +154,10 @@ Feed eligibility must be explicit in `rule_dsl` or referenced source-backed
 config:
 
 - Warmup stage tags require an explicit reviewed ration path or an explicit
-  exclusion before Feed Direction publishes quantities.
+  exclusion before Feed Direction publishes quantities, including the 14-day
+  Warmup transition.
+- ICU, Quarantine, Flushing, and Breeding shed tags require explicit ration path,
+  exclusion, or process-exception policy before they affect packed-feed output.
 - K0/K1 milk-fed cohort exclusions and Experiment zero-direction behavior are
   candidate policy from legacy automation/zero rows until Feed Director approval.
 - F2/Fattening, SIROHI->Beetal where approved, shed-tag aliases, and other legacy
@@ -356,8 +360,11 @@ indexed projection, or a first-class completion/stage record.
 Packing shortfall or rejected packing proof must re-open/re-issue the packing
 stage, delete or supersede stale notification/task pointers, and create
 rework/escalation state. Do not consume inventory on rejected proof. This is a
-GoatOS process-integrity requirement; legacy automation evidence primarily shows
-discrepancy red-flag/admin-alert behavior, not a full reset/re-send workflow.
+GoatOS process-integrity requirement that formalizes useful legacy evidence:
+legacy automation has discrepancy red-flag/admin-alert paths and a separate
+video-verification packing quantity reset/re-send loop. GoatOS maps that to typed
+stage rework/reissue and idempotent obligations, not Sheet flag resets or thread
+deletion.
 
 ### Transport execution stage
 
@@ -463,6 +470,13 @@ Action Center, Control Tower, Protocol Adherence, Config, or SOP Library routes.
 Calendar, Action Center, Protocol Adherence, Workflows, and Control Tower must
 read the same Feed projection fields rather than deriving separate truth.
 
+Shared Calendar blocker: the committed `calendar_event_projections` storage is
+currently constrained to the vaccination slice and vaccination event vocabulary.
+Feed can still build its own command buckets behind the scope gate, but Calendar
+and Protocol Adherence integration must wait for a widened multi-slice calendar
+projection, an approved generic projection, or a Feed-specific projector with
+equivalent indexed fields.
+
 ## 9. Legacy parity mapping
 
 Legacy source behavior to port as rules, not as Apps Script. Treat this as a
@@ -479,13 +493,15 @@ references must be re-verified before import/cutover work.
 | Packing / Consumption / Transport processed flags | Boolean processed columns in the legacy sheet | Idempotent obligation, SOP task, proof, verification, and completion state; never boolean runtime authority. |
 | Feed Transport form and transport scripts | Date, farm, shed, time, video/message links, user, transport list/checklist item, uploaded file handling, consolidated transport sheds | First-class transport obligation/stage with source-backed direction-shed to transport-shed consolidation, proof upload, verifier decision, rejection reason, and rework/next action. |
 | Feed Consumption & Wastage form | Consumed quantity, wasted quantity, consumption proof, wastage proof, difference, wastage percent; legacy 20% wastage flag | Typed consumption/wastage stage outcome or projection fields with proof references and source-backed variance exception thresholds. |
+| Milk Preparation verification | Separate feed-adjacent workflow with Pending/Verified/Rejected media correctness and Slack notification behavior | Out of the packed-feed Feed Direction slice. Treat as a sibling verification workflow if reopened, not as implicit packing/transport/consumption scope. |
 | Video verification / rejection tracker | Media correctness `Pending`/`Verified`/`Rejected`, remarks required on rejection, notification and rejected-media list | Platform proof verification state, audit trail, rejection reason, and follow-up obligation. |
-| Packing quantity discrepancy | Expected vs actual quantity discrepancy, red-flag/admin notification behavior | Packing shortfall/rejected proof rework is a stronger GoatOS policy; do not describe it as legacy reset/re-send parity. |
+| Packing quantity discrepancy | Expected vs actual quantity discrepancy, red-flag/admin notification behavior, and video-verification packing quantity reset/re-send behavior | GoatOS formalizes this as typed packing discrepancy/rework/reissue with audit and idempotency; do not copy Sheet flag resets or thread deletion as runtime authority. |
 | Experiment sheds | Experiment tag and zero count/feed quantities in source evidence | Candidate feed eligibility exclusion / zero-direction rule requiring Feed Director sign-off. |
 | Warmup stage tags | Warmup operating states from source findings, not fully covered by feed docx ration table | Reviewed ration path or explicit exclusion before Feed Direction publish. |
 | K0/K1 feed exclusions | Milk-fed cohorts filtered out of legacy supply/diff paths | Candidate eligibility rule from legacy evidence; requires Feed Director approval before publish, not an incidental transform. |
 | Per-farm Template sheet | Session labels and feed items per farm; quantities split by session count | Open parity decision: retain as source-backed session/feed-set config or supersede with Feed Director sign-off for the June 2026 two-session 50/50 default. |
 | Diff regeneration | Legacy automation had additional cycles/intermediate storage, while the June source model defines the 09:00 full direction, 13:30 cutoff, 13:30-13:45 Diff, and post-cutoff bridge | Canonical GoatOS Diff run stores affected-shed restatement rows and cancels/supersedes stale work; source-facing output may present net correction. Old two-cycle behavior is cutover evidence unless explicitly reinstated. |
+| Clock/trigger inventory | Legacy windows at 07:30, 14:45, 06:30, 07:15, 14:15, 00:15, 23:45, and 07:00, plus canonical source clocks at 09:00, 13:30, and 15:00 | Gate `G3` owner sign-off marks each window retained, retired, or replaced. The 23:45 packing quantity check is parity evidence for reissue; 00:15 is the midnight archive/retry family, not an assumed 03:00 clock. |
 | Retry scheduler | Reschedule/retry and admin alert behavior | Durable reminder/retry/escalation policy under gates `G11`-`G12`, not Apps Script timers. |
 | Applied-event and file dedupe | Short-window dedupe and file-id dedupe in legacy automation | Durable idempotency keys, replay tests, and source archive checksums. |
 | Count-mismatch detection | Unreported-shifting/count-reconciliation signal | Counts/Shifting exception work under gate `G2`, not silent Feed-side correction. |
@@ -564,6 +580,7 @@ Use the canonical gate table in
 [DEPENDENCY-CLOSURE-PRD.md](./DEPENDENCY-CLOSURE-PRD.md) rather than maintaining
 a separate blocker list. Technical implementation may start only for hidden
 backend prep allowed by `G1`; full Feed Direction backend readiness requires
-`G2`-`G17` to be closed or explicitly marked deferred with owner approval. The
-next migration number is a build-time check after the live repo tail, currently
-`000117`, is reverified.
+`G2`-`G17` to be closed or explicitly marked deferred with owner approval. `G15`
+closure specifically includes resolving or explicitly deferring the
+vaccination-locked Calendar projection blocker. The next migration number is a
+build-time check after the live repo tail, currently `000117`, is reverified.

@@ -80,8 +80,13 @@ configurable, and get Feed Director sign-off before hardcoding schedules.
 | Define and consume the horizon-aware Counts/Shifting input contract | RFID-to-shed individual association | Old 07:30 next-morning Diff design |
 | Day N full direction and cutoff Diff | Uneven session split tuning | Feed procurement/fodder modules |
 | Packing, reserve/consume, proof, verification | Item-level palatability caps | Full feed cost accounting |
-| Consumption, transport, variance/wastage proof | Advanced transport optimization | |
+| Consumption, transport, variance/wastage proof | Advanced transport optimization | Milk Preparation verification workflow |
 | Post-cutoff high-priority bridge logging | | |
+
+Milk Preparation is feed-adjacent legacy verification, but it is not part of the
+packed-feed Feed Direction slice. If it is reopened, scope it as a sibling
+verification workflow with its own Pending/Verified/Rejected proof contract
+instead of silently folding it into packing, transport, or wastage.
 
 Initial ration keys are not raw age buckets. Adult rations are keyed by
 `breed + shed_tag/stage` such as Early Gestation, Late Gestation,
@@ -89,8 +94,10 @@ Non-Pregnant/Maintenance, Early/Mid/Late Milking, Fattening, and Mother. Kid
 rations are keyed by weight band and target ADG. Source fields such as `Age`
 must be normalized through reference data and aliases before they affect ration
 math. Warmup tags require explicit Feed Director sign-off because source findings
-identify Warmup operating states but the feed docx ration table does not settle
-their packed-feed quantities.
+identify a 14-day Warmup transition and Warmup operating states, but the feed
+docx ration table does not settle their packed-feed quantities. ICU, Quarantine,
+Flushing, and Breeding shed tags also require explicit ration path or exclusion
+decisions instead of inheriting default packed-feed behavior.
 
 The full NRC optimizer UI can wait, but ration quantity provenance cannot. The
 first slice must either run a non-UI RationTable solver for the source-required
@@ -178,8 +185,9 @@ forms, videos, verifier decisions, rejection remarks, and discrepancy alerts.
 GoatOS should model those as obligation/proof/verification state instead of
 preserving processed flags as Boolean source-of-truth columns. Short-packed or
 rejected packing proof must re-open/re-issue work rather than silently accepting
-a lower quantity; this is a stronger GoatOS process requirement where legacy only
-alerted or pinged admins.
+a lower quantity. Legacy evidence includes alert/admin-ping behavior and a
+separate packing quantity reset/re-send loop; GoatOS formalizes the useful
+behavior as typed rework/reissue instead of copying Sheet flag resets.
 
 Every stage-bearing Feed obligation, completion, or projection must carry a
 durable `stage_kind` discriminator such as `packing`, `transport`,
@@ -230,7 +238,9 @@ Times are config values, not literals in code. Session split is currently 50/50,
 which is a deliberate source simplification, not inferred nutrition logic. Legacy
 automation also contained additional trigger windows, retries, and archive
 timers; gate `G3` decides which are parity/cutover evidence and which become
-GoatOS schedules.
+GoatOS schedules. The inventory for sign-off includes legacy `07:30`, `14:45`,
+`06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` windows, plus the
+canonical source clocks above.
 
 ## 7. Current GoatOS implementation state
 
@@ -314,14 +324,17 @@ When Feed Direction scope is reopened:
 2. `G2`: Close the Counts/Shifting input contract in the sibling closure docs:
    aggregate base-count ledger vs derivation from per-goat history after
    RFID-to-shed association exists.
-3. `G3`: Confirm Feed Director clock values per park, including how legacy extra
-   trigger windows, retry scheduler, and archive timers are treated.
+3. `G3`: Confirm Feed Director clock values per park, including canonical
+   `09:00`/`13:30`/`15:00` timings and how legacy `07:30`, `14:45`, `06:30`,
+   `07:15`, `14:15`, `00:15`, `23:45`, and `07:00` trigger windows, retry
+   scheduler, and archive timers are treated.
 4. `G4`: Confirm whether the first slice runs the non-UI ration solver or imports
    reviewed solver outputs as source-backed config.
 5. `G4`: Confirm initial feed vectors, costs, ration aliases, source-backed
    ration values, kid weight-band/ADG inputs, and roughage/category floor values.
-6. `G5`: Confirm Warmup, K0/K1, Experiment-shed, F2/Fattening, SIROHI->Beetal,
-   and other alias/exclusion policies.
+6. `G5`: Confirm Warmup 14-day transition handling, ICU, Quarantine, Flushing,
+   Breeding, K0/K1, Experiment-shed, F2/Fattening, SIROHI->Beetal, and other
+   alias/exclusion policies.
 7. `G6`: Confirm feed unit and baking-soda precision policy before implementing
    inventory wiring.
 8. `G7`: Confirm the stage model and durable `stage_kind` home: typed stage
@@ -330,7 +343,7 @@ When Feed Direction scope is reopened:
    maintained in Locations config, Feed protocol config, or a dedicated
    source-backed mapping; decide whether a transport checklist entity is needed.
 10. `G9`: Confirm packing discrepancy tolerance, wastage variance thresholds, and
-   where GoatOS intentionally strengthens legacy alert-only behavior into rework.
+   how legacy alert/reset evidence maps into GoatOS typed rework/reissue.
 11. `G10`: Assign security remediation ownership, inventory affected legacy
    scripts, rotate or revoke Slack tokens/webhook shared secrets, move any
    retained bridge credential to secret storage, and prove GoatOS API-only

@@ -41,9 +41,12 @@ These pieces are reusable:
 | Scale rules | No per-goat feed tasks; bounded reads; query-plan validation |
 
 The gaps are module contracts and wiring, not a missing platform. Feed must still
-close the kernel gaps named by gates `G11`-`G15`: reminders/escalations,
-notifications, missed/recovery state, audit/observability, and command-lens
-field mapping.
+close the feed-specific kernel wiring named by gates `G11`-`G15`:
+reminders/escalations, notifications, missed/recovery state, audit/observability,
+and command-lens field mapping. One shared blocker remains for `G15`: the
+committed Calendar projection is currently vaccination-slice locked and must be
+widened or bypassed with an approved generic/feed projection before Feed can
+appear in Calendar or Protocol Adherence.
 
 ## 3. Dependency Architecture
 
@@ -118,9 +121,13 @@ Idempotency:
 
 #### Alternative: per-goat derivation
 
-Allowed only after RFID-to-shed association and goat location history can prove
-the same aggregate grain without full-herd scans. This path still must expose the
-same `CountProjectionProvider` interface and snapshot rows.
+Allowed only after RFID-to-shed association and committed GoatOS identity/location
+state can prove the same aggregate grain without full-herd scans. This path must
+join active identifiers from `goat_identifiers`, authoritative movement/location
+history from `goat_location_history`, and reviewed shed/stage reference data into
+bounded tenant + park + shed + breed + stage/tag aggregates. It still must expose
+the same `CountProjectionProvider` interface and snapshot rows, and it must fail
+closed if RFID, identifier, or location confidence cannot support the aggregate.
 
 ### 3.3 Horizon Rules
 
@@ -353,9 +360,12 @@ metadata, add `feed_direction_stage_records` as typed detail rows linked to the
 obligation and generation row. Do not force all stages into one completion row,
 and do not build read-model buckets until the durable discriminator exists.
 
-Packing shortfall/rework is stronger than legacy parity. Legacy discrepancy
-behavior was primarily red-flag/admin-alert. GoatOS may require re-issue/rework,
-but the docs and tests must label that as a new process-integrity requirement.
+Packing shortfall/rework is parity plus formalization. Legacy evidence includes
+red-flag/admin alert paths and a separate video-verification packing quantity
+check that resets packing processed state and causes re-send behavior. GoatOS
+must not reproduce the Sheet/thread reset mechanism; it maps the useful behavior
+to typed rework/re-issue obligations, audit, idempotency, and inventory-safe
+state transitions.
 
 ## 9. Inventory Wiring
 
@@ -428,8 +438,9 @@ Notifications must go through a `NotificationGateway`-style port. Slack may be a
 bridge adapter only after `G10`; it is never the canonical execution source.
 
 Deadline crossing must write durable business state, not only logs. Feed must
-either close the current kernel missed/overdue gap before use or explicitly
-block Feed readiness on that kernel work. Required events include:
+wire into the shared missed/deadline materializer where available and add any
+feed-specific recovery subscriber or blocker needed for stage recovery. Required
+events include:
 
 - stage became due;
 - reminder sent or suppressed with reason;
@@ -444,6 +455,12 @@ source/input hash, idempotency key, before/after or payload, and trace id where
 available. Technical observability must include generation latency, worker
 errors, retry counts, queue/outbox lag, notification result counts, projection
 refresh lag, DLQ counts, and DB/query-plan failures.
+
+Counts/Shifting workers must meet the same observability bar before `G2` can turn
+green: base-count import latency, shifting ingest latency, projection recompute
+latency, stale-projection age, queue/outbox lag, retry and DLQ counts,
+exception counts by type, and query-plan failures must be emitted or made
+available to the same monitoring slice.
 
 ## 11. Transport Consolidation Contract
 
@@ -504,7 +521,7 @@ Add backend-owned contracts before UI work:
 
 | API | Purpose |
 | --- | --- |
-| `GET /feed-direction/readiness` | Shows canonical gates `G1`-`G17`, missing source inputs, blocker reasons, owner, evidence pointer |
+| `GET /feed-direction/readiness` | Shows canonical gates `G1`-`G17`, missing source inputs, blocker reasons, owner, evidence pointer, and `CSG1`-`CSG10` subgate breakdown under `G2` |
 | `POST /feed-direction/generation-runs` | Manually enqueue/generate full run or Diff with idempotency |
 | `GET /feed-direction/generation-runs` | Cursor list by tenant/park/date/kind/status |
 | `GET /feed-direction/directions` | Cursor instruction rows with active/superseded state |
@@ -551,6 +568,13 @@ cursor_key
 These fields are what Calendar, Action Center, Protocol Adherence, Workflows,
 and Control Tower subscribe to. Do not let each lens derive a different truth.
 
+`G15` implementation note: the existing `calendar_event_projections` table and
+calendar identity constraints are currently limited to `slice_key='vaccination'`
+and vaccination event types. Feed command buckets can be built in Feed read
+models first, but Calendar/Protocol Adherence exposure requires either widening
+that projection vocabulary to multi-slice use or introducing an approved generic
+projection/feed projector with equivalent indexed fields.
+
 ## 14. Worker And Outbox Wiring
 
 Required worker paths:
@@ -567,6 +591,14 @@ Required worker paths:
 Local development may use the existing local outbox/eventbus equivalent, but the
 acceptance proof must distinguish local-dev fixture closure from production
 Pub/Sub/Scheduler/Cloud Tasks deployment.
+
+Clock inventory for `G3` is explicit evidence, not schedule law. The canonical
+source clocks are Day N `09:00` full direction, Day N `13:30` cutoff/Diff window,
+Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving. Legacy automation
+also contains windows at `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`,
+`23:45`, and `07:00`; the `23:45` path is the packing quantity check/reset
+loop, and the midnight archive/retry family is `00:15`, not an assumed 03:00
+clock. Feed Director sign-off must mark each retained, retired, or replaced.
 
 ## 15. Legacy Cutover Rules
 
@@ -585,8 +617,12 @@ Mappings:
 - Applied shifting rows -> Counts/Shifting event ledger or source archive.
 - Retry scheduler behavior -> durable retry/reminder policy, not Apps Script
   timers.
-- Legacy trigger windows -> clock-signoff evidence for `G3`, not automatic
-  GoatOS schedules.
+- Legacy trigger windows -> clock-signoff evidence for `G3`, including
+  `07:30`, `14:45`, `06:30`, `07:15`, `14:15`, `00:15`, `23:45`, and `07:00`,
+  not automatic GoatOS schedules.
+- Packing quantity check/reset loop -> typed packing discrepancy/rework policy;
+  legacy reset/re-send behavior is inventoried, but Sheet flag clearing and
+  thread deletion are not copied as runtime authority.
 - 3-day applied-event/file dedupe -> durable idempotency and replay tests.
 - Count-mismatch unreported-shifting detection -> Counts/Shifting exception
   work, not Feed-side hidden correction.
@@ -662,8 +698,8 @@ Required tests/checks:
 - Bridge decision table.
 - Durable `stage_kind` supports packing, transport, consumption/wastage, bridge,
   and execution-bucket queries without label parsing.
-- Packing discrepancy rework is tested as GoatOS policy, not assumed legacy
-  parity.
+- Packing discrepancy rework tests cover both legacy alert/reset evidence and
+  GoatOS typed rework/re-issue policy without relying on Sheet flag resets.
 - Packing reject creates rework and does not consume inventory.
 - Accepted packing consumes actual and releases remainder.
 - Inventory calls use exact whole base units for the current app port; no Feed

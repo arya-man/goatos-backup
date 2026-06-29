@@ -38,7 +38,7 @@ Counts/Shifting must answer these questions for Feed Direction:
 | Counting DB reconstruction | Fixture/reference shape for aggregate counts and comparison tabs |
 | Shifting reports/source findings | Movement categories, priority, source/destination, proof and approval states |
 | Legacy automation review | Dedup, retry, count-mismatch, and alias-transform evidence |
-| GoatOS identity/location tables | Future per-goat derivation option after RFID-to-shed association is reliable |
+| GoatOS identity/location tables | Future per-goat derivation option through `goat_identifiers` and `goat_location_history` after RFID-to-shed association is reliable |
 
 Legacy data is evidence and fixture material. Runtime truth must be Postgres
 canonical state plus audit/outbox.
@@ -56,14 +56,18 @@ canonical state plus audit/outbox.
 | CSG7 | Alias normalization | Breed and stage aliases such as SIROHI->Beetal and Warmup/Fattening variants are reviewed before projection output |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
 | CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, and contract version |
-| CSG10 | Scale proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, stage/tag, and cursor where applicable |
+| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, stage/tag, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist |
+
+`CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
+show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
+reasons beneath `G2` so Counts closure is auditable from the Feed launch gate.
 
 ## 5. Acceptance Criteria
 
 Counts/Shifting closure is complete when:
 
-1. Feed can call a fail-closed `CountProjectionProvider` contract for realized
-   and one-day projection horizons.
+1. Feed can call a documented fail-closed projection contract for realized and
+   one-day projection horizons.
 2. Physical Base Count anchors, ShiftingEvent application, and projection output
    are replay-safe and auditable.
 3. Missing stage/cohort impact, unreported shiftings, count mismatch, and alias
@@ -72,3 +76,5 @@ Counts/Shifting closure is complete when:
    without becoming runtime truth.
 5. SQL plan and synthetic-scale checks prove no full-herd or unbounded count
    scan is required for Feed generation.
+6. `GET /feed-direction/readiness` can expose `CSG1`-`CSG10` breakdown under
+   Feed gate `G2`.

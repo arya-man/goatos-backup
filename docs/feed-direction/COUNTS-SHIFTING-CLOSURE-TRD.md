@@ -73,8 +73,11 @@ Preferred aggregate-ledger tables:
 | `count_projection_exceptions` | Durable process work for ambiguous impact, unreported shifting, count mismatch, alias conflict, or insufficient source |
 
 Alternative per-goat derivation is allowed only after RFID-to-shed association
-and goat location history can prove the same aggregate output without full-herd
-scans. Even then, Feed still consumes this port and snapshot shape.
+can be proven from committed GoatOS identity/location state. The derivation must
+use active `goat_identifiers`, authoritative `goat_location_history`, and
+reviewed location/stage reference data to produce the same aggregate output
+without full-herd scans. Even then, Feed still consumes this port and snapshot
+shape, and unresolved RFID, identifier, or location confidence fails closed.
 
 ## 4. Horizon Rules
 
@@ -147,7 +150,21 @@ Required paths:
 
 All workers must be tenant/park/date/grain bounded and replay-safe.
 
-## 9. Tests
+Worker observability is part of `CSG10`, not a future ops cleanup. Counts/Shifting
+must expose or emit base-count import latency, shifting ingest latency,
+projection recompute latency, stale-projection age, queue/outbox lag, retry
+counts, DLQ counts, exception counts by type, and query-plan failures. Those
+signals roll into Feed gate `G2` and the same monitoring slice used by Feed
+generation workers.
+
+## 9. Readiness Roll-Up
+
+`CSG1`-`CSG10` are the subgate contract for Feed gate `G2`. A readiness adapter
+must return each subgate with status, owner, evidence pointer, blocker reason,
+and last_checked_at so `GET /feed-direction/readiness` can show the breakdown
+instead of a single opaque Counts/Shifting status.
+
+## 10. Tests
 
 Non-negotiable tests:
 
@@ -164,3 +181,5 @@ Non-negotiable tests:
 - Projection snapshot source hash changes after input change.
 - Feed consumes immutable projection snapshot and does not mutate past runs.
 - Query-plan checks for widest allowed projection/read paths.
+- Worker observability checks for latency, lag, retry, DLQ, exception, and
+  stale-projection metrics.
