@@ -269,6 +269,10 @@ func (f *fakeSweepRepo) InsertObligation(context.Context, domain.NewObligation) 
 	return "", false, nil
 }
 
+func (f *fakeSweepRepo) CancelOpenObligationByIdempotencyKey(context.Context, string, string, string, time.Time) (string, bool, error) {
+	return "", false, nil
+}
+
 func (f *fakeSweepRepo) GetByIdempotencyKey(context.Context, string, string) (domain.ObligationRef, error) {
 	return domain.ObligationRef{}, ports.ErrNotFound
 }

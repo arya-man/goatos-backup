@@ -1938,6 +1938,8 @@ export interface components {
             batchId?: string;
             /** Format: uuid */
             sopTaskId?: string;
+            /** Format: uuid */
+            sopVersionId?: string;
             sopTaskRowVersion?: number;
             /** Format: uuid */
             completionId?: string;
@@ -2192,16 +2194,6 @@ export interface components {
             max_age_days?: number | null;
             sort_order: number;
         };
-        RejectVaccinationCompletionRequest: {
-            reason?: string;
-        };
-        AcceptVaccinationCompletionResponse: {
-            applied: boolean;
-            completed: boolean;
-        };
-        RejectVaccinationCompletionResponse: {
-            applied: boolean;
-        };
         VaccinationPassportDue: {
             obligation_id: string;
             protocol_version_id: string;
@@ -2322,7 +2314,6 @@ export interface components {
         IdempotencyKey: string;
         ProtocolId: string;
         ProtocolVersionId: string;
-        CompletionId: string;
         ShedId: string;
         CalendarEventId: string;
         ProofId: string;

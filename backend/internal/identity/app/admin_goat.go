@@ -31,7 +31,7 @@ const (
 	defaultAdminGoatBulkPreviewSigningKey = "goatos-admin-goat-bulk-preview-dev-v1"
 )
 
-// DevBulkPreviewSigningKey is the local/dev/test-only fallback injected by bootstrap when
+// DevBulkPreviewSigningKey is the local/test-only fallback injected by bootstrap when
 // GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY is intentionally unset in a non-shared environment.
 func DevBulkPreviewSigningKey() string {
 	return defaultAdminGoatBulkPreviewSigningKey

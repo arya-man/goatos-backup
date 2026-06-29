@@ -746,6 +746,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/{goat_id}/critical-death-exit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark an approved death exit and queue goat.exited cancellation.
+         * @description Critical-action guardrail approval path for dead/died exits; this is the only primitive allowed to record death and emit goat.exited side effects.
+         */
+        post: operations["criticalDeathExitGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/{goat_id}/stage": {
         parameters: {
             query?: never;
@@ -774,7 +794,7 @@ export interface paths {
         put?: never;
         /**
          * Change goat health status and queue goat.health.changed vaccination rechecks.
-         * @description Recovery and non-critical health changes use this primitive. Quarantine and ICU targets fail closed with 501 until the critical-action guardrail path owns them.
+         * @description Recovery and non-critical health changes use this primitive. Quarantine and ICU targets fail closed with 409 guardrail-required until the critical-action guardrail path owns them.
          */
         post: operations["healthGoat"];
         delete?: never;
@@ -1760,7 +1780,7 @@ export interface components {
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
         };
-        /** @description Quarantine and ICU are schema-visible for forward compatibility, but this primitive returns 501 for those targets until the critical-action guardrail path owns them. */
+        /** @description Quarantine and ICU are schema-visible for forward compatibility, but this primitive returns 409 guardrail-required for those targets until the critical-action guardrail path owns them. */
         HealthGoatRequest: {
             /** @enum {string} */
             health_status: "healthy" | "sick" | "under_treatment" | "recovering" | "quarantine" | "icu";
@@ -1805,7 +1825,7 @@ export interface components {
             result_skipped_no_due_date: number;
             result_suppressed_by_trusted_history: number;
         };
-        /** @description Dead/died exits are schema-visible for forward compatibility, but this primitive returns 409 guardrail-required for death transitions until the critical-action guardrail path owns them. */
+        /** @description Dead/died exits are schema-visible for the critical-death-exit guardrail path; the regular exit primitive returns 409 guardrail-required for death transitions. */
         ExitGoatRequest: components["schemas"]["ExitGoatDeadRequest"] | components["schemas"]["ExitGoatSoldRequest"] | components["schemas"]["ExitGoatCulledRequest"] | components["schemas"]["ExitGoatTransferredRequest"] | components["schemas"]["ExitGoatLostRequest"];
         ExitGoatDeadRequest: {
             /** @constant */
@@ -2942,6 +2962,15 @@ export interface components {
         };
         /** @description Optimistic concurrency, uniqueness, merge redirect, or idempotency conflict. */
         WriteConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Optimistic concurrency/idempotency conflict, or a guardrail-required critical transition that must use its guarded path. */
+        GuardrailOrWriteConflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -4592,8 +4621,40 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["GuardrailOrWriteConflict"];
+        };
+    };
+    criticalDeathExitGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExitGoatDeadRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat death exit recorded or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-            501: components["responses"]["NotImplemented"];
         };
     };
     stageGoat: {
@@ -4659,8 +4720,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            501: components["responses"]["NotImplemented"];
+            409: components["responses"]["GuardrailOrWriteConflict"];
         };
     };
     runVaccinationManualCampaign: {

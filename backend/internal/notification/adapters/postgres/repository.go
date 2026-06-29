@@ -169,12 +169,14 @@ func (r *Repository) MarkFailed(ctx context.Context, tenantID, notificationReque
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var next pgtype.Timestamptz
+	status := "exhausted"
 	if nextAttemptAt != nil {
 		next = pgtype.Timestamptz{Time: nextAttemptAt.UTC(), Valid: true}
+		status = "failed"
 	}
 	tag, err := r.pool.Exec(ctx, `
 UPDATE notification_requests
-SET status = 'failed',
+SET status = $8,
     failure_reason = $4,
     next_attempt_at = $5::timestamptz,
     lease_token = NULL,
@@ -184,7 +186,7 @@ SET status = 'failed',
 WHERE tenant_id = $1::uuid
   AND notification_request_id = $2::uuid
   AND lease_token = $3::uuid
-  AND status = 'sending'`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now)
+  AND status = 'sending'`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now, status)
 	if err != nil {
 		return fmt.Errorf("notification: mark failed: %w", err)
 	}

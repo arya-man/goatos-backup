@@ -755,11 +755,31 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "park_display_chips", optionsFromReferences(families.Parks, "info"))
 		case "config":
 			out[i].OptionGroups = compileConfigOptionGroups(out[i].OptionGroups, families)
+			out[i].Controls = compileConfigControls(out[i].Controls, input, out[i].Copy)
 		case "dlq-center":
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
 		}
 	}
 	return out
+}
+
+func compileConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ProtocolPublish})
+	reason := ""
+	if !allowed {
+		reason = strings.TrimSpace(copy["modal.rule_editor.only_ceo_publish"])
+		if reason == "" {
+			reason = "Your current role cannot publish protocol versions."
+		}
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "publish_protocol_version",
+		Label:          copy["action.publish"],
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /protocols/versions/{version_id}/publish",
+	})
 }
 
 func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
@@ -831,6 +851,18 @@ func replaceOptionGroup(groups []domain.OptionGroup, id string, options []domain
 		}
 	}
 	return append(out, domain.OptionGroup{ID: id, Options: options})
+}
+
+func upsertControl(controls []domain.Control, control domain.Control) []domain.Control {
+	out := make([]domain.Control, len(controls))
+	copy(out, controls)
+	for i := range out {
+		if out[i].ID == control.ID {
+			out[i] = control
+			return out
+		}
+	}
+	return append(out, control)
 }
 
 // mergeOptionGroupReferences keeps a group's existing options as a bounded vocabulary / sentinel and appends

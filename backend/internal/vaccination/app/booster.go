@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
+	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 // BoosterRuleReader is the slice of the protocol repo SM-7 needs.
@@ -14,18 +16,38 @@ type BoosterRuleReader interface {
 	ListRules(ctx context.Context, tenantID, versionID string) ([]protodomain.Rule, error)
 }
 
+type BoosterVersionReader interface {
+	GetVersion(ctx context.Context, tenantID, versionID string) (protodomain.Version, error)
+}
+
+type BoosterGoatReader interface {
+	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (domain.EligibleGoat, bool, error)
+}
+
 // BoosterService implements SM-7: when a dose is administered, schedule the next dose in the series
 // when that next rule is triggered after_previous_completion. The next dose is due administeredAt +
 // max(offset_days, min_gap_days) so the minimum interval between doses is always respected.
 // Idempotent — the deterministic obligation key makes a replay a no-op.
 type BoosterService struct {
-	proto BoosterRuleReader
-	obl   ObligationWriter
+	proto    BoosterRuleReader
+	versions BoosterVersionReader
+	goats    BoosterGoatReader
+	obl      ObligationWriter
 }
 
 // NewBoosterService wires the protocol rule reader and the obligation writer.
 func NewBoosterService(proto BoosterRuleReader, obl ObligationWriter) *BoosterService {
-	return &BoosterService{proto: proto, obl: obl}
+	s := &BoosterService{proto: proto, obl: obl}
+	if versions, ok := proto.(BoosterVersionReader); ok {
+		s.versions = versions
+	}
+	return s
+}
+
+// WithGoatReader lets SM-7 apply the same current goat eligibility/defer-state rules as SM-1.
+func (s *BoosterService) WithGoatReader(goats BoosterGoatReader) *BoosterService {
+	s.goats = goats
+	return s
 }
 
 // ScheduleNextInput identifies the just-administered dose and where the next obligation belongs.
@@ -47,20 +69,18 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 	if err != nil {
 		return false, err
 	}
+	nextSequence := in.PrevSequence + 1
 	var next *protodomain.Rule
 	for i := range rules {
-		if rules[i].Sequence <= in.PrevSequence {
+		if rules[i].Sequence != nextSequence {
 			continue
 		}
-		if rules[i].TriggerType != "after_previous_completion" {
-			continue
-		}
-		if next == nil || rules[i].Sequence < next.Sequence {
+		if next == nil || rules[i].SortOrder < next.SortOrder || (rules[i].SortOrder == next.SortOrder && rules[i].RuleID < next.RuleID) {
 			next = &rules[i]
 		}
 	}
-	if next == nil {
-		return false, nil // no booster step (series complete, or next dose is SM-1 scheduled)
+	if next == nil || next.TriggerType != "after_previous_completion" {
+		return false, nil // series complete, or the immediate next dose is SM-1 scheduled
 	}
 
 	gap := next.OffsetDays
@@ -69,9 +89,33 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 	}
 	due := in.AdministeredAt.AddDate(0, 0, int(gap))
 
+	status := "scheduled"
+	deferReason := ""
+	if s.goats != nil && s.versions != nil {
+		version, err := s.versions.GetVersion(ctx, in.TenantID, in.ProtocolVersionID)
+		if err != nil {
+			return false, err
+		}
+		var dsl genDSL
+		if len(version.RuleDsl) > 0 {
+			_ = json.Unmarshal(version.RuleDsl, &dsl)
+		}
+		goat, found, err := s.goats.GetGoatForGeneration(ctx, in.TenantID, in.GoatID)
+		if err != nil {
+			return false, err
+		}
+		if !found || !inCare(goat.LifecycleStatus) || !goatMatchesEligibility(goat, dsl.Eligibility) {
+			return false, nil
+		}
+		deferReason = deferredReason(goat, dsl.Eligibility.DeferStates)
+		if deferReason != "" {
+			status = "deferred"
+		}
+	}
+
 	key := obligationKey(in.TenantID, in.ProtocolVersionID, next.RuleID, "goat", in.GoatID,
 		due.UTC().Format(time.RFC3339), strconv.Itoa(int(next.Sequence)))
-	_, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
+	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 		TenantID:          in.TenantID,
 		ProtocolVersionID: in.ProtocolVersionID,
 		RuleID:            next.RuleID,
@@ -80,12 +124,27 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		ScopeType:         in.ScopeType,
 		ScopeID:           in.ScopeID,
 		DueAt:             due,
-		Status:            "scheduled",
+		Status:            status,
 		IdempotencyKey:    key,
 		Sequence:          next.Sequence,
 	})
 	if err != nil {
 		return false, err
+	}
+	if applied && deferReason != "" {
+		payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason})
+		if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
+			TenantID:       in.TenantID,
+			ObligationID:   obID,
+			EventType:      "deferred",
+			OccurredAt:     in.AdministeredAt,
+			Payload:        payload,
+			IdempotencyKey: obID + ":deferred:" + in.AdministeredAt.UTC().Format(time.RFC3339Nano),
+			Scope:          "obligation.status_event",
+			RequestHash:    "defer:" + deferReason,
+		}); err != nil {
+			return false, err
+		}
 	}
 	return applied, nil
 }

@@ -16,6 +16,10 @@ import (
 // The wrapped message carries the specific reason for the UI/API.
 var ErrNotPublishable = errors.New("protocol: version not publishable")
 
+// ErrInvalidRuleDSL is returned when authored rule_dsl is not valid JSON or carries keys outside the
+// versioned protocol-rule DSL schema.
+var ErrInvalidRuleDSL = errors.New("protocol: invalid rule_dsl")
+
 // ErrUnsupportedRepeatPolicy is returned when direct protocol authoring attempts to store a repeat
 // policy that the generator does not execute yet.
 var ErrUnsupportedRepeatPolicy = errors.New("protocol: unsupported repeat policy")
@@ -39,10 +43,181 @@ type ruleDSLEnvelope struct {
 
 type scheduleRow struct {
 	DoseCode    string          `json:"dose_code"`
+	Sequence    int32           `json:"sequence"`
+	TriggerType string          `json:"trigger_type"`
+	OffsetDays  int32           `json:"offset_days"`
+	DueWindow   int32           `json:"due_window_days"`
 	SOPVersion  string          `json:"sop_version"`
+	SOPLabel    string          `json:"sop_label"`
 	MinGapDays  int32           `json:"min_gap_days"`
 	Repeat      string          `json:"repeat"`
+	RepeatUntil string          `json:"repeat_until_after_age"`
+	CatchUp     string          `json:"catch_up"`
 	ProofPolicy json.RawMessage `json:"proof_policy"`
+}
+
+var (
+	ruleDSLTopLevelKeys = map[string]bool{
+		"category":           true,
+		"scope":              true,
+		"eligibility":        true,
+		"missed_dose_policy": true,
+		"stock_policy":       true,
+		"schedule":           true,
+		"escalation":         true,
+		"source":             true,
+		"ration":             true,
+		"session_timing":     true,
+		"inventory_policy":   true,
+	}
+	ruleDSLScopeKeys = map[string]bool{
+		"type": true,
+		"id":   true,
+	}
+	ruleDSLEligibilityKeys = map[string]bool{
+		"animal_stage":                true,
+		"animal_stage_source":         true,
+		"stage":                       true,
+		"sex":                         true,
+		"breed":                       true,
+		"breed_class":                 true,
+		"lifecycle":                   true,
+		"health":                      true,
+		"reproductive":                true,
+		"exclude_reproductive_states": true,
+		"defer_states":                true,
+		"min_age_days":                true,
+		"max_age_days":                true,
+		"age_band":                    true,
+	}
+	ruleDSLSourceKeys = map[string]bool{
+		"source_system": true,
+		"source_ref":    true,
+		"imported_at":   true,
+		"reviewed_by":   true,
+		"review_status": true,
+		"approved_by":   true,
+		"approved_at":   true,
+	}
+	ruleDSLScheduleKeys = map[string]bool{
+		"dose_code":              true,
+		"sequence":               true,
+		"trigger_type":           true,
+		"offset_days":            true,
+		"due_window_days":        true,
+		"min_gap_days":           true,
+		"repeat":                 true,
+		"repeat_until_after_age": true,
+		"catch_up":               true,
+		"sop_version":            true,
+		"sop_label":              true,
+		"proof_policy":           true,
+	}
+	ruleDSLStockPolicyKeys = map[string]bool{
+		"vaccine_lot_requirement": true,
+		"pick":                    true,
+		"reject_expired_lot":      true,
+		"cold_chain_required":     true,
+	}
+	ruleDSLRationKeys = map[string]bool{
+		"feed_item": true,
+		"quantity":  true,
+		"unit":      true,
+	}
+	ruleDSLSessionTimingKeys = map[string]bool{
+		"session_order":          true,
+		"session_time":           true,
+		"packing_proof_policy":   true,
+		"execution_proof_policy": true,
+	}
+	ruleDSLInventoryPolicyKeys = map[string]bool{
+		"mode":    true,
+		"reserve": true,
+		"consume": true,
+		"release": true,
+	}
+)
+
+// ValidateRuleDSL enforces the committed protocol-rule DSL schema shape. It rejects unknown keys
+// at every stable authored layer so typo'd immutable config cannot be silently stored.
+func ValidateRuleDSL(ruleDSL []byte) error {
+	if len(ruleDSL) == 0 {
+		return nil
+	}
+	root, err := decodeRuleDSLObject(ruleDSL, "rule_dsl", ruleDSLTopLevelKeys)
+	if err != nil {
+		return err
+	}
+	if raw, ok := root["scope"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.scope", ruleDSLScopeKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["eligibility"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.eligibility", ruleDSLEligibilityKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["source"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.source", ruleDSLSourceKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["stock_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.stock_policy", ruleDSLStockPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["ration"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.ration", ruleDSLRationKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["inventory_policy"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if _, err := decodeRuleDSLObject(raw, "rule_dsl.inventory_policy", ruleDSLInventoryPolicyKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["schedule"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if err := validateRuleDSLArray(raw, "rule_dsl.schedule", ruleDSLScheduleKeys); err != nil {
+			return err
+		}
+	}
+	if raw, ok := root["session_timing"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if err := validateRuleDSLArray(raw, "rule_dsl.session_timing", ruleDSLSessionTimingKeys); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func decodeRuleDSLObject(raw []byte, path string, allowed map[string]bool) (map[string]json.RawMessage, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, fmt.Errorf("%w: %s must be a JSON object: %v", ErrInvalidRuleDSL, path, err)
+	}
+	if obj == nil {
+		return nil, fmt.Errorf("%w: %s must be a JSON object", ErrInvalidRuleDSL, path)
+	}
+	for key := range obj {
+		if !allowed[key] {
+			return nil, fmt.Errorf("%w: unknown key %s.%s", ErrInvalidRuleDSL, path, key)
+		}
+	}
+	return obj, nil
+}
+
+func validateRuleDSLArray(raw []byte, path string, allowed map[string]bool) error {
+	var rows []json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return fmt.Errorf("%w: %s must be an array: %v", ErrInvalidRuleDSL, path, err)
+	}
+	for idx, row := range rows {
+		if _, err := decodeRuleDSLObject(row, fmt.Sprintf("%s[%d]", path, idx), allowed); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ValidatePublishable enforces the source-backed approval gate on a version's rule_dsl: the nested
@@ -91,7 +266,7 @@ func ValidateExecutionContract(v domain.Version) error {
 	}
 	for idx, row := range env.Schedule {
 		if _, err := normalizeRepeatPolicy(row.Repeat, row.MinGapDays); err != nil {
-			return fmt.Errorf("%w: schedule[%d] %v", ErrNotPublishable, idx, err)
+			return fmt.Errorf("%w: schedule[%d] %w", ErrNotPublishable, idx, err)
 		}
 		if strings.TrimSpace(row.SOPVersion) == "" && strings.TrimSpace(v.SopVersionID) == "" {
 			return fmt.Errorf("%w: schedule[%d] missing sop_version", ErrNotPublishable, idx)
@@ -202,6 +377,9 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 	}
 	if v.Status != "draft" && v.Status != "published" {
 		return fmt.Errorf("%w: status=%q", ports.ErrVersionNotDraft, v.Status)
+	}
+	if err := ValidateRuleDSL(v.RuleDsl); err != nil {
+		return err
 	}
 	if v.Status == "draft" {
 		if err := ValidatePublishable(v.RuleDsl); err != nil {

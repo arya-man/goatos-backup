@@ -423,6 +423,9 @@ func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, loc
 		return fmt.Errorf("inventory: count batch reserve movements: %w", err)
 	}
 	if already > 0 {
+		if err := markObligationBatchStockReserved(ctx, tx, tenant, batch); err != nil {
+			return err
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
@@ -521,10 +524,33 @@ func (r *Repository) ReserveForBatch(ctx context.Context, tenantID, batchID, loc
 		// (locked) consume, so it no longer covers qty. Roll back the partial inserts and fail closed.
 		return ports.ErrInsufficientStock
 	}
+	if err := markObligationBatchStockReserved(ctx, tx, tenant, batch); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	committed = true
+	return nil
+}
+
+func markObligationBatchStockReserved(ctx context.Context, tx pgx.Tx, tenant, batch pgtype.UUID) error {
+	tag, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET context = context || jsonb_build_object(
+      'stock_reservation',
+      jsonb_build_object('state', 'reserved', 'reserved_at', now()::text)
+    ),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1
+  AND batch_id = $2`, tenant, batch)
+	if err != nil {
+		return fmt.Errorf("inventory: mark batch stock reserved: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
 	return nil
 }
 

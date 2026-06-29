@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -140,6 +141,18 @@ func TestCreateDefinitionSurfacesIdempotencyConflict(t *testing.T) {
 	}
 }
 
+func TestCreateVersionSurfacesInvalidRuleDSL(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{versionErr: app.ErrInvalidRuleDSL}), http.MethodPost, "/protocols/p1/versions",
+		`{"scope_type":"tenant","version":1,"effective_from":"2026-06-01T00:00:00Z","rule_dsl":{"eligibilty":{}}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid rule_dsl: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "invalid_rule_dsl" {
+		t.Fatalf("invalid rule_dsl envelope: %+v err=%v", env, err)
+	}
+}
+
 func TestPublishSurfacesSourceGate(t *testing.T) {
 	// Not source-backed → 422 not_publishable.
 	rec := serve(NewHandler(&fakeConfig{publishErr: app.ErrNotPublishable}), http.MethodPost, "/protocols/versions/v1/publish", "")
@@ -155,6 +168,28 @@ func TestPublishSurfacesSourceGate(t *testing.T) {
 	rec = serve(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols/versions/v1/publish", "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("publish ok: want 204, got %d", rec.Code)
+	}
+}
+
+func TestPublishSurfacesUnsupportedRepeatPolicy(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{publishErr: fmt.Errorf("%w: schedule[0] %w", app.ErrNotPublishable, app.ErrUnsupportedRepeatPolicy)}), http.MethodPost, "/protocols/versions/v1/publish", "")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("publish unsupported repeat: want 422, got %d", rec.Code)
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "unsupported_repeat_policy" {
+		t.Fatalf("publish unsupported repeat envelope: %+v err=%v", env, err)
+	}
+}
+
+func TestPublishSurfacesInvalidRuleDSL(t *testing.T) {
+	rec := serve(NewHandler(&fakeConfig{publishErr: app.ErrInvalidRuleDSL}), http.MethodPost, "/protocols/versions/v1/publish", "")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("publish invalid rule_dsl: want 422, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Code != "invalid_rule_dsl" {
+		t.Fatalf("publish invalid rule_dsl envelope: %+v err=%v", env, err)
 	}
 }
 

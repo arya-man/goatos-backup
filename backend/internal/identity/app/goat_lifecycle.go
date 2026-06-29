@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	moveGoatCommand   = "moveGoat"
-	exitGoatCommand   = "exitGoat"
-	stageGoatCommand  = "stageGoat"
-	healthGoatCommand = "healthGoat"
+	moveGoatCommand          = "moveGoat"
+	exitGoatCommand          = "exitGoat"
+	criticalDeathGoatCommand = "criticalDeathGoat"
+	stageGoatCommand         = "stageGoat"
+	healthGoatCommand        = "healthGoat"
 )
 
 type MoveGoatInput struct {
@@ -108,6 +109,14 @@ func (s *Service) MoveGoat(ctx context.Context, input MoveGoatInput) (*domain.Ad
 }
 
 func (s *Service) ExitGoat(ctx context.Context, input ExitGoatInput) (*domain.AdminGoatResponse, error) {
+	return s.exitGoat(ctx, input, exitGoatCommand, "/admin/goats/{goat_id}/exit", validateExitGoat, false)
+}
+
+func (s *Service) CriticalDeathExit(ctx context.Context, input ExitGoatInput) (*domain.AdminGoatResponse, error) {
+	return s.exitGoat(ctx, input, criticalDeathGoatCommand, "/admin/goats/{goat_id}/critical-death-exit", validateCriticalDeathExit, true)
+}
+
+func (s *Service) exitGoat(ctx context.Context, input ExitGoatInput, commandName, route string, validate func(*domain.ExitGoatRequest) error, guardrailApproved bool) (*domain.AdminGoatResponse, error) {
 	tenantID, actorID, clientKey, err := validateWriteHeaders(input.TenantID, input.ActorID, input.IdempotencyKey)
 	if err != nil {
 		return nil, err
@@ -120,15 +129,14 @@ func (s *Service) ExitGoat(ctx context.Context, input ExitGoatInput) (*domain.Ad
 	if err != nil {
 		return nil, err
 	}
-	if err := validateExitGoat(body); err != nil {
+	if err := validate(body); err != nil {
 		return nil, err
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, Internal("exit goat request normalization failed")
 	}
-	route := "/admin/goats/{goat_id}/exit"
-	requestHash, err := CanonicalRequestHashWithSubject(tenantID, exitGoatCommand, route, goatID, raw)
+	requestHash, err := CanonicalRequestHashWithSubject(tenantID, commandName, route, goatID, raw)
 	if err != nil {
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
@@ -140,8 +148,8 @@ func (s *Service) ExitGoat(ctx context.Context, input ExitGoatInput) (*domain.Ad
 		TenantID:             tenantID,
 		ActorID:              actorID,
 		ClientIdempotencyKey: clientKey,
-		StoredIdempotencyKey: fmt.Sprintf("%s:%s:%s:%s", tenantID, exitGoatCommand, goatID, clientKey),
-		IdempotencyScope:     exitGoatCommand,
+		StoredIdempotencyKey: fmt.Sprintf("%s:%s:%s:%s", tenantID, commandName, goatID, clientKey),
+		IdempotencyScope:     commandName,
 		RequestHash:          requestHash,
 		TraceID:              input.TraceID,
 		GoatID:               goatID,
@@ -151,6 +159,7 @@ func (s *Service) ExitGoat(ctx context.Context, input ExitGoatInput) (*domain.Ad
 		OccurredAt:           occurredAt,
 		EvidenceRefs:         body.EvidenceRefs,
 		RowVersion:           body.RowVersion,
+		GuardrailApproved:    guardrailApproved,
 	})
 	if err != nil {
 		return nil, mapRepoErr(err)
@@ -346,6 +355,26 @@ func validateMoveGoat(body *domain.MoveGoatRequest) error {
 }
 
 func validateExitGoat(body *domain.ExitGoatRequest) error {
+	if err := validateExitGoatCommon(body); err != nil {
+		return err
+	}
+	if criticalDeathExit(body.LifecycleStatus, body.ExitReason) {
+		return criticalDeathTransitionError()
+	}
+	return nil
+}
+
+func validateCriticalDeathExit(body *domain.ExitGoatRequest) error {
+	if err := validateExitGoatCommon(body); err != nil {
+		return err
+	}
+	if !criticalDeathExit(body.LifecycleStatus, body.ExitReason) {
+		return BadRequest("invalid_death_exit", "critical death exit requires lifecycle_status dead and exit_reason died")
+	}
+	return nil
+}
+
+func validateExitGoatCommon(body *domain.ExitGoatRequest) error {
 	body.LifecycleStatus = strings.TrimSpace(body.LifecycleStatus)
 	body.ExitReason = strings.TrimSpace(body.ExitReason)
 	body.Reason = strings.TrimSpace(body.Reason)
@@ -358,9 +387,6 @@ func validateExitGoat(body *domain.ExitGoatRequest) error {
 	}
 	if body.ExitReason != expectedReason {
 		return BadRequest("invalid_exit_reason", "exit_reason must match lifecycle_status")
-	}
-	if criticalDeathExit(body.LifecycleStatus, body.ExitReason) {
-		return criticalDeathTransitionError()
 	}
 	if len(body.Reason) < 3 || len(body.Reason) > 500 {
 		return BadRequest("invalid_reason", "reason must be between 3 and 500 characters")

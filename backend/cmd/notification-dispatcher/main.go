@@ -12,6 +12,7 @@ import (
 	notificationgateway "github.com/vgoats/goatos/backend/internal/notification/adapters/gateway"
 	notificationpg "github.com/vgoats/goatos/backend/internal/notification/adapters/postgres"
 	notificationapp "github.com/vgoats/goatos/backend/internal/notification/app"
+	notificationdomain "github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -89,10 +90,15 @@ func run(args []string) error {
 		"claimed", result.ClaimedCount,
 		"sent", result.SentCount,
 		"failed", result.FailedCount,
+		"exhausted", result.ExhaustedCount,
 	)
-	fmt.Printf("notification dispatch reclaimed=%d claimed=%d sent=%d failed=%d tenant=%s\n",
-		result.ReclaimedStaleCount, result.ClaimedCount, result.SentCount, result.FailedCount, *tenantID)
+	fmt.Print(formatDispatchResult(result, *tenantID))
 	return nil
+}
+
+func formatDispatchResult(result notificationdomain.DispatchResult, tenantID string) string {
+	return fmt.Sprintf("notification dispatch reclaimed=%d claimed=%d sent=%d failed=%d exhausted=%d tenant=%s\n",
+		result.ReclaimedStaleCount, result.ClaimedCount, result.SentCount, result.FailedCount, result.ExhaustedCount, tenantID)
 }
 
 func getenv(key string) string {

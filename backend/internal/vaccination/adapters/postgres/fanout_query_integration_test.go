@@ -145,13 +145,17 @@ func TestRecordCompletionsFromVaccinationSessionTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
+	withdrawalDays := int32(5)
 	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
 		TriggerType: "birth_age", Repeat: "none", CatchUp: "phc_approval",
-		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`), WithdrawalDays: &withdrawalDays,
 	})
 	if err != nil {
 		t.Fatalf("rule: %v", err)
+	}
+	if got := scanText(t, ctx, pool, `SELECT COALESCE(withdrawal_days::text, '') FROM protocol_rules WHERE tenant_id=$1 AND rule_id=$2`, impTenant, ruleID); got != "5" {
+		t.Fatalf("protocol rule withdrawal_days = %q, want 5", got)
 	}
 
 	const goatID = "30000000-0000-4000-8000-0000000000c8"
@@ -217,6 +221,15 @@ func TestRecordCompletionsFromVaccinationSessionTask(t *testing.T) {
 		   SELECT item_id FROM sop_submission_items WHERE tenant_id=$1 AND submission_id=$2
 		 )`, impTenant, submissionID); got != 1 {
 		t.Fatalf("completion rows = %d, want 1", got)
+	}
+	if got := scanText(t, ctx, pool,
+		`SELECT COALESCE(withdrawal_until_date::text, '')
+		   FROM vaccination_completions
+		  WHERE tenant_id=$1
+		    AND sop_submission_item_id IN (
+		      SELECT item_id FROM sop_submission_items WHERE tenant_id=$1 AND submission_id=$2
+		    )`, impTenant, submissionID); got != "2026-06-28" {
+		t.Fatalf("withdrawal_until_date = %q, want 2026-06-28", got)
 	}
 }
 

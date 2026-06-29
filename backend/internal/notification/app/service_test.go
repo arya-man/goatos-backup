@@ -43,7 +43,7 @@ func TestServiceLeavesFinalFailureWithoutNextAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
-	if result.FailedCount != 1 || len(repo.failed) != 1 {
+	if result.FailedCount != 0 || result.ExhaustedCount != 1 || len(repo.failed) != 1 {
 		t.Fatalf("result=%#v failed=%#v", result, repo.failed)
 	}
 	if repo.failed[0].nextAttemptAt != nil {
@@ -61,7 +61,7 @@ func TestServiceDoesNotRetryPermanentChannelMisconfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
-	if result.FailedCount != 1 || len(repo.failed) != 1 {
+	if result.FailedCount != 0 || result.ExhaustedCount != 1 || len(repo.failed) != 1 {
 		t.Fatalf("result=%#v failed=%#v", result, repo.failed)
 	}
 	if repo.failed[0].nextAttemptAt != nil {

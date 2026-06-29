@@ -43,14 +43,15 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	// 3 eligible (alive, stage K1, in shed cbe); 1 wrong-stage; 1 dead.
+	// 4 eligible (3 alive + 1 defer-state sick goat, stage K1, in shed cbe); 1 wrong-stage; 1 dead.
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a1", "alive", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a2", "alive", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a3", "alive", "K1", true)
+	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a4", "sick", "K1", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000b1", "alive", "K2", true)
 	seedGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000c1", "dead", "K1", true)
 
-	// Vaccine item + a lot with only 2 available doses at cbe (shortage vs 3 required).
+	// Vaccine item + a lot with only 2 available doses at cbe (shortage vs 4 required).
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
 		 VALUES ($1, $2, 'VAC-ENT', 'Enterotox', 'vaccine', 'dose')`, impItem, impTenant); err != nil {
@@ -78,20 +79,20 @@ func TestImpactPreviewLiveCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("impact: %v", err)
 	}
-	if out.EligibleGoats != 3 {
-		t.Fatalf("eligible: want 3, got %d", out.EligibleGoats)
+	if out.EligibleGoats != 4 {
+		t.Fatalf("eligible: want 4, got %d", out.EligibleGoats)
 	}
 	if out.CatchupGoats != 0 {
 		t.Fatalf("catchup: want 0, got %d", out.CatchupGoats)
 	}
-	if out.Obligations != 6 { // 3 eligible × 2 dose rows
-		t.Fatalf("obligations: want 6, got %d", out.Obligations)
+	if out.Obligations != 8 { // 4 eligible × 2 dose rows
+		t.Fatalf("obligations: want 8, got %d", out.Obligations)
 	}
 	if out.Batches != 1 { // all eligible share shed cbe
 		t.Fatalf("batches: want 1, got %d", out.Batches)
 	}
-	if out.DosesRequired != 3 {
-		t.Fatalf("doses required: want 3, got %d", out.DosesRequired)
+	if out.DosesRequired != 4 {
+		t.Fatalf("doses required: want 4, got %d", out.DosesRequired)
 	}
 	if out.DosesAvailable != "2" {
 		t.Fatalf("doses available: want 2, got %q", out.DosesAvailable)

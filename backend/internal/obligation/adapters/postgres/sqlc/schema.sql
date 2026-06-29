@@ -847,6 +847,32 @@ $$;
 
 
 --
+-- Name: mark_obligation_batch_stock_reservation_from_movement(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.mark_obligation_batch_stock_reservation_from_movement() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.batch_id IS NOT NULL AND NEW.movement_type = 'reserve' THEN
+    UPDATE obligation_batches
+    SET context = context || jsonb_build_object(
+          'stock_reservation',
+          jsonb_build_object('state', 'reserved', 'reserved_at', now()::text)
+        ),
+        updated_at = now(),
+        row_version = row_version + 1
+    WHERE tenant_id = NEW.tenant_id
+      AND batch_id = NEW.batch_id
+      AND NOT (context ? 'stock_reservation');
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: next_goat_display_id(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2629,7 +2655,7 @@ CREATE TABLE public.idempotency_keys (
     result_id uuid,
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
     completed_at timestamp with time zone,
-    expires_at timestamp with time zone,
+    expires_at timestamp with time zone DEFAULT (now() + '90 days'::interval),
     CONSTRAINT idempotency_keys_completed_shape_check CHECK (((status <> 'completed'::text) OR (completed_at IS NOT NULL))),
     CONSTRAINT idempotency_keys_status_check CHECK ((status = ANY (ARRAY['started'::text, 'completed'::text, 'failed'::text])))
 );
@@ -3617,10 +3643,10 @@ CREATE TABLE public.notification_requests (
     leased_at timestamp with time zone,
     lease_token uuid,
     delivered_by text,
-    CONSTRAINT notification_requests_channel_check CHECK ((channel = ANY (ARRAY['local-stub'::text, 'push_fcm'::text, 'slack'::text, 'email'::text, 'webhook'::text]))),
+    CONSTRAINT notification_requests_channel_check CHECK ((channel = ANY (ARRAY['local-stub'::text, 'push_fcm'::text, 'slack'::text, 'email'::text, 'webhook'::text, 'incident'::text, 'opsgenie'::text, 'pagerduty'::text]))),
     CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
     CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
-    CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'suppressed'::text, 'read'::text]))),
+    CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
     CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text])))
 );
 
@@ -8649,6 +8675,13 @@ CREATE INDEX obligation_batches_stock_reconcile_required_idx ON public.obligatio
 
 
 --
+-- Name: obligation_batches_unfinalized_planned_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX obligation_batches_unfinalized_planned_unique_idx ON public.obligation_batches USING btree (tenant_id, protocol_version_id, scope_type, scope_id, COALESCE(session, ''::text), COALESCE(planned_date, '-infinity'::date), COALESCE(window_start, '-infinity'::timestamp with time zone), COALESCE(window_end, '-infinity'::timestamp with time zone)) WHERE ((status = 'planned'::text) AND (sop_task_id IS NULL) AND (NOT (context ? 'stock_reservation'::text)));
+
+
+--
 -- Name: obligation_escalations_obligation_level_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8936,10 +8969,31 @@ CREATE INDEX outbox_messages_discarded_idx ON public.outbox_messages USING btree
 
 
 --
+-- Name: outbox_messages_obligation_canceled_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_obligation_canceled_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'goat.obligations_canceled'::text);
+
+
+--
 -- Name: outbox_messages_obligation_missed_idempotency_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX outbox_messages_obligation_missed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'obligation.missed'::text);
+
+
+--
+-- Name: outbox_messages_obligation_rescoped_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_obligation_rescoped_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'obligation.rescoped'::text);
+
+
+--
+-- Name: outbox_messages_protocol_published_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_protocol_published_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'protocol.version.published'::text);
 
 
 --
@@ -10683,6 +10737,13 @@ CREATE TRIGGER goats_prevent_merged_write_trg BEFORE UPDATE ON public.goats FOR 
 --
 
 CREATE TRIGGER identity_correction_requests_block_merged_goat_child_write_trg BEFORE INSERT OR UPDATE ON public.identity_correction_requests FOR EACH ROW EXECUTE FUNCTION public.block_merged_goat_child_write();
+
+
+--
+-- Name: inventory_stock_movements inventory_stock_movements_batch_reserve_marker_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER inventory_stock_movements_batch_reserve_marker_trg AFTER INSERT ON public.inventory_stock_movements FOR EACH ROW EXECUTE FUNCTION public.mark_obligation_batch_stock_reservation_from_movement();
 
 
 --

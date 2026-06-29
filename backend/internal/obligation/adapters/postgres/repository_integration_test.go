@@ -245,8 +245,9 @@ SELECT count(*)
 FROM idempotency_keys
 WHERE tenant_id=$1
   AND idempotency_key=$2
-  AND expires_at IS NULL`, tenantID, "evt-1"); got != 1 {
-		t.Fatalf("expected non-expiring idempotency key, got %d", got)
+  AND expires_at IS NOT NULL
+  AND expires_at > first_seen_at`, tenantID, "evt-1"); got != 1 {
+		t.Fatalf("expected expiring idempotency key, got %d", got)
 	}
 }
 

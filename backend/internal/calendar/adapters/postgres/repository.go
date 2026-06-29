@@ -1077,7 +1077,9 @@ WHERE NOT EXISTS (
 		}
 	}
 	channel := normalizeChannel("", target.PrimaryChannel)
-	if channel == "local-stub" && level >= 2 {
+	if level >= 3 {
+		channel = "incident"
+	} else if channel == "local-stub" && level >= 2 {
 		channel = "slack"
 	}
 	contextJSON := mustJSON(map[string]any{
@@ -2414,11 +2416,11 @@ func rawOrObject(primary []byte, fallback []byte) json.RawMessage {
 
 func normalizeChannel(requested, primary string) string {
 	switch requested {
-	case "local-stub", "push_fcm", "slack", "email", "webhook":
+	case "local-stub", "push_fcm", "slack", "email", "webhook", "incident", "opsgenie", "pagerduty":
 		return requested
 	}
 	switch primary {
-	case "local-stub", "push_fcm", "slack", "email", "webhook":
+	case "local-stub", "push_fcm", "slack", "email", "webhook", "incident", "opsgenie", "pagerduty":
 		return primary
 	case "push - FCM":
 		return "push_fcm"

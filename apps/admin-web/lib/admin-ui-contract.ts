@@ -3,6 +3,7 @@ import type { AdminWebPageContract } from "@/lib/api/server";
 export type AdminUiPageContract = AdminWebPageContract;
 export type AdminUiTableContract = AdminWebPageContract["tables"][number];
 export type AdminUiOption = AdminWebPageContract["option_groups"][number]["options"][number];
+export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 export function copy(page: AdminUiPageContract, key: string): string {
   const value = page.copy[key];
@@ -35,6 +36,14 @@ export function tableLabels(page: AdminUiPageContract, tableId: string): string[
 
 export function tablePageSizes(page: AdminUiPageContract, tableId: string): number[] {
   return table(page, tableId).page_size_options;
+}
+
+export function control(page: AdminUiPageContract, controlId: string): AdminUiControl {
+  const value = page.controls.find((item) => item.id === controlId);
+  if (!value) {
+    throw new Error(`Admin-web page contract ${page.route_id} missing control ${controlId}`);
+  }
+  return value;
 }
 
 export function optionGroup(page: AdminUiPageContract, groupId: string): AdminUiOption[] {

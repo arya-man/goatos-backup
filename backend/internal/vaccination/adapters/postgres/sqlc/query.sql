@@ -100,17 +100,25 @@ WHERE tenant_id = @tenant_id
   AND status IN ('recorded', 'accepted', 'rejected');
 
 -- name: CountEligibleGoats :one
--- Live impact: alive goats matching a rule's eligibility dims within an optional park scope.
+-- Live impact: in-care goats matching a rule's eligibility dims within an optional park scope.
 -- Optional text dims use the ('' OR col = @x) idiom; park scope via a nullable narg uuid.
 SELECT count(*)::bigint AS total
-FROM goats
-WHERE tenant_id = @tenant_id
-  AND lifecycle_status = 'alive'
-  AND (@stage::text = '' OR management_stage = @stage::text)
-  AND (@sex::text = '' OR sex = @sex::text)
-  AND (@breed::text = '' OR breed = @breed::text)
-  AND (@health::text = '' OR COALESCE(health_status, '') = @health::text)
-  AND (sqlc.narg('park_id')::uuid IS NULL OR park_id = sqlc.narg('park_id')::uuid);
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = @tenant_id
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
+  AND (@stage::text = '' OR g.management_stage = @stage::text)
+  AND (@sex::text = '' OR g.sex = @sex::text)
+  AND (@breed::text = '' OR g.breed = @breed::text)
+  AND (@health::text = '' OR COALESCE(g.health_status, '') = @health::text)
+  AND (sqlc.narg('park_id')::uuid IS NULL OR g.park_id = sqlc.narg('park_id')::uuid);
 
 -- name: CountCatchupGoats :one
 -- Eligible goats that already have an accepted completion (next-due from last accepted, not DOB).
@@ -118,8 +126,16 @@ SELECT count(DISTINCT g.goat_id)::bigint AS total
 FROM goats g
 JOIN vaccination_completions vc
   ON vc.tenant_id = g.tenant_id AND vc.goat_id = g.goat_id AND vc.status = 'accepted'
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE g.tenant_id = @tenant_id
-  AND g.lifecycle_status = 'alive'
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
   AND (@stage::text = '' OR g.management_stage = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)
@@ -128,16 +144,24 @@ WHERE g.tenant_id = @tenant_id
 
 -- name: CountEligibleShedScopes :one
 -- Estimated drive batches = distinct sheds holding eligible goats (one shed drive per shed).
-SELECT count(DISTINCT shed_id)::bigint AS total
-FROM goats
-WHERE tenant_id = @tenant_id
-  AND lifecycle_status = 'alive'
-  AND shed_id IS NOT NULL
-  AND (@stage::text = '' OR management_stage = @stage::text)
-  AND (@sex::text = '' OR sex = @sex::text)
-  AND (@breed::text = '' OR breed = @breed::text)
-  AND (@health::text = '' OR COALESCE(health_status, '') = @health::text)
-  AND (sqlc.narg('park_id')::uuid IS NULL OR park_id = sqlc.narg('park_id')::uuid);
+SELECT count(DISTINCT g.shed_id)::bigint AS total
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = @tenant_id
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
+  AND g.shed_id IS NOT NULL
+  AND (@stage::text = '' OR g.management_stage = @stage::text)
+  AND (@sex::text = '' OR g.sex = @sex::text)
+  AND (@breed::text = '' OR g.breed = @breed::text)
+  AND (@health::text = '' OR COALESCE(g.health_status, '') = @health::text)
+  AND (sqlc.narg('park_id')::uuid IS NULL OR g.park_id = sqlc.narg('park_id')::uuid);
 
 -- name: ListEligibleGoatsForGeneration :many
 -- Chunked (keyset) listing of the in-care cohort for SM-1 generation. Cursor by goat_id over the
@@ -166,7 +190,12 @@ LEFT JOIN locations park
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
 WHERE g.tenant_id = @tenant_id
-  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
   AND (@stage::text = '' OR g.management_stage = @stage::text)
   AND (@sex::text = '' OR g.sex = @sex::text)
   AND (@breed::text = '' OR g.breed = @breed::text)

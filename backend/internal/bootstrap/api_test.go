@@ -152,18 +152,18 @@ func TestBuildProofStorageAllowsLocalOnlyForLocalTestDevelopment(t *testing.T) {
 }
 
 func TestValidateBulkImportPreviewSigningKeyFailsClosedOutsideLocal(t *testing.T) {
-	for _, env := range []string{"", "stg", "staging", "prod", "production"} {
+	for _, env := range []string{"", "dev", "development", "stg", "staging", "prod", "production"} {
 		t.Run(env, func(t *testing.T) {
 			_, err := bulkImportPreviewSigningKey(Config{Auth: AuthConfig{Environment: env}})
 			if err == nil {
-				t.Fatal("empty preview signing key accepted outside local/dev/test")
+				t.Fatal("empty preview signing key accepted outside local/test")
 			}
 		})
 	}
 }
 
 func TestValidateBulkImportPreviewSigningKeyAllowsLocalAndExplicitKey(t *testing.T) {
-	for _, env := range []string{"local", "dev", "development", "test"} {
+	for _, env := range []string{"local", "test"} {
 		t.Run(env, func(t *testing.T) {
 			key, err := bulkImportPreviewSigningKey(Config{Auth: AuthConfig{Environment: env}})
 			if err != nil {

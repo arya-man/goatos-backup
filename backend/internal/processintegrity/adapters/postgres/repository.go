@@ -637,8 +637,11 @@ grouped AS (
     (ARRAY_AGG(located.verified_by::text ORDER BY located.verified_at DESC NULLS LAST) FILTER (WHERE located.verified_by IS NOT NULL))[1] AS verified_by,
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
     COUNT(*) FILTER (
-      WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      WHERE located.eff_status NOT IN ('waived', 'deferred')
+        AND (
+          located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
+          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+        )
     )::int AS health_deferred_count
   FROM located
   JOIN locations shed

@@ -1342,7 +1342,7 @@ func beginIdempotency(ctx context.Context, tx pgx.Tx, key, tenantID, scope, requ
 	var inserted string
 	err := tx.QueryRow(ctx, `
 INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status, expires_at)
-VALUES ($1, $2::uuid, $3, $4, 'started', now() + interval '24 hours')
+VALUES ($1, $2::uuid, $3, $4, 'started', now() + interval '90 days')
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING idempotency_key`, key, tenantID, scope, requestHash).Scan(&inserted)
 	if err == nil {

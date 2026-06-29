@@ -127,14 +127,54 @@ environment rows that cannot be executed locally are marked fixed or
 countered with evidence in this Goal 1 ledger; they are not left active and are
 not deferred out of this ledger.
 
+Reopened-fix update on 2026-06-29:
+
+- The pasted pending bug set was rechecked after the earlier closeout. Valid
+  remaining issues were fixed locally: admin config publish authorization
+  (`M10`), shift/ineligibility cancellation (`H11`), batch uniqueness/stock
+  finalization guard, missed-sweep lock semantics, accepted-completion replay,
+  proof upload SOP payload wiring, OpenAPI orphan cleanup, impact-preview cohort
+  parity, unsupported-repeat API precision, process-integrity deferred
+  double-counting, and idempotency TTL evidence.
+- Local verification after these fixes: `MESHA_RTK=0 go test ./internal/...`
+  PASS, `MESHA_RTK=0 go test ./cmd/...` PASS, admin-web `typecheck`, `lint`,
+  `check:herd-import-security`, `check:goal1-frontend`, and
+  `check:ui-contract` PASS, `git diff --check` PASS, and
+  `GOAL1-LOCAL-20260629` admin-web E2E smoke PASS with screenshots under
+  `.codex-goatos-render/admin-web-screenshots/2026-06-29T07-56-34-339Z`.
+- Second reopened-fix update: the later pasted review was rechecked against
+  this working tree and valid residual Goal 1 bugs were closed locally:
+  critical-death route contract/client/permission registration, tenant-scoped
+  completed-status idempotency keys, invalid `rule_dsl` HTTP error mapping,
+  `next_cycle` obligation-key churn, repeat CHECK migration pre-normalization,
+  local/test-only bulk preview signing-key fallback, and notification terminal
+  exhaustion visibility. A later direct attachment cross-check also closed the
+  SOP-drive withdrawal-date fanout gap. Fresh local verification after this
+  update is green:
+  backend `./internal/...` and `./cmd/...`, targeted Postgres packages,
+  migrations/query-plan validation, API-client/sqlc/contract generation,
+  frontend typecheck/lint/Goal 1 guards/build, boundary guard, `git diff
+  --check`, and admin-web E2E smoke `GOAL1-LOCAL-RECHECK-20260629` all passed.
+- Direct attachment follow-up recheck after the SOP-drive withdrawal fix:
+  `MESHA_RTK=0 command go test ./internal/vaccination/adapters/postgres`
+  PASS (`194.453s`), including
+  `TestRecordCompletionsFromVaccinationSessionTask`.
+- Final pasted C/H/M/L audit: script comparison found all expected 28 direct
+  IDs (`C1..C5`, `H1..H11`, `M1..M10`, `L1..L2`) present with only `fixed`
+  or `countered` dispositions; focused refresh tests
+  `MESHA_RTK=0 command go test ./internal/vaccination/adapters/postgres
+  ./internal/vaccination/app` and
+  `MESHA_RTK=0 command go test ./cmd/notification-dispatcher
+  ./internal/notification/...` PASS; `git diff --check` PASS.
+
 | ID | Severity | Status | Final disposition | Evidence | Owner/blocker |
 | --- | --- | --- | --- | --- | --- |
 | OCK-001 | blocker | fixed | fixed | Atomic accept boundary added in `backend/internal/vaccination/adapters/postgres/repository.go:344`, `:472`, `:514`, `:542`, `:599`, `:667`, `:863`; app uses atomic path in `backend/internal/vaccination/app/completion.go:89`, `:151`, `:194`, `:207`; tests `completion_integration_test.go:166`, `:273`, `:332`; `go test ./internal/vaccination/adapters/postgres -count=1` PASS. | none |
 | OCK-002 | blocker | fixed | fixed | Verification side effects now emit durable `vaccination.completed` outbox from obligation completion in `backend/internal/obligation/adapters/postgres/repository.go:1321`, `:1374`, `:1382`; consumer handler in `backend/internal/vaccination/app/completed_handler.go:11`, `:31`, `:38`; wiring in `backend/cmd/domain-event-consumer/main.go:111` and `backend/cmd/outbox-relay/main.go:139`; tests `complete_integration_test.go:149` and `booster_integration_test.go:106`. | none |
 | OCK-003 | blocker | fixed | fixed | Booster scheduling moved out of synchronous accept flow and into completed-event consumer: `backend/internal/vaccination/app/completion.go:53`, `backend/internal/vaccination/app/completed_handler.go:11`, `:31`; app/service interfaces in `service.go:35`; replay tested in `booster_integration_test.go:106`; `go test ./internal/vaccination/adapters/postgres -count=1` PASS. | none |
-| OCK-004 | high | fixed | fixed | Shift re-scope now uses monotonic goat-shift watermarks and event ids in `backend/internal/obligation/adapters/postgres/repository.go:981`, `:1013`, `:1104`, `:1128`; migration `backend/migrations/postgres/000113_obligation_goat_shift_watermarks.sql:2`; handler passes event id in `backend/internal/obligation/app/shift.go:20`, `:38`; tests `shift_integration_test.go:141`, `:199`, `:206`. | none |
+| OCK-004 | high | fixed | fixed | Shift re-scope uses monotonic goat-shift watermarks and event ids with same-timestamp lexicographic tie-break (`eventID <= lastEventID` is stale) in `backend/internal/obligation/adapters/postgres/repository.go`; handler accepts real `park`/`shed` scopes while ignoring unsupported non-shed payloads without poisoning the watermark in `backend/internal/obligation/app/shift.go`; tests `TestSM2ShiftWatermarkRejectsOutOfOrderLocationChanged` and `TestSM2ShiftWatermarkUsesEventIDTieBreaker`; `MESHA_RTK=0 go test ./internal/obligation/adapters/postgres` PASS. | none |
 | OCK-005 | blocker | fixed | fixed | Four-goat procurement matrix added in `tools/dev/procurement-vaccination-e2e-matrix.sh:99`, `:116`, `:138`, `:181`, `:195`, `:256` and called by `tools/dev/admin-web-e2e-smoke.sh:203`; local run `GOAL1-E2E-FINAL-20260629-022731` passed with report `.codex-goatos-render/e2e-smoke/GOAL1-E2E-FINAL-20260629-022731`. | none |
-| OCK-006 | blocker | countered | fail-closed | No live permissive critical-action path remains in Goal 1: quarantine/ICU health transitions and death exits return guardrail-required 409 before repository mutation in `backend/internal/identity/app/goat_lifecycle.go:362`, `:398`, `:419`, `:429`, `:437`; tests cover quarantine, ICU, and death in `backend/internal/identity/app/service_test.go:690`, `:716`; guardrail doc requires fail-closed interim enforcement in `docs/features/critical-animal-action-guardrails.md:54`. | none |
+| OCK-006 | blocker | countered | fail-closed with death side-effect path | No live permissive critical-action path remains in Goal 1: quarantine/ICU health transitions return guardrail-required 409 before repository mutation in `backend/internal/identity/app/goat_lifecycle.go`, regular death exit fails closed, and approved death exits use the dedicated `POST /admin/goats/{goat_id}/critical-death-exit` route registered in `backend/internal/identity/adapters/http/handler.go`, `contracts/openapi/admin-api.yaml`, `packages/api-client/src/generated/admin-api.ts`, and `backend/internal/permissions/routes.go`. Tests cover quarantine, ICU, death guardrail, approved critical death, and health-only authorization in `backend/internal/identity/app/service_test.go`, `backend/internal/identity/adapters/postgres/identifier_write_integration_test.go`, and `backend/internal/permissions/permissions_test.go`; full policy-pack workflow remains fail-closed for Goal 1 rather than deferred as an active bug. | none |
 | OCK-007 | medium | fixed | already closed | Generation filters exited or non-in-care goats in `backend/internal/vaccination/app/generation.go:183`, `:648`, `:693`; tests `generation_test.go:136` and `:161`; `go test ./internal/vaccination/app -count=1` PASS. | none |
 | OCK-008 | medium | countered | invalid/countered | `any`, `all`, and blank eligibility normalize to no health filter in `backend/internal/vaccination/app/generation.go:138` and `:843`; there is no forced healthy default in the generator. Config publish remains source-backed by `backend/internal/protocol/app/publish.go:47`. | none |
 | OCK-009 | medium | fixed | already closed | Sick defer is supported as a first-class defer state in UI copy `backend/internal/adminui/app/service.go:1569`; generator maps sick/under_treatment/quarantine/ICU to deferred in `backend/internal/vaccination/app/generation.go:797`; tests `generation_test.go:189`, `:225`, `:261`. | none |
@@ -148,18 +188,18 @@ not deferred out of this ledger.
 | OCK-017 | medium | fixed | fixed | Calendar/operations use status-event reconstruction rather than divergent current-row inference in `backend/internal/vaccinationexecution/adapters/postgres/repository.go:218`, `:326`, `:565`; tests `repository_integration_test.go:989`. Critical-action read-model exposure is fail-closed under OCK-006 until a full policy pack owns it. | none |
 | OCK-018 | medium | fixed | already closed | Trusted completion evidence is batched per generation page in `backend/internal/vaccination/app/generation.go:400`, `:432`; repository batch query in `backend/internal/vaccination/adapters/postgres/repository.go:1562`; linked RVF-015. | none |
 | OCK-019 | high | fixed | fixed | `MarkMissedBefore` writes status event, outbox, and audit in one transaction in `backend/internal/obligation/adapters/postgres/repository.go:1391`, `:1445`, `:1467`, `:1590`, `:1600`, `:1603`; tests `complete_integration_test.go:45`, `:94`, `:100`, `:115`; linked RVF-001 and RVF-021. | none |
-| OCK-020 | high | fixed | already closed | Status events reserve idempotency before insert in `backend/internal/obligation/adapters/postgres/repository.go:248`, `:267`, `:282`; tests `repository_integration_test.go:111`, `:224`, `:265`; non-expiring key asserted at `repository_integration_test.go:139`. | none |
-| OCK-021 | high | fixed | fixed | Batch attach now serializes per version/scope with advisory lock and reuses a planned batch in `backend/internal/obligation/adapters/postgres/repository.go:578`, `:583`, `:622`; sweeper idempotency tests `sweeper_integration_test.go:113`, `:250`, `:327`. | none |
-| OCK-022 | medium | fixed | already closed | Verification context requires and carries lot/cold-chain metadata: domain contract `backend/internal/vaccination/domain/types.go:50`; stock gate in `backend/internal/vaccination/adapters/postgres/repository.go:667`, `:671`; proof path tested in `verify_integration_test.go:119` and E2E report `GOAL1-E2E-FINAL-20260629-022731`. | none |
+| OCK-020 | high | fixed | fixed | Status events reserve idempotency before insert in `backend/internal/obligation/adapters/postgres/repository.go`; replay/concurrency tests cover duplicate reserve behavior in `repository_integration_test.go`; idempotency keys now receive an explicit 90-day default in `backend/migrations/postgres/000114_kernel_review_runtime_guards.sql` and `cmd/idempotency-key-sweeper` verifies the default expiry. | none |
+| OCK-021 | high | fixed | fixed | Batch attach serializes per version/scope with advisory lock and reuses planned unfinalized batches in `backend/internal/obligation/adapters/postgres/repository.go`; migration `000114_kernel_review_runtime_guards.sql` adds `obligation_batches_unfinalized_planned_unique_idx` plus an `inventory_stock_movements` trigger that marks reserved batches with `stock_reservation` so later drives are not blocked; `MESHA_RTK=0 go test ./internal/obligation/adapters/postgres ./internal/inventory/adapters/postgres` PASS. | none |
+| OCK-022 | medium | fixed | fixed | Verification context requires and carries lot/cold-chain metadata, and SOP-drive fanout now persists `withdrawal_until_date` from explicit SOP answers or derives it from protocol `withdrawal_days` at completion materialization time in `backend/internal/vaccination/adapters/postgres/repository.go`; regression coverage is `TestRecordCompletionsFromVaccinationSessionTask` in `fanout_query_integration_test.go`. Existing proof path coverage remains `verify_integration_test.go:119` and E2E report `GOAL1-E2E-FINAL-20260629-022731`. | none |
 | OCK-023 | medium | fixed | fixed | Shift handler rejects malformed payloads with errors in `backend/internal/obligation/app/shift.go:20`, `:38`, `:51`; durable consumer can DLQ failed events rather than silently no-op; `go test ./internal/obligation/app ./internal/domainconsumer/app -count=1` PASS. | none |
-| OCK-024 | high | fixed | fixed | Direct death path is blocked before repository with guardrail 409 in `backend/internal/identity/app/goat_lifecycle.go:362`, `:436`; test `backend/internal/identity/app/service_test.go:716`; the full critical workflow is covered by the OCK-006 fail-closed boundary. | none |
+| OCK-024 | high | fixed | fixed | Direct regular death path is blocked before repository with guardrail 409, while the approved death path is implemented through `criticalDeathExitGoat` and emits the same `goat.exited` side effects with `GuardrailApproved=true`; evidence is in `backend/internal/identity/app/goat_lifecycle.go`, `backend/internal/identity/adapters/postgres/goat_lifecycle.go`, `backend/internal/identity/adapters/http/handler.go`, `contracts/openapi/admin-api.yaml`, generated admin client, and permission-route tests. The full critical-health workflow remains fail-closed under OCK-006 rather than a live legacy bypass. | none |
 | OCK-025 | medium | countered | fail-closed | Missing shed-owner/SoD inputs now explicitly block or create a process exception rather than allowing approval fallback in `docs/features/critical-animal-action-guardrails.md:65`; current critical health/death primitives are fail-closed before repo mutation, so no runtime approval path depends on unreliable owner data. | none |
 | OCK-026 | medium | fixed | already closed | Duplicate-cycle suppression is fenced by due cycle in trusted candidates `backend/internal/vaccination/domain/types.go:142`; advanced cycle evidence test `backend/internal/vaccination/app/generation_test.go:397`, `:415`; linked RVF-009. | none |
 | OCK-027 | medium | fixed | already closed | Effective version lookup uses per-goat park/as-of path in `backend/internal/vaccination/app/generation.go:186`, `:651`; tests `generation_test.go:470`, `:492`; linked RVF-008. | none |
 | OCK-028 | medium | fixed | already closed | Calendar projection reads due/window timestamps and as-of arguments from Postgres in `backend/internal/vaccinationexecution/adapters/postgres/repository.go:218`, `:327`; no hardcoded non-test India timezone in touched generation path. | none |
 | OCK-029 | medium | fixed | covered by fail-closed acceptance | Current acceptance coverage proves the exposed critical primitives cannot mutate partial guardrail state: `TestHealthGoatRejectsCriticalTargetBeforeRepository` covers quarantine+ICU and `TestExitGoatRejectsDeathBeforeRepository` covers death; doc acceptance case keeps the full policy-pack contract explicit in `docs/features/critical-animal-action-guardrails.md:1143`. | none |
 | OCK-030 | medium | fixed | doc/runtime aligned | The quarantine classification example is system-computed from evidence, not operator-selected, in `docs/features/critical-animal-action-guardrails.md:1143`; live low-level health/death primitives are fail-closed with 409 until such evidence computation owns the transition. | none |
-| OCK-031 | low | fixed | fixed | Guardrail-required primitive errors are truthful 409 conflicts, not 501: `backend/internal/identity/app/goat_lifecycle.go:428`, `:436`; tests `service_test.go:665`, `:689`, `:713`. | none |
+| OCK-031 | low | fixed | fixed | Guardrail-required primitive errors are truthful 409 conflicts, not 501: `backend/internal/identity/app/goat_lifecycle.go`; OpenAPI no longer documents stale 501 responses on the goat health/death paths and exposes `GuardrailOrWriteConflict` plus `criticalDeathExitGoat`; tests cover the app errors and permission route. | none |
 | OCK-032 | low | fixed | already closed | Hot execution history paths are bounded by due/as-of windows and indexed status-event subsets in `backend/internal/vaccinationexecution/adapters/postgres/repository.go:237`, `:312`, `:565`, `:619`; residual is documented and non-blocking for Goal 1. | none |
 | OCK-033 | low | fixed | fixed | CSV parser duplication removed for admin-web herd/shed import: shared `parseCSVRecords` lives in `apps/admin-web/features/counts/herd-import-utils.ts:18`; frontend failed-row export imports it in `herd-actions-ui.tsx:27`, `:90`; server action parser delegates to it in `herd-actions.ts:29`, `:540`. Focused guard `node --experimental-strip-types apps/admin-web/scripts/check-herd-import-security.mjs` PASS plus admin-web `typecheck` PASS. | none |
 | OCK-034 | low | fixed | already closed | Client parser throws on unterminated quoted CSV via RVF-007; row-number behavior tested in `backend/internal/identity/app/service_test.go:489`, `:522`, `:545`. | none |
@@ -171,7 +211,7 @@ not deferred out of this ledger.
 | OCK-040 | low | fixed | guarded | Named frontend surfaces are covered by repeatable local guards: `apps/admin-web/scripts/check-goal1-frontend-coverage.mjs:34` checks `RuleEditorModal`, `:48` checks `downloadFailedRows`, and `:54` checks `BulkImportDrawer`/`ShedImportDrawer`; package script at `apps/admin-web/package.json:19`; `npm --prefix apps/admin-web run check:goal1-frontend` PASS. | none |
 | OCK-041 | medium | countered | source-backed local scope | Production roster expansion is an external source-data/publish task, not an active local kernel bug: the local/dev source-derived ET baseline is documented and seeded in `docs/runbooks/vaccination-local-business-chain.md:48`; PRD/TRD explicitly limit production expansion until source extracts provide timings in `docs/phc-vaccination/PRD.md:92`, `docs/phc-vaccination/TRD.md:142`. | none |
 | OCK-042 | medium | fixed | fixed | Local operator/admin acceptance path exercised real UI routes and API contracts in `tools/dev/admin-web-e2e-smoke.sh:203`; run `GOAL1-E2E-FINAL-20260629-022731` captured Workflows, Passport, shed drilldown, Control Tower, Adherence, Operations, and Procurement pages. Cloud production UX hardening is an external deployment-readiness gate, not an active local bug. | none |
-| OCK-043 | medium | fixed | fixed | Proof/verification/completion now flows through SOP task review with row-version locking in `tools/dev/vaccination-chain-proof.sh:50`, `:99`, `backend/internal/sop/app/service.go`, `backend/internal/processintegrity/domain/types.go`, and `apps/admin-web/features/process-integrity/action-center.tsx`; direct public completion accept/reject routes were removed from `backend/internal/vaccination/adapters/http/handler.go`. Production media-storage provisioning is an external deployment-readiness gate. | none |
+| OCK-043 | medium | fixed | fixed | Proof/verification/completion now flows through SOP task review with row-version locking; admin-web proof upload now carries `sopVersionId`, creates task-scoped proof uploads, PUTs files with correct local-vs-signed-url headers, completes proof upload, and submits SOP task payload with `sop_version_id`/stable idempotency key in `apps/admin-web/lib/api/vaccination-actions.ts` and `apps/admin-web/lib/api/server.ts`; backend execution rows expose `sopVersionId`; E2E `GOAL1-LOCAL-20260629` passed. Production media-storage provisioning is an external deployment-readiness gate. | none |
 | OCK-044 | medium | countered | local workers valid, cloud deploy external | Worker entrypoints are built/documented in `docs/runbooks/containers.md:20`; local E2E exercises `cmd/outbox-relay` and `cmd/obligation-sweeper` in `docs/runbooks/vaccination-local-business-chain.md:51`; cloud deployment/health needs verified `vgoats.com` provisioning and is not a local-code defect. | none |
 | OCK-045 | medium | countered | retryable local channels, real secrets external | Notification dispatch is durable/retryable in `backend/internal/notification/app/service.go`, local stub/webhook/incident gateways are implemented in `backend/internal/notification/adapters/gateway/gateway.go:64`, and incident webhook test passes at `gateway_test.go:140`; real channel URLs/secrets remain environment configuration, not a code bug. | none |
 | OCK-046 | medium | fixed | fixed | UI route/state smoke covered Action Center, Calendar, Protocol Adherence, Workflows, Goat detail, Vaccination Execution, and Operations in report `.codex-goatos-render/e2e-smoke/GOAL1-E2E-FINAL-20260629-022731`; visual script is `tools/dev/admin-web-e2e-smoke.sh`. | none |
@@ -180,16 +220,16 @@ not deferred out of this ledger.
 | OCK-049 | medium | fixed | explicit repair/rework policy + DB proof | Shift repair policy now states in-progress/completed batches are not silently rewritten in `docs/protocol-engine/state-machines.md:69`; DB test `TestSM2ShiftDoesNotRewriteInProgressBatchHistory` proves in-progress and completed work stay on original batch/scope, while open/deferred re-scope remains covered by SM-2 tests. | none |
 | OCK-050 | medium | countered | production gate, not local bug | Production readiness requires external env provisioning/monitoring under a verified Mesha/VGoats context; local/CI-equivalent readiness is documented in the gate at `context/execution/operational-kernel-stability-closure-handoff.md:925`, while production-launch prerequisites are listed in `docs/runbooks/deployment.md:325`, `:341`. | none |
 | OCK-051 | blocker | fixed | fixed | Procurement-excluded recovery/reopen prefilter added in `backend/internal/obligation/adapters/postgres/sqlc/commands.sql:93`; missed sweep prefilter in `backend/internal/obligation/adapters/postgres/repository.go:1497`; tests `complete_integration_test.go:183`. | none |
-| OCK-052 | high | fixed | fixed | Missed sweep uses `FOR UPDATE SKIP LOCKED`, excludes procurement-ineligible goats, and no longer poisons sibling work in `backend/internal/obligation/adapters/postgres/repository.go:1490`, `:1497`, `:1513`; test `complete_integration_test.go:183`, `:215`. | none |
+| OCK-052 | high | fixed | fixed | Missed sweep uses `FOR UPDATE OF oi SKIP LOCKED`, excludes procurement-ineligible vaccination goats, and no longer poisons sibling work; SQL null handling now permits unbatched `in_progress` rows instead of filtering them through left-join `NULL`; tests `TestMarkMissedBeforeMaterializesCanonicalStatus` and `TestMarkMissedBeforeSkipsProcurementExcludedVaccinationWithoutPoisoningBatch`; `MESHA_RTK=0 go test ./internal/obligation/adapters/postgres` PASS. | none |
 | OCK-053 | high | fixed | fixed | Stale `processing` events are not reclaimed; only failed rows are claimable in `backend/internal/domainconsumer/adapters/postgres/processed_events.go:28`, `:38`, `:50`, `:71`, `:118`; tests `processed_events_integration_test.go:27`, `:56`, `:81`. | none |
 | OCK-054 | high | fixed | fixed | Completion consumes the recorded/verified lot under lock and checks reserved quantity in `backend/internal/vaccination/adapters/postgres/repository.go:671`, `:680`, `:723`, `:737`; reserve path FEFO locks lots in `backend/internal/inventory/adapters/postgres/repository.go:374`, `:461`. | none |
 | OCK-055 | high | fixed | fixed | Missed/defer/shift/cancel repairs write stock reconcile markers and worker releases reserved doses: `backend/internal/obligation/adapters/postgres/repository.go:1545`, `:1558`; inventory reconciler reads `missed_repair` in `backend/internal/inventory/adapters/postgres/repository.go:531`, `:572`; tests `complete_integration_test.go:230`, `reconcile_integration_test.go:116`. | none |
 | OCK-056 | high | fixed | fixed | Recovery reopen clears `batch_id` and stock reconcile path records repair markers: `backend/internal/obligation/adapters/postgres/sqlc/commands.sql:93`, `:100`; `backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:87`, `:118`. | none |
-| OCK-057 | high | fixed | fixed | Shift repair re-scopes open and deferred rows and marks old batch stock reconcile in `backend/internal/obligation/adapters/postgres/repository.go:1034`, `:1040`, `:1150`; tests `shift_integration_test.go:87`, `:129`. In-progress/completed shift edge policy is closed under OCK-049. | none |
+| OCK-057 | high | fixed | fixed | Shift repair re-scopes open/deferred rows, marks old batch stock reconcile, and vaccination generation now cancels open obligations when a goat is no longer eligible for the effective version or when a previous version is no longer effective (`CancelOpenVaccinationObligationsForGoatVersion`, `CancelOpenVaccinationObligationsForGoatExceptVersions`); tests `TestGenerateForGoatCancelsOpenWorkWhenEligibilityNoLongerMatches` and `TestGenerateForGoatCancelsOpenWorkForNoLongerEffectiveVersions`; `MESHA_RTK=0 go test ./internal/vaccination/app ./internal/obligation/adapters/postgres` PASS. | none |
 | OCK-058 | high | fixed | fixed | Calendar reminders re-arm by business day/open work rather than lifetime suppression in `backend/internal/calendar/adapters/postgres/repository.go:758`, `:801`; test `backend/internal/calendar/adapters/postgres/repository_integration_test.go:156`; `go test ./internal/calendar/adapters/postgres ./internal/calendar/app -count=1` PASS. | none |
 | OCK-059 | high | fixed | fixed | Escalation candidates no longer silence after resolution and ladder is idempotent per level in `backend/internal/calendar/adapters/postgres/repository.go:931`, `:999`; test `repository_integration_test.go:821`; calendar package PASS. | none |
 | OCK-060 | high | fixed | fixed | Stock movement idempotency checks semantic fingerprint and rejects same-key different payloads in `backend/internal/inventory/adapters/postgres/repository.go:260`, `:277`, `:334`, `:351`; sentinel error `backend/internal/inventory/ports/ports.go:19`; test `repository_integration_test.go:131`. | none |
-| OCK-061 | high | fixed | fixed | Idempotency keys can be non-expiring; migration `backend/migrations/postgres/000112_idempotency_keys_no_default_expiry.sql:7`; status-event test asserts `expires_at IS NULL` at `backend/internal/obligation/adapters/postgres/repository_integration_test.go:139`. | none |
+| OCK-061 | high | fixed | fixed | Seven-day replay risk is closed by setting a 90-day default on `idempotency_keys.expires_at` in `backend/migrations/postgres/000114_kernel_review_runtime_guards.sql`; existing null expiries are backfilled; `cmd/idempotency-key-sweeper` verifies new default expiry and status-event dedup tests verify expiring reserved keys. | none |
 | OCK-062 | medium | fixed | incident route implemented | Notification gateway supports `incident`/`opsgenie`/`pagerduty` channels with dedupe payload and auth header in `backend/internal/notification/adapters/gateway/gateway.go:103`, `:114`; `TestSendIncidentPostsDedupePayload` proves routing in `gateway_test.go:140`; dispatch retry/failure accounting is covered by notification app tests. | none |
 | OCK-063 | medium | fixed | already closed | Recurrence materialization covers `every_n_days` and yearly in `backend/internal/vaccination/app/generation.go:771`; tests `generation_test.go:343`, `:381`, `:397`; unsupported age windows are rejected in OCK-013. | none |
 | OCK-064 | medium | fixed | already closed | Inventory reconciler uses bounded `limit` and query timeout; stock reconcile worker path in `backend/internal/inventory/adapters/postgres/repository.go:531`, `:586`; tests `reconcile_integration_test.go:116`, `:140`. | none |
@@ -198,24 +238,24 @@ not deferred out of this ledger.
 | OCK-067 | medium | fixed | already closed | Placeholder/no-due obligations are visible deferred gaps rather than orphan skips in `backend/internal/vaccination/app/generation.go:589`, `:596`, `:622`; test `generation_test.go:317`. | none |
 | OCK-068 | medium | fixed | fixed | Booster scheduling uses deterministic obligation keys and completed-event replay is no-op in `backend/internal/vaccination/app/booster.go:20`, `:44`; tests `booster_integration_test.go:99`, `:106`; linked RVF-002..RVF-004. | none |
 | OCK-069 | low | fixed | policy/schema enforced | SOP proof retention policy is schema/API constrained in `contracts/jsonschema/sop-proof-policy.schema.json:22`, `contracts/openapi/admin-api.yaml:2873`, generated client `packages/api-client/src/generated/admin-api.ts:1228`, and app validation `backend/internal/sop/app/service.go:1183`; `TestValidateProofPolicyRetentionPolicy` covers valid/invalid values. | none |
-| OCK-070 | medium | fixed | already closed | Publish path validates rule DSL source, execution contract, repeat, SOP, and proof policy in `backend/internal/protocol/app/publish.go:47`, `:78`, `:91`, `:108`; tests `publish_test.go:170`. | none |
+| OCK-070 | medium | fixed | fixed | Protocol `rule_dsl` is no longer only ad-hoc publish parsing: `contracts/jsonschema/protocol-rule-dsl.schema.json` documents the allowed shape, app validation rejects unknown/invalid fields on create and publish in `backend/internal/protocol/app`, and HTTP maps invalid DSL to `invalid_rule_dsl` instead of an internal error in `backend/internal/protocol/adapters/http/handler.go`; tests cover create and publish error mapping in `handler_test.go` plus publish validation in `publish_test.go`. | none |
 | OCK-071 | medium | fixed | already closed | In-trigger fanout uses durable generation run/idempotency and protocol-published handler in `backend/internal/vaccination/app/generation_test.go:79`, `:102`; generation run DB guard `backend/internal/vaccination/adapters/postgres/repository.go:59`, `:109`. | none |
 | OCK-072 | medium | fixed | fixed | Generation run same-key different-request hash conflicts are guarded by `backend/internal/vaccination/adapters/postgres/repository.go:67`, `:109`; protocol write idempotency/audit/config payload keys are guarded in `backend/internal/protocol/adapters/postgres/repository.go`, `backend/internal/protocol/app/publish.go`, `apps/admin-web/features/config/config-actions.ts`, and tests `repository_integration_test.go`, `publish_test.go`, `handler_test.go`; linked RVF-018. | none |
 | OCK-073 | low | fixed | already closed | Old-tag/import identity behavior is covered by duplicate rollback tests `backend/internal/identity/adapters/postgres/identifier_write_integration_test.go:276`, `:364`, `:382`; not part of vaccination kernel. | none |
 | OCK-074 | low | fixed | removed | Dead `next_due_basis`/`NEXT_DUE_BASIS` is removed from config DSL, docs, context, and mock; `rg "next_due_basis|NEXT_DUE_BASIS|nextDueBasis" apps backend contracts docs context mock packages` now finds only this historical ledger row and the guard assertions. | none |
-| OCK-075 | medium | fixed | already closed | Repeat CHECK migration rejects unsupported values at DB level in `backend/migrations/postgres/000110_protocol_published_delete_immutability.sql:79`; publish/app rejects first in `backend/internal/protocol/app/publish.go:108`; existing dev fixtures are generated under current schema. | none |
+| OCK-075 | medium | fixed | fixed | Repeat CHECK migration now pre-normalizes historical `until_age`/`after_age` rows before tightening the constraint in `backend/migrations/postgres/000110_protocol_published_delete_immutability.sql`; unsupported values are retained in metadata for audit and new authoring/publish rejects them before DB write. | none |
 | OCK-076 | medium | countered | invalid/countered | All-or-nothing commit on invalid preview rows is intentional because commit must match the signed preview; row-level invalids are surfaced at preview in `backend/internal/identity/app/admin_goat.go:115`, `:156`, while commit tamper is rejected at `:706`. | none |
 | OCK-077 | low | countered | invalid/countered | Exact preview order binding is deliberate anti-tamper behavior; commit rows are normalized and signed with row numbers in `backend/internal/identity/app/admin_goat.go:669`, `:681`, `:706`; test `service_test.go:448`. | none |
 | OCK-078 | low | fixed | validation hardened | `every_n_days` now requires explicit positive `min_gap_days` in publish/direct rule validation (`backend/internal/protocol/app/publish.go:93`, `:109`, `backend/internal/protocol/app/service.go:39`) and generation (`backend/internal/vaccination/app/generation.go`); tests `TestAddRuleRejectsEveryNDaysWithoutMinGap` and vaccination generation min-gap cases pass. | none |
-| OCK-079 | high | fixed | fixed | `next_cycle` uses materialized cycle due in the obligation key, preventing churn as `as_of` moves: `backend/internal/vaccination/app/generation.go:505`, `:514`, `:764`; tests `generation_test.go:397`, `:439`. | none |
-| OCK-080 | medium | fixed | taxonomy split | `missed` is now first-class work state across vaccination execution, process integrity, OpenAPI/generated clients, and admin-web metadata: `backend/internal/vaccinationexecution/domain/types.go:19`, `backend/internal/processintegrity/domain/types.go:22`, repository SQL maps missed at `vaccinationexecution/adapters/postgres/repository.go:477` and `processintegrity/adapters/postgres/repository.go:691`, UI labels in `apps/admin-web/features/vaccination-execution/work-state.ts:33`; tests cover missed projections. | none |
+| OCK-079 | high | fixed | fixed | `next_cycle` materializes the next due date for scheduling/trusted-evidence lookup but keeps the obligation idempotency key anchored to the original base cycle due date, so reruns at later `as_of` values cannot create duplicate open obligations; evidence is `obligationKeyDue` in `backend/internal/vaccination/app/generation.go` and `TestGenerateAppliesMissedDosePolicy/next cycle rerun keeps original cycle key` in `generation_test.go`. | none |
+| OCK-080 | medium | fixed | taxonomy split | `missed` is first-class work state across vaccination execution, process integrity, OpenAPI/generated clients, and admin-web metadata; process-integrity deferred counts now avoid double-counting canonical `waived`/`deferred` rows in the location fallback branch; tests cover missed/deferred projections and `MESHA_RTK=0 go test ./internal/processintegrity/adapters/postgres` PASS. | none |
 | OCK-081 | medium | fixed | already closed | Herd commit no longer trusts client file hash alone; preview token signs tenant, file hash, and normalized rows in `backend/internal/identity/app/admin_goat.go:674`, `:686`, `:701`; tamper tests `service_test.go:448`, `:465`. | none |
 | OCK-082 | low | fixed | token hardened | Herd bulk preview tokens now include issued-at and random nonce with 30-minute TTL in `backend/internal/identity/app/admin_goat.go:28`, `:514`, `:685`, `:731`, `:745`; expired-token regression `TestCommitAdminGoatBulkRejectsExpiredPreviewToken` covers replay rejection and preview token shape assertion covers `version:issued_at:nonce:mac`. | none |
-| OCK-083 | low | fixed | already closed | Missing bulk preview signing key fails closed with internal preview error rather than unsafe unsigned commit in `backend/internal/identity/app/admin_goat.go:697`, `:706`; bootstrap wiring supplies service key in normal runtime. | none |
-| OCK-084 | low | fixed | fixed | Direct protocol API returns specific `unsupported_repeat_policy` in `backend/internal/protocol/adapters/http/handler.go:160`; test `handler_test.go:132`; publish wraps specific repeat error in `backend/internal/protocol/app/publish.go:91`. | none |
-| OCK-085 | low | countered | invalid/countered | Impact/generation intentionally use in-care lifecycle statuses only in `backend/internal/vaccination/app/generation.go:693`; legacy out-of-care statuses are excluded per OCK-007. | none |
-| OCK-086 | medium | fixed | fixed | Extra-high senior review disposition is clean after Rawls/Dewey/Singer baseline review plus Beauvoir/Huygens/Boyle blocker review; valid findings were fixed in protocol idempotency/audit/config, SOP row-version completion review, E2E relay detection, and UI verification submit. Final local proof is `GOAL1-E2E-FINAL-20260629-022731`, `go test ./...` PASS, and CRG `detect_changes` review re-checked the priority symbols `acceptCompletionAction`, `rejectCompletionAction`, and `repoStatusForWorkState` with no remaining blocker. | none |
-| OCK-087 | medium | fixed | fixed for Goal 1 where valid | Full Docker-backed local verification is green: `go test ./...` PASS, `make validate-migrations` PASS, `make validate-sqlc-plans` PASS, `git diff --check HEAD --` PASS, admin-web `check:mock-fidelity`, `build`, `typecheck`, and `lint` PASS, and E2E `GOAL1-E2E-FINAL-20260629-022731` PASS. Additional closing fixes include domain-event schema coverage for `calendar.escalation.queued`, `obligation.missed`, `vaccination.completed` in `contracts/jsonschema/domain-event-envelope.schema.json`, validator tests in `backend/internal/outbox/app/service_test.go`, and RFC4122 deterministic outbox UUID tests in `backend/internal/obligation/adapters/postgres/outbox_uuid_test.go` and `backend/internal/vaccination/adapters/postgres/outbox_uuid_test.go`. Residual no-Docker skip is CI/environment behavior, not a code disposition. | none |
+| OCK-083 | low | fixed | fixed | Missing bulk preview signing key fails closed outside explicit `local`/`test` runtimes; bootstrap now refuses the dev fallback for `dev`/`development` and requires a configured signing key in real environments (`backend/internal/bootstrap/api.go`, `backend/internal/bootstrap/api_test.go`). Identity preview/commit still fail closed if no signer exists in `backend/internal/identity/app/admin_goat.go`. | none |
+| OCK-084 | low | fixed | fixed | Direct protocol API returns specific `unsupported_repeat_policy` for unsupported repeat contracts in `backend/internal/protocol/adapters/http/handler.go`; publish preserves `ErrUnsupportedRepeatPolicy` while wrapping `ErrNotPublishable` in `backend/internal/protocol/app/publish.go`; tests `TestPublishSurfacesUnsupportedRepeatPolicy` and repeat publish tests PASS. | none |
+| OCK-085 | low | fixed | fixed | Impact preview counting now mirrors generation's in-care cohort parity, including sick/under-treatment/quarantine/ICU and quarantine/ICU location attributes, in `backend/internal/vaccination/adapters/postgres/sqlc/query.sql`; `TestImpactPreviewLiveCounts` covers the parity and `MESHA_RTK=0 go test ./internal/vaccination/adapters/postgres` PASS. | none |
+| OCK-086 | medium | fixed | fixed | Reopened extra-high senior/code review found valid remaining Goal 1 issues in M10 permissions, H11 shift ineligibility, proof upload, OpenAPI orphan drift, accepted-completion replay, missed-sweep lock/null semantics, batch uniqueness, impact parity, process-integrity deferred counts, and repeat error precision; all were fixed and then covered by the backend, frontend, and E2E commands in the reopened-fix update above. | none |
+| OCK-087 | medium | fixed | fixed for Goal 1 where valid | Current local verification is green for the reopened bug set: `MESHA_RTK=0 go test ./internal/...` PASS, `MESHA_RTK=0 go test ./cmd/...` PASS, targeted Postgres packages PASS, `make validate-migrations` PASS, `make validate-sqlc-plans` PASS, `make api-client-generate` PASS, `make sqlc-generate` PASS, `npm --prefix tools/contract-validation run validate` PASS, `git diff --check` PASS, admin-web `typecheck`, `lint`, `check:herd-import-security`, `check:goal1-frontend`, `check:ui-contract`, `check:mock-fidelity`, and build PASS, boundary guard PASS, and admin-web E2E `GOAL1-LOCAL-RECHECK-20260629` PASS with screenshots under `.codex-goatos-render/admin-web-screenshots/2026-06-29T08-29-53-429Z`. Residual no-Docker skip is CI/environment behavior, not a code disposition. | none |
 | RVF-001 | high | fixed | already closed | Canonical OCK-019 evidence: `obligation.missed` outbox in `backend/internal/obligation/adapters/postgres/repository.go:1391`, `:1445`; test `complete_integration_test.go:100`. | none |
 | RVF-002 | medium | fixed | already closed | Booster scheduling is driven only by completed obligation event handler in `backend/internal/vaccination/app/completed_handler.go:31`; primary completion state comes from accepted path OCK-001/OCK-003. | none |
 | RVF-003 | medium | fixed | already closed | Booster matching no longer requires adjacent sequence; next dose lookup and scheduling are tested in `backend/internal/vaccination/adapters/postgres/booster_integration_test.go:48`, `:99`. | none |
@@ -234,11 +274,67 @@ not deferred out of this ledger.
 | RVF-016 | high | fixed | already closed | Preview-token binding and stale-preview guard: `backend/internal/identity/app/admin_goat.go:674`, `:706`; tests `service_test.go:426`, `:448`, `:465`. | none |
 | RVF-017 | high | fixed | already closed | Stock-block retry and clear on success: `backend/internal/obligation/app/sweeper.go:157`, `:163`; `backend/internal/obligation/adapters/postgres/repository.go:684`, `:714`; tests `sweeper_test.go:173`, `:196`. | none |
 | RVF-018 | medium | fixed | already closed | Generation run request hash guarded in `backend/internal/vaccination/adapters/postgres/repository.go:67`, `:109`; app tests `generation_test.go:15`, `:45`. | none |
-| RVF-019 | high | fixed | fixed | ICU/quarantine/death primitive guard checks in `backend/internal/identity/app/goat_lifecycle.go:362`, `:398`; tests `service_test.go:690`, `:716`; full critical workflow exposure is fail-closed under OCK-006. | none |
+| RVF-019 | high | fixed | fixed | ICU/quarantine primitives guard before mutation, regular death exits are blocked, and the approved death exit path is explicit through `criticalDeathExitGoat`; tests cover app, repository, OpenAPI/client registration, and permission routing. Full critical-health workflow exposure is fail-closed under OCK-006. | none |
 | RVF-020 | high | fixed | already closed | Herd import scans in-file duplicates at preview and commit normalization in `backend/internal/identity/app/admin_goat.go:156`, `:636`, `:717`; test `service_test.go:522`, `:533`. | none |
 | RVF-021 | high | fixed | already closed | `MarkMissedBefore` writes in-transaction audit in `backend/internal/obligation/adapters/postgres/repository.go:1603`; tests `complete_integration_test.go:104`, `:122`; duplicate of OCK-019/RVF-001. | none |
-| RVF-022 | medium | fixed | fixed | OpenAPI/generated/server drift for touched changes is covered by `contracts/openapi/app-api.yaml`, `packages/api-client/src/generated/app-api.ts`, and `make api-client-check` PASS; no touched server field drift accepted. | none |
-| RVF-023 | medium | fixed | fixed | Published-delete guard is covered by `backend/migrations/postgres/000110_protocol_published_delete_immutability.sql:79`, protocol repository integration tests, `make validate-migrations` PASS, and `go test ./...` PASS. | none |
+| RVF-022 | medium | fixed | fixed | OpenAPI/generated/server drift for touched changes is covered by `contracts/openapi/app-api.yaml`, `contracts/openapi/admin-api.yaml`, regenerated app/admin clients, removal of orphan completion schemas/`CompletionId`, addition of `sopVersionId` on `VaccinationExecutionRow`, and the new `criticalDeathExitGoat` admin operation; admin-web typecheck and contract checks must be rerun after this update. | none |
+| RVF-023 | medium | fixed | fixed | Published-delete guard and repeat CHECK hardening are covered by `backend/migrations/postgres/000110_protocol_published_delete_immutability.sql`, including pre-normalization before CHECK tightening; protocol repository integration tests and `make validate-migrations` are the verification gates. | none |
+
+### Direct Pasted C/H/M/L Disposition Addendum
+
+This addendum maps the later pasted senior-review identifiers directly to the
+same evidence ledger so they cannot be mistaken for still-pending Goal 1 bugs.
+
+| ID | Disposition | Evidence |
+| --- | --- | --- |
+| C1 | fixed | `infra/envs/dev/cloud_run_jobs.tf` schedules `inventory-batch-reconciler` and `idempotency-key-sweeper`; `backend/Dockerfile` builds the worker binaries. |
+| C2 | fixed | `000114_kernel_review_runtime_guards.sql` permits `incident`/`opsgenie`/`pagerduty`; escalation level 3+ queues `incident` in `backend/internal/calendar/adapters/postgres/repository.go`; gateway test covers incident payload/auth. |
+| C3 | fixed | Notification final failure is terminal `exhausted` with no retry and a distinct dispatch result counter in `backend/internal/notification/app/service.go`/`domain/types.go`; DB CHECK allows `exhausted`. |
+| C4 | fixed | Tenant publish generation now re-checks effective version per goat and skips park overrides; no-version CLI uses `GenerateEffectiveForAllGoats` by default. |
+| C5 | fixed | `backend/cmd/sop-review-fanout-retry` plus scheduled Cloud Run job retries pending/failed SOP review fanouts. |
+| H1 | fixed | Generation and impact queries include lifecycle, health-status, and quarantine/ICU location attributes. |
+| H2 | countered | Procurement health/arrival gating is intentionally fail-closed: a goat still excluded by `vw_procurement_vaccination_excluded_goats` must not reopen active vaccination work; the generic reopen pre-check avoids DB poison rather than coupling an unsafe bypass. |
+| H3 | fixed | Atomic accept rejects recorded completions against deferred/closed obligations with `ErrCompletionNotOpen` before consuming stock or accepting the row. |
+| H4 | fixed | Approved death exits use `criticalDeathExitGoat` and emit `goat.exited`; regular death exits remain guardrail-blocked. |
+| H5 | fixed | Booster scheduling only considers `PrevSequence+1` and applies current goat eligibility/defer-state rules before inserting scheduled/deferred work. |
+| H6 | fixed | Action Center due/overdue classification uses current time, not the query window, in both HTTP and repository paths. |
+| H7 | fixed | Due/overdue bucket filtering is pushed into SQL mode before LIMIT, avoiding page starvation by the opposite bucket. |
+| H8 | fixed | Missed sweep excludes active in-progress batches and uses locked, non-poisoning batch scans. |
+| H9 | fixed | `idempotency_keys` defaults/backfills to 90-day expiry and has a scheduled sweeper. |
+| H10 | fixed | Default backfill pins `as_of` to the UTC day bucket, and unsafe version-id runs use durable generation-run rows. |
+| H11 | fixed | Shift/recheck cancels open vaccination obligations that are no longer effective or eligible after the goat moves. |
+| M1 | fixed | Cancel and re-scope paths emit deterministic `goat.obligations_canceled` / `obligation.rescoped` outbox rows with DB dedup indexes. |
+| M2 | fixed | Completion transition writes an audit row in the same transaction as completed status/outbox. |
+| M3 | fixed | Completed obligations reject a second distinct recorded completion before stock consume; accepted replay remains a no-op. |
+| M4 | fixed | `protocol.version.published` outbox has a partial unique DB index and `ON CONFLICT DO NOTHING`. |
+| M5 | countered | The stale-processing reclaim path was disabled; a `processing` event is not re-claimed after a timeout, while handler side effects remain guarded by deterministic idempotency keys. |
+| M6 | fixed | Shift handler rejects/ignores unsupported non-location scopes before watermark mutation; `shed` and `park` scopes are location-backed. |
+| M7 | fixed | Missing-DOB/entry placeholder obligations are canceled by deterministic key when real source data produces a real due date. |
+| M8 | fixed | Location idempotency keys now use the same 90-day horizon as the kernel default. |
+| M9 | fixed | `rule_dsl` has a schema contract and is rejected on create/publish when invalid or unknown. |
+| M10 | fixed | Config publish availability is backend-owned and permission-aware in admin-web; non-publishers see the disabled action instead of a late 403. |
+| L1 | countered | Equal-timestamp shift events have no source causal sequence in the event contract; the runtime keeps a deterministic event-id tie-break and ignores stale/equal replays. No unsafe mutation or open Goal 1 data-loss path remains. |
+| L2 | fixed | Orphan app completion schemas/types were removed and generated clients were regenerated. |
+
+### Direct Pasted Follow-Up Disposition Addendum
+
+This addendum maps the additional pasted status/follow-up identifiers that were
+not part of the C/H/M/L table.
+
+| ID | Disposition | Evidence |
+| --- | --- | --- |
+| XLSX import | fixed | OCK-039: herd and shed drawers accept `.xlsx` through the shared worksheet-to-CSV parser and the herd-import security guard covers it. |
+| Failed-row byte fidelity | fixed | OCK-038: failed-row export uses shared `parseCSVRecords` without trim-by-default and guard coverage asserts preserved spacing. |
+| Duplicate CSV parsers | fixed | OCK-033: admin-web import parsing is centralized in `herd-import-utils.ts`; server action and failed-row export both delegate to it. |
+| Impossible `failed` decision option | fixed | OCK-035: backend-owned config no longer exposes the unreachable `failed` decision and frontend failed-row filtering no longer accepts it. |
+| Closure gate/doc active rows | fixed | The active OCK/RVF ledger is complete above; the lower intake table is explicitly historical and not the current unresolved list. |
+| R6 | fixed | OCK-018: trusted completion evidence is resolved in a batched repository lookup per generation page instead of per goat/rule N+1. |
+| R11 | fixed | OCK-020: status events reserve an idempotency key before insert, and replay/concurrency tests cover duplicate reserve behavior. |
+| N3 | fixed | OCK-021: planned batch creation is serialized and guarded by `obligation_batches_unfinalized_planned_unique_idx`. |
+| R9 | fixed | OCK-022: SOP-drive fanout stores `withdrawal_until_date` from SOP answers or protocol `withdrawal_days`; `TestRecordCompletionsFromVaccinationSessionTask` asserts the derived date. |
+| R10 | countered | OCK-027/OCK-028: current Goal 1 runtime is Mesha/VGoats India-tenant scoped; location rows and contracts use `Asia/Kolkata` as an explicit business default while vaccination generation/calendar logic reads location/as-of data instead of silently changing vaccine due semantics. Multi-timezone expansion is not a Goal 1 kernel bug. |
+| N6 | countered | Reject replay is already covered: same-key retry resumes a recorded completion and rejects it, while accepted/rejected terminal replays no-op without side effects in `completion_test.go` and Postgres completion integration tests. |
+| Production PHC schedules / Google dev-prod E2E / owner-facing stock UI | countered | OCK-041/OCK-042 and Lane C classify these as source-data/cloud/product-readiness gates, not unresolved local kernel/vaccination code bugs. The local Goal 1 acceptance and E2E path is green. |
 
 Rules:
 
@@ -360,7 +456,13 @@ gap.
     rerun local verification, rerun senior review/E2E as applicable, commit,
     push, and check CI/local equivalent again.
 
-### Active Issue/Pending Rows
+### Historical Issue Intake Rows
+
+This table is the original bug intake, preserved so reviewers can audit every
+claim. It is not the current unresolved list after closeout. Current
+dispositions are the `Required Closeout Ledger` above; rows below that still
+say "pending", "product gap", or "prod gap" are historical claim text, not an
+instruction to defer those bugs to Goal 2.
 
 | ID | Severity/status | Issue to verify and close |
 | --- | --- | --- |
@@ -452,10 +554,11 @@ gap.
 | OCK-086 | REVIEW GAP | Eight recent feature commits touched security-adjacent identity/authz/bootstrap/obligation paths and need counter-review. |
 | OCK-087 | TEST GAP | Integration tests still skip without Docker and do not cover new DELETE triggers, missed sweeper, death cancel, shift, DLQ, or replay-after-expiry lanes. |
 
-### Reported-Fixed Claims To Re-Verify
+### Historical Reported-Fixed Claims To Re-Verify
 
-These rows are not assumed pending, but they must be re-verified before the next
-session relies on them.
+These rows were original re-verification claims and are retained for audit. The
+current evidence-backed dispositions are in the `Required Closeout Ledger`
+above.
 
 | ID | Reported fixed claim |
 | --- | --- |
@@ -1002,7 +1105,47 @@ zsh -ic 'git mesha-push main'
     code/test/workflow failure still means Goal 1 is not complete and must
     return to the fix/verify/review/E2E/push loop.
 
-## Goal 1 Post-Push Evidence
+## Goal 1 Reopened Local Evidence
+
+Evidence captured on the reopened 2026-06-29 fix pass:
+
+- `MESHA_RTK=0 go test ./internal/...` PASS.
+- `MESHA_RTK=0 go test ./cmd/...` PASS.
+- Targeted Postgres packages PASS:
+  `./internal/obligation/adapters/postgres`,
+  `./internal/vaccination/adapters/postgres`,
+  `./internal/identity/adapters/postgres`,
+  `./internal/protocol/adapters/postgres`,
+  `./internal/inventory/adapters/postgres`,
+  `./internal/processintegrity/adapters/postgres`, and
+  `./internal/calendar/adapters/postgres`.
+- `MESHA_RTK=0 make -C /Users/ravi/mesha/goatos validate-migrations` PASS.
+- `MESHA_RTK=0 make -C /Users/ravi/mesha/goatos validate-sqlc-plans` PASS.
+- `MESHA_RTK=0 make -C /Users/ravi/mesha/goatos api-client-generate` PASS.
+- `MESHA_RTK=0 make -C /Users/ravi/mesha/goatos sqlc-generate` PASS.
+- `MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/tools/contract-validation run validate` PASS.
+- `git diff --check` PASS.
+- `MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run typecheck` PASS.
+- `MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run lint` PASS.
+- `MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run check:herd-import-security` PASS.
+- `MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run check:goal1-frontend` PASS.
+- `MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run check:ui-contract` PASS.
+- `MESHA_RTK=0 npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run check:mock-fidelity` PASS.
+- `GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix /Users/ravi/mesha/goatos/apps/admin-web run build` PASS.
+- `MESHA_RTK=0 bash /Users/ravi/mesha/goatos/tools/agent-hooks/check-boundaries.sh` PASS.
+- `GOAL1-LOCAL-RECHECK-20260629` admin-web E2E smoke PASS; report:
+  `.codex-goatos-render/e2e-smoke/GOAL1-LOCAL-RECHECK-20260629`; screenshots:
+  `.codex-goatos-render/admin-web-screenshots/2026-06-29T08-29-53-429Z`.
+- Direct pasted follow-up recheck after the SOP-drive withdrawal fix:
+  `MESHA_RTK=0 command go test ./internal/vaccination/adapters/postgres`
+  PASS (`194.453s`), including
+  `TestRecordCompletionsFromVaccinationSessionTask`.
+
+The reopened pass has not yet been committed/pushed in this section. Before a
+new push, rerun the pre-push authority gate and update this section with the new
+SHA and Actions/local-equivalent result.
+
+## Historical Goal 1 Post-Push Evidence
 
 Evidence captured on 2026-06-29:
 

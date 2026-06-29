@@ -29,7 +29,8 @@ export function RuleEditorModal({
   animalStages = [],
   stagesError = null,
   sopsError = null,
-  canPublish = true,
+  canPublish,
+  publishDisabledReason,
   pageContract,
 }: {
   open: boolean;
@@ -39,7 +40,8 @@ export function RuleEditorModal({
   animalStages?: AnimalStageOption[];
   stagesError?: string | null;
   sopsError?: string | null;
-  canPublish?: boolean;
+  canPublish: boolean;
+  publishDisabledReason: string;
   pageContract: AdminUiPageContract;
 }) {
   const ruleCategories = optionGroup(pageContract, "rule_categories");
@@ -255,7 +257,7 @@ export function RuleEditorModal({
     : sopBlockReason
     ? sopBlockReason
     : !canPublish
-    ? copy(pageContract, "modal.rule_editor.only_ceo_publish")
+    ? publishDisabledReason || copy(pageContract, "modal.rule_editor.only_ceo_publish")
     : !versionId
       ? copy(pageContract, "modal.rule_editor.save_first")
       : dirty

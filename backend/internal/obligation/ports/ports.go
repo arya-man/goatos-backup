@@ -66,4 +66,8 @@ type Repository interface {
 	// shared idempotency_keys table, inside one transaction. applied is false on retry (the key
 	// was already reserved), so retries never duplicate status events.
 	RecordStatusEvent(ctx context.Context, ev domain.NewStatusEvent) (eventID string, applied bool, err error)
+
+	// CancelOpenObligationByIdempotencyKey closes one open obligation by deterministic key. Used when
+	// a placeholder/generated row is superseded by better source data.
+	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 }

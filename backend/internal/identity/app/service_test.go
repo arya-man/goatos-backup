@@ -737,6 +737,32 @@ func TestExitGoatRejectsDeathBeforeRepository(t *testing.T) {
 	}
 }
 
+func TestCriticalDeathExitBuildsApprovedLifecycleCommand(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+
+	result, err := svc.CriticalDeathExit(context.Background(), ExitGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-critical-death-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"lifecycle_status":"dead","exit_reason":"died","reason":"death certificate approved by critical action reviewer","evidence_refs":[{"evidence_type":"source_record","evidence_id":"death-ticket-1"}],"row_version":10}`),
+	})
+	if err != nil {
+		t.Fatalf("CriticalDeathExit error = %v", err)
+	}
+	if result.Events[0].EventType != "goat.exited" {
+		t.Fatalf("event type = %s", result.Events[0].EventType)
+	}
+	if repo.lastExitGoatCmd.LifecycleStatus != "dead" || repo.lastExitGoatCmd.ExitReason != "died" || !repo.lastExitGoatCmd.GuardrailApproved {
+		t.Fatalf("critical death command = %#v, want approved death exit", repo.lastExitGoatCmd)
+	}
+	if repo.lastExitGoatCmd.IdempotencyScope != criticalDeathGoatCommand || repo.lastExitGoatCmd.StoredIdempotencyKey == "" {
+		t.Fatalf("critical death idempotency = %#v", repo.lastExitGoatCmd)
+	}
+}
+
 func TestMapRepoErrReturnsDeathGuardrailMessage(t *testing.T) {
 	err := mapRepoErr(ports.ErrCriticalDeathGuardrailRequired)
 	var appErr *Error

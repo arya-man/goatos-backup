@@ -340,6 +340,49 @@ func TestGenerateMissingDOBCreatesVisibleDeferredGap(t *testing.T) {
 	}
 }
 
+func TestGenerateCancelsMissingDueDateGapWhenSourceDateBackfilled(t *testing.T) {
+	ctx := context.Background()
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{goat: domain.EligibleGoat{
+		GoatID:          "goat-1",
+		LifecycleStatus: "alive",
+		Stage:           "K1",
+		ShedID:          "shed-1",
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+	asOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+
+	first, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", asOf)
+	if err != nil {
+		t.Fatalf("initial generate: %v", err)
+	}
+	if first.SkippedNoDueDate != 1 || first.Deferred != 1 || len(obl.inserted) != 1 || obl.inserted[0].Status != "deferred" {
+		t.Fatalf("first result=%#v inserted=%#v, want one visible missing-DOB gap", first, obl.inserted)
+	}
+
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	goats.goat.DOB = &dob
+	second, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", asOf.Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("backfill recheck: %v", err)
+	}
+	if second.Generated != 1 || len(obl.inserted) != 2 {
+		t.Fatalf("second result=%#v inserted=%#v, want one real obligation after DOB backfill", second, obl.inserted)
+	}
+	if obl.inserted[0].Status != "canceled" || len(obl.canceledKeys) != 1 {
+		t.Fatalf("missing gap status=%s canceled=%#v, want canceled stale missing-DOB gap", obl.inserted[0].Status, obl.canceledKeys)
+	}
+	if obl.inserted[1].Status != "scheduled" {
+		t.Fatalf("new obligation status=%s, want scheduled", obl.inserted[1].Status)
+	}
+}
+
 func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 	ctx := context.Background()
 	entryDate := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -465,6 +508,31 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 			t.Fatalf("result=%#v inserted=%#v, want no unsafe non-repeat next-cycle obligation", result, obl.inserted)
 		}
 	})
+
+	t.Run("next cycle rerun keeps original cycle key", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-yearly", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 1, Repeat: "yearly", CatchUp: "next_cycle",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		gen := NewGenerationService(proto, goats, obl)
+
+		first, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("first next-cycle generate: %v", err)
+		}
+		if first.Generated != 1 || len(obl.inserted) != 1 {
+			t.Fatalf("first result=%#v inserted=%#v, want one next-cycle obligation", first, obl.inserted)
+		}
+
+		second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2027, time.February, 1, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatalf("second next-cycle generate: %v", err)
+		}
+		if second.Generated != 0 || len(obl.inserted) != 1 {
+			t.Fatalf("second result=%#v inserted=%#v, want no duplicate when asOf advances past next cycle", second, obl.inserted)
+		}
+	})
 }
 
 func TestImmediateCatchUpRecheckKeepsOriginalCycleKey(t *testing.T) {
@@ -549,15 +617,86 @@ func TestGenerateEffectiveForAllGoatsUsesPerGoatParkPrecedence(t *testing.T) {
 	}
 }
 
-type generationProtoFake struct {
-	rules           []protodomain.Rule
-	ruleDSL         []byte
-	effectiveAsOf   []time.Time
-	effectiveParkID []string
+func TestGenerateForGoatCancelsOpenWorkWhenEligibilityNoLongerMatches(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.June, 3, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	goats := &generationGoatFake{goat: domain.EligibleGoat{
+		GoatID:          "goat-1",
+		LifecycleStatus: "alive",
+		Stage:           "adult",
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", asOf)
+	if err != nil {
+		t.Fatalf("recheck: %v", err)
+	}
+	if result.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("result=%#v inserted=%#v, want no new work", result, obl.inserted)
+	}
+	lastReason := obl.cancelReasons[len(obl.cancelReasons)-1]
+	if len(obl.canceledVersions) != 1 || obl.canceledVersions[0] != "version-1" || lastReason != "ineligible_after_shift" {
+		t.Fatalf("version cancellations=%#v reasons=%#v", obl.canceledVersions, obl.cancelReasons)
+	}
 }
 
-func (p *generationProtoFake) GetVersion(context.Context, string, string) (protodomain.Version, error) {
-	return protodomain.Version{ProtocolVersionID: "version-1", Status: "published", ScopeType: "tenant", RuleDsl: p.ruleDSL}, nil
+func TestGenerateForGoatCancelsOpenWorkForNoLongerEffectiveVersions(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.June, 3, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		effectiveVersions: []string{"version-2"},
+		ruleDSLByVersion:  map[string][]byte{"version-2": []byte(`{"eligibility":{"animal_stage":"adult"}}`)},
+		rules: []protodomain.Rule{{
+			RuleID: "rule-2", DoseCode: "dose-2", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21,
+		}},
+	}
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	goats := &generationGoatFake{goat: domain.EligibleGoat{
+		GoatID:          "goat-1",
+		LifecycleStatus: "alive",
+		Stage:           "adult",
+		DOB:             &dob,
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForGoat(ctx, "tenant-1", "goat-1", asOf)
+	if err != nil {
+		t.Fatalf("recheck: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want current effective version generated", result, obl.inserted)
+	}
+	if len(obl.canceledExceptVersions) != 1 || obl.canceledExceptVersions[0][0] != "version-2" || obl.cancelReasons[0] != "version_no_longer_effective_after_recheck" {
+		t.Fatalf("except cancellations=%#v reasons=%#v", obl.canceledExceptVersions, obl.cancelReasons)
+	}
+}
+
+type generationProtoFake struct {
+	rules             []protodomain.Rule
+	ruleDSL           []byte
+	ruleDSLByVersion  map[string][]byte
+	effectiveVersions []string
+	effectiveAsOf     []time.Time
+	effectiveParkID   []string
+}
+
+func (p *generationProtoFake) GetVersion(_ context.Context, _ string, versionID string) (protodomain.Version, error) {
+	ruleDSL := p.ruleDSL
+	if p.ruleDSLByVersion != nil {
+		ruleDSL = p.ruleDSLByVersion[versionID]
+	}
+	if versionID == "" {
+		versionID = "version-1"
+	}
+	return protodomain.Version{ProtocolVersionID: versionID, Status: "published", ScopeType: "tenant", RuleDsl: ruleDSL}, nil
 }
 
 func (p *generationProtoFake) ListRules(context.Context, string, string) ([]protodomain.Rule, error) {
@@ -572,6 +711,9 @@ func (p *generationProtoFake) ListRules(context.Context, string, string) ([]prot
 func (p *generationProtoFake) ListEffectiveVaccinationVersionsForGoat(_ context.Context, _ string, parkID string, asOf time.Time) ([]string, error) {
 	p.effectiveAsOf = append(p.effectiveAsOf, asOf)
 	p.effectiveParkID = append(p.effectiveParkID, parkID)
+	if len(p.effectiveVersions) > 0 {
+		return p.effectiveVersions, nil
+	}
 	return []string{"version-1"}, nil
 }
 
@@ -607,14 +749,18 @@ func (g *generationGoatFake) HasTrustedCompletionEvidence(_ context.Context, _, 
 }
 
 type generationObligationFake struct {
-	seen                  map[string]bool
-	keyIndex              map[string]int
-	inserted              []obldomain.NewObligation
-	deferredKeys          []string
-	deferReasons          []string
-	reopenedKeys          []string
-	failOnceAfterInserted int
-	failed                bool
+	seen                   map[string]bool
+	keyIndex               map[string]int
+	inserted               []obldomain.NewObligation
+	deferredKeys           []string
+	deferReasons           []string
+	reopenedKeys           []string
+	canceledKeys           []string
+	canceledVersions       []string
+	canceledExceptVersions [][]string
+	cancelReasons          []string
+	failOnceAfterInserted  int
+	failed                 bool
 }
 
 func (o *generationObligationFake) InsertObligation(_ context.Context, in obldomain.NewObligation) (string, bool, error) {
@@ -663,6 +809,32 @@ func (o *generationObligationFake) ReopenDeferredObligationByIdempotencyKey(_ co
 	o.inserted[idx].Status = "scheduled"
 	o.reopenedKeys = append(o.reopenedKeys, idempotencyKey)
 	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, _ string, _ time.Time) (string, bool, error) {
+	idx, ok := o.keyIndex[idempotencyKey]
+	if !ok {
+		return "", false, nil
+	}
+	switch o.inserted[idx].Status {
+	case "completed", "canceled", "superseded", "waived":
+		return "obligation-1", false, nil
+	}
+	o.inserted[idx].Status = "canceled"
+	o.canceledKeys = append(o.canceledKeys, idempotencyKey)
+	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatExceptVersions(_ context.Context, _, _ string, versionIDs []string, reason string, _ time.Time) (int, error) {
+	o.canceledExceptVersions = append(o.canceledExceptVersions, append([]string(nil), versionIDs...))
+	o.cancelReasons = append(o.cancelReasons, reason)
+	return 0, nil
+}
+
+func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatVersion(_ context.Context, _, _, versionID, reason string, _ time.Time) (int, error) {
+	o.canceledVersions = append(o.canceledVersions, versionID)
+	o.cancelReasons = append(o.cancelReasons, reason)
+	return 1, nil
 }
 
 func (o *generationObligationFake) RecordStatusEvent(context.Context, obldomain.NewStatusEvent) (string, bool, error) {

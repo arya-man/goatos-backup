@@ -261,6 +261,39 @@ func TestDLQCenterSeparatesReadNavFromRepairActions(t *testing.T) {
 	}
 }
 
+func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RolePHCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	item := navLeafByID(t, resp.Navigation.Groups, "config")
+	if !item.Enabled {
+		t.Fatalf("config should remain visible to protocol.read users: %#v", item)
+	}
+	control := controlByID(t, pageByRouteID(t, resp.Pages, "config").Controls, "publish_protocol_version")
+	if control.Enabled {
+		t.Fatalf("publish control should be disabled without protocol.publish: %#v", control)
+	}
+	if control.DisabledReason == "" {
+		t.Fatalf("disabled publish control must carry backend disabled reason: %#v", control)
+	}
+
+	publisher := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleAdmin, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	publishControl := controlByID(t, pageByRouteID(t, publisher.Pages, "config").Controls, "publish_protocol_version")
+	if !publishControl.Enabled || publishControl.DisabledReason != "" {
+		t.Fatalf("publish control should be enabled for protocol.publish: %#v", publishControl)
+	}
+}
+
 func TestBootstrapConfigPublishesVaccinationOnlyRuleAuthoringGroups(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
@@ -575,6 +608,17 @@ func navLeafByID(t *testing.T, groups []domain.NavigationGroup, id string) domai
 	}
 	t.Fatalf("missing nav leaf %q", id)
 	return domain.NavigationItem{}
+}
+
+func controlByID(t *testing.T, controls []domain.Control, id string) domain.Control {
+	t.Helper()
+	for _, control := range controls {
+		if control.ID == id {
+			return control
+		}
+	}
+	t.Fatalf("missing control %q", id)
+	return domain.Control{}
 }
 
 func routeLabelByPattern(t *testing.T, labels []domain.RouteLabelRule, pattern string) string {

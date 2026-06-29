@@ -96,7 +96,11 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	if markErr := s.repo.MarkFailed(ctx, request.TenantID, request.NotificationRequestID, request.LeaseToken, s.gateway.Name(), sanitizeError(err), nextAttempt, now); markErr != nil {
 		return fmt.Errorf("mark notification failed: %w", markErr)
 	}
-	result.FailedCount++
+	if nextAttempt == nil {
+		result.ExhaustedCount++
+	} else {
+		result.FailedCount++
+	}
 	return nil
 }
 

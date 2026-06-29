@@ -16,8 +16,16 @@ SELECT count(DISTINCT g.goat_id)::bigint AS total
 FROM goats g
 JOIN vaccination_completions vc
   ON vc.tenant_id = g.tenant_id AND vc.goat_id = g.goat_id AND vc.status = 'accepted'
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
 WHERE g.tenant_id = $1
-  AND g.lifecycle_status = 'alive'
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
   AND ($2::text = '' OR g.management_stage = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)
@@ -51,14 +59,22 @@ func (q *Queries) CountCatchupGoats(ctx context.Context, arg CountCatchupGoatsPa
 
 const countEligibleGoats = `-- name: CountEligibleGoats :one
 SELECT count(*)::bigint AS total
-FROM goats
-WHERE tenant_id = $1
-  AND lifecycle_status = 'alive'
-  AND ($2::text = '' OR management_stage = $2::text)
-  AND ($3::text = '' OR sex = $3::text)
-  AND ($4::text = '' OR breed = $4::text)
-  AND ($5::text = '' OR COALESCE(health_status, '') = $5::text)
-  AND ($6::uuid IS NULL OR park_id = $6::uuid)
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = $1
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
+  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($3::text = '' OR g.sex = $3::text)
+  AND ($4::text = '' OR g.breed = $4::text)
+  AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
+  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
 `
 
 type CountEligibleGoatsParams struct {
@@ -70,7 +86,7 @@ type CountEligibleGoatsParams struct {
 	ParkID   pgtype.UUID
 }
 
-// Live impact: alive goats matching a rule's eligibility dims within an optional park scope.
+// Live impact: in-care goats matching a rule's eligibility dims within an optional park scope.
 // Optional text dims use the (” OR col = @x) idiom; park scope via a nullable narg uuid.
 func (q *Queries) CountEligibleGoats(ctx context.Context, arg CountEligibleGoatsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countEligibleGoats,
@@ -87,16 +103,24 @@ func (q *Queries) CountEligibleGoats(ctx context.Context, arg CountEligibleGoats
 }
 
 const countEligibleShedScopes = `-- name: CountEligibleShedScopes :one
-SELECT count(DISTINCT shed_id)::bigint AS total
-FROM goats
-WHERE tenant_id = $1
-  AND lifecycle_status = 'alive'
-  AND shed_id IS NOT NULL
-  AND ($2::text = '' OR management_stage = $2::text)
-  AND ($3::text = '' OR sex = $3::text)
-  AND ($4::text = '' OR breed = $4::text)
-  AND ($5::text = '' OR COALESCE(health_status, '') = $5::text)
-  AND ($6::uuid IS NULL OR park_id = $6::uuid)
+SELECT count(DISTINCT g.shed_id)::bigint AS total
+FROM goats g
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = COALESCE(g.current_location_id, g.shed_id)
+WHERE g.tenant_id = $1
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
+  AND g.shed_id IS NOT NULL
+  AND ($2::text = '' OR g.management_stage = $2::text)
+  AND ($3::text = '' OR g.sex = $3::text)
+  AND ($4::text = '' OR g.breed = $4::text)
+  AND ($5::text = '' OR COALESCE(g.health_status, '') = $5::text)
+  AND ($6::uuid IS NULL OR g.park_id = $6::uuid)
 `
 
 type CountEligibleShedScopesParams struct {
@@ -385,7 +409,12 @@ LEFT JOIN locations park
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
 WHERE g.tenant_id = $1
-  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND (
+    g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    OR COALESCE(loa.is_quarantine, false)
+    OR COALESCE(loa.is_icu, false)
+  )
   AND ($2::text = '' OR g.management_stage = $2::text)
   AND ($3::text = '' OR g.sex = $3::text)
   AND ($4::text = '' OR g.breed = $4::text)

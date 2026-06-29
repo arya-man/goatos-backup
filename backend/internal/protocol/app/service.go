@@ -26,6 +26,9 @@ func (s *Service) CreateDefinition(ctx context.Context, in domain.NewDefinition)
 
 // CreateVersion drafts a protocol version (always created as a draft by the caller).
 func (s *Service) CreateVersion(ctx context.Context, in domain.NewVersion) (string, error) {
+	if err := ValidateRuleDSL(in.RuleDsl); err != nil {
+		return "", err
+	}
 	return s.repo.CreateVersion(ctx, in)
 }
 

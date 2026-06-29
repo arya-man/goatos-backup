@@ -36,6 +36,7 @@ export async function submitVaccinationProof(_prev: ActionResult | null, formDat
   try {
     const obligationId = formData.get("obligationId");
     const sopTaskId = formData.get("sopTaskId");
+    const sopVersionId = formData.get("sopVersionId");
     const file = formData.get("file") as File | null;
 
     if (!obligationId || typeof obligationId !== "string") {
@@ -44,31 +45,52 @@ export async function submitVaccinationProof(_prev: ActionResult | null, formDat
     if (!sopTaskId || typeof sopTaskId !== "string") {
       return { ok: false, error: "Missing SOP task ID — proof submission cannot proceed without a task reference" };
     }
+    if (!sopVersionId || typeof sopVersionId !== "string") {
+      return { ok: false, error: "Missing SOP version ID — proof submission cannot proceed without the task's pinned SOP version" };
+    }
     if (!file || !(file instanceof File)) {
       return { ok: false, error: "No file selected — please choose a video or image file" };
     }
 
     const mediaType = inferMediaType(file.type);
+    const proofType = inferProofType(mediaType);
 
-    const createResult = await createProofUpload(obligationId);
+    const createResult = await createProofUpload({
+      proof_type: proofType,
+      mime_type: mediaType,
+      scope_type: "task",
+      scope_id: sopTaskId,
+      subject_type: "task",
+      subject_id: sopTaskId,
+      metadata: { obligation_id: obligationId },
+    });
     if (!createResult.ok) {
       return { ok: false, error: `Failed to create proof upload: ${createResult.error.message}` };
     }
     const proofId = createResult.data.proof.proof_id;
 
-    const uploadResult = await uploadProofLocal(proofId, file);
+    const uploadResult = await uploadProofLocal(createResult.data.upload_url, createResult.data.headers, file);
     if (!uploadResult.ok) {
       return { ok: false, error: `Failed to upload file: ${uploadResult.error.message}` };
     }
 
-    const completeResult = await completeProofUpload(proofId, mediaType);
+    const completeResult = await completeProofUpload(proofId, mediaType, file.size);
     if (!completeResult.ok) {
       return { ok: false, error: `Failed to complete proof upload: ${completeResult.error.message}` };
     }
 
     const submitResult = await submitAppTask(sopTaskId, {
-      proof_id: proofId,
-      media_type: mediaType,
+      sop_version_id: sopVersionId,
+      idempotency_key: `vaccination-proof-submit:${sopTaskId}:${proofId}`,
+      answers: {},
+      proof_refs: [{
+        proof_id: proofId,
+        proof_type: proofType,
+        subject_type: "task",
+        subject_id: sopTaskId,
+        upload_state: "completed",
+        metadata: { obligation_id: obligationId, mime_type: mediaType, size_bytes: file.size },
+      }],
     });
     if (!submitResult.ok) {
       return { ok: false, error: `Failed to submit task: ${submitResult.error.message}` };
@@ -141,4 +163,10 @@ function inferMediaType(mimeType: string): string {
   }
   // Default to octet-stream if unknown
   return "application/octet-stream";
+}
+
+function inferProofType(mimeType: string): "photo" | "video" | "attachment" {
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("image/")) return "photo";
+  return "attachment";
 }

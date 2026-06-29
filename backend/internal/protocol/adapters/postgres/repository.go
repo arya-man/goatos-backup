@@ -629,11 +629,12 @@ func insertProtocolPublishedOutbox(ctx context.Context, tx pgx.Tx, tenantID stri
 INSERT INTO outbox_messages (
   tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
   topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
-) VALUES (
-  $1::uuid, $2::uuid, $3, $4, $5, $6::uuid,
-  $7, $8::jsonb, $9::jsonb, $10, $11, 'pending', now()
-)`, tenantID, eventID, protocolPublishedEventType, protocolPublishedSchemaVersion,
-		protocolPublishedAggregateType, published.VersionID, protocolPublishedTopic, envelope, headers, idempotencyKey, traceID)
+	) VALUES (
+	  $1::uuid, $2::uuid, $3, $4, $5, $6::uuid,
+	  $7, $8::jsonb, $9::jsonb, $10, $11, 'pending', now()
+	)
+	ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'protocol.version.published' DO NOTHING`, tenantID, eventID, protocolPublishedEventType, protocolPublishedSchemaVersion,
+			protocolPublishedAggregateType, published.VersionID, protocolPublishedTopic, envelope, headers, idempotencyKey, traceID)
 	if err != nil {
 		return fmt.Errorf("protocol: insert published outbox: %w", err)
 	}

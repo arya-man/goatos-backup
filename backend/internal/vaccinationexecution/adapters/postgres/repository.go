@@ -65,7 +65,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 	for rows.Next() {
 		var p domain.ExecutionProjection
 		var batchID, batchStatus, taskState, operatorName, parkHeadName, verifierName pgtype.Text
-		var obligationID, sopTaskID, completionID pgtype.Text
+		var obligationID, sopTaskID, sopVersionID, completionID pgtype.Text
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
@@ -104,6 +104,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 			&healthDeferredCount,
 			&obligationID,
 			&sopTaskID,
+			&sopVersionID,
 			&sopTaskRowVersion,
 			&completionID,
 		); err != nil {
@@ -131,6 +132,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 		p.HealthDeferredCount = int(healthDeferredCount)
 		p.ObligationID = textPtr(obligationID)
 		p.SOPTaskID = textPtr(sopTaskID)
+		p.SOPVersionID = textPtr(sopVersionID)
 		p.SOPTaskRowVersion = int32Ptr(sopTaskRowVersion)
 		p.CompletionID = textPtr(completionID)
 		out = append(out, p)
@@ -268,6 +270,7 @@ raw AS (
     ob.conducted_by,
     st.state AS task_state,
     st.task_id AS sop_task_id,
+    st.sop_version_id AS sop_version_id,
     st.row_version AS sop_task_row_version,
     st.assigned_to,
     g.lifecycle_status AS goat_lifecycle_status,
@@ -421,6 +424,7 @@ grouped AS (
     )::bigint AS health_deferred_count,
     (ARRAY_AGG(located.obligation_id ORDER BY located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
     (ARRAY_AGG(located.sop_task_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
+    (ARRAY_AGG(located.sop_version_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_version_id IS NOT NULL))[1]::text AS sop_version_id,
     (ARRAY_AGG(located.sop_task_row_version ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
     (ARRAY_AGG(located.completion_id ORDER BY located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
   FROM located
@@ -522,6 +526,7 @@ SELECT
   grouped.health_deferred_count,
   grouped.obligation_id,
   grouped.sop_task_id,
+  grouped.sop_version_id,
   grouped.sop_task_row_version,
   grouped.completion_id
 FROM stateful grouped

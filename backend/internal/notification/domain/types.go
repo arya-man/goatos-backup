@@ -11,6 +11,7 @@ const (
 	StatusSending    = "sending"
 	StatusSent       = "sent"
 	StatusFailed     = "failed"
+	StatusExhausted  = "exhausted"
 	StatusSuppressed = "suppressed"
 	StatusRead       = "read"
 )
@@ -39,4 +40,5 @@ type DispatchResult struct {
 	ClaimedCount        int
 	SentCount           int
 	FailedCount         int
+	ExhaustedCount      int
 }

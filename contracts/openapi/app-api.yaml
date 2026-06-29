@@ -1699,13 +1699,6 @@ components:
       schema:
         type: string
         minLength: 1
-    CompletionId:
-      name: completion_id
-      in: path
-      required: true
-      schema:
-        type: string
-        minLength: 1
     ShedId:
       name: shed_id
       in: path
@@ -5341,6 +5334,9 @@ components:
         sopTaskId:
           type: string
           format: uuid
+        sopVersionId:
+          type: string
+          format: uuid
         sopTaskRowVersion:
           type: integer
         completionId:
@@ -5976,31 +5972,6 @@ components:
           nullable: true
         sort_order:
           type: integer
-    RejectVaccinationCompletionRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        reason:
-          type: string
-    AcceptVaccinationCompletionResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - applied
-        - completed
-      properties:
-        applied:
-          type: boolean
-        completed:
-          type: boolean
-    RejectVaccinationCompletionResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - applied
-      properties:
-        applied:
-          type: boolean
     VaccinationPassportDue:
       type: object
       additionalProperties: false

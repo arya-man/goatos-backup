@@ -41,6 +41,16 @@ BEGIN
 END;
 $$;
 
+-- Historical drafts/dev rows could have age-window repeat values from the early CHECK below.
+-- The generator never executed those values, and new authoring now rejects them. Normalize before
+-- the immutability triggers are installed so tightening the CHECK cannot abort on existing data.
+UPDATE protocol_rules
+SET repeat_until_after_age = COALESCE(NULLIF(repeat_until_after_age, ''), repeat),
+    eligibility_json = COALESCE(eligibility_json, '{}'::jsonb) ||
+      jsonb_build_object('_legacy_unsupported_repeat', repeat),
+    repeat = 'none'
+WHERE repeat IN ('until_age', 'after_age');
+
 DROP TRIGGER IF EXISTS protocol_rules_require_draft_version_trg ON protocol_rules;
 CREATE TRIGGER protocol_rules_require_draft_version_trg
 BEFORE INSERT OR UPDATE OR DELETE ON protocol_rules

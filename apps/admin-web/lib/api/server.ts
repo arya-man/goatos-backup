@@ -617,9 +617,15 @@ export async function requestSopTaskRework(taskId: string, body: ReviewTaskReque
 // ---- Proof upload wrappers for vaccination drawer ----
 // These enable the frontend to initiate proof uploads for vaccination completions and task submissions.
 
-export async function createProofUpload(
-  obligationId: string,
-): Promise<ApiResult<CreateProofUploadResponse>> {
+export async function createProofUpload(body: {
+  proof_type: "photo" | "video" | "attachment";
+  mime_type: string;
+  scope_type: "task";
+  scope_id: string;
+  subject_type: "task" | "administration";
+  subject_id?: string | null;
+  metadata?: Record<string, unknown>;
+}): Promise<ApiResult<CreateProofUploadResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
@@ -627,33 +633,43 @@ export async function createProofUpload(
     client.request<CreateProofUploadResponse>("/app/proofs/uploads", {
       method: "POST",
       cache: "no-store",
-      body: { obligation_id: obligationId },
+      body,
     }),
   );
 }
 
 export async function uploadProofLocal(
-  proofId: string,
+  uploadUrl: string,
+  uploadHeaders: Record<string, string>,
   file: File,
 ): Promise<ApiResult<void>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  const formData = new FormData();
-  formData.append("file", file);
-  const path = `/app/proofs/${encodeURIComponent(proofId)}/upload` as keyof AppApiPaths & string;
-  return request(() =>
-    client.request<void>(path, {
+  return request(async () => {
+    const target = new URL(uploadUrl, config.data.baseUrl);
+    const apiOrigin = new URL(config.data.baseUrl).origin;
+    const headers = new Headers(uploadHeaders);
+    if (target.origin === apiOrigin) {
+      headers.set("Authorization", `Bearer ${config.data.bearerToken}`);
+      if (config.data.tenantId) headers.set("X-GoatOS-Tenant-ID", config.data.tenantId);
+    }
+    if (file.type) headers.set("Content-Type", file.type);
+    const res = await fetch(target, {
       method: "PUT",
       cache: "no-store",
-      body: formData,
-    }),
-  );
+      headers,
+      body: file,
+    });
+    if (!res.ok) {
+      throw new Error(`Proof upload failed with HTTP ${res.status}`);
+    }
+  });
 }
 
 export async function completeProofUpload(
   proofId: string,
   mediaType: string,
+  sizeBytes: number,
 ): Promise<ApiResult<ProofResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -663,14 +679,26 @@ export async function completeProofUpload(
     client.request<ProofResponse>(path, {
       method: "POST",
       cache: "no-store",
-      body: { media_type: mediaType },
+      body: { mime_type: mediaType, size_bytes: sizeBytes },
     }),
   );
 }
 
 export async function submitAppTask(
   taskId: string,
-  submissionData: Record<string, unknown>,
+  submissionData: {
+    sop_version_id: string;
+    idempotency_key: string;
+    answers: Record<string, unknown>;
+    proof_refs: Array<{
+      proof_id: string;
+      proof_type: "photo" | "video" | "attachment";
+      subject_type: "task" | "administration";
+      subject_id?: string | null;
+      upload_state: "completed";
+      metadata: Record<string, unknown>;
+    }>;
+  },
 ): Promise<ApiResult<SubmissionResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;

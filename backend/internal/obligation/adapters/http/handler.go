@@ -22,6 +22,7 @@ type DueLister interface {
 type Handler struct {
 	due DueLister
 	log *slog.Logger
+	now func() time.Time
 }
 
 // NewHandler constructs the handler with an optional logger.
@@ -32,7 +33,7 @@ func NewHandler(due DueLister, log ...*slog.Logger) *Handler {
 	} else {
 		l = slog.Default()
 	}
-	return &Handler{due: due, log: l}
+	return &Handler{due: due, log: l, now: func() time.Time { return time.Now().UTC() }}
 }
 
 // Register mounts the Action Center routes.
@@ -132,7 +133,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asOf := dueBefore
+	asOf := h.now().UTC()
 	rows, err := h.due.ListDue(r.Context(), tenantID(r), repoStatus, dueBefore, limit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
@@ -164,7 +165,7 @@ func (h *Handler) ListDue(w http.ResponseWriter, r *http.Request) {
 func repoStatusForWorkState(workState string) (string, string) {
 	switch workState {
 	case "overdue":
-		return "scheduled_or_due", "overdue"
+		return "scheduled_or_due_overdue", "overdue"
 	case "due":
 		return "scheduled_or_due", "due"
 	case "proof_pending":

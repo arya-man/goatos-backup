@@ -102,6 +102,7 @@ type MoveGoatCommand struct {
 	OccurredAt           time.Time
 	EvidenceRefs         []domain.EvidenceRef
 	RowVersion           int
+	GuardrailApproved    bool
 }
 
 type ExitGoatCommand struct {
@@ -119,6 +120,7 @@ type ExitGoatCommand struct {
 	OccurredAt           time.Time
 	EvidenceRefs         []domain.EvidenceRef
 	RowVersion           int
+	GuardrailApproved    bool
 }
 
 type StageGoatCommand struct {

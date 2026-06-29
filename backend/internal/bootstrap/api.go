@@ -255,7 +255,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
-	vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo)
+	vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo)
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	protocolService := protocolapp.NewService(protocolRepo)
 	protocolHandler := protocolhttp.NewHandler(protocolService, log)
@@ -348,7 +348,7 @@ func bulkImportPreviewSigningKey(cfg Config) (string, error) {
 
 func bulkImportPreviewDevSigningKeyAllowed(env string) bool {
 	switch strings.ToLower(strings.TrimSpace(env)) {
-	case "local", "dev", "development", "test":
+	case "local", "test":
 		return true
 	default:
 		return false

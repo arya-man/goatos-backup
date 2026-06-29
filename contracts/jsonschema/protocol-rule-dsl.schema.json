@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goatos.local/contracts/jsonschema/protocol-rule-dsl.schema.json",
+  "title": "Goat OS Protocol Rule DSL",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "category": { "type": "string" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": ["string", "null"] }
+      }
+    },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "animal_stage": { "type": "string" },
+        "animal_stage_source": { "type": "string" },
+        "stage": { "type": "string" },
+        "sex": { "type": "string" },
+        "breed": { "type": "string" },
+        "breed_class": { "type": "string" },
+        "lifecycle": { "type": "string" },
+        "health": { "type": "string" },
+        "reproductive": { "type": "string" },
+        "exclude_reproductive_states": { "type": "array", "items": { "type": "string" } },
+        "defer_states": { "type": "array", "items": { "type": "string" } },
+        "min_age_days": { "type": "integer" },
+        "max_age_days": { "type": "integer" },
+        "age_band": { "type": "string" }
+      }
+    },
+    "missed_dose_policy": { "type": "string" },
+    "stock_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vaccine_lot_requirement": { "type": "string" },
+        "pick": { "type": "string" },
+        "reject_expired_lot": { "type": "boolean" },
+        "cold_chain_required": { "type": "boolean" }
+      }
+    },
+    "schedule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dose_code": { "type": "string" },
+          "sequence": { "type": "integer" },
+          "trigger_type": { "type": "string" },
+          "offset_days": { "type": "integer" },
+          "due_window_days": { "type": "integer" },
+          "min_gap_days": { "type": "integer" },
+          "repeat": { "type": "string" },
+          "repeat_until_after_age": { "type": "string" },
+          "catch_up": { "type": "string" },
+          "sop_version": { "type": "string" },
+          "sop_label": { "type": "string" },
+          "proof_policy": {
+            "oneOf": [
+              { "type": "array", "items": { "type": "string" } },
+              { "type": "object" }
+            ]
+          }
+        }
+      }
+    },
+    "escalation": { "type": "string" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_system": { "type": "string" },
+        "source_ref": { "type": "string" },
+        "imported_at": { "type": ["string", "null"] },
+        "reviewed_by": { "type": "string" },
+        "review_status": { "type": "string" },
+        "approved_by": { "type": "string" },
+        "approved_at": { "type": ["string", "null"] }
+      }
+    },
+    "ration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "feed_item": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" }
+      }
+    },
+    "session_timing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session_order": { "type": "integer" },
+          "session_time": { "type": "string" },
+          "packing_proof_policy": { "type": "array", "items": { "type": "string" } },
+          "execution_proof_policy": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "inventory_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string" },
+        "reserve": { "type": "string" },
+        "consume": { "type": "string" },
+        "release": { "type": "string" }
+      }
+    }
+  }
+}

@@ -287,7 +287,7 @@ func TestListRowsSurfacesCanonicalDeferredObligations(t *testing.T) {
 		t.Fatalf("got %d deferred rows want 1: %#v", len(result.Rows), result.Rows)
 	}
 	row := result.Rows[0]
-	if row.WorkState != domain.WorkStateDeferred || row.GapType != "deferred_explained" || row.DeferredCount == 0 {
+	if row.WorkState != domain.WorkStateDeferred || row.GapType != "deferred_explained" || row.DeferredCount != 1 {
 		t.Fatalf("deferred row = %+v", row)
 	}
 	if countFor(result.CountsByWorkState, domain.WorkStateDeferred) != 1 {

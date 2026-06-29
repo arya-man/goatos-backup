@@ -32,6 +32,9 @@ Goat OS coverage checklist (frozen migration audit, not living architecture)
 General/Slack source findings
   context/source-findings/drive-docs-findings.md
 
+Feed Direction Counting DB reconstruction
+  context/source-findings/feed-direction-counting-db-reconstruction.md
+
 Customer promise safety source findings
   context/source-findings/customer-promise-safety-findings.md
 

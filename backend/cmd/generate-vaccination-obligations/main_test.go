@@ -1,29 +1,37 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
-func TestParseFlagsVersionIDRequiresUnsafeGate(t *testing.T) {
-	t.Setenv("GOATOS_TENANT_ID", "00000000-0000-4000-8000-000000000001")
-	cfg, err := parseFlags([]string{"-version-id=86000000-0000-4000-8000-000000000001", "-as-of=2026-06-01T00:00:00Z"})
+func TestParseFlagsDefaultsAsOfToUTCDayBucket(t *testing.T) {
+	now := func() time.Time {
+		return time.Date(2026, time.June, 29, 15, 4, 5, 0, time.UTC)
+	}
+
+	cfg, err := parseFlags([]string{"-tenant-id", "00000000-0000-4000-8000-000000000001"}, now)
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	if cfg.UnsafeVersionRun {
-		t.Fatalf("UnsafeVersionRun = true, want false")
+	want := time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC)
+	if !cfg.AsOf.Equal(want) {
+		t.Fatalf("AsOf=%s, want stable UTC day bucket %s", cfg.AsOf, want)
 	}
 }
 
-func TestParseFlagsVersionIDUnsafeGate(t *testing.T) {
-	t.Setenv("GOATOS_TENANT_ID", "00000000-0000-4000-8000-000000000001")
+func TestParseFlagsExplicitAsOfOverridesDayBucket(t *testing.T) {
 	cfg, err := parseFlags([]string{
-		"-version-id=86000000-0000-4000-8000-000000000001",
-		"-unsafe-version-id-bypass-effective-resolution",
-		"-as-of=2026-06-01T00:00:00Z",
+		"-tenant-id", "00000000-0000-4000-8000-000000000001",
+		"-as-of", "2026-06-29T12:34:56Z",
+	}, func() time.Time {
+		return time.Date(2026, time.June, 29, 15, 4, 5, 0, time.UTC)
 	})
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	if !cfg.UnsafeVersionRun {
-		t.Fatalf("UnsafeVersionRun = false, want true")
+	want := time.Date(2026, time.June, 29, 12, 34, 56, 0, time.UTC)
+	if !cfg.AsOf.Equal(want) {
+		t.Fatalf("AsOf=%s, want explicit value %s", cfg.AsOf, want)
 	}
 }

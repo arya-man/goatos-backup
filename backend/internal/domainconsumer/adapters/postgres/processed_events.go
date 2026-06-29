@@ -12,7 +12,6 @@ import (
 )
 
 const defaultQueryTimeout = 3 * time.Second
-const processingStaleAfter = 15 * time.Minute
 
 type ProcessedEventStore struct {
 	pool    *pgxpool.Pool
@@ -30,7 +29,6 @@ func (s *ProcessedEventStore) BeginProcessing(ctx context.Context, event consume
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	event = normalizeProcessedEvent(event)
-	staleBefore := event.Now.Add(-processingStaleAfter)
 	var status string
 	err := s.pool.QueryRow(ctx, `
 INSERT INTO domain_event_processed_events (
@@ -50,10 +48,6 @@ DO UPDATE SET
   updated_at = EXCLUDED.updated_at,
   last_error = NULL
 WHERE domain_event_processed_events.status = 'failed'
-   OR (
-     domain_event_processed_events.status = 'processing'
-     AND domain_event_processed_events.started_at <= $8::timestamptz
-   )
 RETURNING status`,
 		event.TenantID,
 		event.SubscriptionID,
@@ -62,7 +56,6 @@ RETURNING status`,
 		event.MessageID,
 		event.DeliveryAttempt,
 		event.Now,
-		staleBefore,
 	).Scan(&status)
 	if err == nil {
 		return consumerapp.ProcessDecisionClaimed, nil

@@ -250,6 +250,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		ObligationID:       p.ObligationID,
 		BatchID:            p.BatchID,
 		SOPTaskID:          p.SOPTaskID,
+		SOPVersionID:       p.SOPVersionID,
 		SOPTaskRowVersion:  p.SOPTaskRowVersion,
 		CompletionID:       p.CompletionID,
 	}

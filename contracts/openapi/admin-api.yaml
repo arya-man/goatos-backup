@@ -1593,9 +1593,40 @@ paths:
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
+          $ref: "#/components/responses/GuardrailOrWriteConflict"
+  /admin/goats/{goat_id}/critical-death-exit:
+    post:
+      tags:
+        - Admin Goats
+      operationId: criticalDeathExitGoat
+      summary: Mark an approved death exit and queue goat.exited cancellation.
+      description: Critical-action guardrail approval path for dead/died exits; this is the only primitive allowed to record death and emit goat.exited side effects.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExitGoatDeadRequest"
+      responses:
+        "200":
+          description: Goat death exit recorded or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
           $ref: "#/components/responses/WriteConflict"
-        "501":
-          $ref: "#/components/responses/NotImplemented"
   /admin/goats/{goat_id}/stage:
     post:
       tags:
@@ -1634,7 +1665,7 @@ paths:
         - Admin Goats
       operationId: healthGoat
       summary: Change goat health status and queue goat.health.changed vaccination rechecks.
-      description: Recovery and non-critical health changes use this primitive. Quarantine and ICU targets fail closed with 501 until the critical-action guardrail path owns them.
+      description: Recovery and non-critical health changes use this primitive. Quarantine and ICU targets fail closed with 409 guardrail-required until the critical-action guardrail path owns them.
       parameters:
         - $ref: "#/components/parameters/GoatId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1660,9 +1691,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
-          $ref: "#/components/responses/WriteConflict"
-        "501":
-          $ref: "#/components/responses/NotImplemented"
+          $ref: "#/components/responses/GuardrailOrWriteConflict"
   /vaccination/manual-campaigns:
     post:
       tags:
@@ -2573,6 +2602,12 @@ components:
             $ref: "#/components/schemas/ErrorEnvelope"
     WriteConflict:
       description: Optimistic concurrency, uniqueness, merge redirect, or idempotency conflict.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    GuardrailOrWriteConflict:
+      description: Optimistic concurrency/idempotency conflict, or a guardrail-required critical transition that must use its guarded path.
       content:
         application/json:
           schema:
@@ -4484,7 +4519,7 @@ components:
           minimum: 1
     HealthGoatRequest:
       type: object
-      description: Quarantine and ICU are schema-visible for forward compatibility, but this primitive returns 501 for those targets until the critical-action guardrail path owns them.
+      description: Quarantine and ICU are schema-visible for forward compatibility, but this primitive returns 409 guardrail-required for those targets until the critical-action guardrail path owns them.
       additionalProperties: false
       required:
         - health_status
@@ -4616,7 +4651,7 @@ components:
           type: integer
           minimum: 0
     ExitGoatRequest:
-      description: Dead/died exits are schema-visible for forward compatibility, but this primitive returns 409 guardrail-required for death transitions until the critical-action guardrail path owns them.
+      description: Dead/died exits are schema-visible for the critical-death-exit guardrail path; the regular exit primitive returns 409 guardrail-required for death transitions.
       oneOf:
         - $ref: "#/components/schemas/ExitGoatDeadRequest"
         - $ref: "#/components/schemas/ExitGoatSoldRequest"

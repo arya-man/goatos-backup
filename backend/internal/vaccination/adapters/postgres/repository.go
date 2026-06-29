@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	vaccinationdb "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -599,10 +600,13 @@ func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in dom
 	if err != nil {
 		return domain.AcceptCompletionAtomicResult{}, err
 	}
-	if obligationStatus != "scheduled" && obligationStatus != "due" && obligationStatus != "in_progress" && obligationStatus != "missed" && obligationStatus != "completed" {
-		if row.status == "recorded" {
+	if obligationStatus == "completed" {
+		if row.status == "accepted" {
 			return result, nil
 		}
+		return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
+	}
+	if obligationStatus != "scheduled" && obligationStatus != "due" && obligationStatus != "in_progress" && obligationStatus != "missed" {
 		return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
 	}
 	consumed, err := r.consumeAcceptedCompletionStock(ctx, tx, in.TenantID, row)
@@ -669,6 +673,30 @@ func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in dom
 		result.OutboxInserted = outboxInserted
 		if outboxInserted {
 			result.Applied = true
+		}
+	}
+	if result.Completed {
+		now := time.Now().UTC()
+		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+			TenantID:     in.TenantID,
+			ActorType:    "system",
+			Action:       vaccinationCompletedEventType,
+			ResourceType: "obligation_instance",
+			ResourceID:   row.obligationID,
+			ScopeType:    "obligation.status_event",
+			ScopeID:      row.obligationID,
+			AfterState: map[string]any{
+				"status":        "completed",
+				"completion_id": row.completionID,
+				"goat_id":       row.goatID,
+				"occurred_at":   now.Format(time.RFC3339Nano),
+			},
+			Metadata: map[string]any{
+				"source": "vaccination_accept_completion_atomic",
+			},
+			TraceID: "vaccination.completed:" + row.obligationID,
+		}); err != nil {
+			return domain.AcceptCompletionAtomicResult{}, fmt.Errorf("vaccination: completed audit: %w", err)
 		}
 	}
 	return result, nil
@@ -848,7 +876,7 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 }
 
 func (r *Repository) ensureCompletedStatusEvent(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) (string, bool, error) {
-	key := obligationID + ":completed"
+	key := tenantID + ":" + obligationID + ":completed"
 	var eventID string
 	err := tx.QueryRow(ctx, `
 	SELECT obligation_event_id::text
@@ -899,7 +927,7 @@ func (r *Repository) ensureCompletedStatusEvent(ctx context.Context, tx pgx.Tx, 
 	if err != nil {
 		return "", false, fmt.Errorf("vaccination: insert completed status event: %w", err)
 	}
-	if err := r.completeCompletedStatusIdempotencyKey(ctx, tx, key, eventID); err != nil {
+	if err := r.completeCompletedStatusIdempotencyKey(ctx, tx, tenantID, key, eventID); err != nil {
 		return "", false, err
 	}
 	return eventID, true, nil
@@ -915,14 +943,15 @@ func (r *Repository) ensureCompletedStatusIdempotencyKey(ctx context.Context, tx
 	return nil
 }
 
-func (r *Repository) completeCompletedStatusIdempotencyKey(ctx context.Context, tx pgx.Tx, key, eventID string) error {
+func (r *Repository) completeCompletedStatusIdempotencyKey(ctx context.Context, tx pgx.Tx, tenantID, key, eventID string) error {
 	if _, err := tx.Exec(ctx, `
 	UPDATE idempotency_keys
 	SET status = 'completed',
 	    result_type = 'obligation_status_event',
 	    result_id = $2::uuid,
 	    completed_at = now()
-	WHERE idempotency_key = $1`, key, eventID); err != nil {
+	WHERE idempotency_key = $1
+	  AND tenant_id = $3::uuid`, key, eventID, tenantID); err != nil {
 		return fmt.Errorf("vaccination: complete status idempotency key: %w", err)
 	}
 	return nil
@@ -1236,6 +1265,7 @@ INSERT INTO vaccination_completions (
   cold_chain_verified,
   administered_at,
   status,
+  withdrawal_until_date,
   recorded_by,
   idempotency_key
 )
@@ -1253,6 +1283,15 @@ SELECT
   COALESCE((ss.answers ->> 'cold_chain_verified')::boolean, false),
   COALESCE(nullif(ss.answers ->> 'administered_at', '')::timestamptz, ss.submitted_at),
   'recorded',
+  COALESCE(
+    (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
+    nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
+    CASE
+      WHEN pr.withdrawal_days IS NOT NULL THEN
+        (COALESCE(nullif(ss.answers ->> 'administered_at', '')::timestamptz, ss.submitted_at)::date + pr.withdrawal_days)
+      ELSE NULL
+    END
+  ),
   nullif($4, '')::uuid,
   'vaccination:sop_submission_item:' || si.item_id::text
 FROM sop_submission_items si
@@ -1276,6 +1315,9 @@ JOIN obligation_instances oi
       oi.sop_task_id = st.task_id
       OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
  )
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
 WHERE si.tenant_id = $1
   AND si.task_id = $2
   AND si.submission_id = $3
@@ -1306,6 +1348,43 @@ RETURNING completion_id::text`,
 	}
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("vaccination: record completions from submission rows: %w", err)
+	}
+	if _, err := r.pool.Exec(ctx, `
+UPDATE vaccination_completions vc
+SET withdrawal_until_date = COALESCE(
+      (nullif(ss.answers ->> 'withdrawal_until', '')::timestamptz)::date,
+      nullif(ss.answers ->> 'withdrawal_until_date', '')::date,
+      CASE
+        WHEN pr.withdrawal_days IS NOT NULL THEN
+          (COALESCE(nullif(ss.answers ->> 'administered_at', '')::timestamptz, ss.submitted_at)::date + pr.withdrawal_days)
+        ELSE NULL
+      END
+    ),
+    row_version = vc.row_version + 1,
+    updated_at = now()
+FROM sop_submission_items si
+JOIN sop_submissions ss
+  ON ss.tenant_id = si.tenant_id
+ AND ss.submission_id = si.submission_id
+JOIN obligation_instances oi
+  ON oi.tenant_id = si.tenant_id
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+WHERE vc.tenant_id = $1
+  AND si.tenant_id = vc.tenant_id
+  AND si.item_id = vc.sop_submission_item_id
+  AND si.task_id = $2
+  AND si.submission_id = $3
+  AND oi.tenant_id = vc.tenant_id
+  AND oi.obligation_id = vc.obligation_id
+  AND vc.withdrawal_until_date IS NULL
+  AND (
+    nullif(ss.answers ->> 'withdrawal_until', '') IS NOT NULL
+    OR nullif(ss.answers ->> 'withdrawal_until_date', '') IS NOT NULL
+    OR pr.withdrawal_days IS NOT NULL
+  )`, tenant, task, submission); err != nil {
+		return 0, fmt.Errorf("vaccination: backfill submission withdrawal date: %w", err)
 	}
 	eligibleItems, materializedItems, err := r.submissionFanoutCounts(ctx, tenant, task, submission)
 	if err != nil {

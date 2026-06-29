@@ -140,6 +140,11 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol version payload", TraceID: traceID(r)}, nil)
 		return
 	}
+	if errors.Is(err, app.ErrInvalidRuleDSL) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_rule_dsl", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
 	if err != nil {
 		h.internal(w, r, err)
 		return
@@ -357,6 +362,16 @@ func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.config.PublishVersion(r.Context(), tenantID(r), r.PathValue("version_id"), actorPtr(r), idempotencyKey)
+	if errors.Is(err, app.ErrUnsupportedRepeatPolicy) {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			errorEnvelope{Code: "unsupported_repeat_policy", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, app.ErrInvalidRuleDSL) {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			errorEnvelope{Code: "invalid_rule_dsl", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
 	if errors.Is(err, app.ErrNotPublishable) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			errorEnvelope{Code: "not_publishable", Message: err.Error(), TraceID: traceID(r)}, nil)

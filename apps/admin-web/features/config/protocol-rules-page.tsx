@@ -3,7 +3,7 @@ import { Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
 import { isRfc3339Timestamp, type AnimalStageOption, type SopVersionOption } from "./rule-dsl";
 import { listAnimalStages, listProtocolConfigs, listSops, type ProtocolConfigItem } from "@/lib/api/server";
-import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { control, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // The generic CEO/COO authoring surface (obligation-engine §2.1 config-UI contract). One Config screen
 // authors every protocol category; the engine, obligations, SOP tasks, and adherence all flow from
@@ -97,6 +97,7 @@ function toRuleRow(item: ProtocolConfigItem, pageContract: AdminUiPageContract):
 // never fabricated. A failed read surfaces an error band, not a silent empty table.
 export async function ConfigProtocolRulesPage({ category, pageContract }: { category: string; pageContract: AdminUiPageContract }) {
   const initialCategory = resolveCategory(category, pageContract);
+  const publishControl = control(pageContract, "publish_protocol_version");
   const [res, sopRes, stagesRes] = await Promise.all([
     listProtocolConfigs(initialCategory),
     listSops({ status: "active" }),
@@ -141,6 +142,8 @@ export async function ConfigProtocolRulesPage({ category, pageContract }: { cate
         loadError={loadError}
         stagesError={stagesError}
         sopsError={sopsError}
+        canPublish={publishControl.enabled}
+        publishDisabledReason={publishControl.disabled_reason}
         pageContract={pageContract}
       />
 

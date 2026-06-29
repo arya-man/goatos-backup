@@ -48,6 +48,18 @@ locals {
       account_id   = "goatos-notification-dispatcher-dev"
       display_name = "Goat OS dev notification dispatcher runtime"
     }
+    inventory_batch_reconciler = {
+      account_id   = "goatos-inventory-reconcile-dev"
+      display_name = "Goat OS dev inventory batch reconciler runtime"
+    }
+    idempotency_key_sweeper = {
+      account_id   = "goatos-idempotency-sweeper-dev"
+      display_name = "Goat OS dev idempotency key sweeper runtime"
+    }
+    sop_review_fanout_retry = {
+      account_id   = "goatos-sop-review-retry-dev"
+      display_name = "Goat OS dev SOP review fanout retry runtime"
+    }
     migrate = {
       account_id   = "goatos-migrate-dev"
       display_name = "Goat OS dev migration job runtime"
@@ -76,6 +88,9 @@ locals {
     "calendar_reminder_sweeper",
     "calendar_escalation_sweeper",
     "notification_dispatcher",
+    "inventory_batch_reconciler",
+    "idempotency_key_sweeper",
+    "sop_review_fanout_retry",
     "migrate",
     "legacy_sync",
   ])
@@ -93,6 +108,9 @@ locals {
         "calendar_reminder_sweeper",
         "calendar_escalation_sweeper",
         "notification_dispatcher",
+        "inventory_batch_reconciler",
+        "idempotency_key_sweeper",
+        "sop_review_fanout_retry",
         "migrate",
         "legacy_sync",
       ]

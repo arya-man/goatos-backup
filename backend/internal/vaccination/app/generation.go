@@ -37,6 +37,9 @@ type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
 	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
+	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 }
 
@@ -351,6 +354,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		park := v.ScopeID
 		filter.ParkID = &park
 	}
+	effectiveCache := make(map[string]map[string]struct{})
 	after := ""
 	for {
 		goats, err := s.goats.ListEligibleGoatsForGeneration(ctx, filter, after, s.page)
@@ -367,6 +371,15 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			}
 			if !goatMatchesEligibility(g, elig) {
 				continue
+			}
+			if v.ScopeType == "tenant" {
+				effective, err := s.versionEffectiveForGoat(ctx, tenantID, g.ParkID, versionID, asOf, effectiveCache)
+				if err != nil {
+					return res, err
+				}
+				if !effective {
+					continue
+				}
 			}
 			pagePlans = append(pagePlans, goatGenerationPlan{
 				versionID:   versionID,
@@ -395,6 +408,27 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		after = goats[len(goats)-1].GoatID
 	}
 	return res, nil
+}
+
+func (s *GenerationService) versionEffectiveForGoat(ctx context.Context, tenantID, parkID, versionID string, asOf time.Time, cache map[string]map[string]struct{}) (bool, error) {
+	key := parkID
+	if key == "" {
+		key = "<tenant>"
+	}
+	versions, ok := cache[key]
+	if !ok {
+		versionIDs, err := s.proto.ListEffectiveVaccinationVersionsForGoat(ctx, tenantID, parkID, asOf)
+		if err != nil {
+			return false, err
+		}
+		versions = make(map[string]struct{}, len(versionIDs))
+		for _, id := range versionIDs {
+			versions[id] = struct{}{}
+		}
+		cache[key] = versions
+	}
+	_, ok = versions[versionID]
+	return ok, nil
 }
 
 func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantID string, plans []goatGenerationPlan, asOf time.Time) (map[string]trustedEvidenceLookup, error) {
@@ -513,6 +547,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		scopeType, scopeID := generationScope(tenantID, g)
 		keyDue := obligationKeyDue(rule, baseDue, due)
 		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDue.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
+		missingKey := previousMissingDueDateKey(tenantID, versionID, rule, g)
 		status := "scheduled"
 		deferReason := deferredReason(g, deferStates)
 		if deferReason == "" {
@@ -539,6 +574,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return err
 		}
 		if !applied {
+			if missingKey != "" {
+				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
+					return err
+				}
+			}
 			if deferred {
 				_, changed, err := s.obl.DeferOpenObligationByIdempotencyKey(ctx, tenantID, key, deferReason, asOf)
 				if err != nil {
@@ -562,6 +602,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue // replay no-op
 		}
 		res.Generated++
+		if missingKey != "" {
+			if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
+				return err
+			}
+		}
 
 		if deferred {
 			// Same payload shape as DeferOpenObligationByIdempotencyKey's 'deferred' event (no drift):
@@ -592,7 +637,7 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 		reason = "missing_due_date"
 	}
 	scopeType, scopeID := generationScope(tenantID, g)
-	key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, "missing_due_date", reason, strconv.Itoa(int(rule.Sequence)))
+	key := missingDueDateKey(tenantID, versionID, rule, g, reason)
 	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 		TenantID:          tenantID,
 		ProtocolVersionID: versionID,
@@ -634,6 +679,27 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 	return nil
 }
 
+func missingDueDateKey(tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, reason string) string {
+	if reason == "" {
+		reason = "missing_due_date"
+	}
+	return obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, "missing_due_date", reason, strconv.Itoa(int(rule.Sequence)))
+}
+
+func previousMissingDueDateKey(tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat) string {
+	switch rule.TriggerType {
+	case "birth_age":
+		if g.DOB != nil {
+			return missingDueDateKey(tenantID, versionID, rule, g, "missing_dob")
+		}
+	case "post_arrival":
+		if g.EntryDate != nil {
+			return missingDueDateKey(tenantID, versionID, rule, g, "missing_entry_date")
+		}
+	}
+	return ""
+}
+
 // GenerateForGoat generates obligations for ONE goat across all published vaccination versions it
 // is eligible for. Used by the goat.created handler (event-driven SM-1). Idempotent.
 func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatID string, asOf time.Time) (domain.GenerateResult, error) {
@@ -652,6 +718,9 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 	if err != nil {
 		return res, err
 	}
+	if _, err := s.obl.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, goatID, versionIDs, "version_no_longer_effective_after_recheck", asOf); err != nil {
+		return res, err
+	}
 	pagePlans := make([]goatGenerationPlan, 0, len(versionIDs))
 	for _, versionID := range versionIDs {
 		v, err := s.proto.GetVersion(ctx, tenantID, versionID)
@@ -663,6 +732,9 @@ func (s *GenerationService) GenerateForGoat(ctx context.Context, tenantID, goatI
 			_ = json.Unmarshal(v.RuleDsl, &dsl)
 		}
 		if !goatMatchesEligibility(g, dsl.Eligibility) {
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", asOf); err != nil {
+				return res, err
+			}
 			continue
 		}
 		rules, err := s.proto.ListRules(ctx, tenantID, versionID)
@@ -762,9 +834,6 @@ func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time) (time.Time, 
 }
 
 func obligationKeyDue(rule protodomain.Rule, baseDue, materializedDue time.Time) time.Time {
-	if strings.EqualFold(strings.TrimSpace(rule.CatchUp), "next_cycle") && !materializedDue.Equal(baseDue) {
-		return materializedDue
-	}
 	return baseDue
 }
 

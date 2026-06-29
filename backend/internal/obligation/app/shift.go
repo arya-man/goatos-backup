@@ -66,6 +66,13 @@ func (h *GoatShiftedHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 		p.ScopeType = "shed"
 		p.ScopeID = p.ToShedID
 	}
+	if p.ScopeType != "shed" && p.ScopeType != "park" {
+		if p.ToShedID == "" {
+			return nil
+		}
+		p.ScopeType = "shed"
+		p.ScopeID = p.ToShedID
+	}
 	if ordered, ok := h.repo.(orderedShiftRepository); ok {
 		occurredAt := e.OccurredAt
 		if occurredAt.IsZero() {

@@ -132,7 +132,7 @@ func (s *Service) SendNudge(ctx context.Context, in ports.SendNudge) (domain.Cal
 		return domain.CalendarActionResponse{}, err
 	}
 	if in.Channel != "" && !allowedNotificationChannel(in.Channel) {
-		return domain.CalendarActionResponse{}, BadRequest("invalid_channel", "channel must be local-stub, push_fcm, slack, email, or webhook")
+		return domain.CalendarActionResponse{}, BadRequest("invalid_channel", "channel must be local-stub, push_fcm, slack, email, webhook, incident, opsgenie, or pagerduty")
 	}
 	if len(in.Message) > maxNudgeMessageLen {
 		return domain.CalendarActionResponse{}, BadRequest("invalid_message", "message may not exceed 2000 characters")
@@ -359,7 +359,7 @@ func allowedStatus(status string) bool {
 
 func allowedNotificationChannel(channel string) bool {
 	switch channel {
-	case "local-stub", "push_fcm", "slack", "email", "webhook":
+	case "local-stub", "push_fcm", "slack", "email", "webhook", "incident", "opsgenie", "pagerduty":
 		return true
 	default:
 		return false

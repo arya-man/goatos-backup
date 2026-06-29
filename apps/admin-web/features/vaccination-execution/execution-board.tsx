@@ -490,6 +490,7 @@ function ShedEventDrawer({ row, scope, closeHref, pageContract }: { row: Vaccina
             <ShedEventActions
               obligationId={row.obligationId}
               sopTaskId={row.sopTaskId}
+              sopVersionId={row.sopVersionId}
               sopTaskRowVersion={row.sopTaskRowVersion}
               completionId={row.completionId}
               pageContract={pageContract}

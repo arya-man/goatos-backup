@@ -206,7 +206,7 @@ func (r *Repository) ExitGoat(ctx context.Context, cmd ports.ExitGoatCommand) (*
 	if state.RowVersion != cmd.RowVersion || state.IdentityState == "merged" || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
-	if criticalDeathExit(cmd.LifecycleStatus, cmd.ExitReason) {
+	if criticalDeathExit(cmd.LifecycleStatus, cmd.ExitReason) && !cmd.GuardrailApproved {
 		return nil, ports.ErrCriticalDeathGuardrailRequired
 	}
 	if _, err := tx.Exec(ctx, `

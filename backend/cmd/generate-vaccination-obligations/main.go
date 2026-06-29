@@ -11,7 +11,9 @@
 //	DATABASE_URL=... go run ./cmd/generate-vaccination-obligations \
 //	  -tenant-id <tenant> [-as-of RFC3339]
 //
-// The default path resolves the effective protocol per goat, including park/scope precedence.
+// The default path resolves the effective protocol per goat, including park/scope precedence. When
+// -as-of is omitted, generation uses the current UTC day bucket so replaying a calendar-trigger
+// backfill on the same day is idempotent.
 package main
 
 import (
@@ -46,7 +48,7 @@ func main() {
 }
 
 func run(args []string) error {
-	cfg, err := parseFlags(args)
+	cfg, err := parseFlags(args, time.Now)
 	if err != nil {
 		return err
 	}
@@ -95,21 +97,24 @@ func run(args []string) error {
 	return nil
 }
 
-func parseFlags(args []string) (config, error) {
+func parseFlags(args []string, now func() time.Time) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("generate-vaccination-obligations", flag.ContinueOnError)
 	fs.StringVar(&cfg.TenantID, "tenant-id", strings.TrimSpace(os.Getenv("GOATOS_TENANT_ID")), "tenant id")
 	fs.StringVar(&cfg.VersionID, "version-id", "", "unsafe repair-only protocol version id; empty uses effective per-goat protocol resolution")
 	fs.BoolVar(&cfg.UnsafeVersionRun, "unsafe-version-id-bypass-effective-resolution", false, "allow version-id to bypass effective per-goat protocol resolution for a targeted repair run")
 	fs.DurationVar(&cfg.Timeout, "timeout", 120*time.Second, "generation timeout")
-	asOfRaw := fs.String("as-of", "", "RFC3339 as-of instant; default now")
+	asOfRaw := fs.String("as-of", "", "RFC3339 as-of instant; default current UTC day bucket")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
 	if strings.TrimSpace(cfg.TenantID) == "" {
 		return config{}, errors.New("tenant-id is required")
 	}
-	cfg.AsOf = time.Now().UTC()
+	if now == nil {
+		now = time.Now
+	}
+	cfg.AsOf = now().UTC().Truncate(24 * time.Hour)
 	if strings.TrimSpace(*asOfRaw) != "" {
 		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*asOfRaw))
 		if err != nil {

@@ -80,6 +80,25 @@ func TestHealthGoatRouteUsesDedicatedHealthPermission(t *testing.T) {
 	}
 }
 
+func TestCriticalDeathExitRouteUsesDedicatedHealthPermission(t *testing.T) {
+	route, ok := Match("POST", "/admin/goats/10000000-0000-4000-8000-000000000001/critical-death-exit")
+	if !ok {
+		t.Fatal("criticalDeathExitGoat route is not registered")
+	}
+	if route.OperationID != "criticalDeathExitGoat" {
+		t.Fatalf("operation_id=%q, want criticalDeathExitGoat", route.OperationID)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != GoatWriteHealth {
+		t.Fatalf("criticalDeathExitGoat permissions=%v, want [%s]", route.Permissions, GoatWriteHealth)
+	}
+	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
+		t.Fatal("verifier must not authorize critical death exit")
+	}
+	if !RolesAuthorize([]string{RolePHCDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("phc_director should authorize critical death exit")
+	}
+}
+
 func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 	implemented := []struct {
 		method string
@@ -93,6 +112,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/identifiers/30000000-0000-4000-8000-000000000001/retire"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/move"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/exit"},
+		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/critical-death-exit"},
 		{"POST", "/admin/goats/10000000-0000-4000-8000-000000000001/health"},
 		{"GET", "/operations/audit"},
 		{"GET", "/operations/audit/summary"},

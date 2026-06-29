@@ -177,10 +177,28 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 		if lifecycleStatus != "alive" {
 			t.Fatalf("lifecycle_status=%q, want alive", lifecycleStatus)
-		}
-		assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
-		assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
-	})
+			}
+			assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+			assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+
+			approved := cmd
+			approved.ClientIdempotencyKey = "idem-exit-death-approved-0001"
+			approved.StoredIdempotencyKey = meshaTenant + ":criticalDeathGoat:" + created.Goat.GoatID + ":" + approved.ClientIdempotencyKey
+			approved.IdempotencyScope = "criticalDeathGoat"
+			approved.GuardrailApproved = true
+			approved.RequestHash, err = app.CanonicalRequestHashWithSubject(meshaTenant, "criticalDeathGoat", "/admin/goats/{goat_id}/critical-death-exit", created.Goat.GoatID, raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			exited, err := repo.ExitGoat(ctx, approved)
+			if err != nil {
+				t.Fatalf("approved critical death exit: %v", err)
+			}
+			if exited.Goat.LifecycleStatus != "dead" || exited.Events[0].EventType != "goat.exited" {
+				t.Fatalf("approved critical death result=%#v, want dead goat.exited", exited)
+			}
+			assertGoatLifecycleOutbox(t, pool, approved.StoredIdempotencyKey, exited.Events[0].EventID, created.Goat.GoatID, "goat.exited", created.Goat.GoatID)
+		})
 
 	t.Run("admin goat stage writes goat.stage_changed outbox for rule recheck", func(t *testing.T) {
 		create := adminGoatCreateCommand(t, "idem-create-goat-stage-0001", "rfid-admin-stage-0001", "admin-stage-oldtag-0001")

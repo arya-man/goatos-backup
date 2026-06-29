@@ -170,6 +170,8 @@ func TestValidateExecutionContract(t *testing.T) {
 	unsupportedRepeat.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"until_age"}]}`)
 	if err := ValidateExecutionContract(unsupportedRepeat); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("unsupported repeat policy should be not publishable, got %v", err)
+	} else if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
+		t.Fatalf("unsupported repeat policy should preserve sentinel, got %v", err)
 	}
 
 	everyNDays := valid
@@ -182,6 +184,40 @@ func TestValidateExecutionContract(t *testing.T) {
 	everyNDaysMissingGap.RuleDsl = []byte(`{"schedule":[{"dose_code":"primary","repeat":"every_n_days","offset_days":30}]}`)
 	if err := ValidateExecutionContract(everyNDaysMissingGap); !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("every_n_days without min_gap_days should be not publishable, got %v", err)
+	} else if !errors.Is(err, ErrUnsupportedRepeatPolicy) {
+		t.Fatalf("every_n_days without min_gap_days should preserve sentinel, got %v", err)
+	}
+}
+
+func TestValidateRuleDSLRejectsUnknownKeys(t *testing.T) {
+	valid := []byte(`{"category":"vaccination","scope":{"type":"tenant","id":null},"eligibility":{"animal_stage":"K1","defer_states":["icu"]},"schedule":[{"dose_code":"primary","sop_label":"display"}],"source":{"source_system":"phc","source_ref":"ref","review_status":"reviewed"}}`)
+	if err := ValidateRuleDSL(valid); err != nil {
+		t.Fatalf("valid rule_dsl rejected: %v", err)
+	}
+	for _, bad := range []string{
+		`{"eligibilty":{"animal_stage":"K1"}}`,
+		`{"eligibility":{"animal_stage":"K1","defer_state":["icu"]}}`,
+		`{"schedule":[{"dose_code":"primary","sop_version_id":"display-only"}]}`,
+		`{"source":{"source_system":"phc","approvedby":"x"}}`,
+	} {
+		if err := ValidateRuleDSL([]byte(bad)); !errors.Is(err, ErrInvalidRuleDSL) {
+			t.Fatalf("rule_dsl %s err=%v, want ErrInvalidRuleDSL", bad, err)
+		}
+	}
+}
+
+func TestCreateVersionRejectsInvalidRuleDSLBeforeRepository(t *testing.T) {
+	repo := &fakeProtocolRepo{}
+	service := NewService(repo)
+
+	_, err := service.CreateVersion(context.Background(), domain.NewVersion{
+		RuleDsl: []byte(`{"eligibilty":{"animal_stage":"K1"}}`),
+	})
+	if !errors.Is(err, ErrInvalidRuleDSL) {
+		t.Fatalf("CreateVersion invalid rule_dsl err=%v, want ErrInvalidRuleDSL", err)
+	}
+	if repo.createVersionCalled {
+		t.Fatalf("repo must not be called with invalid rule_dsl")
 	}
 }
 
@@ -283,11 +319,12 @@ func validPublishVersion(status string) domain.Version {
 }
 
 type fakeProtocolRepo struct {
-	version          domain.Version
-	publishCalled    bool
-	publishCalls     int
-	createRuleCalled bool
-	createdRule      domain.NewRule
+	version             domain.Version
+	publishCalled       bool
+	publishCalls        int
+	createVersionCalled bool
+	createRuleCalled    bool
+	createdRule         domain.NewRule
 }
 
 func (f *fakeProtocolRepo) Ping(context.Context) error { return nil }
@@ -298,6 +335,7 @@ func (f *fakeProtocolRepo) GetDefinitionByCode(context.Context, string, string) 
 	return domain.Definition{}, nil
 }
 func (f *fakeProtocolRepo) CreateVersion(context.Context, domain.NewVersion) (string, error) {
+	f.createVersionCalled = true
 	return "", nil
 }
 func (f *fakeProtocolRepo) GetVersion(context.Context, string, string) (domain.Version, error) {

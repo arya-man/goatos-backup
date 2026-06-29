@@ -32,6 +32,8 @@ const (
 	obligationMissedSchemaVersion     = "1.0.0"
 	obligationMissedSchemaRef         = "domain-event-envelope.v1"
 	obligationMissedTopic             = "obligation.events"
+	obligationCanceledEventType       = "goat.obligations_canceled"
+	obligationRescopedEventType       = "obligation.rescoped"
 )
 
 // Repository is the Postgres-backed obligation repository.
@@ -399,6 +401,333 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 	return obligationID, true, nil
 }
 
+// CancelOpenObligationByIdempotencyKey closes a single generated/open row when a later source fact
+// supersedes its deterministic key, for example replacing a missing-DOB placeholder with a real due
+// date. It is intentionally narrow: terminal rows are left untouched and replays are no-ops.
+func (r *Repository) CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (string, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "superseded"
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: begin key cancel tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	var obligationID string
+	err = tx.QueryRow(ctx, `
+UPDATE obligation_instances
+SET status = 'canceled',
+    batch_id = NULL,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND idempotency_key = $2
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+RETURNING obligation_id::text`, tenant, idempotencyKey).Scan(&obligationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return "", false, fmt.Errorf("obligation: commit key cancel noop: %w", cerr)
+		}
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: cancel by idempotency key: %w", err)
+	}
+
+	eventKey := obligationID + ":canceled:" + reason
+	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
+		IdempotencyKey: eventKey,
+		TenantID:       tenant,
+		Scope:          "obligation.status_event",
+		RequestHash:    "cancel:" + reason,
+	})
+	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("obligation: reserve key cancel event: %w", reserveErr)
+	}
+	if reserveErr == nil {
+		oblUUID, err := pgconv.UUID(obligationID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: key cancel obligation id: %w", err)
+		}
+		payload, _ := json.Marshal(map[string]string{"reason": reason})
+		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oblUUID,
+			EventType:      "canceled",
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
+			Payload:        pgconv.JSONB(payload),
+			IdempotencyKey: eventKey,
+		})
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: insert key cancel event: %w", err)
+		}
+		eventUUID, err := pgconv.UUID(eventID)
+		if err != nil {
+			return "", false, fmt.Errorf("obligation: key cancel event id: %w", err)
+		}
+		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
+			ResultType:     pgconv.Text("obligation_status_event"),
+			ResultID:       eventUUID,
+			IdempotencyKey: eventKey,
+		}); err != nil {
+			return "", false, fmt.Errorf("obligation: complete key cancel event: %w", err)
+		}
+	}
+	if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, obligationID, obligationCanceledEventType, "canceled", occurredAt, map[string]any{
+		"reason":          reason,
+		"idempotency_key": idempotencyKey,
+	}, "obligation.CancelOpenObligationByIdempotencyKey"); err != nil {
+		return "", false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("obligation: commit key cancel: %w", err)
+	}
+	return obligationID, true, nil
+}
+
+// CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
+// version is no longer effective for the goat after a recheck. Terminal and in-progress work are left
+// untouched; each changed row gets the same cancellation status event and outbox used by SM-3.
+func (r *Repository) CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if effectiveVersionIDs == nil {
+		effectiveVersionIDs = []string{}
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(goatID); err != nil {
+		return 0, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "version_no_longer_effective"
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin version-except cancel tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM protocol_versions pv
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = $2::uuid
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND pv.tenant_id = oi.tenant_id
+  AND pv.protocol_version_id = oi.protocol_version_id
+  AND pd.category = 'vaccination'
+  AND NOT (oi.protocol_version_id::text = ANY($3::text[]))
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, goatID, effectiveVersionIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel non-effective vaccination obligations: %w", err)
+	}
+	count, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, goatID, reason, occurredAt, rows, map[string]any{
+		"effective_version_ids": effectiveVersionIDs,
+	}, "obligation.CancelOpenVaccinationObligationsForGoatExceptVersions")
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit version-except cancel: %w", err)
+	}
+	return count, nil
+}
+
+// CancelOpenVaccinationObligationsForGoatVersion cancels a goat's open work for one vaccination
+// protocol version when the current goat state no longer matches that version's eligibility DSL.
+func (r *Repository) CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(goatID); err != nil {
+		return 0, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	if _, err := pgconv.UUID(protocolVersionID); err != nil {
+		return 0, fmt.Errorf("obligation: protocol version id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "ineligible_after_recheck"
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin version cancel tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM protocol_versions pv
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = $2::uuid
+  AND oi.protocol_version_id = $3::uuid
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND pv.tenant_id = oi.tenant_id
+  AND pv.protocol_version_id = oi.protocol_version_id
+  AND pd.category = 'vaccination'
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, goatID, protocolVersionID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel ineligible vaccination obligations: %w", err)
+	}
+	count, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, goatID, reason, occurredAt, rows, map[string]any{
+		"protocol_version_id": protocolVersionID,
+	}, "obligation.CancelOpenVaccinationObligationsForGoatVersion")
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit version cancel: %w", err)
+	}
+	return count, nil
+}
+
+func recordCanceledObligationRows(ctx context.Context, tx pgx.Tx, qtx *obligationdb.Queries, tenant pgtype.UUID, tenantID, goatID, reason string, occurredAt time.Time, rows pgx.Rows, extra map[string]any, producer string) (int, error) {
+	defer rows.Close()
+	ids := make([]string, 0)
+	oldBatches := make(map[string]int)
+	for rows.Next() {
+		var id, batchID string
+		if err := rows.Scan(&id, &batchID); err != nil {
+			return 0, fmt.Errorf("obligation: scan canceled obligation: %w", err)
+		}
+		ids = append(ids, id)
+		if batchID != "" {
+			oldBatches[batchID]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("obligation: read canceled obligations: %w", err)
+	}
+	for batchID, count := range oldBatches {
+		if _, err := tx.Exec(ctx, `
+WITH reserved AS (
+  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+  FROM inventory_stock_movements
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+    AND movement_type = 'reserve'
+),
+repair AS (
+  SELECT (
+    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+         ELSE 0 END
+  )::numeric AS pending_release
+  FROM obligation_batches
+  WHERE tenant_id = $1
+    AND batch_id = $2::uuid
+)
+UPDATE obligation_batches ob
+SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+    context = CASE
+      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
+        'cancel_repair', jsonb_build_object(
+          'state', 'stock_reconcile_required',
+          'target_id', $4::text,
+          'reason', $5::text,
+          'release_qty',
+            (CASE
+              WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+              ELSE 0
+            END) + LEAST(
+              GREATEST(0, reserved.qty - repair.pending_release),
+              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+            ),
+          'recorded_at', now()
+        )
+      )
+      ELSE context
+    END,
+    updated_at = now(),
+    row_version = row_version + 1
+FROM reserved, repair
+WHERE tenant_id = $1
+  AND batch_id = $2::uuid`, tenant, batchID, count, goatID, reason); err != nil {
+			return 0, fmt.Errorf("obligation: update ineligible cancel batch repair: %w", err)
+		}
+	}
+	payload, _ := json.Marshal(map[string]string{"reason": reason})
+	outboxExtra := map[string]any{
+		"reason":  reason,
+		"goat_id": goatID,
+	}
+	for key, value := range extra {
+		outboxExtra[key] = value
+	}
+	for _, id := range ids {
+		oid, err := pgconv.UUID(id)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: obligation id: %w", err)
+		}
+		if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+			TenantID:       tenant,
+			ObligationID:   oid,
+			EventType:      "canceled",
+			OccurredAt:     pgconv.Timestamptz(occurredAt),
+			Payload:        payload,
+			IdempotencyKey: id + ":canceled:" + reason,
+		}); err != nil {
+			return 0, fmt.Errorf("obligation: cancel event: %w", err)
+		}
+		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationCanceledEventType, "canceled", occurredAt, outboxExtra, producer); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), nil
+}
+
 // ListDue returns obligations in a status whose due_at <= dueBefore.
 func (r *Repository) ListDue(ctx context.Context, tenantID, status string, dueBefore time.Time, limit int32) ([]domain.DueObligation, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -407,8 +736,10 @@ func (r *Repository) ListDue(ctx context.Context, tenantID, status string, dueBe
 	if err != nil {
 		return nil, fmt.Errorf("obligation: tenant id: %w", err)
 	}
-	if status == "scheduled_or_due" {
-		return r.listScheduledOrDue(ctx, tenant, dueBefore, limit)
+	if status == "scheduled_or_due" || status == "scheduled_or_due_due" || status == "scheduled_or_due_overdue" {
+		mode := strings.TrimPrefix(status, "scheduled_or_due")
+		mode = strings.TrimPrefix(mode, "_")
+		return r.listScheduledOrDue(ctx, tenant, dueBefore, limit, mode)
 	}
 	rows, err := r.queries.ListDueObligations(ctx, obligationdb.ListDueObligationsParams{
 		TenantID:  tenant,
@@ -436,12 +767,13 @@ func (r *Repository) ListDue(ctx context.Context, tenantID, status string, dueBe
 	return out, nil
 }
 
-func (r *Repository) listScheduledOrDue(ctx context.Context, tenant pgtype.UUID, dueBefore time.Time, limit int32) ([]domain.DueObligation, error) {
+func (r *Repository) listScheduledOrDue(ctx context.Context, tenant pgtype.UUID, dueBefore time.Time, limit int32, mode string) ([]domain.DueObligation, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
+	asOf := time.Now().UTC()
 	rows, err := r.pool.Query(ctx, `
-SELECT obligation_id::text,
+	SELECT obligation_id::text,
        protocol_version_id::text,
        rule_id::text,
        target_type,
@@ -454,8 +786,13 @@ FROM obligation_instances
 WHERE tenant_id = $1
   AND status IN ('scheduled', 'due')
   AND due_at <= $2
+  AND (
+    $4::text = ''
+    OR ($4::text = 'overdue' AND due_at < $5::timestamptz)
+    OR ($4::text = 'due' AND due_at >= $5::timestamptz)
+  )
 ORDER BY due_at ASC, obligation_id ASC
-LIMIT $3`, tenant, pgconv.Timestamptz(dueBefore), limit)
+LIMIT $3`, tenant, pgconv.Timestamptz(dueBefore), limit, mode, pgconv.Timestamptz(asOf))
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list scheduled/due: %w", err)
 	}
@@ -666,6 +1003,7 @@ WHERE tenant_id = $1
   AND (($8::boolean = false AND window_start IS NULL) OR ($8::boolean = true AND window_start IS NOT DISTINCT FROM $9::timestamptz))
   AND (($10::boolean = false AND window_end IS NULL) OR ($10::boolean = true AND window_end IS NOT DISTINCT FROM $11::timestamptz))
   AND sop_task_id IS NULL
+  AND NOT (obligation_batches.context ? 'stock_reservation')
   AND NOT EXISTS (
     SELECT 1
     FROM inventory_stock_movements ism
@@ -1047,6 +1385,12 @@ WHERE tenant_id = $1
 		}); err != nil {
 			return 0, fmt.Errorf("obligation: cancel event: %w", err)
 		}
+		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationCanceledEventType, "canceled", now, map[string]any{
+			"reason":  reason,
+			"goat_id": goatID,
+		}, "obligation.CancelOpenForGoat"); err != nil {
+			return 0, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit cancel: %w", err)
@@ -1231,6 +1575,13 @@ WHERE tenant_id = $1::uuid
 		}); err != nil {
 			return 0, fmt.Errorf("obligation: rescoped event: %w", err)
 		}
+		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationRescopedEventType, "rescoped", statusOccurredAt, map[string]any{
+			"scope_type":      scopeType,
+			"scope_id":        scopeID,
+			"source_event_id": idempotencySuffix,
+		}, "obligation.ReScopeOpenForGoat"); err != nil {
+			return 0, err
+		}
 	}
 	return len(ids), nil
 }
@@ -1397,11 +1748,12 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 		return false, fmt.Errorf("obligation: reserve completed idempotency key: %w", err)
 	}
 
+	now := time.Now().UTC()
 	eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
 		TenantID:       tenant,
 		ObligationID:   obl,
 		EventType:      "completed",
-		OccurredAt:     pgconv.Timestamptz(time.Now()),
+		OccurredAt:     pgconv.Timestamptz(now),
 		Payload:        []byte(`{"event":"completed"}`),
 		IdempotencyKey: idempotencyKey,
 	})
@@ -1421,6 +1773,25 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	}
 	if err := insertVaccinationCompletedOutbox(ctx, tx, tenantID, obligationID); err != nil {
 		return false, err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorType:    "system",
+		Action:       vaccinationCompletedEventType,
+		ResourceType: "obligation_instance",
+		ResourceID:   obligationID,
+		ScopeType:    "obligation.status_event",
+		ScopeID:      obligationID,
+		AfterState: map[string]any{
+			"status":      "completed",
+			"occurred_at": now.Format(time.RFC3339Nano),
+		},
+		Metadata: map[string]any{
+			"source": "obligation_mark_completed",
+		},
+		TraceID: "vaccination.completed:" + obligationID,
+	}); err != nil {
+		return false, fmt.Errorf("obligation: completed audit: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("obligation: commit complete: %w", err)
@@ -1451,6 +1822,90 @@ func (r *Repository) IsCompleted(ctx context.Context, tenantID, obligationID str
 		return false, fmt.Errorf("obligation: is completed: %w", err)
 	}
 	return completed, nil
+}
+
+func insertObligationLifecycleOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID, eventType, status string, occurredAt time.Time, extra map[string]any, producer string) error {
+	suffix := ""
+	if eventType == obligationRescopedEventType {
+		if source, ok := extra["source_event_id"].(string); ok && strings.TrimSpace(source) != "" {
+			suffix = ":" + strings.TrimSpace(source)
+		} else if scopeID, ok := extra["scope_id"].(string); ok && strings.TrimSpace(scopeID) != "" {
+			suffix = ":" + strings.TrimSpace(scopeID)
+		}
+	}
+	idempotencyKey := eventType + ":" + obligationID + suffix
+	eventID := deterministicOutboxUUID(eventType + ":" + tenantID + ":" + obligationID + suffix)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	occurred := occurredAt.UTC().Format(time.RFC3339Nano)
+	payload := map[string]any{
+		"tenant_id":     tenantID,
+		"obligation_id": obligationID,
+		"status":        status,
+	}
+	for k, v := range extra {
+		if v != nil {
+			payload[k] = v
+		}
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     eventType,
+		"schema_version": obligationMissedSchemaVersion,
+		"schema_ref":     obligationMissedSchemaRef,
+		"aggregate_type": "obligation_instance",
+		"aggregate_id":   obligationID,
+		"occurred_at":    occurred,
+		"recorded_at":    now,
+		"producer": map[string]any{
+			"service": "goatos-api",
+			"module":  "obligation",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "obligation_instance",
+		"subject_id":   obligationID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "obligation_status_event",
+			"evidence_id":   obligationID + ":" + status,
+		}},
+		"payload":  payload,
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("obligation: %s envelope: %w", eventType, err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":        producer,
+		"schema_version":  obligationMissedSchemaVersion,
+		"obligation_id":   obligationID,
+		"idempotency_key": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("obligation: %s headers: %w", eventType, err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'obligation_instance', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT DO NOTHING`,
+		tenantID, eventID, eventType, obligationMissedSchemaVersion,
+		obligationID, obligationMissedTopic, envelope, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("obligation: %s outbox: %w", eventType, err)
+	}
+	return nil
 }
 
 func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) error {
@@ -1603,7 +2058,8 @@ func deterministicOutboxUUID(seed string) string {
 
 // MarkMissedBefore marks open obligations whose due window has crossed as missed and writes a
 // durable 'missed' status event per transition. It is safe for repeated/parallel sweepers: candidates
-// are locked with SKIP LOCKED and only scheduled/due/in_progress rows can transition.
+// are locked with SKIP LOCKED and only scheduled/due rows, plus in_progress rows outside an active
+// in-progress batch, can transition.
 func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, missedBefore time.Time, limit int32) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1626,11 +2082,15 @@ func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, miss
 
 	rows, err := tx.Query(ctx, `
 WITH candidate AS (
-  SELECT oi.obligation_id
-  FROM obligation_instances oi
-  WHERE oi.tenant_id = $1
-    AND oi.status IN ('scheduled', 'due', 'in_progress')
-    AND COALESCE(oi.window_end, oi.due_at) < $2
+	  SELECT oi.obligation_id
+	  FROM obligation_instances oi
+	  LEFT JOIN obligation_batches ob
+	    ON ob.tenant_id = oi.tenant_id
+	   AND ob.batch_id = oi.batch_id
+	  WHERE oi.tenant_id = $1
+	    AND oi.status IN ('scheduled', 'due', 'in_progress')
+	    AND COALESCE(oi.window_end, oi.due_at) < $2
+	    AND NOT (oi.status = 'in_progress' AND COALESCE(ob.status, '') = 'in_progress')
     AND NOT EXISTS (
       SELECT 1
       FROM protocol_versions pv
@@ -1644,10 +2104,10 @@ WITH candidate AS (
         AND pv.tenant_id = oi.tenant_id
         AND pv.protocol_version_id = oi.protocol_version_id
         AND pd.category = 'vaccination'
-    )
+  )
   ORDER BY COALESCE(oi.window_end, oi.due_at) ASC, oi.obligation_id ASC
   LIMIT $3
-  FOR UPDATE SKIP LOCKED
+  FOR UPDATE OF oi SKIP LOCKED
 )
 UPDATE obligation_instances oi
 SET status = 'missed',

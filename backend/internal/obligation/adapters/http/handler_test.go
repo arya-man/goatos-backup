@@ -44,14 +44,17 @@ func TestListDueDefaultsAndShape(t *testing.T) {
 	}
 }
 
-func TestListDueOverdueIncludesScheduledRows(t *testing.T) {
+func TestListDueOverdueUsesNowNotDueBefore(t *testing.T) {
 	asOf := time.Date(2026, time.June, 29, 9, 0, 0, 0, time.UTC)
 	fake := &fakeDue{rows: []domain.DueObligation{
-		{ObligationID: "scheduled-past", Status: "scheduled", DueAt: asOf.Add(-time.Hour)},
+		{ObligationID: "scheduled-window-future", Status: "scheduled", DueAt: asOf.Add(-15 * time.Minute)},
 		{ObligationID: "due-future", Status: "due", DueAt: asOf.Add(time.Hour)},
 	}}
+	now := asOf.Add(-30 * time.Minute)
+	handler := NewHandler(fake)
+	handler.now = func() time.Time { return now }
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(fake))
+	Register(mux, handler)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/action-center/obligations?work_state=overdue&due_before=2026-06-29T09:00:00Z", nil)
@@ -60,15 +63,15 @@ func TestListDueOverdueIncludesScheduledRows(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if fake.gotStatus != "scheduled_or_due" {
-		t.Fatalf("repo status=%s, want scheduled_or_due", fake.gotStatus)
+	if fake.gotStatus != "scheduled_or_due_overdue" {
+		t.Fatalf("repo status=%s, want scheduled_or_due_overdue", fake.gotStatus)
 	}
 	var resp dueResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.Items) != 1 || resp.Items[0].ObligationID != "scheduled-past" || resp.Items[0].WorkState != "overdue" {
-		t.Fatalf("items=%+v, want only scheduled-past overdue", resp.Items)
+	if len(resp.Items) != 0 {
+		t.Fatalf("items=%+v, want none because overdue is computed against now, not due_before", resp.Items)
 	}
 }
 

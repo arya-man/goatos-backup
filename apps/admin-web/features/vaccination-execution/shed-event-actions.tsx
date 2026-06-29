@@ -14,6 +14,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 interface ShedEventActionsProps {
   obligationId?: string | null;
   sopTaskId?: string | null;
+  sopVersionId?: string | null;
   sopTaskRowVersion?: number | null;
   completionId?: string | null;
   pageContract: AdminUiPageContract;
@@ -29,14 +30,14 @@ interface ShedEventActionsProps {
  * All controls render disabled with exact reasons when their required ids are null, and surface a
  * visible error band when a server action fails (never a silent failure).
  */
-export function ShedEventActions({ obligationId, sopTaskId, sopTaskRowVersion, completionId, pageContract }: ShedEventActionsProps) {
-  const proofUploadEnabled = !!(sopTaskId && obligationId);
+export function ShedEventActions({ obligationId, sopTaskId, sopVersionId, sopTaskRowVersion, completionId, pageContract }: ShedEventActionsProps) {
+  const proofUploadEnabled = !!(sopTaskId && sopVersionId && obligationId);
   const acceptRejectEnabled = !!(completionId && sopTaskId && Number(sopTaskRowVersion ?? 0) > 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Proof upload section */}
-      <ProofUploadForm enabled={proofUploadEnabled} sopTaskId={sopTaskId} obligationId={obligationId} pageContract={pageContract} />
+      <ProofUploadForm enabled={proofUploadEnabled} sopTaskId={sopTaskId} sopVersionId={sopVersionId} obligationId={obligationId} pageContract={pageContract} />
 
       {/* Accept / Reject buttons section */}
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -74,6 +75,7 @@ function DisabledReason({ reason }: { reason: string }) {
 interface ProofUploadFormProps {
   enabled: boolean;
   sopTaskId?: string | null;
+  sopVersionId?: string | null;
   obligationId?: string | null;
   pageContract: AdminUiPageContract;
 }
@@ -82,7 +84,7 @@ interface ProofUploadFormProps {
  * File upload form bound to submitVaccinationProof via useActionState, so a failed upload renders the
  * exact error inline. Disabled state displays the exact reason based on which id is missing.
  */
-function ProofUploadForm({ enabled, sopTaskId, obligationId, pageContract }: ProofUploadFormProps) {
+function ProofUploadForm({ enabled, sopTaskId, sopVersionId, obligationId, pageContract }: ProofUploadFormProps) {
   const [state, formAction] = useActionState<ActionResult | null, FormData>(submitVaccinationProof, null);
   const disabledReason = !enabled
     ? copy(pageContract, "form.proof_upload.reason")
@@ -95,6 +97,7 @@ function ProofUploadForm({ enabled, sopTaskId, obligationId, pageContract }: Pro
         {/* Hidden inputs to pass IDs to server action */}
         {obligationId && <input type="hidden" name="obligationId" value={obligationId} />}
         {sopTaskId && <input type="hidden" name="sopTaskId" value={sopTaskId} />}
+        {sopVersionId && <input type="hidden" name="sopVersionId" value={sopVersionId} />}
 
         {/* File input */}
         <div

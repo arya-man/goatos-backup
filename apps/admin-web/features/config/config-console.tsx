@@ -32,7 +32,8 @@ export function ConfigConsole({
   loadError = null,
   stagesError = null,
   sopsError = null,
-  canPublish = true,
+  canPublish,
+  publishDisabledReason,
   pageContract,
 }: {
   rules: ConfigRuleRow[];
@@ -42,7 +43,8 @@ export function ConfigConsole({
   loadError?: string | null;
   stagesError?: string | null;
   sopsError?: string | null;
-  canPublish?: boolean;
+  canPublish: boolean;
+  publishDisabledReason: string;
   pageContract: AdminUiPageContract;
 }) {
   const [open, setOpen] = useState(false);
@@ -268,6 +270,7 @@ export function ConfigConsole({
         stagesError={stagesError}
         sopsError={sopsError}
         canPublish={canPublish}
+        publishDisabledReason={publishDisabledReason}
         pageContract={pageContract}
       />
     </>

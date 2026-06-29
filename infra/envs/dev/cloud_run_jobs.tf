@@ -133,6 +133,45 @@ locals {
         GOATOS_TENANT_ID      = var.dev_tenant_id
       }
     }
+    inventory_batch_reconciler = {
+      name                = "goatos-dev-inventory-batch-reconciler"
+      service_account_key = "inventory_batch_reconciler"
+      command             = ["/app/bin/inventory-batch-reconciler"]
+      args                = ["-timeout=60s", "-limit=100"]
+      timeout             = "120s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
+    idempotency_key_sweeper = {
+      name                = "goatos-dev-idempotency-key-sweeper"
+      service_account_key = "idempotency_key_sweeper"
+      command             = ["/app/bin/idempotency-key-sweeper"]
+      args                = ["-timeout=45s", "-limit=1000"]
+      timeout             = "90s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "17 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
+    sop_review_fanout_retry = {
+      name                = "goatos-dev-sop-review-fanout-retry"
+      service_account_key = "sop_review_fanout_retry"
+      command             = ["/app/bin/sop-review-fanout-retry"]
+      args                = ["-timeout=60s", "-limit=100"]
+      timeout             = "120s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
   }
 }
 

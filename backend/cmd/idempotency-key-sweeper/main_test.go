@@ -105,21 +105,27 @@ VALUES ($1, $2::uuid, 'test', $3, 'started', $4::timestamptz)`, row.key, testTen
 	}
 }
 
-func TestIdempotencyKeysDefaultToNoExpiry(t *testing.T) {
+func TestIdempotencyKeysDefaultToNinetyDayExpiry(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
+	before := time.Now().UTC()
 	var expiresAt *time.Time
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
-		VALUES ('default-no-expiry', $1::uuid, 'test', 'hash:default-no-expiry', 'started')
+		VALUES ('default-expiry', $1::uuid, 'test', 'hash:default-expiry', 'started')
 		RETURNING expires_at`, testTenantID).Scan(&expiresAt); err != nil {
-		t.Fatalf("insert default no-expiry key: %v", err)
+		t.Fatalf("insert default expiry key: %v", err)
 	}
-	if expiresAt != nil {
-		t.Fatalf("expires_at = %s, want NULL by default", expiresAt.UTC())
+	if expiresAt == nil {
+		t.Fatal("expires_at = NULL, want default expiry")
+	}
+	min := before.Add(89 * 24 * time.Hour)
+	max := before.Add(91 * 24 * time.Hour)
+	if expiresAt.Before(min) || expiresAt.After(max) {
+		t.Fatalf("expires_at = %s, want roughly 90 days from insert", expiresAt.UTC())
 	}
 }
 
