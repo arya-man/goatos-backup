@@ -204,6 +204,7 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/vaccination/operations"},
 		{"GET", "/vaccination/execution"},
 		{"GET", "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001"},
+		{"GET", "/feed-direction/readiness"},
 		{"GET", "/calendar/vaccination/events"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001"},
 		{"GET", "/calendar/vaccination/events/obligation:86000000-0000-4000-8000-000000001001/history"},
@@ -257,6 +258,25 @@ func TestVaccinationBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		if _, ok := Match(route.method, route.path); !ok {
 			t.Fatalf("vaccination backend route smoke failed: %s %s is not registered", route.method, route.path)
 		}
+	}
+}
+
+func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
+	route, ok := Match("GET", "/feed-direction/readiness")
+	if !ok {
+		t.Fatal("feed direction readiness route is not registered")
+	}
+	if route.OperationID != "getFeedDirectionReadiness" {
+		t.Fatalf("operation_id=%q, want getFeedDirectionReadiness", route.OperationID)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolRead {
+		t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolRead)
+	}
+	if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+		t.Fatal("operator must not authorize Feed Direction readiness")
+	}
+	if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
+		t.Fatal("park head should authorize Feed Direction readiness via protocol.read")
 	}
 }
 

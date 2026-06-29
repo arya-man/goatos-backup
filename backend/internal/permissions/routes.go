@@ -131,6 +131,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getVaccinationOperations", Method: "GET", Pattern: "/vaccination/operations", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getFeedDirectionReadiness", Method: "GET", Pattern: "/feed-direction/readiness", Permissions: []string{ProtocolRead}},
 	{OperationID: "listCalendarVaccinationEvents", Method: "GET", Pattern: "/calendar/vaccination/events", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
 	{OperationID: "getCalendarVaccinationEvent", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
 	{OperationID: "getCalendarVaccinationEventHistory", Method: "GET", Pattern: "/calendar/vaccination/events/{event_id}/history", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},

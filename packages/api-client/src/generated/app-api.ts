@@ -575,6 +575,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-direction/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the fail-closed Feed Direction gate and Counts/Shifting readiness state.
+         * @description Returns G1-G17, G2/CSG1-CSG10, source-priority, and safety invariants used to keep Feed generation disabled until Counts/Shifting projection, ration/context resolution, and high-risk shifted-cohort protections are source-backed and bounded.
+         */
+        get: operations["getFeedDirectionReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendar/vaccination/events": {
         parameters: {
             query?: never;
@@ -2194,6 +2214,59 @@ export interface components {
             max_age_days?: number | null;
             sort_order: number;
         };
+        /** @enum {string} */
+        FeedDirectionReadinessStatus: "ready" | "blocked" | "pending";
+        FeedDirectionReadinessResponse: {
+            tenant_id: string;
+            status: components["schemas"]["FeedDirectionReadinessStatus"];
+            /** @description Current blocking Feed Direction closure gate, e.g. G2. */
+            current_gate: string;
+            /** @description False until Feed Direction source, projection, safety, and read-model gates are closed. */
+            generation_allowed: boolean;
+            next_action: string;
+            source_priority: string;
+            gates: components["schemas"]["FeedDirectionGate"][];
+            counts_shifting_subgates: components["schemas"]["FeedDirectionCountsShiftingSubgate"][];
+            safety_invariants: components["schemas"]["FeedDirectionSafetyInvariant"][];
+            /** @description disabled_until_g2_ready while this fail-closed adapter is active. */
+            generated_directions_state: string;
+        };
+        FeedDirectionGate: {
+            id: string;
+            sequence: number;
+            name: string;
+            status: components["schemas"]["FeedDirectionReadinessStatus"];
+            owner: string;
+            evidence_ref: string;
+            blocker_reason?: string;
+            /** Format: date-time */
+            last_checked_at: string;
+            allows_build: boolean;
+            allows_generate: boolean;
+        };
+        FeedDirectionCountsShiftingSubgate: {
+            id: string;
+            sequence: number;
+            name: string;
+            status: components["schemas"]["FeedDirectionReadinessStatus"];
+            owner: string;
+            evidence_ref: string;
+            blocker_reason: string;
+            /** Format: date-time */
+            last_checked_at: string;
+            allows_generate: boolean;
+        };
+        FeedDirectionSafetyInvariant: {
+            /** @enum {string} */
+            key: "shifted_pregnant_destination_recompute" | "destination_shed_shortage_fail_closed" | "overfeed_wastage_moist_feed_exception" | "bounded_projection_no_full_herd_scan";
+            status: components["schemas"]["FeedDirectionReadinessStatus"];
+            owner: string;
+            evidence_ref: string;
+            blocker_reason: string;
+            /** Format: date-time */
+            last_checked_at: string;
+            allows_generate: boolean;
+        };
         VaccinationPassportDue: {
             obligation_id: string;
             protocol_version_id: string;
@@ -3307,6 +3380,29 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedDirectionReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Feed Direction readiness. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDirectionReadinessResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

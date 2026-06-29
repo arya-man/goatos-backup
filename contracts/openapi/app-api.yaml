@@ -24,6 +24,7 @@ tags:
   - name: Workflows
   - name: Proof Media
   - name: Vaccination
+  - name: Feed Direction
   - name: Calendar
   - name: Vaccination Passport
 paths:
@@ -1294,6 +1295,29 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /feed-direction/readiness:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedDirectionReadiness
+      summary: Read the fail-closed Feed Direction gate and Counts/Shifting readiness state.
+      description: >-
+        Returns G1-G17, G2/CSG1-CSG10, source-priority, and safety invariants used to keep Feed
+        generation disabled until Counts/Shifting projection, ration/context resolution, and
+        high-risk shifted-cohort protections are source-backed and bounded.
+      responses:
+        "200":
+          description: Feed Direction readiness.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDirectionReadinessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
   /calendar/vaccination/events:
@@ -5976,6 +6000,156 @@ components:
           nullable: true
         sort_order:
           type: integer
+    FeedDirectionReadinessStatus:
+      type: string
+      enum:
+        - ready
+        - blocked
+        - pending
+    FeedDirectionReadinessResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - tenant_id
+        - status
+        - current_gate
+        - generation_allowed
+        - next_action
+        - source_priority
+        - gates
+        - counts_shifting_subgates
+        - safety_invariants
+        - generated_directions_state
+      properties:
+        tenant_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/FeedDirectionReadinessStatus"
+        current_gate:
+          type: string
+          description: Current blocking Feed Direction closure gate, e.g. G2.
+        generation_allowed:
+          type: boolean
+          description: False until Feed Direction source, projection, safety, and read-model gates are closed.
+        next_action:
+          type: string
+        source_priority:
+          type: string
+        gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionGate"
+        counts_shifting_subgates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionCountsShiftingSubgate"
+        safety_invariants:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedDirectionSafetyInvariant"
+        generated_directions_state:
+          type: string
+          description: disabled_until_g2_ready while this fail-closed adapter is active.
+    FeedDirectionGate:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - sequence
+        - name
+        - status
+        - owner
+        - evidence_ref
+        - last_checked_at
+        - allows_build
+        - allows_generate
+      properties:
+        id:
+          type: string
+        sequence:
+          type: integer
+        name:
+          type: string
+        status:
+          $ref: "#/components/schemas/FeedDirectionReadinessStatus"
+        owner:
+          type: string
+        evidence_ref:
+          type: string
+        blocker_reason:
+          type: string
+        last_checked_at:
+          type: string
+          format: date-time
+        allows_build:
+          type: boolean
+        allows_generate:
+          type: boolean
+    FeedDirectionCountsShiftingSubgate:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - sequence
+        - name
+        - status
+        - owner
+        - evidence_ref
+        - blocker_reason
+        - last_checked_at
+        - allows_generate
+      properties:
+        id:
+          type: string
+        sequence:
+          type: integer
+        name:
+          type: string
+        status:
+          $ref: "#/components/schemas/FeedDirectionReadinessStatus"
+        owner:
+          type: string
+        evidence_ref:
+          type: string
+        blocker_reason:
+          type: string
+        last_checked_at:
+          type: string
+          format: date-time
+        allows_generate:
+          type: boolean
+    FeedDirectionSafetyInvariant:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - status
+        - owner
+        - evidence_ref
+        - blocker_reason
+        - last_checked_at
+        - allows_generate
+      properties:
+        key:
+          type: string
+          enum:
+            - shifted_pregnant_destination_recompute
+            - destination_shed_shortage_fail_closed
+            - overfeed_wastage_moist_feed_exception
+            - bounded_projection_no_full_herd_scan
+        status:
+          $ref: "#/components/schemas/FeedDirectionReadinessStatus"
+        owner:
+          type: string
+        evidence_ref:
+          type: string
+        blocker_reason:
+          type: string
+        last_checked_at:
+          type: string
+          format: date-time
+        allows_generate:
+          type: boolean
     VaccinationPassportDue:
       type: object
       additionalProperties: false
