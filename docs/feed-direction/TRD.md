@@ -1,9 +1,13 @@
 # Feed -> Feed Direction - Technical Requirements / Design (TRD)
 
-**Status:** Draft v4, refined against source-first counter-review and read-model review
+**Status:** Draft v5, refined against source-first counter-review, read-model review, and dependency-closure audit
 **Date:** 2026-06-30
 **Companion:** [PRD.md](./PRD.md)
 **Foundation:** [Generic Protocol & Obligation Engine](../protocol-engine/obligation-engine.md)
+**Readiness phase:** [Dependency Closure PRD](./DEPENDENCY-CLOSURE-PRD.md) and
+[Dependency Closure TRD](./DEPENDENCY-CLOSURE-TRD.md); Counts/Shifting long pole:
+[Counts/Shifting Closure PRD](./COUNTS-SHIFTING-CLOSURE-PRD.md) and
+[Counts/Shifting Closure TRD](./COUNTS-SHIFTING-CLOSURE-TRD.md)
 
 > v2 correction: the previous TRD treated a typed Sheet-shaped `feed_*` schema as
 > the target. The committed repo moved the other way. Migration
@@ -43,6 +47,9 @@ Not operational yet:
 - No stock reserve/consume call wired from feed execution.
 - No stage model for packing, transport, consumption, wastage, rejection, and
   rework against the one-row-per-obligation `feed_direction_completions` table.
+- No feed-specific reminder/escalation SLA, NotificationGateway routing,
+  missed/recovery events, audit/observability contract, or command-lens field
+  mapping.
 - No active admin-web/operator-mobile Feed Direction surface.
 
 ## 2. Superseded v1 assumptions
@@ -145,15 +152,18 @@ Do not key ration rules by raw `(breed, age)`.
 Feed eligibility must be explicit in `rule_dsl` or referenced source-backed
 config:
 
-- K0/K1 milk-fed cohorts are excluded from normal packed-feed directions.
-- Experiment sheds are zero-direction / special-tag exclusions unless a reviewed
-  Feed policy explicitly provides a normal feed path.
-- F2/Fattening, shed-tag aliases, and other legacy labels normalize before count
-  matching and ration lookup.
+- Warmup stage tags require an explicit reviewed ration path or an explicit
+  exclusion before Feed Direction publishes quantities.
+- K0/K1 milk-fed cohort exclusions and Experiment zero-direction behavior are
+  candidate policy from legacy automation/zero rows until Feed Director approval.
+- F2/Fattening, SIROHI->Beetal where approved, shed-tag aliases, and other legacy
+  labels normalize before count matching and ration lookup.
 - Non-baking-soda feed quantities round up to the source-backed packing unit at
   the per-shed daily total per feed item before session split. Baking-soda
   precision remains a separate source-backed transform and zero baking-soda
-  quantity emits no direction row/cell.
+  quantity emits no direction row/cell. If baking soda requires sub-gram
+  precision, integer gram base units cannot be used for that item without
+  widening the inventory app port or defining a smaller base unit.
 
 ### Feed protocol rule_dsl
 
@@ -162,6 +172,7 @@ Feed configuration lives in `protocol_versions.rule_dsl` for
 
 - Ration scope: tenant, park/shed scope, breed, stage/shed tag, or kid
   weight-band/ADG.
+- Warmup stage policy and approved alias/exclusion handling.
 - Feed eligibility rules and zero-direction exclusions.
 - Feed item reference to `inventory_items.category='feed'`.
 - As-fed quantity and unit.
@@ -196,9 +207,15 @@ implementation must choose one of two acceptable paths:
 Both paths must persist or attach enough metadata for review and replay:
 solver/import version, source document/version, feed item nutrient vectors,
 feed costs, available feed-type set, constraint set, output hash, reviewer,
-review timestamp, effective date, and re-solve/review trigger. A change to feed
-costs or available feed types must create a new reviewed solve/import before the
-refreshed lookup replaces the prior RationTable output.
+review timestamp, review_status, approved_by, approved_at, effective date, and
+re-solve/review trigger. A change to feed costs or available feed types must
+create a new reviewed solve/import before the refreshed lookup replaces the
+prior RationTable output.
+
+The protocol publish gate must reject Feed Direction ration rules unless
+`review_status='approved'`, approval metadata and source hashes are present, and
+the publisher has `protocol.publish.feed_direction` or the approved service
+equivalent. "Reviewed import" alone is not enough for live obligations.
 
 ## 4. Minimal new persistence
 
@@ -212,7 +229,7 @@ Candidate tables, to finalize during implementation:
 | `feed_direction_generation_runs` | One row per full or Diff generation attempt | `run_kind` full/diff, target date, cutoff window, status, idempotency key, source hash, actor/job metadata |
 | `feed_direction_count_input_rows` | Snapshot of the Counts/Shifting projection consumed by a run | Grain: tenant, run, park, shed, target date, breed, stage/shed tag, headcount, source contract/version/hash, realized vs projection horizon |
 | `feed_direction_generation_rows` | Source/planning snapshot used to create obligations | Grain: tenant, run, park, shed, target date, session, breed, stage/shed tag, feed item, as-fed quantity, row kind full/diff/restatement, optional source-facing net correction quantity |
-| `feed_direction_stage_records` | Typed stage outcome rows if separate stage obligations are not enough | Stage kind packing/transport/consumption/wastage/bridge, planned vs actual quantities, consumed/wasted/variance, proof refs, verifier status, rejection reason, rework link |
+| `feed_direction_stage_records` | Typed stage outcome rows, or replaced only by an indexed obligation-context/completion-stage projection with the same durable discriminator | Stage kind packing/transport/consumption/wastage/bridge, planned vs actual quantities, consumed/wasted/variance, proof refs, verifier status, rejection reason, rework link |
 | `feed_direction_bridge_events` | High-priority post-cutoff 2x-ration bridge log | Destination shed, animal or aggregate count, source shed tag, feed quantities, proof/submission links |
 | `feed_direction_projection_rows` | Read model for admin/mobile lists and command buckets | Bounded by tenant, park, date, shed, session, status, bucket, owner, cursor key |
 
@@ -265,14 +282,16 @@ state.
 
 <a id="feed-direction-cancel-open-obligations-helper"></a>
 
-Mirror the vaccination cancellation precedent
+Mirror the vaccination cancellation precedents
 `CancelOpenVaccinationObligationsForGoatExceptVersions` in
 `backend/internal/obligation/adapters/postgres/repository.go` when implementing a
-feed-specific cancel/rebuild helper. The trap to avoid: obligation and
-completion idempotency keys are replay guards for the new write. A key that
-varies by direction/run/version will make `ON CONFLICT DO NOTHING` a no-op for
-the new row but will not touch the stale open obligation, which can leave old
-instructions live and later double-reserve stock.
+feed-specific cancel/rebuild helper. Also review the per-version eligibility-drop
+helper in the same repository area when Feed rule/version changes cancel already
+materialized work. The trap to avoid: obligation and completion idempotency keys
+are replay guards for the new write. A key that varies by direction/run/version
+will make `ON CONFLICT DO NOTHING` a no-op for the new row but will not touch the
+stale open obligation, which can leave old instructions live and later
+double-reserve stock.
 
 ### Bridge
 
@@ -311,23 +330,34 @@ Do not implement the superseded 07:30 next-morning Diff design.
 The ratified `feed_direction_completions` table is keyed one row per
 `obligation_id`. Therefore the first implementation must not pretend one
 completion row can hold every legacy stage for the same shed/session direction.
-Choose one model before build:
+Choose one model before build. In every model, `stage_kind` is a durable
+queryable discriminator, not a display label:
 
-1. Preferred: create separate child obligations under the shed/session/feed batch
-   for `packing`, `transport`, and `consumption_wastage`; each child can have its
-   own SOP submission/proof/verification and its own completion row. Each child
-   must receive a distinct `obligation_id`, so it satisfies the existing
+1. Preferred: create separate `obligation_instances` grouped by the
+   shed/session/feed `obligation_batch` for `packing`, `transport`, and
+   `consumption_wastage`; each stage obligation can have its own SOP
+   submission/proof/verification and its own completion row. Each stage must
+   receive a distinct `obligation_id`, so it satisfies the existing
    `UNIQUE(tenant_id, obligation_id)` completion constraint instead of competing
-   for the parent obligation's row.
+   for another stage's row. The obligation context or indexed projection must
+   carry `stage_kind`. Do not imply a parent-child obligation FK unless a future
+   migration adds one.
 2. Alternative: keep one direction obligation and add typed
    `feed_direction_stage_records` for each stage.
 3. Narrow fallback: use `feed_direction_completions` for packing close only and
    explicitly defer transport/consumption/wastage persistence. This is not a
    shippable Feed Direction parity slice.
 
+The current `feed_direction_completions` table has no `stage_kind`, so it cannot
+serve execution-bucket queries by itself. Before API buckets are built, stage
+identity must live in a typed Feed stage table, obligation context with an
+indexed projection, or a first-class completion/stage record.
+
 Packing shortfall or rejected packing proof must re-open/re-issue the packing
 stage, delete or supersede stale notification/task pointers, and create
-rework/escalation state. Do not consume inventory on rejected proof.
+rework/escalation state. Do not consume inventory on rejected proof. This is a
+GoatOS process-integrity requirement; legacy automation evidence primarily shows
+discrepancy red-flag/admin-alert behavior, not a full reset/re-send workflow.
 
 ### Transport execution stage
 
@@ -374,7 +404,7 @@ Slack/Sheets is replaced:
 | --- | --- | --- | --- |
 | Feed Direction rows | `feed_direction_generation_runs` + `feed_direction_generation_rows` or audit-only source archive | tenant + source sheet row id/checksum, plus tenant + target date + park + shed + session + feed item + run kind | Replays update the archived source/checksum or no-op; canonical obligations are generated only from approved GoatOS runs |
 | Packing processed state and media | SOP submission/proof/completion records or audit-only history | tenant + source row id/checksum + logical stage key | Imported accepted history may close matching canonical work only when coverage is approved; otherwise stays audit-only |
-| Feed Transport rows/list items | transport child obligation/stage records with consolidation map version | tenant + target date + transport shed + session/batch + source row id/checksum | Replays do not create duplicate transport tasks; rejected media remains rejection/rework evidence |
+| Feed Transport rows/list items | transport stage obligation/record with consolidation map version | tenant + target date + transport shed + session/batch + source row id/checksum | Replays do not create duplicate transport tasks; rejected media remains rejection/rework evidence |
 | Consumption/wastage rows | consumption/wastage stage records or audit-only history | tenant + target date + park + shed + session + feed item + source row id/checksum | Recompute variance from the active instruction snapshot; mark conflicts for review |
 | Counting DB / projected count rows | source archive and sanitized fixture/parity rows | tenant + source tab + row id/checksum + snapshot date/grain | Never serve as runtime count authority; compare to canonical base-count + ShiftingEvent projection during shadow parity |
 | Applied shifting ledger | Counts/Shifting canonical event ledger or source archive | tenant + shifting_event_id/logical event key | Replays are idempotent and must not double-apply counts |
@@ -410,7 +440,7 @@ without creating active Feed UI before scope reopens:
 | Bucket | Source/legacy signal | GoatOS source of truth |
 | --- | --- | --- |
 | `generation_blocked` | missing Count/Shifting projection or reviewed ration config | generation run / blocker records |
-| `packing_due` | unprocessed packing work | due packing child obligation or stage record |
+| `packing_due` | unprocessed packing work | due packing stage obligation or stage record |
 | `packing_shortfall` | expected-vs-actual mismatch or rejected packing proof | packing verification + rework state |
 | `proof_missing` | no media/proof for required stage | SOP task/submission/proof state |
 | `transport_pending` | Feed Transport work list/form row pending | transport obligation/stage and consolidation map version |
@@ -419,49 +449,66 @@ without creating active Feed UI before scope reopens:
 | `wastage_exception` | difference/wastage percent over configured threshold | active instruction snapshot + stage variance rule |
 | `bridge_exception` | post-cutoff high-priority 2x ration bridge | `feed_direction_bridge_events` |
 | `stock_out` | reserve failure at packing start | inventory reserve result + blocked obligation state |
-| `rework` | rejected media, packing reset, or resend loop | follow-up obligation/workflow link |
+| `missed_or_overdue` | due/deadline crossed for any stage | obligation deadline/missed event + escalation state |
+| `escalated` | reminder/escalation policy fired | notification/escalation event + owner |
+| `rework` | rejected media or GoatOS-required packing/transport/consumption rework | follow-up obligation/workflow link |
 
 Each bucket must carry `tenant_id`, park/location scope, target date, shed or
 transport shed, session/batch where applicable, owner/assignee where known,
-source stage, active/superseded instruction reference, due/blocked reason, and a
-cursor key. These buckets may feed top-level command lenses through filters, but
-Feed Direction must not create nested Action Center, Control Tower, Protocol
-Adherence, Config, or SOP Library routes.
+`stage_kind`, active/superseded instruction reference, due_at, deadline_at,
+proof state, verification state, evidence refs, due/blocked reason, escalation
+state, resolution state, and a cursor key. These buckets may feed top-level
+command lenses through filters, but Feed Direction must not create nested
+Action Center, Control Tower, Protocol Adherence, Config, or SOP Library routes.
+Calendar, Action Center, Protocol Adherence, Workflows, and Control Tower must
+read the same Feed projection fields rather than deriving separate truth.
 
 ## 9. Legacy parity mapping
 
-Legacy source behavior to port as rules, not as Apps Script:
+Legacy source behavior to port as rules, not as Apps Script. Treat this as a
+feature inventory, not an exact line-number blueprint; exact legacy code
+references must be re-verified before import/cutover work.
 
 | Source surface | Source signals | GoatOS mapping |
 | --- | --- | --- |
 | Count-DB / Projected-DB / FutureDB | Date, farm, shed, shed tag, breed, age, count, counted-by; projected and comparison tabs (`feed-direction-counting-db-reconstruction.md`) | Source evidence and fixture/reference shape only. Runtime feed counts come from the physical Base Count anchor, realized ShiftingEvent ledger, and horizon-aware projection contract. |
-| Shifting reports | Type request/direction, category, priority, source/destination, comments, destination proof, approval/status (`drive-docs-findings.md`; `counting_db_automation.js:525-545`) | Process-visible movement workflow plus count input under horizon-specific gates: authorized/directed future-effective rows may feed the one-day projection, while realized counts wait for the configured applied state. Pending unauthorized, rejected, or canceled movement does not create Feed Direction work. Ledger application is idempotent by event id. |
-| K0 cohort parsing/validation | K0 in/out Mother-vs-Kid parsing, unresolved/insufficient-count halt (`counting_db_automation.js:94-167`, `:228-360`) | Structured cohort/stage impact is mandatory. Missing or unresolved impact fails closed and raises process-exception work instead of changing counts. |
-| Feed Direction sheet | Date, farm, session, shed, shed tag, breed, age, count, feed item/quantity pairs, session total (`feed_automation.js:638-687`) | Generation snapshot/read-model fields, with quantities derived from reviewed RationTable output and count replay. |
-| Rounding and zero transforms | Round non-baking-soda up at daily shed total before session split; baking soda precision/blank-zero special case (`feed_automation.js:664-687`, `:1170-1180`) | Source-backed transform rule with unit tests; do not round independently per session unless approved as a behavior change. |
-| Packing / Consumption / Transport processed flags | Boolean processed columns in the legacy sheet (`feed_automation.js` processed columns) | Idempotent obligation, SOP task, proof, verification, and completion state; never boolean runtime authority. |
-| Feed Transport form and transport scripts | Date, farm, shed, time, video/message links, user, transport list item, uploaded file handling, consolidated transport sheds (`feed_automation.js:6348-6500`) | First-class transport obligation/stage with source-backed direction-shed to transport-shed consolidation, proof upload, verifier decision, rejection reason, and rework/next action. |
-| Feed Consumption & Wastage form | Consumed quantity, wasted quantity, consumption proof, wastage proof, difference, wastage percent; legacy 20% wastage flag (`feed_automation.js:5005-5050`) | Typed consumption/wastage stage outcome or projection fields with proof references and source-backed variance exception thresholds. |
-| Video verification / rejection tracker | Media correctness `Pending`/`Verified`/`Rejected`, remarks required on rejection, notification and rejected-media list (`video_verification_system.js:117-307`) | Platform proof verification state, audit trail, rejection reason, and follow-up obligation. |
-| Packing quantity re-check | Expected vs actual quantities, proof rejection, row reset/re-send loop (`feed_automation.js:4800-4927`) | Packing shortfall/rejected proof must create rework/re-issue state before inventory consumption. |
-| Experiment sheds | Experiment tag and zero count/feed quantities | Explicit feed eligibility exclusion / zero-direction rule. |
-| K0/K1 feed exclusions | Milk-fed cohorts filtered out of supply/diff paths | Explicit eligibility rule with source-backed rationale, not an incidental transform. |
-| Per-farm Template sheet | Session labels and feed items per farm; quantities split by session count (`feed_automation.js:1032-1106`) | Open parity decision: retain as source-backed session/feed-set config or supersede with Feed Director sign-off for the June 2026 two-session 50/50 default. |
-| Diff regeneration | Delete affected shed rows/thread properties and regenerate affected shed directions (`feed_automation.js:565-739`), while the source glossary describes the field adjustment as net delta | Canonical GoatOS Diff run stores affected-shed restatement rows and cancels/supersedes stale work; source-facing output may present net correction. |
+| Shifting reports | Type request/direction, category, priority, source/destination, comments, destination proof, approval/status | Process-visible movement workflow plus count input under horizon-specific gates: authorized/directed future-effective rows may feed the one-day projection, while realized counts wait for the configured applied state. Pending unauthorized, rejected, or canceled movement does not create Feed Direction work. Ledger application is idempotent by event id. |
+| K0 cohort parsing/validation | K0 in/out Mother-vs-Kid parsing, unresolved/insufficient-count halt | Structured cohort/stage impact is mandatory. Missing or unresolved impact fails closed and raises process-exception work instead of changing counts. K0/K1 feed exclusion still needs Feed Director approval before publish. |
+| Feed Direction sheet | Date, farm, session, shed, shed tag, breed, age, count, feed item/quantity pairs, session total | Generation snapshot/read-model fields, with quantities derived from reviewed RationTable output and count replay. |
+| Rounding and zero transforms | Round non-baking-soda up at daily shed total before session split; baking soda precision/blank-zero special case | Source-backed transform rule with unit tests; do not round independently per session unless approved as a behavior change. Resolve baking-soda precision before locking the unit boundary. |
+| Packing / Consumption / Transport processed flags | Boolean processed columns in the legacy sheet | Idempotent obligation, SOP task, proof, verification, and completion state; never boolean runtime authority. |
+| Feed Transport form and transport scripts | Date, farm, shed, time, video/message links, user, transport list/checklist item, uploaded file handling, consolidated transport sheds | First-class transport obligation/stage with source-backed direction-shed to transport-shed consolidation, proof upload, verifier decision, rejection reason, and rework/next action. |
+| Feed Consumption & Wastage form | Consumed quantity, wasted quantity, consumption proof, wastage proof, difference, wastage percent; legacy 20% wastage flag | Typed consumption/wastage stage outcome or projection fields with proof references and source-backed variance exception thresholds. |
+| Video verification / rejection tracker | Media correctness `Pending`/`Verified`/`Rejected`, remarks required on rejection, notification and rejected-media list | Platform proof verification state, audit trail, rejection reason, and follow-up obligation. |
+| Packing quantity discrepancy | Expected vs actual quantity discrepancy, red-flag/admin notification behavior | Packing shortfall/rejected proof rework is a stronger GoatOS policy; do not describe it as legacy reset/re-send parity. |
+| Experiment sheds | Experiment tag and zero count/feed quantities in source evidence | Candidate feed eligibility exclusion / zero-direction rule requiring Feed Director sign-off. |
+| Warmup stage tags | Warmup operating states from source findings, not fully covered by feed docx ration table | Reviewed ration path or explicit exclusion before Feed Direction publish. |
+| K0/K1 feed exclusions | Milk-fed cohorts filtered out of legacy supply/diff paths | Candidate eligibility rule from legacy evidence; requires Feed Director approval before publish, not an incidental transform. |
+| Per-farm Template sheet | Session labels and feed items per farm; quantities split by session count | Open parity decision: retain as source-backed session/feed-set config or supersede with Feed Director sign-off for the June 2026 two-session 50/50 default. |
+| Diff regeneration | Legacy automation had additional cycles/intermediate storage, while the June source model defines the 09:00 full direction, 13:30 cutoff, 13:30-13:45 Diff, and post-cutoff bridge | Canonical GoatOS Diff run stores affected-shed restatement rows and cancels/supersedes stale work; source-facing output may present net correction. Old two-cycle behavior is cutover evidence unless explicitly reinstated. |
+| Retry scheduler | Reschedule/retry and admin alert behavior | Durable reminder/retry/escalation policy under gates `G11`-`G12`, not Apps Script timers. |
+| Applied-event and file dedupe | Short-window dedupe and file-id dedupe in legacy automation | Durable idempotency keys, replay tests, and source archive checksums. |
+| Count-mismatch detection | Unreported-shifting/count-reconciliation signal | Counts/Shifting exception work under gate `G2`, not silent Feed-side correction. |
+| Breed remap | Legacy breed normalization such as SIROHI->Beetal | Reviewed breed alias config before projection/ration lookup. |
 
 Other parity rules:
 
 - Session split is currently 50/50 by source priority, but legacy per-farm
   templates must be reviewed or explicitly superseded before implementation.
-- Legacy feed rounding grain, K0/K1 exclusions, F2/Fattening alias handling,
-  transport consolidation, discrepancy thresholds, and processed-flag behavior
-  must be captured as explicit source-backed transform/config rules before use.
+- Legacy feed rounding grain, Warmup handling, K0/K1 exclusions, F2/Fattening
+  alias handling, breed remaps, transport consolidation, discrepancy thresholds,
+  retry/dedupe behavior, and processed-flag behavior must be captured as
+  explicit reviewed transform/config rules before use.
 - Slack delivery is notification/cutover bridge only. It must call GoatOS APIs if
   retained; it must not mutate Sheets as canonical state.
 
 Security note: the legacy Slack/App Script repo contains committed Slack token
 and shared-secret material. Do not copy it into GoatOS docs, code, tests, or
 fixtures. Rotation in the source system is required before any bridge reuse.
+Overlap is allowed only after a security closeout inventories affected scripts,
+revokes or rotates credentials, moves any retained bridge credential to the
+approved secret store, and proves GoatOS API-only ingress with auth/RBAC,
+idempotency keys, and audit/outbox evidence.
 
 ## 10. Admin-web and mobile constraints
 
@@ -497,6 +544,9 @@ fixtures. Rotation in the source system is required before any bridge reuse.
 - Integration tests for Counts/Shifting input snapshots, generation idempotency,
   affected-shed restatement, explicit stale-obligation cancel,
   reserve/consume/release, stage proof verification, and packing rework.
+- Integration tests for reminder/escalation SLA, NotificationGateway routing,
+  missed/recovery events, audit rows, observability counters, and command-lens
+  field mapping.
 - Import/replay tests for Feed legacy source rows, applied shifting events, proof
   rows, and duplicate/cross-source overlap cases from the cutover contract.
 - API route tests and OpenAPI generated-client checks.
@@ -510,18 +560,10 @@ fixtures. Rotation in the source system is required before any bridge reuse.
 
 ## 13. Blockers before build
 
-1. Owner confirms Feed Direction scope is reopened beyond the current
-   PHC/Vaccination review slice.
-2. Counts/Shifting owner provides the aggregate horizon-aware projection contract
-   or approved per-goat derivation path.
-3. Feed Director confirms clock values per park.
-4. Source-backed ration values, aliases, eligibility exclusions, and rounding
-   rules are available.
-5. Stage model for packing, transport, consumption, wastage, proof rejection,
-   and rework is chosen.
-6. Legacy Slack token/shared-secret rotation ownership is assigned and rotation
-   happens before any bridge reuse.
-7. Transport consolidation map owner and source-backed storage location are
-   confirmed.
-8. Packing discrepancy tolerance and wastage variance thresholds are confirmed.
-9. Next migration number is chosen after checking the live repo tail.
+Use the canonical gate table in
+[DEPENDENCY-CLOSURE-PRD.md](./DEPENDENCY-CLOSURE-PRD.md) rather than maintaining
+a separate blocker list. Technical implementation may start only for hidden
+backend prep allowed by `G1`; full Feed Direction backend readiness requires
+`G2`-`G17` to be closed or explicitly marked deferred with owner approval. The
+next migration number is a build-time check after the live repo tail, currently
+`000117`, is reverified.
