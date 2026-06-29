@@ -67,7 +67,7 @@ Use this priority when sources disagree:
 | Priority | Source | Use |
 | --- | --- | --- |
 | 1 | `Feed, Shiftings and Count.docx` v1.1, June 2026 | Primary Feed Direction business source: Base Count, append-only Shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration solver constraints |
-| 2 | Feed-relevant wiki/source docs and findings | Counting DB reconstruction, Shifting reports, Feed Director ops, Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| 2 | Feed-relevant wiki/source docs and findings | Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, Goats & Parks stage tags, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
 | 3 | Legacy Slack/App Script feed workflows | Feature inventory for sheet fields, form stages, proof/rejection, reset/re-send, retry/dedupe, transport, notifications, and security/cutover evidence; not a code blueprint |
 | 4 | GoatOS protocol/kernel docs and committed code | Implementation shape for protocol, obligations, SOP proof, inventory, audit, outbox, reminders, read models, RBAC, OpenAPI, and generated clients |
 | 5 | Older GoatOS feed docs and mock feed panels | Historical UI/direction references only where not contradicted above; the mock controls UI anatomy, not Feed business timing |
@@ -117,6 +117,16 @@ identify a 14-day Warmup transition and Warmup operating states, but the feed
 docx ration table does not settle their packed-feed quantities. ICU, Quarantine,
 Flushing, and Breeding shed tags also require explicit ration path or exclusion
 decisions instead of inheriting default packed-feed behavior.
+
+Feed Transfer KT adds an important gap: ration/constraint sheets may be keyed by
+breed, tag/stage, energy/vector policy, weight band, warm-up, pregnancy, and
+other nutrition dimensions without carrying authoritative shed placement. Do not
+treat those constraint tables as proof that a shed has that tag or cohort. GoatOS
+must keep the physical count/projection grain (`park + shed + breed + horizon`)
+separate from the nutrition/ration cohort key, then resolve between them through
+reviewed source-backed context. If the resolver cannot prove the shed tag/cohort
+for a projected count row, generation blocks with visible exception work instead
+of guessing a ration.
 
 The full NRC optimizer UI can wait, but ration quantity provenance cannot. The
 first slice must either run a non-UI RationTable solver for the source-required
@@ -208,12 +218,13 @@ projection tables, and committed movement state is per-goat. They are not yet
 the aggregate base-count, realized-shifting ledger, and horizon-aware projection
 Feed Direction requires. Before Feed Direction is operational, gate `G2` must be
 closed through the Counts/Shifting closure docs with aggregate shed + breed
-output. Shed tag/ration context comes from reviewed shed reference data for
-ration lookup; it is not a separate physical count grain. RFID-to-shed
-per-animal association is planned but not implemented in the primary source and
-must not be introduced as hidden initial Feed scope. A future per-goat derivation
-can only replace the aggregate ledger after RFID/location confidence is
-separately proven and owner-approved.
+output. Ration context must resolve from reviewed source-backed evidence before
+ration lookup; unresolved context is a fail-closed blocker, not a default. It is
+not a separate physical count grain. RFID-to-shed per-animal association is
+planned but not implemented in the primary source and must not be introduced as
+hidden initial Feed scope. A future per-goat derivation can only replace the
+aggregate ledger after RFID/location confidence is separately proven and
+owner-approved.
 
 Packing, transport, consumption, and wastage are first-class execution stages,
 not generic proof footnotes. Legacy feed execution has separate processed flags,
@@ -353,6 +364,9 @@ Under reopened `G1`, when building Feed Direction UI:
 - Count gates are horizon-specific: realized counts and reconciliation require
   the configured applied state, while one-day projection may include only
   authorized/directed future-effective shiftings for the target date.
+- Ration-context resolution is explicit: a projected shed + breed count row must
+  resolve to reviewed nutrition cohort context before ration lookup. Breed/tag
+  constraint tables without shed placement are not enough to publish quantities.
 - Shifting ledger application is idempotent by event id, and unresolved
   cohort/stage impact fails closed before counts or ration selection change.
 - Warmup, K0/K1, Experiment-shed, and breed/stage alias policies cannot publish
@@ -386,10 +400,11 @@ Under reopened `G1`, when building Feed Direction UI:
    surfaces without Feed-owned contracts, source-backed or clearly marked
    local-dev data, mock-fidelity, and rendered proof.
 2. `G2`: Close the Counts/Shifting input contract in the sibling closure docs at
-   aggregate shed + breed grain, with reviewed shed-tag/ration context joined
-   from reference data. RFID-to-shed per-goat derivation is out of initial Feed
-   Direction scope and can only replace the aggregate ledger after separate
-   proof and owner approval.
+   aggregate shed + breed grain, with ration context resolved from reviewed
+   source-backed evidence or surfaced as a fail-closed blocker. Breed/tag-only KT
+   constraint tables do not provide shed placement by themselves. RFID-to-shed
+   per-goat derivation is out of initial Feed Direction scope and can only replace
+   the aggregate ledger after separate proof and owner approval.
 3. `G3`: Confirm Feed Director clock values per park from
    `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N
    `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1
@@ -399,7 +414,9 @@ Under reopened `G1`, when building Feed Direction UI:
 4. `G4`: Confirm whether the first slice runs the non-UI ration solver or imports
    reviewed solver outputs as source-backed config.
 5. `G4`: Confirm initial feed vectors, costs, ration aliases, source-backed
-   ration values, kid weight-band/ADG inputs, and roughage/category floor values.
+   ration values, kid weight-band/ADG inputs, roughage/category floor values, and
+   how uploaded breed/tag/energy constraint tables map into reviewed ration
+   cohort keys.
 6. `G5`: Confirm Warmup 14-day transition handling, ICU, Quarantine, Flushing,
    Breeding, K0/K1, Experiment-shed, F2/Fattening, SIROHI->Beetal, and other
    alias/exclusion policies.

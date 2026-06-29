@@ -35,6 +35,9 @@ General/Slack source findings
 Feed Direction Counting DB reconstruction
   context/source-findings/feed-direction-counting-db-reconstruction.md
 
+Feed Transfer KT findings
+  context/source-findings/feed-transfer-kt-2026-06-24.md
+
 Customer promise safety source findings
   context/source-findings/customer-promise-safety-findings.md
 

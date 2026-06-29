@@ -104,9 +104,12 @@ language.
 
 1. `G2` Counts/Shifting projection closure, including Base Count anchor,
    ShiftingEvent ledger, horizon split, fail-closed exceptions, idempotency,
-   observability, aggregate breed-level count output, and
-   `GET /feed-direction/readiness` subgate roll-up. RFID-to-shed per-animal
-   association is out of scope for the initial Feed Direction build.
+   observability, aggregate breed-level count output, reviewed ration-context
+   resolution state for each shed + breed projection row, and
+   `GET /feed-direction/readiness` subgate roll-up. Breed/tag constraint tables
+   without shed placement must block until reviewed context resolves the
+   nutrition cohort. RFID-to-shed per-animal association is out of scope for the
+   initial Feed Direction build.
 2. `G3` clock and legacy trigger inventory sign-off: confirm the docx-owned
    default clocks first (`09:00`, `13:30`, `13:30-13:45`, `15:00`, and
    next-day default serving slots `09:00`/`15:00`). `G5` owns any approved
@@ -124,6 +127,9 @@ language.
    and Fattening tags, roughage floor numeric values are examples until confirmed
    per tag, cost minimization means no paired overshoot ceiling is needed, and a
    refreshed solve replaces the lookup table wholesale with no versioned blend.
+   Feed Transfer KT-style uploaded breed/tag/energy sheets are ration/constraint
+   source evidence only; they must map into reviewed nutrition cohort keys and do
+   not prove shed placement.
 4. `G5` Eligibility and stage-tag/session policy: Warmup, K0/K1, Experiment, ICU,
    Quarantine, Flushing, Breeding, F2/Fattening, breed aliases, and versioned
    session-slot/feed-set policy are approved. The docx default is two slots with
@@ -258,6 +264,10 @@ code, docs, seeds, or UI:
 - Counts are aggregate breed-level by shed. RFID-to-shed per-animal association
   is planned but not implemented, and must not be introduced as hidden initial
   Feed scope.
+- Ration lookup needs a reviewed resolver from shed + breed count rows to
+  nutrition cohort keys. Uploaded breed/tag/energy constraint sheets do not carry
+  authoritative shed placement; missing resolver context is a blocker, not a
+  default-ration fallback.
 - Field-facing FeedDirection, Diff, and packing outputs are as-fed gross
   quantities only. `wastage_factor` and `DM_factor` remain internal
   nutrient-accounting fields.

@@ -49,7 +49,7 @@ Use these source families before asking the business to answer from memory:
 | Source family | Use in this phase |
 | --- | --- |
 | `Feed, Shiftings and Count.docx` v1.1 | Primary source for count/shifting ledger, one-day projection, timing, Diff, manual bridge SOP/logging, as-fed quantities, and ration model |
-| Other feed-relevant wiki/source findings | Goats & Parks tags, Counting DB reconstruction, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
+| Other feed-relevant wiki/source findings | Goats & Parks tags, Counting DB reconstruction, Feed Transfer KT findings, Shifting reports, Feed Director ops, transport consolidation, Warmup/K0/K1/Experiment evidence, and feed-stock/procurement boundaries |
 | Legacy Slack/App Script feed automation | Feature inventory for packing, consumption, transport, verification, reset/re-send, retries, dedupe, notifications, and security/cutover evidence |
 | GoatOS protocol/kernel docs and committed code | Obligations, batches, SOP proof, inventory ledger, outbox, scheduler, notifications, read models, scale gates, RBAC, OpenAPI, and generated clients |
 | Admin-web mock | UI anatomy source only after `G1`; it does not override the primary Feed business source |
@@ -80,9 +80,9 @@ questions must reference these IDs rather than maintaining independent lists.
 | ID | Gate | Required outcome | Type |
 | --- | --- | --- | --- |
 | G1 | Scope launch gate | Reopened as of 2026-06-30 because local PHC/Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, and `G2`-`G17` closure. | Owner |
-| G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed shed-tag/ration context, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2`. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
+| G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed ration-context resolution state, idempotency, fail-closed exceptions, and `CSG1`-`CSG10` readiness breakdown under `G2`. Breed/tag constraint tables without shed placement must produce a blocker until reviewed context resolves the physical count row to a nutrition cohort. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
 | G3 | Clock and legacy trigger inventory | Feed Director signs off the default Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving slots. `G5` owns approved session-slot changes beyond that default. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
-| G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, constraints, approval metadata, and publish authority checks are defined | Source/owner |
+| G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, uploaded breed/tag/energy constraint tables, constraint hashes, approval metadata, and publish authority checks are defined | Source/owner |
 | G5 | Eligibility and stage-tag/session policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, Experiment sheds, F2/Fattening, SIROHI->Beetal or other breed aliases, and versioned session-slot/feed-set policy are explicitly approved. The source default is two serving slots with 50/50 split, but admins may add, disable, reorder, or reweight slots only through approved effective-dated Feed Direction protocol config. | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
 | G7 | Stage model | Packing, transport, consumption/wastage, bridge proof/rework model chosen with a durable queryable `stage_kind` discriminator | Architecture |
@@ -111,7 +111,8 @@ DB rows.
 The contract must expose:
 
 - Physical Base Count anchors by tenant, park, shed, and breed.
-- Reviewed shed-tag/ration context for joining aggregate counts to ration lookup.
+- Ration-context resolution state for joining aggregate counts to ration lookup
+  or blocking when reviewed context is missing.
 - Append-only ShiftingEvents with source, destination, priority, category,
   raised/effective time, authorization, completion/proof/verification state, and
   structured cohort/stage impact.
@@ -121,6 +122,8 @@ The contract must expose:
 - Fail-closed handling when cohort/stage impact is missing or unresolved.
 - Count-mismatch/unreported-shifting detection as process exception work.
 - Breed/stage alias normalization before aggregate counts feed ration lookup.
+- Reviewed ration-context resolution before aggregate shed + breed counts feed
+  ration lookup. Breed/tag/energy constraint tables are not shed-placement truth.
 
 This is aggregate-first. RFID-to-shed per-animal association is a future
 replacement path only after separately proven identity/location confidence; it is

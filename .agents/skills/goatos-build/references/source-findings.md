@@ -8,6 +8,7 @@ Canonical docs:
 
 - `context/source-findings/drive-docs-findings.md`
 - `context/source-findings/customer-promise-safety-findings.md`
+- `context/source-findings/feed-transfer-kt-2026-06-24.md`
 - `context/product/glossary.md`
 - `context/analytics/final-analytics-infra.md`
 - `context/forms/final-forms-sop-engine.md`
@@ -29,6 +30,11 @@ Rules:
   if breed + tag needs an uneven split. GoatOS should model Feed Direction
   sessions as versioned admin config so approved users can add, disable, reorder,
   or reweight slots through an effective-dated published protocol version.
+- Feed Transfer KT notes support uploaded/configured breed, tag/stage, energy,
+  weight-band, warm-up, pregnancy, and feed-vector constraint tables, but they do
+  not provide authoritative shed placement. Keep physical count projection
+  (`shed + breed`) separate from nutrition/ration cohort keys; missing reviewed
+  resolver context must block Feed generation instead of guessing.
 - Deleted archive docs and old phase ladders are historical only. If a breed,
   table, SOP, or form field only exists in git history, it is not
   build-canonical.

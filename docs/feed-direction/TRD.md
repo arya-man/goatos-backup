@@ -46,7 +46,7 @@ Committed and reusable:
 Not operational yet:
 
 - No canonical Counts/Shifting horizon-aware aggregate projection contract for
-  shed + breed counts plus reviewed shed-tag/ration context.
+  shed + breed counts plus reviewed ration-context resolution state.
 - No non-UI RationTable solver or reviewed solver-output import with provenance.
 - No feed generation run model or worker.
 - No Feed Direction obligation creation.
@@ -108,7 +108,8 @@ these contracts:
 
 1. A Counts/Shifting-owned aggregate realized ledger plus horizon-aware
    projection at tenant + park + shed + breed + effective time, with reviewed
-   shed-tag/ration context joined from shed reference data.
+   ration context resolved from reviewed source-backed context or returned as a
+   fail-closed blocker.
 2. A derivation from per-goat location history, only after RFID-to-shed
    association through `goat_identifiers` and `goat_location_history` is reliable
    enough to produce the same aggregate counts without full-herd scans.
@@ -120,6 +121,18 @@ owner-approved.
 
 Until one contract exists, Feed generation must remain blocked even if protocol
 rules, obligations, and completion records exist.
+
+Keep physical count grain and nutrition key separate. The Feed Transfer KT
+supports uploaded constraint tables keyed by breed, tag/stage, energy/feed
+vectors, weight bands, warm-up, pregnancy, and related nutrition dimensions, but
+it does not provide authoritative shed placement. Therefore:
+
+- `CountProjectionProvider` owns physical count rows at shed + breed + horizon.
+- Feed protocol/ration config owns the reviewed nutrition cohort key.
+- A resolver must map each projected count row to one or more approved ration
+  cohort contexts before generation.
+- Missing shed tag, cohort split, or ration-context evidence is a generation
+  blocker and process exception, not a default-ration fallback.
 
 A new physical Base Count becomes canonical immediately. Any discrepancy against
 the prior replay creates investigation/accountability work, but that work does
@@ -161,6 +174,9 @@ Do not key ration rules by raw `(breed, age)`.
 - Kid rules are keyed by weight band and target ADG.
 - Source `Age`, `Shed Tag`, and legacy aliases must normalize through reference
   data before they reach `rule_dsl`.
+- Uploaded constraint tables may not carry shed placement. Treat them as ration
+  cohort config only; the shed/breed count row still needs reviewed resolver
+  evidence before lookup.
 
 ### Feed eligibility and transforms
 
@@ -190,6 +206,9 @@ Feed configuration lives in `protocol_versions.rule_dsl` for
 
 - Ration scope: tenant, park/shed scope, breed, stage/shed tag, or kid
   weight-band/ADG.
+- Ration context resolver policy: how a shed + breed projection row resolves to
+  one or more approved nutrition/ration cohort keys, and what blocker is emitted
+  when context is missing.
 - Warmup stage policy and approved alias/exclusion handling.
 - Feed eligibility rules and zero-direction exclusions.
 - Feed item reference to `inventory_items.category='feed'`.
@@ -258,8 +277,8 @@ Candidate tables, to finalize during implementation:
 | Table | Purpose | Notes |
 | --- | --- | --- |
 | `feed_direction_generation_runs` | One row per full or Diff generation attempt | `run_kind` full/diff, target date, cutoff window, status, idempotency key, source hash, actor/job metadata |
-| `feed_direction_count_input_rows` | Snapshot of the Counts/Shifting projection consumed by a run | Grain: tenant, run, park, shed, target date, breed, headcount, reviewed shed-tag/ration context, source contract/version/hash, realized vs projection horizon |
-| `feed_direction_generation_rows` | Source/planning snapshot used to create obligations | Grain: tenant, run, park, shed, target date, session, breed, stage/shed tag, feed item, as-fed quantity, row kind full/diff/restatement, optional source-facing net correction quantity |
+| `feed_direction_count_input_rows` | Snapshot of the Counts/Shifting projection consumed by a run | Grain: tenant, run, park, shed, target date, breed, headcount, ration_context_resolution_state, reviewed ration context ids where resolved, blocker reason where unresolved, source contract/version/hash, realized vs projection horizon |
+| `feed_direction_generation_rows` | Source/planning snapshot used to create obligations | Grain: tenant, run, park, shed, target date, session, breed, ration cohort key/stage/shed tag, feed item, as-fed quantity, row kind full/diff/restatement, optional source-facing net correction quantity |
 | `feed_direction_stage_records` | Typed stage outcome rows, or replaced only by an indexed obligation-context/completion-stage projection with the same durable discriminator | Stage kind packing/transport/consumption/wastage/bridge, planned vs actual quantities, consumed/wasted/variance, proof refs, verifier status, rejection reason, rework link |
 | `feed_direction_bridge_events` | Manual high-priority post-cutoff 2x-ration bridge log | Destination shed, animal id or approved aggregate reference, timestamp, quantity, source event/logical shifting reference where known, source shed tag where known, proof/submission links, reconciliation state |
 | `feed_direction_projection_rows` | Read model for admin/mobile lists and command buckets | Bounded by tenant, park, date, shed, session, status, bucket, owner, cursor key |
@@ -521,6 +540,7 @@ references must be re-verified before import/cutover work.
 | Shifting reports | Type request/direction, category, priority, source/destination, comments, destination proof, approval/status | Process-visible movement workflow plus count input under horizon-specific gates: authorized/directed future-effective rows may feed the one-day projection, while realized counts wait for the configured applied state. Pending unauthorized, rejected, or canceled movement does not create Feed Direction work. Ledger application is idempotent by event id. |
 | K0 cohort parsing/validation | K0 in/out Mother-vs-Kid parsing, unresolved/insufficient-count halt | Structured cohort/stage impact is mandatory. Missing or unresolved impact fails closed and raises process-exception work instead of changing counts. K0/K1 feed exclusion still needs Feed Director approval before publish. |
 | Feed Direction sheet | Date, farm, session, shed, shed tag, breed, age, count, feed item/quantity pairs, session total | Generation snapshot/read-model fields, with quantities derived from reviewed RationTable output and count replay. |
+| Feed Transfer KT / constraint sheets | Configuration screen and uploaded tables for feed vectors, breed/tag/energy requirements, weight bands, warm-up/pregnancy-style policy, and downstream values; transcript is noisy and does not establish shed placement | Source evidence for ration/constraint config only. Generation must explicitly resolve physical shed + breed counts to approved nutrition cohort keys; missing resolver context blocks instead of guessing from breed/tag tables. |
 | Rounding and zero transforms | Round non-baking-soda up at daily shed total before session split; baking soda precision/blank-zero special case | Source-backed transform rule with unit tests; do not round independently per session unless approved as a behavior change. Resolve baking-soda precision before locking the unit boundary. |
 | Packing / Consumption / Transport processed flags | Boolean processed columns in the legacy sheet | Idempotent obligation, SOP task, proof, verification, and completion state; never boolean runtime authority. |
 | Feed Transport form and transport scripts | Date, farm, shed, time, video/message links, user, transport list/checklist item, uploaded file handling, consolidated transport sheds | First-class transport obligation/stage with source-backed direction-shed to transport-shed consolidation, proof upload, verifier decision, rejection reason, and rework/next action. |
@@ -611,6 +631,9 @@ execution remains disabled until that closeout is complete.
 ## 12. Acceptance gates
 
 - Unit tests for ration key normalization and Diff/bridge decision tables.
+- Unit tests for ration-context resolver behavior: one projection row to one
+  cohort, one projection row split across multiple approved cohorts, and missing
+  shed/tag/cohort context producing a fail-closed blocker.
 - Unit tests for the ration do-not-resolve rules: feed-type-level constraints
   only, Milking/Fattening-only `60:40`, no paired overshoot ceiling, deferred
   item-level ceilings, and wholesale RationTable replacement after re-solve.
@@ -618,8 +641,9 @@ execution remains disabled until that closeout is complete.
   transport consolidation mapping, variance thresholds, and structured shifting
   cohort impact fail-closed behavior.
 - Integration tests that keep initial count projection at aggregate shed + breed
-  grain, join shed-tag/ration context from reviewed reference data, and fail if
-  RFID-to-shed per-goat derivation becomes an implicit dependency.
+  grain, resolve ration context from reviewed source-backed evidence, fail when
+  the ration-context resolver is missing, and fail if RFID-to-shed per-goat
+  derivation becomes an implicit dependency.
 - Integration tests for Counts/Shifting input snapshots, generation idempotency,
   affected-shed restatement, explicit stale-obligation cancel,
   reserve/consume/release, stage proof verification, and packing rework.

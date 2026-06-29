@@ -77,7 +77,7 @@ tenant_id
 park_id
 target_date or as_of
 grain: shed + breed
-reviewed_shed_tag_context optional, derived from shed reference data for ration lookup
+reviewed_ration_context_resolution required: resolved | blocked
 horizon: realized | one_day_projection
 protocol_version_id or source_hash consumer tag
 ```
@@ -89,7 +89,9 @@ tenant_id
 park_id
 shed_id
 breed_id
-shed_tag_context_id nullable, derived
+ration_context_resolution_state
+resolved_ration_context_ids nullable
+ration_context_blocker_reason nullable
 head_count
 projection_horizon
 source_contract_version
@@ -102,6 +104,15 @@ exception_count
 Feed must snapshot these rows into `feed_direction_count_input_rows` for every
 generation run. A later count replay must not silently rewrite the input used by
 an already-issued direction.
+
+Feed Transfer KT evidence means ration/constraint config may be keyed by
+breed/tag/stage, energy/vector policy, weight band, warm-up, pregnancy, and other
+nutrition dimensions without authoritative shed placement. Counts/Shifting owns
+the physical shed + breed projection. Feed owns the reviewed resolver from that
+projection to nutrition/ration cohort keys. If the resolver cannot prove the
+cohort context for a projected row, `ration_context_resolution_state` is blocked
+and generation must create visible exception work instead of choosing a default
+ration.
 
 ### 3.2 Counts/Shifting Persistence Requirement
 
@@ -135,14 +146,16 @@ state can prove the same aggregate grain without full-herd scans. This path must
 join active identifiers from `goat_identifiers`, authoritative movement/location
 history from `goat_location_history`, and reviewed shed/stage reference data into
 bounded tenant + park + shed + breed aggregates plus reviewed shed-tag/ration
-context. It still must expose the same `CountProjectionProvider` interface and
-snapshot rows, and it must fail closed if RFID, identifier, or location
-confidence cannot support the aggregate.
+context resolution state. It still must expose the same
+`CountProjectionProvider` interface and snapshot rows, and it must fail closed if
+RFID, identifier, location, or ration-context confidence cannot support the
+aggregate.
 
 This alternative is out of initial Feed Direction scope. The first build must
-consume aggregate shed + breed projections, with shed-tag/ration context joined
-from reviewed shed reference data; RFID-to-shed per-goat derivation can only
-replace that after separate implementation, scale proof, and owner approval.
+consume aggregate shed + breed projections, with ration context resolved from
+reviewed source-backed evidence or blocked with a reason; RFID-to-shed per-goat
+derivation can only replace that after separate implementation, scale proof, and
+owner approval.
 
 ### 3.3 Horizon Rules
 
@@ -175,6 +188,8 @@ Required DSL families:
 
 ```text
 ration_scope
+nutrition_cohort_key
+ration_context_resolver_policy
 stage_aliases
 breed_aliases
 kid_weight_band_adg_rules
@@ -199,6 +214,13 @@ Validators must require at least one active slot, unique codes/order per scope,
 weights that sum to the full daily as-fed quantity for each applicable feed
 item/scope, and explicit supersession if a policy change touches an already
 generated target date.
+
+`nutrition_cohort_key` and `ration_context_resolver_policy` keep source
+constraint tables separate from shed truth. Uploaded breed/tag/energy constraint
+tables define reviewed ration cohorts; they do not prove which shed has that
+cohort. The resolver policy must define accepted source evidence, split behavior
+when a shed + breed row maps to multiple cohorts, and the fail-closed blocker for
+missing context.
 
 Required provenance:
 
@@ -314,6 +336,7 @@ fail if projection contract or source-backed ration is missing
 snapshot count input rows
 apply eligibility exclusions
 normalize breed/stage aliases
+resolve ration cohort context for every shed + breed count row
 lookup ration rows
 apply as-fed rounding policy at approved grain
 load target-date session_policy and split by active slot weights

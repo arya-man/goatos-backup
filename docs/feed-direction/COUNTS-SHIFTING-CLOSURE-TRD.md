@@ -42,7 +42,7 @@ tenant_id
 park_id
 as_of or target_date
 grain: shed + breed
-reviewed_shed_tag_context optional, derived from shed reference data for ration lookup
+reviewed_ration_context_resolution: resolved | blocked
 horizon: realized | one_day_projection
 consumer: feed_direction
 consumer_version / protocol_version_id
@@ -55,7 +55,9 @@ tenant_id
 park_id
 shed_id
 breed_id
-shed_tag_context_id nullable, derived
+ration_context_resolution_state
+resolved_ration_context_ids nullable
+ration_context_blocker_reason nullable
 head_count
 projection_horizon
 source_contract_version
@@ -88,10 +90,12 @@ without full-herd scans. Even then, Feed still consumes this port and snapshot
 shape, and unresolved RFID, identifier, or location confidence fails closed.
 
 Initial closure must use aggregate ledger/projection output at shed + breed
-grain. Shed tag/ration context can be joined from reviewed shed reference data;
-it is not a separate Base Count grain. Per-goat derivation is a future
-replacement only after RFID-to-shed is implemented, confidence-gated,
-scale-tested, and owner-approved.
+grain. Ration context must be resolved from reviewed shed/cohort reference data
+or returned as a blocker; it is not a separate Base Count grain. Feed Transfer KT
+constraint tables may define breed/tag/energy nutrition cohorts without shed
+placement, so they cannot by themselves prove the count-row ration context.
+Per-goat derivation is a future replacement only after RFID-to-shed is
+implemented, confidence-gated, scale-tested, and owner-approved.
 
 ## 4. Horizon Rules
 
@@ -198,9 +202,9 @@ Non-negotiable tests:
 - Count mismatch/unreported shifting creates exception work.
 - Projection snapshot source hash changes after input change.
 - Feed consumes immutable projection snapshot and does not mutate past runs.
-- Initial Feed projection output stays aggregate shed + breed grain, with shed
-  tag/ration context sourced from reviewed shed reference data, and does not
-  depend on RFID-to-shed per-goat derivation.
+- Initial Feed projection output stays aggregate shed + breed grain, with ration
+  context either resolved from reviewed source-backed context or blocked with an
+  explicit reason, and does not depend on RFID-to-shed per-goat derivation.
 - Query-plan checks for widest allowed projection/read paths.
 - Worker observability checks for latency, lag, retry, DLQ, exception, and
   stale-projection metrics.

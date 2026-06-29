@@ -16,8 +16,10 @@ The committed GoatOS repo already has source-row count sync/projection tables
 and per-goat movement history. It does not yet have the physical Base Count
 anchor, realized ShiftingEvent ledger, one-day horizon projection, and
 fail-closed exception model that Feed Direction needs at shed + breed grain.
-Reviewed shed tag/ration context is joined from source-backed shed reference
-data; it is not a separate physical Base Count grain.
+Reviewed ration context is resolved from source-backed shed/cohort reference
+data or reported as a blocker; it is not a separate physical Base Count grain.
+Breed/tag constraint tables without shed placement are ration evidence, not count
+truth.
 
 Initial Counts/Shifting closure is aggregate-only at shed + breed grain.
 RFID-to-shed per-animal association is a future replacement path, not hidden
@@ -67,8 +69,8 @@ GoatOS schedules unless explicitly approved against that docx.
 | CSG6 | Unreported-shifting detection | Count mismatch or unexpected delta creates process-exception work, not silent correction |
 | CSG7 | Alias normalization | Breed and stage aliases such as SIROHI->Beetal and Warmup/Fattening variants are reviewed before projection output |
 | CSG8 | Idempotency and replay | Event ingestion, projection recompute, and source replay cannot double-apply movements |
-| CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, and contract version |
-| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, reviewed shed/ration context where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist |
+| CSG9 | Projection API | Feed can consume bounded projection rows with source hash, anchor id, included-event hash, exception count, contract version, and ration-context resolution state |
+| CSG10 | Scale and observability proof | Hot reads and projection queries are bounded by tenant, park, date, shed, breed, ration-context resolution state where materialized, and cursor where applicable; import, ingest, projection, retry, DLQ, exception, and query-plan metrics exist |
 
 `CSG1`-`CSG10` roll up into Feed gate `G2`. The Feed readiness endpoint must
 show the Counts/Shifting subgate statuses, owners, evidence pointers, and blocker
@@ -95,7 +97,8 @@ Counts/Shifting closure is complete when:
 6. `GET /feed-direction/readiness` can expose `CSG1`-`CSG10` breakdown under
    Feed gate `G2`.
 7. Acceptance evidence proves initial output is aggregate shed + breed grain,
-   with shed tag/ration context sourced from reviewed shed reference data, and
-   does not depend on RFID-to-shed per-goat derivation.
+   with ration context either resolved from reviewed source-backed context or
+   blocked with an explicit reason, and does not depend on RFID-to-shed per-goat
+   derivation.
 8. The next build follows [BUILD-TO-DONE-GOAL.md](./BUILD-TO-DONE-GOAL.md) for
    source cross-check, seeded E2E proof, high-effort review, and push gating.
