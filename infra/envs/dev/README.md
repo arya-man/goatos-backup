@@ -187,7 +187,8 @@ Kernel jobs:       goatos-dev-outbox-relay, goatos-dev-domain-event-consumer,
                    goatos-dev-notification-dispatcher,
                    goatos-dev-inventory-batch-reconciler,
                    goatos-dev-idempotency-key-sweeper,
-                   goatos-dev-sop-review-fanout-retry
+                   goatos-dev-sop-review-fanout-retry,
+                   goatos-dev-partition-maintainer
 Migration job:     goatos-dev-migrate (manual, unscheduled)
 Operator jobs:     goatos-dev-outbox-dlq (manual, unscheduled)
 Alert policies:    goatos-dev Cloud Run errors,
@@ -197,8 +198,10 @@ Alert policies:    goatos-dev Cloud Run errors,
 ```
 
 `inventory-batch-reconciler`, `idempotency-key-sweeper`,
-`domain-event-processed-sweeper`, and `sop-review-fanout-retry` are in the
-current Cloud Run Job/Scheduler map and must be proven in Google E2E.
+`domain-event-processed-sweeper`, `sop-review-fanout-retry`, and
+`partition-maintainer` are in the current Cloud Run Job/Scheduler map and must
+be proven in Google E2E. `partition-maintainer` keeps range-partitioned event
+tables covered for at least 12 months from the run date.
 `goatos-dev-migrate` is a separate unscheduled Cloud Run Job and is the only
 shared dev schema applier. `goatos-dev-outbox-dlq` is a separate unscheduled
 Cloud Run Job for database outbox dead-letter listing and explicit replay.

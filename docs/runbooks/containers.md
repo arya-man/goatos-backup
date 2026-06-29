@@ -31,6 +31,7 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 /app/bin/idempotency-key-sweeper
 /app/bin/inventory-batch-reconciler
 /app/bin/sop-review-fanout-retry
+/app/bin/partition-maintainer
 /app/bin/seed-dev-grant
 /app/bin/seed-dev-email-grants
 /app/bin/seed-vaccination-trigger

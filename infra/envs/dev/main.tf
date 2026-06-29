@@ -68,6 +68,10 @@ locals {
       account_id   = "goatos-sop-review-retry-dev"
       display_name = "Goat OS dev SOP review fanout retry runtime"
     }
+    partition_maintainer = {
+      account_id   = "goatos-partition-maint-dev"
+      display_name = "Goat OS dev partition coverage maintainer runtime"
+    }
     migrate = {
       account_id   = "goatos-migrate-dev"
       display_name = "Goat OS dev migration job runtime"
@@ -101,6 +105,7 @@ locals {
     "inventory_batch_reconciler",
     "idempotency_key_sweeper",
     "sop_review_fanout_retry",
+    "partition_maintainer",
     "migrate",
     "legacy_sync",
   ])
@@ -123,6 +128,7 @@ locals {
         "inventory_batch_reconciler",
         "idempotency_key_sweeper",
         "sop_review_fanout_retry",
+        "partition_maintainer",
         "migrate",
         "legacy_sync",
       ]

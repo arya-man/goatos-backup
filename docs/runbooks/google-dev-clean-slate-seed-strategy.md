@@ -90,13 +90,17 @@ Before enabling the new dev environment, snapshot the old dashboard state:
 7. Enable workers in controlled order after API/admin smoke passes:
    outbox relay, domain consumer, obligation sweeper, calendar projector,
    reminder/escalation sweepers, notification dispatcher in dev-safe mode,
-   inventory batch reconciler, and the domain processed-event retention
-   sweeper.
+   inventory batch reconciler, partition maintainer, and the domain
+   processed-event retention sweeper.
 8. Verify Cloud Monitoring baseline policies before enabling unattended worker
    schedules: Cloud Run errors, outbox relay dead letters, Pub/Sub DLQ backlog,
    and Cloud SQL CPU pressure. Configure approved recipients through private
    Terraform `monitoring_alert_email_addresses` and keep personal addresses out
    of committed files.
+9. Prove `partition-maintainer` once before unattended worker schedules stay on:
+   it must create or confirm monthly partitions for `goat_identity_events`,
+   `audit_log`, and `obligation_status_events` through at least 12 months from
+   the run date.
 
 ## Seed Ledger
 

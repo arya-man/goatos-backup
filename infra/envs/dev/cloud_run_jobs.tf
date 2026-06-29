@@ -190,6 +190,17 @@ locals {
         GOATOS_TENANT_ID = var.dev_tenant_id
       }
     }
+    partition_maintainer = {
+      name                = "goatos-dev-partition-maintainer"
+      service_account_key = "partition_maintainer"
+      command             = ["/app/bin/partition-maintainer"]
+      args                = ["-timeout=60s", "-months-ahead=12"]
+      timeout             = "120s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "11 0 * * *"
+      env                 = {}
+    }
   }
 }
 
