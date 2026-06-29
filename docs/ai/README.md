@@ -114,5 +114,6 @@ make ai-telemetry
 ```
 
 This summarizes local Claude/Codex transcript token usage, graph-tool signals,
-and RTK signals for Goat OS sessions. It is a local measurement aid; do not
-commit transcript data.
+and RTK signals for Mesha workspace sessions, which is where Goat OS agents are
+normally launched. Use `--project goatos` only when analyzing clone-rooted
+sessions. It is a local measurement aid; do not commit transcript data.

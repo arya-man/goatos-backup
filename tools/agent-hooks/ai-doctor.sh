@@ -11,8 +11,8 @@
 #   2. Active docs/skills: forbid the maintainer-local repo-root token — but
 #      ALLOW other external maintainer-local references (e.g. the maintainer-
 #      local mesha_docs_graph / wiki, which live OUTSIDE this repo and cannot be
-#      made repo-relative). Frozen execution handoffs and frontend screenshot
-#      ledgers are intentionally excluded from this portability gate.
+#      made repo-relative). Frozen execution handoffs and specific frontend
+#      screenshot ledgers are intentionally excluded from this portability gate.
 #   3. Generated graph artifacts must stay gitignored and untracked.
 #
 # Plus a resolve-smoke: prove the repo-relative resolution actually finds the
@@ -64,7 +64,7 @@ while IFS= read -r f; do
         grep -n "$REPO_ROOT_TOKEN" "$f" | sed 's/^/      /'
         fail=1
     fi
-done < <(git ls-files '*.md' '*.mdc' | grep -Ev '^(context/execution/|context/frontend/)' || true)
+done < <(git ls-files '*.md' '*.mdc' | grep -Ev '^(context/execution/|context/frontend/herd-register-ui-fidelity-ledger\.md$|context/frontend/supplier-warmup-vaccination-gaps\.md$)' || true)
 
 note "ai-doctor: generated graph artifact gate"
 # Invariant (not an enumerated list): nothing under graphify-out may be tracked

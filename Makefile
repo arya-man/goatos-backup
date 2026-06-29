@@ -48,7 +48,7 @@ update-docs-graph:
 	$(MAKE) ai-rebuild-docs
 
 ai-telemetry:
-	python3 tools/ai/analyze-transcripts.py --project goatos
+	python3 tools/ai/analyze-transcripts.py
 
 guardrails:
 	bash tools/agent-hooks/check-boundaries.sh

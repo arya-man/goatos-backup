@@ -103,7 +103,7 @@ paths. Parks is not a vaccination module.
 The only admin-web UI/UX source of truth is:
 
 ```text
-/Users/ravi/mesha/goatos/mock/goatos-dashboard-mock.html
+mock/goatos-dashboard-mock.html
 ```
 
 Port the mock's layout, screen structure, tables, empty states, icon system,

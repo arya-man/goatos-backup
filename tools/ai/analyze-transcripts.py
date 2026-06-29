@@ -195,7 +195,7 @@ def print_table(rows: list[SessionStats], limit: int) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", default="goatos", help="case-insensitive cwd/path/text filter")
+    parser.add_argument("--project", default="mesha", help="case-insensitive cwd/path filter")
     parser.add_argument("--codex-root", default="~/.codex")
     parser.add_argument("--claude-root", default="~/.claude")
     parser.add_argument("--limit", type=int, default=20)
