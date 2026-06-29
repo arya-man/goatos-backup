@@ -1,12 +1,12 @@
-package postgres
+package outbox
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestDeterministicOutboxUUIDIsRFC4122(t *testing.T) {
-	got := deterministicOutboxUUID("vaccination.completed:tenant:obligation")
+func TestDeterministicUUIDIsRFC4122(t *testing.T) {
+	got := DeterministicUUID("vaccination.completed:tenant:obligation")
 	if len(got) != 36 {
 		t.Fatalf("uuid length = %d, want 36: %q", len(got), got)
 	}
@@ -19,7 +19,7 @@ func TestDeterministicOutboxUUIDIsRFC4122(t *testing.T) {
 	if !strings.ContainsRune("89ab", rune(got[19])) {
 		t.Fatalf("uuid variant nibble = %q, want RFC4122 variant: %q", got[19], got)
 	}
-	if again := deterministicOutboxUUID("vaccination.completed:tenant:obligation"); again != got {
+	if again := DeterministicUUID("vaccination.completed:tenant:obligation"); again != got {
 		t.Fatalf("uuid not deterministic: %q then %q", got, again)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
 
@@ -1834,7 +1835,7 @@ func insertObligationLifecycleOutbox(ctx context.Context, tx pgx.Tx, tenantID, o
 		}
 	}
 	idempotencyKey := eventType + ":" + obligationID + suffix
-	eventID := deterministicOutboxUUID(eventType + ":" + tenantID + ":" + obligationID + suffix)
+	eventID := platformoutbox.DeterministicUUID(eventType + ":" + tenantID + ":" + obligationID + suffix)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	occurred := occurredAt.UTC().Format(time.RFC3339Nano)
 	payload := map[string]any{
@@ -1909,7 +1910,7 @@ ON CONFLICT DO NOTHING`,
 }
 
 func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) error {
-	eventID := deterministicOutboxUUID("vaccination.completed:" + tenantID + ":" + obligationID)
+	eventID := platformoutbox.DeterministicUUID("vaccination.completed:" + tenantID + ":" + obligationID)
 	idempotencyKey := "vaccination.completed:" + obligationID
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	payload := map[string]any{
@@ -1979,7 +1980,7 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.complet
 }
 
 func insertObligationMissedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string, occurredAt time.Time) error {
-	eventID := deterministicOutboxUUID("obligation.missed:" + tenantID + ":" + obligationID)
+	eventID := platformoutbox.DeterministicUUID("obligation.missed:" + tenantID + ":" + obligationID)
 	idempotencyKey := "obligation.missed:" + obligationID
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	occurred := occurredAt.UTC().Format(time.RFC3339Nano)
@@ -2047,13 +2048,6 @@ func insertObligationMissedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obli
 		return fmt.Errorf("obligation: missed outbox: %w", err)
 	}
 	return nil
-}
-
-func deterministicOutboxUUID(seed string) string {
-	sum := md5.Sum([]byte(seed))
-	sum[6] = (sum[6] & 0x0f) | 0x30
-	sum[8] = (sum[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 }
 
 // MarkMissedBefore marks open obligations whose due window has crossed as missed and writes a

@@ -70,8 +70,10 @@ func TestNotificationRepositoryFinalFailureWritesAuditAndOutbox(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 	now := time.Date(2026, 6, 27, 10, 30, 0, 0, time.UTC)
 	eventID := "calendar:86000000-0000-4000-8000-000000010002"
+	requestKey := "notification-repo-exhausted"
+	requestTraceID := "trace-" + requestKey
 	seedCalendarEvent(t, ctx, pool, eventID)
-	requestID := seedNotification(t, ctx, pool, eventID, "notification-repo-exhausted", "queued", 4, nil)
+	requestID := seedNotification(t, ctx, pool, eventID, requestKey, "queued", 4, nil)
 
 	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{
 		TenantID:    testTenantID,
@@ -95,7 +97,8 @@ FROM audit_log
 WHERE tenant_id = $1::uuid
   AND resource_type = 'calendar_notification'
   AND resource_id = $2::uuid
-  AND action = 'notification.exhausted'`, 1, testTenantID, requestID)
+  AND action = 'notification.exhausted'
+  AND trace_id = $3`, 1, testTenantID, requestID, requestTraceID)
 	assertCount(t, ctx, pool, "notification exhausted outbox", `
 SELECT count(*)
 FROM outbox_messages
@@ -103,7 +106,9 @@ WHERE tenant_id = $1::uuid
   AND aggregate_type = 'calendar_notification'
   AND aggregate_id = $2::uuid
   AND event_type = 'notification.exhausted'
-  AND status = 'pending'`, 1, testTenantID, requestID)
+  AND status = 'pending'
+  AND trace_id = $3
+  AND payload ->> 'trace_id' = $3`, 1, testTenantID, requestID, requestTraceID)
 }
 
 func seedCalendarEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string) {
@@ -136,14 +141,14 @@ func seedNotification(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eve
 INSERT INTO notification_requests (
   tenant_id, calendar_event_id, target_type, target_id, notification_type, channel,
   title, body, status, idempotency_key, request_fingerprint, context,
-  delivery_attempts, next_attempt_at
+  delivery_attempts, next_attempt_at, trace_id
 ) VALUES (
   $1::uuid, $2, 'cohort', NULL, 'reminder', 'local-stub',
   'Notification repo test', 'Notification repo body', $3, $4, $5, '{}'::jsonb,
-  $6, $7::timestamptz
+  $6, $7::timestamptz, $8
 )
 RETURNING notification_request_id::text`,
-		testTenantID, eventID, status, key, key+":fingerprint", attempts, nextAttemptAt).Scan(&requestID); err != nil {
+		testTenantID, eventID, status, key, key+":fingerprint", attempts, nextAttemptAt, "trace-"+key).Scan(&requestID); err != nil {
 		t.Fatalf("seed notification: %v", err)
 	}
 	return requestID

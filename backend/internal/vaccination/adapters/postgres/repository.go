@@ -3,7 +3,6 @@ package postgres
 
 import (
 	"context"
-	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	vaccinationdb "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -958,7 +958,7 @@ func (r *Repository) completeCompletedStatusIdempotencyKey(ctx context.Context, 
 }
 
 func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) (bool, error) {
-	eventID := deterministicOutboxUUID("vaccination.completed:" + tenantID + ":" + obligationID)
+	eventID := platformoutbox.DeterministicUUID("vaccination.completed:" + tenantID + ":" + obligationID)
 	idempotencyKey := "vaccination.completed:" + obligationID
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	payload := map[string]any{
@@ -1025,13 +1025,6 @@ func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, 
 		return false, fmt.Errorf("vaccination: completed outbox: %w", err)
 	}
 	return tag.RowsAffected() > 0, nil
-}
-
-func deterministicOutboxUUID(seed string) string {
-	sum := md5.Sum([]byte(seed))
-	sum[6] = (sum[6] & 0x0f) | 0x30
-	sum[8] = (sum[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 }
 
 func optionalString(p *string) string {

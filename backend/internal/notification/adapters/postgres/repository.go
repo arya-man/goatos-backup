@@ -3,10 +3,10 @@ package postgres
 
 import (
 	"context"
-	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
 const (
@@ -259,7 +260,11 @@ type failedNotificationRow struct {
 
 func insertNotificationExhaustedEvidence(ctx context.Context, tx pgx.Tx, tenantID, notificationRequestID, deliveredBy, failureReason string, now time.Time, row failedNotificationRow) error {
 	idempotencyKey := notificationExhaustedEventType + ":" + notificationRequestID
-	eventID := deterministicNotificationOutboxUUID(notificationExhaustedEventType + ":" + tenantID + ":" + notificationRequestID)
+	eventID := platformoutbox.DeterministicUUID(notificationExhaustedEventType + ":" + tenantID + ":" + notificationRequestID)
+	traceID := strings.TrimSpace(row.TraceID)
+	if traceID == "" {
+		traceID = idempotencyKey
+	}
 	recorded := now.UTC().Format(time.RFC3339Nano)
 	payload := map[string]any{
 		"tenant_id":               tenantID,
@@ -307,7 +312,7 @@ func insertNotificationExhaustedEvidence(ctx context.Context, tx pgx.Tx, tenantI
 			"evidence_id":   notificationRequestID + ":exhausted",
 		}},
 		"payload":  payload,
-		"trace_id": idempotencyKey,
+		"trace_id": traceID,
 	})
 	if err != nil {
 		return fmt.Errorf("notification: exhausted envelope: %w", err)
@@ -317,6 +322,7 @@ func insertNotificationExhaustedEvidence(ctx context.Context, tx pgx.Tx, tenantI
 		"schema_version":          notificationExhaustedSchemaVersion,
 		"notification_request_id": notificationRequestID,
 		"idempotency_key":         idempotencyKey,
+		"trace_id":                traceID,
 	})
 	if err != nil {
 		return fmt.Errorf("notification: exhausted headers: %w", err)
@@ -327,11 +333,11 @@ INSERT INTO outbox_messages (
   topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4, 'calendar_notification', $5::uuid,
-  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+  $6, $7::jsonb, $8::jsonb, $9, $10, 'pending', now()
 )
 ON CONFLICT (event_id) DO NOTHING`,
 		tenantID, eventID, notificationExhaustedEventType, notificationExhaustedSchemaVersion,
-		notificationRequestID, notificationExhaustedTopic, envelope, headers, idempotencyKey)
+		notificationRequestID, notificationExhaustedTopic, envelope, headers, idempotencyKey, traceID)
 	if err != nil {
 		return fmt.Errorf("notification: exhausted outbox: %w", err)
 	}
@@ -347,9 +353,18 @@ ON CONFLICT (event_id) DO NOTHING`,
 		"result":                  domain.StatusExhausted,
 		"delivery_attempts":       row.DeliveryAttempts,
 		"delivered_by":            deliveredBy,
+		"trace_id":                traceID,
 	})
 	if err != nil {
 		return fmt.Errorf("notification: exhausted audit metadata: %w", err)
+	}
+	afterState, err := json.Marshal(map[string]any{
+		"status":            domain.StatusExhausted,
+		"failure_reason":    failureReason,
+		"delivery_attempts": row.DeliveryAttempts,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: exhausted audit after_state: %w", err)
 	}
 	_, err = tx.Exec(ctx, `
 INSERT INTO audit_log (
@@ -362,32 +377,13 @@ INSERT INTO audit_log (
 		tenantID,
 		notificationExhaustedEventType,
 		notificationRequestID,
-		mustJSON(map[string]any{
-			"status":            domain.StatusExhausted,
-			"failure_reason":    failureReason,
-			"delivery_attempts": row.DeliveryAttempts,
-		}),
+		afterState,
 		metadata,
-		idempotencyKey,
+		traceID,
 		now,
 	)
 	if err != nil {
 		return fmt.Errorf("notification: exhausted audit: %w", err)
 	}
 	return nil
-}
-
-func deterministicNotificationOutboxUUID(seed string) string {
-	sum := md5.Sum([]byte(seed))
-	sum[6] = (sum[6] & 0x0f) | 0x30
-	sum[8] = (sum[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
-}
-
-func mustJSON(value any) []byte {
-	out, err := json.Marshal(value)
-	if err != nil {
-		panic(err)
-	}
-	return out
 }

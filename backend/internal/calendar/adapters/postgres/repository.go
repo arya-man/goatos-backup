@@ -937,6 +937,9 @@ func (r *Repository) selectEscalationEvents(ctx context.Context, in ports.SweepE
 	level3Cutoff := in.Now.Add(-in.Level3After)
 	level4Cutoff := in.Now.Add(-in.Level4After)
 	obligationID := strings.TrimSpace(in.ObligationID)
+	if obligationID != "" {
+		return r.selectEscalationEventForObligation(ctx, in, obligationID, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff)
+	}
 	rows, err := r.pool.Query(ctx, `
 WITH candidates AS (
   SELECT
@@ -952,14 +955,10 @@ WITH candidates AS (
   FROM calendar_event_projections
   WHERE tenant_id = $1::uuid
     AND slice_key = 'vaccination'
-    AND system = false
+	    AND system = false
 	    AND due_at IS NOT NULL
 	    AND due_at <= $2::timestamptz
 	    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-	    AND (
-	      nullif($8::text, '') IS NULL
-	      OR (source_target_type = 'obligation' AND source_target_id = nullif($8::text, '')::uuid)
-	    )
 	)
 SELECT event_id, level
 FROM candidates c
@@ -971,7 +970,7 @@ WHERE level > 0
       AND nr.idempotency_key = $1 || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
   )
 ORDER BY due_at ASC, event_id ASC
-LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, in.Limit, obligationID)
+LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, in.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: select escalation sweep: %w", err)
 	}
@@ -988,6 +987,47 @@ LIMIT $7`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4
 		return nil, err
 	}
 	return events, nil
+}
+
+func (r *Repository) selectEscalationEventForObligation(ctx context.Context, in ports.SweepEscalations, obligationID string, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff time.Time) ([]escalationEvent, error) {
+	eventID := "obligation:" + obligationID
+	var event escalationEvent
+	err := r.pool.QueryRow(ctx, `
+WITH candidate AS (
+  SELECT
+    event_id,
+    CASE
+      WHEN due_at <= $6::timestamptz THEN 4
+      WHEN due_at <= $5::timestamptz THEN 3
+      WHEN due_at <= $4::timestamptz THEN 2
+      WHEN due_at <= $3::timestamptz THEN 1
+      ELSE 0
+    END AS level
+  FROM calendar_event_projections
+  WHERE tenant_id = $1::uuid
+    AND event_id = $7
+    AND slice_key = 'vaccination'
+    AND system = false
+    AND due_at IS NOT NULL
+    AND due_at <= $2::timestamptz
+    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
+)
+SELECT event_id, level
+FROM candidate c
+WHERE level > 0
+  AND NOT EXISTS (
+    SELECT 1
+    FROM notification_requests nr
+    WHERE nr.tenant_id = $1::uuid
+      AND nr.idempotency_key = $1 || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
+  )`, in.TenantID, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, eventID).Scan(&event.EventID, &event.Level)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []escalationEvent{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("calendar: select obligation escalation sweep: %w", err)
+	}
+	return []escalationEvent{event}, nil
 }
 
 type escalationTarget struct {
